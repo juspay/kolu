@@ -1,6 +1,6 @@
 ---
 title: Kaval PTY-host heap OOM
-description: A recurring production crash — the kaval PTY host leaks until it hits V8's ~4 GB heap ceiling, self-aborts (SIGABRT), and takes the kolu server down with it via fail-fast. RCA + the diagnostics gap (localDriver scrubs the snapshot flag) + the proposed fix.
+description: A recurring production crash — the kaval PTY host's heap grows with the live-terminal count (each PTY pins a 50 K-line scrollback mirror), hits V8's ~4 GB ceiling, self-aborts (SIGABRT), and takes the kolu server down via fail-fast. Reproduced in-process; RCA + the diagnostics gap + the proposed fix.
 kind: analysis
 status: proposed
 maturity: budding
@@ -61,13 +61,24 @@ The server's exit is **not** a second bug. When kaval dies the pty-host stdio so
 
 This was **not** a kernel OOM-kill (signal is 6/ABRT, a userspace self-abort — not 9/SIGKILL; `journalctl -k` had zero OOM lines; the unit's `MemoryMax=infinity`), **not** a deploy (`status=1/FAILURE` + scheduled restart is a crash, not a clean stop/start), and **not** disk-full (`/` at 78 %, 190 GB free). The kolu exit is causally tied to the kaval death — the `ECONNRESET`/`ECANCELED` both originate on the pty-host link and fire in the same ~30 ms the kaval socket closes.
 
-## Root cause: an unbounded heap in kaval
+## Root cause: live terminals accumulate, each pinning a 50 K-line mirror
 
-The crash mechanism is certain; the *leak's location* is not yet pinned.
+**Reproduced and confirmed** by driving `createPtyHost` in isolation on a clean box (`naiveintent`). kaval keeps, *per live PTY*, an `@xterm/headless` screen mirror sized at `DEFAULT_SCROLLBACK = 50_000` lines (<Cite file="packages/common/src/config.ts" label="config.ts" />, passed at <Cite file="packages/server/src/ptyHost/index.ts" label="ptyHost/index.ts" />). The heap is **linear in live-terminal count** and **flat under everything else**:
 
-- **Evidence (high confidence).** The signature recurs. The same Node-24.13.0 kaval binary SIGABRT'd on **2026-05-27, 06-13 (825 MB), 06-15 (632 MB), 06-16 (809 MB), 06-19 (732 MB)** — roughly every 2–6 days (`coredumpctl list`). The GC banner shows a *slow* approach to V8's ~4 GB 64-bit default old-space ceiling (reduce-mode mark-compacts reclaiming ~25 MB), not a sudden spike. This is a leak in the long-lived prod kaval, not a one-off. **No `--max-old-space-size` is set** — kaval runs on V8's bare default.
-- **Inference (unproven).** *Which* allocation accumulates is **not identified**. Candidates: per-terminal xterm-headless scrollback (10 K lines/terminal), serialized terminal snapshots, or channel/subscriber state. The investigation only *ruled out* the **bounded** structures (exit-code tombstones ≤ 1024, per-subscriber `Channel` queues ≤ 10 K, exit-waiters reset on exit) — none of those is the leak.
-- **A correction worth recording.** An earlier hypothesis blamed a ~60-RPC `terminal.attach` burst 15 s before the crash. That burst is a single browser WebSocket disconnect (code 1001) aborting in-flight RPCs — a *symptom* timing-adjacent to the crash, not the cause.
+| Driver | Heap behaviour |
+| --- | --- |
+| 1 terminal, unbounded `yes` output, 90 s | oscillates 14–64 MB — **bounded** (scrollback caps it) |
+| attach + abort a subscription, tight loop | flat — **bounded** (abort cleanup works) |
+| spawn + write + kill, 8 000× | flat — **bounded** (`teardown` is complete) |
+| **spawn terminals, never kill** | **linear** — ~10 MB/terminal at 10 K scrollback; **~62 MB/terminal at the production 50 K** |
+
+Under a 1 GB heap cap at the production 50 K scrollback, the host dies with the **exact production signature** — `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` — at **~54 fully-scrolled terminals** (heap climbing linearly 358 → 970 MB; ~18 MB V8 heap + ~44 MB ArrayBuffer-backed cells each). A one-terminal heap snapshot is ~10 000 each of `ArrayBuffer` / `Uint32Array` / xterm `BufferLine` — the scrollback grid, nothing else.
+
+So the **operative answer**: heap is proportional to **live terminal count** (× each terminal's scrollback fill). A single busy terminal, or terminal/subscription churn, is bounded — *activity* alone doesn't grow it. The ~4 GB ceiling is reached at a couple hundred fully-scrolled terminals (fewer in practice, summed across partially-filled ones).
+
+Why the count grows without bound: `reconcile` **never reaps** — a surviving kaval's live PTYs are all *adopted* across every server restart (the "terminals survive a kolu update" guarantee), and a terminal is freed only when its child process exits or the user explicitly kills it (<Cite file="packages/server/src/reconcile.ts" label="reconcile.ts" />). Long-lived shells and agents — across many worktrees, over days, ratcheted up by each crash-restart — accumulate, each pinning a 50 K-line mirror. **Not a teardown bug** (teardown is clean): an unbounded, never-reaped population × a large per-terminal retainer.
+
+*Recurrence is real — same signature on 2026-05-27, 06-13 (825 MB), 06-15 (632 MB), 06-16 (809 MB), 06-19 (732 MB), ~every 2–6 days (`coredumpctl list`). Red herrings now ruled out: a ~60-RPC `attach` burst 15 s pre-crash (a single WebSocket disconnect aborting in-flight RPCs); the bounded structures (exit tombstones ≤ 1024, per-subscriber queues ≤ 10 K, exit-waiters) — none leak.*
 
 ### Does this hurt kaval's performance? — yes, before it ever crashes
 
@@ -83,41 +94,49 @@ kolu already has heap diagnostics: set `KOLU_DIAG_DIR` and the server writes a b
 `scrubNodeOptions()` removes `--heapsnapshot*`, `--inspect`, `--heap-prof`, `--cpu-prof` from `NODE_OPTIONS` **before** spawning kaval, *"so a kolu launched with diagnostics doesn't make kaval write heap snapshots too."* <Cite file="packages/server/src/ptyHost/localDriver.ts" label="localDriver.ts:98-130" /> That was the right call when the server was the suspected leaker — but it means the prod kaval has **no heap limit and no pre-OOM snapshot**. Every crash so far has thrown away the one artifact that would name the leak.
 </Callout>
 
-So the highest-value move isn't a speculative fix — it's making the *next* crash informative by instrumenting kaval itself. (Per the user: **agreed — find the leak first.**)
+The leak is now named without it (the in-process repro on a clean box did the job), but the gap still matters: with kaval instrumented, prod would have shown the `terms`-count curve climbing for days, and a near-limit snapshot would confirm the same scrollback grid in the *real* workload — so the fixes below still close it.
 
 ## The fix
 
-Ordered, and shaped by the design philosophy: a heap **limit** is a *loud, baked-in tripwire*, not graceful degradation; nothing here silences the crash.
+Two levers, because survivability forbids reaping live shells: cut the **per-terminal retained cost**, and bound the heap with a **loud tripwire**. Shaped by the design philosophy — nothing here silences the crash; limits are baked in, not knobs.
 
-### <Pill variant="ok">1</Pill> Instrument kaval, so the next OOM names the leak
+### <Pill variant="ok">1</Pill> Cut the per-terminal mirror cost — the high-leverage fix
 
-Thread a diagnostics path **through to kaval** and let it arm the same V8 hooks the server uses: a kaval-side `KOLU_DIAG_DIR` (its own subdir), `--heapsnapshot-near-heap-limit=3`, and `--heapsnapshot-signal=SIGUSR2` for on-demand mid-run snapshots. Concretely this means **not** scrubbing those flags for kaval when diagnostics is on — or better, passing kaval an explicit diag dir + execArgv via `localKavalDriver` rather than relying on inherited `NODE_OPTIONS` at all. This is instrumentation, not a fallback: it makes the crash *more* observable. The resulting `.heapsnapshot` (loaded in memlab / Chrome DevTools, diffed against the baseline) should reveal the retained graph — most likely per-terminal xterm-headless / serialize state.
+The 50 K-line headless mirror *is* the per-terminal retainer (~62 MB full); shrinking it raises the OOM ceiling proportionally (a 5× cut ≈ 54 → ≈ 270+ fully-scrolled terminals). Today `DEFAULT_SCROLLBACK = 50_000` is *one constant* serving **both** the client's visible scrollback **and** the server-side mirror — they're conflated (<Cite file="packages/common/src/config.ts" label="config.ts" />). But the mirror only needs enough to seed a *cold-attaching* client's restore; the live client keeps its own scrollback. **Decouple them** and give the mirror a smaller bound (e.g. 5–10 K), or lower the shared default. The tradeoff is a product call that's yours to make: how many scrollback lines must survive a cold reconnect (a fresh browser with no local buffer)? That number is the mirror size.
 
 ### <Pill variant="ok">2</Pill> A deliberate kaval heap limit — a tripwire, not a cap
 
-Give kaval an explicit `--max-old-space-size` (e.g. ~2 GB) chosen to crash **earlier and predictably** — *after* the near-limit snapshot from (1) fires. This converts the opaque ~4 GB wall into an instrumented, bounded one, and shrinks the blast-radius window. **Bake it into kaval's Nix wrapper**, not an env override knob ("being able to override is never a feature"). This does not *fix* the leak — it makes the leak's crash cheap and legible until (1) finds it.
+Give kaval an explicit `--max-old-space-size` chosen to crash **earlier and predictably**. This converts the opaque ~4 GB wall into a bounded, legible one and shrinks the blast-radius window — defence-in-depth behind (1), so an unforeseen accumulator still fails loud and fast rather than after days. **Bake it into kaval's Nix wrapper**, not an env override knob ("being able to override is never a feature").
 
-### <Pill variant="ok">3</Pill> The home-manager surface — yes, we need wiring there too
+### <Pill variant="ok">3</Pill> Instrument kaval — confirm in prod, catch regressions
 
-Per the user: deployment is via the `services.kolu` home-manager module, so the toggle has to live there. The honest split:
+Thread a diagnostics path **through to kaval** (a kaval-side `KOLU_DIAG_DIR`, `--heapsnapshot-near-heap-limit`, `--heapsnapshot-signal=SIGUSR2`) so prod shows the `terms`-count/heap curve and dumps a near-limit snapshot. The repro already named the leak; this confirms it in the *real* workload and guards against a future regression. Concretely: stop scrubbing those flags for kaval (or, cleaner, pass kaval explicit `execArgv` + diag dir via `localKavalDriver` instead of inherited `NODE_OPTIONS`).
 
-- **The heap *limit* (2) is not a user option.** It's a baked-in tripwire in kaval's derivation — no `mkOption`, consistent with how the module bakes required values rather than exposing knobs.
-- **The diag *dir* (1) reuses the existing option.** `services.kolu.diagnostics.dir` already exists; the work is making that value *reach kaval* (a kaval subdir under it), not adding a new option. Today the module sets `KOLU_DIAG_DIR` on the server and `localDriver` strips the snapshot flag back out before kaval — so the fix is end-to-end: module → server env → `localKavalDriver` forwards a kaval diag dir + execArgv → kaval arms the V8 hooks. The visible module change is small (the plumbing is in `localDriver.ts`); a new `mkOption` is only warranted if we want kaval diagnostics togglable *independently* of the server's — likely unnecessary.
+### <Pill variant="ok">4</Pill> The home-manager surface — yes, wiring needed there too
+
+Deployment is via the `services.kolu` home-manager module, so the knobs land there. The honest split:
+
+- **The heap *limit* (2) is not a user option** — a baked-in tripwire in kaval's derivation, no `mkOption`, consistent with how the module bakes required values.
+- **The diag *dir* (3) reuses the existing option.** `services.kolu.diagnostics.dir` already exists; the work is making that value *reach kaval* — end-to-end: module → server env → `localKavalDriver` forwards a kaval diag dir + execArgv → kaval arms the V8 hooks. The visible module change is small (the plumbing is in `localDriver.ts`); a new `mkOption` is only warranted to toggle kaval diagnostics *independently* of the server's — likely unnecessary.
 
 <Callout kind="note" title="Why this isn't just 'flip the existing option'">
-`services.kolu.diagnostics.dir` looks like it should already cover kaval — it doesn't, because of the deliberate `scrubNodeOptions` severing. The option exists; the data path to kaval is cut. That cut is the actual work item, and it's invisible from the module alone — which is exactly why this note exists.
+`services.kolu.diagnostics.dir` looks like it should already cover kaval — it doesn't, because of the deliberate `scrubNodeOptions` severing. The option exists; the data path to kaval is cut. That cut is the actual work item, and it's invisible from the module alone.
 </Callout>
 
-### <Pill variant="ok">4</Pill> Regression guard, once the leak is fixed
+### <Pill variant="ok">5</Pill> Regression guard
 
-Per the user: **agreed.** Add a long-running kaval soak test that asserts **bounded heap growth** over N cycles of terminal open/close + heavy output, so the leak can't silently return. This is the durable backstop after (1) identifies and the real fix removes the retained allocation.
+Add a long-running kaval soak test asserting **heap stays proportional and bounded** — open N terminals, fill scrollback, and assert per-terminal heap matches the chosen mirror size (so a future scrollback-size or accumulation regression trips the test, not prod).
+
+<Callout kind="note" title="A separate product decision: should idle terminals ever be reaped?">
+The accumulation is *live shells that never exit and are never killed*, kept alive by the survivability guarantee. Reaping (e.g. terminals with no client, idle beyond a long threshold) would bound the count directly — but it trades against "terminals survive a kolu update," so it's a deliberate policy choice, not a code-cleanup. Out of scope for the fix above; flagged for a decision.
+</Callout>
 
 ## Current state & open questions
 
-**Prod is healthy** — `kolu.service` active since 14:26:09, `NRestarts=1`, a fresh kaval on `/run/user/1000/kaval-7692/pty-host.sock`, no crashes since. But recurrence risk is **HIGH**: with no heap bound and the leak unfixed, expect another crash within days. Open:
+**Prod is healthy** — `kolu.service` active since 14:26:09, `NRestarts=1`, a fresh kaval on `/run/user/1000/kaval-7692/pty-host.sock`, no crashes since. But recurrence risk is **HIGH**: with no heap bound and the per-terminal cost unchanged, expect another crash within days. The retained allocation is now **identified** (the 50 K-line per-terminal scrollback mirror × an unbounded live-terminal population). What remains open:
 
-- **The retained allocation itself** — unknown until (1) captures a near-limit snapshot.
-- **Node 24 vs 22** — kaval is on 24.13.0, the server on 22.22.1. Almost certainly *workload* (kaval owns the heavy terminal state), not a V8-version regression — but not yet disambiguated.
-- **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behavior regardless.
+- **The mirror-size decision** (fix 1) — how many scrollback lines must survive a cold reconnect. A product call.
+- **Whether to reap idle terminals at all** — the survivability-vs-bounded-count tradeoff above.
+- **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behaviour regardless.
 
-*Proposed fix tracked in <PrLink pr={1421} />. Advance `status` as (1)–(4) land; the leak's identity will turn the inference above into evidence.*
+*Proposed fix tracked in <PrLink pr={1421} />. Root cause reproduced in-process on `naiveintent` (heap linear in live-terminal count; production crash signature at the 50 K mirror); advance `status` as fixes (1)–(5) land.*
