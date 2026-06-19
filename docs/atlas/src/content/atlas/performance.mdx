@@ -31,9 +31,10 @@ worker-pool diff highlighter, lazy/capped WebGL, and the `storesByKey` cleanup.
 What remains is mostly **real-but-bounded structural inefficiency, not acute
 regressions** — so the discipline this map enforces is: *measure before you
 tune*. Two clusters carry the most leverage — (1) **reactivity granularity** in
-the terminal-metadata pipeline (an unstable array reference re-runs the whole
-display derivation on any single change) and the **wire layer's full-set
-broadcasts**; and (2) **mobile battery hygiene** (timers that wake the device
+the terminal-metadata pipeline (an unstable array reference made `terminalIds()`
+notify downstream on every metadata write, even ones that left the id set
+unchanged) and the **wire layer's full-set broadcasts**; and (2) **mobile battery
+hygiene** (timers that wake the device
 regardless of visibility). Nearly every item below ends in *"…but confirm with a
 trace first."*
 </Callout>
@@ -124,7 +125,7 @@ reactivity cluster.
 
 | # | Opportunity | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|
-| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn *that leaves the top-level set untouched*. Clears the rest of the reactivity cluster. |
+| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id order is unchanged, so `terminalIds()` stops *notifying* downstream on non-display metadata writes (`displayInfos` still re-runs correctly for `git`/`cwd`/`parentId` changes via its own field-level subscription). Clears the rest of the reactivity cluster. |
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
@@ -152,7 +153,7 @@ their themes as *"remaining within …"*.
 - **Compositor paint storms** — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
 - **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
-- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs when a metadata change leaves that set intact; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly.)
+- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
