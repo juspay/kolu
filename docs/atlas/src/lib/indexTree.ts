@@ -44,7 +44,10 @@ export interface CategoryGroup {
   count: number;
 }
 
-const toParents = (p: string | string[] | undefined): string[] =>
+/** Normalize the `parents` frontmatter (one slug, a list, or absent) to a list.
+ *  Shared with the backlink graph (lib/atlasGraph) so both views read `parents`
+ *  the same way. */
+export const toParents = (p: string | string[] | undefined): string[] =>
   p === undefined ? [] : Array.isArray(p) ? p : [p];
 
 // Pin the collation locale so the build is idempotent across machines — a bare
