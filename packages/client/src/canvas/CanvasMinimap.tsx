@@ -98,12 +98,11 @@ const CanvasMinimap: Component<{
    *  for single-tile workspaces (a single-tile arrange is a visual no-op,
    *  same gate as the palette entry).
    *
-   *  Why a prop and not `useCanvasArrange()` directly: this minimap
-   *  consumes `useCanvasViewport()` and `useTerminalStore()` as
-   *  zero-arg singletons, but `useCanvasArrange` takes composition-
-   *  root deps (`{ store, crud }`) bound once at
-   *  App.tsx. The prop carries the bound result; the minimap stays
-   *  ignorant of the arrange policy itself. */
+   *  Why a prop and not `useCanvasArrange()` directly: arrange is a
+   *  command wired once in App.tsx (it shares the palette/centering
+   *  policy), so the canvas hands the minimap the already-bound
+   *  `handleCanvasAutoArrange`. The prop keeps the minimap ignorant of
+   *  the arrange policy itself. */
   onAutoArrange?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
