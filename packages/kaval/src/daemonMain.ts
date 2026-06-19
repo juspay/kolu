@@ -12,8 +12,8 @@
  */
 
 import { dirname, join } from "node:path";
+import { startHeapDiagnostics } from "@kolu/heap-diag";
 import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
-import { startKavalDiagnostics } from "./diagnostics.ts";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { getPtyHostSocketPath, KAVAL_NS_PREFIX } from "./socketPath.ts";
 
@@ -49,8 +49,13 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   });
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
-  // heap/terms curve so the leak is visible in prod. See kaval-heap-oom.mdx.
-  startKavalDiagnostics({ log, terminalCount });
+  // heap curve with the live-terminal count (the leak's independent variable)
+  // so the leak is visible in prod. See kaval-heap-oom.mdx.
+  startHeapDiagnostics({
+    log,
+    snapshotPrefix: "kaval-baseline",
+    extraColumns: () => ({ terminals: terminalCount() }),
+  });
 
   return daemonMain({
     gatePath,

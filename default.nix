@@ -86,6 +86,7 @@ let
       ./packages/transcript-html
       ./packages/artifact-sdk
       ./packages/serve-dir
+      ./packages/heap-diag
       ./packages/html-escape
       ./packages/shell-quote
       ./packages/url-shape

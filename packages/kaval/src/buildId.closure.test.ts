@@ -76,6 +76,12 @@ const ALLOWED_EXTERNAL = [
   "@xterm/",
   "@orpc/",
   "@kolu/surface",
+  // @kolu/heap-diag is the shared opt-in heap-instrumentation receptacle (the
+  // interim kaval-OOM instrument), carrying ONLY stable sampling/snapshot
+  // machinery — no wire/behaviour — so it is a stable leaf, not a hashed root: a
+  // change to it does not change what a restart *serves*. Listed here so its
+  // edge from `daemonMain.ts` does not register as an unknown external.
+  "@kolu/heap-diag",
 ];
 
 const isAllowed = (spec: string): boolean =>
