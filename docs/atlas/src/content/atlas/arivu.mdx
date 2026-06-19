@@ -95,6 +95,84 @@ Each slice ships and is provable on its own; the long pole is **P1 → P2 → P3
 | **P3** | <Pill variant="ok">feature</Pill> | Nix-provision `arivu` over ssh; kolu-server **serves + mirrors + folds** for **remote** terminals; the host hooks-impl reifies closures → tagged frames; a `meta.version` handshake gates incompatible hosts into re-provision | the genuinely-new artifacts in isolation — reification, the fence across the wire, version-skew — with local awareness (P2) safe from regression |
 | **P4** | <Pill>refactor</Pill> | *(optional)* graduate `mirrorRemoteSurface` as the spec-driven dual of `implementSurface`; the awareness mirror and `remote-process-monitor` both consume it | per-surface hand-mirroring for every future served surface — pure decomplecting, strictly additive, off the critical path |
 
+## P1 in detail — ship `arivu` standalone
+
+P1 is the whole daemon, end to end, with **no kolu-server in the picture** — it stands or falls on its own, exactly the way `kaval` did. Two binaries fall out of one contract.
+
+### What you get — user-facing
+
+Two commands, mirroring `kaval` / `kaval-tui`:
+
+- **`arivu`** — the daemon. Point it at a kaval socket and it serves live awareness for every terminal that kaval owns:
+  ```
+  arivu --kaval /run/kaval.sock           # serve on a local socket
+  arivu --kaval /run/kaval.sock --stdio   # serve over stdio (what an ssh dial speaks to)
+  ```
+- **`arivu-tui`** — the viewer. Dial a local `arivu`, or one across ssh:
+  ```
+  arivu-tui list                # the dashboard — every terminal, one row each
+  arivu-tui list --host prod    # … the same, on a remote box, over ssh
+  arivu-tui watch a3f1          # follow one terminal live
+  ```
+
+The experience is the `arivu-tui` mockup above: per terminal — repo + branch, dirty or clean, the open PR and its checks, which AI agent and whether it's *working* or *waiting on you*, the foreground process — updating live. **Zero kolu-server, zero browser**; the runtime is just `node · git · gh`. It's a "what is every agent doing, across every repo" pane you can `ssh` into — useful the day it ships, before kolu depends on a line of it.
+
+### How it's built — architecture + types
+
+**One contract**, defined once in a tiny package both binaries import. The value type is *derived*, never authored:
+
+```ts
+// @kolu/arivu-contract — the single source of truth for all consumers
+import { TerminalIdSchema, TerminalServerMetadataSchema } from "kolu-common/surface";
+import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+
+// the provider-authored slice = server metadata minus the one field no provider owns
+export const AwarenessValueSchema = TerminalServerMetadataSchema.omit({ location: true });
+// ≡ { cwd, git, lastAgentCommand?, lastActivityAt, pr, agent, foreground }
+
+export const arivuSurface = defineSurface({
+  cells: { meta: { schema: MetaSchema, default: DEFAULT_META } }, // contract version — the P3 handshake
+  collections: {
+    awareness: { keySchema: TerminalIdSchema, schema: AwarenessValueSchema },
+  },
+});
+export type AwarenessValue =
+  SurfaceTypes<typeof arivuSurface.spec>["collections"]["awareness"]["Value"];
+```
+
+**The daemon** dials kaval as a plain `PtyHostClient` — kaval is untouched, `arivu` is just another client of it, like `kaval-tui` — and for each terminal in kaval's `terminal.list` runs the *existing, unchanged* providers:
+
+```ts
+import {
+  startProviders,
+  type ProviderRecord, type ProviderChannels, type ProviderHooks,
+} from "@kolu/terminal-providers"; // the provider set, lifted out of kolu-server verbatim
+
+function watchTerminal(id: TerminalId, kaval: PtyHostClient, ctx: ArivuCtx): () => void {
+  const record: ProviderRecord = { pid, meta: seedAwareness(cwd), currentAgent: null };
+  const channels: ProviderChannels = bridgeKavalTaps(kaval, id); // cwd·title·commandRun·foreground (git made internally)
+  const publish = (m: TerminalServerMetadata) =>
+    ctx.collections.awareness.upsert(id, AwarenessValueSchema.parse(m)); // drops location by construction
+  const hooks: ProviderHooks = {
+    // THE one seam that differs from kolu-server: instead of mutating kolu's entry.meta,
+    // mutate this record's meta, then publish the (location-less) slice into the served collection.
+    updateServerMetadata:     (r, mutate) => { mutate(r.meta); publish(r.meta); },
+    updateServerLiveMetadata: (r, mutate) => { mutate(r.meta); publish(r.meta); },
+    readScreenText: (n) => kaval.surface.terminal.getScreenText({ id, tailLines: n }),
+  };
+  return startProviders(record, id, channels, hooks);
+}
+```
+
+It then **serves** that surface — `serveOverStdio({ router, transport })` for the `--stdio`/ssh case, a local socket otherwise. **`arivu-tui`** is a thin surface *client*: it dials the daemon, reads `awareness` (snapshot-then-delta, per the framework), and renders rows.
+
+Two things to notice, because they are exactly what P1 *proves*:
+
+- **The reuse seam is the provider set, not the hooks signature.** `startProviders` / `ProviderRecord` / `ProviderChannels` / `ProviderHooks` move out of kolu-server **verbatim** (the only coupling to sever is the logger, injected as a param); only the `ProviderHooks` *implementation* changes — publish-into-a-collection instead of mutate-kolu's-entry. That hooks-impl is precisely what P3 reuses on the far side of the ssh link.
+- **No fold here.** In P1 the daemon owns the *whole* `AwarenessValue` — there is no co-owned `terminalMetadata`, no client fields, no `location`. The fold (merge + persisted/live split) is *kolu-side* and first appears in P2. P1 is the clean, fold-free proof that the providers run correctly as a separate, kaval-dialing process — the single biggest unknown, retired in isolation.
+
+**Deps & shape:** `@kolu/terminal-providers` already imports nothing from kolu-server; the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
+
 ## Load-bearing complexity & open decisions
 
 The cleanest design still carries four irreducible costs — **all remote-only**, none dissolvable, and that confinement is the point:
