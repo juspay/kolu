@@ -4,10 +4,10 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { shellJoin, shellQuoteArg, shellSplit } from "./index.ts";
 
-/** The single source of truth for the POSIX shells this package's replay
- *  guarantee assumes — the same four the README's "Target shell" contract
- *  enumerates. `findPosixShell` iterates this so the prober and the documented
- *  set cannot drift. */
+/** The POSIX shells this package's replay guarantee assumes — the same four the
+ *  README's "Target shell" note enumerates. Declared once so `findPosixShell`'s
+ *  probe order has a single home in code; keep it in step with the README prose,
+ *  which can't import it. */
 const POSIX_SHELLS = ["sh", "bash", "zsh", "dash"] as const;
 
 /** The shared round-trip truth table: argv shapes a consumer joins and must get
