@@ -59,6 +59,18 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
     expect(WEBGL_CONTEXT_CAP).toBeGreaterThanOrEqual(6);
     expect(admitWebglTiles(ids(6), one, WEBGL_CONTEXT_CAP)).toEqual(ids(6));
   });
+
+  it("throws when costOf returns 0 — guards against infinite loop", () => {
+    expect(() => admitWebglTiles(ids(1), () => 0, 12)).toThrow(
+      /admitWebglTiles: costOf returned 0/,
+    );
+  });
+
+  it("throws when costOf returns a negative number — guards against infinite loop", () => {
+    expect(() => admitWebglTiles(ids(1), () => -1, 12)).toThrow(
+      /admitWebglTiles: costOf returned -1/,
+    );
+  });
 });
 
 const SUB = "sub" as TerminalId;

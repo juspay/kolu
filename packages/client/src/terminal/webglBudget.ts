@@ -59,7 +59,11 @@ export function tileWebglCost(panel: PanelWebglShape): number {
  *  one would push the running `costOf` total past `cap` (cost per tile comes from
  *  `tileWebglCost`). Pure (no SolidJS / DOM) so the #1399 cap policy — admit the
  *  whole working set, but never overflow Chrome's per-tab limit — is
- *  unit-testable in isolation. */
+ *  unit-testable in isolation.
+ *
+ *  **Precondition:** `costOf(id)` must return a positive integer for every id.
+ *  A zero or negative cost would cause the loop to never advance past the cap
+ *  check. */
 export function admitWebglTiles(
   ordered: readonly TerminalId[],
   costOf: (id: TerminalId) => number,
@@ -69,6 +73,7 @@ export function admitWebglTiles(
   let contexts = 0;
   for (const id of ordered) {
     const cost = costOf(id);
+    if (cost <= 0) throw new Error(`admitWebglTiles: costOf returned ${cost} for tile ${id}; cost must be > 0`);
     if (contexts + cost > cap) break;
     held.push(id);
     contexts += cost;
