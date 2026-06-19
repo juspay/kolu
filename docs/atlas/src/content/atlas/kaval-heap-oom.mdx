@@ -2,7 +2,7 @@
 title: Kaval PTY-host heap OOM
 description: A recurring production crash — kaval's per-PTY 50 K-line scrollback mirror × an unbounded, never-reaped live-terminal population grows the V8 heap to its ~4 GB ceiling; it self-aborts (SIGABRT) and takes the kolu server down via fail-fast. Reproduced in-process. RCA + prior art (tmux/zellij/ghostty/kitty/mosh) + plan of record — a small hot mirror over an on-disk transcript log (#417).
 kind: analysis
-status: proposed
+status: implemented
 maturity: budding
 parents: [pty-daemon]
 updated: 2026-06-19
@@ -106,7 +106,7 @@ kolu already has heap diagnostics: set `KOLU_DIAG_DIR` and the server writes a b
 `scrubNodeOptions()` removes `--heapsnapshot*`, `--inspect`, `--heap-prof`, `--cpu-prof` from `NODE_OPTIONS` **before** spawning kaval, *"so a kolu launched with diagnostics doesn't make kaval write heap snapshots too."* <Cite file="packages/server/src/ptyHost/localDriver.ts" label="localDriver.ts:102-115" /> That was the right call when the server was the suspected leaker — but it means the prod kaval has **no heap limit and no pre-OOM snapshot**. Every crash so far has thrown away the one artifact that would name the leak.
 </Callout>
 
-The leak is now named without it (the in-process repro on a clean box did the job), but the gap still matters: with kaval instrumented, prod would have shown the `terms`-count curve climbing for days, and a near-limit snapshot would confirm the same scrollback grid in the *real* workload — so the fixes below still close it.
+The leak was named without it (the in-process repro on a clean box did the job), but the gap mattered: with kaval instrumented, prod would have shown the `terms`-count curve climbing for days, and a near-limit snapshot would confirm the same scrollback grid in the *real* workload. **Now closed in <PrLink pr={1427} />** — `localDriver` forwards `KOLU_DIAG_DIR` and kaval's wrapper arms its own near-limit snapshot under a kaval-private subdir, so the next approach to the (now bounded) ceiling dumps a snapshot instead of a silent abort.
 
 ## How other terminals & multiplexers bound this
 
@@ -133,6 +133,10 @@ Three lessons that reshape the fix:
 3. **Cap by *bytes*, not lines** — a wide blank line still costs, and agent streaming is the real-world OOM driver elsewhere too (tmux #4859 ≈ 48 GB, ghostty 37 GB), not deep interactive history.
 
 ## The fix — a small hot mirror over an on-disk transcript log
+
+<Callout kind="good" title="Shipped in #1427">
+Fix **(1)** — the small hot mirror — landed: **10 K** lines chosen (decoupled from the client's 50 K), measured **~4×** the OOM ceiling. With it, the **interim safety net**: a baked-in `--max-old-space-size` tripwire in kaval's Nix wrapper, and kaval-side diagnostics (the `services.kolu.diagnostics.dir` value now reaches kaval, which logs the heap/`terms` curve + arms a near-limit snapshot). Guarded by a red→green decouple test and live-job-at-a-small-mirror tests. <PrLink pr={1427} /> · **Deferred:** the on-disk transcript log (<Issue n={417} />) and lazy backfill (3) — they remove the *linear-in-count* growth and let the mirror shrink further.
+</Callout>
 
 The 50 K was never for scrolling. <PrLink pr={416} /> bumped it from 10 K **for PDF export** (<PrLink pr={413} />) — so a naive shrink would *regress export*. And the real fix is already designed: <Issue n={417} label="server-side transcript log" />, the on-disk source of truth that #416 explicitly called itself a *bandaid* for. This RCA promotes #417 from a *features* ticket to **the memory fix** — and corrects its non-goal #1 ("the ~4 KB attach snapshot is already optimal"): `attach()` serializes the **whole** buffer with no scrollback limit (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:571" />), so that path *is* the cost, not a constant.
 
@@ -218,4 +222,4 @@ Deployment is the `services.kolu` home-manager module, so the wiring lands there
 - **#417's retention policy** — per-terminal disk-log size cap + a privacy off-switch (a legitimate switch, not a degradation knob).
 - **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behaviour regardless.
 
-*Reproduced in-process on `naiveintent` (heap linear in live-terminal count; the production crash signature at the 50 K mirror). RCA + plan tracked in <PrLink pr={1421} />; the memory fix rides <Issue n={417} /> (with <PrLink pr={416} /> / <PrLink pr={413} /> as the why-50K backstory). Advance `status` as fixes (1)–(3) land.*
+*Reproduced in-process on `naiveintent` (heap linear in live-terminal count; the production crash signature at the 50 K mirror). The plan landed in <PrLink pr={1421} />; the fix — small mirror (10 K) + tripwire + kaval diagnostics — shipped in <PrLink pr={1427} />. The deeper follow-up that removes the linear-in-count growth is <Issue n={417} /> (with <PrLink pr={416} /> / <PrLink pr={413} /> as the why-50K backstory).*
