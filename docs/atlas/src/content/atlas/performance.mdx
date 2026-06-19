@@ -124,7 +124,7 @@ reactivity cluster.
 
 | # | Opportunity | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|
-| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn. Clears the rest of the reactivity cluster. |
+| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn. Clears the rest of the reactivity cluster. |
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
@@ -152,7 +152,7 @@ their themes as *"remaining within …"*.
 - **Compositor paint storms** — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
 - **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
-- **Reactivity keystone** — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs on metadata churn; proven by a re-run-count regression test.
+- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs on metadata churn; proven by a re-run-count regression test.
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
@@ -170,8 +170,8 @@ when the contents were identical**. The dependent `displayInfos` memo tracked
 that reference, so *any single terminal's metadata mutation* re-ran
 `buildTerminalDisplayInfos` for **all** terminals (`terminalDisplay.ts`),
 allocating 4–5 intermediate collections each pass, and re-evaluated every tile's
-`Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx`). **Done:** the memo now
-carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior array
+`Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx`). **Done** <PrLink pr={1425} /> —
+the memo now carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior array
 whenever the top-level id set is unchanged — the derivation re-runs only on a
 real add / remove / reorder, not on metadata churn. The accessor still re-runs
 cheaply; what it no longer does is *notify* downstream when the set is identical.
