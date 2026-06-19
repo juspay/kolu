@@ -76,6 +76,8 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 export interface GraphNode {
   id: string;
   label: string;
+  /** The full note title — drives the hover tooltip and the title search. */
+  title: string;
   kind: Category;
   isKind: boolean;
   href: string;
@@ -265,6 +267,7 @@ export function buildGraphLayout(
       return {
         id,
         label: id,
+        title: d.title,
         kind: d.kind as Category,
         isKind: false,
         href: `./${id}.html`,
@@ -283,6 +286,7 @@ export function buildGraphLayout(
     return {
       id,
       label: kindLabel(c),
+      title: kindLabel(c),
       kind: c,
       isKind: true,
       href: `#${KIND_ANCHOR(c)}`,

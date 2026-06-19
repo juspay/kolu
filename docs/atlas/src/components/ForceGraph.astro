@@ -23,11 +23,28 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
 ---
 
 <figure class="atlas-graph">
-  <div class="graph-hint mono">
-    <span>drag to pan · scroll to zoom · click a node to open</span>
-    <button type="button" class="graph-reset" data-graph-reset>reset</button>
+  <div class="graph-bar">
+    <label class="graph-search">
+      <svg class="search-ic" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5" />
+        <line x1="10.6" y1="10.6" x2="14" y2="14" />
+      </svg>
+      <input
+        type="search"
+        data-graph-search
+        placeholder="search notes by title…"
+        aria-label="Search notes by title"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </label>
+    <span class="graph-bar-meta mono">
+      <span class="search-count" data-search-count aria-live="polite"></span>
+      <button type="button" class="graph-reset" data-graph-reset>reset view</button>
+    </span>
   </div>
   <svg
+    class="graph-svg"
     viewBox={viewBox}
     role="img"
     aria-label="Force-directed graph of the Atlas: every note, wired to its kind hub and its links"
@@ -69,7 +86,7 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
           n.isKind ? (
             <a class="node kind" href={n.href} data-id={n.id} data-nb={n.neighbors}>
               <g transform={`translate(${n.x} ${n.y})`}>
-                <title>{n.label}</title>
+                <title>{n.title}</title>
                 <rect
                   class={`chip kc-${n.kind}`}
                   x={-(n.chipW ?? 0) / 2}
@@ -87,9 +104,10 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
               href={n.href}
               data-id={n.id}
               data-nb={n.neighbors}
+              data-search={`${n.title} ${n.id}`.toLowerCase()}
             >
               <g transform={`translate(${n.x} ${n.y})`}>
-                <title>{n.label}</title>
+                <title>{n.title}</title>
                 <circle
                   class={`dot k-${n.kind} m-${n.maturity}`}
                   r={n.r}
@@ -105,13 +123,14 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
       }
     </g>
   </svg>
+  <p class="graph-foot mono">drag to pan · scroll to zoom · click a node to open</p>
 </figure>
 
 <script is:inline>
   (function () {
     var fig = document.querySelector(".atlas-graph");
     if (!fig) return;
-    var svg = fig.querySelector("svg");
+    var svg = fig.querySelector(".graph-svg");
     if (!svg) return;
     var nodes = Array.prototype.slice.call(svg.querySelectorAll(".node"));
     var edges = Array.prototype.slice.call(svg.querySelectorAll(".edge"));
@@ -119,6 +138,23 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     nodes.forEach(function (n) {
       byId[n.getAttribute("data-id")] = n;
     });
+
+    // ── title search filter (its lit set is restored by clearHi after a hover) ──
+    var searchActive = false;
+    var matchIds = {};
+    function renderSearch() {
+      svg.classList.add("dim");
+      nodes.forEach(function (n) {
+        n.classList.toggle("on", !!matchIds[n.getAttribute("data-id")]);
+      });
+      edges.forEach(function (e) {
+        e.classList.toggle(
+          "on",
+          !!matchIds[e.getAttribute("data-a")] &&
+            !!matchIds[e.getAttribute("data-b")],
+        );
+      });
+    }
 
     // ── 1-hop hover highlight (also driven by the hub cards via [data-hub]) ──
     function highlight(id) {
@@ -141,6 +177,10 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
       });
     }
     function clearHi() {
+      if (searchActive) {
+        renderSearch();
+        return;
+      }
       svg.classList.remove("dim");
       nodes.forEach(function (n) {
         n.classList.remove("on");
@@ -236,6 +276,34 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
         vb.width = base.w;
         vb.height = base.h;
       });
+
+    // ── wire the search box → live title filter ──
+    var search = fig.querySelector("[data-graph-search]");
+    var countEl = fig.querySelector("[data-search-count]");
+    function applySearch() {
+      var q = (search.value || "").trim().toLowerCase();
+      searchActive = q.length > 0;
+      matchIds = {};
+      if (!searchActive) {
+        if (countEl) countEl.textContent = "";
+        clearHi();
+        return;
+      }
+      var count = 0;
+      var total = 0;
+      nodes.forEach(function (n) {
+        var s = n.getAttribute("data-search");
+        if (s == null) return; // kind chips aren't title-searchable
+        total++;
+        if (s.indexOf(q) !== -1) {
+          matchIds[n.getAttribute("data-id")] = true;
+          count++;
+        }
+      });
+      renderSearch();
+      if (countEl) countEl.textContent = count + " / " + total;
+    }
+    if (search) search.addEventListener("input", applySearch);
   })();
 </script>
 
@@ -249,24 +317,63 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     padding: 0.5rem;
     overflow: hidden;
   }
-  .graph-hint {
-    position: absolute;
-    top: 0.7rem;
-    left: 0.9rem;
-    right: 0.9rem;
-    z-index: 2;
+  .graph-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    padding: 0.35rem 0.4rem 0.55rem;
+  }
+  .graph-search {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex: 1 1 auto;
+    max-width: 22rem;
+    padding: 0.3rem 0.7rem;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    transition: border-color 0.15s ease;
+  }
+  .graph-search:focus-within {
+    border-color: var(--amber-soft);
+  }
+  .search-ic {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: var(--ink-faint);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+  .graph-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    color: var(--ink);
+    outline: none;
+  }
+  .graph-search input::placeholder {
     color: var(--ink-faint);
-    pointer-events: none;
+  }
+  .graph-bar-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    flex: none;
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+  }
+  .search-count {
+    letter-spacing: 0.06em;
+    white-space: nowrap;
   }
   .graph-reset {
-    pointer-events: auto;
     font-family: var(--mono);
     font-size: 0.6rem;
     letter-spacing: 0.1em;
@@ -282,7 +389,15 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     color: var(--amber);
     border-color: var(--amber-soft);
   }
-  .atlas-graph svg {
+  .graph-foot {
+    margin: 0;
+    padding: 0.45rem 0.4rem 0.2rem;
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .graph-svg {
     display: block;
     width: 100%;
     height: auto;
@@ -290,7 +405,7 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     touch-action: none;
     cursor: grab;
   }
-  .atlas-graph svg:active {
+  .graph-svg:active {
     cursor: grabbing;
   }
 
@@ -397,19 +512,19 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
   }
 
   /* dimmed state during a hover — only the 1-hop neighborhood stays lit */
-  svg.dim .node {
+  .graph-svg.dim .node {
     opacity: 0.14;
   }
-  svg.dim .node.on {
+  .graph-svg.dim .node.on {
     opacity: 1;
   }
-  svg.dim .node.on .label {
+  .graph-svg.dim .node.on .label {
     opacity: 1;
   }
-  svg.dim .edge {
+  .graph-svg.dim .edge {
     opacity: 0.04;
   }
-  svg.dim .edge.on {
+  .graph-svg.dim .edge.on {
     opacity: 0.85;
     stroke: var(--ink-faint);
   }
