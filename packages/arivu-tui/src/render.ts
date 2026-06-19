@@ -99,11 +99,29 @@ function foregroundCell(fg: AwarenessValue["foreground"]): string {
   return fg ? sanitizeCell(fg.name) || DASH : DASH;
 }
 
+/** Collapse a leading `$HOME` to `~` for a shorter, familiar path. */
+function tildeify(cwd: string, home: string | undefined): string {
+  if (home === undefined || home === "") return cwd;
+  if (cwd === home) return "~";
+  return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
+}
+
+function cwdCell(cwd: string, home: string | undefined): string {
+  return sanitizeCell(tildeify(cwd, home)) || DASH;
+}
+
+/** Per-row render options threaded from the CLI (e.g. `$HOME` for `~`). */
+export interface RenderOptions {
+  /** The home dir to collapse to `~` in the CWD column. */
+  home?: string;
+}
+
 /** One row's columns, shared by the `list` table and a `watch` single-row
  *  render so the two never drift in what they show. */
 function awarenessRow(
   id: TerminalId,
   v: AwarenessValue,
+  home: string | undefined,
 ): Record<string, string> {
   return {
     ID: shortId(id),
@@ -111,10 +129,14 @@ function awarenessRow(
     PR: prCell(v.pr),
     AGENT: agentCell(v.agent),
     FOREGROUND: foregroundCell(v.foreground),
+    CWD: cwdCell(v.cwd, home),
   };
 }
 
-const COLUMNS = ["ID", "BRANCH", "PR", "AGENT", "FOREGROUND"];
+// CWD is the wide, variable-width column, so it goes last — narrow columns
+// stay aligned regardless of path length (the convention kaval-tui's `list`
+// follows). `--json` still carries every awareness field.
+const COLUMNS = ["ID", "BRANCH", "PR", "AGENT", "FOREGROUND", "CWD"];
 
 function table(rows: Array<Record<string, string>>): string {
   return columnify(rows, { columns: COLUMNS, columnSplitter: "  " })
@@ -127,19 +149,24 @@ function table(rows: Array<Record<string, string>>): string {
  *  Empty set gets an honest one-liner, not a bare header. */
 export function formatAwarenessList(
   entries: Array<[TerminalId, AwarenessValue]>,
+  opts: RenderOptions = {},
 ): string {
   if (entries.length === 0) {
     return "no terminals — is kaval running, with arivu watching it?";
   }
   const rows = [...entries]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([id, v]) => awarenessRow(id, v));
+    .map(([id, v]) => awarenessRow(id, v, opts.home));
   return table(rows);
 }
 
 /** Render a single terminal's current row — the `watch` repaint. */
-export function formatAwarenessRow(id: TerminalId, v: AwarenessValue): string {
-  return table([awarenessRow(id, v)]);
+export function formatAwarenessRow(
+  id: TerminalId,
+  v: AwarenessValue,
+  opts: RenderOptions = {},
+): string {
+  return table([awarenessRow(id, v, opts.home)]);
 }
 
 /** `list --json` — a top-level array of `{ id, ...value }`, 2-space indented,

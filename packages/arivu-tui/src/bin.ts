@@ -13,6 +13,7 @@
  * different local socket. (A remote `--host <ssh>` dial is P2.)
  */
 
+import { homedir } from "node:os";
 import { ARIVU_CONTRACT_VERSION, type TerminalId } from "@kolu/arivu-contract";
 import { arivuSocketPath } from "@kolu/arivu-contract/socket";
 import { cli, command } from "cleye";
@@ -90,7 +91,7 @@ async function cmdList(conn: Connection, json: boolean): Promise<void> {
   process.stdout.write(
     json
       ? `${formatAwarenessJson(entries)}\n`
-      : `${formatAwarenessList(entries)}\n`,
+      : `${formatAwarenessList(entries, { home: homedir() })}\n`,
   );
 }
 
@@ -144,7 +145,7 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
     )) {
       // Home + clear, then repaint the single row — a live-updating view.
       process.stdout.write("\x1b[H\x1b[2J");
-      process.stdout.write(`${formatAwarenessRow(id, value)}\n`);
+      process.stdout.write(`${formatAwarenessRow(id, value, { home: homedir() })}\n`);
     }
   } catch (err) {
     if (!abort.signal.aborted) fail((err as Error).message);

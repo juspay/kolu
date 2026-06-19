@@ -96,6 +96,23 @@ describe("formatAwarenessList", () => {
     // shortId is the first 8 chars.
     expect(out).toContain("a3f10000");
     expect(out).toContain("c9d40000");
+    // the CWD column (the default seed cwd is "/repo").
+    expect(out).toContain("CWD");
+    expect(out).toContain("/repo");
+  });
+
+  it("shows the cwd, tildeified against $HOME", () => {
+    const home = formatAwarenessList(
+      [[id("a3f10000-0000-4000-8000-000000000000"), val({ cwd: "/home/u/code/kolu" })]],
+      { home: "/home/u" },
+    );
+    expect(home).toContain("~/code/kolu");
+    expect(home).not.toContain("/home/u/code/kolu");
+    // no home → the raw absolute path.
+    const raw = formatAwarenessList([
+      [id("a3f10000-0000-4000-8000-000000000000"), val({ cwd: "/srv/work" })],
+    ]);
+    expect(raw).toContain("/srv/work");
   });
 
   it("dashes a terminal with no git / no PR", () => {
