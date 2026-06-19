@@ -1,6 +1,6 @@
 ---
 title: Kaval PTY-host heap OOM
-description: A recurring production crash — the kaval PTY host's heap grows with the live-terminal count (each PTY pins a 50 K-line scrollback mirror), hits V8's ~4 GB ceiling, self-aborts (SIGABRT), and takes the kolu server down via fail-fast. Reproduced in-process; RCA + the diagnostics gap + the proposed fix.
+description: A recurring production crash — kaval's per-PTY 50 K-line scrollback mirror × an unbounded, never-reaped live-terminal population grows the V8 heap to its ~4 GB ceiling; it self-aborts (SIGABRT) and takes the kolu server down via fail-fast. Reproduced in-process. RCA + prior art (tmux/zellij/ghostty/kitty/mosh) + plan of record — a small hot mirror over an on-disk transcript log (#417).
 kind: analysis
 status: proposed
 maturity: budding
@@ -11,35 +11,47 @@ updated: 2026-06-19
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
 import Pill from "../../components/Pill.astro";
-import D2 from "../../components/D2.astro";
 import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
 
 *Production postmortem — `pureintent`, the always-on `kolu.service`. Latest crash 2026-06-19 14:26; the **fifth** with an identical signature since 2026-05-27. Surfaced by a "why did kolu restart?" investigation.*
 
-<D2
-  caption="Where the leak lives, and why we can't see it yet. The home-manager module's diagnostics option threads KOLU_DIAG_DIR into the server only; localDriver.ts then strips the heap-snapshot flag out of NODE_OPTIONS before kaval is spawned — so the one process that actually OOMs (kaval, Node 24) runs with no heap limit and no instrumentation."
-  code={`
-direction: down
+<figure style="margin:1.75rem 0;text-align:center">
+<svg viewBox="0 0 600 384" width="100%" role="img" aria-label="kolu's diagnostics reaches only the server; localDriver strips the heap-snapshot flag before kaval, the process that OOMs" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="kavArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    </marker>
+  </defs>
 
-hm: "home-manager: services.kolu\\n(nix/home/module.nix)" {
-  diagopt: "diagnostics.dir -> KOLU_DIAG_DIR\\n(reaches the SERVER only)"
-}
+  <rect x="70" y="12" width="420" height="58" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
+  <text x="280" y="37" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">home-manager · services.kolu</text>
+  <text x="280" y="56" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">diagnostics.dir → KOLU_DIAG_DIR (server only)</text>
 
-server: "kolu.service: kolu server (Node 22.22.1)" {
-  diag: "diagnostics.ts\\nheap snapshots + stats (SERVER heap)"
-  drv: "localDriver.ts\\nscrubNodeOptions() strips --heapsnapshot"
-}
+  <rect x="70" y="108" width="420" height="76" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
+  <text x="280" y="131" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">kolu server — Node 22.22.1</text>
+  <text x="280" y="150" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">diagnostics.ts → heap snapshots (server heap)</text>
+  <text x="280" y="170" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">localDriver scrubNodeOptions() strips --heapsnapshot</text>
 
-spine: "@kolu/surface-daemon-supervisor\\nsurvivableSpawnDriver -> systemd-run --user"
+  <rect x="70" y="220" width="420" height="48" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
+  <text x="280" y="249" text-anchor="middle" font-size="12.5" fill="var(--ink,#1a1d21)">@kolu/surface-daemon-supervisor → systemd-run --user</text>
 
-kaval: "kaval: PTY host (Node 24.13.0)\\nOOM SITE — no heap limit, no diagnostics"
+  <rect x="70" y="304" width="420" height="66" rx="8" fill="#fcf0ef" stroke="#d98b86" />
+  <text x="280" y="329" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">kaval — PTY host · Node 24.13.0</text>
+  <text x="280" y="349" text-anchor="middle" font-size="11.5" fill="#b1241a">OOM SITE — no heap limit, no diagnostics</text>
 
-hm -> server: "ExecStart args + env"
-server.drv -> spine: "binPath, args, env\\n(diag flags already stripped)"
-spine -> kaval: "spawn (transient unit)"
-kaval -> server: "pty-host.sock (kaval-<port>)"
-`}
-/>
+  <path d="M280 70 L280 108" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
+  <text x="292" y="93" font-size="10.5" fill="var(--ink-muted,#8a8f98)">ExecStart + env</text>
+  <path d="M280 184 L280 220" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
+  <text x="292" y="206" font-size="10.5" fill="var(--ink-muted,#8a8f98)">spawn (diag flags already stripped)</text>
+  <path d="M280 268 L280 304" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
+  <text x="292" y="290" font-size="10.5" fill="var(--ink-muted,#8a8f98)">spawn (transient unit)</text>
+
+  <path d="M490 337 L548 337 L548 146 L490 146" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
+  <text x="560" y="242" text-anchor="middle" font-size="10.5" fill="var(--ink-muted,#8a8f98)" transform="rotate(-90 560 242)">pty-host.sock</text>
+</svg>
+<figcaption style="margin-top:.5rem;font-size:.8rem;color:var(--faint,#7a8089);font-family:ui-sans-serif,system-ui,sans-serif">Where the leak lives, and why kaval ran blind: the home-manager diagnostics option reaches the <em>server</em> only; localDriver strips the heap-snapshot flag from NODE_OPTIONS before kaval — the one process that actually OOMs.</figcaption>
+</figure>
 
 ## What crashed
 
@@ -96,47 +108,103 @@ kolu already has heap diagnostics: set `KOLU_DIAG_DIR` and the server writes a b
 
 The leak is now named without it (the in-process repro on a clean box did the job), but the gap still matters: with kaval instrumented, prod would have shown the `terms`-count curve climbing for days, and a near-limit snapshot would confirm the same scrollback grid in the *real* workload — so the fixes below still close it.
 
-## The fix
+## How other terminals & multiplexers bound this
 
-Two levers, because survivability forbids reaping live shells: cut the **per-terminal retained cost**, and bound the heap with a **loud tripwire**. Shaped by the design philosophy — nothing here silences the crash; limits are baked in, not knobs.
+A sweep of the field (ghostty, tmux, zellij, kitty, wezterm, GNU screen, mosh, VTE, zmosh). It's near-unanimous, and **kaval is the outlier** — a 50 K-line *server-side* mirror is 5–50× everyone else:
 
-### <Pill variant="ok">1</Pill> Cut the per-terminal mirror cost — the high-leverage fix
+| System | Default history | Bounding | Reattach restores |
+| --- | --- | --- | --- |
+| **kaval (today)** | **50 000 lines / PTY** | none — no cap, no reap | full mirror, **eagerly serialized** |
+| GNU screen | 100 lines | line cap | viewport (RAM) |
+| xterm.js / headless | 1 000 rows | ring buffer | ANSI snapshot (`SerializeAddon`) |
+| tmux | **2 000 lines / pane** | line cap + batch trim | **viewport**; scrollback lazily in copy-mode |
+| kitty | 2 000 in-RAM | overflow spills to a temp file → pager | n/a (emulator) |
+| wezterm-mux | 3 500 lines | line cap + **~40× cell compression** | **viewport**; lazily by range (`GetLines` RPC) |
+| zellij | 10 000 lines | ring + **serialize panes to disk** | cold: from **disk**, not RAM |
+| ghostty / zmosh | **10 MB (bytes)** | byte cap + page-trim, 8 B cells | serialize VT (zmosh) |
+| mosh | **0 — viewport only** | keeps no history at all | the live screen, ever |
+| VTE (GNOME) | "infinite" | **LZ4 + AES disk ring**, ~0 RAM | n/a (emulator) |
 
-The 50 K-line headless mirror *is* the per-terminal retainer (~62 MB full); shrinking it raises the OOM ceiling proportionally (a 5× cut ≈ 54 → ≈ 270+ fully-scrolled terminals). Today `DEFAULT_SCROLLBACK = 50_000` is *one constant* serving **both** the client's visible scrollback **and** the server-side mirror — they're conflated (<Cite file="packages/common/src/config.ts" label="config.ts" />). But the mirror only needs enough to seed a *cold-attaching* client's restore; the live client keeps its own scrollback. **Decouple them** and give the mirror a smaller bound (e.g. 5–10 K), or lower the shared default. The tradeoff is a product call that's yours to make: how many scrollback lines must survive a cold reconnect (a fresh browser with no local buffer)? That number is the mirror size.
+Three lessons that reshape the fix:
 
-### <Pill variant="ok">2</Pill> A deliberate kaval heap limit — a tripwire, not a cap
+1. **Nobody holds deep history as live cell-objects** — it's a small ring (tmux 2 K), compressed (wezterm ~40×), or on disk (zellij / kitty / VTE). kaval's 50 K of live `BufferLine` objects is the anomaly. *(In V8 the killer is object-header + GC pressure, not raw bytes — so deep history wants to be a compressed `Buffer` or a file, never live xterm lines.)*
+2. **No multiplexer eagerly serializes the whole mirror on reattach** — tmux / wezterm repaint the *viewport* and stream older lines **lazily, by range, on scroll**. kaval's `attach()` → full-buffer `serialize()` is exactly the avoidable cost.
+3. **Cap by *bytes*, not lines** — a wide blank line still costs, and agent streaming is the real-world OOM driver elsewhere too (tmux #4859 ≈ 48 GB, ghostty 37 GB), not deep interactive history.
 
-Give kaval an explicit `--max-old-space-size` chosen to crash **earlier and predictably**. This converts the opaque ~4 GB wall into a bounded, legible one and shrinks the blast-radius window — defence-in-depth behind (1), so an unforeseen accumulator still fails loud and fast rather than after days. **Bake it into kaval's Nix wrapper**, not an env override knob ("being able to override is never a feature").
+## The fix — a small hot mirror over an on-disk transcript log
 
-### <Pill variant="ok">3</Pill> Instrument kaval — confirm in prod, catch regressions
+The 50 K was never for scrolling. <PrLink pr={416} /> bumped it from 10 K **for PDF export** (<PrLink pr={413} />) — so a naive shrink would *regress export*. And the real fix is already designed: <Issue n={417} label="server-side transcript log" />, the on-disk source of truth that #416 explicitly called itself a *bandaid* for. This RCA promotes #417 from a *features* ticket to **the memory fix** — and corrects its non-goal #1 ("the ~4 KB attach snapshot is already optimal"): `attach()` serializes the **whole** buffer with no scrollback limit (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:571" />), so that path *is* the cost, not a constant.
 
-Thread a diagnostics path **through to kaval** (a kaval-side `KOLU_DIAG_DIR`, `--heapsnapshot-near-heap-limit`, `--heapsnapshot-signal=SIGUSR2`) so prod shows the `terms`-count/heap curve and dumps a near-limit snapshot. The repro already named the leak; this confirms it in the *real* workload and guards against a future regression. Concretely: stop scrubbing those flags for kaval (or, cleaner, pass kaval explicit `execArgv` + diag dir via `localKavalDriver` instead of inherited `NODE_OPTIONS`).
+The plan of record — which is also just what the field does (small hot buffer + deep history off the hot path + lazy backfill):
 
-### <Pill variant="ok">4</Pill> The home-manager surface — yes, wiring needed there too
+<figure style="margin:1.75rem 0;text-align:center">
+<svg viewBox="0 0 600 360" width="100%" role="img" aria-label="Target: each PTY byte feeds a small in-RAM mirror and an on-disk transcript log; clients attach against the mirror and lazily backfill deep history from the log" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="tgtArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    </marker>
+  </defs>
 
-Deployment is via the `services.kolu` home-manager module, so the knobs land there. The honest split:
+  <rect x="190" y="10" width="220" height="46" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
+  <text x="300" y="38" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">PTY child (node-pty) — raw bytes</text>
 
-- **The heap *limit* (2) is not a user option** — a baked-in tripwire in kaval's derivation, no `mkOption`, consistent with how the module bakes required values.
-- **The diag *dir* (3) reuses the existing option.** `services.kolu.diagnostics.dir` already exists; the work is making that value *reach kaval* — end-to-end: module → server env → `localKavalDriver` forwards a kaval diag dir + execArgv → kaval arms the V8 hooks. The visible module change is small (the plumbing is in `localDriver.ts`); a new `mkOption` is only warranted to toggle kaval diagnostics *independently* of the server's — likely unnecessary.
+  <rect x="22" y="132" width="266" height="80" rx="8" fill="#eff6f0" stroke="#bce3c8" />
+  <text x="155" y="158" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">in-RAM mirror — SMALL</text>
+  <text x="155" y="177" text-anchor="middle" font-size="11.5" fill="#5b6b60">capped by bytes, not 50 K lines</text>
+  <text x="155" y="195" text-anchor="middle" font-size="11.5" fill="#5b6b60">viewport · metadata · scrape · repaint</text>
 
-<Callout kind="note" title="Why this isn't just 'flip the existing option'">
-`services.kolu.diagnostics.dir` looks like it should already cover kaval — it doesn't, because of the deliberate `scrubNodeOptions` severing. The option exists; the data path to kaval is cut. That cut is the actual work item, and it's invisible from the module alone.
-</Callout>
+  <rect x="312" y="132" width="266" height="80" rx="8" fill="#eff6f0" stroke="#bce3c8" />
+  <text x="445" y="158" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">transcript log on disk (#417)</text>
+  <text x="445" y="177" text-anchor="middle" font-size="11.5" fill="#5b6b60">raw PTY bytes · append-only</text>
+  <text x="445" y="195" text-anchor="middle" font-size="11.5" fill="#5b6b60">retention-capped (disk, not RAM)</text>
 
-### <Pill variant="ok">5</Pill> Regression guard
+  <rect x="120" y="296" width="360" height="52" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
+  <text x="300" y="319" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">browser xterm</text>
+  <text x="300" y="337" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">keeps its own visible scrollback</text>
 
-Add a long-running kaval soak test asserting **heap stays proportional and bounded** — open N terminals, fill scrollback, and assert per-terminal heap matches the chosen mirror size (so a future scrollback-size or accumulation regression trips the test, not prod).
+  <path d="M268 56 L175 132" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
+  <text x="188" y="100" text-anchor="end" font-size="10.5" fill="var(--ink-muted,#8a8f98)">parse (live)</text>
+  <path d="M332 56 L425 132" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
+  <text x="412" y="100" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">append every byte</text>
+  <path d="M165 212 L255 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
+  <text x="150" y="262" text-anchor="end" font-size="10.5" fill="var(--ink-muted,#8a8f98)">attach: viewport + deltas</text>
+  <path d="M435 212 L345 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
+  <text x="452" y="250" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">lazy backfill</text>
+  <text x="452" y="264" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">(deep scroll · PDF · search)</text>
+</svg>
+<figcaption style="margin-top:.5rem;font-size:.8rem;color:var(--faint,#7a8089);font-family:ui-sans-serif,system-ui,sans-serif">Target shape. Every PTY byte feeds a <em>small</em> live mirror (viewport + just enough for metadata, scrape, cold repaint — capped by bytes) and appends to an on-disk transcript log (#417). Clients attach against the small mirror; deep scroll-back, PDF export, and search lazily backfill from the log — no live 50 K cell-grid retained per terminal, anywhere.</figcaption>
+</figure>
 
-<Callout kind="note" title="A separate product decision: should idle terminals ever be reaped?">
-The accumulation is *live shells that never exit and are never killed*, kept alive by the survivability guarantee. Reaping (e.g. terminals with no client, idle beyond a long threshold) would bound the count directly — but it trades against "terminals survive a kolu update," so it's a deliberate policy choice, not a code-cleanup. Out of scope for the fix above; flagged for a decision.
+### <Pill variant="ok">1</Pill> Keep the in-RAM mirror small & constant
+
+Size the headless mirror to what the *live* jobs actually need — viewport + a small window for the metadata OSC handlers, device-query replies, screen-scrape tail, and cold-attach repaint — capped by **bytes**, not 50 K lines. That's ~25–50× smaller per terminal; the linear-growth OOM is gone and **shells are never reaped — the survivability guarantee is untouched**. This also dissolves the earlier "should we reap idle terminals?" tension: with a small mirror, an idle terminal costs almost nothing, so it can live forever as designed.
+
+### <Pill variant="ok">2</Pill> Deep history → the on-disk transcript log (#417)
+
+Append every PTY byte to a per-terminal log on disk — raw bytes, the honest replayable source (rendered/serialized state is lossy). PDF export (the reason 50 K exists), scrollback search, true session restore, and crash forensics all read from it; depth is bounded by a **disk retention policy**, not RAM. This is <Issue n={417} /> as already specified — *reuse it, don't build a parallel store*.
+
+### <Pill variant="ok">3</Pill> Lazy backfill on deep scroll
+
+Stop eager-serializing the mirror on attach. Repaint the viewport from the small mirror, then when a client scrolls past the hot window, fetch older ranges from the log and render them (the tmux / wezterm pattern). Cold reconnect becomes cheap *and* lossless.
+
+### <Pill variant="ok">now</Pill> Interim, until #417 lands
+
+#417 is a multi-PR effort; ship the safety nets first so prod stops crashing in the meantime — nothing here silences the crash, all baked in (no override knobs):
+
+- **A baked-in kaval `--max-old-space-size` tripwire** — crash earlier and predictably (defence-in-depth), in kaval's Nix wrapper, not an env knob.
+- **kaval-side diagnostics** — un-scrub the snapshot flags (or pass explicit `execArgv` + diag dir via `localKavalDriver`) so prod shows the `terms`/heap curve and dumps a near-limit snapshot.
+- **A soak-test regression guard** — assert per-terminal heap stays proportional and bounded, so a scrollback-size or accumulation regression trips the test, not prod.
+
+<Callout kind="note" title="The home-manager surface (services.kolu)">
+Deployment is the `services.kolu` home-manager module, so the wiring lands there — but mostly as *plumbing*, not new knobs. The heap **limit** is baked into kaval's derivation (no `mkOption`). The diag **dir** reuses the existing `services.kolu.diagnostics.dir` option (<Cite file="nix/home/module.nix" label="module.nix" />) — the work is making that value *reach kaval* (module → server env → `localKavalDriver` forwards it + execArgv → kaval arms the V8 hooks), because today `scrubNodeOptions` severs it before kaval. A new `mkOption` is only warranted to toggle kaval diagnostics *independently* of the server's — likely unnecessary.
 </Callout>
 
 ## Current state & open questions
 
-**Prod is healthy** — `kolu.service` active since 14:26:09, `NRestarts=1`, a fresh kaval on `/run/user/1000/kaval-7692/pty-host.sock`, no crashes since. But recurrence risk is **HIGH**: with no heap bound and the per-terminal cost unchanged, expect another crash within days. The retained allocation is now **identified** (the 50 K-line per-terminal scrollback mirror × an unbounded live-terminal population). What remains open:
+**Prod is healthy** — `kolu.service` active since 14:26:09, `NRestarts=1`, a fresh kaval on `/run/user/1000/kaval-7692/pty-host.sock`, no crashes since. But recurrence risk is **HIGH**: with no heap bound and the per-terminal cost unchanged, expect another crash within days. The retained allocation is now **identified** (the 50 K-line per-terminal scrollback mirror × an unbounded live-terminal population) and the plan is settled (small hot mirror over the #417 on-disk log). What remains open:
 
-- **The mirror-size decision** (fix 1) — how many scrollback lines must survive a cold reconnect. A product call.
-- **Whether to reap idle terminals at all** — the survivability-vs-bounded-count tradeoff above.
+- **The hot-mirror size** (fix 1) — the byte budget for the live mirror, i.e. how much history a cold attach repaints *before* lazy backfill kicks in. A small product/UX call now that deep history is safe on disk.
+- **#417's retention policy** — per-terminal disk-log size cap + a privacy off-switch (a legitimate switch, not a degradation knob).
 - **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behaviour regardless.
 
-*Proposed fix tracked in <PrLink pr={1421} />. Root cause reproduced in-process on `naiveintent` (heap linear in live-terminal count; production crash signature at the 50 K mirror); advance `status` as fixes (1)–(5) land.*
+*Reproduced in-process on `naiveintent` (heap linear in live-terminal count; the production crash signature at the 50 K mirror). RCA + plan tracked in <PrLink pr={1421} />; the memory fix rides <Issue n={417} /> (with <PrLink pr={416} /> / <PrLink pr={413} /> as the why-50K backstory). Advance `status` as fixes (1)–(3) land.*
