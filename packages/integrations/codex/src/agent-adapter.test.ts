@@ -11,7 +11,7 @@ vi.mock("./core.ts", () => ({
 vi.mock("./session-watcher.ts", () => ({ createCodexWatcher: vi.fn() }));
 vi.mock("./wal-watcher.ts", () => ({ subscribeCodexDb: vi.fn() }));
 
-const { codexProvider } = await import("./agent-provider.ts");
+const { codexAdapter } = await import("./agent-adapter.ts");
 
 const noopLog: Logger = {
   debug: () => {},
@@ -30,7 +30,7 @@ function makeState(over: Partial<AgentTerminalState>): AgentTerminalState {
   };
 }
 
-describe("codexProvider.resolveSession", () => {
+describe("codexAdapter.resolveSession", () => {
   beforeEach(() => {
     findSessionMock.mockReset();
   });
@@ -38,7 +38,7 @@ describe("codexProvider.resolveSession", () => {
   it("matches when the kernel basename is 'codex' (native install)", () => {
     findSessionMock.mockReturnValue({ id: "t1", rolloutPath: "/tmp/r.jsonl" });
     const state = makeState({ readForegroundBasename: () => "codex" });
-    expect(codexProvider.resolveSession(state, noopLog)).toEqual({
+    expect(codexAdapter.resolveSession(state, noopLog)).toEqual({
       id: "t1",
       rolloutPath: "/tmp/r.jsonl",
     });
@@ -51,7 +51,7 @@ describe("codexProvider.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: "codex",
     });
-    expect(codexProvider.resolveSession(state, noopLog)).toEqual({
+    expect(codexAdapter.resolveSession(state, noopLog)).toEqual({
       id: "t2",
       rolloutPath: "/tmp/r.jsonl",
     });
@@ -63,7 +63,7 @@ describe("codexProvider.resolveSession", () => {
       readForegroundBasename: () => "node",
       lastAgentCommandName: null,
     });
-    expect(codexProvider.resolveSession(state, noopLog)).toBeNull();
+    expect(codexAdapter.resolveSession(state, noopLog)).toBeNull();
     expect(findSessionMock).not.toHaveBeenCalled();
   });
 
@@ -72,7 +72,7 @@ describe("codexProvider.resolveSession", () => {
       readForegroundBasename: () => "bash",
       lastAgentCommandName: "opencode",
     });
-    expect(codexProvider.resolveSession(state, noopLog)).toBeNull();
+    expect(codexAdapter.resolveSession(state, noopLog)).toBeNull();
     expect(findSessionMock).not.toHaveBeenCalled();
   });
 });

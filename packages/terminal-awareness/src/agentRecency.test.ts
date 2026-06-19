@@ -25,7 +25,7 @@ describe("shouldBumpRecencyForAgentChange", () => {
   it("does NOT bump on first detection for a restored terminal", () => {
     // The case the production restart tripped on: agent state was wiped
     // by the restart, the saved `lastActivityAt` was correctly threaded
-    // through restore, and the agent provider's first re-observation
+    // through restore, and the agent adapter's first re-observation
     // would otherwise stamp Date.now() over the saved value. We must
     // preserve the saved truth until a real state change happens.
     const T_yesterday = 1_700_000_000_000;

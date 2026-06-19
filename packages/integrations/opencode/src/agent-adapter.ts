@@ -1,7 +1,7 @@
 /**
- * OpenCode's AgentProvider — wires the package's existing helpers
+ * OpenCode's AgentAdapter — wires the package's existing helpers
  * (`findSessionByDirectory`, `createOpenCodeWatcher`) into the shared
- * `AgentProvider<Session, Info>` contract from anyagent.
+ * `AgentAdapter<Session, Info>` contract from anyagent.
  *
  * `subscribeExternalChanges` is intentionally omitted: OpenCode's TUI
  * process owns its session throughout its lifetime, and the session only
@@ -11,12 +11,12 @@
  * `createOpenCodeWatcher`, not session-identity changes.
  */
 
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentAdapter, matchesAgent } from "anyagent";
 import { findSessionByDirectory, type OpenCodeSession } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { createOpenCodeWatcher } from "./session-watcher.ts";
 
-export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
+export const opencodeAdapter: AgentAdapter<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
 
   resolveSession(state, log) {

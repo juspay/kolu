@@ -5,7 +5,7 @@
  *    `summary`) don't perturb ordering.
  *  - Restore caveat: agent state is transient, so a restored terminal
  *    always sees a `null → detected` "transition" the moment the
- *    provider re-observes the still-running session. If the terminal
+ *    adapter re-observes the still-running session. If the terminal
  *    already carries a non-zero `lastActivityAt` (from the saved
  *    session), that's the truth of when the user last interacted —
  *    don't overwrite it with `Date.now()` just because the live agent

@@ -1,6 +1,6 @@
 /** Agent contracts shared across integration packages.
  *
- *  Owns: AgentProvider contract, terminal-state matching, agent CLI
+ *  Owns: AgentAdapter contract, terminal-state matching, agent CLI
  *  parsing, and the cross-integration TaskProgress schema.
  *
  *  Generic utilities (Logger, file/DB helpers, WAL subscription factory)
@@ -15,11 +15,11 @@ export {
 
 export {
   type AgentInfoShape,
-  type AgentProvider,
+  type AgentAdapter,
   type AgentTerminalState,
   type AgentWatcher,
   agentInfoEqual,
   matchesAgent,
-} from "./agent-provider.ts";
+} from "./agent-adapter.ts";
 export { classifyByAwaiting } from "./lifecycle.ts";
 export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
