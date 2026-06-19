@@ -124,7 +124,7 @@ reactivity cluster.
 
 | # | Opportunity | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|
-| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn. Clears the rest of the reactivity cluster. |
+| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn *that leaves the top-level set untouched*. Clears the rest of the reactivity cluster. |
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
@@ -152,7 +152,7 @@ their themes as *"remaining within …"*.
 - **Compositor paint storms** — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
 - **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
-- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs on metadata churn; proven by a re-run-count regression test.
+- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs when a metadata change leaves that set intact; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly.)
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
@@ -172,14 +172,22 @@ that reference, so *any single terminal's metadata mutation* re-ran
 allocating 4–5 intermediate collections each pass, and re-evaluated every tile's
 `Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx`). **Done** <PrLink pr={1425} /> —
 the memo now carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior array
-whenever the top-level id set is unchanged — the derivation re-runs only on a
-real add / remove / reorder, not on metadata churn. The accessor still re-runs
+whenever the top-level id set is unchanged — the *set-shaped* re-run path
+(`terminalIds()` returning a fresh reference) now fires only on a real add /
+remove / reorder, not on every metadata mutation. The accessor still re-runs
 cheaply; what it no longer does is *notify* downstream when the set is identical.
 Proven by a re-run-count regression test (`useTerminalMetadata.test.ts`), so banking
 it didn't need the live trace the [coverage gaps](#from-static-reads-to-live-traces)
 flag as still-pending. (Verification had corrected the original "O(n³)" claim to
 O(n log n) — the cost was wasted allocations + re-derivation, not algorithmic
-blowup.)
+blowup.) One nuance the gate does **not** change: `displayInfos` reads the
+display-relevant fields (`git`, `cwd`, `parentId`) of each terminal's metadata
+*inside its own scope*, so it carries a second, field-level subscription to those
+paths. Because the surface store writes via `reconcile`, PR / agent / foreground
+churn — the dominant ~1/s updates — never reached `displayInfos` even before this
+gate; a real `git`/`cwd`/`parentId` change still re-runs it, which is correct (the
+displayed identity genuinely changed). The gate closes the *set-reference* path;
+the field-level path is already as narrow as it should be.
 </Finding>
 
 - **`getSubTerminalIds` O(n) scan, called per top-level terminal** inside the display derivation → O(n²) per metadata update (`useTerminalMetadata.ts:54-56`, `terminalDisplay.ts:80`). Fix with a `Map<ParentId, TerminalId[]>` index in the same memo. <Pill variant="lo">low</Pill> impact.
