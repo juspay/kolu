@@ -254,32 +254,40 @@ common -> awareness: "re-homes schemas + adds location"
 
 ### How it runs — the process graph
 
-The package graph above is build-time; this is *runtime*. P1 is **three processes**, and not one of them is kolu-server. Every connection is the same surface protocol — a unix socket locally, ssh/`--stdio` remotely:
+The package graph above is build-time; this is *runtime*. The honest P1 picture has **kolu running, unchanged** — and `arivu` standing up *alongside* it, off the same substrate, **without being wired in yet**:
 
 <D2
-  caption="P1 runtime topology (arrows point from a process to what it connects to / acts upon; data flows back the other way). arivu-tui dials arivu and reads the awareness collection (snapshot+delta). arivu is a client BELOW — it dials kaval as a PtyHostClient, subscribing to the four taps + getScreenText — and reads the host fs (git/gh/~/.claude) to derive awareness; and a server ABOVE — it serves that awareness to whoever dials it. kaval spawns and durably owns the PTYs. Every hop is the same protocol over a unix socket locally, or ssh/--stdio remotely; no kolu-server is in the loop in P1."
+  caption="P1 runtime (arrows point from a process to what it connects to; data flows back the other way). kolu-server (blue) is UNCHANGED — browser over oRPC, dials kaval for PTYs + taps, runs the providers in-process, writes terminalMetadata exactly as today. arivu (amber) stands up in parallel: it dials the SAME kaval and reads the SAME host fs, runs the SAME provider code as a separate process, and serves its own surface to arivu-tui. The two are NOT connected — kolu and arivu each derive awareness independently; that isolation is P1's safety. The dashed edge is the future wiring (P3: kolu-server dials a remote arivu over ssh; P2 composes the same surface in-process) — it does not exist in P1."
   code={`direction: down
 classes: {
+  client: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
+  app: { style.fill: "#e7eefb"; style.stroke: "#c3d4f3"; style.font-color: "#2563eb" }
   tool: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
   tui: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
   pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
   host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
 }
-tui: "arivu-tui\\n(viewer process)" { class: tui }
-arivu: "arivu\\n(awareness daemon)\\nderives in the middle" { class: tool }
+browser: "browser\\nthe kolu UI" { class: client }
+server: "kolu-server\\nproviders IN-PROCESS · writes terminalMetadata\\n(UNCHANGED in P1)" { class: app }
+tui: "arivu-tui\\n(viewer)" { class: tui }
+arivu: "arivu\\n(awareness daemon)" { class: tool }
 kaval: "kaval\\n(durable PTY daemon)" { class: pty }
-ptys: "PTYs · shells\\nowned by kaval" { class: pty }
+ptys: "PTYs · shells" { class: pty }
 fs: "host fs\\ngit · gh · ~/.claude" { class: host }
-tui -> arivu: "dials · reads awareness\\n(snapshot+delta)\\nunix socket | ssh --stdio"
-arivu -> kaval: "dials (PtyHostClient)\\nsubscribes: taps + screen\\nunix socket | ssh"
-arivu -> fs: "reads\\ngit · gh · ~/.claude"
-kaval -> ptys: "spawns · owns\\n(durable)"
+browser -> server: "oRPC"
+tui -> arivu: "dials · reads awareness"
+server -> kaval: "dials · PTYs + taps"
+arivu -> kaval: "dials · taps + screen"
+server -> fs: "reads (in-process)"
+arivu -> fs: reads
+kaval -> ptys: "owns (durable)"
+server -> arivu: "later — P3 dials over ssh" { style.stroke-dash: 5 }
 `}
 />
 
-- **`arivu` is a client below, a server above.** It *dials* kaval (subscribing to the four taps + `getScreenText`) and *reads* the host fs, then *serves* the derived awareness to whoever dials it. That derive-in-the-middle role is the whole design.
-- **One protocol, two transports.** Local is a unix socket; remote is the *identical* surface served over ssh via `--stdio`. Nothing changes but the pipe — which is exactly why this standalone tool is also the remote substrate P3 reuses (kolu-server dials `arivu` the same way `arivu-tui` does).
-- **No kolu in the loop.** kolu-server enters only in P2 (compose) and P3 (dial over ssh); in P1 the graph is closed over kaval + `arivu` + `arivu-tui` + the host.
+- **kolu keeps working — untouched.** In P1, kolu-server still dials kaval for PTYs and runs the providers *in-process* for local terminals, writing `terminalMetadata` exactly as today. P1 changes none of that behavior — only *where the provider code lives* (the package move).
+- **`arivu` runs in parallel, off the same substrate.** It dials the same kaval and reads the same host fs, running the *same* provider code as a standalone process — but it serves its **own** surface and writes nothing of kolu's. The two derive awareness independently and **never touch**. That isolation is the point: prove the providers run standalone with **zero risk** to the running product.
+- **kolu adopts it later, not in P1.** The dashed edge is the future — **P3** has kolu-server dial a *remote* `arivu` over ssh (then mirror + fold); **P2** composes the same surface *in-process* via `directLink` (no separate process). In P1 that edge doesn't exist: `arivu` + `arivu-tui` are a closed standalone loop sitting next to the untouched product.
 
 ## Load-bearing complexity & open decisions
 
