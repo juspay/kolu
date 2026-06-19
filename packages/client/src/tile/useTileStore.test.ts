@@ -63,10 +63,6 @@ describe("useTileStore projection", () => {
   it("projects each live terminal into a terminal-content tile, in order", () => {
     expect(store.tileIds()).toEqual(["a", "b"]);
     expect(store.tileCount()).toBe(2);
-    expect(store.tiles()).toEqual([
-      { id: "a", content: { kind: "terminal", terminalId: "a" } },
-      { id: "b", content: { kind: "terminal", terminalId: "b" } },
-    ]);
   });
 
   it("resolves content by id and is undefined for a tile that does not exist", () => {

@@ -24,17 +24,11 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
-import { createMemo } from "solid-js";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import {
-  type Tile,
-  type TileContent,
-  type TileId,
-  terminalContent,
-} from "./tileContent";
+import type { TileContent, TileId } from "./tileContent";
 
 export const useTileStore = createSharedRoot(() => {
   const store = useTerminalStore();
@@ -54,27 +48,12 @@ export const useTileStore = createSharedRoot(() => {
    *  canvas instead of collapsing to the empty state. */
   const tileCount = (): number => tileIds().length;
 
-  /** The tile model — identity + content, in registry order. The single source
-   *  of per-tile content, derived from the stabilized `tileIds` memo so it only
-   *  rebuilds when the tile SET changes (each row's content object then stays
-   *  referentially stable for that row's `<For>` lifetime). Iterate `tileIds()`
-   *  (a stable string array, keyed by value) for a `<For>`; read `tiles()` when
-   *  you want the content alongside the id. PR 2 makes this the merge point for
-   *  live + sleeping tiles. */
-  const tiles = createMemo<Tile[]>(() =>
-    tileIds().map((id) => ({ id, content: terminalContent(id) })),
-  );
-
-  /** Per-tile content lookup, dispatched on by the canvas/dock. Derived from
-   *  {@link tiles} so the two never disagree; the only kind today is
-   *  `terminal`. */
-  const contentById = createMemo(() => {
-    const map = new Map<TileId, TileContent>();
-    for (const tile of tiles()) map.set(tile.id, tile.content);
-    return map;
-  });
+  /** Per-tile content lookup, dispatched on by the canvas/dock. The single
+   *  per-id projection: a present id maps to its `terminal` content (the only
+   *  kind today), an absent one to `undefined`. PR 2 makes this the one dispatch
+   *  site where a sleeping id resolves to its own content kind. */
   const contentOf = (id: TileId): TileContent | undefined =>
-    contentById().get(id);
+    tileIds().includes(id) ? { kind: "terminal", terminalId: id } : undefined;
 
   /** A tile's saved position/size. The registry HIDES where layout lives: for a
    *  terminal tile it reads `TerminalMetadata.canvasLayout` (no schema change —
@@ -98,7 +77,6 @@ export const useTileStore = createSharedRoot(() => {
 
   return {
     // Tile presence + content.
-    tiles,
     tileIds,
     tileCount,
     contentOf,
