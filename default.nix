@@ -278,6 +278,13 @@ let
     sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' "$shell"
   '';
 
+  # kaval's BAKED-IN heap ceiling (MB), the upper half of one tuned tripwire pair
+  # whose lower half is `--heapsnapshot-near-heap-limit=3` in `diagRunHook` below.
+  # Bound here once so re-tuning the OOM tripwire is a single edit, not a hunt
+  # across two literals (see kaval's --add-flags). Not an override knob — see the
+  # kaval wrapper comment for why it is pinned.
+  kavalHeapMb = 3072;
+
   # The opt-in heap-capture --run hook, defined ONCE for every kolu-family
   # wrapper (koluBin + kaval) — the Nix half of the same capability `@kolu/heap-
   # diag` is the TS half of. When KOLU_DIAG_DIR is set, it computes a per-
@@ -289,6 +296,12 @@ let
   # failure is FATAL (exit 1), never a silent degrade. Unset = passthrough, zero
   # overhead. `prefix` namespaces a daemon's captures under the server's diag
   # tree (kaval forwards KOLU_DIAG_DIR and lands in `kaval-…`).
+  #
+  # `--heapsnapshot-near-heap-limit=3` is the LOWER half of kaval's tripwire
+  # pair: V8 dumps a snapshot when within 3 GCs of the heap ceiling, sized to
+  # fire just under kaval's `kavalHeapMb` cap above (re-tune the two together).
+  # koluBin shares this literal but runs under V8's RAM-derived default ceiling,
+  # so for it the count is only a near-OOM safety net, not a paired trip-point.
   diagRunHook = prefix: ''
     if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
       KOLU_DIAG_DIR="$KOLU_DIAG_DIR/${prefix}$(date +%Y%m%dT%H%M%S)-$$"
@@ -360,15 +373,17 @@ let
       meta.mainProgram = "kaval";
     } ''
     mkdir -p $out/bin
-    # `--max-old-space-size=3072`: a deliberate, BAKED-IN heap tripwire (not an
-    # override knob). kaval keeps a per-live-terminal headless mirror and live
-    # terminals accumulate, so its heap grows ~linearly with terminal count;
-    # left to V8's RAM-derived default (multi-GB, and host-dependent on the
-    # 58–128 GB boxes kolu runs on) it OOMs opaquely mid-GC-thrash. Pinning 3 GB
-    # makes the ceiling deterministic across hosts and — paired with the
-    # `--heapsnapshot-near-heap-limit` hook below — fails LOUD with a snapshot
-    # before the thrash zone. With the small server mirror this is ~750-terminal
-    # headroom (3× the pre-fix crash point). See kaval-heap-oom.mdx.
+    # `--max-old-space-size=${toString kavalHeapMb}` (from the `kavalHeapMb`
+    # let-value above): a deliberate, BAKED-IN heap tripwire (not an override
+    # knob). kaval keeps a per-live-terminal headless mirror and live terminals
+    # accumulate, so its heap grows ~linearly with terminal count; left to V8's
+    # RAM-derived default (multi-GB, and host-dependent on the 58–128 GB boxes
+    # kolu runs on) it OOMs opaquely mid-GC-thrash. Pinning ~3 GB makes the
+    # ceiling deterministic across hosts and — paired with the
+    # `--heapsnapshot-near-heap-limit` lower half of the tripwire in `diagRunHook`
+    # — fails LOUD with a snapshot before the thrash zone. With the small server
+    # mirror this is ~750-terminal headroom (3× the pre-fix crash point). See
+    # kaval-heap-oom.mdx.
     #
     # `--run (diagRunHook "kaval-")` arms the same opt-in heap capture as koluBin
     # (the hook is defined once, above): when KOLU_DIAG_DIR is forwarded
@@ -376,7 +391,7 @@ let
     # the V8 heap-snapshot flags, so the next near-OOM dumps a snapshot that names
     # the leak in the real workload. Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.nodejs}/bin/node $out/bin/kaval \
-      --add-flags "--max-old-space-size=3072" \
+      --add-flags "--max-old-space-size=${toString kavalHeapMb}" \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
