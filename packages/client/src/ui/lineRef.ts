@@ -156,9 +156,11 @@ export type ResolvedRef =
  *    2. an exact path that names a **directory** — a slash path like
  *       `src/core` reveals that folder *before* the fuzzy basename guess, so a
  *       real directory is never shadowed by a same-named file elsewhere.
- *       Skipped when `hasLine` is set: a `:N` suffix only makes sense for a
- *       file, so `app/core:12` must not silently reveal `app/core/` and drop
- *       the line — it fails closed to the not-found toast instead;
+ *       When `hasLine` is set the directory is still *detected* but not
+ *       revealed: a `:N` suffix only makes sense for a file, so `app/core:12`
+ *       fails closed to the not-found toast instead of revealing `app/core/`
+ *       and dropping the line — and, crucially, instead of falling through to
+ *       the basename fallback and opening an unrelated same-basename file;
  *    3. a unique-**basename** file fallback — compiler output often prints just
  *       `Foo.hs:42` without the `src/lib/` prefix (#898). Fires only when the
  *       basename is unique; ambiguous matches stay null since opening the wrong
@@ -182,9 +184,11 @@ export type ResolvedRef =
  *    is gated; the exact file and directory steps always apply.
  *
  *  - `hasLine`: the ref carried a `:N` line suffix. A line number only makes
- *    sense for a file, so when set the directory step (2) is skipped — a folder
- *    can never satisfy a line-bearing ref. Defaults to false (a bare path may be
- *    a folder). */
+ *    sense for a file, so a folder can never satisfy a line-bearing ref. When
+ *    set, step (2) still *detects* a directory match but fails closed (returns
+ *    null) instead of revealing it or letting the basename fallback fire — a
+ *    path that already names a real directory must not fuzzy-open some other
+ *    file. Defaults to false (a bare path may be a folder). */
 export function resolveRef(args: {
   rawPath: string;
   repoRoot: string;
@@ -203,14 +207,16 @@ export function resolveRef(args: {
   // 2. Exact directory — checked before the basename fallback so `src/core`
   //    reveals the folder rather than guessing at a stray `core` file. An empty
   //    candidate (the repo root itself) names no folder row, so skip it.
-  //    Skipped entirely for a line-bearing ref: `app/core:12` means a file, so
-  //    a directory match would wrongly reveal `app/core/` and lose the `:12`.
+  //    A line-bearing ref (`app/core:12`) means a *file*, so we don't reveal the
+  //    folder — but we still detect the directory match and fail closed (return
+  //    null) rather than fall through to the basename fallback, which would
+  //    wrongly open an unrelated same-basename file (`lib/core`) for a path the
+  //    user already pointed at a real directory.
   for (const candidate of candidates(args)) {
-    if (args.hasLine) break;
     if (candidate === "") continue;
     const hit = byDir.get(`${candidate}/`.normalize("NFC"));
     if (hit !== undefined && hit !== AMBIGUOUS) {
-      return { kind: "directory", path: hit };
+      return args.hasLine ? null : { kind: "directory", path: hit };
     }
   }
   // 3. Unique-basename file fallback.

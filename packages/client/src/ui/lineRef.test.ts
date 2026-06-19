@@ -584,6 +584,23 @@ describe("resolveRef", () => {
     ).toBeNull();
   });
 
+  it("fails closed (no basename fuzzy) for a line-bearing directory ref", () => {
+    // `app/core:12` names a real directory (`app/core/`), and `core` is also a
+    // unique file basename elsewhere (`lib/core`). The line suffix means a
+    // file, so we don't reveal the folder — but because the path already names
+    // a real directory we must NOT fall through to the basename fallback and
+    // open the unrelated `lib/core`. It fails closed to not-found.
+    expect(
+      resolveRef({
+        rawPath: "app/core",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths: ["app/core/one.ts", "lib/core"],
+        hasLine: true,
+      }),
+    ).toBeNull();
+  });
+
   it("still resolves an exact file for a line-bearing ref", () => {
     // The line gate only suppresses the *directory* step — a real file with a
     // `:line` still resolves (and the caller paints the highlight).
