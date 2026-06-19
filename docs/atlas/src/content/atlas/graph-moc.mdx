@@ -1,0 +1,79 @@
+---
+title: Graph view + Maps of Content
+description: Render the Atlas as a force-directed graph and surface its hub notes as Maps of Content — both derived from the links the Atlas already has, baked to a self-contained page at build time.
+kind: feature
+maturity: seedling
+status: proposed
+parents: [meta]
+updated: 2026-06-19
+---
+
+import Callout from "../../components/Callout.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+**Spike.** A second view of the same Atlas: a [force-directed graph](./graph.html)
+of every note, plus a **Maps of Content** strip that names the hubs — the notes
+the rest of the Atlas points at. The index answers *"what's filed where"*; the
+graph answers *"what's connected to what,"* and the hubs answer *"where do I
+start."*
+
+> Take a look: open **[the graph](./graph.html)**. Hover a node to trace its
+> neighborhood, click to open the note, drag/scroll to move around.
+
+## It reuses the links the Atlas already has
+
+No new frontmatter, no hand-curated index. The edges are exactly the two the
+Atlas already authors, and the same derivation that powers the dead-link gate and
+the "Referenced by" backlinks now also feeds the graph:
+
+- **`parents`** — the within-category nesting edges.
+- **same-directory prose links** — every `./slug.html` reference one note makes to
+  another.
+
+A node's **degree** (how many edges touch it) sets its size; its **inbound** count
+(how many notes point *at* it) ranks it as a hub. The real corpus already
+concentrates: `electricity` is the gravitational center, with `solid-fileview`,
+`pty-daemon`, `surface-app`, and `odu` as the domain hubs. Those *are* the Maps of
+Content — discovered, not declared.
+
+## How the page stays a self-contained file
+
+The Atlas's whole premise is that each page is a committed, self-contained HTML
+file that previews in kolu's Code tab with no dev server — and the build is a pure
+function of source (the `ci::atlas-sync` idempotency gate rebuilds under a
+scrambled timezone/locale and fails on any drift). The graph honors both:
+
+- **Layout is computed at build time** with [`d3-force`](https://github.com/d3/d3-force)
+  (a library, not hand-rolled) and **baked** into a static inline `<svg>` as
+  rounded coordinates. Nothing lays out at runtime.
+- **Determinism is engineered in:** notes are sorted by id and edges by pair-key
+  before the simulation, positions are seeded by that stable index, a fixed number
+  of ticks runs synchronously, and every coordinate is rounded. d3-force v3 carries
+  no `Math.random`, so the baked geometry is identical on every rebuild.
+- **The only client JS is one `is:inline` script** for interaction (zoom/pan,
+  hover-highlight, click-to-open) — so no `_astro` bundle is emitted and the page
+  stays one file. Nodes are real `<a>` links, and the Maps-of-Content cards are
+  plain linked lists, so the page still **reads and navigates with JavaScript off**.
+
+<Callout kind="accent" title="Why a graph, given the index already exists">
+The generated index is the authoritative, scannable table of contents — it never
+goes away. The graph is a *complementary* lens: it makes the shape of the
+knowledge base legible (clusters, bridges, orphans) in a way a tree can't, and the
+Maps of Content give a high-degree note a reason to exist as a deliberate entry
+point. The two share one data source, so they can never disagree.
+</Callout>
+
+## Where this could go
+
+<Roadmap>
+  <Milestone status="done" label="spike">Build-time d3-force layout, baked self-contained SVG, MoC hub cards, linked from the index.</Milestone>
+  <Milestone status="next" label="1">Filter/focus by <code>kind</code> or maturity; isolate a single hub's cluster.</Milestone>
+  <Milestone status="next" label="2">Surface orphans (degree 0) and weakly-linked notes as a "wire these up" nudge.</Milestone>
+  <Milestone status="next" label="3">Deep-link into the graph centered on the note you came from (a "see this in context" link from each note).</Milestone>
+</Roadmap>
+
+---
+
+*Seedling spike — a second view over the existing link graph. The index stays the
+source of truth; this is a way to see it.*

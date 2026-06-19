@@ -1,0 +1,187 @@
+---
+// "Maps of Content" — the hub notes, derived purely from the existing link graph
+// (a hub = a note many others point to via `parents`/prose links). Each card
+// lists the hub's cluster: the notes that reference it, already title-sorted by
+// lib/atlasGraph. These are plain <a> links, so the MoC reads and navigates with
+// no JS — the force graph above is enhancement, this is the durable artifact.
+// `data-hub` lets a card hover light up its node + neighborhood in the graph.
+import type { HubCard } from "../lib/graphView";
+
+interface Props {
+  hubs: HubCard[];
+}
+const { hubs } = Astro.props as Props;
+---
+
+<section class="moc-hubs" aria-label="Maps of Content">
+  <div class="moc-hubs-grid">
+    {
+      hubs.map((h) => (
+        <article class={`hub-card kind-${h.kind}`} data-hub={h.id}>
+          <header class="hub-head">
+            <span class="hub-bar" />
+            <a class="hub-title" href={`./${h.id}.html`}>
+              {h.title}
+            </a>
+            <span class="hub-count">{h.inbound} in · {h.degree} links</span>
+          </header>
+          <p class="hub-desc">{h.description}</p>
+          <ul class="cluster">
+            {h.cluster.map((c) => (
+              <li>
+                <a class="cluster-row" href={`./${c.id}.html`}>
+                  <span class={`cluster-dot m-${c.maturity}`} />
+                  <span class="cluster-t">{c.title}</span>
+                  <span class={`cluster-kind k-${c.kind}`}>{c.kind}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .moc-hubs {
+    margin: 2.5rem 0 0;
+  }
+  .moc-hubs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+    gap: 1rem;
+  }
+  .hub-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--cat-color, var(--ink-muted));
+    border-radius: 12px;
+    padding: 1rem 1.1rem 1.1rem;
+    transition:
+      box-shadow 0.15s ease,
+      transform 0.15s ease;
+  }
+  .hub-card:hover {
+    box-shadow: 0 1px 0 var(--rule), 0 6px 20px -14px rgba(26, 28, 32, 0.4);
+  }
+  .hub-card.kind-bug {
+    --cat-color: var(--alert);
+  }
+  .hub-card.kind-feature {
+    --cat-color: var(--teal);
+  }
+  .hub-card.kind-analysis {
+    --cat-color: var(--gold);
+  }
+  .hub-card.kind-reference {
+    --cat-color: var(--ink-muted);
+  }
+
+  .hub-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .hub-bar {
+    align-self: center;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    background: var(--cat-color);
+  }
+  .hub-title {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .hub-title:hover {
+    color: var(--amber);
+  }
+  .hub-count {
+    margin-left: auto;
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .hub-desc {
+    margin: 0.5rem 0 0.7rem;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--ink-muted);
+  }
+
+  .cluster {
+    list-style: none;
+    margin: 0;
+    padding: 0.7rem 0 0;
+    border-top: 1px solid var(--rule-soft);
+    display: grid;
+    gap: 0.05rem;
+  }
+  .cluster-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.3rem;
+    border-radius: 6px;
+    text-decoration: none;
+  }
+  .cluster-row:hover {
+    background: var(--paper);
+  }
+  .cluster-row:hover .cluster-t {
+    color: var(--amber);
+  }
+  .cluster-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .cluster-dot.m-seedling {
+    background: var(--gold);
+  }
+  .cluster-dot.m-budding {
+    background: var(--teal);
+  }
+  .cluster-dot.m-evergreen {
+    background: var(--green);
+  }
+  .cluster-t {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.84rem;
+    font-weight: 500;
+    color: var(--ink-dim);
+  }
+  .cluster-kind {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .cluster-kind.k-bug {
+    color: var(--alert);
+  }
+  .cluster-kind.k-feature {
+    color: var(--teal);
+  }
+  .cluster-kind.k-analysis {
+    color: var(--gold);
+  }
+  .cluster-kind.k-reference {
+    color: var(--ink-faint);
+  }
+</style>

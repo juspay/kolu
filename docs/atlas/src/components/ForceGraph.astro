@@ -1,0 +1,360 @@
+---
+// The Atlas as an interactive force graph. The layout is computed at BUILD time
+// (lib/graphView → d3-force) and baked into this static inline <svg> as rounded
+// coordinates, so the page is self-contained and the committed dist/ is a pure
+// function of source. The only client JS is a tiny `is:inline` script that adds
+// interaction — zoom/pan + a 1-hop hover highlight + drag-suppressed open — never
+// layout. Nodes are real <a> links, so they navigate (and degrade) without JS.
+//
+// Encoding: fill = kind (the index's category colors), radius = degree (sqrt, so
+// the Maps-of-Content hubs are the biggest circles), ring stroke = maturity. Hub
+// nodes carry an always-on serif label; the rest reveal theirs on hover.
+import type { GraphEdge, GraphNode } from "../lib/graphView";
+
+interface Props {
+  viewBox: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+const { viewBox, nodes, edges } = Astro.props as Props;
+---
+
+<figure class="atlas-graph">
+  <div class="graph-hint mono">
+    <span>drag to pan · scroll to zoom · click a node to open</span>
+    <button type="button" class="graph-reset" data-graph-reset>reset</button>
+  </div>
+  <svg
+    viewBox={viewBox}
+    data-vb={viewBox}
+    role="img"
+    aria-label="Force-directed graph of the Atlas notes"
+    preserveAspectRatio="xMidYMid meet"
+  >
+    <g class="edges">
+      {
+        edges.map((e) => (
+          <line
+            class={`edge ${e.kind}`}
+            x1={e.x1}
+            y1={e.y1}
+            x2={e.x2}
+            y2={e.y2}
+            data-a={e.a}
+            data-b={e.b}
+            vector-effect="non-scaling-stroke"
+          />
+        ))
+      }
+    </g>
+    <g class="nodes">
+      {
+        nodes.map((n) => (
+          <a
+            class={`node${n.isHub ? " hub" : ""}`}
+            href={`./${n.id}.html`}
+            data-id={n.id}
+            data-nb={n.neighbors}
+          >
+            <g transform={`translate(${n.x} ${n.y})`}>
+              <title>{n.title}</title>
+              <circle
+                class={`dot k-${n.kind} m-${n.maturity}`}
+                r={n.r}
+                vector-effect="non-scaling-stroke"
+              />
+              <text class={`label${n.isHub ? " label-hub" : ""}`} y={n.r + 10}>
+                {n.id}
+              </text>
+            </g>
+          </a>
+        ))
+      }
+    </g>
+  </svg>
+</figure>
+
+<script is:inline>
+  (function () {
+    var fig = document.querySelector(".atlas-graph");
+    if (!fig) return;
+    var svg = fig.querySelector("svg");
+    if (!svg) return;
+    var nodes = Array.prototype.slice.call(svg.querySelectorAll(".node"));
+    var edges = Array.prototype.slice.call(svg.querySelectorAll(".edge"));
+    var byId = {};
+    nodes.forEach(function (n) {
+      byId[n.getAttribute("data-id")] = n;
+    });
+
+    // ── 1-hop hover highlight (also driven by the hub cards via [data-hub]) ──
+    function highlight(id) {
+      var node = byId[id];
+      if (!node) return;
+      var nb = {};
+      nb[id] = true;
+      (node.getAttribute("data-nb") || "").split(" ").forEach(function (x) {
+        if (x) nb[x] = true;
+      });
+      svg.classList.add("dim");
+      nodes.forEach(function (n) {
+        n.classList.toggle("on", !!nb[n.getAttribute("data-id")]);
+      });
+      edges.forEach(function (e) {
+        e.classList.toggle(
+          "on",
+          e.getAttribute("data-a") === id || e.getAttribute("data-b") === id,
+        );
+      });
+    }
+    function clearHi() {
+      svg.classList.remove("dim");
+      nodes.forEach(function (n) {
+        n.classList.remove("on");
+      });
+      edges.forEach(function (e) {
+        e.classList.remove("on");
+      });
+    }
+    nodes.forEach(function (n) {
+      var id = n.getAttribute("data-id");
+      n.addEventListener("pointerenter", function () {
+        highlight(id);
+      });
+      n.addEventListener("pointerleave", clearHi);
+    });
+    document.querySelectorAll("[data-hub]").forEach(function (card) {
+      var id = card.getAttribute("data-hub");
+      card.addEventListener("pointerenter", function () {
+        highlight(id);
+      });
+      card.addEventListener("pointerleave", clearHi);
+    });
+
+    // ── pan + zoom via viewBox; drag suppresses the node's <a> navigation ──
+    var vb = svg.viewBox.baseVal;
+    var base = { x: vb.x, y: vb.y, w: vb.width, h: vb.height };
+    var MINR = 0.35,
+      MAXR = 4;
+    var dragging = false,
+      moved = false,
+      px = 0,
+      py = 0,
+      ox = 0,
+      oy = 0;
+
+    svg.addEventListener("pointerdown", function (e) {
+      dragging = true;
+      moved = false;
+      px = e.clientX;
+      py = e.clientY;
+      ox = vb.x;
+      oy = vb.y;
+    });
+    window.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - px,
+        dy = e.clientY - py;
+      if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+      var rect = svg.getBoundingClientRect();
+      vb.x = ox - (dx * vb.width) / rect.width;
+      vb.y = oy - (dy * vb.height) / rect.height;
+    });
+    window.addEventListener("pointerup", function () {
+      dragging = false;
+    });
+    svg.addEventListener(
+      "click",
+      function (e) {
+        if (moved) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
+
+    svg.addEventListener(
+      "wheel",
+      function (e) {
+        e.preventDefault();
+        var rect = svg.getBoundingClientRect();
+        var fx = (e.clientX - rect.left) / rect.width;
+        var fy = (e.clientY - rect.top) / rect.height;
+        var ux = vb.x + fx * vb.width;
+        var uy = vb.y + fy * vb.height;
+        var factor = e.deltaY < 0 ? 0.85 : 1 / 0.85;
+        var ratio = (vb.width * factor) / base.w;
+        if (ratio < MINR) factor = (MINR * base.w) / vb.width;
+        if (ratio > MAXR) factor = (MAXR * base.w) / vb.width;
+        vb.width *= factor;
+        vb.height *= factor;
+        vb.x = ux - fx * vb.width;
+        vb.y = uy - fy * vb.height;
+      },
+      { passive: false },
+    );
+
+    var reset = fig.querySelector("[data-graph-reset]");
+    if (reset)
+      reset.addEventListener("click", function () {
+        vb.x = base.x;
+        vb.y = base.y;
+        vb.width = base.w;
+        vb.height = base.h;
+      });
+  })();
+</script>
+
+<style>
+  .atlas-graph {
+    margin: 0;
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 0.5rem;
+    overflow: hidden;
+  }
+  .graph-hint {
+    position: absolute;
+    top: 0.7rem;
+    left: 0.9rem;
+    right: 0.9rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    pointer-events: none;
+  }
+  .graph-reset {
+    pointer-events: auto;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    cursor: pointer;
+  }
+  .graph-reset:hover {
+    color: var(--amber);
+    border-color: var(--amber-soft);
+  }
+  .atlas-graph svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+    touch-action: none;
+    cursor: grab;
+  }
+  .atlas-graph svg:active {
+    cursor: grabbing;
+  }
+
+  .edge {
+    stroke: var(--rule);
+    stroke-width: 1px;
+    transition: opacity 0.18s ease;
+  }
+  .edge.link {
+    stroke-dasharray: 2 3;
+  }
+
+  .node {
+    cursor: pointer;
+    transition: opacity 0.18s ease;
+  }
+  .dot {
+    stroke-width: 1.6px;
+    transition:
+      opacity 0.18s ease,
+      filter 0.18s ease;
+  }
+  .node:hover .dot {
+    filter: brightness(1.06);
+  }
+  /* fill = kind (the index's category colours) */
+  .k-bug {
+    fill: var(--alert);
+  }
+  .k-feature {
+    fill: var(--teal);
+  }
+  .k-analysis {
+    fill: var(--gold);
+  }
+  .k-reference {
+    fill: var(--ink-muted);
+  }
+  /* ring stroke = maturity (the index's maturity-dot colours) */
+  .m-seedling {
+    stroke: var(--gold);
+  }
+  .m-budding {
+    stroke: var(--teal);
+  }
+  .m-evergreen {
+    stroke: var(--green);
+  }
+
+  .label {
+    fill: var(--ink-dim);
+    font-family: var(--sans);
+    font-size: 8px;
+    font-weight: 600;
+    text-anchor: middle;
+    paint-order: stroke;
+    stroke: var(--paper);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+  .label-hub {
+    fill: var(--ink);
+    font-family: var(--serif);
+    font-size: 10px;
+    opacity: 1;
+  }
+  .node:hover .label {
+    opacity: 1;
+  }
+
+  /* dimmed state during a hover — only the 1-hop neighborhood stays lit */
+  svg.dim .node {
+    opacity: 0.16;
+  }
+  svg.dim .node.on {
+    opacity: 1;
+  }
+  svg.dim .node.on .label {
+    opacity: 1;
+  }
+  svg.dim .edge {
+    opacity: 0.05;
+  }
+  svg.dim .edge.on {
+    opacity: 0.85;
+    stroke: var(--ink-faint);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .edge,
+    .node,
+    .dot,
+    .label {
+      transition: none;
+    }
+  }
+</style>
