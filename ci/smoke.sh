@@ -16,10 +16,10 @@
 
 set -euo pipefail
 
-readonly LISTEN_TIMEOUT_SEC=10
+readonly MARKER_TIMEOUT_SEC=10
 readonly POLL_INTERVAL_SEC=0.1
 readonly HEALTH_TIMEOUT_MS=5000
-readonly TICKS=$(awk "BEGIN { print int($LISTEN_TIMEOUT_SEC / $POLL_INTERVAL_SEC) }")
+readonly TICKS=$(awk "BEGIN { print int($MARKER_TIMEOUT_SEC / $POLL_INTERVAL_SEC) }")
 
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
 
@@ -57,7 +57,7 @@ wait_for_marker() {
         fi
         sleep "$POLL_INTERVAL_SEC"
     done
-    echo "kolu did not log '$marker' within ${LISTEN_TIMEOUT_SEC}s" >&2
+    echo "kolu did not log '$marker' within ${MARKER_TIMEOUT_SEC}s" >&2
     cat "$logfile" >&2
     exit 1
 }
