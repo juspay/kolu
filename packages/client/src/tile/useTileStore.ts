@@ -1,0 +1,122 @@
+/** Tile registry — the first-class "what tiles exist, which is active, where
+ *  each sits" layer the canvas, dock, and selection read. It sits IN FRONT OF
+ *  the terminal store (fed by it), separating tile PRESENCE from terminal
+ *  LIVENESS:
+ *
+ *    The Tile owns      → identity (TileId), the TileContent union, canvas
+ *                         layout access, active/selection, MRU, tile count.
+ *    The Terminal owns  → PTY · xterm · agent · attach stream · repo/branch
+ *                         identity · the live body (getMetadata / getDisplayInfo
+ *                         / focusedId).
+ *
+ *  Today every tile's content is `{ kind: "terminal" }`, so the registry is a
+ *  thin PROJECTION over the terminal store: `tileIds()` re-exposes the
+ *  stabilized `terminalIds()` memo verbatim, and the selection signals still
+ *  physically live in `useViewState` and are re-exposed here. That re-exposure
+ *  is deliberate sequencing — the same call the note makes for layout (it stays
+ *  a field on `TerminalMetadata`; the registry only HIDES where it lives). The
+ *  payoff is the load-bearing one: PR 2 adds a `sleeping` content variant here
+ *  and it inherits drag, resize, focus, active, dock ordering, and persistence
+ *  for free, because every one of those operates on this content-agnostic
+ *  registry rather than on the live terminal list.
+ *
+ *  Singleton via `createSharedRoot` (like `useTerminalStore` / `useDockOrder`)
+ *  so every consumer shares one reactive owner rooted at the app, not at
+ *  whichever component calls `useTileStore()` first. */
+
+import { createMemo } from "solid-js";
+import type { TileLayout } from "../canvas/TileLayout";
+import { createSharedRoot } from "../createSharedRoot";
+import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import {
+  type Tile,
+  type TileContent,
+  type TileId,
+  terminalContent,
+} from "./tileContent";
+
+export const useTileStore = createSharedRoot(() => {
+  const store = useTerminalStore();
+
+  /** The ordered tile ids — the canvas `<For>` source and the dock/switcher
+   *  set. Re-exposes the terminal store's stabilized `terminalIds()` memo
+   *  VERBATIM (TileId === TerminalId), so the `sameTerminalIdOrder`
+   *  reference-stability keystone (#1425) is inherited rather than
+   *  re-implemented: a metadata-only tick that leaves the tile set unchanged
+   *  still does NOT notify the canvas / dock / mode. PR 2 merges sleeping tile
+   *  ids in here behind an equivalent equals gate. */
+  const tileIds: () => TileId[] = store.terminalIds;
+
+  /** Tile count — the single fact `mode()` (canvas-vs-maximized) and the
+   *  empty-vs-workspace surface decision key off. Today === `terminalIds.length`;
+   *  PR 2 counts sleeping tiles too, so a sleeping-only workspace stays on the
+   *  canvas instead of collapsing to the empty state. */
+  const tileCount = (): number => tileIds().length;
+
+  /** The tile model — identity + content, in registry order. The single source
+   *  of per-tile content, derived from the stabilized `tileIds` memo so it only
+   *  rebuilds when the tile SET changes (each row's content object then stays
+   *  referentially stable for that row's `<For>` lifetime). Iterate `tileIds()`
+   *  (a stable string array, keyed by value) for a `<For>`; read `tiles()` when
+   *  you want the content alongside the id. PR 2 makes this the merge point for
+   *  live + sleeping tiles. */
+  const tiles = createMemo<Tile[]>(() =>
+    tileIds().map((id) => ({ id, content: terminalContent(id) })),
+  );
+
+  /** Per-tile content lookup, dispatched on by the canvas/dock. Derived from
+   *  {@link tiles} so the two never disagree; the only kind today is
+   *  `terminal`. */
+  const contentById = createMemo(() => {
+    const map = new Map<TileId, TileContent>();
+    for (const tile of tiles()) map.set(tile.id, tile.content);
+    return map;
+  });
+  const contentOf = (id: TileId): TileContent | undefined =>
+    contentById().get(id);
+
+  /** A tile's saved position/size. The registry HIDES where layout lives: for a
+   *  terminal tile it reads `TerminalMetadata.canvasLayout` (no schema change —
+   *  the note's lowy sequencing); PR 2's sleeping arm reads layout off the
+   *  sleeping record. Callers (canvas `getLayout`, arrange, the switcher) stop
+   *  knowing layout is a field on the terminal. */
+  const getLayout = (id: TileId): TileLayout | undefined => {
+    const content = contentOf(id);
+    if (content?.kind !== "terminal") return undefined;
+    return store.getMetadata(content.terminalId)?.canvasLayout;
+  };
+
+  /** Persist a tile's position/size — the single tile-layout write seam.
+   *  Dispatches by content kind to the right sink: today `persistCanvasLayout`
+   *  on the terminal; PR 2 writes a sleeping tile's layout to its record. */
+  const setLayout = (id: TileId, layout: TileLayout): void => {
+    const content = contentOf(id);
+    if (content?.kind !== "terminal") return;
+    persistCanvasLayout(content.terminalId, layout);
+  };
+
+  return {
+    // Tile presence + content.
+    tiles,
+    tileIds,
+    tileCount,
+    contentOf,
+    // Layout — the registry hides the storage home (terminal metadata today).
+    getLayout,
+    setLayout,
+    // Selection / MRU — re-exposed from view state (one source of truth). The
+    // active TILE may be any content kind; a terminal-content consumer that
+    // needs the active TERMINAL keeps reading `store.activeId()` (identical
+    // today — PR 2 narrows via `focusedId` / `terminalIdOf` once a sleeping
+    // tile can be active). Physically relocating these signals into the
+    // registry is a later optional migration, deferred like the layout-home
+    // schema move. `TileId === TerminalId`, so these are already tile-typed.
+    activeId: store.activeId,
+    activate: store.activate,
+    setActiveSilently: store.setActiveSilently,
+    mruOrder: store.mruOrder,
+  };
+});
+
+export type TileStore = ReturnType<typeof useTileStore>;

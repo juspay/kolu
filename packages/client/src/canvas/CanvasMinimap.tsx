@@ -11,6 +11,7 @@ import {
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
 import { agentBucket, bucketDescriptor } from "./dockModel";
@@ -107,6 +108,7 @@ const CanvasMinimap: Component<{
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
@@ -369,7 +371,7 @@ const CanvasMinimap: Component<{
             // parked-ghost; CSS interpolates between them so the tile glides
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
-            const isActive = () => store.activeId() === id;
+            const isActive = () => tileStore.activeId() === id;
             const hasAgent = () => state().bucket !== "none";
             const badgeVisible = () => hasAgent() && !parked();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a

@@ -3,11 +3,7 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import type {
-  CanvasLayout,
-  InitialTerminalMetadata,
-  TerminalId,
-} from "kolu-common/surface";
+import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
@@ -44,15 +40,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
-      );
-  }
-
-  /** Persist a terminal's canvas tile position/size on the server. */
-  function setCanvasLayout(id: TerminalId, layout: CanvasLayout) {
-    void client.terminal
-      .setCanvasLayout({ id, layout })
-      .catch((err: Error) =>
-        toast.error(`Failed to save canvas layout: ${err.message}`),
       );
   }
 
@@ -270,7 +257,6 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   return {
     setThemeName,
-    setCanvasLayout,
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,

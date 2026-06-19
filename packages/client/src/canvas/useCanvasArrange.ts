@@ -10,10 +10,10 @@
  *  arrange: a new tile opens at the canvas's default cascade and no
  *  existing tile moves. */
 
-import type { TerminalId } from "kolu-common/surface";
 import { supportsSpatialCanvas } from "../capabilities";
-import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import type { TileId } from "../tile/tileContent";
+import { useTileStore } from "../tile/useTileStore";
 import { getBucketFor } from "./placementPolicy";
 import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
@@ -21,19 +21,11 @@ import { usePendingLayouts } from "./usePendingLayouts";
 
 export function useCanvasArrange() {
   const store = useTerminalStore();
-  const crud = useTerminalCrud();
+  const tileStore = useTileStore();
   const pendingLayouts = usePendingLayouts();
 
-  /** Apply a tile's geometry — drag-end, resize-end, default-place,
-   *  and arrange all flow through this single point. The 500ms session
-   *  auto-save throttle on the server collapses N writes into one save,
-   *  so the per-tile RPC is fine for batch flows like arrange. */
-  function applyTileGeometry(id: TerminalId, layout: TileLayout) {
-    crud.setCanvasLayout(id, layout);
-  }
-
   function repoIslandTileFor(
-    id: TerminalId,
+    id: TileId,
     layout: TileLayout,
   ): RepoIslandTile | undefined {
     const bucket = getBucketFor(store, id);
@@ -42,14 +34,16 @@ export function useCanvasArrange() {
 
   /** Seed pending BEFORE dispatching writes so the canvas renders the
    *  arranged layout immediately, ahead of the metadata round-trip.
-   *  Skips no-op writes so a re-arrange doesn't fire N round-trip RPCs. */
-  function applyLayoutBatch(layouts: Map<TerminalId, TileLayout>) {
+   *  Skips no-op writes so a re-arrange doesn't fire N round-trip RPCs.
+   *  Writes flow through `tileStore.setLayout` — the single tile-layout
+   *  write seam — so the registry, not arrange, owns where layout lands. */
+  function applyLayoutBatch(layouts: Map<TileId, TileLayout>) {
     if (layouts.size === 0) return;
     pendingLayouts.applyMany(layouts);
     for (const [id, layout] of layouts) {
-      const prev = store.getMetadata(id)?.canvasLayout;
+      const prev = tileStore.getLayout(id);
       if (!prev || !layoutsEqual(prev, layout)) {
-        applyTileGeometry(id, layout);
+        tileStore.setLayout(id, layout);
       }
     }
   }
@@ -57,8 +51,8 @@ export function useCanvasArrange() {
   /** One-shot rearrange triggered from the command palette. */
   function handleCanvasAutoArrange() {
     if (!supportsSpatialCanvas()) return;
-    const tiles = store.terminalIds().flatMap((id) => {
-      const layout = store.getMetadata(id)?.canvasLayout;
+    const tiles = tileStore.tileIds().flatMap((id) => {
+      const layout = tileStore.getLayout(id);
       if (!layout) return [];
       const tile = repoIslandTileFor(id, layout);
       return tile ? [tile] : [];
@@ -70,19 +64,19 @@ export function useCanvasArrange() {
     // the centering signal even though active hasn't changed (the canvas
     // resolves the just-applied pending layout via `layoutOf`), so this
     // shares the create/close path.
-    const activeId = store.activeId();
-    if (activeId && arranged.has(activeId)) store.activate(activeId);
+    const activeId = tileStore.activeId();
+    if (activeId && arranged.has(activeId)) tileStore.activate(activeId);
   }
 
   /** Center the canvas on the active tile (the "Center on active tile" palette
    *  command). No-op off the spatial canvas (mobile / narrow) or at zero tiles.
    *  Moved out of App.tsx — sibling to `handleCanvasAutoArrange`, both
-   *  canvas-spatial behavior over the same store. */
+   *  canvas-spatial behavior over the tile registry. */
   function centerActive() {
     if (!supportsSpatialCanvas()) return;
-    const id = store.activeId();
-    if (id) store.activate(id);
+    const id = tileStore.activeId();
+    if (id) tileStore.activate(id);
   }
 
-  return { applyTileGeometry, handleCanvasAutoArrange, centerActive };
+  return { handleCanvasAutoArrange, centerActive };
 }

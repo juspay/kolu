@@ -32,6 +32,7 @@ import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
 import {
   bucketDescriptor,
@@ -387,6 +388,7 @@ const EntryList: Component<{
   highlightedId: TerminalId | undefined;
 }> = (props) => {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   return (
     <div class="flex flex-col gap-2">
       <Show
@@ -407,7 +409,7 @@ const EntryList: Component<{
           {(entry) => (
             <WorkspaceCard
               entry={entry()}
-              active={store.activeId() === entry().id}
+              active={tileStore.activeId() === entry().id}
               highlighted={props.highlightedId === entry().id}
               unread={store.isUnread(entry().id)}
               onSelect={() => props.onSelect(entry().id)}

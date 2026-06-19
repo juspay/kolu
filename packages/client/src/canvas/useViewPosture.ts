@@ -22,6 +22,7 @@
 
 import { supportsSpatialCanvas } from "../capabilities";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileStore } from "../tile/useTileStore";
 
 /** Canvas-display mode. `"tiled"` is the freeform canvas where the dock
  *  and right panel float as rounded cards over the grid; `"maximized"`
@@ -42,11 +43,13 @@ export const posturedActionLabel = (mode: ViewPostureMode): string =>
 
 export function useViewPosture() {
   const store = useTerminalStore();
-  /** "Maximize is meaningful" — there is a tile to maximize. With zero
-   *  terminals the canvas is the empty/restore screen, which has no tile.
-   *  The single source of truth for this sub-fact, shared by `mode()`'s
-   *  guard below and exposed to readers (ChromeBar) via `canMaximize`. */
-  const canMaximize = (): boolean => store.terminalIds().length > 0;
+  const tileStore = useTileStore();
+  /** "Maximize is meaningful" — there is a tile to maximize. With zero tiles
+   *  the canvas is the empty/restore screen, which has no tile. The single
+   *  source of truth for this sub-fact, shared by `mode()`'s guard below and
+   *  exposed to readers (ChromeBar) via `canMaximize`. Keyed off the TILE
+   *  count, so a future sleeping-only workspace stays maximizable. */
+  const canMaximize = (): boolean => tileStore.tileCount() > 0;
   return {
     /** Current canvas-display mode. `"maximized"` requires a tile to
      *  maximize (see `canMaximize`): with zero terminals the posture is

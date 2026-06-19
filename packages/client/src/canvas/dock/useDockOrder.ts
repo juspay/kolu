@@ -15,15 +15,21 @@ import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { useTileStore } from "../../tile/useTileStore";
 import { rankDockRows } from "./dockRowRanking";
 import { buildDockTree, type DockTree } from "./dockTree";
 
 export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const isStale = useStaleCheck();
+  // The dock ranks TILES (today every tile is a terminal, so the id set equals
+  // terminalIds()); per-row metadata + display still come off the terminal,
+  // its content. PR 2's sleeping tiles join `tileIds()` and become dock rows
+  // through this same seam, not a separate section.
   return createMemo(() =>
     buildDockTree(
-      rankDockRows(store.terminalIds(), store.getMetadata, isStale),
+      rankDockRows(tileStore.tileIds(), store.getMetadata, isStale),
       store.getDisplayInfo,
     ),
   );
