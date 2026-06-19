@@ -49,20 +49,17 @@ export function isActiveSplit(
 }
 
 /** A tile's WebGL-context cost: 1 for its main pane, +1 for an expanded, active
- *  split. The load-bearing half of the #575 bound — `admitWebglTiles` counts
- *  these against the cap, so this must equal the real number of Chrome contexts
- *  the tile holds (= the count of terminals under it for which the store's
- *  `holdsWebgl` is true). Shares `hasActiveSplit` with `isActiveSplit` so the
- *  split rule is written exactly once. */
+ *  split — the quantity `admitWebglTiles` counts against the cap (#575). Built on
+ *  `hasActiveSplit`, so it stays in lockstep with the per-terminal grant. */
 export function tileWebglCost(panel: PanelWebglShape): number {
   return 1 + (hasActiveSplit(panel) ? 1 : 0);
 }
 
 /** Greedily admit `ordered` tiles (most-recently-active first) until the next
- *  one would push live WebGL contexts past `cap`. `costOf(id)` is a tile's
- *  context cost: 1 for its main pane, +1 for an expanded, active split. Pure (no
- *  SolidJS / DOM) so the #1399 cap policy — admit the whole working set, but
- *  never overflow Chrome's per-tab limit — is unit-testable in isolation. */
+ *  one would push the running `costOf` total past `cap` (cost per tile comes from
+ *  `tileWebglCost`). Pure (no SolidJS / DOM) so the #1399 cap policy — admit the
+ *  whole working set, but never overflow Chrome's per-tab limit — is
+ *  unit-testable in isolation. */
 export function admitWebglTiles(
   ordered: readonly TerminalId[],
   costOf: (id: TerminalId) => number,
