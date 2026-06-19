@@ -9,6 +9,5 @@
  * schemas (no sensors, no node/kaval runtime) import `./schema` directly.
  */
 
-export * from "./agentRecency.ts";
 export * from "./sensors.ts";
 export * from "./schema.ts";
