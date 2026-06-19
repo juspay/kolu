@@ -119,11 +119,12 @@ export const PerfSurfaces = () => (
 
 The actionable shortlist, ranked by leverage. **Impact** and **effort** are the
 *verified* estimates (post-adversarial-correction), not the original claims. The
-keystone is a single fix that unblocks three reactivity items at once.
+keystone (row 1) is now **shipped**; it clears the way for the rest of the
+reactivity cluster.
 
 | # | Opportunity | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|
-| 1 | **Stabilize the `terminalIds` memo reference** | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Return the prior array when contents are equal, so the whole display derivation stops re-running on any single metadata change (unblocks #2, #3 below). |
+| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** — the memo keeps its prior array when the id set is unchanged, so the display derivation stops re-running on metadata churn. Clears the rest of the reactivity cluster. |
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
@@ -151,6 +152,7 @@ their themes as *"remaining within …"*.
 - **Compositor paint storms** — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
 - **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
+- **Reactivity keystone** — the `terminalIds` memo keeps a stable reference when the top-level set is unchanged (`sameTerminalIdOrder` `equals` gate), so the display derivation no longer re-runs on metadata churn; proven by a re-run-count regression test.
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
@@ -161,20 +163,23 @@ a few markdown tree-walks — all bounded at current scale.
 
 ### Reactivity granularity
 
-<Finding sev="medium" title="Keystone — stabilize the terminalIds memo reference">
-`terminalIds` is a `createMemo` running `meta.keys().filter(...)`
-(`useTerminalMetadata.ts:47-52`), which returns a **new array reference every
-run even when the contents are identical**. The dependent `displayInfos` memo
-tracks that reference, so *any single terminal's metadata mutation* re-runs
-`buildTerminalDisplayInfos` for **all** terminals (`terminalDisplay.ts:49-85`),
-allocating 4–5 intermediate collections each pass, and re-evaluates every tile's
-`Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx:415`). **Fix:** give the memo
-a shallow-equal `equals` option so it returns the prior array when the ID set is
-unchanged. This one change unblocks the next two items. **Measure:** count
-`buildTerminalDisplayInfos` runs during a 20-terminal workspace switch — target
-*one run per real ID-set change*, not one per metadata mutation. (Verification
-corrected the original "O(n³)" claim to O(n log n) — the cost is wasted
-allocations + re-derivation, not algorithmic blowup.)
+<Finding sev="low" title="Keystone — stabilize the terminalIds memo reference — ✓ shipped">
+`terminalIds` was a `createMemo` running `meta.keys().filter(...)`
+(`useTerminalMetadata.ts`), returning a **new array reference every run even
+when the contents were identical**. The dependent `displayInfos` memo tracked
+that reference, so *any single terminal's metadata mutation* re-ran
+`buildTerminalDisplayInfos` for **all** terminals (`terminalDisplay.ts`),
+allocating 4–5 intermediate collections each pass, and re-evaluated every tile's
+`Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx`). **Done:** the memo now
+carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior array
+whenever the top-level id set is unchanged — the derivation re-runs only on a
+real add / remove / reorder, not on metadata churn. The accessor still re-runs
+cheaply; what it no longer does is *notify* downstream when the set is identical.
+Proven by a re-run-count regression test (`terminalDisplay.test.ts`), so banking
+it didn't need the live trace the [coverage gaps](#from-static-reads-to-live-traces)
+flag as still-pending. (Verification had corrected the original "O(n³)" claim to
+O(n log n) — the cost was wasted allocations + re-derivation, not algorithmic
+blowup.)
 </Finding>
 
 - **`getSubTerminalIds` O(n) scan, called per top-level terminal** inside the display derivation → O(n²) per metadata update (`useTerminalMetadata.ts:54-56`, `terminalDisplay.ts:80`). Fix with a `Map<ParentId, TerminalId[]>` index in the same memo. <Pill variant="lo">low</Pill> impact.
@@ -321,7 +326,7 @@ snapshot is likely ~4 KB) precisely because nobody had a number. The next round
 moves from reading to **measuring** — these are the gaps this map does *not* yet
 rest on:
 
-- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog items #1, #2, #7.
+- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog items #2 and #7 (#1 shipped, proven by a deterministic re-run-count test rather than a trace).
 - **The #1420 OOM root cause is still unidentified.** The Channel-queue RCA ruled itself out; a dedicated kaval heap snapshot needs to find the real scrollback/snapshot retention path.
 - **Mobile rests on mechanism, not on-device traces.** Battery wake-ups, GPU memory across swipes, and keystroke-to-paint on low-end Android are all unmeasured.
 - **Wire payloads are uncounted.** No captured byte sizes for full-key-set / full-object publishes or base64 framing across representative repos.
