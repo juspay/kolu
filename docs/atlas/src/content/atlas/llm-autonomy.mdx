@@ -169,7 +169,7 @@ copies), `.agency/do.md`, and `settings.json` hooks.
 | 1 | **Wire `/be` into the existing Stop guard** — write the generic `.do-results.json` the guard already understands | `.apm/skills/be/SKILL.md` §1/§Done; reuse `do/scripts/do-results`. No hook change needed | S · **high** |
 | 2 | **First PreToolUse Bash hook: hard-block prod-kolu kills & prod-port binds** | new `.apm` hook → `settings.json` PreToolUse; cite from `dev-server` skill | M · **high** |
 | 3 | **Full `/ci` on every touched PR + master-sync at the head of §5** | `.apm/skills/be/SKILL.md` §5; `.agency/do.md` `## CI` | S · **high** |
-| 4 <Pill variant="ok">shipped</Pill> | **Codify design philosophy as an always-loaded rule** (fail-fast/no-fallbacks · electricity boundaries · reuse-existing-source) and force §2 to read it | `.apm/instructions/conventions.instructions.md` → `conventions.md`; `be` §2 | S · **high** |
+| 4 <Pill variant="ok">shipped</Pill> <PrLink pr={1418} /> | **Codify design philosophy as an always-loaded rule** (fail-fast/no-fallbacks · electricity boundaries · reuse-existing-source) and force §2 to read it | `.apm/instructions/conventions.instructions.md` → `conventions.md`; `be` §2 | S · **high** |
 | 5 | **Hard-gate Done on real artifacts** — extend the Stop guard with ci-green + evidence-present + gauntlet-comments-present | `do-stop-guard.sh` (apm source); `/be` writes the fields | M · **high** |
 | 6 | **`## CI failure triage` policy** — named flaky lanes + per-node enumerate/fix-or-waive | `.agency/do.md` | S · **high** |
 | 7 | **Make §4 a self-driving in-process Skill chain**; forbid handing reviewers back to the user | `.apm/skills/be/SKILL.md` §4; `be-review` | M · **high** |
@@ -216,7 +216,7 @@ prod-kolu (#2) and an AskUserQuestion guard for post-§0 (#10). Make
 </Callout>
 
 <Roadmap>
-  <Milestone status="now" label="Round 1 — quick wins">**#4 design-philosophy rule — shipped** (always-loaded `conventions.md` §Design philosophy + `/be` §2 reads it). Remaining: #1 Stop-guard wire-in · #3 every-PR CI + master-sync · #6 CI-triage policy. Then re-run this audit and compare mean autonomy.</Milestone>
+  <Milestone status="now" label="Round 1 — quick wins">**#4 design-philosophy rule — shipped** <PrLink pr={1418} /> (always-loaded `conventions.md` §Design philosophy + `/be` §2 reads it). Remaining: #1 Stop-guard wire-in · #3 every-PR CI + master-sync · #6 CI-triage policy. Then re-run this audit and compare mean autonomy.</Milestone>
   <Milestone status="next" label="Round 2 — the hook backbone">#2 prod-kolu PreToolUse guard · #5 Done post-conditions · #9 RED→GREEN gate · #10 post-§0 question block.</Milestone>
   <Milestone status="next" label="Round 3 — review & polish">#7 self-driving gauntlet · #11 design-seam-left · #12 heartbeats/budgets · #13 evidence auto-classify · #14 lens probes + re-review.</Milestone>
 </Roadmap>
