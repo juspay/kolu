@@ -29,7 +29,7 @@ const SCHEME_HINT: Record<ColorScheme, Hint> = {
 };
 
 /** Auto  = system chooses per tile (WebGL on the recently-active tiles plus
- *          their active splits, DOM on others — see `canUseWebgl`, #1403).
+ *          their active splits, DOM on others — see `canUseWebgl`, #1399).
  *  WebGL = WebGL on every tile (higher throughput; reintroduces #575
  *          context-budget risk with many terminals).
  *  DOM   = force DOM everywhere; no font shift on focus swap. */

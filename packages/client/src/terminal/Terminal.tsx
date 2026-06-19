@@ -172,16 +172,16 @@ const Terminal: Component<{
   }
 
   /** Capability: a terminal may hold a WebGL context only when it's both
-   *  rendering (`visible`) and within the WebGL budget — the 2 most-recently-
-   *  active tiles plus each one's active split (`store.holdsWebgl`, #1403).
-   *  Budgeting by recency rather than the single focused tile keeps WebGL on
-   *  both sides of an A↔B switch, so the ~7.7% font reflow on focus swap is
-   *  gone, while still bounding live contexts to ≤4 — far under Chrome's ~16/tab
-   *  limit (#575). Terminals outside the budget fall back to xterm's built-in
-   *  DOM renderer via `WebglAddon.dispose()`. The `visible` guard keeps mobile
-   *  (one visible tile) and collapsed splits off WebGL regardless of recency.
-   *  Distinct from `isFocused` (zoom + `data-focused`): a budgeted tile holds
-   *  WebGL even when it isn't the focused one. */
+   *  rendering (`visible`) and within the WebGL budget — the most-recently-active
+   *  tiles that fit under WEBGL_CONTEXT_CAP, each tile costing main pane + active
+   *  split (`store.holdsWebgl`; see webglBudget.ts, #1399). Budgeting by recency
+   *  rather than the single focused tile keeps WebGL on both sides of an A↔B
+   *  switch, so the ~7.7% font reflow on focus swap is gone. Terminals outside
+   *  the budget fall back to xterm's built-in DOM renderer via
+   *  `WebglAddon.dispose()`. The `visible` guard keeps mobile (one visible tile)
+   *  and collapsed splits off WebGL regardless of recency. Distinct from
+   *  `isFocused` (zoom + `data-focused`): a budgeted tile holds WebGL even when
+   *  it isn't the focused one. */
   const canUseWebgl = () =>
     props.visible && terminalStore.holdsWebgl(props.terminalId);
   /** Dispatch on user renderer policy:
@@ -246,8 +246,9 @@ const Terminal: Component<{
     // Chrome's ~16-context-per-tab budget, at which point Chrome starts
     // evicting live contexts — including the focused tile's — producing a
     // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set within the WebGL budget (≤4 —
-    // the 2 most-recently-active tiles plus their active splits, #1403).
+    // current microtask, keeping the live set within the WebGL budget — the
+    // recently-active tiles that fit under WEBGL_CONTEXT_CAP, each costing main
+    // pane + active split (see webglBudget.ts, #1399).
     if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
     webglCanvas
       ?.getContext("webgl2")
@@ -312,7 +313,8 @@ const Terminal: Component<{
 
   // Reconcile this terminal's WebGL context against `shouldUseWebgl()`: load
   // when it enters the budget (recently-active tile or its active split),
-  // unload when it leaves — holding ≤4 contexts at once (#1403).
+  // unload when it leaves — the live set stays under WEBGL_CONTEXT_CAP (see
+  // webglBudget.ts, #1399).
   // defer: true — onMount handles the initial load before xterm is constructed.
   createEffect(
     on(
