@@ -31,11 +31,13 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { useSleepingTerminals } from "../terminal/useSleepingTerminals";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
+import SleepingCanvasTile from "./SleepingCanvasTile";
 import { useTileAura } from "./useTileAura";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
@@ -87,6 +89,8 @@ const TerminalCanvas: Component<{
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
+  /** Put a terminal to sleep (freeze + release). Wired to the tile's ☾ button. */
+  onSleep?: (id: TerminalId) => void;
   /** Invoked when the dock's search-icon button is clicked. Opens the
    *  command palette pre-drilled into the "Search workspaces" group —
    *  the same surface `Mod+Shift+K` reaches. */
@@ -104,6 +108,7 @@ const TerminalCanvas: Component<{
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
+  const sleeping = useSleepingTerminals();
   const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
@@ -425,6 +430,9 @@ const TerminalCanvas: Component<{
                       repoColor={info().repoColor}
                       onSelect={() => props.onSelect(id)}
                       onClose={() => props.onClose(id)}
+                      onSleep={
+                        props.onSleep ? () => props.onSleep?.(id) : undefined
+                      }
                       onToggleMaximize={posture.toggle}
                       renderTitle={() => props.renderTileTitle(id)}
                       renderTitleActions={
@@ -448,6 +456,23 @@ const TerminalCanvas: Component<{
               );
             }}
           </For>
+
+          {/* Sleeping terminals — folded placeholder tiles at their saved
+           *  position. Only in tiled posture: maximized mode shows a single
+           *  live tile, and the Dock is the cross-mode home for sleeping work. */}
+          <Show when={posture.mode() === "tiled"}>
+            <For each={sleeping.records()}>
+              {(record) => (
+                <SleepingCanvasTile
+                  record={record}
+                  panX={viewport.panX}
+                  panY={viewport.panY}
+                  zoom={viewport.zoom}
+                  onWake={() => void sleeping.wakeTerminal(record.id)}
+                />
+              )}
+            </For>
+          </Show>
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}

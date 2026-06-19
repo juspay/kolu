@@ -93,6 +93,15 @@ export const CanvasLayoutSchema = z.object({
 export const SubPanelStateSchema = z.object({
   collapsed: z.boolean(),
   panelSize: z.number(),
+  /** Which split sub-terminal was last active, by its (save-time) id.
+   *  Optional for backward compat with pre-1.27 records. On restore/wake the
+   *  loop remaps it through the old→new id map (the saved id is one of the
+   *  record's own sub-terminals), so the right split tab reopens instead of
+   *  defaulting to the first. */
+  activeSubTab: TerminalIdSchema.nullable().optional(),
+  /** Which pane (parent vs split) last held focus. Mode, not id — restores
+   *  verbatim, no remap. Optional for backward compat. */
+  focusTarget: z.enum(["main", "sub"]).optional(),
 });
 
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
@@ -388,6 +397,21 @@ export const SavedSessionSchema = z.object({
   /** Which terminal was active at save time. */
   activeTerminalId: z.string().nullable().optional(),
   savedAt: z.number(),
+});
+
+/** A single slept ("sleeping") terminal record — one top terminal plus its
+ *  split sub-terminals, captured exactly like a `SavedSession` of one tree.
+ *  Lives in its OWN `sleepingTerminals` cell, disjoint from `session`, so the
+ *  live-session autosave never clobbers it and a restart rehydrates it AS
+ *  sleeping (never auto-woken). Reuses `SavedTerminalSchema` verbatim — a future
+ *  persisted terminal field rides through with no change here. */
+export const SleepingTerminalSchema = z.object({
+  /** Stable record id (a fresh UUID at sleep time), independent of any live
+   *  terminal id — a sleep/wake cycle re-mints terminal ids. */
+  id: z.string(),
+  terminals: z.array(SavedTerminalSchema),
+  /** When the terminal was put to sleep. Drives the "asleep Nd" recency label. */
+  sleptAt: z.number(),
 });
 
 // ── User preferences (server-side, shared with client) ────────────────
@@ -722,6 +746,17 @@ export const koluSurface = defineSurface({
       verbs: ["get", "test__set"],
     },
 
+    /** Sleeping (slept) terminals — each a saved terminal tree the user froze
+     *  on demand. Read-only on the client; the server writes via the
+     *  `terminal.sleep` / `terminal.wake` procedures (explicit, not debounced).
+     *  Disjoint from `session`: durable across restarts and rehydrated AS
+     *  sleeping, never auto-woken. */
+    sleepingTerminals: {
+      schema: z.array(SleepingTerminalSchema),
+      default: [] as z.infer<typeof SleepingTerminalSchema>[],
+      verbs: ["get", "test__set"],
+    },
+
     /** Live list of terminals — server-driven on create/kill. Mutations
      *  go through dedicated procedures (`terminal.create`/`kill`/`killAll`)
      *  in the raw oRPC namespace, not via cell.set. */
@@ -810,3 +845,4 @@ export type TerminalMetadata =
   Surface["collections"]["terminalMetadata"]["Value"];
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;

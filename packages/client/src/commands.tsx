@@ -131,6 +131,8 @@ export interface CommandDeps extends ActionContext {
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
+  /** Put the active terminal (and its splits) to sleep. */
+  handleSleep: () => void;
   // Workspace search — the live-terminal source list and recency
   // accessor the "Search workspaces" group walks to populate its rows.
   workspaceEntries: Accessor<DockSourceEntry[]>;
@@ -228,6 +230,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Close terminal",
             section: "active-terminal" as const,
             onSelect: () => deps.handleClose(),
+          },
+          {
+            kind: "action" as const,
+            name: "Sleep terminal",
+            section: "active-terminal" as const,
+            onSelect: () => deps.handleSleep(),
           },
           actionPaletteCommand("toggleSubPanel", deps, {
             section: "active-terminal",

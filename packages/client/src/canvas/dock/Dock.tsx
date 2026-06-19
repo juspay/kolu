@@ -63,7 +63,7 @@
  *  canvas as well as the populated one. */
 
 import { persistedPref } from "../../persistedPref";
-import type { TerminalId } from "kolu-common/surface";
+import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -71,6 +71,7 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useSleepingTerminals } from "../../terminal/useSleepingTerminals";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   DOCK_CARDS_GUTTER_CLASS,
@@ -250,6 +251,7 @@ const RailOrCards: Component<{
             )}
           </For>
         </Show>
+        <SleepingSection rail={props.mode === "rail"} />
       </div>
       {/* Footer carries the activity-window control + "N hidden by …
        *  window" disclosure. It governs which rows the window parks, so
@@ -268,6 +270,68 @@ const RailOrCards: Component<{
         />
       </Show>
     </div>
+  );
+};
+
+/** Sleeping terminals — a dedicated section below the live rows, in BOTH rail
+ *  and cards mode (the Dock is the cross-mode home for slept work). Sleeping
+ *  records aren't live terminals, so they don't flow through the rank/tree
+ *  pipeline — they render here straight from the `sleepingTerminals` cell. The
+ *  whole row is the wake target; ☾ marks the at-rest state. */
+const SleepingSection: Component<{ rail: boolean }> = (props) => {
+  const sleeping = useSleepingTerminals();
+  const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
+  const labelOf = (rec: SleepingTerminal) => {
+    const top = rec.terminals.find((t) => !t.parentId) ?? rec.terminals[0];
+    return top?.intent?.trim() || (top ? basename(top.cwd) : "terminal");
+  };
+  return (
+    <Show when={sleeping.records().length > 0}>
+      <div data-testid="dock-sleeping-section" class="flex flex-col mt-1">
+        <Show when={!props.rail}>
+          <div
+            class="flex items-center gap-1.5 px-3 py-1 text-[0.62rem] uppercase tracking-wide"
+            style={{ color: "var(--color-fg-3, #8b929d)" }}
+          >
+            <span aria-hidden="true">☾</span>
+            <span>Sleeping</span>
+            <span class="ml-auto tabular-nums">
+              {sleeping.records().length}
+            </span>
+          </div>
+        </Show>
+        <For each={sleeping.records()}>
+          {(rec) => (
+            <button
+              type="button"
+              data-testid="dock-sleeping-row"
+              data-bucket="sleeping"
+              class="dock-sleeping-row flex items-center gap-2 mx-1 my-0.5 px-2 py-1 rounded-md text-left hover:bg-white/5"
+              title="Wake terminal"
+              onClick={() => void sleeping.wakeTerminal(rec.id)}
+            >
+              <span
+                style={{ color: "var(--color-fg-3, #8b929d)" }}
+                aria-hidden="true"
+              >
+                ☾
+              </span>
+              <Show when={!props.rail}>
+                <span class="flex-1 min-w-0 truncate text-xs">
+                  {labelOf(rec)}
+                </span>
+                <span
+                  class="text-[0.6rem] shrink-0"
+                  style={{ color: "var(--color-fg-3, #8b929d)" }}
+                >
+                  {formatTimeAgo(rec.sleptAt)}
+                </span>
+              </Show>
+            </button>
+          )}
+        </For>
+      </div>
+    </Show>
   );
 };
 

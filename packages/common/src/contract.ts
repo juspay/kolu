@@ -74,7 +74,16 @@ export const TerminalSetSubPanelInputSchema = z.object({
   id: TerminalIdSchema,
   collapsed: z.boolean(),
   panelSize: z.number(),
+  /** Persisted so a slept/restored split reopens to the same tab + pane focus
+   *  instead of defaulting to the first. Optional: older clients omit them. */
+  activeSubTab: TerminalIdSchema.nullable().optional(),
+  focusTarget: z.enum(["main", "sub"]).optional(),
 });
+
+/** Wake a sleeping terminal record by its stable sleep-record id. The client
+ *  drives the respawn (reusing the session-restore protocol); this procedure
+ *  removes the record from the `sleepingTerminals` cell. */
+export const TerminalWakeInputSchema = z.object({ sleepId: z.string() });
 
 export const TerminalSetRightPanelInputSchema =
   RightPanelPerTerminalStateSchema.extend({
@@ -171,6 +180,12 @@ export const contract = oc.router({
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    /** Put a terminal (and its splits) to sleep: snapshot the tree into the
+     *  `sleepingTerminals` cell. Persist-only — the client kills the live
+     *  terminal afterward via the normal kill path. Persist-before-kill. */
+    sleep: oc.input(TerminalAttachInputSchema).output(z.void()),
+    /** Remove a sleeping record after the client has respawned it. */
+    wake: oc.input(TerminalWakeInputSchema).output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

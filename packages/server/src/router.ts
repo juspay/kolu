@@ -36,6 +36,7 @@ import {
 import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
+import { sleepTerminal, wakeTerminal } from "./sleepingTerminals.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -126,6 +127,8 @@ export const appRouter = t.router({
       setSubPanelState(input.id, {
         collapsed: input.collapsed,
         panelSize: input.panelSize,
+        activeSubTab: input.activeSubTab,
+        focusTarget: input.focusTarget,
       });
     }),
 
@@ -198,6 +201,23 @@ export const appRouter = t.router({
       const info = await killTerminal(input.id);
       if (!info) throw terminalNotFound(input.id);
       return info;
+    }),
+
+    // Persist-only: capture the terminal tree into the `sleepingTerminals`
+    // cell. The client kills the live terminal afterward (the normal kill
+    // path), so this runs while metadata is still live — persist before kill.
+    sleep: t.terminal.sleep.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      sleepTerminal(input.id);
+      log.info({ terminal: input.id }, "terminal slept");
+    }),
+
+    // The client respawns the record (session-restore protocol) and then calls
+    // this to drop it from the cell. Idempotent — no terminalNotFound (the
+    // sleepId names a record, not a live terminal).
+    wake: t.terminal.wake.handler(async ({ input }) => {
+      wakeTerminal(input.sleepId);
+      log.info({ sleepId: input.sleepId }, "sleeping terminal woken");
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

@@ -61,6 +61,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import { useSleepingTerminals } from "./terminal/useSleepingTerminals";
 import { useTerminals } from "./terminal/useTerminals";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
@@ -76,6 +77,7 @@ import { savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
+  const sleeping = useSleepingTerminals();
 
   const {
     committedThemeName,
@@ -195,6 +197,10 @@ const App: Component = () => {
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
+    },
+    handleSleep: () => {
+      const id = store.activeId();
+      if (id) void sleeping.sleepTerminal(id);
     },
     handleClearLocalStorage: () => {
       localStorage.clear();
@@ -524,6 +530,7 @@ const App: Component = () => {
                       onAutoArrange={arrange.handleCanvasAutoArrange}
                       onSelect={store.setActiveSilently}
                       onClose={(id) => closeTerminal(id)}
+                      onSleep={(id) => void sleeping.sleepTerminal(id)}
                       {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta

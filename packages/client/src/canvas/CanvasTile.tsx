@@ -59,6 +59,9 @@ const CanvasTile: Component<{
   repoColor: string;
   onSelect: () => void;
   onClose: () => void;
+  /** Put this terminal to sleep (freeze + release). Optional: the ☾ button
+   *  only renders when provided. */
+  onSleep?: () => void;
   /** Toggle between tiled and maximized. Bound to title-bar double-click. */
   onToggleMaximize: () => void;
   renderTitle: () => JSX.Element;
@@ -331,6 +334,22 @@ const CanvasTile: Component<{
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         <div class="flex items-center gap-1 shrink-0">
           {props.renderTitleActions?.()}
+          <Show when={props.onSleep}>
+            <button
+              type="button"
+              data-testid="canvas-tile-sleep"
+              class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
+              style={{ color: tileChromeButton(props.theme) }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onSleep?.();
+              }}
+              title="Sleep terminal — freeze and resume later"
+            >
+              ☾
+            </button>
+          </Show>
           <button
             type="button"
             data-testid="canvas-tile-maximize"

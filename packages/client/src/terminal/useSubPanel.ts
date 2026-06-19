@@ -32,7 +32,10 @@ function ensureState(parentId: TerminalId): SubPanelState {
   return seeded;
 }
 
-/** Report sub-panel state to server for session persistence. */
+/** Report sub-panel state to server for session persistence. `activeSubTab`
+ *  and `focusTarget` ride along so a slept/restored split reopens to the same
+ *  tab + pane focus instead of defaulting to the first (the saved `activeSubTab`
+ *  id is remapped through the restore loop's old→new id map). */
 function reportToServer(parentId: TerminalId) {
   const s = state[parentId];
   if (!s) return;
@@ -41,6 +44,8 @@ function reportToServer(parentId: TerminalId) {
       id: parentId,
       collapsed: s.collapsed,
       panelSize: s.panelSize,
+      activeSubTab: s.activeSubTab,
+      focusTarget: s.focusTarget,
     })
     .catch(() => {});
 }
@@ -74,6 +79,7 @@ export function useSubPanel() {
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
       ensureState(parentId);
       setState(parentId, "activeSubTab", subId);
+      reportToServer(parentId);
     },
 
     setPanelSize(parentId: TerminalId, size: number) {
@@ -95,18 +101,26 @@ export function useSubPanel() {
     setFocusTarget(parentId: TerminalId, target: "main" | "sub") {
       ensureState(parentId);
       setState(parentId, "focusTarget", target);
+      reportToServer(parentId);
     },
 
-    /** Seed sub-panel state from server data — no report-back to server. */
+    /** Seed sub-panel state from server data — no report-back to server.
+     *  `activeSubTab` is NOT seeded here (the saved id is pre-remap); the
+     *  restore/wake loop sets it via `setActiveSubTab` after recreating the
+     *  splits. `focusTarget` restores verbatim (it's a pane, not an id). */
     seedPanel(
       parentId: TerminalId,
-      opts: { collapsed: boolean; panelSize: number },
+      opts: {
+        collapsed: boolean;
+        panelSize: number;
+        focusTarget?: "main" | "sub";
+      },
     ) {
       setState(parentId, {
         collapsed: opts.collapsed,
         panelSize: opts.panelSize,
         activeSubTab: state[parentId]?.activeSubTab ?? null,
-        focusTarget: opts.collapsed ? "main" : "sub",
+        focusTarget: opts.focusTarget ?? (opts.collapsed ? "main" : "sub"),
       });
     },
 

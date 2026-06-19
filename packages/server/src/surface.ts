@@ -47,6 +47,7 @@ import type {
   KoluBuildInfo,
   Preferences,
   SavedSession,
+  SleepingTerminal,
   TerminalMetadata,
 } from "kolu-common/surface";
 import { type koluSurface, surfaces } from "kolu-common/surface";
@@ -100,6 +101,9 @@ const activityFeedStore: CellStore<ActivityFeed> = confStore<ActivityFeed>(
 );
 const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
+const sleepingTerminalsStore: CellStore<SleepingTerminal[]> = confStore<
+  SleepingTerminal[]
+>(store, "sleepingTerminals");
 
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
@@ -167,6 +171,13 @@ const koluDeps: Omit<
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
       store: { get: () => listTerminals(), set: () => {} },
+    },
+    sleepingTerminals: {
+      store: sleepingTerminalsStore,
+      // Content-level dedup, mirroring `session`. Writes here are explicit
+      // (sleep/wake procedures), never debounced — so no autosave-cancel
+      // onWrite is needed, unlike `session`.
+      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     },
   },
 
