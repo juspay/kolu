@@ -12,7 +12,8 @@ import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Callout from "../../components/Callout.astro";
 import Cite from "../../components/Cite.astro";
-import D2 from "../../components/D2.astro";
+import Svg from "../../components/Svg.astro";
+import multiplex from "../../diagrams/surface-app-multiplex.svg?raw";
 
 A library for a specific class of [@kolu/surface](https://kolu.dev/blog/surface-framework/) app: the ones that are really **desktop applications you run against your own server** (kolu, [drishti](https://github.com/srid/drishti), the next one). Where surface is the live reactive _wire_, surface-app is the _app shell_ around it — delivered fresh, installed like a desktop app, and always aware of its relationship to the server it's bound to.
 
@@ -340,25 +341,9 @@ c.surfaceApp.cells.buildInfo.use();   // surface.surfaceApp.buildInfo
 c.admin.collections.hosts.use();      // surface.admin.hosts...
 ```
 
-<D2
+<Svg
+  svg={multiplex}
   caption="Independent surfaces are multiplexed over one transport; the plural layer keys each by its registration name. SurfaceSpec and every derivation are untouched."
-  code={`direction: down
-app: "app — declares standalone surfaces" {
-  saSurface: "surfaceAppSurface (buildInfo cell + identity probe)"
-  adminSurface: "adminSurface (hosts collection + procedures)"
-}
-plural: "implementSurfaces / surfaceClients (thin plural layer)" {
-  key: "keys each surface by its registration name"
-  chan: "namespaces each surface's channel bus by key"
-}
-transport: "one transport (WS) — multiplexed" {
-  w1: "surface.surfaceApp.buildInfo · surface.surfaceApp.identity.info"
-  w2: "surface.admin.hosts..."
-}
-app.saSurface -> plural: "registered under 'surfaceApp'"
-app.adminSurface -> plural: "registered under 'admin'"
-plural -> transport: "one router, one ctx, keyed"
-`}
 />
 
 ### What it dissolves

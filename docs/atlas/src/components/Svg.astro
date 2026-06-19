@@ -1,0 +1,60 @@
+---
+// Hand-authored architectural diagram → inlined SVG. The counterpart to
+// `D2.astro`: where D2 *generates* SVG from a DSL via the `d2` binary at build
+// time, here the SVG **is** the source of truth — authored by hand for full
+// visual control (colour as meaning, deliberate proportion, bespoke layout a
+// graph DSL can't express), kept as a real file in `src/diagrams/*.svg`, and
+// pulled into MDX with Vite's `?raw` loader:
+//
+//   import diagram from "../../diagrams/foo.svg?raw";
+//   <Svg svg={diagram} caption="…" />
+//
+// Inlining (not <img>) matches the Atlas model: self-contained dist/, no
+// external assets, previews in kolu's Code tab without a server. Because a
+// static file is inlined verbatim, the output is byte-deterministic and
+// host-independent for free — no `d2` binary, no determinism flags, nothing for
+// `check-sync` to catch. There is no generator step: editing a diagram means
+// re-authoring its `.svg` file (do NOT coordinate-patch a layout-dependent one
+// in place — re-author it wholesale).
+interface Props {
+  /** Raw `<svg>…</svg>` markup — typically a `?raw` import of a src/diagrams file. */
+  svg: string;
+  /** Optional caption rendered under the diagram. */
+  caption?: string;
+}
+
+const { svg, caption } = Astro.props;
+
+// Fail loudly rather than inline an empty figure: an absent/garbled import must
+// surface, never collapse to a blank diagram in the committed dist/.
+if (!svg || !svg.trimStart().startsWith("<svg")) {
+  throw new Error(
+    "Svg.astro: expected raw <svg> markup. Did you forget the `?raw` suffix on " +
+      "the import (e.g. `import d from \"../../diagrams/foo.svg?raw\"`)?",
+  );
+}
+// Strip the XML prolog so the <svg> inlines cleanly inside HTML flow.
+const inlined = svg.replace(/^<\?xml[^>]*\?>\s*/, "");
+---
+
+<figure class="diagram">
+  <Fragment set:html={inlined} />
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .diagram {
+    margin: 1.75rem 0;
+    text-align: center;
+  }
+  .diagram :global(svg) {
+    max-width: 100%;
+    height: auto;
+  }
+  .diagram figcaption {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--faint, #7a8089);
+    font-family: var(--sans, ui-sans-serif, system-ui);
+  }
+</style>
