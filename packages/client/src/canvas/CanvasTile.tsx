@@ -14,6 +14,7 @@
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import {
   Z_CANVAS_TILE_ACTIVE,
@@ -229,27 +230,30 @@ const CanvasTile: Component<{
         inset: 0,
         "background-color": bg(),
       };
-      switch (props.mode) {
-        case "maximized":
+      // `match(...).exhaustive()` (the repo's `prefer-ts-pattern` idiom for a
+      // value-returning dispatch on a string-literal union — cf. Terminal.tsx's
+      // `shouldUseWebgl`) compile-fails if `CanvasTileMode` ever grows a fourth
+      // mode, instead of silently rendering it as a tiled tile. This switch is
+      // load-bearing geometry/layering, so a new mode MUST be a deliberate
+      // decision here, not a default fall-through.
+      return match(props.mode)
+        .with("maximized", () => ({
           // Only the maximized tile takes `z-40`, so it paints above its hidden
           // covered siblings.
-          return {
-            style: { ...fullViewportBox, "z-index": 40 },
-            classes: { "border-transparent": true },
-          };
-        case "covered":
-          return {
-            style: { ...fullViewportBox, visibility: "hidden" },
-            classes: { "border-transparent": true },
-          };
-        default:
-          // Tiled: absolute-positioned at the saved canvas layout, with rounded
-          // corners and a repo-colour border.
-          return {
-            style: tiledStyle(),
-            classes: { "rounded-xl": true },
-          };
-      }
+          style: { ...fullViewportBox, "z-index": 40 },
+          classes: { "border-transparent": true },
+        }))
+        .with("covered", () => ({
+          style: { ...fullViewportBox, visibility: "hidden" as const },
+          classes: { "border-transparent": true },
+        }))
+        .with("tiled", () => ({
+          // Absolute-positioned at the saved canvas layout, with rounded corners
+          // and a repo-colour border.
+          style: tiledStyle(),
+          classes: { "rounded-xl": true },
+        }))
+        .exhaustive();
     },
   );
 
