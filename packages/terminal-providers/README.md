@@ -41,16 +41,16 @@ serves their output as the `watcherSurface`:
   `liveAwareness` (`pr` · `agent`). `cwd` / `foreground` / `location` are absent —
   they stay in-server.
 
-It returns `implementSurface`'s router — the **transport-agnostic** half — plus
-the no-wire `directLink` `client` it owns beside that router, the in-process
-client kolu-server consumes today. A remote host serves the same router over
-`serveOverStdio` later. The consumer is written against
-`ContractRouterClient<typeof watcherSurface.contract>` either way, so **local vs
-remote is only the link**. This mirrors the **in-process** (`router` +
-`directLink` `client`) half of kaval's `createInProcessPtyHost` — the blessed
-pattern for an in-process surface. Its wire-wrap half (`servedRouter`, the
-contract-router serving over a socket needs) is deferred to P4d, since nothing
-serves the watcher over the wire until the `stdioLink` swap.
+It returns the no-wire `directLink` `client` it owns over an in-process
+`implementSurface` fragment — the client kolu-server consumes today. The consumer
+is written against `ContractRouterClient<typeof watcherSurface.contract>`, so when
+a remote host serves the same surface over `serveOverStdio` later, **local vs
+remote is only the link**. This is the **in-process** half of kaval's
+`createInProcessPtyHost` (which returns the same `client` over the same fragment).
+Its wire-serving half — a top-level contract router wrapping the fragment for
+`serveOverStdio` (kaval's `servedRouter`) — is deferred to P4d, since nothing
+serves the watcher over the wire until the `stdioLink` swap (and a bare fragment
+doesn't route over the wire, so exposing it now would be a misleading no-op).
 
 ```
             kolu-server (LocalTerminalEndpoint)
@@ -69,7 +69,7 @@ back into the host (in-process today; a remote watcher reads its own kaval).
 
 ## API
 
-- `buildWatcherServer(opts)` → `{ router, client, dispose }` — the host-side providers as a served surface (`client` is the no-wire `directLink` consumed in-process).
+- `buildWatcherServer(opts)` → `{ client, dispose }` — the host-side providers as a served surface (`client` is the no-wire `directLink` consumed in-process; the wire-serving `servedRouter` is P4d).
 - `watcherSurface` — the contract; `PersistedAwareness` / `LiveAwareness` value types.
 - `startProcessProvider(record, id, channels, hooks)` — the in-server foreground/process observer.
 - `startWatcherProviders(record, id, channels, hooks)` — the host-side providers (used by `buildWatcherServer`).

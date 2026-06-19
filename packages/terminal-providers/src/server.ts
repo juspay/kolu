@@ -5,16 +5,16 @@
  * terminal and serves their output as the `watcherSurface` awareness
  * collections.
  *
- * It returns `implementSurface`'s router, the **transport-agnostic** half of the
- * serving, plus the no-wire `directLink` `client` it owns beside that router —
- * the in-process client kolu-server's local endpoint consumes today. A remote
- * host serves the same router over `serveOverStdio` later. The consumer is
- * written against `ContractRouterClient<typeof watcherSurface.contract>` either
- * way, so *local vs remote is only the link*. This mirrors the **in-process**
- * (`router` + `directLink` `client`) half of kaval's `createInProcessPtyHost` —
- * the blessed pattern for an in-process surface. The wire-wrap half
- * (`servedRouter`, the contract-router the StandardRPCHandler routes over a
- * socket) is deferred to P4d, since it has no caller until the `stdioLink` swap.
+ * It returns the no-wire `directLink` `client` it owns over an in-process
+ * `implementSurface` fragment — the client kolu-server's local endpoint consumes
+ * today. The consumer is written against
+ * `ContractRouterClient<typeof watcherSurface.contract>`, so when a remote host
+ * serves the same surface over `serveOverStdio` later, *local vs remote is only
+ * the link*. This is the **in-process** half of kaval's `createInProcessPtyHost`
+ * (which returns `client` over the same fragment). Its wire-serving half — a
+ * top-level contract router wrapping the fragment for `serveOverStdio` (kaval's
+ * `servedRouter`) — is deferred to P4d, since nothing serves the watcher over
+ * the wire until the `stdioLink` swap.
  *
  * The watcher is **minus PTY-forwarding**: it never taps kaval. kolu-server owns
  * the pty-host taps (in-server) and relays the signals the providers consume via
@@ -80,21 +80,30 @@ interface WatcherLifecycle {
  *  `createMetadata` (it deliberately does not own that concept — `createMetadata`
  *  lives in kolu-server, on the wrong side of the dependency direction to import
  *  here): the watcher only ever reads `cwd` (the providers' read-once cwd) and
- *  publishes the `persistedOf`/`liveOf` projections, so this seeds exactly those —
- *  the persisted defaults (`git: null`, `lastActivityAt: 0`; `lastAgentCommand`
- *  absent until the agent-command tracker fires) and the live defaults
- *  (`pr: { kind: "pending" }`, `agent: null`). `location`/`foreground` are NEVER
- *  published (the endpoint owns them in-server); they are null placeholders here
- *  solely because the over-wide `TerminalServerMetadata` type — `record.meta`'s
- *  type — demands them. */
-function initialMeta(cwd: string): TerminalServerMetadata {
+ *  publishes the `persistedOf`/`liveOf` projections, so this seeds exactly those.
+ *
+ *  The PERSISTED awareness comes from `seed` — the endpoint's current value for
+ *  this terminal — NOT hardcoded defaults: a fresh spawn passes `createMetadata`
+ *  defaults (`git: null`, `lastActivityAt: 0`, no `lastAgentCommand`), but an
+ *  ADOPTED survivor passes its restored values, which must seed `record.meta` so
+ *  the eager snapshot reproduces them (the endpoint folds the snapshot back, so a
+ *  defaults frame would clobber the restored `lastActivityAt`/`lastAgentCommand`)
+ *  and so `agentRecency`'s restore-guard — which reads `record.meta.lastActivityAt`
+ *  — fires on re-detection. The LIVE fields (`pr`, `agent`) are always re-derived
+ *  on restore, so they seed to defaults. `location`/`foreground` are NEVER
+ *  published (the endpoint owns them in-server); they are placeholders here
+ *  solely because the over-wide `TerminalServerMetadata` type demands them. */
+function initialMeta(
+  cwd: string,
+  seed: PersistedAwareness,
+): TerminalServerMetadata {
   return {
     // The only field the providers read.
     cwd,
-    // Persisted-awareness defaults (`persistedOf` publishes these).
-    git: null,
-    lastActivityAt: 0,
-    // Live-awareness defaults (`liveOf` publishes these).
+    // Persisted awareness — seeded from the endpoint's current value, so an
+    // adopted survivor's restored fields are reproduced, not clobbered.
+    ...seed,
+    // Live-awareness defaults (`liveOf` publishes these) — always re-derived.
     pr: { kind: "pending" },
     agent: null,
     // Never published — type-only placeholders the endpoint owns in-server.
@@ -168,7 +177,7 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
     procedures: {
       terminal: {
         watch: async ({ input }) => {
-          startWatching(input.id, input.pid, input.cwd);
+          startWatching(input.id, input.pid, input.cwd, input.seed);
         },
         unwatch: async ({ input }) => {
           stopWatching(input.id);
@@ -215,7 +224,12 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
    *  initial awareness BEFORE returning, so kolu-server's subsequent `get`
    *  subscribe reads a valid snapshot. (A hoisted function declaration so the
    *  fragment's `watch` procedure above can reference it.) */
-  function startWatching(id: TerminalId, pid: number, cwd: string): void {
+  function startWatching(
+    id: TerminalId,
+    pid: number,
+    cwd: string,
+    seed: PersistedAwareness,
+  ): void {
     if (lifecycles.has(id)) return;
     const channels: ProviderChannels = {
       cwd: inMemoryChannel<string>(),
@@ -224,7 +238,7 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
       foreground: inMemoryChannel(),
       git: inMemoryChannel(),
     };
-    const meta = initialMeta(cwd);
+    const meta = initialMeta(cwd, seed);
     const record: ProviderRecord = { pid, meta, currentAgent: null };
     const hooks: ProviderHooks = {
       log,
@@ -242,9 +256,20 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
         ? (tailLines) => opts.readScreenText!(id, tailLines)
         : undefined,
     };
+    // Seed the served collections so the endpoint's `get` subscribe reads a
+    // valid snapshot, THEN start the providers. The seed is recorded into
+    // `lifecycles` only on success — if `startWatcherProviders` throws
+    // synchronously, drop the seeded store entries so a half-started terminal
+    // isn't stranded (neither `stopWatching` nor `dispose` would reach it).
     publishPersisted(id, persistedOf(meta));
     publishLive(id, liveOf(meta));
-    const stop = startWatcherProviders(record, id, channels, hooks);
+    let stop: () => void;
+    try {
+      stop = startWatcherProviders(record, id, channels, hooks);
+    } catch (err) {
+      dropAwareness(id);
+      throw err;
+    }
     lifecycles.set(id, { channels, stop });
   }
 
@@ -260,13 +285,14 @@ export function buildWatcherServer(opts: BuildWatcherServerOptions) {
   }
 
   return {
-    /** The raw `implementSurface` fragment router, for advanced in-process use
-     *  (or `serveOverStdio` over ssh later, once it's wrapped in a top-level
-     *  contract router — the deferred P4d half). */
-    router: fragment.router,
     /** The no-wire `directLink` client kolu-server's local endpoint consumes
-     *  today — owned here, beside the router it wraps, the way
-     *  `createInProcessPtyHost` owns its `client`. */
+     *  today — built here over the in-process `implementSurface` fragment, the
+     *  way `createInProcessPtyHost` owns its `client`. The wire-serving half (a
+     *  top-level contract router wrapping the fragment for `serveOverStdio`, the
+     *  way `createInProcessPtyHost` also returns `servedRouter`) is deferred to
+     *  P4d — it has no caller until the `stdioLink` swap, and the bare fragment
+     *  doesn't route over the wire, so exposing it now would be a misleading
+     *  no-op field. */
     client: directLink<WatcherContract>(fragment.router),
     /** Stop every watched terminal's providers. */
     dispose: () => {

@@ -1,5 +1,10 @@
+import {
+  buildWatcherServer,
+  type PersistedAwareness,
+} from "@kolu/terminal-providers";
 import type { PtyHostListEntry } from "kaval";
 import { type SavedTerminal, SavedTerminalSchema } from "kolu-common/surface";
+import pino from "pino";
 import { describe, expect, it } from "vitest";
 import { adoptedMeta, orphanMeta } from "./local.ts";
 
@@ -119,5 +124,45 @@ describe("orphanMeta — adopting a live PTY with no saved record (F1)", () => {
 
   it("null foreground when the daemon reports no foreground process", () => {
     expect(orphanMeta(liveEntry()).foreground).toBeNull();
+  });
+});
+
+describe("adopted awareness survives the runtime watch → seed path (B3.3 regression)", () => {
+  // `adoptedMeta` carrying the restored fields (asserted above) is only half the
+  // guarantee: the endpoint then `watch`es the host-side providers and FOLDS the
+  // watcher's first persisted-awareness frame back onto the metadata. If that
+  // frame were the watcher's defaults (`lastActivityAt: 0`, no `lastAgentCommand`)
+  // it would clobber the survivor's restored recency slot + agent label — the
+  // exact regression this asserts is gone. The endpoint passes its current
+  // persisted awareness as the `watch` `seed`, so the watcher reproduces it.
+  it("a survivor's restored lastActivityAt + lastAgentCommand reproduce through the watcher", async () => {
+    const meta = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
+    // The persisted-awareness seed the endpoint hands `watch` (mirrors local.ts).
+    const seed = {
+      git: meta.git,
+      lastAgentCommand: meta.lastAgentCommand,
+      lastActivityAt: meta.lastActivityAt,
+    };
+    const watcher = buildWatcherServer({ log: pino({ level: "silent" }) });
+    const id = "22222222-2222-4222-8222-222222222222";
+    try {
+      await watcher.client.surface.terminal.watch({
+        id,
+        pid: 1,
+        cwd: meta.cwd,
+        seed,
+      });
+      const persisted = await watcher.client.surface.persistedAwareness.get({
+        key: id,
+      });
+      const snap = (await persisted[Symbol.asyncIterator]().next())
+        .value as PersistedAwareness;
+      // The snapshot the endpoint folds back reproduces the restored values, so
+      // the fold is a no-op — recency + agent label survive, not reset to defaults.
+      expect(snap.lastActivityAt).toBe(sentinel.lastActivityAt);
+      expect(snap.lastAgentCommand).toBe(sentinel.lastAgentCommand);
+    } finally {
+      watcher.dispose();
+    }
   });
 });

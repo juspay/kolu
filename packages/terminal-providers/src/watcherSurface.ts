@@ -80,12 +80,24 @@ export const watcherSurface = defineSurface({
     terminal: {
       /** Begin watching a terminal. `pid` is the shell's pid (constant, the
        *  agent detectors compare it to the foreground pid for shell-idle); `cwd`
-       *  is the spawn-time cwd the git/agent providers read once. */
+       *  is the spawn-time cwd the git/agent providers read once.
+       *
+       *  `seed` is the endpoint's CURRENT persisted awareness for this terminal.
+       *  It is load-bearing for adoption (B3.3 redeploy survival): a restored
+       *  survivor carries a non-zero `lastActivityAt` and a saved
+       *  `lastAgentCommand`, and the watcher must seed its `record.meta` from
+       *  them — both so the eager snapshot reproduces the restored values
+       *  (rather than a defaults frame the endpoint would fold back, clobbering
+       *  them) AND so `agentRecency`'s "don't re-bump a re-detected restored
+       *  session" guard, which reads `record.meta.lastActivityAt`, actually
+       *  fires. A fresh spawn passes its `createMetadata` defaults here, so the
+       *  seed is a no-op for it. */
       watch: {
         input: z.object({
           id: TerminalIdSchema,
           pid: z.number(),
           cwd: z.string(),
+          seed: PersistedAwarenessSchema,
         }),
         output: z.void(),
       },

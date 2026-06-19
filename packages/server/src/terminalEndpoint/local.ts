@@ -624,11 +624,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // relays + awareness subscribe below tolerate it resolving on a later
     // microtask, and `watch` resolves before any tap event (a tap awaits its
     // stream first). `record.meta.cwd` is the spawn-time cwd the providers read
-    // once.
+    // once; `seed` is this terminal's CURRENT persisted awareness — defaults for
+    // a fresh spawn, the RESTORED values for an adopted survivor (B3.3). Seeding
+    // the watcher from it makes the eager snapshot reproduce restored values
+    // (the fold below would otherwise clobber `lastActivityAt`/`lastAgentCommand`)
+    // and lets `agentRecency`'s restore-guard fire host-side.
     const watched = watcherClient.surface.terminal.watch({
       id,
       pid,
       cwd: record.meta.cwd,
+      seed: {
+        git: entry.meta.git,
+        lastAgentCommand: entry.meta.lastAgentCommand,
+        lastActivityAt: entry.meta.lastActivityAt,
+      },
     });
     watched.catch((err) =>
       log.error({ err, terminal: id }, "watcher: watch failed"),
@@ -719,10 +728,29 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // copying field-by-field — a new awareness field rides the spread for free
       // and the "fold every published field back" rule stays mechanical (the
       // same whole-record discipline `adoptedMeta` uses, per #1275).
+      //
+      // The FIRST persisted frame is the snapshot — the `seed` we just passed in
+      // `watch`, i.e. THIS endpoint's own current persisted awareness — so it
+      // already matches `entry.meta`. Reconcile it WITHOUT `updateServerMetadata`:
+      // that would fire `terminals:dirty`, and adoption deliberately omits an
+      // autosave mid-boot (`adoptTerminal` — a dirty here could persist a
+      // half-adopted set / not-yet-restored active marker). Every LATER persisted
+      // frame is a genuine provider change → publish + dirty, matching master.
+      // (The one-microtask window between the seed and this subscribe is the
+      // theoretical lost-update the reconcile's bare `Object.assign` still lands
+      // on `entry.meta`; it self-heals on the provider's next publish.)
+      let firstPersisted = true;
       bridgeStream(
         watcherClient.surface.persistedAwareness.get({ key: id }, { signal }),
         signal,
-        (a) => updateServerMetadata(entry, id, (m) => Object.assign(m, a)),
+        (a) => {
+          if (firstPersisted) {
+            firstPersisted = false;
+            Object.assign(entry.meta, a);
+            return;
+          }
+          updateServerMetadata(entry, id, (m) => Object.assign(m, a));
+        },
       );
       bridgeStream(
         watcherClient.surface.liveAwareness.get({ key: id }, { signal }),

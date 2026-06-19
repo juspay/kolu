@@ -17,6 +17,10 @@ import { buildWatcherServer } from "./server.ts";
 const silent = pino({ level: "silent" });
 const ID = "11111111-1111-4111-8111-111111111111";
 
+/** The persisted-awareness seed a FRESH spawn passes — `createMetadata`'s
+ *  defaults: no git, recency at 0, no agent command yet. */
+const FRESH_SEED = { git: null, lastActivityAt: 0 } as const;
+
 // A fresh empty dir as the watched cwd: a bare `mkdtemp` directory is never a
 // git repo, so the git provider stays at its `git: null` seed and emits no
 // persisted-awareness delta. Watching a shared path (e.g. `/tmp`) would make the
@@ -42,7 +46,12 @@ describe("buildWatcherServer over directLink", () => {
     const watcher = buildWatcherServer({ log: silent });
     const client = watcher.client;
     try {
-      await client.surface.terminal.watch({ id: ID, pid: 4242, cwd });
+      await client.surface.terminal.watch({
+        id: ID,
+        pid: 4242,
+        cwd,
+        seed: FRESH_SEED,
+      });
 
       // Persisted-awareness snapshot — the providers' seed: no git, no command,
       // recency at 0. (cwd / foreground / location are deliberately absent — the
@@ -79,18 +88,65 @@ describe("buildWatcherServer over directLink", () => {
     const watcher = buildWatcherServer({ log: silent });
     const client = watcher.client;
     try {
-      await client.surface.terminal.watch({ id: ID, pid: 1, cwd });
+      await client.surface.terminal.watch({
+        id: ID,
+        pid: 1,
+        cwd,
+        seed: FRESH_SEED,
+      });
       await client.surface.signal.commandRun({ id: ID, command: "claude" });
       await client.surface.terminal.unwatch({ id: ID });
 
       // Re-watching reseeds from scratch — the unwatch cleared the prior
       // lastAgentCommand, so the fresh snapshot is back to the seed.
-      await client.surface.terminal.watch({ id: ID, pid: 1, cwd });
+      await client.surface.terminal.watch({
+        id: ID,
+        pid: 1,
+        cwd,
+        seed: FRESH_SEED,
+      });
       const persisted = await client.surface.persistedAwareness.get({
         key: ID,
       });
       const snap = await next(persisted[Symbol.asyncIterator]());
       expect(snap.lastAgentCommand).toBeUndefined();
+    } finally {
+      watcher.dispose();
+    }
+  });
+
+  // Regression for the adoption (B3.3 redeploy-survival) clobber: a restored
+  // survivor's non-zero `lastActivityAt` + saved `lastAgentCommand` must seed the
+  // watcher and be reproduced by the eager snapshot — NOT reset to defaults. The
+  // endpoint folds that snapshot back onto its metadata, so a defaults frame here
+  // would overwrite the restored recency slot + agent label (and the autosave
+  // would persist the loss). The watch `seed` is what carries the restored values
+  // across; this asserts the watcher honours it.
+  it("reproduces an adopted terminal's restored persisted awareness from the seed", async () => {
+    const watcher = buildWatcherServer({ log: silent });
+    const client = watcher.client;
+    try {
+      const restored = {
+        git: null,
+        lastAgentCommand: "claude --resume",
+        lastActivityAt: 1_700_000_000_000,
+      };
+      await client.surface.terminal.watch({
+        id: ID,
+        pid: 99,
+        cwd,
+        seed: restored,
+      });
+
+      const persisted = await client.surface.persistedAwareness.get({
+        key: ID,
+      });
+      const snap = await next(persisted[Symbol.asyncIterator]());
+      // The snapshot reproduces the restored values, not `{ lastActivityAt: 0,
+      // lastAgentCommand: undefined }` — so the endpoint's fold is a no-op and
+      // the survivor keeps its recency slot + agent-command label.
+      expect(snap.lastActivityAt).toBe(restored.lastActivityAt);
+      expect(snap.lastAgentCommand).toBe(restored.lastAgentCommand);
     } finally {
       watcher.dispose();
     }
