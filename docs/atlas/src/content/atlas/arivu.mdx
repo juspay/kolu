@@ -97,7 +97,7 @@ Each slice ships and is provable on its own; the long pole is **P1 → P2 → P3
 
 ## P1 in detail — ship `arivu` standalone
 
-P1 is the whole daemon, end to end, with **no kolu-server in the picture** — it stands or falls on its own, exactly the way `kaval` did. Two binaries fall out of one contract.
+P1 is the whole daemon, end to end, needing **no kolu-server at runtime** — it stands or falls on its own, exactly the way `kaval` did. (P1 makes exactly *one*, behavior-preserving change *to* kolu-server — re-pointing an import, below — so there's a single shared copy of the providers, never a duplicate; nothing kolu-server *does* changes until P2.) Two binaries fall out of one contract.
 
 ### What you get — user-facing
 
@@ -168,7 +168,7 @@ It then **serves** that surface — `serveOverStdio({ router, transport })` for 
 
 Two things to notice, because they are exactly what P1 *proves*:
 
-- **The reuse seam is the provider set, not the hooks signature.** `startProviders` / `ProviderRecord` / `ProviderChannels` / `ProviderHooks` move out of kolu-server **verbatim** (the only coupling to sever is the logger, injected as a param); only the `ProviderHooks` *implementation* changes — publish-into-a-collection instead of mutate-kolu's-entry. That hooks-impl is precisely what P3 reuses on the far side of the ssh link.
+- **The reuse seam is the provider set, not the hooks signature — and it's a _move_, not a copy.** `startProviders` / `ProviderRecord` / `ProviderChannels` / `ProviderHooks` (and the kaval-tap→channel bridge) **relocate** from kolu-server into `@kolu/terminal-providers` — the only coupling to sever is the logger, injected as a param — and kolu-server re-points its own import at the package in the same change (behavior-preserving: it keeps running the providers in-process). So there is **one** copy of the freshness-critical provider computation, imported by both; P1 adds **no duplicate**. The only per-consumer code is the thin sink adapter — a `ProviderHooks` *impl*: publish-into-a-collection in `arivu` vs mutate-kolu's-`entry.meta` in kolu-server. That differing impl is the variation point the interface exists for, not duplication — and it is exactly what P3 reuses on the far side of the ssh link.
 - **No fold here.** In P1 the daemon owns the *whole* `AwarenessValue` — there is no co-owned `terminalMetadata`, no client fields, no `location`. The fold (merge + persisted/live split) is *kolu-side* and first appears in P2. P1 is the clean, fold-free proof that the providers run correctly as a separate, kaval-dialing process — the single biggest unknown, retired in isolation.
 
 **Deps & shape:** `@kolu/terminal-providers` already imports nothing from kolu-server; the daemon adds only the surface runtime + a `PtyHostClient`; agent-session reads use Node's built-in `node:sqlite` (no native addon). So `arivu` provisions and travels over ssh by the same staleKey recipe kaval uses — which is the whole reason to prove it here, before P3 introduces the wire.
