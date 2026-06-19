@@ -62,13 +62,19 @@ wait_for_marker() {
     exit 1
 }
 
-# Value of the first JSON string field "<name>":"<value>" in $file ("" if none).
+# Value of the JSON string field "<name>":"<value>" on the line carrying $marker
+# ("" if none). Scoping to the marker line — the same anchor the probe already
+# waited on — keeps this honest: the field is read off the line whose presence we
+# proved, not the first match anywhere (which would silently capture an unrelated
+# earlier "<name>":"..." if a future log line emitted one).
+# NAME is a fixed prefix (grep -F + literal ${match#...} strip), not a regex, so
+# it carries no pattern sensitivity; both callers pass static literals regardless.
 # The values read here (a URL, a path) never contain a quote, so the next " ends
 # the field exactly.
 json_field() {
-    local match
-    match=$(grep -oE "\"$1\":\"[^\"]*\"" "$2" | head -1 || true)
-    match=${match#\"$1\":\"}
+    local name=$1 file=$2 marker=$3 match
+    match=$(grep -F "$marker" "$file" | grep -oE "\"$name\":\"[^\"]*\"" | head -1 || true)
+    match=${match#\"$name\":\"}
     printf '%s' "${match%\"}"
 }
 
@@ -81,7 +87,7 @@ pid=$!
 
 # The address is logged from the listen callback (packages/server/src/index.ts).
 wait_for_marker "kolu listening" "$log" "$pid"
-addr=$(json_field address "$log")
+addr=$(json_field address "$log" "kolu listening")
 if [[ -z "$addr" ]]; then
     echo "kolu logged 'listening' but no address could be parsed from the line" >&2
     cat "$log" >&2
@@ -130,7 +136,7 @@ env -i HOME="$state_tmp/home" KOLU_STATE_DIR="$custom_state" \
 state_pid=$!
 
 wait_for_marker "state directory" "$state_log" "$state_pid"
-logged=$(json_field path "$state_log")
+logged=$(json_field path "$state_log" "state directory")
 kill -TERM "$state_pid" 2>/dev/null || true
 wait "$state_pid" 2>/dev/null || true
 state_pid=""  # disarm cleanup trap — we've already waited
