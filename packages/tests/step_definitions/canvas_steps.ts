@@ -1468,6 +1468,44 @@ Then(
   },
 );
 
+// The load-bearing invariant of #988/#989: a covered tile's border-box is
+// byte-identical to the maximized tile's, so an active-id switch in maximized
+// posture is a pure visibility/z-index swap and `Terminal`'s ResizeObserver
+// never fires `fit()`. Pin it here so a future edit that drifts the
+// maximized/covered geometry apart (e.g. giving one a border or rounded corner
+// the other lacks) re-introduces the per-switch reflow with a RED test instead
+// of silently. Match each axis within 1px using the same idiom as line 267.
+Then(
+  "every covered canvas tile should occupy the maximized tile's box",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const tiles = [...document.querySelectorAll(sel)] as HTMLElement[];
+        const maximized = tiles.find(
+          (t) => t.getAttribute("data-maximized") === "true",
+        );
+        if (!maximized) return false;
+        const m = maximized.getBoundingClientRect();
+        const covered = tiles.filter((t) => t !== maximized);
+        return (
+          covered.length > 0 &&
+          covered.every((t) => {
+            const r = t.getBoundingClientRect();
+            return (
+              Math.abs(r.left - m.left) <= 1 &&
+              Math.abs(r.top - m.top) <= 1 &&
+              Math.abs(r.width - m.width) <= 1 &&
+              Math.abs(r.height - m.height) <= 1
+            );
+          })
+        );
+      },
+      TILE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Tile xterm-instance stability (regression for #988) ──
 //
 // Detect xterm.js remounts across an active-id switch in maximized mode.
