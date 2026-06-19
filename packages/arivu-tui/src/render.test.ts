@@ -5,12 +5,13 @@ import {
   agentStatusLabel,
   formatAwarenessJson,
   formatAwarenessList,
+  relativeTime,
   resolveTerminalId,
   shortId,
 } from "./render.ts";
 
 /** A seed awareness value; `over` patches the fields a case cares about. The
- *  agent/pr/git sub-shapes are cast — render only reads a few fields of each,
+ *  git/pr/agent sub-shapes are cast — render only reads a few fields of each,
  *  and these tests exercise rendering, not schema validity. */
 function val(over: Partial<AwarenessValue>): AwarenessValue {
   return {
@@ -25,6 +26,19 @@ function val(over: Partial<AwarenessValue>): AwarenessValue {
 }
 
 const id = (s: string): TerminalId => s as TerminalId;
+const NOW = 1_700_000_000_000;
+
+const ALL_LABELS = [
+  "agent",
+  "pr",
+  "branch",
+  "repo",
+  "remote",
+  "foreground",
+  "title",
+  "agent cmd",
+  "active",
+];
 
 describe("agentStatusLabel", () => {
   it("buckets working / awaiting / waiting", () => {
@@ -47,90 +61,117 @@ describe("agentShortName", () => {
   });
 });
 
+describe("relativeTime", () => {
+  it("renders compact ages and dashes a 0 (never active)", () => {
+    expect(relativeTime(0, NOW)).toBe("—");
+    expect(relativeTime(NOW - 5_000, NOW)).toBe("5s");
+    expect(relativeTime(NOW - 5 * 60_000, NOW)).toBe("5m");
+    expect(relativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h");
+    expect(relativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d");
+  });
+});
+
 describe("formatAwarenessList", () => {
   it("honest one-liner when empty", () => {
     expect(formatAwarenessList([])).toContain("no terminals");
   });
 
-  it("renders branch · PR(+checks) · agent · foreground, one row per terminal", () => {
-    const out = formatAwarenessList([
+  it("renders a vertical record surfacing EVERY awareness field", () => {
+    const out = formatAwarenessList(
       [
-        id("a3f10000-0000-4000-8000-000000000000"),
-        val({
-          git: { branch: "feat/dial-ssh" } as AwarenessValue["git"],
-          pr: {
-            kind: "ok",
-            value: { number: 1412, checks: "pass" },
-          } as AwarenessValue["pr"],
-          agent: {
-            kind: "claude-code",
-            state: "thinking",
-          } as AwarenessValue["agent"],
-          foreground: { name: "node", title: null },
-        }),
+        [
+          id("a3f10000-0000-4000-8000-000000000000"),
+          val({
+            cwd: "/home/u/code/kolu",
+            git: {
+              branch: "feat/dial-ssh",
+              repoName: "kolu",
+              remoteUrl: "https://github.com/juspay/kolu",
+            } as AwarenessValue["git"],
+            lastActivityAt: NOW - 3 * 60_000,
+            lastAgentCommand: "claude --model sonnet",
+            pr: {
+              kind: "ok",
+              value: { number: 1412, state: "open", checks: "pass" },
+            } as AwarenessValue["pr"],
+            agent: {
+              kind: "claude-code",
+              state: "thinking",
+            } as AwarenessValue["agent"],
+            foreground: { name: "node", title: "claude: implement X" },
+          }),
+        ],
       ],
-      [
-        id("c9d40000-0000-4000-8000-000000000000"),
-        val({
-          git: { branch: "fix/fold" } as AwarenessValue["git"],
-          pr: {
-            kind: "ok",
-            value: { number: 1408, checks: "fail" },
-          } as AwarenessValue["pr"],
-          agent: null,
-          foreground: { name: "nvim", title: null },
-        }),
-      ],
-    ]);
-    expect(out).toContain("ID");
-    expect(out).toContain("BRANCH");
-    expect(out).toContain("feat/dial-ssh");
-    expect(out).toContain("#1412 ✓");
-    expect(out).toContain("claude · working");
-    expect(out).toContain("node");
-    expect(out).toContain("fix/fold");
-    expect(out).toContain("#1408 ✗");
-    expect(out).toContain("nvim");
-    // The second row has no agent → a dash.
-    expect(out).toContain("—");
-    // shortId is the first 8 chars.
-    expect(out).toContain("a3f10000");
-    expect(out).toContain("c9d40000");
-    // the CWD column (the default seed cwd is "/repo").
-    expect(out).toContain("CWD");
-    expect(out).toContain("/repo");
-  });
-
-  it("shows the cwd, tildeified against $HOME", () => {
-    const home = formatAwarenessList(
-      [[id("a3f10000-0000-4000-8000-000000000000"), val({ cwd: "/home/u/code/kolu" })]],
-      { home: "/home/u" },
+      { home: "/home/u", now: NOW },
     );
-    expect(home).toContain("~/code/kolu");
-    expect(home).not.toContain("/home/u/code/kolu");
-    // no home → the raw absolute path.
-    const raw = formatAwarenessList([
-      [id("a3f10000-0000-4000-8000-000000000000"), val({ cwd: "/srv/work" })],
-    ]);
-    expect(raw).toContain("/srv/work");
+    // header line: short id + tildeified cwd
+    expect(out).toContain("a3f10000  ~/code/kolu");
+    // a labeled line per field
+    for (const label of ALL_LABELS) expect(out).toContain(label);
+    expect(out).toContain("claude · working"); // agent
+    expect(out).toContain("#1412 open ✓"); // pr (number · state · checks)
+    expect(out).toContain("kolu"); // repo
+    expect(out).toContain("feat/dial-ssh"); // branch
+    expect(out).toContain("github.com/juspay/kolu"); // remote
+    expect(out).toContain("3m"); // active
+    expect(out).toContain("node"); // foreground
+    expect(out).toContain("claude: implement X"); // title
+    expect(out).toContain("claude --model sonnet"); // agent cmd
   });
 
-  it("dashes a terminal with no git / no PR", () => {
-    const out = formatAwarenessList([[id("b7c2"), val({})]]);
-    // branch, pr, agent, foreground all dash.
-    expect(out.match(/—/g)?.length).toBeGreaterThanOrEqual(4);
+  it("dashes unresolved fields but keeps every label", () => {
+    const out = formatAwarenessList([[id("b7c2"), val({})]], { now: NOW });
+    expect(out).toContain("b7c2  /repo"); // header still shows the cwd
+    for (const label of ALL_LABELS) expect(out).toContain(label);
+    expect(out).toContain("pending"); // pr pending
+    // agent · branch · repo · remote · foreground · title · agent-cmd · active
+    expect(out.match(/—/g)?.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("separates multiple terminals with a blank line", () => {
+    const out = formatAwarenessList(
+      [
+        [id("aaaa1111-0000-4000-8000-000000000000"), val({})],
+        [id("bbbb2222-0000-4000-8000-000000000000"), val({})],
+      ],
+      { now: NOW },
+    );
+    expect(out).toContain("\n\n");
+    expect(out).toContain("aaaa1111");
+    expect(out).toContain("bbbb2222");
+  });
+
+  it("renders each PR arm", () => {
+    const pr = (p: AwarenessValue["pr"]) =>
+      formatAwarenessList([[id("a"), val({ pr: p })]], { now: NOW });
+    expect(
+      pr({
+        kind: "ok",
+        value: { number: 7, state: "merged", checks: "fail" },
+      } as AwarenessValue["pr"]),
+    ).toContain("#7 merged ✗");
+    expect(pr({ kind: "pending" })).toContain("pending");
+    expect(
+      pr({
+        kind: "unavailable",
+        source: { provider: "gh", code: "not-logged-in" },
+      } as unknown as AwarenessValue["pr"]),
+    ).toContain("unavailable: not-logged-in");
   });
 });
 
 describe("formatAwarenessJson", () => {
-  it("is a top-level array of { id, ...value } with the full id", () => {
+  it("is a top-level array of { id, ...value } with the full id + raw value", () => {
     const full = id("a3f10000-0000-4000-8000-000000000000");
     const parsed = JSON.parse(
-      formatAwarenessJson([[full, val({ cwd: "/x" })]]),
-    ) as Array<{ id: string; cwd: string }>;
+      formatAwarenessJson([
+        [full, val({ cwd: "/x", lastAgentCommand: "codex" })],
+      ]),
+    ) as Array<{ id: string; cwd: string; lastAgentCommand: string }>;
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.id).toBe(full);
     expect(parsed[0]?.cwd).toBe("/x");
+    expect(parsed[0]?.lastAgentCommand).toBe("codex");
   });
 });
 
@@ -158,8 +199,6 @@ describe("resolveTerminalId", () => {
     expect(resolveTerminalId("", ids)).toEqual({ kind: "none" });
   });
   it("reports ambiguity with the matches", () => {
-    const r = resolveTerminalId("", ["aa", "ab"]); // empty → none, not ambiguous
-    expect(r.kind).toBe("none");
     const amb = resolveTerminalId("a", ["aa11", "ab22"]);
     expect(amb.kind).toBe("ambiguous");
   });
