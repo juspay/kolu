@@ -3,6 +3,8 @@
  *  excerpts, and editor messages all share this shape; this module is
  *  the single place that knows how to read and resolve it. */
 
+import { ancestorDirectoryPaths } from "@kolu/solid-pierre";
+
 /** Parsed line reference with an inclusive 1-based range. `startLine`
  *  and `endLine` are null when the source had no `:N` suffix — `path`
  *  alone is enough to navigate, and the consumer should open the file
@@ -233,22 +235,10 @@ function buildNormalizedIndex(repoPaths: readonly string[]): {
   for (const p of repoPaths) {
     add(byNorm, p.normalize("NFC"), p);
     add(byBasename, basename(p).normalize("NFC"), p);
-    for (const dir of ancestorDirKeys(p)) add(byDir, dir.normalize("NFC"), dir);
+    for (const dir of ancestorDirectoryPaths(p))
+      add(byDir, dir.normalize("NFC"), dir);
   }
   return { byNorm, byBasename, byDir };
-}
-
-/** Trailing-slash directory keys that contain `path` (a repo file): for
- *  `a/b/c.ts` yields `a/`, `a/b/`. The final segment is the file itself, not a
- *  directory, so it is excluded; a top-level file (no slash) yields nothing.
- *  The trailing slash matches Pierre's folder-row keys, so a resolved value can
- *  be handed straight to `getItem`/`scrollToPath`. */
-function* ancestorDirKeys(path: string): Generator<string> {
-  let slash = path.indexOf("/");
-  while (slash !== -1) {
-    yield path.slice(0, slash + 1);
-    slash = path.indexOf("/", slash + 1);
-  }
 }
 
 function resolveByBasename(
