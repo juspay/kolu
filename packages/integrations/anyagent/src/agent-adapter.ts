@@ -1,6 +1,6 @@
 /**
- * AgentProvider — the shared contract every agent-detection integration
- * implements. A provider encapsulates four axes of volatility that vary
+ * AgentAdapter — the shared contract every agent-detection integration
+ * implements. An adapter encapsulates four axes of volatility that vary
  * per agent CLI:
  *
  *  1. How a terminal maps to a session         → `resolveSession`
@@ -14,7 +14,7 @@
  * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
  * below. All concrete AgentInfo variants share the same 5-field shape today
  * (state, sessionId, model, summary, taskProgress), so one equality function
- * suffices for every provider.
+ * suffices for every adapter.
  */
 
 import type { Logger } from "kolu-shared";
@@ -22,7 +22,7 @@ import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.
  *  Fields are the inputs every agent's session-matching logic can draw from;
- *  the provider picks the ones it needs (claude-code uses `foregroundPid`,
+ *  the adapter picks the ones it needs (claude-code uses `foregroundPid`,
  *  opencode uses `foregroundBasename` + `cwd`). */
 export interface AgentTerminalState {
   /** Foreground process PID, or undefined if unknown. */
@@ -31,7 +31,7 @@ export interface AgentTerminalState {
   cwd: string;
   /** Foreground process basename (e.g. "opencode", "claude", "vim"), or null
    *  if the PTY process is unknown. Lazy: reading involves a kernel syscall
-   *  on darwin (sysctl), so providers that match by PID alone (e.g.
+   *  on darwin (sysctl), so adapters that match by PID alone (e.g.
    *  claude-code) avoid invoking it. Idempotent within one snapshot — the
    *  second call returns the cached value without a second syscall. */
   readForegroundBasename: () => string | null;
@@ -46,7 +46,7 @@ export interface AgentTerminalState {
 }
 
 /** Handle returned by `createWatcher`. Callers invoke `destroy()` when the
- *  matched session changes or the provider is torn down. */
+ *  matched session changes or the adapter is torn down. */
 export interface AgentWatcher {
   destroy(): void;
 }
@@ -71,10 +71,10 @@ export interface AgentInfoShape {
   contextTokens: number | null;
 }
 
-/** Agent-detection contract. Type parameters: `Session` is the provider's
+/** Agent-detection contract. Type parameters: `Session` is the adapter's
  *  opaque match result (its lifetime == one matched session); `Info` is the
  *  wire-shape yielded by the watcher. */
-export interface AgentProvider<Session, Info extends AgentInfoShape> {
+export interface AgentAdapter<Session, Info extends AgentInfoShape> {
   /** Discriminator matching `Info["kind"]` (e.g. "claude-code", "opencode"). */
   readonly kind: Info["kind"];
 
@@ -87,7 +87,7 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *  successive `sessionKey(resolveSession(...))` values to decide whether
    *  to replace the running watcher. Must be deterministic and agent-specific
    *  (two sessions from different agents don't need to differ — the kind
-   *  field already distinguishes providers). */
+   *  field already distinguishes adapters). */
   sessionKey(session: Session): string;
 
   /** Start a watcher for a matched session. `onChange` fires whenever the
@@ -111,7 +111,7 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *
    *  Lazy activation: the orchestrator calls `install` at most once per
    *  process, the first time any terminal's state satisfies `isPresent`.
-   *  Until then, zero watchers fire for this provider — a fresh machine
+   *  Until then, zero watchers fire for this adapter — a fresh machine
    *  where the user has never run this agent pays no watcher cost and
    *  logs no missing-directory errors. Once installed, the subscription
    *  lives for the remainder of the process; there is no uninstall,
@@ -123,7 +123,7 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
      *  agent, or because its on-disk state is already present (the user
      *  has used the agent here before, even if no terminal currently
      *  hosts it). Called on every reconcile; the first `true` across any
-     *  terminal for this provider triggers `install`. Must NOT require
+     *  terminal for this adapter triggers `install`. Must NOT require
      *  `resolveSession` to have succeeded — for Codex, the foreground
      *  process is `codex` before any DB row exists, and the WAL watcher
      *  is what catches the row's appearance. */
@@ -191,7 +191,7 @@ export function matchesAgent(
 }
 
 /** Structural equality over the shared 5-field AgentInfo shape, plus `kind`.
- *  One implementation serves every provider — if a new integration wants a
+ *  One implementation serves every adapter — if a new integration wants a
  *  different equality contract, its Info shape is out of bounds anyway and
  *  needs to be addressed schema-side, not by forking the comparator. */
 export function agentInfoEqual<A extends AgentInfoShape>(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AgentInfoShape, agentInfoEqual } from "./agent-provider.ts";
+import { type AgentInfoShape, agentInfoEqual } from "./agent-adapter.ts";
 
 describe("agentInfoEqual", () => {
   const claude: AgentInfoShape = {

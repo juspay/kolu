@@ -5,7 +5,7 @@
  * and summary fetching. Destroying it tears everything down. No "remember
  * to reset N variables" invariant — the lifetime IS the object.
  *
- * The server's claude provider creates one of these per matched session
+ * The server's claude adapter creates one of these per matched session
  * and replaces it on session change.
  */
 

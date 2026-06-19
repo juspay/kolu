@@ -17,7 +17,7 @@
  *  app. A new forge's arm joins that app-side union; this leaf never changes.
  *
  *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters implement
- *  `PrProvider<S>` against these shapes and never import each other. */
+ *  `ForgeAdapter<S>` against these shapes and never import each other. */
 
 import { match, P } from "ts-pattern";
 import { z } from "zod";

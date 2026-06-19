@@ -3,19 +3,19 @@
  * Claude Code sessions and deriving state from JSONL transcripts.
  *
  * No dependency on server internals (no updateServerMetadata, no TerminalProcess).
- * The server's provider imports these and wires them into the metadata system.
+ * The server's adapter imports these and wires them into the metadata system.
  *
  * Detection: reads ~/.claude/sessions/{pid}.json to find sessions, then
  * tails the JSONL transcript in ~/.claude/projects/{encoded-cwd}/ to
  * derive state (thinking, tool_use, waiting).
  *
  * Event-driven watchers (fs.watch) are also exported for the server to
- * compose into its provider lifecycle.
+ * compose into its adapter lifecycle.
  *
  * Structure note: this file holds the leaf module. Peers `session-watcher.ts`
- * and `agent-provider.ts` import from here; `index.ts` is a pure barrel
+ * and `agent-adapter.ts` import from here; `index.ts` is a pure barrel
  * re-exporting from all three (plus `schemas.ts`). Keeps the package free
- * of the index ↔ session-watcher ↔ agent-provider cycle that `index.ts`
+ * of the index ↔ session-watcher ↔ agent-adapter cycle that `index.ts`
  * sat at the center of when it acted as both the helper hub and the
  * barrel simultaneously.
  */

@@ -3,7 +3,7 @@
  * sessions and deriving state from its SQLite database.
  *
  * No dependency on server internals (no updateServerMetadata, no TerminalProcess).
- * The server's provider imports these and wires them into the metadata system.
+ * The server's adapter imports these and wires them into the metadata system.
  *
  * Architecture: OpenCode (TUI mode) is a single process that owns
  * `~/.local/share/opencode/opencode.db` directly via SQLite WAL mode.
@@ -20,7 +20,7 @@
  *   - role: "assistant", finish: other      → "thinking" (still working)
  *
  * Structure note: this file holds the leaf module. Peers `session-watcher.ts`,
- * `wal-watcher.ts`, and `agent-provider.ts` import from here; `index.ts` is
+ * `wal-watcher.ts`, and `agent-adapter.ts` import from here; `index.ts` is
  * a pure barrel re-exporting from all of them plus `schemas.ts` / `config.ts`.
  */
 

@@ -1,7 +1,7 @@
 /**
- * Claude Code's AgentProvider — wires the package's existing helpers
+ * Claude Code's AgentAdapter — wires the package's existing helpers
  * (`readSessionFile`, `subscribeSessionsDir`, `createSessionWatcher`) into
- * the shared `AgentProvider<Session, Info>` contract from anyagent.
+ * the shared `AgentAdapter<Session, Info>` contract from anyagent.
  *
  * The server's generic agent orchestrator consumes this and needs no
  * claude-code-specific knowledge.
@@ -22,7 +22,7 @@
  */
 
 import fs from "node:fs";
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentAdapter, matchesAgent } from "anyagent";
 import {
   readSessionFile,
   SESSIONS_DIR,
@@ -37,7 +37,7 @@ import {
 } from "./screen.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 
-export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
+export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
   kind: "claude-code",
 
   resolveSession(state, log) {

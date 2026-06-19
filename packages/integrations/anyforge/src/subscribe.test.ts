@@ -8,7 +8,7 @@ import {
   type Mock,
   vi,
 } from "vitest";
-import type { PrGitContext, PrProvider } from "./provider.ts";
+import type { PrGitContext, ForgeAdapter } from "./adapter.ts";
 import type { PrResult } from "./schemas.ts";
 import { subscribePr } from "./subscribe.ts";
 
@@ -20,7 +20,7 @@ function spyLogger(): Logger {
 
 /** Stub adapter resolving to a fixed result — the fixture that replaces the
  *  real gh spawn now that the loop is decoupled from any one forge. */
-function stubProvider(result: PrResult): PrProvider {
+function stubProvider(result: PrResult): ForgeAdapter {
   return { kind: "github", resolve: async () => result };
 }
 
@@ -131,8 +131,8 @@ describe("subscribePr", () => {
     }
   });
 
-  it("contains a throwing provider instead of escaping as an unhandled rejection", async () => {
-    // The provider contract says resolve() never throws — guard regardless,
+  it("contains a throwing adapter instead of escaping as an unhandled rejection", async () => {
+    // The adapter contract says resolve() never throws — guard regardless,
     // since the floated `fetchAndEmit` would otherwise turn an adapter bug
     // into a process crash.
     const log = spyLogger();
@@ -165,7 +165,7 @@ describe("subscribePr", () => {
     // switches to branch B and B resolves first. A's late result must NOT
     // overwrite B's — the watcher gates each emit on the current context.
     const deferred = new Map<string, (pr: PrResult) => void>();
-    const provider: PrProvider = {
+    const adapter: ForgeAdapter = {
       kind: "github",
       resolve: (g) =>
         new Promise<PrResult>((resolve) => {
@@ -173,7 +173,7 @@ describe("subscribePr", () => {
         }),
     };
     const seen: PrResult[] = [];
-    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+    const watcher = subscribePr(adapter, (pr) => seen.push(pr));
 
     try {
       watcher.setGit(ctx({ branch: "A" })); // floats resolve(A), still pending
@@ -223,7 +223,7 @@ describe("subscribePr", () => {
     // A boxed resolver — a plain `let` would be narrowed to `null` at the
     // call site because TS can't see the executor closure assign it.
     const box: { resolve: ((pr: PrResult) => void) | null } = { resolve: null };
-    const provider: PrProvider = {
+    const adapter: ForgeAdapter = {
       kind: "github",
       resolve: () =>
         new Promise<PrResult>((resolve) => {
@@ -231,7 +231,7 @@ describe("subscribePr", () => {
         }),
     };
     const seen: PrResult[] = [];
-    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+    const watcher = subscribePr(adapter, (pr) => seen.push(pr));
 
     try {
       watcher.setGit(ctx()); // floats a resolve, still pending
@@ -270,14 +270,14 @@ describe("subscribePr", () => {
     // so a stale forge's PR doesn't linger while the new resolve is in flight.
     const seenCtx: PrGitContext[] = [];
     const seen: PrResult[] = [];
-    const provider: PrProvider = {
+    const adapter: ForgeAdapter = {
       kind: "github",
       resolve: async (g) => {
         seenCtx.push(g);
         return { kind: "absent" };
       },
     };
-    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+    const watcher = subscribePr(adapter, (pr) => seen.push(pr));
 
     try {
       watcher.setGit(ctx({ remoteUrl: "https://github.com/owner/repo.git" }));
@@ -304,7 +304,7 @@ describe("subscribePr", () => {
     // B's — the stale-result guard gates on the full context, remoteUrl
     // included.
     const deferred = new Map<string, (pr: PrResult) => void>();
-    const provider: PrProvider = {
+    const adapter: ForgeAdapter = {
       kind: "github",
       resolve: (g) =>
         new Promise<PrResult>((resolve) => {
@@ -312,7 +312,7 @@ describe("subscribePr", () => {
         }),
     };
     const seen: PrResult[] = [];
-    const watcher = subscribePr(provider, (pr) => seen.push(pr));
+    const watcher = subscribePr(adapter, (pr) => seen.push(pr));
     const remoteA = "https://github.com/owner/repo.git";
     const remoteB = "https://codeberg.org/owner/repo.git";
 
