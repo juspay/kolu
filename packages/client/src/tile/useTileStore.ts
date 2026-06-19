@@ -86,8 +86,8 @@ export const useTileStore = createSharedRoot(() => {
     // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that
     // needs the active TERMINAL keeps reading `store.activeId()` (identical
-    // today — PR 2 narrows via `focusedId` / `terminalIdOf` once a sleeping
-    // tile can be active). Physically relocating these signals into the
+    // today — PR 2 narrows via `focusedId` once a sleeping tile can be
+    // active). Physically relocating these signals into the
     // registry is a later optional migration, deferred like the layout-home
     // schema move. `TileId === TerminalId`, so these are already tile-typed.
     activeId: store.activeId,
