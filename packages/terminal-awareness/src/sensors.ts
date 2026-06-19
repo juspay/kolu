@@ -1,11 +1,11 @@
-/** Per-terminal provider DAG, parameterized over `ProviderHooks` +
- *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
- *  that varies. kolu-server's local endpoint (`./local.ts`) instantiates it,
+/** Per-terminal sensor set, parameterized over `AwarenessSink` +
+ *  `AwarenessSignals` + `AwarenessRecord` so the host is the only thing
+ *  that varies. kolu-server's local endpoint instantiates it,
  *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
- *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
+ *  remote ssh pty-host serves the same taps in #951 R-2 — same sensor set, different
  *  transport.
  *
- *  Provider DAG:
+ *  Sensor set:
  *
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher
  *                                                    (lives on m.pr)
@@ -13,26 +13,27 @@
  *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent)
  *    commandRun:<id>   ─►  agent-command tracker (lives on m.lastAgentCommand)
  *
- *  Metadata writes funnel through `hooks.update*Metadata` so the
- *  providers don't need to know how their host persists state;
+ *  Metadata writes funnel through `sink.update*Metadata` so the
+ *  sensors don't need to know how their host persists state;
  *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
  *  are optional so non-parent hosts can opt out.
  *
- *  Note on `git` channel: the PR provider chains off the
- *  `git` channel that the git provider publishes — so the channel
- *  has to be provided by the host (the agent creates a per-terminal
- *  in-memory channel for it).
+ *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the
+ *  git sensor publishes. That channel is an internal sensor-to-sensor
+ *  wire, NOT a host input — `startAwareness` constructs it itself and
+ *  hands it to just those two sensors, so hosts plug in only the four
+ *  taps they actually drive.
  *
  *  ## Host contract
  *
- *  `record.meta.cwd` is read once at provider start (the spawn-time
+ *  `record.meta.cwd` is read once at sensor start (the spawn-time
  *  cwd) and is not re-read afterwards; subsequent cwd changes flow
- *  ONLY through `channels.cwd`. Hosts must publish every cwd change to
+ *  ONLY through `signals.cwd`. Hosts must publish every cwd change to
  *  that channel — they are NOT required to keep `record.meta.cwd` in
  *  sync, though the agent happens to (its cwd bridge writes through
- *  `hooks.updateServerMetadata` so the persisted+published metadata
+ *  `sink.updateServerMetadata` so the persisted+published metadata
  *  stays current for clients). Any host that satisfies the
- *  `ProviderChannels`/`ProviderHooks` shape and publishes cwd to the
+ *  `AwarenessSignals`/`AwarenessSink` shape and publishes cwd to the
  *  channel will get correct agent / git resolution.
  */
 
@@ -56,82 +57,101 @@ import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubPrProvider } from "kolu-github";
-import type {
-  AgentInfo,
-  LiveTerminalFields,
-  PrUnavailableSource,
-  ServerPersistedTerminalFields,
-  TerminalId,
-  TerminalServerMetadata,
-} from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
-import type { Channel } from "@kolu/surface/server";
-import { log } from "../log.ts";
+import { type Channel, inMemoryChannel } from "@kolu/surface/server";
+import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+import type {
+  AgentInfo,
+  AwarenessLiveFields,
+  AwarenessPersistedFields,
+  AwarenessValue,
+  PrUnavailableSource,
+  TerminalId,
+} from "./schema.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. The local endpoint
- *  (`./local.ts`) constructs one per terminal; the providers only touch
- *  `pid` + `meta` + `currentAgent` from here. `meta` is
- *  `TerminalServerMetadata` — the canonical
- *  `ServerPersistedTerminalFields ∪ LiveTerminalFields` union from
- *  `kolu-common/surface` (the same write-fence partition `metadata.ts`
- *  enforces). A `createMetadata` result satisfies it directly. */
-export interface ProviderRecord {
+/** Minimal "terminal record" shape the sensor set needs. The host
+ *  constructs one per terminal; the sensors only touch `pid` + `meta` +
+ *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
+ *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
+ *  partition the sink enforces). kolu's `TerminalServerMetadata` (which adds
+ *  `location`; the full `TerminalMetadata` adds the client UI fields on top)
+ *  satisfies it directly by width subtyping, so the local endpoint can pass its
+ *  own `entry.meta` here unchanged. */
+export interface AwarenessRecord {
   /** OS pid of the PTY's shell — constant for the terminal's life, known at
    *  spawn. The agent detectors compare it to the foreground pid to decide
    *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
    *  live reads (process name + foreground pid) that used to come off the
-   *  handle synchronously now arrive over `channels.foreground`, so the DAG
+   *  handle synchronously now arrive over `signals.foreground`, so the sensor set
    *  has zero sync dependency on the PTY host — which is what lets it run on
    *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
   pid: number;
-  meta: TerminalServerMetadata;
+  meta: AwarenessValue;
   /** Ephemeral basename of the agent binary at the foreground right
    *  now; written by the agent-command tracker, read by the agent
    *  detectors. Null when the shell is idle. */
   currentAgent: string | null;
 }
 
-/** Per-terminal channels the providers subscribe to. The local endpoint
- *  (`./local.ts`) creates a fresh in-memory channel of each kind per terminal
- *  and feeds them from the pty-host's tap streams; a remote pty-host serves
- *  the same taps. */
-export interface ProviderChannels {
+/** Per-terminal signals the sensors subscribe to. The host (kolu-server's
+ *  local endpoint, or `arivu`) creates a fresh in-memory channel of each kind
+ *  per terminal and feeds them from the pty-host's tap streams; a remote
+ *  pty-host serves the same taps. */
+export interface AwarenessSignals {
   cwd: Channel<string>;
   title: Channel<string>;
   commandRun: Channel<string>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
-   *  `ptyHandle.process` / `.foregroundPid` reads, so the DAG works across a
+   *  `ptyHandle.process` / `.foregroundPid` reads, so the sensor set works across a
    *  socket. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
-  git: Channel<GitInfo | null>;
 }
 
-/** Host hooks — the providers call these to update metadata + emit
+/** Host sink — the sensors call its methods to update metadata + emit
  *  side effects. The mutator parameter types are narrowed to the two
- *  halves of the persisted-vs-live partition (the same fence
- *  `metadata.ts` enforces): writing `m.agent` through
+ *  halves of the persisted-vs-live partition (the same fence the host
+ *  enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The local endpoint (`makeHooks` in `./local.ts`) wires these
- *  straight to kolu-server's metadata + activity surfaces; the same fence
+ *  sensor. kolu-server's local endpoint (`makeAwarenessSink`) wires these
+ *  straight to its metadata + activity surfaces; the same fence
  *  applies there.
  *
- *  `record` is passed to every hook so a host whose update function isn't
+ *  ## Apply-and-publish contract (load-bearing)
+ *
+ *  `updateServerMetadata` / `updateServerLiveMetadata` MUST apply `mutate`
+ *  to `record.meta` **synchronously** before they return — not only publish
+ *  the result elsewhere. The sensors read `record.meta` back as their own
+ *  prior state: the agent-command tracker dedups on `record.meta.lastAgentCommand`,
+ *  `publishAgentField` skips a redundant write via `agentInfoEqual(record.meta.agent, …)`
+ *  and decides recency off `record.meta.lastActivityAt`, and the foreground
+ *  sensor's own `published` mirror assumes the write landed. A sink that
+ *  type-checks but publishes to a collection WITHOUT mutating `record.meta`
+ *  (a plausible mistake for an extracted-package consumer like `arivu`) would
+ *  silently defeat every one of those dedup/transition gates — repeated
+ *  commands re-published, agent state re-emitted each tick, recency
+ *  double-bumped. kolu-server's `makeAwarenessSink` satisfies this because its
+ *  `updateServer*Metadata` mutate `entry.meta`, which IS `record.meta` (same
+ *  object). Honor it: mutate the record, THEN persist/publish the result.
+ *
+ *  `record` is passed to every method so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)
- *  can look the record up in its own registry to dispatch the write. The
- *  endpoint already has the entry + id captured in `makeHooks`'s per-terminal
- *  closure, so it ignores the argument — hence the `_record` prefix. */
-export interface ProviderHooks {
+ *  can look the record up in its own registry to dispatch the write. A host
+ *  whose closure already captures the record (like kolu-server's local
+ *  endpoint, which has the entry + id captured in `makeAwarenessSink`'s
+ *  per-terminal closure) ignores the argument and prefixes it `_record` at
+ *  the call site. */
+export interface AwarenessSink {
   updateServerMetadata: (
-    record: ProviderRecord,
-    mutate: (meta: ServerPersistedTerminalFields) => void,
+    record: AwarenessRecord,
+    mutate: (meta: AwarenessPersistedFields) => void,
   ) => void;
   updateServerLiveMetadata: (
-    record: ProviderRecord,
-    mutate: (meta: LiveTerminalFields) => void,
+    record: AwarenessRecord,
+    mutate: (meta: AwarenessLiveFields) => void,
   ) => void;
   /** Optional — activity-feed signals into kolu-server's cross-terminal MRUs
    *  (recent-repos / recent-agents); a host with no activity feed omits them. */
@@ -140,7 +160,7 @@ export interface ProviderHooks {
   /** Optional — read the terminal's current rendered screen as VT-resolved
    *  plain text. Provided by hosts that can reach the PTY screen buffer (the
    *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
-   *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
+   *  can't. Async + host-supplied, so the sensor set keeps its zero *synchronous*
    *  dependency on the PTY host — a remote ssh pty-host serves the same read
    *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
    *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
@@ -160,18 +180,19 @@ function processBasename(proc: string): string {
   return path.basename(proc);
 }
 
-function startProcessProvider(
-  record: ProviderRecord,
+function startForegroundSensor(
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
   // Foreground `{name, title}` — one concept, two coherent fields, so it's one
   // value not four scattered bindings. The name is tracked from
-  // `channels.foreground` (the pty-host tap) rather than read synchronously
+  // `signals.foreground` (the pty-host tap) rather than read synchronously
   // off a handle — so this works when pty-host lives across a socket; the
-  // title is tracked from `channels.title`. `current` is what we've observed;
+  // title is tracked from `signals.title`. `current` is what we've observed;
   // `published` is what we last wrote, so `recompute` republishes only on a
   // real change.
   type FgState = { name: string | null; title: string | null };
@@ -187,7 +208,7 @@ function startProcessProvider(
       "foreground changed",
     );
     published = { ...current };
-    hooks.updateServerLiveMetadata(record, (m) => {
+    sink.updateServerLiveMetadata(record, (m) => {
       m.foreground =
         current.name === null
           ? null
@@ -195,14 +216,14 @@ function startProcessProvider(
     });
   }
 
-  const cleanupForeground = channels.foreground.consume({
+  const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       current.name = processBasename(fg.process);
       recompute();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
-  const cleanupTitle = channels.title.consume({
+  const cleanupTitle = signals.title.consume({
     onEvent: (title) => {
       current.title = title;
       recompute();
@@ -218,22 +239,24 @@ function startProcessProvider(
 
 // ── Git watcher ───────────────────────────────────────────────────────
 
-function startGitProvider(
-  record: ProviderRecord,
+function startGitSensor(
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  signals: AwarenessSignals,
+  gitChannel: Channel<GitInfo | null>,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
   plog.debug({ cwd: record.meta.cwd }, "started");
   const watcher = subscribeGitInfo(
     record.meta.cwd,
     (git) => {
-      if (git) hooks.trackRecentRepo?.(git.mainRepoRoot, git.repoName);
-      hooks.updateServerMetadata(record, (m) => {
+      if (git) sink.trackRecentRepo?.(git.mainRepoRoot, git.repoName);
+      sink.updateServerMetadata(record, (m) => {
         m.git = git;
       });
-      channels.git.publish(git);
+      gitChannel.publish(git);
       plog.debug(
         { repo: git?.repoName, branch: git?.branch },
         "git info updated",
@@ -241,7 +264,7 @@ function startGitProvider(
     },
     plog,
   );
-  const cleanup = channels.cwd.consume({
+  const cleanup = signals.cwd.consume({
     onEvent: (cwd) => watcher.setCwd(cwd),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
@@ -255,12 +278,12 @@ function startGitProvider(
 // ── PR watcher ────────────────────────────────────────────────────────
 
 /** The forges kolu can resolve a PR from. One today; a second forge adds an
- *  arm here plus an entry in `PR_REGISTRY` and a host match in `detectForge`
+ *  arm here plus an entry in `FORGE_ADAPTERS` and a host match in `detectForge`
  *  — nothing else in the watcher path changes.
  *
  *  Derived from the adapter's own `kind` literal (not a hand-written
  *  `"github"`) so the registry key and the adapter agree by construction: a
- *  phase-1 forge that adds an adapter must add the matching `PR_REGISTRY` key
+ *  phase-1 forge that adds an adapter must add the matching `FORGE_ADAPTERS` key
  *  or the `Record<ForgeKind, …>` below stops type-checking. */
 type ForgeKind = (typeof githubPrProvider)["kind"];
 
@@ -268,7 +291,7 @@ type ForgeKind = (typeof githubPrProvider)["kind"];
  *  each adapter's concrete source is a member, so a `PrProvider<GhUnavailable…>`
  *  assigns covariantly with no cast, and the dispatcher's result lands in the
  *  metadata `PrResult` directly. */
-const PR_REGISTRY: Record<ForgeKind, PrProvider<PrUnavailableSource>> = {
+const FORGE_ADAPTERS: Record<ForgeKind, PrProvider<PrUnavailableSource>> = {
   github: githubPrProvider,
 };
 
@@ -291,26 +314,27 @@ function detectForge(remoteUrl: string | null): ForgeKind {
  *  resolve re-routes without tearing the watcher down. With one forge it always
  *  resolves to `githubPrProvider`, so behavior is identical to injecting it
  *  directly. */
-const dispatchingPrProvider: PrProvider<PrUnavailableSource> = {
+const dispatchingForgeAdapter: PrProvider<PrUnavailableSource> = {
   kind: "forge-dispatch",
   resolve: (git, log) =>
-    PR_REGISTRY[detectForge(git.remoteUrl)].resolve(git, log),
+    FORGE_ADAPTERS[detectForge(git.remoteUrl)].resolve(git, log),
 };
 
-function startPrProvider(
-  record: ProviderRecord,
+function startPrSensor(
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  gitChannel: Channel<GitInfo | null>,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
   // The dispatcher routes each resolve to the forge picked from the remote;
   // with one forge today that's always the gh adapter.
   const watcher = subscribePr(
-    dispatchingPrProvider,
+    dispatchingForgeAdapter,
     (pr) => {
-      hooks.updateServerLiveMetadata(record, (m) => {
+      sink.updateServerLiveMetadata(record, (m) => {
         m.pr = pr;
       });
       plog.debug(
@@ -327,7 +351,7 @@ function startPrProvider(
     },
     plog,
   );
-  const cleanup = channels.git.consume({
+  const cleanup = gitChannel.consume({
     onEvent: (git) =>
       watcher.setGit(
         git
@@ -349,13 +373,14 @@ function startPrProvider(
 
 // ── Agent-command tracker ─────────────────────────────────────────────
 
-function startAgentCommandTracker(
-  record: ProviderRecord,
+function startAgentCommandSensor(
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
-  return channels.commandRun.consume({
+  return signals.commandRun.consume({
     onEvent: (raw) => {
       const normalized = parseAgentCommand(raw);
       record.currentAgent = normalized
@@ -363,11 +388,11 @@ function startAgentCommandTracker(
         : null;
       if (normalized) {
         if (record.meta.lastAgentCommand !== normalized) {
-          hooks.updateServerMetadata(record, (m) => {
+          sink.updateServerMetadata(record, (m) => {
             m.lastAgentCommand = normalized;
           });
         }
-        hooks.trackRecentAgent?.(normalized);
+        sink.trackRecentAgent?.(normalized);
       }
     },
     onError: (err) =>
@@ -380,7 +405,7 @@ function startAgentCommandTracker(
 
 // ── Agent detectors ───────────────────────────────────────────────────
 
-function snapshotTerminalState(
+function snapshotSignals(
   foreground: ForegroundSample,
   pid: number,
   cwd: string,
@@ -431,7 +456,7 @@ function getActivation(kind: string): ExternalChangesActivation {
 /** After a command-run mark, re-run agent-session resolution across the
  *  settle window (the agent writes its session file a beat after the mark).
  *  This is the *consumer* schedule and is independent of pty-host's
- *  foreground-sample burst: the DAG also reconciles whenever the foreground
+ *  foreground-sample burst: the sensor set also reconciles whenever the foreground
  *  tap pushes a fresh sample, so foreground freshness rides the primitive's
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
@@ -456,9 +481,9 @@ function isNotFoundError(err: unknown): boolean {
   );
 }
 
-function setAgentMetadataVia(
-  record: ProviderRecord,
-  hooks: ProviderHooks,
+function publishAgentField(
+  record: AwarenessRecord,
+  sink: AwarenessSink,
   nextAgent: AgentInfo | null,
 ): void {
   // Publish-if-changed: the canonical AgentInfo comparator is the one gate for
@@ -470,22 +495,23 @@ function setAgentMetadataVia(
     nextAgent,
     record.meta.lastActivityAt,
   );
-  hooks.updateServerLiveMetadata(record, (m) => {
+  sink.updateServerLiveMetadata(record, (m) => {
     m.agent = nextAgent;
   });
   if (bump) {
-    hooks.updateServerMetadata(record, (m) => {
+    sink.updateServerMetadata(record, (m) => {
       m.lastActivityAt = Date.now();
     });
   }
 }
 
-function startAgentProvider<Session, Info extends AgentInfoShape>(
+function startAgentSensor<Session, Info extends AgentInfoShape>(
   provider: AgentProvider<Session, Info>,
-  record: ProviderRecord,
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
   let current: {
@@ -513,18 +539,18 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
   // CWD source-of-truth for this provider's lifetime: seeded once from
   // `record.meta.cwd` (the spawn-time cwd a host writes before calling
-  // `startProviders`) and updated only via the `cwd` channel. Reading
+  // `startAwareness`) and updated only via the `cwd` channel. Reading
   // `record.meta.cwd` inside `reconcile()` would make agent detection
   // depend on the host mutating `record.meta` synchronously before each
   // channel publish — a hidden contract the agent happens to honor (its
-  // cwd bridge writes `record.meta.cwd` then publishes `channels.cwd`) but
-  // a future host on the same `ProviderChannels`/`ProviderHooks` shape
+  // cwd bridge writes `record.meta.cwd` then publishes `signals.cwd`) but
+  // a future host on the same `AwarenessSignals`/`AwarenessSink` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
   // Foreground source-of-truth for this provider, tracked from
-  // `channels.foreground` (seeded empty → "shell idle" until the first
+  // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
-  // channel, not a synchronous handle, so the DAG is transport-agnostic.
+  // channel, not a synchronous handle, so the sensor set is transport-agnostic.
   let currentForeground: ForegroundSample = {
     process: "",
     foregroundPid: undefined,
@@ -545,7 +571,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     }
   }
   function reconcileInner() {
-    const state = snapshotTerminalState(
+    const state = snapshotSignals(
       currentForeground,
       record.pid,
       currentCwd,
@@ -577,7 +603,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
       if (record.meta.agent?.kind === provider.kind) {
-        setAgentMetadataVia(record, hooks, null);
+        publishAgentField(record, sink, null);
       }
       return;
     }
@@ -616,13 +642,13 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
           // state transition publishes immediately.
           if (
             scrape &&
-            hooks.readScreenText &&
+            sink.readScreenText &&
             scrape.isPollable(info) &&
             published?.state === "awaiting_user"
           ) {
             return;
           }
-          setAgentMetadataVia(record, hooks, info as unknown as AgentInfo);
+          publishAgentField(record, sink, info as unknown as AgentInfo);
         },
         plog,
       ),
@@ -654,7 +680,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
     const scrape = provider.screenScrape;
-    const readScreen = hooks.readScreenText;
+    const readScreen = sink.readScreenText;
     if (!scrape || !readScreen) return () => {};
     let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -680,7 +706,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         const desired = scrape.promote(info, text);
         const published = publishedAgent();
         if (published && !isDeepStrictEqual(published, desired)) {
-          setAgentMetadataVia(record, hooks, desired as unknown as AgentInfo);
+          publishAgentField(record, sink, desired as unknown as AgentInfo);
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between
@@ -739,25 +765,25 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     reconcileFromCommandRun(0);
   }
 
-  const cleanupTitle = channels.title.consume({
+  const cleanupTitle = signals.title.consume({
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  const cleanupForeground = channels.foreground.consume({
+  const cleanupForeground = signals.foreground.consume({
     onEvent: (fg) => {
       currentForeground = fg;
       reconcile();
     },
     onError: (err) => plog.error({ err }, "foreground subscription failed"),
   });
-  const cleanupCwd = channels.cwd.consume({
+  const cleanupCwd = signals.cwd.consume({
     onEvent: (cwd) => {
       currentCwd = cwd;
       reconcile();
     },
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  const cleanupCommandRun = channels.commandRun.consume({
+  const cleanupCommandRun = signals.commandRun.consume({
     onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
@@ -778,46 +804,70 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal provider for one terminal. The local endpoint
- *  (`./local.ts`) calls this with its channels + hooks. Provider order matters
- *  only for the agent-command tracker — it must come first so its stash is
- *  populated before agent detectors reconcile. */
-export function startProviders(
-  record: ProviderRecord,
+/** Start every per-terminal sensor for one terminal. A host calls this with
+ *  its signals + sink + a logger (the lone coupling injected, not imported,
+ *  so this package names no host). Sensor order matters only for the
+ *  agent-command tracker — it must come first so its stash is populated before
+ *  agent detectors reconcile. */
+export function startAwareness(
+  record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: ProviderChannels,
-  hooks: ProviderHooks,
+  signals: AwarenessSignals,
+  sink: AwarenessSink,
+  log: Logger,
 ): () => void {
-  const stopAgentCommand = startAgentCommandTracker(
+  const stopAgentCommand = startAgentCommandSensor(
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
+    log,
   );
-  const stopGit = startGitProvider(record, terminalId, channels, hooks);
-  const stopPr = startPrProvider(record, terminalId, channels, hooks);
-  const stopClaude = startAgentProvider(
+  // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
+  // git sensor publishes `GitInfo` to it and the PR sensor consumes it to
+  // re-resolve the PR. `startAwareness` owns it so hosts plug in only the four
+  // taps they actually drive (`AwarenessSignals`).
+  const gitChannel = inMemoryChannel<GitInfo | null>();
+  const stopGit = startGitSensor(
+    record,
+    terminalId,
+    signals,
+    gitChannel,
+    sink,
+    log,
+  );
+  const stopPr = startPrSensor(record, terminalId, gitChannel, sink, log);
+  const stopClaude = startAgentSensor(
     claudeCodeProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
+    log,
   );
-  const stopCodex = startAgentProvider(
+  const stopCodex = startAgentSensor(
     codexProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
+    log,
   );
-  const stopOpenCode = startAgentProvider(
+  const stopOpenCode = startAgentSensor(
     opencodeProvider,
     record,
     terminalId,
-    channels,
-    hooks,
+    signals,
+    sink,
+    log,
   );
-  const stopProcess = startProcessProvider(record, terminalId, channels, hooks);
+  const stopProcess = startForegroundSensor(
+    record,
+    terminalId,
+    signals,
+    sink,
+    log,
+  );
   return () => {
     stopAgentCommand();
     stopGit();

@@ -13,7 +13,7 @@
  *  Does not own: the git source, metadata publishing, terminal lifecycle,
  *  or *which* forge answers — the single `provider` is injected, so the
  *  watcher is forge-agnostic without ever naming a forge, mirroring how
- *  `startAgentProvider` takes one `AgentProvider`. */
+ *  `startAgentSensor` takes one `AgentProvider`. */
 
 import type { Logger } from "kolu-shared";
 import type { PrGitContext, PrProvider } from "./provider.ts";
@@ -56,7 +56,7 @@ function gitContextEqual(
 /** Subscribe to PR changes for a terminal. `provider` is the single
  *  injected forge adapter that resolves every PR for this watcher — the
  *  watcher is forge-agnostic because the provider is injected, mirroring
- *  how `startAgentProvider` takes one `AgentProvider`. */
+ *  how `startAgentSensor` takes one `AgentProvider`. */
 export function subscribePr<S extends PrUnavailableSourceBase>(
   provider: PrProvider<S>,
   onChange: (pr: PrResult<S>) => void,

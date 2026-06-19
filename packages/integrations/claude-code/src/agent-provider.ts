@@ -75,7 +75,7 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
   // tool-permission gate's call IS on disk (so the tail reads `tool_use`) but
   // its approval lives only in the on-screen dialog (#905). The prompt is on the
   // rendered screen, though — so when the host can read it
-  // (`ProviderHooks.readScreenText`), the orchestrator polls while
+  // (`AwarenessSink.readScreenText`), the orchestrator polls while
   // `isScreenPollable` holds for any of `thinking` / `tool_use` / `waiting` and
   // promotes the active state → `awaiting_user`. Recognized prompts are
   // `AskUserQuestion` plus the tool-permission gates; `ExitPlanMode` is buffered

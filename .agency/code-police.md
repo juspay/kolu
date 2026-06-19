@@ -333,3 +333,14 @@ All SVG icons must be defined as named exports in `packages/client/src/ui/Icons.
 Bad: `<svg viewBox="0 0 16 16" ...><path d="..." /></svg>` inside a component
 Good: `export const FooIcon: Component<{ class?: string }> = ...` in Icons.tsx, then `<FooIcon />` at the call site
 _Rationale_: Inline SVGs are invisible to search, duplicate across components, and bypass the existing icon registry convention. Centralizing icons in one file makes them discoverable, deduplicated, and consistent in sizing/color defaults.
+
+### new-package-has-readme
+
+Every new workspace package (a new directory under `packages/` with its own `package.json`) must ship a `README.md` in the same change that introduces it. A package without a README is a black box: the next reader can't tell what it owns, why it exists, or where its boundary is, without reverse-engineering the source.
+
+The README mirrors the convention every existing leaf already follows (`kaval`, `@kolu/terminal-protocol`, `@kolu/terminal-awareness`, the integration packages): a one-line **what it is** in bold, **what it owns**, and explicitly **what it knows nothing about** — the boundary that justifies the package existing at all (which app concerns it deliberately excludes, what its lone couplings are, who consumes it).
+
+Bad: `packages/foo/` ships `package.json` + `src/` + `tsconfig.json`, no `README.md`.
+Good: `packages/foo/README.md` states the package's purpose and boundary in prose a contributor reads before opening the source.
+
+_Rationale_: a leaf package is a decomposition decision — pulling a concept out of where it was tangled. The README is where that decision is recorded and made greppable; without it the "why is this its own package" rationale lives only in a PR description that nobody re-reads. The boundary section is the load-bearing half: "it knows nothing about X" is what stops the package re-accreting the coupling it was extracted to escape. Codified alongside `@kolu/terminal-awareness` (the P1a extraction).

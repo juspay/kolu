@@ -76,6 +76,7 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
+      ./packages/terminal-awareness
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
@@ -314,9 +315,13 @@ let
   '';
 
   # Production wrapper: koluBin + default KOLU_STATE_DIR.
-  # Used by `nix run .` and the NixOS service. Sets the state dir
-  # unconditionally — no `:-` override, so tests can't accidentally
-  # inherit the production path.
+  # Used by `nix run .` and the NixOS service. Defaults the state dir to
+  # ~/.config/kolu but honors an inherited KOLU_STATE_DIR (`:-` fallback) —
+  # so a second production instance can relocate state without hijacking
+  # $HOME (juspay/kolu#1414). Restoring this fallback can NOT reintroduce the
+  # silent-production-corruption bug #530/#531 fixed: tests build `.#koluBin`
+  # (justfile:122), which has no KOLU_STATE_DIR and crashes if unset, and so
+  # never go through this wrapper.
   default = pkgs.runCommand "kolu"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -324,7 +329,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
-      --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
+      --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"'
   '';
 
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
