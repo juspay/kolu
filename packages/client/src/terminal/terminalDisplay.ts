@@ -30,6 +30,23 @@ export type TerminalDisplayInfo = {
   key: TerminalKey;
 };
 
+/** Whether two top-level terminal-id lists are identical — the same ids in the
+ *  same order. Serves as the `equals` gate on the `terminalIds` memo
+ *  (`useTerminalMetadata`): a metadata change that leaves the *set* of top-level
+ *  terminals untouched (the common case — a git / PR / agent field updating on
+ *  one terminal) keeps the prior array reference, so the display derivation
+ *  below never re-runs for an unchanged working set. This is the reactivity
+ *  keystone of the performance map (`docs/atlas/.../performance.mdx`). Order is
+ *  significant — it drives sidebar position labels — so a reorder must
+ *  invalidate. A bounded-algorithm leaf, deliberately domain-specific to
+ *  terminal ids rather than a generic array-equality receptacle. */
+export function sameTerminalIdOrder(
+  a: readonly TerminalId[],
+  b: readonly TerminalId[],
+): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 /** Assign OKLCH colors via golden-angle hue spacing.
  *  All keys share one sequence so no two get the same color. */
 export function assignColors(keys: Iterable<string>): Map<string, string> {

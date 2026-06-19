@@ -24,6 +24,7 @@ import { toast } from "solid-sonner";
 import { app } from "../wire";
 import {
   buildTerminalDisplayInfos,
+  sameTerminalIdOrder,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
@@ -43,12 +44,22 @@ export function useTerminalMetadata(deps: {
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
   /** Top-level terminal IDs in server-provided order.
-   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
-  const terminalIds = createMemo(() =>
-    meta.keys().filter((id) => {
-      const m = getMetadata(id);
-      return m && !m.parentId;
-    }),
+   *  Terminals whose metadata hasn't arrived yet are excluded (still loading).
+   *
+   *  The `equals` gate keeps the prior array reference whenever a metadata
+   *  change leaves the top-level id set unchanged (the common case), so
+   *  `displayInfos` and every other dependant skip a no-op recompute — the
+   *  reactivity keystone of the performance map. The accessor re-runs cheaply
+   *  on each metadata change; what it no longer does is *notify* downstream
+   *  when the set is identical. */
+  const terminalIds = createMemo<TerminalId[]>(
+    () =>
+      meta.keys().filter((id) => {
+        const m = getMetadata(id);
+        return m && !m.parentId;
+      }),
+    [],
+    { equals: sameTerminalIdOrder },
   );
 
   /** Sub-terminal IDs for a parent, in server-provided order. */
