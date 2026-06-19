@@ -139,9 +139,21 @@ const TerminalCanvas: Component<{
   // stale entry whose echo arrived while the canvas was gone.
   onCleanup(() => pendingLayouts.clear());
 
-  /** Effective layout for a tile (pending override wins over saved). */
+  /** Effective layout for a tile (pending override wins over saved). Sleeping
+   *  tiles aren't live, so their saved layout comes from the sleeping record. */
   function layoutOf(id: string): TileLayout | undefined {
-    return pendingLayouts.pending[id] ?? props.getLayout(id);
+    return (
+      pendingLayouts.pending[id] ??
+      props.getLayout(id) ??
+      sleeping.getLayout(id)
+    );
+  }
+
+  /** Persist a tile's layout — to the live store, or to the sleeping record
+   *  when the id names a sleeping tile. Both drag and resize route here. */
+  function persistLayout(id: string, next: TileLayout): void {
+    if (sleeping.getLayout(id) !== undefined) sleeping.setLayout(id, next);
+    else props.onLayoutChange(id, next);
   }
 
   /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
@@ -243,7 +255,7 @@ const TerminalCanvas: Component<{
       // solid-dnd's transform has reset to 0 but getLayout still returns
       // the pre-drag position.
       setPendingLayout(id, next);
-      props.onLayoutChange(id, next);
+      persistLayout(id, next);
     }
     setDragDelta({ x: 0, y: 0 });
   }
@@ -292,7 +304,7 @@ const TerminalCanvas: Component<{
             viewport.snapToGrid,
           );
           setPendingLayout(id, snapped);
-          props.onLayoutChange(id, snapped);
+          persistLayout(id, snapped);
         },
       },
       abortResize,
@@ -465,10 +477,13 @@ const TerminalCanvas: Component<{
               {(record) => (
                 <SleepingCanvasTile
                   record={record}
+                  layout={() => layoutOf(record.id)}
                   panX={viewport.panX}
                   panY={viewport.panY}
                   zoom={viewport.zoom}
+                  startResize={startResize}
                   onWake={() => void sleeping.wakeTerminal(record.id)}
+                  onDiscard={() => void sleeping.discard(record.id)}
                 />
               )}
             </For>

@@ -36,7 +36,11 @@ import {
 import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
-import { sleepTerminal, wakeTerminal } from "./sleepingTerminals.ts";
+import {
+  setSleepingLayout,
+  sleepTerminal,
+  wakeTerminal,
+} from "./sleepingTerminals.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -219,6 +223,12 @@ export const appRouter = t.router({
       wakeTerminal(input.sleepId);
       log.info({ sleepId: input.sleepId }, "sleeping terminal woken");
     }),
+
+    setSleepingLayout: t.terminal.setSleepingLayout.handler(
+      async ({ input }) => {
+        setSleepingLayout(input.sleepId, input.layout);
+      },
+    ),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {
       requireTerminal(input.id);

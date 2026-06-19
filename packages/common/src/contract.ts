@@ -85,6 +85,14 @@ export const TerminalSetSubPanelInputSchema = z.object({
  *  removes the record from the `sleepingTerminals` cell. */
 export const TerminalWakeInputSchema = z.object({ sleepId: z.string() });
 
+/** Persist a sleeping tile's new canvas position/size — a sleeping tile is a
+ *  real, draggable + resizable tile, so its layout round-trips to disk like a
+ *  live tile's, written onto the record's top terminal. */
+export const TerminalSetSleepingLayoutInputSchema = z.object({
+  sleepId: z.string(),
+  layout: CanvasLayoutSchema,
+});
+
 export const TerminalSetRightPanelInputSchema =
   RightPanelPerTerminalStateSchema.extend({
     id: TerminalIdSchema,
@@ -186,6 +194,10 @@ export const contract = oc.router({
     sleep: oc.input(TerminalAttachInputSchema).output(z.void()),
     /** Remove a sleeping record after the client has respawned it. */
     wake: oc.input(TerminalWakeInputSchema).output(z.void()),
+    /** Persist a sleeping tile's dragged/resized canvas layout. */
+    setSleepingLayout: oc
+      .input(TerminalSetSleepingLayoutInputSchema)
+      .output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

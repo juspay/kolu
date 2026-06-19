@@ -14,7 +14,11 @@
  *    indistinguishable from a session-restored one. */
 
 import { resumeAgentCommand } from "anyagent/cli";
-import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
+import type {
+  CanvasLayout,
+  SleepingTerminal,
+  TerminalId,
+} from "kolu-common/surface";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
@@ -148,5 +152,39 @@ export const useSleepingTerminals = createSharedRoot(() => {
     }
   }
 
-  return { records, sleepTerminal, wakeTerminal, topId };
+  /** The saved canvas layout of a record's tile (its top terminal's). */
+  function getLayout(sleepId: string): CanvasLayout | undefined {
+    const rec = sleepingTerminals().find((r) => r.id === sleepId);
+    const top = rec?.terminals.find((t) => !t.parentId) ?? rec?.terminals[0];
+    return top?.canvasLayout;
+  }
+
+  /** Persist a sleeping tile's dragged/resized layout (round-trips to disk). */
+  function setLayout(sleepId: string, layout: CanvasLayout): void {
+    void client.terminal
+      .setSleepingLayout({ sleepId, layout })
+      .catch((err: Error) =>
+        toast.error(`Failed to move sleeping tile: ${err.message}`),
+      );
+  }
+
+  /** Drop a sleeping record without respawning it (the tile's × button). */
+  async function discard(sleepId: string): Promise<void> {
+    try {
+      await client.terminal.wake({ sleepId });
+      toast("Sleeping terminal discarded");
+    } catch (err) {
+      toast.error(`Failed to discard: ${(err as Error).message}`);
+    }
+  }
+
+  return {
+    records,
+    sleepTerminal,
+    wakeTerminal,
+    getLayout,
+    setLayout,
+    discard,
+    topId,
+  };
 });

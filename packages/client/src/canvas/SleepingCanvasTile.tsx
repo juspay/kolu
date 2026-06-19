@@ -1,16 +1,21 @@
-/** A sleeping terminal rendered on the canvas — a folded, dormant placeholder
- *  that holds its saved slot but shrinks to fit its content (no PTY, no WebGL,
- *  no xterm). Positioned with the same pan/zoom transform as a live tile, so it
- *  sits where the terminal used to be. The whole card is the wake target.
+/** A sleeping terminal rendered on the canvas — a real, draggable + resizable
+ *  tile that just happens to be dormant (no PTY, no WebGL, no xterm). It uses
+ *  the same `createDraggable` + pan/zoom transform + resize handles as a live
+ *  `CanvasTile`, and persists its moved/resized layout back into the record, so
+ *  it behaves exactly like a live tile — you can shove it aside, line it up, or
+ *  resize it while its work is parked. The header is the drag handle; the body
+ *  carries a Wake button; the × discards the record.
  *
  *  Distinct from `CanvasTile` (the live-tile shell): a sleeping record carries
- *  no live metadata, only a `SavedTerminal`, so it can't flow through the live
- *  tile path — it gets this lightweight, self-sufficient render instead. */
+ *  no live metadata or theme, so it can't flow through the live tile path — it
+ *  gets this lightweight, self-sufficient render with its own moonlit chrome. */
 
-import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { SleepingTerminal } from "kolu-common/surface";
+import { type Component, For, Show } from "solid-js";
 import { Z_CANVAS_TILE_INACTIVE } from "../ui/stackLayers";
+import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import type { TileLayout } from "./TileLayout";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 import { tileTransformCSS } from "./viewport/coordinates";
 
@@ -18,33 +23,37 @@ const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 
 const SleepingCanvasTile: Component<{
   record: SleepingTerminal;
+  /** Current layout (canvas-space), incl. any in-flight pending drag/resize. */
+  layout: () => TileLayout | undefined;
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  startResize: (id: string, dir: ResizeDirection, e: PointerEvent) => void;
   onWake: () => void;
+  onDiscard: () => void;
 }> = (props) => {
+  const id = props.record.id;
+  const draggable = createDraggable(id);
   const top = () =>
     props.record.terminals.find((t) => !t.parentId) ??
     props.record.terminals[0];
-  const layout = () =>
-    top()?.canvasLayout ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
+  const layout = (): TileLayout =>
+    props.layout() ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
   const intent = () => top()?.intent?.trim();
   const cwd = () => top()?.cwd ?? "";
 
   return (
-    <button
-      type="button"
+    <div
+      ref={draggable.ref}
       data-testid="sleeping-canvas-tile"
       data-sleeping-tile=""
-      class="absolute flex flex-col text-left rounded-xl overflow-hidden"
-      title="Wake terminal — resume in place"
-      onClick={props.onWake}
+      data-terminal-id={id}
+      class="absolute flex flex-col overflow-hidden rounded-xl"
       style={{
-        // Hold the saved position; size to content (compact), not the old
-        // footprint — the point is a small marker, not a full-size ghost.
         left: `${layout().x}px`,
         top: `${layout().y}px`,
-        width: "15rem",
+        width: `${layout().w}px`,
+        height: `${layout().h}px`,
         "z-index": Z_CANVAS_TILE_INACTIVE,
         "transform-origin": "0 0",
         transform: tileTransformCSS(
@@ -53,8 +62,8 @@ const SleepingCanvasTile: Component<{
           props.panX(),
           props.panY(),
           props.zoom(),
-          0,
-          0,
+          draggable.transform.x,
+          draggable.transform.y,
         ),
         background: "#20242d",
         border: "1.5px dashed #8895ad99",
@@ -62,12 +71,11 @@ const SleepingCanvasTile: Component<{
         opacity: "0.97",
       }}
     >
+      {/* Header — the drag handle (solid-dnd activators), ☾ marker, discard ×. */}
       <div
-        class="flex items-center gap-1.5 px-2.5 py-1.5"
-        style={{
-          "border-bottom": "1px solid #2a2e37",
-          background: "#1a1e26",
-        }}
+        class="flex items-center gap-1.5 px-2.5 py-1.5 shrink-0 select-none cursor-grab active:cursor-grabbing"
+        style={{ "border-bottom": "1px solid #2a2e37", background: "#1a1e26" }}
+        {...draggable.dragActivators}
       >
         <span style={{ color: "#8895ad" }} aria-hidden="true">
           ☾
@@ -75,14 +83,24 @@ const SleepingCanvasTile: Component<{
         <span class="text-xs font-semibold" style={{ color: "#8895ad" }}>
           asleep
         </span>
-        <span
-          class="ml-auto text-[0.62rem] font-semibold rounded px-1.5 py-0.5"
-          style={{ background: "#8895ad", color: "#0e1014" }}
+        <button
+          type="button"
+          data-testid="sleeping-tile-discard"
+          class="ml-auto text-sm pointer-events-auto leading-none"
+          style={{ color: "#5b626d" }}
+          title="Discard — delete without waking"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onDiscard();
+          }}
         >
-          Wake
-        </span>
+          ×
+        </button>
       </div>
-      <div class="px-2.5 py-2 flex flex-col gap-1">
+
+      {/* Dormant body — intent, cwd, and a Wake button. */}
+      <div class="flex-1 min-h-0 px-2.5 py-2 flex flex-col gap-1 overflow-hidden">
         <Show
           when={intent()}
           fallback={
@@ -105,10 +123,31 @@ const SleepingCanvasTile: Component<{
           📁 {basename(cwd())}
         </span>
         <span class="text-[0.6rem]" style={{ color: "#5b626d" }}>
-          PTY released · click to resume
+          PTY released
         </span>
+        <button
+          type="button"
+          data-testid="sleeping-tile-wake"
+          class="mt-auto self-start text-[0.7rem] font-semibold rounded px-2.5 py-1 pointer-events-auto"
+          style={{ background: "#8895ad", color: "#0e1014" }}
+          onClick={props.onWake}
+        >
+          Wake
+        </button>
       </div>
-    </button>
+
+      {/* Resize handles — 4 edges + 4 corners, same set as a live tile. */}
+      <For each={Object.entries(RESIZE_HANDLES)}>
+        {([direction, handle]) => (
+          <div
+            class={`absolute ${handle.position} ${handle.cursor}`}
+            onPointerDown={(e) =>
+              props.startResize(id, direction as ResizeDirection, e)
+            }
+          />
+        )}
+      </For>
+    </div>
   );
 };
 

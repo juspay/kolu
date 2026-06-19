@@ -11,7 +11,11 @@
  * unlike `session.ts` there is no autosave loop and no dirty-channel wiring.
  */
 
-import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
+import type {
+  CanvasLayout,
+  SleepingTerminal,
+  TerminalId,
+} from "kolu-common/surface";
 import { store } from "./state.ts";
 import { surfaceCtx } from "./surfaceCtx.ts";
 import { snapshotTerminal } from "./terminals.ts";
@@ -45,7 +49,25 @@ export function sleepTerminal(id: TerminalId): void {
 }
 
 /** Remove a sleeping record by its stable id — called once the client has
- *  respawned it through the session-restore protocol. Idempotent. */
+ *  respawned it through the session-restore protocol (or to discard it without
+ *  respawning). Idempotent. */
 export function wakeTerminal(sleepId: string): void {
   write(getSleepingTerminals().filter((r) => r.id !== sleepId));
+}
+
+/** Persist a sleeping tile's dragged/resized position onto the record's top
+ *  terminal, so the layout survives reload + restart like a live tile's. */
+export function setSleepingLayout(sleepId: string, layout: CanvasLayout): void {
+  write(
+    getSleepingTerminals().map((r) =>
+      r.id === sleepId
+        ? {
+            ...r,
+            terminals: r.terminals.map((t) =>
+              t.parentId ? t : { ...t, canvasLayout: layout },
+            ),
+          }
+        : r,
+    ),
+  );
 }
