@@ -1,45 +1,201 @@
 ---
-title: "Atlas, Meta — vs Artifacts, and Scaling the Second Brain"
-description: How the Atlas compares to Claude Code Artifacts, and the plan to scale it to many projects without losing what makes it ours.
-kind: analysis
+title: The kolu Atlas
+description: kolu's in-repo second brain — what it is, how it works, how it compares to Claude Code Artifacts, and the plan to scale it.
+kind: reference
 maturity: budding
-parents: [second-brain]
+status: implemented
 updated: 2026-06-19
 ---
 
 import Svg from "../../components/Svg.astro";
 import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Commit from "../../components/Commit.astro";
 import Cite from "../../components/Cite.astro";
+import Kbd from "../../components/Kbd.astro";
 import Callout from "../../components/Callout.astro";
+import Terminal from "../../components/Terminal.astro";
+import AtlasMockup from "../../components/AtlasMockup.astro";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 import pipeline from "../../diagrams/meta-pipeline.svg?raw";
 
-> **This note is about the Atlas itself.** Anthropic shipped
-> [Artifacts in Claude Code](https://claude.com/blog/artifacts-in-claude-code) —
-> cloud-hosted, governed pages generated from a session. We have the Atlas
-> (this thing). They are **not substitutes**; this note says why, where the
-> Atlas genuinely wins, what breaks if it grows to many projects, and the
-> cheapest path that fixes the real problems first. Design rationale lives in
-> [the second brain](./second-brain.html).
+export const Spark = (props) => (
+  <span style={{ fontFamily: "var(--mono)", fontSize: "0.85em", color: "#5a3ff0", background: "#efebff", border: "1px solid #d4cbff", borderRadius: "5px", padding: "0.04em 0.4em" }}>{props.children}</span>
+);
+
+> **This is the Atlas's note about itself** — authored as MDX, living *in* the
+> Atlas it describes (`docs/atlas/`), rendered to a self-contained
+> `docs/atlas/dist/meta.html` you read in the Code tab. No dev server. It covers
+> the whole thing in one place: **what** the Atlas is and the rule for what goes
+> in it, **how** it's built, **how it compares** to [Artifacts in Claude
+> Code](https://claude.com/blog/artifacts-in-claude-code) (cloud-hosted, governed
+> pages generated from a session — *not* a substitute for this), and **the plan**
+> to scale it without losing what makes it ours.
 
 <Svg svg={pipeline} caption="The Atlas is a build pipeline (blue = today, green = proposed): MDX → Astro → committed self-contained HTML, rendered in both Kolu's Code tab and the public mirror. Artifacts (right, detached) shares none of it — a different job by construction." />
 
+## What the Atlas is
+
+**Premise: you already have a second brain — assign roles, don't build a new
+system.** kolu's existing stores:
+
+- **GitHub Issues** — lightweight, living nodes.
+- **In-repo docs (the Atlas)** — substantial, structured artifacts.
+- **The blog** — the public stream.
+- **The Code tab** — renders + annotates both.
+
+The one routing rule decides where a thing goes:
+
+> *Substantial, structured artifact — or lightweight, transient node?*
+
+| Substantial → an **Atlas note** | Lightweight → a **GitHub Issue** |
+| --- | --- |
+| Proposals, designs, features, analyses, bug investigations, history | Quick bug tickets, tasks, roadmap items, questions |
+
+- **Maturity is a tag, not a divider** — `seedling` → `budding` → `evergreen`; never a location, never a routing axis.
+- **Living ≠ frozen** — a long-lived plan evolves for months and is still an Atlas note, never "frozen".
+- **The boundary blurs by design** — a concept can hold both a note and an issue.
+- **Extract, don't sync** — when an issue thread becomes the source of truth, lift its summary into a note.
+
+The surfaces it sits between:
+
+| Surface | Where | Role |
+| --- | --- | --- |
+| **Public** | the blog (kolu.dev) + per-release changelog | outward-facing; one post per release |
+| **Atlas** | `docs/atlas/` → `docs/atlas/dist/` | the working brain; markdown/MDX notes, internal-first |
+
+**History isn't a third place** — it's the Atlas over time: a settled note is just
+`evergreen`, git is the history, the changelog is the release artifact.
+
+## How it works
+
+`docs/atlas/` is its **own little Astro project** — decoupled from the public
+`website/` (different audience + cadence), with its committed `dist/` folded into
+`kolu.dev/atlas/` at the website's build.
+
+- **Author markdown/MDX, get HTML** — write `.md`/`.mdx` + frontmatter; Astro renders.
+- **One layout + theme** — no per-file CSS (the old HTML notes duplicated ~76 KB).
+- **Generated index** from frontmatter — no hand-curated map (see *Navigation*).
+- **Self-contained committed output** — each `dist/<slug>.html` inlines its styles and cross-links with relative hrefs → previews in the Code tab, no server; the same bytes serve the public mirror.
+- **`draft: true`** hides a half-baked note from the index but keeps it on disk for agents.
+
+<Callout kind="good" title="Live since 2026-06-02">
+Project + index + render route are live; this note builds green; `dist/` is
+committed (generated via `.gitattributes`), and an `.apm` rule + the
+`ci::atlas-sync` gate keep it in sync.
+</Callout>
+
+### Format — markdown prose + MDX components
+
+- **Prose in markdown** — the default.
+- **`.mdx` when a note needs more** — import typed Astro/TS components, use them inline. No raw HTML, no per-note CSS.
+
+| Why markdown for prose | Evidence |
+| --- | --- |
+| Far fewer tokens — paid on every agent read | Cloudflare: ~80% fewer tokens md vs html |
+| The CLIs kolu runs prefer it | Claude Code & OpenCode send `Accept: text/markdown` |
+| Renders where it matters | github.com renders `.md`; the Code tab renders it (#1093) |
+
+<Callout kind="warn" title="Caveat">
+Annotating *rendered* markdown is source-view-only today (<PrLink pr={1093} />).
+Regime split: markdown for agent-ingested prose, components for visual or
+interactive bits.
+</Callout>
+
+### Navigation — a generated index, derived edges
+
+- **One section per category** — every note's `kind` (`bug` · `feature` · `analysis` · `reference`) lands it in a section; that's the index's primary skeleton. Membership is automatic (a note can never be unfiled); only the *edges* are authored.
+- **`parents` nests notes *within* a section** — a note lists one or more `parents` (flat slugs) and nests under each *same-category* parent. A cross-category parent isn't a tree edge — it's surfaced as a **related** link, so topical connections survive without tearing the sections apart.
+- **Flat, ancestry-free slugs** — the filename is a handle, not a path; both category and hierarchy are metadata (`kind`, `parents`), not the filename.
+- **Each row shows a `maturity` dot + status flags; drafts are hidden** from the build. A nested ToC (`<Toc>`) is auto-inserted from each note's headings.
+- **Backlinks are derived, never authored** — a build pass inverts every note's `./slug.html` links + `parents` into a *Referenced by* list on each page (the inbound half of the graph the index never showed), reusing the edges the Atlas already has rather than a hand-kept `backlinks:` field. An internal `./slug.html` pointing at a missing note **fails the build** — a dead note link surfaces at build time, not as a 404 in the committed dist (<PrLink pr={1426} />); general/external link checking still belongs to a generic linter.
+
+### Proposals — the contributor intake lane
+
+- A proposal is an Atlas note in its **real category** (`kind:` `bug`/`feature`/`analysis`/`reference`) carrying **`status: proposed`** — it shows in that category, flagged *proposed*. There's no separate proposal kind or section; the status badge *is* the queue. Contributors open an Atlas PR; the flow lives in `CONTRIBUTING.md`.
+- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the `kind` was right from the start, so nothing moves. The note stays **living** — git is the record, so there's no frozen copy and no separate numbered log.
+- `proposed → accepted → implemented → superseded` is a *lifecycle* (the `status` field); supersession links via `parents` + status. No `docs/proposals/` and no `docs/decisions/` dir needed.
+
+## The component kit
+
+Because a note can be `.mdx`, every component below is a **live import** from
+`docs/atlas/src/components/` — rendered here, not screenshotted. Props are
+typechecked at build.
+
+### Inline chips
+
+Small typed references for the prose:
+
+| Component | Live | Usage |
+| --- | --- | --- |
+| **`<PrLink>`** — GitHub PR, repo baked in | <PrLink pr={1095} /> | `<PrLink pr={1095} />` |
+| **`<Issue>`** — GitHub issue | <Issue n={951} /> | `<Issue n={951} />` |
+| **`<Commit>`** — short sha → commit | <Commit sha="7ec2566a" /> | `<Commit sha="7ec2566a" />` |
+| **`<Cite>`** — a linked `file:line` | <Cite file="docs/atlas/astro.config.mjs" lines="14-19" /> | `<Cite file="…" lines="14-19" />` |
+| **`<Kbd>`** — a keyboard chord | <Kbd keys="Ctrl+B" /> | `<Kbd keys="Ctrl+B" />` |
+
+### Block components
+
+**`<Callout>`** — a typed box with markdown inside. `kind`: `note · accent · good
+· warn · danger`. Usage: `<Callout kind="warn" title="…">body</Callout>`.
+
+<Callout kind="accent" title="Example callout">
+Markdown **works** in here — including chips like <PrLink pr={1093} />.
+</Callout>
+
+**`<Terminal>`** — a faux transcript. Usage:
+`<Terminal title="…" lines={["$ cmd", "output"]} />`; in `lines`, `$ ` is a
+prompt + command, `# ` a comment, anything else is output.
+
+<Terminal title="kolu — just atlas::build" lines={[
+  "$ just atlas::build",
+  "✓ Completed in 1.59s.",
+  "# self-contained dist/ previews in the Code tab",
+]} />
+
+**`<Svg>` + `<D2>`** — an architecture diagram, inlined as self-contained SVG:
+hand-author the SVG (`<Svg svg={…} />`, the pipeline above) for full visual
+control, or let `<D2>` lay one out from a graph DSL. **`<AtlasMockup>`** — a
+one-off, self-contained HTML + inline-SVG prototype, for when a note needs
+something markdown can't draw:
+
+<AtlasMockup />
+
+**`<Toc>`** — a nested, auto-inserted table of contents (the **Contents** box at
+the top), built from the note's headings; notes never import it. **`<Roadmap>` +
+`<Milestone>`** — a status-marked roadmap (done ✓ · now ▸ · next ○); see
+[The roadmap](#the-roadmap) below for the live one.
+
+### Bring your own component
+
+A note isn't limited to the shared kit — but a note-local component lives **in the
+`.mdx` itself**, never as a separate file (it keeps the note self-contained;
+`src/components/` is reserved for components reused *across* notes). Two ways:
+
+1. **Inline `export const`** at the top of the `.mdx`. Defined here as `Spark`, used live: <Spark>inline</Spark>.
+2. **Raw inline markup** — for a true one-off, drop JSX inline with no named component: <span style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.8em", border: "1px dashed var(--rule)", borderRadius: "5px", padding: "0.05em 0.4em", color: "var(--ink-dim)" }}>raw inline JSX</span>.
+
+**Promotion path:** inline → shared kit, once a component proves reused (and earns
+scoped styles + typed props as a real `.astro`).
+
 ## Two jobs, not substitutes
 
-The clean tell is the **unit each optimizes**. The Atlas optimizes the
-**corpus** — a navigable, ever-living tree of interlinked notes an agent treats
-as durable memory, reviewed through the same PR/diff machinery as code.
-Artifacts optimize the **single page** — one session's investigation handed as a
-governed, link-shareable snapshot to a teammate (often a non-engineer),
-deliberately *not* a searchable library.
+With [Artifacts in Claude Code](https://claude.com/blog/artifacts-in-claude-code)
+shipped, the obvious question is whether it replaces the Atlas. It doesn't — the
+clean tell is the **unit each optimizes**. The Atlas optimizes the **corpus** — a
+navigable, ever-living tree of interlinked notes an agent treats as durable
+memory, reviewed through the same PR/diff machinery as code. Artifacts optimize
+the **single page** — one session's investigation handed as a governed,
+link-shareable snapshot to a teammate (often a non-engineer), deliberately *not* a
+searchable library.
 
 | Axis | kolu Atlas | Claude Code Artifacts |
 | --- | --- | --- |
 | **Locality** | Source **and** built `dist/<slug>.html` live in Git. No server, no account, no vendor to read a note. | Cloud-only on Anthropic infra at a private `claude.ai/code/artifact/<uuid>` URL. No self-host (cannot be forked). |
 | **Format / agent cost** | Authored as markdown/MDX; structure from a typed kit. The *source* is what agents re-read — markdown token rates, the format CLIs prefer. | Generated styled HTML; Anthropic's own docs note it's *more* token-intensive to re-ingest at scale. |
 | **Render surface** | Two from one build: Kolu's **Code tab** (local, offline) and **kolu.dev/atlas/**. | One: the claude.ai viewer behind org auth. No in-IDE embed, no public URL. |
-| **Organization** | Derived tree — section per `kind`; `parents` nests within. No backlinks/graph/search *yet*. | Flat single-author gallery, opaque UUID keys; "a capture of work, not an application." |
+| **Organization** | Derived tree — section per `kind`; `parents` nests within; backlinks derived. No graph/search *yet*. | Flat single-author gallery, opaque UUID keys; "a capture of work, not an application." |
 | **Versioning** | Git is the history — full blame/diff/PR review. | First-class in-product versions at one URL + restore; but no diff/blame, and a stray session silently *forks*. |
 | **Access control** | None at note level — internal repo + a public mirror. | Compliance-grade: private-by-default, org-auth only, never public; audit + retention + Compliance API. |
 | **Discovery at scale** | Deterministic tree at ~50 notes; **no full-text search UI**. | Weak by design — flat galleries, no search/folders. |
@@ -47,52 +203,56 @@ deliberately *not* a searchable library.
 | **Cost / gating** | Free, ungated, vendor-independent. | Beta, Team/Enterprise only; interactive `claude.ai` login; extra tokens per generate. |
 | **Longevity** | Durable, portable, offline, CI-checked. You own it forever. | Vendor-bound; a retention policy auto-deletes; export the HTML to survive. |
 
-**Where the Atlas genuinely wins:** it renders locally in Kolu with zero
-network; markdown/MDX is the cheapest thing an agent can re-read (~80% fewer
-tokens than HTML per the Cloudflare figure [the second brain](./second-brain.html)
-cites — directional, but it's the format CLIs request); Git *is* the history;
-and it's graph-able by construction, because note-to-note edges already exist as
-plain `./slug.html` links. **Where Artifacts win, decisively:** enterprise
-governance, cross-role reach to people who will never open the repo, zero-build
-cloud sharing, and in-product version restore for non-git users.
+**Where the Atlas genuinely wins:** it renders locally in Kolu with zero network;
+markdown/MDX is the cheapest thing an agent can re-read (~80% fewer tokens than
+HTML — Cloudflare's figure, see *Format* above; it's the format CLIs request); Git
+*is* the history; and it's graph-able by construction, because note-to-note edges
+already exist as plain `./slug.html` links. **Where Artifacts win, decisively:**
+enterprise governance, cross-role reach to people who will never open the repo,
+zero-build cloud sharing, and in-product version restore for non-git users.
 
 <Callout kind="accent" title="Not either/or">
-Kolu's Code tab is already a real browser (`packages/solid-browser`) — it can
-open an Artifact URL today. The strongest move isn't to compete: it's to **render
+Kolu's Code tab is already a real browser (`packages/solid-browser`) — it can open
+an Artifact URL today. The strongest move isn't to compete: it's to **render
 Artifacts alongside the Atlas** (the governed snapshot you DM to legal once) and,
 later, a sanctioned path to distill an exported Artifact *into* a permanent Atlas
 note. Atlas = durable memory; Artifacts = the disposable, audited page.
 </Callout>
 
-## What breaks at multi-project scale
+## Scaling the Atlas
 
-Ranked by real bite. **Severity is contingent:** the first cluster is critical
-*only* under a multi-team / separate-repo / confidential-project future the repo
-hasn't actually adopted. The second bites **even a single growing repo**.
+The worry is that the Atlas won't survive going from one repo / ~50 notes to many
+projects. It's real, but mostly *contingent* — and the cheap within-repo wins come
+first.
+
+### What breaks at multi-project scale
+
+Ranked by real bite. The first cluster is critical *only* under a multi-team /
+separate-repo / confidential-project future the repo hasn't actually adopted; the
+second bites **even a single growing repo**.
 
 **Contingent on going multi-repo / multi-team:**
 
-1. **Flat slug = filename = URL.** Two projects' `release-workflow.mdx` collide.
-   Within one repo it's a prefix convention, not a wall.
+1. **Flat slug = filename = URL.** Two projects' `release-workflow.mdx` collide. Within one repo it's a prefix convention, not a wall.
 2. **`kind` carries no project axis** (<Cite file="docs/atlas/src/content.config.ts" lines="23-25" />) — project A's and B's bugs interleave in one section.
 3. **Relative cross-links are load-bearing** for *both* render targets (the Code-tab iframe and the `cp -r dist` in <Cite file="website/default.nix" />). A note in another repo isn't a sibling file, so `./other.html` 404s — the sharpest real constraint on any federation, and the reason not to build it speculatively.
 4. **No access control + unconditional public mirror.** <Cite file="website/default.nix" /> folds **all** of `dist/` into `/atlas/` on merge; `draft:true` only hides from the *index* (it still builds and publishes). Public-by-merge is the intended contract today — and a breach the moment a confidential project lands.
 
 **Bites even a single growing repo:**
 
-5. **Committed `dist/` churn** — ~71 KB of minified HTML per note; every edit re-emits the whole file, and `ci::atlas-sync` does a full build + a scrambled-TZ idempotency build, so CI cost scales with note count. *This is the most legitimately actionable scaling concern — and it argues against inlining a heavy graph into every page.*
+5. **Committed `dist/` churn** — ~71 KB of minified HTML per note; every edit re-emits the whole file, and `ci::atlas-sync` does a full build + a scrambled-TZ idempotency build, so CI cost scales with note count. *This argues against inlining a heavy graph into every page.*
 6. **No full-text search UI** — the index *is* the search at ~50 notes; at a few hundred there's no escape hatch.
 7. **One generated index page**, no pagination — an unscrollable wall at 500+.
 8. **`parents`-within-kind nesting caps ~100 links** (<Cite file="docs/atlas/src/components/IndexTree.astro" />) — it stops *navigating* long before it stops building.
 
-## Fixing the tree/graph
+### Fixing the tree/graph
 
-The admitted weak spot: `kind` is the *only* axis, and it's a lifecycle/type
-tag, not a topic — non-monotonic (a `feature` becomes `reference`), so it
-reorganizes the index on every lifecycle flip while the *stable* thing (topic)
-isn't an axis at all. Right-sized redesign, by leverage-per-line:
+`kind` is the *only* axis, and it's a lifecycle/type tag, not a topic —
+non-monotonic (a `feature` becomes `reference`), so it reorganizes the index on
+every lifecycle flip while the *stable* thing (topic) isn't an axis at all.
+Right-sized redesign, by leverage-per-line:
 
-1. **Derive backlinks from the existing link mechanism — ship this first.** Edges already exist as `./slug.html` links (<Cite file="docs/atlas/src/lib/indexTree.ts" /> already walks the collection). A build pass inverts them into a `backlinks` map — no new wikilink syntax, no hand-authored field, and a link to a non-existent slug becomes a **fail-fast build error**. Render a "Referenced by …" block — the inbound half the model entirely lacks. *Honest caveat:* the graph is **sparse today** (only ~8 of ~50 notes link out, clustered on a few hubs like `odu` and `electricity`), so "Referenced by" is empty for most notes *now* — which is exactly why the interactive graph waits.
+1. **Derive backlinks from the existing link mechanism — shipped first** (<PrLink pr={1426} />). Edges already exist as `./slug.html` links; a build pass inverts them, no new wikilink syntax, and a link to a non-existent slug is a **fail-fast build error**. *Honest caveat:* the graph is **sparse today** (most edges cluster on a few hubs like `electricity` and `odu`), which is exactly why the interactive graph waits.
 2. **Add optional `tags`, not a required `area`.** A required topic axis forces a backward-incompatible migration of every note and imposes single-membership where the need is many-to-many. One optional field keeps "nothing unfiled" intact and adds the topic lens for free:
    ```ts
    // src/content.config.ts — add ONE optional field; no migration, no index inversion
@@ -101,32 +261,16 @@ isn't an axis at all. Right-sized redesign, by leverage-per-line:
 3. **Generalize typed relations with auto-inverses.** `parents` → *has-children*, `supersedes` → *superseded-by*, any link → *referenced-by*. Keep the vocabulary tiny. `status: superseded` is a dangling flag today; `supersedes: <slug>` makes the lineage a real bidirectional edge.
 4. **Defer the graph view and auto-MoC hubs.** Inlining a JS graph + `graph.json` into every committed page multiplies the `dist/` churn that's already the top single-repo cost, and the Code tab isn't guaranteed to run inline JS. Build backlinks first; let them prove the edge set is dense enough to be worth drawing.
 
-Build sketch: refactor <Cite file="docs/atlas/src/lib/indexTree.ts" /> into an
-`atlasGraph` struct (`byTag`, `edges`, `backlinks`), fail-fast on any dead
-internal / `parents` / `supersedes` target. The current `kind` grouping survives
-as *one view*, no longer the only skeleton.
+### Scaling to many projects
 
-## Scaling to many projects
+**Chosen path: Option A now, Option C later — not the aggregator up front.** There
+is no second repo, no confidential project, no cross-role audience today. Standing
+up an aggregator + search-catalog + resolver now is textbook Backstage-cargo-culting
+for a small team — a direct violation of the [fail-fast / no-premature-abstraction
+philosophy](./electricity.html).
 
-**Chosen path: Option A now, Option C later — not the aggregator up front.**
-
-There is no second repo, no confidential project, no cross-role audience today.
-Standing up an aggregator + search-catalog + resolver now is textbook
-Backstage-cargo-culting for a small team — a direct violation of the
-[fail-fast / no-premature-abstraction philosophy](./electricity.html).
-
-- **Now, if a second project lands *inside* the monorepo — Option A:** one
-  optional `project` field (defaulted from the repo, not authored per-note) + a
-  slug-prefix convention in the *existing* single Atlas. Zero new machinery;
-  intra-repo siblings still cross-link relatively; one scope, one cadence.
-- **Later, only when a *separate* repo exists — Option C:** namespacing happens
-  *only at aggregation* — a loader prefixes ids (`kolu/electricity` vs
-  `infra/electricity`), the federated URL becomes `kolu.dev/atlas/<project>/<slug>`,
-  search is **Pagefind** (Rust-built static index, byte-deterministic), and
-  access control **reuses Git permissions** (who can clone = who can read) plus a
-  per-repo `public:true` allowlist. Decide the aggregator's **owner and operating
-  cost** before building it — federated content doesn't auto-rebuild, so it adds
-  a webhook/cron and a stale-catalog window the single repo never had.
+- **Now, if a second project lands *inside* the monorepo — Option A:** one optional `project` field (defaulted from the repo, not authored per-note) + a slug-prefix convention in the *existing* single Atlas. Zero new machinery; intra-repo siblings still cross-link relatively; one scope, one cadence.
+- **Later, only when a *separate* repo exists — Option C:** namespacing happens *only at aggregation* — a loader prefixes ids (`kolu/electricity` vs `infra/electricity`), the federated URL becomes `kolu.dev/atlas/<project>/<slug>`, search is **Pagefind** (Rust-built static index, byte-deterministic), and access control **reuses Git permissions** (who can clone = who can read) plus a per-repo `public:true` allowlist. Decide the aggregator's **owner and operating cost** before building it — federated content doesn't auto-rebuild, so it adds a webhook/cron and a stale-catalog window the single repo never had.
 
 <Callout kind="danger" title="Cut outright, regardless of timing">
 A "resolve to the last-published version when the target repo is absent"
@@ -144,20 +288,31 @@ Layer is already the receptacle), and no foreign app graduates onto it. It's a
 **leaf-tier Astro extension** — and, by the same logic, so is the component kit:
 prefer vendoring it per-repo over extracting `@kolu/atlas-kit`.
 
-## The plan
+## The roadmap
 
-Smallest-valuable-first; each step ships independently and keeps the Atlas
-working at every stage.
+Where it's been and where it's going — smallest-valuable-first; each forward step
+ships independently and keeps the Atlas working at every stage.
 
 <Roadmap>
+  <Milestone status="done" label="Shipped">original plans + MOC + house style + the `docs/**` agent rule (<PrLink pr={1095} />); the `docs-moc` gate + `plans::check` module (<PrLink pr={1098} />).</Milestone>
+  <Milestone status="done" label="Done">the Atlas as a self-contained `docs/atlas/` project — generated index, render route, committed HTML, `.apm` rule + `ci::atlas-sync` gate, and the MDX component kit. First migrated note; the original `release-workflow` plan re-created as the release-runbook note (<PrLink pr={1208} />).</Milestone>
+  <Milestone status="done" label="Done">the remaining `docs/plans/*.html` migrated to Atlas notes; `docs/plans/` retired; the `/atlas` skill shipped.</Milestone>
+  <Milestone status="done" label="Done">derived backlinks + the fail-fast dead-link gate (<PrLink pr={1426} />) — render "Referenced by" from the existing `./slug.html` + `parents` edges.</Milestone>
   <Milestone status="now" label="Publication gate">**Confidentiality — a correctness bug, not a feature.** Merge-to-master is public today (<Cite file="website/default.nix" /> copies *all* of `dist/`; `draft` only hides from the index). Add a per-note opt-**in** allowlist (fail-fast: nothing public unless it declares `public: true`) and gate the Nix copy on it. Pure config + Nix; no schema rework. Unblocks a confidential note — or a second team — ever landing.</Milestone>
-  <Milestone status="done" label="Derived backlinks"><PrLink pr={1426} /> — parse `./slug.html` + `parents` at build, invert to a `backlinks` map, render "Referenced by", and **fail the build on any dead internal link**. Zero new authoring surface; reuses the existing link mechanism.</Milestone>
   <Milestone status="next" label="tags + in-repo search">Add optional `tags: string[]` (no migration) and a **Pagefind** index shipped *into* the committed `dist/` so search works in both the Code tab and the public mirror. Trigger it when note count nears the few-hundred where index-as-search breaks — not at 50.</Milestone>
   <Milestone status="next" label="Graph view + MoC hubs">**Deferred** until backlinks prove the edge set is dense and the Code-tab JS question is settled (verify the renderer, or commit to a static SVG/adjacency fallback). The aspirational tree/graph — once it's non-trivial and won't bloat `dist/`.</Milestone>
   <Milestone status="next" label="Federation A → C">Option A (one `project` field + slug prefix) the moment a second project shares the monorepo; the Option C aggregator only when a *separate* repo appears, and only after its owner + cost are decided. **Never** the stale-fallback resolver.</Milestone>
 </Roadmap>
 
-Define success up front so "won't scale" becomes answerable: time-to-find a
-note, % reachable in ≤2 hops, agent token cost per corpus re-read (the headline
-advantage, quantified), CI time per PR as notes grow, and zero confidential
-leaks.
+Define success up front so "won't scale" becomes answerable: time-to-find a note,
+% reachable in ≤2 hops, agent token cost per corpus re-read (the headline
+advantage, quantified), CI time per PR as notes grow, and zero confidential leaks.
+
+---
+
+*History: a 2026-06-02 adversarial research pass flipped HTML-all-the-way →
+markdown-first; Astro was then chosen for rendering, the Atlas extracted into a
+self-contained `docs/atlas/` project, and notes moved to MDX with a typed
+component kit. This note is the merge of the original `second-brain` design
+rationale into the `meta` comparison + roadmap, so the Atlas's note about itself
+lives in one place.*
