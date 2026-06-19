@@ -120,4 +120,4 @@ Per the user: **agreed.** Add a long-running kaval soak test that asserts **boun
 - **Node 24 vs 22** — kaval is on 24.13.0, the server on 22.22.1. Almost certainly *workload* (kaval owns the heavy terminal state), not a V8-version regression — but not yet disambiguated.
 - **The exact JS path of the kolu-side `write ECANCELED`** — inferred (a floating promise on the pty-host stdio link), not pinned to a verified line. Low priority: the kolu exit is correct behavior regardless.
 
-*Proposed fix tracked in <PrLink pr={0} />. Advance `status` as (1)–(4) land; the leak's identity will turn the inference above into evidence.*
+*Proposed fix tracked in <PrLink pr={1421} />. Advance `status` as (1)–(4) land; the leak's identity will turn the inference above into evidence.*
