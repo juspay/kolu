@@ -134,18 +134,28 @@ function injectShadowCss(container: HTMLElement, css: string): void {
   shadowRoot.adoptedStyleSheets = [...shadowRoot.adoptedStyleSheets, sheet];
 }
 
-/** Reveal a directory row in a mounted tree: open its ancestors and itself so
- *  the row exists and its children show, then scroll it to centre. `"expand" in
- *  item` is the file-vs-directory narrowing (Pierre's `isDirectory()` isn't a
- *  `this is` predicate), matching the ancestor-expand passes elsewhere in this
- *  file. A flattened single-child chain may have no discrete node for `dirKey`
- *  (`getItem` returns null); we then open whatever ancestors do resolve and
- *  skip the scroll, degrading gracefully rather than scrolling to a phantom. */
-function revealDirectory(tree: FileTreeClass, dirKey: string): void {
-  for (const ancestor of ancestorDirectoryPaths(dirKey)) {
-    const item = tree.getItem(ancestor);
+/** Expand each resolvable directory row named by `keys`, leaving files and
+ *  missing paths untouched. `getItem` returns a directory-or-file handle union:
+ *  `"expand" in item` is the narrowing — Pierre's `isDirectory()` returns a
+ *  `true`/`false` literal but isn't a `this is` predicate, so it can't narrow,
+ *  whereas the `in` check both compiles and probes for the exact capability
+ *  we're about to call. Re-expanding an open folder is a no-op; a file or a
+ *  missing path narrows away and is skipped. The single place this file knows
+ *  how to make a row's ancestors visible. */
+function expandDirs(tree: FileTreeClass, keys: Iterable<string>): void {
+  for (const key of keys) {
+    const item = tree.getItem(key);
     if (item && "expand" in item) item.expand();
   }
+}
+
+/** Reveal a directory row in a mounted tree: open its ancestors and itself so
+ *  the row exists and its children show, then scroll it to centre. A flattened
+ *  single-child chain may have no discrete node for `dirKey` (`getItem` returns
+ *  null); we then open whatever ancestors do resolve and skip the scroll,
+ *  degrading gracefully rather than scrolling to a phantom. */
+function revealDirectory(tree: FileTreeClass, dirKey: string): void {
+  expandDirs(tree, ancestorDirectoryPaths(dirKey));
   const item = tree.getItem(dirKey);
   if (!item || !("expand" in item)) return;
   item.expand();
@@ -280,10 +290,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             ...(expandPaths ?? []),
             ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
           ];
-          for (const dir of toOpen) {
-            const item = tree.getItem(dir);
-            if (item && "expand" in item) item.expand();
-          }
+          expandDirs(tree, toOpen);
         }, props.onError);
       },
       { defer: true },
@@ -339,17 +346,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             // nested file). Expanding each directory handle in place
             // preserves every other open folder; routing this through
             // `resetPaths` would rebuild the tree and collapse the user's
-            // hand-expanded siblings. `getItem` returns a directory-or-file
-            // handle union: `"expand" in item` is the narrowing — Pierre's
-            // `isDirectory()` returns a `true`/`false` literal but isn't a
-            // `this is` predicate, so it can't narrow, whereas the `in`
-            // check both compiles and probes for the exact capability we're
-            // about to call. Re-expanding an open folder is a no-op; a file
-            // or a missing path narrows away and is skipped.
-            for (const ancestor of ancestorDirectoryPaths(path)) {
-              const item = tree?.getItem(ancestor);
-              if (item && "expand" in item) item.expand();
-            }
+            // hand-expanded siblings.
+            if (tree) expandDirs(tree, ancestorDirectoryPaths(path));
             tree?.getItem(path)?.select();
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay
