@@ -50,7 +50,7 @@ import {
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
-import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
+import type { GitDiffMode } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -574,7 +574,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       title: inMemoryChannel<string>(),
       commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
-      git: inMemoryChannel<GitInfo | null>(),
     };
     const record: AwarenessRecord = {
       pid,

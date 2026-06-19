@@ -18,10 +18,11 @@
  *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
  *  are optional so non-parent hosts can opt out.
  *
- *  Note on `git` channel: the PR sensor chains off the
- *  `git` channel that the git sensor publishes — so the channel
- *  has to be provided by the host (the agent creates a per-terminal
- *  in-memory channel for it).
+ *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the
+ *  git sensor publishes. That channel is an internal sensor-to-sensor
+ *  wire, NOT a host input — `startAwareness` constructs it itself and
+ *  hands it to just those two sensors, so hosts plug in only the four
+ *  taps they actually drive.
  *
  *  ## Host contract
  *
@@ -58,7 +59,7 @@ import type { GitInfo } from "kolu-git/schemas";
 import { githubPrProvider } from "kolu-github";
 import { opencodeProvider } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
-import type { Channel } from "@kolu/surface/server";
+import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 import type {
@@ -106,7 +107,6 @@ export interface AwarenessSignals {
    *  `ptyHandle.process` / `.foregroundPid` reads, so the sensor set works across a
    *  socket. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
-  git: Channel<GitInfo | null>;
 }
 
 /** Host hooks — the sensors call these to update metadata + emit
@@ -223,6 +223,7 @@ function startGitSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
   channels: AwarenessSignals,
+  gitChannel: Channel<GitInfo | null>,
   hooks: AwarenessSink,
   log: Logger,
 ): () => void {
@@ -235,7 +236,7 @@ function startGitSensor(
       hooks.updateServerMetadata(record, (m) => {
         m.git = git;
       });
-      channels.git.publish(git);
+      gitChannel.publish(git);
       plog.debug(
         { repo: git?.repoName, branch: git?.branch },
         "git info updated",
@@ -302,7 +303,7 @@ const dispatchingForgeAdapter: PrProvider<PrUnavailableSource> = {
 function startPrSensor(
   record: AwarenessRecord,
   terminalId: TerminalId,
-  channels: AwarenessSignals,
+  gitChannel: Channel<GitInfo | null>,
   hooks: AwarenessSink,
   log: Logger,
 ): () => void {
@@ -330,7 +331,7 @@ function startPrSensor(
     },
     plog,
   );
-  const cleanup = channels.git.consume({
+  const cleanup = gitChannel.consume({
     onEvent: (git) =>
       watcher.setGit(
         git
@@ -802,8 +803,20 @@ export function startAwareness(
     hooks,
     log,
   );
-  const stopGit = startGitSensor(record, terminalId, channels, hooks, log);
-  const stopPr = startPrSensor(record, terminalId, channels, hooks, log);
+  // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
+  // git sensor publishes `GitInfo` to it and the PR sensor consumes it to
+  // re-resolve the PR. `startAwareness` owns it so hosts plug in only the four
+  // taps they actually drive (`AwarenessSignals`).
+  const gitChannel = inMemoryChannel<GitInfo | null>();
+  const stopGit = startGitSensor(
+    record,
+    terminalId,
+    channels,
+    gitChannel,
+    hooks,
+    log,
+  );
+  const stopPr = startPrSensor(record, terminalId, gitChannel, hooks, log);
   const stopClaude = startAgentSensor(
     claudeCodeProvider,
     record,
