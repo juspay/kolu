@@ -4,7 +4,7 @@
  * *is in* (repo branch · PR + checks · agent state · foreground), where
  * kaval-tui shows what's *running* in each PTY.
  *
- *   arivu-tui list [--json]   one row per terminal — id · branch · pr · agent · fg
+ *   arivu-tui list [--json]   every terminal's full awareness (a vertical record each)
  *   arivu-tui watch <id>      follow one terminal's awareness live (Ctrl-C to stop)
  *
  * `list` prints a short id (the leading chars of the full uuid); `<id>` in
@@ -47,7 +47,10 @@ const argv = cli({
   commands: [
     command({
       name: "list",
-      help: { description: "Show every terminal's awareness — one row each." },
+      help: {
+        description:
+          "Show every terminal's awareness — a vertical record per terminal.",
+      },
       flags: {
         ...socketFlag,
         json: {
@@ -145,7 +148,9 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
     )) {
       // Home + clear, then repaint the single row — a live-updating view.
       process.stdout.write("\x1b[H\x1b[2J");
-      process.stdout.write(`${formatAwarenessRow(id, value, { home: homedir() })}\n`);
+      process.stdout.write(
+        `${formatAwarenessRow(id, value, { home: homedir() })}\n`,
+      );
     }
   } catch (err) {
     if (!abort.signal.aborted) fail((err as Error).message);
