@@ -23,13 +23,13 @@ import {
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
-import type {
-  PtyHostClient,
-  PtyHostIdentity,
-  PtyHostSpawnInput,
-  PtyHostSystemInfo,
+import {
+  DEFAULT_MIRROR_SCROLLBACK,
+  type PtyHostClient,
+  type PtyHostIdentity,
+  type PtyHostSpawnInput,
+  type PtyHostSystemInfo,
 } from "kaval";
-import { MIRROR_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
@@ -231,11 +231,13 @@ export function composeSpawnInput(
     cwd,
     env,
     initFiles: plan.initFiles,
-    // The SERVER-side headless mirror's depth — deliberately smaller than the
-    // client's visible scrollback (`DEFAULT_SCROLLBACK`). Per-live-terminal
-    // mirrors accumulate in kaval's heap; the conflated 50K was the OOM. See
-    // `MIRROR_SCROLLBACK` / `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`.
-    scrollback: MIRROR_SCROLLBACK,
+    // The per-terminal headless-mirror depth — kaval owns this number (the
+    // mirror lives there), so we send its `DEFAULT_MIRROR_SCROLLBACK`, the SAME
+    // value kaval-tui's spawn path falls back to. Deliberately smaller than the
+    // client's visible scrollback (kolu-common's `DEFAULT_SCROLLBACK`): the
+    // conflated 50K mirror × unbounded live terminals was the OOM. See
+    // `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`.
+    scrollback: DEFAULT_MIRROR_SCROLLBACK,
   };
 }
 
