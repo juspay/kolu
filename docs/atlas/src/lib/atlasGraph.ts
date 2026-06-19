@@ -40,7 +40,10 @@ export function buildAtlasGraph(notes: CollectionEntry<"atlas">[]): AtlasGraph {
   const link = (target: string, source: string) => {
     if (target === source) return;
     let sources = inbound.get(target);
-    if (!sources) inbound.set(target, (sources = new Set()));
+    if (!sources) {
+      sources = new Set();
+      inbound.set(target, sources);
+    }
     sources.add(source);
   };
 
