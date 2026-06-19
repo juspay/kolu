@@ -4,12 +4,12 @@
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
  * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal provider DAG** (`./providers.ts`) against the
+ * **runs the per-terminal provider set** (`./providers.ts`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
  * consumer here is then written against `PtyHostClient` — the exact shape the
- * daemon (over a unix socket) or a remote ssh pty-host serves. The provider DAG
+ * daemon (over a unix socket) or a remote ssh pty-host serves. The provider set
  * has zero synchronous dependency on the host (it reads taps, not a
  * `PtyHandle`), so it runs identically across the wire. The kaval daemon serves
  * its own socket, which `kaval-tui` reaches directly — a second consumer of the
@@ -282,7 +282,7 @@ function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
   };
 }
 
-/** Everything needed to stop one terminal's provider DAG + tap bridges: abort
+/** Everything needed to stop one terminal's provider set + tap bridges: abort
  *  the tap-stream subscriptions and stop the watchers. */
 interface TerminalLifecycle {
   abort: AbortController;
@@ -290,7 +290,7 @@ interface TerminalLifecycle {
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
- *  (contract 2.1). The provider DAG re-derives the authoritative value from the
+ *  (contract 2.1). The provider set re-derives the authoritative value from the
  *  surviving foreground tap (which replays a snapshot on subscribe), so this is
  *  only the pre-tap value the tile renders for the boot frame — null when the
  *  daemon reports no foreground name. `title` is unknown to the foreground field,
@@ -355,7 +355,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   readonly fs = localFs;
   readonly git = localGit;
 
-  /** id → its provider-DAG + tap-bridge teardown. Its keys ARE the terminals
+  /** id → its provider-set + tap-bridge teardown. Its keys ARE the terminals
    *  with a live provider layer in this process. */
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
@@ -365,7 +365,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Sync shadow: register a connecting entry (proxy handle + default
     // metadata) so the tile renders immediately — the `TerminalEndpoint.
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
-    // cwd / pid on the async tail below; the provider DAG starts there too.
+    // cwd / pid on the async tail below; the provider set starts there too.
     //
     // The shadow only needs a placeholder cwd until the spawn echoes back the
     // resolved value (`res.cwd` at the `spawnAndWire` tail). We deliberately do
@@ -406,7 +406,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  caller-built `meta` (a whole saved record via `adoptedMeta`, or an orphan's
    *  live-snapshot defaults via `orphanMeta`; either way the live fields
    *  pr/agent/foreground are re-derived by the providers, the freshness
-   *  guarantee), release the handle at the live pid, and re-run the provider DAG
+   *  guarantee), release the handle at the live pid, and re-run the provider set
    *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
    *  the spawn RPC: both converge on `startProviderLayer`, and a wiring failure
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
@@ -477,7 +477,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Async tail of `spawnPty`: confirm the PTY spawned, then start the
-   *  provider DAG against its taps. On failure unwinds the shadow. */
+   *  provider set against its taps. On failure unwinds the shadow. */
   private async spawnAndWire(
     id: TerminalId,
     opts: PtySpawnOpts,
@@ -501,7 +501,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
-    // Seed the authoritative resolved cwd before starting the DAG (the git
+    // Seed the authoritative resolved cwd before starting the provider set (the git
     // watcher reads `record.meta.cwd` at start).
     updateServerMetadata(entry, id, (m) => {
       m.cwd = res.cwd;
@@ -555,8 +555,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id);
   }
 
-  /** Start the per-terminal provider DAG against the pty-host's tap streams.
-   *  The DAG runs HERE, in kolu-server, so it's always the current build's
+  /** Start the per-terminal provider set against the pty-host's tap streams.
+   *  The provider set runs HERE, in kolu-server, so it's always the current build's
    *  code (the freshness guarantee — the most-edited code never rides the
    *  long-lived pty-host). */
   private startProviderLayer(
@@ -642,7 +642,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.lifecycles.set(id, { abort, stopProviders });
   }
 
-  /** Stop a terminal's provider DAG + tap bridges (idempotent). Aborting the
+  /** Stop a terminal's provider set + tap bridges (idempotent). Aborting the
    *  signal ends every tap subscription — including the `exit` tap, so a kill
    *  that calls this BEFORE the pty-host kill can't trip `handleExit`. */
   private teardownProviders(id: TerminalId): void {

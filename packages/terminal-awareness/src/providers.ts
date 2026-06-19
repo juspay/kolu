@@ -1,11 +1,11 @@
-/** Per-terminal provider DAG, parameterized over `ProviderHooks` +
+/** Per-terminal provider set, parameterized over `ProviderHooks` +
  *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
  *  that varies. kolu-server's local endpoint instantiates it,
  *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
- *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
+ *  remote ssh pty-host serves the same taps in #951 R-2 — same provider set, different
  *  transport.
  *
- *  Provider DAG:
+ *  Provider set:
  *
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher
  *                                                    (lives on m.pr)
@@ -70,7 +70,7 @@ import type {
   TerminalId,
 } from "./schema.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. The host
+/** Minimal "terminal record" shape the provider set needs. The host
  *  constructs one per terminal; the providers only touch `pid` + `meta` +
  *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
  *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
@@ -82,7 +82,7 @@ export interface ProviderRecord {
    *  spawn. The agent detectors compare it to the foreground pid to decide
    *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
    *  live reads (process name + foreground pid) that used to come off the
-   *  handle synchronously now arrive over `channels.foreground`, so the DAG
+   *  handle synchronously now arrive over `channels.foreground`, so the provider set
    *  has zero sync dependency on the PTY host — which is what lets it run on
    *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
   pid: number;
@@ -103,7 +103,7 @@ export interface ProviderChannels {
   commandRun: Channel<string>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
-   *  `ptyHandle.process` / `.foregroundPid` reads, so the DAG works across a
+   *  `ptyHandle.process` / `.foregroundPid` reads, so the provider set works across a
    *  socket. The host pushes a current snapshot first, then changes. */
   foreground: Channel<ForegroundSample>;
   git: Channel<GitInfo | null>;
@@ -140,7 +140,7 @@ export interface ProviderHooks {
   /** Optional — read the terminal's current rendered screen as VT-resolved
    *  plain text. Provided by hosts that can reach the PTY screen buffer (the
    *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
-   *  can't. Async + host-supplied, so the DAG keeps its zero *synchronous*
+   *  can't. Async + host-supplied, so the provider set keeps its zero *synchronous*
    *  dependency on the PTY host — a remote ssh pty-host serves the same read
    *  over the wire. Drives `AgentProvider.screenScrape` promotion (Claude's
    *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
@@ -435,7 +435,7 @@ function getActivation(kind: string): ExternalChangesActivation {
 /** After a command-run mark, re-run agent-session resolution across the
  *  settle window (the agent writes its session file a beat after the mark).
  *  This is the *consumer* schedule and is independent of pty-host's
- *  foreground-sample burst: the DAG also reconciles whenever the foreground
+ *  foreground-sample burst: the provider set also reconciles whenever the foreground
  *  tap pushes a fresh sample, so foreground freshness rides the primitive's
  *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
@@ -529,7 +529,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // Foreground source-of-truth for this provider, tracked from
   // `channels.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
-  // channel, not a synchronous handle, so the DAG is transport-agnostic.
+  // channel, not a synchronous handle, so the provider set is transport-agnostic.
   let currentForeground: ForegroundSample = {
     process: "",
     foregroundPid: undefined,
