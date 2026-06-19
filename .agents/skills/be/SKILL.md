@@ -69,6 +69,17 @@ summary), so no comment advertises a local-only commit.
   summary.
 - On an **unresolved** lens finding, adjudicate it yourself before moving on.
 
+**Performance pass.** If the diff touches a perf-sensitive surface (SolidJS
+reactivity, the surface wire, the terminal/canvas render loop, timers/listeners,
+the client bundle, or kaval), review it against the performance map —
+`docs/atlas/src/content/atlas/performance.mdx`
+([published](https://kolu.dev/atlas/performance.html)): don't regress a *banked*
+win, and don't add a catalogued anti-pattern (an unstable memo reference or
+coarse reactive dep, a visibility-blind timer, a full-set wire broadcast, an
+eager heavy import). When the change **banks** an opportunity or **surfaces** a
+new one, update that note via `/atlas` so the map stays current — measured, not
+guessed (a faithfully-reproduced negative counts too).
+
 ## 5. Ship — CI and evidence in parallel
 
 `/ci` and `/evidence` are independent — one exercises the build/test pipeline, the
