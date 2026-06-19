@@ -513,50 +513,55 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     );
   }
 
-  /* Section headings — real <h2>s, not faint eyebrow paragraphs. Mono caps in
-     the brand accent with a hairline rule fading out to the right margin, so
-     each section reads as a deliberate divider. Mirrors the changelog h3
-     treatment in global.css (one source of truth for "mono section label"). */
+  /* Section headings — real <h2>s. The page jumped from a ~67px display H1
+     straight to 13px mono captions with no mid tier, so every section read
+     flat. These are now a true display-scale heading (~half the H1) in the
+     same lowercase tech-sans as the hero, with a tall electric-purple bar as
+     the section marker — the accent grounds the heading instead of *being* it. */
   .kv-head {
     display: flex;
     align-items: center;
-    gap: 0.85rem;
-    margin-bottom: 1.4rem;
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    font-weight: 600;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--color-amber);
+    gap: 0.9rem;
+    margin-top: 0.2rem;
+    margin-bottom: 1.6rem;
+    font-family: var(--font-sans);
+    font-size: clamp(1.7rem, 1.05rem + 2.1vw, 2.35rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.02;
+    color: var(--color-ink);
+    text-transform: none;
   }
-  .kv-head::after {
+  .kv-head::before {
     content: "";
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(
-      to right,
-      var(--color-rule-strong),
-      transparent
-    );
+    flex: none;
+    align-self: stretch;
+    width: 5px;
+    min-height: 1.15em;
+    border-radius: 3px;
+    background: var(--color-amber);
+    box-shadow: 0 0 14px -1px
+      color-mix(in srgb, var(--color-amber) 60%, transparent);
   }
 
-  /* Sub-heading inside a section (e.g. "taps kaval surfaces"). Subordinate to
-     .kv-head — smaller, no rule — but still unmistakably a heading: brand-accent
-     mono caps led by a terminal caret that echoes the PTY rows in the diagram. */
+  /* Sub-heading inside a section (e.g. "taps kaval surfaces"). A clear step
+     below the H2 but still a real heading — semibold tech-sans, ink, led by an
+     amber terminal caret that echoes the PTY rows in the diagram. */
   .kv-subhead {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.5rem;
-    font-family: var(--font-mono);
-    font-size: 0.76rem;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-amber);
+    gap: 0.55rem;
+    font-family: var(--font-sans);
+    font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.2rem);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--color-ink);
+    text-transform: none;
   }
   .kv-subhead::before {
     content: "▸";
-    font-size: 0.9em;
+    font-size: 0.85em;
+    font-weight: 700;
     color: var(--color-amber);
   }
 
