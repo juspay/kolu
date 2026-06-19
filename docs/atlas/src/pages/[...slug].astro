@@ -2,13 +2,26 @@
 import { getCollection, render } from "astro:content";
 import AtlasLayout from "../layouts/AtlasLayout.astro";
 import Toc from "../components/Toc.astro";
+import Backlinks from "../components/Backlinks.astro";
+import { buildAtlasGraph } from "../lib/atlasGraph";
 
 export async function getStaticPaths() {
-  const notes = await getCollection("atlas");
-  return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
+  // Match index.astro's working set: drafts are hidden from the build (but
+  // reachable in `astro dev`), so backlink sources/targets and the dead-link
+  // gate all see the same production note set the index does.
+  const notes = (await getCollection("atlas")).filter(
+    (n) => import.meta.env.DEV || !n.data.draft,
+  );
+  // Build the inbound link graph once for the whole collection (and fail the
+  // build on any dead internal link), then hand each page its own backlinks.
+  const { backlinks } = buildAtlasGraph(notes);
+  return notes.map((note) => ({
+    params: { slug: note.id },
+    props: { note, backlinks: backlinks.get(note.id) ?? [] },
+  }));
 }
 
-const { note } = Astro.props;
+const { note, backlinks } = Astro.props;
 const { Content, headings } = await render(note);
 const d = note.data;
 
@@ -49,6 +62,8 @@ const fmtDate = (date: Date) =>
     <div class="prose">
       <Content />
     </div>
+
+    <Backlinks notes={backlinks} />
 
     <footer class="note-foot">
       <a class="backlink" href="./index.html">← the Atlas</a>

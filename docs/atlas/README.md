@@ -17,4 +17,4 @@ The rendered `dist/` is **committed** (marked generated in `.gitattributes`); an
 `.apm` rule regenerates it whenever a note changes. Author markdown/MDX only —
 never hand-edit the generated HTML under `dist/`.
 
-The design rationale lives in the Atlas itself: `src/content/atlas/second-brain.mdx`.
+The design rationale lives in the Atlas itself: `src/content/atlas/meta.mdx`.

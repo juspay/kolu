@@ -1,0 +1,61 @@
+---
+// "Referenced by" — the inbound half of the note link graph, derived at build
+// time from every other note's `./slug.html` links + `parents` (lib/atlasGraph).
+// Links stay relative (`./slug.html`) so they resolve both in kolu's Code tab
+// and on the web at kolu.dev/atlas/. Renders nothing when a note has no inbound
+// links, so a leaf note simply omits the section.
+import type { NoteRef } from "../lib/indexTree";
+
+interface Props {
+  notes: NoteRef[];
+}
+const { notes } = Astro.props as Props;
+---
+{
+  notes.length > 0 && (
+    <nav class="backlinks" aria-label="Notes that reference this one">
+      <h2 class="backlinks-h">Referenced by</h2>
+      <ul class="backlinks-list">
+        {notes.map((n) => (
+          <li>
+            <a href={`./${n.id}.html`}>{n.title}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+<style>
+  .backlinks {
+    margin: 2.5rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+  }
+  .backlinks-h {
+    margin: 0 0 0.7rem;
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .backlinks-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 1rem;
+  }
+  .backlinks-list a {
+    font-size: 0.92rem;
+    color: var(--ink-dim);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  .backlinks-list a:hover {
+    color: var(--amber);
+    border-color: var(--amber);
+  }
+</style>
