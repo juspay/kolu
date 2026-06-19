@@ -1,5 +1,5 @@
 import type { CollectionEntry } from "astro:content";
-import { resolveParents, titleCmp } from "./indexTree";
+import { resolveParents, titleCmp, toRef } from "./indexTree";
 import type { NoteRef } from "./indexTree";
 
 // A note→note edge is authored two ways, both already part of the Atlas: a
@@ -61,9 +61,7 @@ export function buildAtlasGraph(notes: CollectionEntry<"atlas">[]): AtlasGraph {
   for (const [target, sources] of inbound) {
     backlinks.set(
       target,
-      [...sources]
-        .map((id) => ({ id, title: byId.get(id)!.data.title }))
-        .sort(byTitle),
+      [...sources].map((id) => toRef(byId, id)).sort(byTitle),
     );
   }
   return { backlinks };

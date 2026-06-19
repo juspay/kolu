@@ -75,6 +75,14 @@ export const resolveParents = (
 // index (and churn the committed dist) on a differently-configured box.
 export const titleCmp = (a: string, b: string) => a.localeCompare(b, "en-US");
 
+/** Project a note id to its renderable {id, title} ref via the id→note map.
+ *  Shared by the index's `related` links and the backlink graph, which build the
+ *  same ref the same way. */
+export const toRef = (
+  byId: Map<string, CollectionEntry<"atlas">>,
+  id: string,
+): NoteRef => ({ id, title: byId.get(id)!.data.title });
+
 /** Group notes into category sections, nesting `parents` edges *within* a
  *  category (same `kind`). A parent in a different category isn't a tree edge —
  *  it's surfaced as a `related` link instead, so the topical connection survives
@@ -107,7 +115,7 @@ export function buildCategoryGroups(
     );
     node.related = parentIds
       .filter((pid) => noteById.get(pid)!.data.kind !== cat)
-      .map((pid) => ({ id: pid, title: noteById.get(pid)!.data.title }))
+      .map((pid) => toRef(noteById, pid))
       .sort((a, b) => titleCmp(a.title, b.title));
     if (sameCat.length === 0) rootsFor(cat).push(node);
     else for (const pid of sameCat) nodes.get(pid)!.children.push(node);
