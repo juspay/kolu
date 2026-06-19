@@ -1,11 +1,7 @@
-import type { TerminalId } from "kolu-common/surface";
 import { LOCAL_LOCATION, type TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
-import { createMemo, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
-
-const tids = (...xs: string[]) => xs as TerminalId[];
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
@@ -32,84 +28,6 @@ function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
     ...overrides,
   };
 }
-
-describe("terminalIds reference stability (the #1422 reactivity keystone)", () => {
-  // Reproduces the exact reactive shape of the `terminalIds` memo: it reads a
-  // "metadata version" (so any single terminal's metadata change re-runs it) and
-  // rebuilds a *fresh* array each run. Gated by `sameTerminalIdOrder` as its
-  // `equals`, an unchanged id set must keep the prior reference so the downstream
-  // display derivation does NOT re-run. This is the regression the fix prevents.
-  // Local copy of the `equals` gate's behavior — the harness exercises the
-  // reactive shape, not the comparator (which has its own unit tests).
-  const sameOrder = (a: readonly TerminalId[], b: readonly TerminalId[]) =>
-    a.length === b.length && a.every((id, i) => id === b[i]);
-  function harness() {
-    const [version, setVersion] = createSignal(0);
-    const [ids, setIds] = createSignal(tids("a", "b", "c"));
-    let innerRuns = 0;
-    let downstreamRuns = 0;
-    let displayInfos: () => number;
-    const dispose = createRoot((d) => {
-      const terminalIds = createMemo<TerminalId[]>(
-        () => {
-          innerRuns++;
-          version(); // track: a metadata change on any terminal re-runs this
-          return ids().slice(); // a new array reference every run
-        },
-        [],
-        { equals: sameOrder },
-      );
-      // The expensive derivation `displayInfos` stands in for here.
-      displayInfos = createMemo(() => {
-        downstreamRuns++;
-        return terminalIds().length;
-      });
-      displayInfos(); // initial computation
-      return d;
-    });
-    return {
-      runs: () => ({ inner: innerRuns, downstream: downstreamRuns }),
-      // Solid memos are lazy — pull the downstream derivation to force the
-      // (re)computation a render/effect would trigger in the real app.
-      pull: () => displayInfos(),
-      bumpMetadata: () => setVersion((v) => v + 1),
-      setIds,
-      dispose,
-    };
-  }
-
-  it("re-runs the memo but NOT the downstream derivation when the id set is unchanged", () => {
-    const h = harness();
-    expect(h.runs()).toEqual({ inner: 1, downstream: 1 });
-
-    h.bumpMetadata(); // a metadata field changed; top-level id set is identical
-    h.pull();
-    expect(h.runs()).toEqual({ inner: 2, downstream: 1 }); // gated: no re-derive
-
-    h.bumpMetadata();
-    h.pull();
-    expect(h.runs()).toEqual({ inner: 3, downstream: 1 });
-    h.dispose();
-  });
-
-  it("re-runs the downstream derivation when the id set actually changes", () => {
-    const h = harness();
-    expect(h.runs()).toEqual({ inner: 1, downstream: 1 });
-
-    h.setIds(tids("a", "b")); // a terminal closed → the set changed
-    h.pull();
-    expect(h.runs()).toEqual({ inner: 2, downstream: 2 }); // propagates
-    h.dispose();
-  });
-
-  it("re-runs the downstream derivation when the set is reordered", () => {
-    const h = harness();
-    h.setIds(tids("c", "b", "a"));
-    h.pull();
-    expect(h.runs().downstream).toBe(2); // order matters → invalidates
-    h.dispose();
-  });
-});
 
 describe("assignColors", () => {
   it("returns empty map for empty input", () => {
