@@ -92,17 +92,18 @@ Feature: File-ref autolinking in terminal
     # The scenario above opens the panel fresh, so the folder is revealed via the
     # tree's constructor. Here a file-ref click opens browse and mounts the tree
     # first, so the folder click that follows exercises the post-mount reveal
-    # path instead (expand + scroll on the already-live tree). The mount is
-    # confirmed by the file's TREE row being selected — not its rendered content,
-    # whose fsReadFile round-trip is the slow, flaky axis under darwin CI load
-    # and is irrelevant here (we only need the tree live before the folder click).
+    # path instead (expand + scroll on the already-live tree). The precondition
+    # only needs the tree LIVE — confirm it via the top-level `lib/` row, which is
+    # present the moment the tree mounts (no file-content render, no
+    # selection/expansion to wait on — both slow, flaky axes under darwin CI
+    # load that are irrelevant to what this scenario tests).
     When I run "git init /tmp/kolu-file-ref-folder2 && cd /tmp/kolu-file-ref-folder2"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p lib && (cd lib && mkdir -p ui && printf 'a\n' > ui/button.ts && printf 'b\n' > ui/input.ts && printf 'x\n' > index.ts)"
     And I run "git add . && git commit -m files"
     And I run "echo 'open lib/index.ts first'"
     And I trigger the terminal file-ref link "lib/index.ts"
-    Then the file "lib/index.ts" should be selected in the file browser
+    Then the file browser should show a directory "lib"
     When I run "echo 'now the lib/ui widgets'"
     And I trigger the terminal file-ref link "lib/ui"
     Then the directory "lib/ui" should be expanded in the file browser
