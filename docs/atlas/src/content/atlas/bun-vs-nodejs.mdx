@@ -1,0 +1,89 @@
+---
+title: Bun vs Node.js — why the arivu-tui viewer runs on Bun
+description: The runtime spike behind arivu P3a — OpenTUI needs both native FFI and Solid's reactivity, and only Bun clears the second bar out of the box, so the viewer (alone) runs on Bun while the daemon and the rest of kolu stay Node.
+kind: analysis
+status: accepted
+maturity: budding
+parents: [analysis]
+updated: 2026-06-20
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Terminal from "../../components/Terminal.astro";
+
+arivu's [P3a](arivu.html) re-platforms `arivu-tui` onto **OpenTUI** — the production-grade TUI framework behind OpenCode and terminal.shop — so the awareness dashboard renders in the *same* fine-grained-reactive model the rest of kolu lives in. That choice imposes **two hard requirements** on whatever JS runtime paints it, and they don't both fall to the obvious answer. This note is the spike that picked the runtime: which runtime clears **both** bars, what it costs, and when to revisit. <Pill variant="new">spike · probed empirically</Pill> <PrLink pr={1453} />
+
+## What OpenTUI demands of the runtime
+
+OpenTUI is not a string-painting library. To deliver a *live*, truecolour view it leans on two capabilities at once, and a runtime has to satisfy **both** or it's out:
+
+- **Native FFI to paint.** The renderer is a native **Zig core** shipped as `libopentui.so` and loaded over **FFI**. No FFI, no pixels — the framework can't draw.
+- **SolidJS fine-grained reactivity.** OpenTUI's `@opentui/solid` reconciler authors the view as Solid JSX, so `<box>`/`<text>` re-render only the cells that changed as signals update. For a *viewer* — whose entire job is to repaint as awareness streams in — this isn't a nicety; without it the screen renders once and **freezes**.
+
+arivu-tui's view (`tui.tsx`) is built squarely on the second: `<For>`/`<Show>` over a live `createStore` awareness record, repainting as the stream pushes updates. So the runtime must clear both the *FFI* bar and the *reactivity* bar. The whole question is which one does.
+
+## The two bars, and where Node falls
+
+Node and Bun each clear one bar trivially. The decision lives entirely in the bar each one *almost* clears — and Node's miss is the fatal one.
+
+| Bar | What it takes | Node.js | Bun |
+| --- | --- | --- | --- |
+| **① Native FFI** (load `libopentui.so`) | a usable `node:ffi` / `dlopen` | stock `nodejs` is **24.13** and `nodejs_latest` is **25.8.1** — *neither* has `node:ffi` (`require("node:ffi")` → `ERR_UNKNOWN_BUILTIN_MODULE`; `--experimental-ffi` → "bad option"). But stock **`nodejs_26` (26.3.0)** *does* ship `node:ffi` behind `--experimental-ffi`, and OpenTUI's `createNodeBackend` renders under it. <Pill variant="ok">clears (pin bump)</Pill> | `Bun.dlopen` is first-class. <Pill variant="ok">clears</Pill> |
+| **② Solid reactivity** (`{signal()}` stays live) | the **babel-preset-solid** transform that wraps children in reactive thunks | under Node's `tsx`/esbuild, JSX uses the *automatic* jsx-runtime, which evaluates `{signal()}` **eagerly, once**. `tsx` is esbuild-only with **no babel hook**, and OpenTUI ships its Solid transform **Bun-only by design**. <Pill variant="bad">fails</Pill> | `@opentui/solid/preload` registers babel-preset-solid; `{signal()}` stays a reactive thunk. <Pill variant="ok">clears</Pill> |
+
+**Bar ① is a pin bump, not a wall.** The reflex is to assume "Node has no FFI" closes the case — but stock `nodejs_26` ships `node:ffi` behind `--experimental-ffi`, and a probe empirically painted "hello-node" through the Zig core under Node 26.3 + `tsx` + `--experimental-ffi`. Getting `nodejs_26` is a **nixpkgs pin bump** (it's stock unstable, *not* a custom build). So Node clears bar ①.
+
+**Bar ② is where Node dies.** An empirical probe — `createSignal(1)` → render → `setCount(42)` → re-render — is unambiguous:
+
+<Terminal title="solid-reactivity probe · createSignal(1) → setCount(42)" lines={[
+  "$ bun --preload @opentui/solid/preload  probe.tsx",
+  "frame 1 → 1",
+  "frame 2 → 42        REACTIVE_OK",
+  "$ node --import tsx  probe.tsx",
+  "frame 1 → 1",
+  "frame 2 → 1         REACTIVE_FAIL   (frame frozen at the first value)",
+]} />
+
+Only **babel-preset-solid** wraps `{signal()}` in a reactive thunk; Node's `tsx`/esbuild emits the automatic jsx-runtime, which reads the signal *once* at render and never again. And the transform is the part OpenTUI puts **out of Node's reach on purpose**: `@opentui/solid/preload` and `/bun-plugin` ship `.node.js` variants that literally hard-throw *"@opentui/solid/preload is Bun-only … Use Bun."* `tsx` exposes no babel hook to slot a transform in. So an `arivu-tui` whose view is `<For>`/`<Show>`/`{store.v}` over a **live** awareness store renders the first frame under Node and then **freezes** — fatal for a viewer.
+
+<Callout kind="warn" title="PR #1372 is a red herring here">
+There's a tempting cross-link: kolu already built a custom Node 26 for kaval's roaming transport. That PR compiled Node `--experimental-quic` for **`node:quic`** (QUIC connection-migration over ssh) — orthogonal to OpenTUI. Stock `nodejs_26` already carries `node:ffi` **without** that from-source QUIC build, so #1372 neither helps nor is needed for this decision. It's worth citing only as the place the nixpkgs-26 bump is discussed — not as evidence Node clears OpenTUI.
+</Callout>
+
+## Decision: Bun, scoped to arivu-tui alone
+
+Node can be coaxed to paint (bar ①), but it cannot be made *reactive* (bar ②) without a transform OpenTUI refuses to ship for it. **Bun is the only runtime where OpenTUI's reactivity works out of the box** — its preload is the *sole supported* Solid-transform path. So `arivu-tui` runs on Bun.
+
+The blast radius is the point. The decision is scoped to **the viewer, and nothing else**:
+
+- **The rest of kolu stays Node.** No shared package, no daemon, no app code changes runtime.
+- **The `arivu` daemon stays Node** — crucially. It is the half that travels over ssh and leans on Node's built-in `node:sqlite`; it must stay portable and cross-arch, and P3a does not touch it.
+- **Bun is *contained*.** The viewer is local-only — never ssh-provisioned — so the Bun runtime and the per-arch `libopentui.so` live only in the *local* closure and never cross the wire.
+
+This honours the [electricity](electricity.html) instinct of volatility-locality: the thing that *forces* Bun (OpenTUI's FFI renderer) is a local-viewer concern, so the Bun-ness stays inside the viewer's wrapper — one binary, easy to read, easy to undo — and the piece with the hard portability constraint (the daemon) stays Node.
+
+## The cost — and why the closure ends up *smaller*
+
+Choosing Bun isn't free, and the naive way to pay for it makes the closure worse. Bun's **runtime** preload pulls babel-preset-solid in live, which drags `@babel/core` + the `browserslist`/`caniuse-lite` tail into the closure — exactly the weight kolu's `installPhase` prune strips. The result is a **cwd-sensitive whack-a-mole**: `ENOENT @babel/core`, fix that, then `ENOENT browserslist`, and so on. That run-from-source-with-runtime-babel approach was the **rejected first cut**.
+
+The resolution is to move the transform off the runtime entirely: **compile the JSX at build time.** A Nix build step (`build.ts`) runs `@opentui/solid`'s Bun plugin via `Bun.build`, emitting plain, **already-reactive** JS. The *runtime* then needs **zero babel** — the prune stays aggressive, and the closure gets *smaller*, not larger.
+
+<Callout kind="good" title="Only the JSX transform moves to build time — Bun still does the FFI">
+Bun is still the runtime: it loads OpenTUI's native Zig FFI core (`libopentui.so`) at run time, because that's a runtime capability, not a transform. What moves to build time is *only* the JSX → reactive-JS step. So `arivu-tui` ships as already-reactive Bun JS that `dlopen`s the Zig core on launch — reactive view, native paint, and a leaner closure than the run-from-source path would have left.
+</Callout>
+
+## When to revisit Node
+
+Bun for the viewer is the honest call *today*, not a forever-verdict. Re-run the spike if any of the three loosen:
+
+- **OpenTUI ships a Node-side babel transform** — i.e. lifts the Bun-only restriction on `@opentui/solid/preload`. This is the single change that would flip the decision, since it directly dissolves bar ②.
+- **Solid's no-build reactivity matures** — a hyperscript API or a reactive jsx-runtime that stays live *without* the babel transform. Then `tsx`/esbuild output could be reactive and Node would clear bar ② on its own.
+- **`node:ffi` graduates from experimental** — not decision-flipping on its own (Node already clears bar ① with the pin bump), but it removes the last friction on the Node-FFI path, so it's worth re-checking the whole picture when it lands.
+
+Until one of those is real, OpenTUI's only supported reactive path is Bun's preload — so **Bun for the viewer, Node for everything else** is the decision arivu P3a ships on.
+
+---
+
+*Bars probed empirically against stock nixpkgs `nodejs`/`nodejs_latest`/`nodejs_26` and Bun: the FFI probe painted through the Zig core under Node 26.3 + `tsx` + `--experimental-ffi`; the reactivity probe (`createSignal(1)` → `setCount(42)`) showed `REACTIVE_OK` under Bun + `@opentui/solid` preload and `REACTIVE_FAIL` under Node + `tsx`. Build-time-transform resolution shipped in `packages/arivu-tui/build.ts`. Sibling to [arivu](arivu.html) (P3a) and [electricity](electricity.html) (volatility-locality).*

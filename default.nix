@@ -185,6 +185,9 @@ let
       pkgs.python3
       pkgs.node-gyp
       pkgs.pkg-config
+      # arivu-tui's viewer is compiled to a Bun bundle at build time (its Solid
+      # JSX transform runs here, NOT at runtime — see buildPhase + the prune note).
+      pkgs.bun
     ];
 
     inherit pnpmDeps;
@@ -224,6 +227,9 @@ let
       popd
       ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
       pnpm --filter kolu-client build
+      # Compile arivu-tui's Solid JSX to a reactive bundle (dist/bin.js) here, so
+      # its runtime needs no babel — see the arivu-tui wrapper + the prune note.
+      pnpm --filter arivu-tui build
       runHook postBuild
     '';
 
@@ -239,19 +245,19 @@ let
       # module bundles the in-iframe SDK script at runtime via esbuild. The
       # cost is ~15MB in the production NAR for one platform-specific binary;
       # the simplicity win is no separate build-step coordination with Nix.
-      #
-      # NOTE: @babel* / babel-plugin-* are kept too (~17MB) — babel is build-only
-      # for the client bundle but RUNTIME for arivu-tui: its @opentui/solid
-      # preload compiles the viewer's Solid JSX with babel-preset-solid on every
-      # launch (P3a runs the viewer from source under bun, not a prebuilt bundle).
-      # Pruning them broke the bun viewer with `ENOENT … @babel/core`. The slim
-      # alternative — bun-bundling arivu-tui at build time so the runtime needs no
-      # babel — is a deliberate follow-up, kept out of P3a to preserve the
-      # run-from-source model the rest of the workspace uses.
+      # babel (@babel* / babel-plugin-*) is pruned: it's purely build-time. The
+      # client bundle uses it, and arivu-tui's @opentui/solid Solid-JSX transform
+      # runs in `buildPhase` (the `pnpm --filter arivu-tui build` Bun.build above)
+      # — emitting an already-reactive dist/bin.js — so the viewer needs NO babel
+      # at runtime. (Running that transform at runtime instead dragged @babel/core
+      # + browserslist into the closure, which this very prune then stripped — a
+      # cwd-sensitive `ENOENT @babel/core` / `ENOENT browserslist`; compiling at
+      # build time is what lets the prune stay aggressive.)
       rm -rf typescript@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
+             @babel* babel-plugin-* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
              @types+node@* @types+ws@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
@@ -449,8 +455,9 @@ let
         }
         else if runtime.kind == "bun" then {
           interpreterBin = "${pkgs.bun}/bin/bun";
-          # bun's `--preload` must precede the entry script.
-          preEntryFlags = ''--add-flags "--preload" --add-flags "${runtime.preload}"'';
+          # No preload: the entry is a build-time-compiled bundle whose Solid JSX
+          # is already transformed, so bun needs no babel-preset-solid at runtime.
+          preEntryFlags = "";
           # bun is self-contained — the viewer never shells out to node.
           extraPath = [ ];
           ldLibArgs = "--prefix LD_LIBRARY_PATH : ${runtime.ldLib}/lib";
@@ -518,21 +525,23 @@ let
   # as `kolu` — a pure surface CLIENT, so it needs no git/gh and no state dir.
   #
   # P3a re-platforms ONLY this viewer from tsx to Bun (everything else — kolu
-  # server, kaval, the arivu DAEMON, kaval-tui — stays on tsx/node): the viewer's
-  # new @opentui/core renderer is a per-arch native prebuild (libopentui.so) that
-  # Bun.dlopen loads at runtime, so the viewer must run under bun, not tsx. bun is
-  # self-contained, so nodejs is dropped from PATH (the viewer never shells out to
-  # node); openssh + nix stay on PATH for `--host` provisioning, and
-  # ARIVU_AGENT_DRVS_JSON is set verbatim (interpreter-independent — it still
-  # ships the target-arch arivu DAEMON drv to remotes). LD_LIBRARY_PATH carries
-  # libstdc++ so the native renderer's dlopen can't fail with ERR_DLOPEN_FAILED
-  # (a defensive prefix — the full runtime can't be exercised in this build).
+  # server, kaval, the arivu DAEMON, kaval-tui — stays on tsx/node), because
+  # OpenTUI's Solid reactivity only works under Bun (its JSX transform is
+  # Bun-only; Node's esbuild/tsx renders once and freezes — see the
+  # `bun-vs-nodejs` Atlas note). The viewer is a BUILD-TIME-COMPILED bundle:
+  # `pnpm --filter arivu-tui build` (buildPhase) runs @opentui/solid's Bun plugin
+  # to transform the Solid JSX once into a reactive `dist/bin.js`, so the runtime
+  # needs NO babel (the prune stays aggressive). bun still loads @opentui/core's
+  # per-arch native renderer (libopentui.so) via FFI at runtime; LD_LIBRARY_PATH
+  # carries libstdc++ for that dlopen. bun is self-contained, so nodejs is off
+  # PATH (the viewer never shells out to node); openssh + nix stay for `--host`
+  # provisioning, and ARIVU_AGENT_DRVS_JSON is set verbatim (interpreter-
+  # independent — it still ships the target-arch arivu DAEMON drv to remotes).
   #
-  # The @opentui/core native prebuild survives the build closure: the kolu
-  # installPhase prune (default.nix:~242) is node-pty-specific — its broad rm -rf
-  # list does NOT match the `@opentui+core-linux-x64@<v>` pnpm dir, and the
-  # node-pty stanza only touches `node-pty@*`. So libopentui.so ships intact (no
-  # node-gyp rebuild is needed — OpenTUI ships PREBUILT, unlike node-pty).
+  # The @opentui/core native prebuild survives the prune: its `rm -rf` denylist
+  # never matches the `@opentui+core-<arch>@<v>` pnpm dir, and the node-pty stanza
+  # only touches `node-pty@*`. So libopentui.so ships intact (no node-gyp rebuild
+  # — OpenTUI ships PREBUILT, unlike node-pty).
   #
   # P2's `--host <ssh>` rides this wrapper (the same shape as kaval-tui's, via
   # mkAgentTuiWrapper): ARIVU_AGENT_DRVS_JSON carries the per-system `{ system →
@@ -540,19 +549,12 @@ let
   # derivation to a remote.
   arivu-tui = mkAgentTuiWrapper {
     name = "arivu-tui";
-    entry = "packages/arivu-tui/src/bin.ts";
+    # The build-time Bun bundle (its Solid JSX already transformed), NOT src.
+    entry = "packages/arivu-tui/dist/bin.js";
     envVar = "ARIVU_AGENT_DRVS_JSON";
     agentDrvsJson = arivuAgentDrvsJson;
-    # The bun runtime: the wrapper derives interpreterBin, the pre-entry preload
-    # flag, the (empty) PATH additions, and the LD_LIBRARY_PATH prefix from this.
     runtime = {
       kind = "bun";
-      # @opentui/solid's preload registers the babel-preset-solid JSX transform so
-      # `<box>`/`<text>` in tui.tsx compile to Solid's reactive output. By ABSOLUTE
-      # store path because bun finds bunfig.toml only relative to cwd (which the
-      # viewer can't assume) — the committed packages/arivu-tui/bunfig.toml covers
-      # `pnpm start` in dev instead.
-      preload = "${kolu}/packages/arivu-tui/node_modules/@opentui/solid/scripts/preload.js";
       # libstdc++ for @opentui/core's native renderer (Bun.dlopen libopentui.so).
       ldLib = pkgs.stdenv.cc.cc.lib;
     };

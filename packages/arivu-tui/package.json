@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/bin.ts",
+    "build": "bun build.ts",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:render": "bun test ./src/tui.bun-test.tsx"
