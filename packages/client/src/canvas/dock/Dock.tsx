@@ -483,12 +483,17 @@ const DockRow: Component<{
           </span>
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — "5s ago" is the hours-scale staleness clock; the
-           *  live dot beside it is the sub-second "actually streaming right
+           *  live dot leading it is the sub-second "actually streaming right
            *  now" axis, so a glance down the dock separates the sessions doing
-           *  work from the ones merely touched recently. */}
-          <span class="flex items-center justify-end gap-1 font-mono text-[0.6rem] tabular-nums text-fg-3">
+           *  work from the ones merely touched recently. The dot is pinned to
+           *  the column's left edge while the timestamp keeps its right edge
+           *  (`flex-1 text-right`), so a changing label ("just now" → "5s")
+           *  reflows the gap between them, never the dot's aligned column. */}
+          <span class="flex items-center gap-1 font-mono text-[0.6rem] tabular-nums text-fg-3">
             <LiveActivityDot id={props.id} />
-            {formatTimeAgo(c().meta.lastActivityAt)}
+            <span class="flex-1 text-right">
+              {formatTimeAgo(c().meta.lastActivityAt)}
+            </span>
           </span>
           <Show when={showShortcutHint()}>
             <span
