@@ -247,8 +247,14 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
       return;
     case "text": {
       // Stream the plain text record per update — the live OpenTUI renderer
-      // can't drive a pipe.
+      // can't drive a pipe. Ctrl-C aborts the follow stream (the TTY path gets
+      // this via OpenTUI's exitSignals → onDestroy → stop; here we wire it
+      // explicitly), so the loop unwinds and main()'s `conn.dispose()` runs —
+      // intentional, symmetric termination rather than relying on default
+      // signal disposition.
       process.stderr.write(`— watching ${shortId(id)} · Ctrl-C to stop\n`);
+      const onSigint = (): void => abort.abort();
+      process.on("SIGINT", onSigint);
       try {
         for await (const value of values) {
           process.stdout.write(
@@ -257,6 +263,8 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
         }
       } catch (err) {
         if (!abort.signal.aborted) fail((err as Error).message);
+      } finally {
+        process.off("SIGINT", onSigint);
       }
       return;
     }
