@@ -3,7 +3,11 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  activeArm,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
@@ -87,8 +91,7 @@ export function useTerminalAlerts(deps: {
     on(
       () =>
         deps.terminalIds().map((id) => {
-          const m = deps.getMetadata(id);
-          return m?.state === "active" ? m.agent?.state : undefined;
+          return activeArm(deps.getMetadata(id))?.agent?.state;
         }),
       (states, prevStates) => {
         const ids = deps.terminalIds();

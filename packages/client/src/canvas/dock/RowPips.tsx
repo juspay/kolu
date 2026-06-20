@@ -43,7 +43,11 @@
  *  `RowPips` (a noun for the thing) rather than `RowIcons` (a
  *  noun for the file). */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  activeArm,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
@@ -76,9 +80,11 @@ export function createDockRowData(
  *  layout (typically a flex container alongside the subline text).
  *  Renders nothing when there's no PR. */
 export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
-  // sleeping: no live overlay → no PR pill
-  const pr = (): PrInfo | null =>
-    props.meta.state === "active" ? prValue(props.meta.pr) : null;
+  // sleeping/absent → no live PR resolution → no pill
+  const pr = (): PrInfo | null | undefined => {
+    const arm = activeArm(props.meta);
+    return arm && prValue(arm.pr);
+  };
   return (
     <Show when={pr()}>
       {(p) => (

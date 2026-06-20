@@ -8,6 +8,7 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import { activeArm } from "kolu-common/surface";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -328,9 +329,7 @@ const CanvasMinimap: Component<{
               const i = info();
               if (!i) return { bucket: "none" as const, parked: false };
               return {
-                bucket: agentBucket(
-                  i.meta.state === "active" ? i.meta.agent : null,
-                ),
+                bucket: agentBucket(activeArm(i.meta)?.agent),
                 parked: isParked(i.meta.lastActivityAt),
               };
             });

@@ -17,7 +17,11 @@
  *  its own visual treatment. Co-locating the two enums in one file
  *  would invite label-collision bugs. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  activeArm,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { agentBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
@@ -43,8 +47,8 @@ function classifyDockRow(
   parked: boolean,
 ): DockRowBucket {
   if (parked) return "parked";
-  // sleeping: no live overlay → idle bucket via agentBucket(null)
-  const agent = agentBucket(meta.state === "active" ? meta.agent : null);
+  // sleeping/absent → no live agent → agentBucket's idle/"none" bucket
+  const agent = agentBucket(activeArm(meta)?.agent);
   // A terminal that *has* an agent but no live attention state reads
   // as "idle" in the dock — quieter than a working pill. Plain shells
   // (`lastActivityAt === 0`) route to `none`.

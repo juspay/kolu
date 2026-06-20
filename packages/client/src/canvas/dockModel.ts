@@ -1,4 +1,8 @@
-import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import {
+  activeArm,
+  type AgentInfo,
+  type TerminalId,
+} from "kolu-common/surface";
 import { matchesAllTokens, tokenize } from "../search";
 import {
   IDLE_BUCKETS,
@@ -222,8 +226,8 @@ export function entryBucket(
   idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
 ): AgentBucketKind {
   if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
-  // sleeping: no live overlay → idle bucket via agentBucket(null)
-  return agentBucket(info.meta.state === "active" ? info.meta.agent : null);
+  // sleeping/absent → no live agent → agentBucket's idle/"none" bucket
+  return agentBucket(activeArm(info.meta)?.agent);
 }
 
 const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
@@ -277,9 +281,10 @@ function searchTextFor(entry: {
 }): string {
   const { info } = entry;
   const git = info.meta.git;
-  // sleeping: no live overlay → fg/agent read as null
-  const fg = info.meta.state === "active" ? info.meta.foreground : null;
-  const agent = info.meta.state === "active" ? info.meta.agent : null;
+  // sleeping/absent terminal has no live overlay (arm undefined → fields undefined)
+  const arm = activeArm(info.meta);
+  const fg = arm?.foreground;
+  const agent = arm?.agent;
   const values: string[] = [
     entry.repoName,
     entry.label,
@@ -352,10 +357,8 @@ export function buildDockModel(
     return {
       ...baseFields,
       searchText,
-      // sleeping: no live overlay → idle bucket via agentBucket(null)
-      bucket: agentBucket(
-        source.info.meta.state === "active" ? source.info.meta.agent : null,
-      ),
+      // sleeping/absent → no live agent → agentBucket's idle/"none" bucket
+      bucket: agentBucket(activeArm(source.info.meta)?.agent),
     };
   });
 

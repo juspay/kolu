@@ -83,7 +83,7 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={agentWorkflow(activeArm(info().meta)?.agent ?? null)}>
+            <Show when={agentWorkflow(activeArm(info().meta)?.agent)}>
               {(wf) => (
                 <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
               )}

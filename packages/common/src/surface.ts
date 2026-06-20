@@ -891,7 +891,14 @@ export type SavedSession = z.infer<typeof SavedSessionSchema>;
  *  terminal with no agent/foreground already carries. Accepts null/undefined so
  *  a caller can thread `store.getMetadata(id)` / `activeMeta()` straight through
  *  one call (TS can't narrow a repeated `getMetadata(id).state` across two
- *  calls; this binds the value once). */
+ *  calls; this binds the value once).
+ *
+ *  This reader deliberately collapses "sleeping" and "absent" into one
+ *  `undefined` — exactly what a live-field optional-chain wants. A *sleeping-
+ *  specific* consumer (a ☾ badge, a `sleptAt` line) must NOT widen this to a
+ *  three-way; it gets its own sibling projection (e.g. `sleepingArm`) so the
+ *  active/sleeping/absent distinction is preserved at that seam rather than
+ *  re-scattering `state` checks. */
 export function activeArm(
   m: TerminalMetadata | null | undefined,
 ): ActiveTerminal | undefined {
