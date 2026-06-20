@@ -7,7 +7,7 @@
  * it; durable across restarts, rehydrated AS sleeping (the client renders the
  * cell, never auto-wakes it).
  *
- * Writes are explicit (`terminal.sleep` / `terminal.wake` /
+ * Writes are explicit (`terminal.sleep` / `terminal.dropSleeping` /
  * `terminal.setSleepingLayout`), not debounced — so unlike `session.ts` there
  * is no autosave loop and no dirty-channel wiring.
  */
@@ -57,7 +57,7 @@ export function sleepTerminal(id: TerminalId): void {
 /** Remove a sleeping record by its id — called once the client has respawned it
  *  through the session-restore protocol (or to discard it without respawning).
  *  Idempotent. */
-export function wakeTerminal(id: TerminalId): void {
+export function dropSleeping(id: TerminalId): void {
   write(getSleepingTerminals().filter((r) => r.id !== id));
 }
 

@@ -743,7 +743,7 @@ export const koluSurface = defineSurface({
 
     /** Sleeping (slept) terminals — each a saved terminal tree the user froze
      *  on demand. Read-only on the client; the server writes via the
-     *  `terminal.sleep` / `terminal.wake` / `terminal.setSleepingLayout`
+     *  `terminal.sleep` / `terminal.dropSleeping` / `terminal.setSleepingLayout`
      *  procedures (explicit, not debounced). Disjoint from `session`: durable
      *  across restarts and rehydrated AS sleeping, never auto-woken. */
     sleepingTerminals: {

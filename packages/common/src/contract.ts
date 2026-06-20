@@ -76,10 +76,12 @@ export const TerminalSetSubPanelInputSchema = z.object({
   panelSize: z.number(),
 });
 
-/** Wake a sleeping terminal record by its id (the original top-level terminal
+/** Drop a sleeping terminal record by its id (the original top-level terminal
  *  id). The client drives the respawn (reusing the session-restore protocol);
  *  this procedure only removes the record from the `sleepingTerminals` cell. */
-export const TerminalWakeInputSchema = z.object({ id: TerminalIdSchema });
+export const TerminalDropSleepingInputSchema = z.object({
+  id: TerminalIdSchema,
+});
 
 /** Persist a sleeping tile's new canvas position/size — a sleeping tile is a
  *  real, draggable + resizable tile, so its layout round-trips to disk like a
@@ -188,9 +190,9 @@ export const contract = oc.router({
      *  `sleepingTerminals` cell. Persist-only — the client kills the live
      *  terminal afterward via the normal kill path. Persist-before-kill. */
     sleep: oc.input(TerminalAttachInputSchema).output(z.void()),
-    /** Remove a sleeping record after the client has respawned it (or to
-     *  discard it without waking). Idempotent. */
-    wake: oc.input(TerminalWakeInputSchema).output(z.void()),
+    /** Remove a sleeping record (idempotent). The wake and discard client verbs
+     *  both compose this drop primitive. */
+    dropSleeping: oc.input(TerminalDropSleepingInputSchema).output(z.void()),
     /** Persist a sleeping tile's dragged/resized canvas layout. */
     setSleepingLayout: oc
       .input(TerminalSetSleepingLayoutInputSchema)

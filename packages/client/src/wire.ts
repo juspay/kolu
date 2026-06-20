@@ -152,7 +152,7 @@ export const savedSession = (): SavedSession | null =>
 export const savedSessionSub = _savedSession.sub;
 
 // Sleeping (slept) terminals — server-owned, read-only here; written via the
-// `terminal.sleep` / `terminal.wake` / `terminal.setSleepingLayout` procedures.
+// `terminal.sleep` / `terminal.dropSleeping` / `terminal.setSleepingLayout` procedures.
 // Durable across restarts and rehydrated AS sleeping, never auto-woken.
 const _sleepingTerminals = app.cells.sleepingTerminals.use({
   onError: (err) =>

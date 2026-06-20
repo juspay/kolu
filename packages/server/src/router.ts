@@ -34,9 +34,9 @@ import {
   type TerminalProcess,
 } from "./terminal-registry.ts";
 import {
+  dropSleeping,
   setSleepingLayout,
   sleepTerminal,
-  wakeTerminal,
 } from "./sleepingTerminals.ts";
 import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -214,12 +214,13 @@ export const appRouter = t.router({
       log.info({ terminal: input.id }, "terminal slept");
     }),
 
-    // The client respawns the record (session-restore protocol) and then calls
-    // this to drop it from the cell. Idempotent — no terminalNotFound (the id
-    // names a sleeping record, not a live terminal).
-    wake: t.terminal.wake.handler(async ({ input }) => {
-      wakeTerminal(input.id);
-      log.info({ terminal: input.id }, "sleeping terminal woken");
+    // The wake and discard client verbs both compose this drop primitive: wake
+    // respawns the record (session-restore protocol) THEN drops it; discard just
+    // drops it. Idempotent — no terminalNotFound (the id names a sleeping record,
+    // not a live terminal).
+    dropSleeping: t.terminal.dropSleeping.handler(async ({ input }) => {
+      dropSleeping(input.id);
+      log.info({ terminal: input.id }, "sleeping terminal record dropped");
     }),
 
     setSleepingLayout: t.terminal.setSleepingLayout.handler(

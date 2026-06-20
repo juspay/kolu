@@ -12,7 +12,7 @@
  *    kill fires no `terminalExit` so there's no spurious "exited" toast.
  *  - **Wake** = replay the record through the EXISTING `handleRestoreSession`
  *    (the session-restore respawn — create tree, seed panels, resume the agent),
- *    then drop the record (server `terminal.wake`). Reusing restore verbatim is
+ *    then drop the record (server `terminal.dropSleeping`). Reusing restore verbatim is
  *    why a woken terminal is indistinguishable from a session-restored one; the
  *    record re-mints fresh terminal ids, so `wakingTiles` hides the still-present
  *    dormant tile until the record is dropped, avoiding a beat of overlap.
@@ -77,7 +77,7 @@ export const useSleepActions = createSharedRoot(() => {
     // already live (under fresh ids), so a failure here only risks the stale
     // record resurfacing; surface it rather than swallow it.
     try {
-      await client.terminal.wake({ id: record.id });
+      await client.terminal.dropSleeping({ id: record.id });
     } catch (err) {
       toast.error(
         `Woke terminal, but failed to clear its sleeping record: ${(err as Error).message}`,
@@ -90,7 +90,7 @@ export const useSleepActions = createSharedRoot(() => {
   /** Drop a sleeping record without respawning it (the tile's × button). */
   async function discard(record: SleepingTerminal): Promise<void> {
     try {
-      await client.terminal.wake({ id: record.id });
+      await client.terminal.dropSleeping({ id: record.id });
       toast("Sleeping terminal discarded");
     } catch (err) {
       toast.error(`Failed to discard: ${(err as Error).message}`);
