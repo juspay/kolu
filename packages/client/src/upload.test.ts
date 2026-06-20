@@ -82,9 +82,10 @@ describe("rejectionFor", () => {
 
   it("allowlist covers every previewable video container", () => {
     // Drift guard: the upload allowlist reuses preview.ts's canonical video
-    // set, so a container Kolu can preview is also one you can drop.
+    // set, so a container Kolu can preview is also one you can drop. Strip the
+    // leading dot the same way the source spread does.
     for (const ext of VIDEO_EXTENSIONS) {
-      expect(ALLOWED_UPLOAD_EXTENSIONS).toContain(ext.replace(/^\./, ""));
+      expect(ALLOWED_UPLOAD_EXTENSIONS).toContain(ext.slice(1));
     }
   });
 });
