@@ -3,7 +3,7 @@ title: Ghostex vs. kolu remote-terminals
 description: What Ghostex's PTY-persistence choice does and doesn't teach kolu's in-progress remote-terminals plan — one concrete borrow (honest pane⟂session state), one corroboration, one reframe; the "lean on a mux" swing doesn't survive review.
 kind: analysis
 maturity: budding
-updated: 2026-06-01
+updated: 2026-06-19
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -13,7 +13,7 @@ import Issue from "../../components/Issue.astro";
 *What Ghostex's PTY-persistence choice does and doesn't teach the in-progress kolu plan ([remote-terminals](remote-terminals.html) + [pty-daemon](pty-daemon.html) — read as `docs/plans` HTML at the time, since migrated to those Atlas notes). Sources read this turn: `/tmp/Ghostex` @ HEAD and both kolu plan docs.* <Pill variant="new">/lowy + /hickey folded in</Pill> — my first three recommendations were largely *wrong*; this is the post-review version, and the headline below says what I retracted.
 
 <Callout kind="warn" title="Headline">
-Ghostex makes the opposite bet to kolu: it **never owns PTY lifetime in the app** — an external multiplexer (forked zmx, default) owns it, the native pane is a pure attach/detach projection, and remote access is the *same* mux session reached over SSH. That genuinely dissolves kolu's whole `#1034` restart-hazard class. **But it does not argue kolu should stop building `@kolu/pty-host`** — Ghostex had to *fork* zmx to get the metadata IPC it needed, so it now owns a whole mux codebase *plus* a user-session model kolu doesn't want. For kolu's typed-metadata + zero-provider-survivor requirements, greenfield is *less* total scope, not more. The real, durable gift from Ghostex is narrower and concrete: its **honest-state vocabulary** (pane-state ⟂ session-state), which is exactly the model kolu's B-phase needs to never repeat the empty-canvas lie — and which Ghostex reached independently, corroborating kolu's reattach-by-id as a natural decomposition.
+Ghostex makes the opposite bet to kolu: it **never owns PTY lifetime in the app** — an external multiplexer (forked zmx, default) owns it, the native pane is a pure attach/detach projection, and remote access is the *same* mux session reached over SSH. That genuinely dissolves kolu's whole `#1034` restart-hazard class. **But it does not argue kolu should stop building `kaval`** (the daemon, renamed from `@kolu/pty-host` in B1) — Ghostex had to *fork* zmx to get the metadata IPC it needed, so it now owns a whole mux codebase *plus* a user-session model kolu doesn't want. For kolu's typed-metadata + zero-provider-survivor requirements, greenfield is *less* total scope, not more. The real, durable gift from Ghostex is narrower and concrete: its **honest-state vocabulary** (pane-state ⟂ session-state), which is exactly the model kolu's B-phase needs to never repeat the empty-canvas lie — and which Ghostex reached independently, corroborating kolu's reattach-by-id as a natural decomposition.
 </Callout>
 
 ## What Ghostex is (the relevant parts)
@@ -32,10 +32,10 @@ Persistence is a **pluggable provider**, decoupled from the app process entirely
 
 | Concern | **Ghostex** | **kolu (planned)** |
 | --- | --- | --- |
-| Who owns PTY lifetime | External mux (forked zmx / tmux / zellij). App is a pure attach/detach client. | First-party `@kolu/pty-host` daemon the app spawns and supervises (own cgroup, survives `systemctl restart`). |
+| Who owns PTY lifetime | External mux (forked zmx / tmux / zellij). App is a pure attach/detach client. | First-party `kaval` daemon the app spawns and supervises (own cgroup, survives `systemctl restart`). |
 | Survive app/server restart | Free — the app never owned the PTY, so a restart is never a daemon restart. No hazard. | Engineered — pid-gate, cgroup-escape, reattach-by-id, recovery sequence. The `#1034` hazard class lives *here*. |
 | Metadata / repaint / replay IPC | Custom — required **forking zmx** to add it. Now owns mux source + IPC + a user-session model. | Custom — typed oRPC surface + build-time staleness hash + a provider DAG that runs fresh in kolu-server off the daemon's stream. Owns only a headless PTY. |
-| Local-survival vs remote-reach | One primitive: a **named durable session**. Remote = `ssh mac → attach <name>`. (Still two transports underneath: zmx + SSH.) | One `TerminalBackend` interface, two implementations (loopback now, ssh in R-2) behind one stable unix socket. Same shape, different name. |
+| Local-survival vs remote-reach | One primitive: a **named durable session**. Remote = `ssh mac → attach <name>`. (Still two transports underneath: zmx + SSH.) | One `TerminalEndpoint` interface (was `TerminalBackend`, renamed in #1364) behind one stable unix socket. *(The original "two implementations — loopback now, ssh in R-2" prediction was superseded: there is no `RemoteTerminalEndpoint`; a single `TerminalEndpoint` is bound to whichever endpoint is dialed — see [remote-terminals](remote-terminals.html) R-2 / [kaval-sessions](kaval-sessions.html).)* |
 | Terminal renderer | Native Ghostty/Metal. No web terminal. | `@xterm/headless` mirror in the daemon + xterm in the client. |
 | Honest liveness state | `nativePaneState` (mounted/unmounted) ⟂ `providerSessionState` (exists/missing/persistence-disabled/unknown), derived `isLive`. *(docs/terminology.md)* | Being built into B (status chip, degraded canvas) — the lesson `#1034` paid for. |
 
@@ -48,7 +48,7 @@ Ghostex's split — `nativePaneState` orthogonal to `providerSessionState`, with
 </Callout>
 
 <Callout kind="good" title="2 · The remote/local convergence is agreement, not a course-correction — keep">
-Both systems end at the same layer: *attach to a durable named session over some transport.* Ghostex's unifying primitive is the named mux session; kolu's is the `TerminalBackend` interface with a stable unix socket beneath it (loopback today, ssh tomorrow). These are the same idea under two names. kolu's plan claim that local-survival and remote-reach are "different volatility axes" is *correct* — they change for different reasons (survival = pid/cgroup strategy; remote = transport/auth/reconnect) — but they share **one stable interface** (the socket / the backend), which is exactly Ghostex's named-session primitive. No change needed; Ghostex is a second data point that the interface boundary sits at the right layer.
+Both systems end at the same layer: *attach to a durable named session over some transport.* Ghostex's unifying primitive is the named mux session; kolu's is the `TerminalEndpoint` interface (was `TerminalBackend`) with a stable unix socket beneath it (loopback today, ssh tomorrow). These are the same idea under two names. kolu's plan claim that local-survival and remote-reach are "different volatility axes" is *correct* — they change for different reasons (survival = pid/cgroup strategy; remote = transport/auth/reconnect) — but they share **one stable interface** (the socket / the endpoint), which is exactly Ghostex's named-session primitive. No change needed; Ghostex is a second data point that the interface boundary sits at the right layer.
 </Callout>
 
 <Callout kind="warn" title="3 · #1034 is a self-inflicted hazard — but it's a lifecycle bug in a sound seam, not a misplaced seam — reframe">
@@ -58,11 +58,11 @@ My first draft said: the whole #1034 family (restart-loss, single-instance race,
 <Callout kind="danger" title="4 · RETRACTED: 'wrap/fork a proven mux instead of building from scratch' — drop">
 My instinct was: Ghostex kept the battle-tested detach/single-instance/reattach core (forked zmx) and only added IPC, so kolu rebuilding that core is wasteful concept-multiplication. **Both reviewers killed this, and the kill is convincing:**
 
-- **It's not the same concept.** A mux (zmx/tmux) is a user-facing tool: session names, attach/detach CLI, window/pane semantics, its own lifecycle. `@kolu/pty-host` owns *only* the PTY — headless, no session model, no user commands. They share exactly one property (PTY outlives the app). "Rebuilding a mux" only sounds wasteful if you smuggle in zmx's whole session model under the word "mux." *(Hickey)*
+- **It's not the same concept.** A mux (zmx/tmux) is a user-facing tool: session names, attach/detach CLI, window/pane semantics, its own lifecycle. `kaval` owns *only* the PTY — headless, no session model, no user commands. They share exactly one property (PTY outlives the app). "Rebuilding a mux" only sounds wasteful if you smuggle in zmx's whole session model under the word "mux." *(Hickey)*
 - **The fork is evidence *against* reuse, not for it.** Ghostex couldn't consume stock zmx — it forked. So the "free detach core" isn't free; reuse means owning the mux codebase *plus* a user-session model kolu doesn't need *plus* the IPC on top. For kolu's actual requirements that is *more* scope, not less. *(both)*
 - **It would complect the seam it claims to clean.** kolu's value is a typed oRPC metadata contract with a build-enforced staleness key. Importing a mux's wire/IPC format would braid that typed surface into zmx/zellij's format — trading a lifecycle bug for a worse, permanent coupling. *(Lowy)*
 
-So: **keep building `@kolu/pty-host`.** Ghostex is not a reason to reconsider that.
+So: **keep building `kaval`.** Ghostex is not a reason to reconsider that.
 </Callout>
 
 <Callout kind="danger" title="5 · RETRACTED: 'persistence-as-pluggable-provider is an architecture seam kolu is missing' — drop">
