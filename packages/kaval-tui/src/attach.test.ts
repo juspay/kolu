@@ -26,6 +26,7 @@ import {
   type PtyTuiClient,
 } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
+import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
 
 const silentLog = {
@@ -299,8 +300,8 @@ describe("runAttach — over a real unix socket", () => {
   });
 });
 
-describe("kill — over the same real unix socket", () => {
-  it("kills a terminal by its resolved short id; it leaves the list", {
+describe("runKill — over the same real unix socket", () => {
+  it("resolves a short id, kills via the real command body, confirms, and the terminal leaves the list", {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-kill-"));
@@ -312,8 +313,10 @@ describe("kill — over the same real unix socket", () => {
 
     // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
     // full id before killing — the same `resolveTerminalId` step the dispatch
-    // runs via `resolveOne`. Resolve from the short form, then feed THAT id into
-    // the kill so the resolve step is load-bearing, not a standalone assertion.
+    // runs via `resolveOne`. Resolve from the short form so the resolve is
+    // load-bearing, then feed THAT id into `runKill` — the SAME command body
+    // `main.ts`'s `kill` branch invokes (not the bare RPC), so this exercises the
+    // confirmation line and the kill RPC the shipped command runs.
     const resolved = resolveTerminalId(
       shortId(id),
       entries.map((e) => e.id),
@@ -321,8 +324,16 @@ describe("kill — over the same real unix socket", () => {
     expect(resolved).toEqual({ kind: "found", id });
     if (resolved.kind !== "found") throw new Error("unreachable");
 
-    // Kill it; the daemon tears the PTY down and it drops out of the inventory.
-    await conn.client.surface.terminal.kill({ id: resolved.id });
+    // Drive the real command body; capture its stderr confirmation through the
+    // injected sink instead of the process's stderr.
+    let confirmed = "";
+    await runKill(conn, resolved.id, (line) => {
+      confirmed += line;
+    });
+    // The one-line confirmation names the short id, like `attach`'s trailers.
+    expect(confirmed).toBe(`— killed ${shortId(id)}\n`);
+
+    // And the daemon really tore the PTY down: it drops out of the inventory.
     let gone = false;
     await until(
       () => gone,

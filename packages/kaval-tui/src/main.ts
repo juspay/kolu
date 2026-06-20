@@ -1,6 +1,6 @@
 /**
  * kaval-tui — a terminal-side client for a running `kaval` daemon
- * (`list` + `snapshot` + `attach` + `create`). It dials kaval's unix socket
+ * (`list` + `create` + `snapshot` + `attach` + `kill`). It dials kaval's unix socket
  * via `unixSocketLink` and speaks `ptyHostSurface` directly — the *raw* client
  * (the browser is the *rich* one over the full kolu contract).
  * See `docs/atlas/src/content/atlas/pty-daemon-tui.mdx`.
@@ -50,6 +50,7 @@ import {
 } from "./create.ts";
 import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
+import { runKill } from "./kill.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
@@ -423,16 +424,6 @@ async function cmdAttach(
   process.exit(1);
 }
 
-/** End a terminal the daemon owns. `resolveOne` already proved `id` is live
- *  (failing loud on no-match/ambiguity), so reaching here means a real PTY is
- *  being torn down. The confirmation goes to stderr like `attach`'s trailers, so
- *  stdout stays empty: `kill` yields no scriptable payload, only an exit code
- *  (0 on success, the catch-all 1 on an RPC error). */
-async function cmdKill(conn: Connection, id: string): Promise<void> {
-  await conn.client.surface.terminal.kill({ id });
-  process.stderr.write(`— killed ${shortId(id)}\n`);
-}
-
 /** Confirm the running daemon speaks a wire-compatible pty-host contract before
  *  we invoke any command — a newer kaval-tui against an older/different daemon
  *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
@@ -541,7 +532,9 @@ async function main(): Promise<void> {
         argv.flags.escape,
       );
     else if (argv.command === "kill")
-      await cmdKill(conn, await resolveOne(conn, argv._.id));
+      await runKill(conn, await resolveOne(conn, argv._.id), (line) =>
+        process.stderr.write(line),
+      );
     else fail("unhandled command — add a dispatch branch for it");
   } finally {
     conn.dispose();
