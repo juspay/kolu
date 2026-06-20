@@ -19,6 +19,7 @@ import {
   createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 import type { Logger } from "@kolu/surface-daemon";
 
 const silentLog: Logger = {
@@ -36,22 +37,6 @@ function makeClient(): PtyHostClient {
 }
 
 const makeCwd = (): string => mkdtempSync(join(tmpdir(), "kolu-inproc-"));
-
-/** Pull the next stream frame, failing the test on a timeout or an early end —
- *  so a stalled inventory subscription is a clear failure, not a hung test. */
-async function nextFrame<T>(it: AsyncIterator<T>, ms = 3000): Promise<T> {
-  const r = await Promise.race([
-    it.next(),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error("timeout waiting for stream frame")),
-        ms,
-      ),
-    ),
-  ]);
-  if (r.done) throw new Error("stream ended before a frame arrived");
-  return r.value;
-}
 
 // The full contract corpus over the identity link. One host backs the whole
 // suite; the corpus reaps its PTYs in afterAll.

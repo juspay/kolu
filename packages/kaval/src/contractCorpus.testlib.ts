@@ -26,6 +26,7 @@ import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
 } from "./ptyHostSurface.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 
 /** Every contract entry the corpus exercises. Asserted against the live surface
  *  by `coverage.test.ts` — keep it in lockstep with the `it`s below AND with
@@ -114,22 +115,6 @@ async function firstYield<T>(stream: AsyncIterable<T>, ms = 5000): Promise<T> {
     // next subscription. Swallow — `return()` on an already-errored stream can
     // reject.
     void Promise.resolve(iterator.return?.()).catch(() => {});
-  }
-}
-
-/** Next frame from an ALREADY-OPEN iterator, with a timeout — does not close it,
- *  so the caller keeps reading (snapshot, then deltas) and closes once. */
-async function nextFrame<T>(it: AsyncIterator<T>, ms = 8000): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("stream timed out")), ms);
-  });
-  try {
-    const r = await Promise.race([it.next(), timeout]);
-    if (r.done) throw new Error("stream ended without yielding");
-    return r.value;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

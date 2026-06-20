@@ -11,6 +11,7 @@ import {
   HEADLESS_TERM_ID,
   type PtyHost,
 } from "./ptyHost.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 
 // @xterm packages ship CJS only — same interop as ptyHost.ts.
 const require = createRequire(import.meta.url);
@@ -123,21 +124,7 @@ async function firstEvent(
   ms = 3000,
 ): Promise<string> {
   const it = iter[Symbol.asyncIterator]();
-  return raceNext(it, ms);
-}
-
-/** Pull the next value from an already-opened async iterator, failing the test
- *  on a timeout or a stream that ends before yielding. The generic sibling of
- *  `firstEvent` for iterators of any shape (e.g. the inventory feed). */
-async function raceNext<T>(it: AsyncIterator<T>, ms = 3000): Promise<T> {
-  const result = await Promise.race([
-    it.next(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout waiting for event")), ms),
-    ),
-  ]);
-  if (result.done) throw new Error("stream ended before any event");
-  return result.value;
+  return nextFrame(it, ms);
 }
 
 describe("createPtyHost", () => {
@@ -446,7 +433,7 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    const ev = await raceNext(inv);
+    const ev = await nextFrame(inv, 3000);
     expect(ev).toEqual({
       kind: "created",
       entry: expect.objectContaining({ id, pid, cwd: "/tmp" }),
@@ -468,7 +455,7 @@ describe("createPtyHost", () => {
     // so the first event this subscriber sees is the `exited`.
     const inv = host.subscribeInventory()[Symbol.asyncIterator]();
     await host.exitPromise(id);
-    expect(await raceNext(inv)).toEqual({ kind: "exited", id });
+    expect(await nextFrame(inv, 3000)).toEqual({ kind: "exited", id });
   });
 
   it("fans the inventory feed out to multiple independent subscribers", async () => {
@@ -481,8 +468,8 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    expect(await raceNext(a)).toMatchObject({ kind: "created" });
-    expect(await raceNext(b)).toMatchObject({ kind: "created" });
+    expect(await nextFrame(a, 3000)).toMatchObject({ kind: "created" });
+    expect(await nextFrame(b, 3000)).toMatchObject({ kind: "created" });
     host.kill(id);
     await host.exitPromise(id);
   });
