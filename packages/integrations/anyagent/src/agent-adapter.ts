@@ -13,8 +13,8 @@
  * Info equality is deliberately NOT part of this interface — it's a property
  * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
  * below. All concrete AgentInfo variants share the fields modeled by
- * `AgentInfoShape` (state, model, summary, contextTokens, startedAt,
- * taskProgress), so one equality function suffices for every adapter.
+ * `AgentInfoShape` (see its definition for the canonical field set), so one
+ * equality function suffices for every adapter.
  */
 
 import type { Logger } from "kolu-shared";
