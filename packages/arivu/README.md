@@ -13,11 +13,17 @@ awareness/git/gh logic to kaval, dialing it as a plain `ptyHostSurface` client
 exactly like kaval-tui.
 
 ```
-arivu                      dial the local kaval, serve on arivu's socket
+arivu                      dial the discovered kaval, serve on arivu's socket
 arivu --kaval PATH         dial a kaval at an explicit socket
 arivu --socket PATH        serve the awareness surface on an explicit socket
 arivu --stdio [--kaval P]  serve over stdin/stdout (what an ssh dial speaks to)
 ```
+
+By default arivu **discovers** the running kaval — a standalone one, or a
+kolu-server (which namespaces its daemon by listen port) — so it finds your
+kolu's terminals with no flag; pass `--kaval` only to pin one when several kavals
+are running. This is the same discovery `kaval-tui` does, so an `arivu-tui
+--host` dial lands on a remote kolu's terminals out of the box.
 
 ## Ephemeral by design
 
@@ -48,10 +54,12 @@ nix run github:juspay/kolu#arivu                  # awareness over it
 nix run github:juspay/kolu#arivu-tui -- list      # the dashboard
 ```
 
-The runtime is just `node · git · gh` — no kolu-server, no browser. (Provisioning
-arivu over ssh for _remote_ awareness, which kolu-server mirrors and folds into
-its own `terminalMetadata`, is a later phase; today it serves a local socket
-and, with `--stdio`, the transport that ssh dial will speak to.)
+The runtime is just `node · git · gh` — no kolu-server, no browser. For _remote_
+awareness, [`arivu-tui --host <ssh>`](../arivu-tui) Nix-provisions this daemon on
+another machine and dials it over `--stdio` (it discovers the remote kaval, a
+kolu-server included). The kolu-server **mirror + fold** — a long-lived dial that
+folds remote awareness into kolu's own `terminalMetadata` — is the separate
+[remote-terminals R-2](https://kolu.dev/atlas/remote-terminals.html) phase.
 
 The full design lives in the
 [arivu atlas note](https://kolu.dev/atlas/arivu.html).
