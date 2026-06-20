@@ -450,13 +450,20 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
-        {
-          kind: "action",
-          name: "Reset terminal size",
-          description:
-            "Restore the active terminal to its default size, centered",
-          onSelect: () => deps.handleResetActiveTileSize(),
-        },
+        // Spatial-canvas action — hidden off the canvas (mobile / narrow),
+        // where the handler would no-op and the command would surface as
+        // broken (same gate as the Canvas section's spatial actions above).
+        ...(supportsSpatialCanvas()
+          ? [
+              {
+                kind: "action" as const,
+                name: "Reset terminal size",
+                description:
+                  "Restore the active terminal to its default size, centered",
+                onSelect: () => deps.handleResetActiveTileSize(),
+              },
+            ]
+          : []),
         {
           kind: "action",
           name: "Clear localStorage",
