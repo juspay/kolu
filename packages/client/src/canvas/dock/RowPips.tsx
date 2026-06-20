@@ -45,7 +45,7 @@
  *  Each export could be split into its own file the moment one of
  *  these axes diverges enough to justify the boundary; for now
  *  the location grouping is honest because the file is small and
- *  the three pieces are consumed together. The file name is
+ *  the four pieces are consumed together. The file name is
  *  `RowPips` (a noun for the thing) rather than `RowIcons` (a
  *  noun for the file). */
 
