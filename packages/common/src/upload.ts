@@ -5,13 +5,17 @@
  * means the two sides cannot drift on the rejection threshold.
  */
 
+import { VIDEO_EXTENSIONS } from "./preview.ts";
+
 /** Hard cap on a single dropped file. Agents don't need huge binaries;
  *  the goal is "paste me a snippet/log/screenshot", not "ship me a tarball". */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 /** Lowercase file extensions (without leading dot) that may be dropped.
- *  Curated to text, code, structured data, common docs, and images. New
- *  entries land here, not at the call sites. */
+ *  Curated to text, code, structured data, common docs, images, and video.
+ *  The video entries are derived from preview.ts's VIDEO_EXTENSIONS (its set is
+ *  canonical); the image/doc/code entries are listed inline here. New entries
+ *  land here, not at the call sites. */
 export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   // Text & docs
   "txt",
@@ -73,7 +77,13 @@ export const ALLOWED_UPLOAD_EXTENSIONS: readonly string[] = [
   "gif",
   "webp",
   "svg",
-] as const;
+  // Video — reuse preview.ts's canonical container set (the formats Kolu can
+  // play back in the Code browser), with the leading dot the upload table
+  // omits stripped. One source of truth: a video Kolu can preview is one you
+  // can also drop onto a terminal, and the two lists cannot drift. The 10 MB
+  // cap above still applies — video is allowed, not exempted.
+  ...VIDEO_EXTENSIONS.map((ext) => ext.slice(1)),
+];
 
 /** Return the lowercase extension (no dot) of `name`, or `null` if there
  *  isn't one. `.DS_Store` → `ds_store`; `Cargo.lock` → `lock`; `README` →
