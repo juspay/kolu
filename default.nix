@@ -403,9 +403,14 @@ let
   # remote. Both kaval-tui and arivu-tui are this exact shape, differing only in
   # name, entrypoint, and the per-system `{ system → agent .drv }` map env var —
   # so the makeWrapper invocation lives here once instead of being copy-pasted per
-  # CLI. The map is baked with `--set-default` (not `--set`) so a power user can
-  # override it; openssh + nix are on PATH for the provision (resolveSystem's ssh
-  # arch-probe + provisionAgent's `nix copy` / `nix-store`).
+  # CLI. The map is baked with `--set` (NOT `--set-default`): it is a baked build
+  # fact — the exact derivations this wrapper ships and realises on the remote —
+  # not a tunable. `--set-default` would let an ambient/stale
+  # `*_AGENT_DRVS_JSON` inherited from the caller's env silently override the
+  # Nix-computed source of truth and make the wrapper provision the WRONG agent,
+  # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
+  # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
+  # provisionAgent's `nix copy` / `nix-store`).
   mkAgentTuiWrapper = { name, entry, envVar, agentDrvsJson }:
     pkgs.runCommand name
       {
@@ -415,7 +420,7 @@ let
       mkdir -p $out/bin
       makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
         --add-flags "${kolu}/${entry}" \
-        --set-default ${envVar} '${agentDrvsJson}' \
+        --set ${envVar} '${agentDrvsJson}' \
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
     '';
 

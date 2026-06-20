@@ -90,6 +90,34 @@ describe("connectArivuViaHost", () => {
     await expect(opts?.probe(client as any)).resolves.toEqual(DEFAULT_VERSION);
   });
 
+  it("the probe THROWS when the version stream ends empty (link/protocol failure, not connected)", async () => {
+    h.dialAgentOnce.mockResolvedValue({
+      client: makeInProcessArivuClient(),
+      dispose: () => {},
+    });
+    await connectArivuViaHost("nix@prod");
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+
+    // A client whose `version.get` resolves to a stream that ends WITHOUT a
+    // snapshot frame. The probe must surface that as a failure — an empty stream
+    // is a dead/half-open link, never a "connected" session (the F4 regression).
+    const emptyStreamClient = {
+      surface: {
+        version: {
+          // eslint-disable-next-line require-yield
+          get: async () =>
+            (async function* () {
+              /* no frames — the remote surface yielded nothing */
+            })(),
+        },
+      },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: a hand-rolled stub standing in for the contract client; only `version.get` is exercised.
+    await expect(opts?.probe(emptyStreamClient as any)).rejects.toThrow(
+      /yielded no snapshot frame/,
+    );
+  });
+
   it("threads dispose back through the Connection", async () => {
     const dispose = vi.fn();
     h.dialAgentOnce.mockResolvedValue({

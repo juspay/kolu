@@ -2,7 +2,7 @@
  * `dialAgentOnce<C>` — the one-shot CLI dial: provision a Nix-shipped surface
  * agent on a remote host over ssh and hand back a `{ client, dispose }` with the
  * link already proven live. This is the missing receptacle that sat one step
- * short of the socket every `--host` consumer needs: `getHostSession` owns the
+ * short of the socket every `--host` consumer needs: `HostSession` owns the
  * HARD volatility (ssh/reconnect/provision), but each CLI was re-wiring the same
  * composition on top of it — env-var parse, arch-probe + drv lookup, and the
  * pin → probe → markConnected → leak-safe-destroy lifecycle. That composition is
@@ -24,7 +24,7 @@
 
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
-import { type AgentClient, getHostSession } from "./hostSession";
+import { type AgentClient, HostSession } from "./hostSession";
 
 /** Parse + validate a `{ system → drvPath }` map from an already-read env value.
  *  The env-var NAME is the caller's (the Nix-wrapper boundary spells it
@@ -102,8 +102,11 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  Caller-owned because the Nix-wrapper boundary spells it per-agent — passed
    *  here only so the parse/validate errors name it. */
   envVar: string;
-  /** The already-read env value (typically `process.env[envVar]`). The caller
-   *  reads it so the env-var name is named exactly once on the TS side. */
+  /** The already-read env value. The caller reads it itself (rather than this
+   *  helper doing `process.env[envVar]`) so the call site can hold the env-var
+   *  name in a single constant — `envVar: NAME, agentDrvsJson: process.env[NAME]`
+   *  — and TS sees one source for both, instead of a bare literal and a
+   *  `process.env.FOO` property that could silently drift. */
   agentDrvsJson: string | undefined;
   /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
    *  `kaval`, `arivu`). */
@@ -131,7 +134,17 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   opts: DialAgentOnceOptions<C>,
 ): Promise<AgentDial<C>> {
   const drvBySystem = parseDrvBySystem(opts.envVar, opts.agentDrvsJson);
-  const session = getHostSession<C>({
+  // Unpooled — NOT `getHostSession`. The pool is keyed only by `(host, binary)`,
+  // keeps a destroyed session in the map (no `isDestroyed` eviction), and lets
+  // the FIRST caller's `opts` win. A one-shot dial is independent by contract:
+  // its `dispose()` calls `session.destroy()`, so a second same-host/binary
+  // dial in the same process would otherwise be handed back the prior dial's
+  // destroyed session (stale resolver, no reconnect — `scheduleReconnect`
+  // early-returns when `destroyed`), and two concurrent dials would share one
+  // session where either `dispose()` kills the other's link. A fresh
+  // `HostSession` per dial closes both holes: each gets its own resolver/drv
+  // map and its own teardown.
+  const session = new HostSession<C>({
     host: opts.host,
     binary: opts.binary,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),

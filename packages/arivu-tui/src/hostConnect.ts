@@ -23,14 +23,29 @@
  * consumes.
  *
  * This is the ONLY place arivu-tui imports `@kolu/surface-nix-host` — it must
- * never leak into the arivu daemon closure (the staleKey allow-list). The dep is
- * consumed read-only and unchanged, so it needs no drishti mirror PR.
+ * never leak into the arivu daemon closure (the staleKey allow-list).
+ *
+ * NOTE: this branch ADDS public API to `@kolu/surface-nix-host` (the
+ * `dialAgentOnce` one-shot dialer + its types, exported from that package's
+ * `index.ts`), so per `packages/AGENTS.md` / `.claude/rules/surface.md` it
+ * REQUIRES a corresponding drishti PR that updates drishti for the new surface
+ * API and passes full CI, linked from the kolu PR before merge. (Earlier text
+ * here claimed "no drishti mirror PR needed" — that was true only while the dep
+ * was consumed read-only and unchanged; adding an export changed the package's
+ * `exports` surface, so it no longer holds.)
  */
 import type { arivuSurface } from "@kolu/arivu-contract";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 
 type ArivuContract = typeof arivuSurface.contract;
+
+/** The per-system `{ system → arivu daemon .drv }` map env var, baked by the
+ *  `arivu-tui` Nix wrapper (`mkAgentTuiWrapper` in default.nix). Named ONCE as a
+ *  constant so the literal passed to `dialAgentOnce` (for its errors) and the
+ *  `process.env[…]` read can't drift apart — TS has no way to tie a bare string
+ *  literal to the matching `process.env.FOO` property otherwise. */
+const ARIVU_AGENT_DRVS_ENV = "ARIVU_AGENT_DRVS_JSON";
 
 /** Dial an arivu on `host` over ssh. Provisions the daemon's closure, runs
  *  `arivu --stdio`, and returns the contract-typed `Connection`. */
@@ -40,8 +55,8 @@ export function connectArivuViaHost(host: string): Promise<Connection> {
     // `${agentPath}/bin/arivu`, run as `arivu --stdio`. The drv map is keyed to
     // the arivu DAEMON drv (sensors + git/gh), not the arivu-tui viewer.
     binary: "arivu",
-    envVar: "ARIVU_AGENT_DRVS_JSON",
-    agentDrvsJson: process.env.ARIVU_AGENT_DRVS_JSON,
+    envVar: ARIVU_AGENT_DRVS_ENV,
+    agentDrvsJson: process.env[ARIVU_AGENT_DRVS_ENV],
     drvNoun: "arivu",
     // arivu has no `system.heartbeat`, so read the first frame of the `version`
     // cell as the connectivity probe.
@@ -49,12 +64,20 @@ export function connectArivuViaHost(host: string): Promise<Connection> {
   });
 }
 
-/** Read the first value an async stream yields (then close it), or `undefined`
- *  if it ends empty — used to turn arivu's snapshot-then-delta `version` cell
- *  into the one-shot dial's connectivity probe. */
+/** Read the first value an async stream yields (then close it) — used to turn
+ *  arivu's snapshot-then-delta `version` cell into the one-shot dial's
+ *  connectivity probe. A `version` cell ALWAYS opens with a snapshot frame, so
+ *  an empty stream is a protocol/link failure, not a benign "no value yet": the
+ *  probe exists to PROVE the remote arivu surface yielded its snapshot, and
+ *  `dialAgentOnce` discards the value before `markConnected`. Returning
+ *  `undefined` on an empty stream would collapse that failure into a "connected"
+ *  session (see `.agency/code-police.md` → caught-error-must-not-collapse-to-
+ *  empty), so we throw instead. */
 async function firstFrame(
   streamPromise: Promise<AsyncIterable<unknown>>,
 ): Promise<unknown> {
   for await (const v of await streamPromise) return v;
-  return undefined;
+  throw new Error(
+    "arivu version cell yielded no snapshot frame — the remote surface stream ended empty (link or protocol failure)",
+  );
 }

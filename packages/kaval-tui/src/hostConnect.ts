@@ -27,6 +27,13 @@ import type { Connection } from "./connect.ts";
 
 type PtyHostContract = typeof ptyHostSurface.contract;
 
+/** The per-system `{ system → kaval .drv }` map env var, baked by the
+ *  `kaval-tui` Nix wrapper (`mkAgentTuiWrapper` in default.nix). Named ONCE as a
+ *  constant so the literal passed to `dialAgentOnce` (for its errors) and the
+ *  `process.env[…]` read can't drift apart — TS has no way to tie a bare string
+ *  literal to the matching `process.env.FOO` property otherwise. */
+const KAVAL_AGENT_DRVS_ENV = "KAVAL_AGENT_DRVS_JSON";
+
 /** Dial a kaval on `host` over ssh. Provisions the daemon's closure, runs
  *  `kaval --stdio`, and returns the contract-typed `Connection`. */
 export function connectPtyHostViaHost(host: string): Promise<Connection> {
@@ -34,8 +41,8 @@ export function connectPtyHostViaHost(host: string): Promise<Connection> {
     host,
     // `${agentPath}/bin/kaval`, run as `kaval --stdio`.
     binary: "kaval",
-    envVar: "KAVAL_AGENT_DRVS_JSON",
-    agentDrvsJson: process.env.KAVAL_AGENT_DRVS_JSON,
+    envVar: KAVAL_AGENT_DRVS_ENV,
+    agentDrvsJson: process.env[KAVAL_AGENT_DRVS_ENV],
     drvNoun: "kaval",
     // One cheap RPC that roundtrips kaval's atomic liveness verb.
     probe: (client) => client.surface.system.heartbeat({}),
