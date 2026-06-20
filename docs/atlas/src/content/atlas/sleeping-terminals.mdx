@@ -1,10 +1,9 @@
 ---
 title: "Sleeping terminals — on a first-class Tile"
 description: A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn't sleep — it's that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs.
-kind: feature
+parents: [phantom-running-background, feature]
 status: proposed
 maturity: seedling
-parents: [phantom-running-background]
 ---
 
 import Callout from "../../components/Callout.astro";

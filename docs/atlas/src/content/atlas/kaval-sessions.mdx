@@ -1,10 +1,9 @@
 ---
 title: Kaval sessions — dial daemons, multiplex the canvas
 description: A direction reframe for R-2 now kaval ships. Dial kavals as first-class endpoints — local over a unix socket, remote over ssh (provisioned via surface-nix-host) — with hosts auto-detected from ssh config. The same substrate supports either switching one kaval at a time (tmux-style) or multiplexing several on one canvas (per-tile piggybacks on its kaval); the canvas metaphor leans multiplex. First step — kaval-tui create, then --host (reach + provision in one PR).
-kind: feature
+parents: [remote-terminals, feature]
 status: accepted
 maturity: seedling
-parents: [remote-terminals]
 updated: 2026-06-15
 ---
 

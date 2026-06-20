@@ -1,7 +1,7 @@
 ---
 title: The kolu Atlas
 description: kolu's in-repo second brain — what it is, how it works, how it compares to Claude Code Artifacts, and the plan to scale it.
-kind: reference
+parents: [reference]
 maturity: budding
 status: implemented
 updated: 2026-06-19
@@ -76,8 +76,8 @@ The surfaces it sits between:
 
 - **Author markdown/MDX, get HTML** — write `.md`/`.mdx` + frontmatter; Astro renders.
 - **One layout + theme** — no per-file CSS (the old HTML notes duplicated ~76 KB).
-- **Generated index** from frontmatter — no hand-curated map (see *Navigation*).
-- **Self-contained committed output** — each `dist/<slug>.html` inlines its styles and cross-links with relative hrefs → previews in the Code tab, no server; the same bytes serve the public mirror.
+- **Generated graph** from frontmatter + `parents` — categories are `moc` notes, not a hand-curated map (see *Navigation*).
+- **Self-contained committed output** — each `dist/<slug>.html` inlines its styles and cross-links with relative hrefs → previews in the Code tab, no server; the same bytes serve the public mirror. Those same committed pages now also **unfurl as a social card** on the public mirror — every page emits Open Graph + Twitter Card tags and a favicon, sharing one 1200×630 `og.png` built around the Atlas **logo** (a confident "A" drawn as a tiny knowledge graph: the legs are edges, the terminals are nodes, the amber apex is the north-star hub) (<Cite file="docs/atlas/src/layouts/AtlasLayout.astro" />).
 - **`draft: true`** hides a half-baked note from the index but keeps it on disk for agents.
 
 <Callout kind="good" title="Live since 2026-06-02">
@@ -103,18 +103,18 @@ Regime split: markdown for agent-ingested prose, components for visual or
 interactive bits.
 </Callout>
 
-### Navigation — a generated index, derived edges
+### Navigation — one graph, derived edges
 
-- **One section per category** — every note's `kind` (`bug` · `feature` · `analysis` · `reference`) lands it in a section; that's the index's primary skeleton. Membership is automatic (a note can never be unfiled); only the *edges* are authored.
-- **`parents` nests notes *within* a section** — a note lists one or more `parents` (flat slugs) and nests under each *same-category* parent. A cross-category parent isn't a tree edge — it's surfaced as a **related** link, so topical connections survive without tearing the sections apart.
-- **Flat, ancestry-free slugs** — the filename is a handle, not a path; both category and hierarchy are metadata (`kind`, `parents`), not the filename.
-- **Each row shows a `maturity` dot + status flags; drafts are hidden** from the build. A nested ToC (`<Toc>`) is auto-inserted from each note's headings.
-- **Backlinks are derived, never authored** — a build pass inverts every note's `./slug.html` links + `parents` into a *Referenced by* list on each page (the inbound half of the graph the index never showed), reusing the edges the Atlas already has rather than a hand-kept `backlinks:` field. An internal `./slug.html` pointing at a missing note **fails the build** — a dead note link surfaces at build time, not as a 404 in the committed dist (<PrLink pr={1426} />); general/external link checking still belongs to a generic linter.
+- **One entry point: a graph, not a tree.** The Atlas index (`./index.html`) is a force-directed graph of every note, laid out at build time and baked to a self-contained SVG. A **category is just a note** marked `moc: true` (Bugs · Features · Analysis · Reference) — there is no `kind` enum and no synthetic nodes. Every note is filed under an index note through the one edge mechanism, `parents`, so the graph is one connected piece (no orphans) and you add a fifth category by writing a fifth `moc` note. A **title search** filters the graph live — type a note's title and the matching nodes stay lit while the rest dim (<Cite file="docs/atlas/src/components/ForceGraph.astro" />), so finding a note doesn't yet need the full-text index that's still future work.
+- **`parents` + same-directory `./slug.html` links are the only edges** — a note lists one or more `parents` (its index note and/or topical hubs) and references siblings in prose; both become graph edges and *Maps of Content* clusters. No adjacency is authored beyond the links a note already has.
+- **Flat, ancestry-free slugs** — the filename is a handle, not a path; a note's connections are metadata (`parents`) and prose links, not the filename.
+- **Maps of Content = the index notes.** Below the graph, each `moc` note gets a card listing every note filed under it; together they name *every* note, so the whole Atlas is reachable with no JS. (High-degree **topical** notes like `electricity` are emphasized in the graph itself, but only the index notes get cards.) A `maturity` dot rides each row; drafts are hidden from the build. A nested ToC (`<Toc>`) is auto-inserted from each note's headings.
+- **Backlinks are derived, never authored** — a build pass inverts every note's `./slug.html` links + `parents` into a *Referenced by* list on each page (the inbound half of the same link graph), reusing the edges the Atlas already has rather than a hand-kept `backlinks:` field. An internal `./slug.html` pointing at a missing note **fails the build** — a dead note link surfaces at build time, not as a 404 in the committed dist (<PrLink pr={1426} />); general/external link checking still belongs to a generic linter.
 
 ### Proposals — the contributor intake lane
 
-- A proposal is an Atlas note in its **real category** (`kind:` `bug`/`feature`/`analysis`/`reference`) carrying **`status: proposed`** — it shows in that category, flagged *proposed*. There's no separate proposal kind or section; the status badge *is* the queue. Contributors open an Atlas PR; the flow lives in `CONTRIBUTING.md`.
-- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the `kind` was right from the start, so nothing moves. The note stays **living** — git is the record, so there's no frozen copy and no separate numbered log.
+- A proposal is an Atlas note filed under its **real index** (`parents: [feature]`, `[bug]`, …) carrying **`status: proposed`** — it shows in that index's card, flagged *proposed*. There's no separate proposal category; the status badge *is* the queue. Contributors open an Atlas PR; the flow lives in `CONTRIBUTING.md`.
+- **Accepting = a status flip.** On acceptance a maintainer sets `status: accepted` (then `implemented`); the index parent was right from the start, so nothing moves. The note stays **living** — git is the record, so there's no frozen copy and no separate numbered log.
 - `proposed → accepted → implemented → superseded` is a *lifecycle* (the `status` field); supersession links via `parents` + status. No `docs/proposals/` and no `docs/decisions/` dir needed.
 
 ## The component kit
@@ -195,7 +195,7 @@ searchable library.
 | **Locality** | Source **and** built `dist/<slug>.html` live in Git. No server, no account, no vendor to read a note. | Cloud-only on Anthropic infra at a private `claude.ai/code/artifact/<uuid>` URL. No self-host (cannot be forked). |
 | **Format / agent cost** | Authored as markdown/MDX; structure from a typed kit. The *source* is what agents re-read — markdown token rates, the format CLIs prefer. | Generated styled HTML; Anthropic's own docs note it's *more* token-intensive to re-ingest at scale. |
 | **Render surface** | Two from one build: Kolu's **Code tab** (local, offline) and **kolu.dev/atlas/**. | One: the claude.ai viewer behind org auth. No in-IDE embed, no public URL. |
-| **Organization** | Derived tree — section per `kind`; `parents` nests within; backlinks derived. No graph/search *yet*. | Flat single-author gallery, opaque UUID keys; "a capture of work, not an application." |
+| **Organization** | A graph over the notes + their `parents`; categories are `moc` notes, backlinks derived. No full-text search *yet*. | Flat single-author gallery, opaque UUID keys; "a capture of work, not an application." |
 | **Versioning** | Git is the history — full blame/diff/PR review. | First-class in-product versions at one URL + restore; but no diff/blame, and a stray session silently *forks*. |
 | **Access control** | None at note level — internal repo + a public mirror. | Compliance-grade: private-by-default, org-auth only, never public; audit + retention + Compliance API. |
 | **Discovery at scale** | Deterministic tree at ~50 notes; **no full-text search UI**. | Weak by design — flat galleries, no search/folders. |
@@ -234,32 +234,32 @@ second bites **even a single growing repo**.
 **Contingent on going multi-repo / multi-team:**
 
 1. **Flat slug = filename = URL.** Two projects' `release-workflow.mdx` collide. Within one repo it's a prefix convention, not a wall.
-2. **`kind` carries no project axis** (<Cite file="docs/atlas/src/content.config.ts" lines="23-25" />) — project A's and B's bugs interleave in one section.
+2. **No project axis** (<Cite file="docs/atlas/src/content.config.ts" />) — project A's and B's bugs file under the same `bug` index and interleave.
 3. **Relative cross-links are load-bearing** for *both* render targets (the Code-tab iframe and the `cp -r dist` in <Cite file="website/default.nix" />). A note in another repo isn't a sibling file, so `./other.html` 404s — the sharpest real constraint on any federation, and the reason not to build it speculatively.
 4. **No access control + unconditional public mirror.** <Cite file="website/default.nix" /> folds **all** of `dist/` into `/atlas/` on merge; `draft:true` only hides from the *index* (it still builds and publishes). Public-by-merge is the intended contract today — and a breach the moment a confidential project lands.
 
 **Bites even a single growing repo:**
 
 5. **Committed `dist/` churn** — ~71 KB of minified HTML per note; every edit re-emits the whole file, and `ci::atlas-sync` does a full build + a scrambled-TZ idempotency build, so CI cost scales with note count. *This argues against inlining a heavy graph into every page.*
-6. **No full-text search UI** — the index *is* the search at ~50 notes; at a few hundred there's no escape hatch.
-7. **One generated index page**, no pagination — an unscrollable wall at 500+.
-8. **`parents`-within-kind nesting caps ~100 links** (<Cite file="docs/atlas/src/components/IndexTree.astro" />) — it stops *navigating* long before it stops building.
+6. **No full-text search UI** — the graph + hub cards *are* the browse at ~50 notes; at a few hundred there's no escape hatch.
+7. **One generated entry page**, no pagination — the index cards (every note listed) become an unscrollable wall at 500+.
+8. **The force graph turns into a hairball** past a few hundred nodes (<Cite file="docs/atlas/src/lib/graphView.ts" />) — it stops being *legible* long before it stops building; it needs filtering / focus-by-hub / an orphan view (the graph's own roadmap).
 
 ### Fixing the tree/graph
 
-`kind` is the *only* axis, and it's a lifecycle/type tag, not a topic —
-non-monotonic (a `feature` becomes `reference`), so it reorganizes the index on
-every lifecycle flip while the *stable* thing (topic) isn't an axis at all.
+The index notes are a lifecycle/type axis, not a topic — non-monotonic (a
+`feature` becomes `reference`), so a note's index parent changes on a lifecycle
+flip while the *stable* thing (topic) isn't an axis at all.
 Right-sized redesign, by leverage-per-line:
 
-1. **Derive backlinks from the existing link mechanism — shipped first** (<PrLink pr={1426} />). Edges already exist as `./slug.html` links; a build pass inverts them, no new wikilink syntax, and a link to a non-existent slug is a **fail-fast build error**. *Honest caveat:* the graph is **sparse today** (most edges cluster on a few hubs like `electricity` and `odu`), which is exactly why the interactive graph waits.
+1. **Derive backlinks from the existing link mechanism — shipped first** (<PrLink pr={1426} />). Edges already exist as `./slug.html` links; a build pass inverts them, no new wikilink syntax, and a link to a non-existent slug is a **fail-fast build error**. The note→note graph is **sparse on its own** (most edges cluster on a few hubs like `electricity` and `odu`) — so the graph view promotes the four categories to real `moc` notes that every note files under via `parents`, which both densifies the graph and removes every orphan.
 2. **Add optional `tags`, not a required `area`.** A required topic axis forces a backward-incompatible migration of every note and imposes single-membership where the need is many-to-many. One optional field keeps "nothing unfiled" intact and adds the topic lens for free:
    ```ts
    // src/content.config.ts — add ONE optional field; no migration, no index inversion
    tags: z.array(z.string()).default([]),   // many-to-many facets; derive a tag → notes map
    ```
 3. **Generalize typed relations with auto-inverses.** `parents` → *has-children*, `supersedes` → *superseded-by*, any link → *referenced-by*. Keep the vocabulary tiny. `status: superseded` is a dangling flag today; `supersedes: <slug>` makes the lineage a real bidirectional edge.
-4. **Defer the graph view and auto-MoC hubs.** Inlining a JS graph + `graph.json` into every committed page multiplies the `dist/` churn that's already the top single-repo cost, and the Code tab isn't guaranteed to run inline JS. Build backlinks first; let them prove the edge set is dense enough to be worth drawing.
+4. **Graph view + Maps of Content — now shipped** (<PrLink pr={1434} />). The trap was inlining a JS graph + `graph.json` into *every* committed page (multiplying the `dist/` churn) and trusting the Code tab to run it. The resolution: compute the layout at build time with `d3-force` and bake it to **one** self-contained SVG on the index page only, with a single `is:inline` script for interaction (no bundle). The decomplected data model came with it — a category is no longer a hardcoded `kind` enum but a real note marked `moc: true`, and every note files under one through `parents`, the single edge mechanism.
 
 ### Scaling to many projects
 
@@ -300,7 +300,7 @@ ships independently and keeps the Atlas working at every stage.
   <Milestone status="done" label="Done">derived backlinks + the fail-fast dead-link gate (<PrLink pr={1426} />) — render "Referenced by" from the existing `./slug.html` + `parents` edges.</Milestone>
   <Milestone status="now" label="Publication gate">**Confidentiality — a correctness bug, not a feature.** Merge-to-master is public today (<Cite file="website/default.nix" /> copies *all* of `dist/`; `draft` only hides from the index). Add a per-note opt-**in** allowlist (fail-fast: nothing public unless it declares `public: true`) and gate the Nix copy on it. Pure config + Nix; no schema rework. Unblocks a confidential note — or a second team — ever landing.</Milestone>
   <Milestone status="next" label="tags + in-repo search">Add optional `tags: string[]` (no migration) and a **Pagefind** index shipped *into* the committed `dist/` so search works in both the Code tab and the public mirror. Trigger it when note count nears the few-hundred where index-as-search breaks — not at 50.</Milestone>
-  <Milestone status="next" label="Graph view + MoC hubs">**Deferred** until backlinks prove the edge set is dense and the Code-tab JS question is settled (verify the renderer, or commit to a static SVG/adjacency fallback). The aspirational tree/graph — once it's non-trivial and won't bloat `dist/`.</Milestone>
+  <Milestone status="done" label="Graph view + MoC hubs">Shipped as the unified entry point (<PrLink pr={1434} />) — a build-time `d3-force` layout baked to one self-contained SVG. The data model is decomplected: a category is a real note marked `moc: true` (no `kind` enum, no synthetic nodes), and every note files under one via `parents`, so nothing is unfiled and the graph has no orphans. The index *is* the graph + Maps of Content; baking the layout settles the Code-tab JS question, leaving a single `is:inline` script and no bundle.</Milestone>
   <Milestone status="next" label="Federation A → C">Option A (one `project` field + slug prefix) the moment a second project shares the monorepo; the Option C aggregator only when a *separate* repo appears, and only after its owner + cost are decided. **Never** the stale-fallback resolver.</Milestone>
 </Roadmap>
 

@@ -5,9 +5,31 @@
 interface Props {
   title: string;
   description?: string;
+  /** This page's flat output filename for the public mirror (`""` for the
+   *  index, `"<slug>.html"` for a note) — used to build the canonical/OG URL. */
+  path?: string;
+  /** OG type — "website" for the index, "article" for a note. */
+  ogType?: "website" | "article";
+  /** A note's `updated` date → `article:published_time`. */
+  pubDate?: Date;
 }
-const { title, description = "kolu's in-repo knowledge base." } = Astro.props;
+const {
+  title,
+  description = "kolu's in-repo knowledge base.",
+  path = "",
+  ogType = "website",
+  pubDate,
+} = Astro.props;
 const fullTitle = title === "Atlas" ? "the kolu Atlas" : `${title} · the kolu Atlas`;
+
+// The committed pages are self-contained and serve byte-identically in kolu's
+// Code tab and on the public mirror at kolu.dev/atlas/. OG/Twitter unfurls need
+// ABSOLUTE urls, so the public base is baked in here; the favicon stays relative
+// so it resolves in the Code-tab iframe too.
+const SITE = "https://kolu.dev/atlas/";
+const ogUrl = SITE + path;
+const ogImage = `${SITE}og.png`;
+const ogAlt = "the kolu Atlas — an in-repo knowledge graph";
 ---
 
 <!doctype html>
@@ -19,6 +41,33 @@ const fullTitle = title === "Atlas" ? "the kolu Atlas" : `${title} · the kolu A
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <meta name="color-scheme" content="light" />
+    <link rel="canonical" href={ogUrl} />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+
+    {/* Open Graph */}
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:url" content={ogUrl} />
+    <meta property="og:site_name" content="the kolu Atlas" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={ogAlt} />
+    {ogType === "article" && pubDate && (
+      <meta property="article:published_time" content={pubDate.toISOString()} />
+    )}
+
+    {/* Twitter Card — points at the PNG (Twitter doesn't render SVG). */}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@sridca" />
+    <meta name="twitter:creator" content="@sridca" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={ogAlt} />
   </head>
   <body>
     <slot />

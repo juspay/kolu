@@ -20,6 +20,7 @@ import {
   type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
+  viewportCenter as viewportCenterPure,
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
 
@@ -136,6 +137,12 @@ export interface CanvasViewport {
   setPan: (x: number, y: number) => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
+  /** Canvas-space point at the viewport center — the forward projection of
+   *  pan+zoom+size that consumers use to drop a tile under the camera. `null`
+   *  before the container mounts (no real dimensions yet), mirroring
+   *  `centerOnTile`/`panTo`: callers must guard rather than place at a bogus
+   *  origin-derived point. */
+  viewportCenter: () => { x: number; y: number } | null;
   /** Snap a value to the canvas grid. */
   snapToGrid: (value: number) => number;
   /** CSS background-position for the grid, tracking pan+zoom. */
@@ -258,6 +265,15 @@ function viewportSize() {
   };
 }
 
+function viewportCenter() {
+  // Guard on the container like targetForPoint/targetForTile: without it,
+  // viewportSize() falls back to 0×0 and the "center" collapses to the raw
+  // pan origin — a silently wrong point. Return null so callers no-op.
+  if (!containerEl) return null;
+  const { width, height } = viewportSize();
+  return viewportCenterPure(panX(), panY(), width, height, zoom());
+}
+
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
   beginAuthoritativeMutation();
@@ -284,6 +300,7 @@ const viewport: CanvasViewport = {
   panTo,
   setPan,
   viewportSize,
+  viewportCenter,
   snapToGrid: snapToGridPure,
   gridBgPosition: () => gridBgPositionCSS(panX(), panY(), zoom()),
   gridBgSize: () => gridBgSizeCSS(zoom()),

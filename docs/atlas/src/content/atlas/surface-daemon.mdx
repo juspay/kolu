@@ -1,11 +1,10 @@
 ---
 title: "@kolu/surface-daemon — one spine for kaval and odu serve"
 description: 'kaval (the PTY daemon) and odu serve (the long-lived CI coordinator) need the identical lifecycle machinery — pid-gated entry, a unix socket that outlives clients, a contract handshake on every connect, an endpoint state machine, spawn/respawn drivers. This note names that shared spine, says what is mechanism (extract) versus policy (keep per-program), and sequences it: the daemon half is born as the package in kaval B1; the supervisor half is born as its own `@kolu/surface-daemon-supervisor` package in kaval B2 (package boundary = staleKey boundary = spine/soul line); S1 moves the handshake fragment into `@kolu/surface`; odu serve consumes the whole as the second tenant (S2).'
-kind: feature
+parents: [pty-daemon, electricity, feature]
 status: accepted
 maturity: seedling
 updated: 2026-06-15
-parents: [pty-daemon, electricity]
 ---
 
 import Callout from "../../components/Callout.astro";

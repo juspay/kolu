@@ -1,58 +1,207 @@
 ---
 import { getCollection } from "astro:content";
-import IndexTree from "../components/IndexTree.astro";
+import ForceGraph from "../components/ForceGraph.astro";
+import MocHubs from "../components/MocHubs.astro";
 import AtlasLayout from "../layouts/AtlasLayout.astro";
-import { buildCategoryGroups } from "../lib/indexTree";
+import { buildAtlasGraph } from "../lib/atlasGraph";
+import { buildGraphLayout } from "../lib/graphView";
 
-// Generated index: one section per category (bug · feature · analysis ·
-// reference), with `parents` nesting notes *within* a category (cross-category
-// edges become "related" links). Drafts are hidden from the build but reachable
-// in `astro dev`. Membership is automatic — a note's `kind` always lands it in a
-// section, so nothing falls through unfiled. Links are relative (`./<slug>.html`)
-// so the committed pages navigate both in kolu's Code tab and on the web at
-// kolu.dev/atlas/.
+// The Atlas, one entry point: a force-directed graph over every note plus its
+// Maps of Content. There is no categorical index and no `kind` enum — a category
+// is just a note marked `moc: true` (an index node), and every note is filed
+// under one via `parents`. So the index cards together name every note (the whole
+// Atlas is reachable from here with no JS), while the graph adds the shape a tree
+// never showed. Drafts are hidden from the build (reachable in `astro dev`).
 const notes = (await getCollection("atlas")).filter(
   (n) => import.meta.env.DEV || !n.data.draft,
 );
-const groups = buildCategoryGroups(notes);
+const graph = buildAtlasGraph(notes);
+const layout = buildGraphLayout(notes, graph);
+
+const noteCount = notes.length;
+const edgeCount = graph.edges.length;
+// The legend's index swatches are the real index notes, in their own order.
+const indexNotes = layout.hubs
+  .filter((h) => h.isMoc)
+  .map((h) => ({ label: h.label, color: h.color }));
 ---
 
 <AtlasLayout
   title="Atlas"
-  description="kolu's in-repo Atlas — plans, designs, reviews, and research, as a generated tree."
+  description="kolu's in-repo Atlas — every note as one graph, with its Maps of Content. One entry point; everything is reachable from here."
 >
   <div class="wrap wrap-index">
     <p class="eyebrow">the kolu atlas</p>
     <h1 class="atlas-title">The <span class="accent">Atlas</span>.</h1>
     <p class="lede">
-      kolu's in-repo knowledge base — grouped by kind, with related notes nested
-      under their <code>parents</code>; nothing falls through unfiled.
-      <strong>{notes.length}</strong> notes.
+      Every note, wired by the links it already has — <code>parents</code> edges
+      and same-directory references. The <strong>index notes</strong> (Bugs,
+      Features, …) are just notes too, marked <code>moc</code>; every note hangs
+      off one, so the Maps of Content below name them all. Hover to trace a note's
+      neighborhood; click to open it.
+      <strong>{noteCount}</strong> notes, <strong>{edgeCount}</strong> links.
     </p>
-    <div class="legend">
-      <span class="legend-item"><span class="legend-dot m-seedling" />seedling</span>
-      <span class="legend-item"><span class="legend-dot m-budding" />budding</span>
-      <span class="legend-item"><span class="legend-dot m-evergreen" />evergreen</span>
+
+    <div class="graph-legend">
+      <div class="legend-group">
+        <span class="legend-cap">index</span>
+        {
+          indexNotes.map((m) => (
+            <span class="legend-item">
+              <span class={`legend-swatch c-${m.color}`} />
+              {m.label}
+            </span>
+          ))
+        }
+      </div>
+      <div class="legend-group">
+        <span class="legend-cap">maturity</span>
+        <span class="legend-item"><span class="legend-ring m-seedling" />seedling</span>
+        <span class="legend-item"><span class="legend-ring m-budding" />budding</span>
+        <span class="legend-item"><span class="legend-ring m-evergreen" />evergreen</span>
+      </div>
+      <div class="legend-group">
+        <span class="legend-cap">edge</span>
+        <span class="legend-item"><span class="legend-line solid" />parent</span>
+        <span class="legend-item"><span class="legend-line dashed" />reference</span>
+      </div>
     </div>
 
-    {
-      groups.length > 0 ? (
-        groups.map((g) => (
-          <section class={`cat cat-${g.category}`}>
-            <div class="cat-head">
-              <span class="cat-bar" />
-              <h2 class="cat-title">{g.label}</h2>
-              <span class="cat-count">{g.count}</span>
-              <span class="cat-blurb">{g.blurb}</span>
-            </div>
-            <IndexTree nodes={g.roots} />
-          </section>
-        ))
-      ) : (
-        <p class="mono" style="color:var(--ink-muted);padding:3rem 0;text-align:center">
-          // the Atlas is empty
-        </p>
-      )
-    }
+    <ForceGraph viewBox={layout.viewBox} nodes={layout.nodes} edges={layout.edges} />
+
+    <div class="moc-head">
+      <h2 class="moc-h">Maps of Content</h2>
+      <p class="moc-sub">
+        The index notes — each lists every note filed under it. Together they name
+        every note, so the whole Atlas is reachable from here; it all falls
+        straight out of the <code>parents</code> links.
+      </p>
+    </div>
+    <MocHubs hubs={layout.hubs} />
+
+    <footer class="note-foot">
+      <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a>
+      <a class="backlink" href="./meta.html">what is the Atlas? →</a>
+    </footer>
   </div>
 </AtlasLayout>
+
+<style>
+  .wrap-index {
+    max-width: 64rem;
+  }
+  .wrap-index .lede {
+    margin-bottom: 1.6rem;
+    max-width: 44rem;
+  }
+
+  .graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1.6rem;
+    margin: 0 0 1rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .legend-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.9rem;
+  }
+  .legend-cap {
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    color: var(--ink-muted);
+  }
+  .legend-swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  .legend-swatch.c-red {
+    background: var(--alert);
+  }
+  .legend-swatch.c-teal {
+    background: var(--teal);
+  }
+  .legend-swatch.c-gold {
+    background: var(--gold);
+  }
+  .legend-swatch.c-grey {
+    background: var(--ink-muted);
+  }
+  .legend-swatch.c-green {
+    background: var(--green);
+  }
+  .legend-swatch.c-blue {
+    background: #1f6feb;
+  }
+  .legend-swatch.c-purple {
+    background: #7c3aed;
+  }
+  .legend-ring {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1.5px solid var(--ink-faint);
+  }
+  .legend-ring.m-seedling {
+    border-color: var(--gold);
+  }
+  .legend-ring.m-budding {
+    border-color: var(--teal);
+  }
+  .legend-ring.m-evergreen {
+    border-color: var(--green);
+  }
+  .legend-line {
+    width: 16px;
+    height: 0;
+    border-top: 1.5px solid var(--ink-faint);
+  }
+  .legend-line.dashed {
+    border-top-style: dashed;
+  }
+
+  .moc-head {
+    margin: 3rem 0 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .moc-h {
+    font-family: var(--serif);
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0;
+  }
+  .moc-sub {
+    margin: 0.5rem 0 0;
+    max-width: 42rem;
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+  }
+
+  .note-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+  }
+</style>
