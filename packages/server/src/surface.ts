@@ -89,6 +89,14 @@ const localEndpoint = localTerminalEndpoint;
 // can call `t.terminal.create.handler(...)` etc. against the same builder.
 export const t = implement(contract);
 
+// Content-level cell dedup — the framework's default is "always publish", so
+// each small, rarely-written cell opts into structural equality to skip the
+// `state.json` write + bus publish for a byte-identical re-set. The single home
+// for that policy: `preferences`, `session`, and `sleepingTerminals` all share
+// it. `JSON.stringify` is fine — every cell that uses it holds a small value.
+const jsonEquals = <T>(a: T, b: T): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
+
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 
 const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
@@ -120,13 +128,12 @@ const koluDeps: Omit<
   cells: {
     preferences: {
       store: preferencesStore,
-      // Content-level dedup, mirroring the `session` cell below. Defence in
-      // depth behind the client's coalescing + no-op drop (#1041): a patch
-      // that doesn't change the value skips the `state.json` write and the
-      // bus publish, so it can't contend with the session autosave on the
-      // shared Conf store. `JSON.stringify` is fine — Preferences is small
-      // and writes are rare once the client stops storming.
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      // Content-level dedup (the shared `jsonEquals`), mirroring the `session`
+      // cell below. Defence in depth behind the client's coalescing + no-op
+      // drop (#1041): a patch that doesn't change the value skips the write and
+      // the publish, so it can't contend with the session autosave on the
+      // shared Conf store.
+      equals: jsonEquals,
       // Log only patched keys — values may carry user-identifying state
       // (themes, file paths in rightPanel.tab) that have no business in
       // operator logs.
@@ -146,15 +153,13 @@ const koluDeps: Omit<
       // Reads through `getSavedSession` to keep the "empty terminals = null"
       // legacy normalization at one site (`session.ts` owns that invariant).
       store: { get: () => getSavedSession(), set: savedSessionStore.set },
-      // Content-level dedup. The surface cell otherwise publishes a fresh
-      // object reference on every set, including byte-identical re-saves
-      // from the autosave loop or test fixtures. Downstream that flips a
-      // SolidJS keyed `<Show when={savedSession()}>` in EmptyState and
-      // detaches the restore button mid-frame. `JSON.stringify` is fine
-      // for this cell — SavedSession is small (a handful of terminals
-      // and scalars) and sets are rare. See
+      // Content-level dedup (the shared `jsonEquals`). The surface cell
+      // otherwise publishes a fresh object reference on every set, including
+      // byte-identical re-saves from the autosave loop or test fixtures.
+      // Downstream that flips a SolidJS keyed `<Show when={savedSession()}>` in
+      // EmptyState and detaches the restore button mid-frame. See
       // `docs/flaky-tests-ralph-report-2.md` cycles 3 / 5.
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      equals: jsonEquals,
       // Atomic cross-cell invariant: every write to the session cell —
       // `set`, `patch`, `test__set`, or the server-internal
       // `surfaceCtx.cells.session.set` reached by `writeSession` —
@@ -174,10 +179,11 @@ const koluDeps: Omit<
     },
     sleepingTerminals: {
       store: sleepingTerminalsStore,
-      // Content-level dedup, mirroring `session`. Writes here are explicit
-      // (sleep/wake/setSleepingLayout procedures), never debounced — so no
-      // autosave-cancel onWrite is needed, unlike `session`.
-      equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+      // Content-level dedup (the shared `jsonEquals`), mirroring `session`.
+      // Writes here are explicit (sleep/dropSleeping/setSleepingLayout
+      // procedures), never debounced — so no autosave-cancel onWrite is needed,
+      // unlike `session`.
+      equals: jsonEquals,
     },
   },
 
