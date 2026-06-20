@@ -5,14 +5,8 @@
  */
 
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import type { ArivuClient } from "./connect.ts";
-
-/** The first value an async stream yields, or `undefined` if it ends empty.
- *  Returning out of the loop closes the underlying subscription. */
-async function firstValue<T>(stream: AsyncIterable<T>): Promise<T | undefined> {
-  for await (const v of stream) return v;
-  return undefined;
-}
 
 /** A one-shot snapshot of the whole awareness collection: the current key set
  *  (the first frame of the `keys` snapshot-then-delta stream), then each key's
@@ -24,10 +18,11 @@ export async function snapshotAwareness(
   const abort = new AbortController();
   try {
     const keys =
-      (await firstValue(await client.surface.awareness.keys({}))) ?? [];
+      (await firstFrameOrUndefined(await client.surface.awareness.keys({}))) ??
+      [];
     const pairs = await Promise.all(
       keys.map(async (key): Promise<[TerminalId, AwarenessValue] | null> => {
-        const value = await firstValue(
+        const value = await firstFrameOrUndefined(
           await client.surface.awareness.get({ key }, { signal: abort.signal }),
         );
         return value === undefined ? null : [key, value];

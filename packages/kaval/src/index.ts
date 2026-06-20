@@ -101,6 +101,9 @@ export {
   discoverPtyHostSockets,
   getPtyHostSocketPath,
   KAVAL_NS_PREFIX,
+  type KavalSocketCandidate,
+  type KavalSocketResolution,
   kavalNamespace,
   PTY_HOST_SOCK_FILE,
+  resolveRunningKavalSocket,
 } from "./socketPath.ts";

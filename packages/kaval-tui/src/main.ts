@@ -34,11 +34,10 @@ import { isContractVersionCompatible } from "@kolu/surface/define";
 import { SNAPSHOT_TTY_RESET as TTY_RESET } from "@kolu/terminal-protocol";
 import { cli, command } from "cleye";
 import {
-  discoverPtyHostSockets,
   getPtyHostSocketPath,
-  KAVAL_NS_PREFIX,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
+  resolveRunningKavalSocket,
 } from "kaval";
 import { type AttachTty, runAttach } from "./attach.ts";
 import { type Connection, connectPtyHost } from "./connect.ts";
@@ -220,28 +219,21 @@ async function resolveOne(conn: Connection, query: string): Promise<string> {
   );
 }
 
-/** The socket to dial. An explicit `--socket` wins (verbatim). Otherwise
- *  discover the running daemon: kolu-server now namespaces its daemon by listen
- *  port (`kaval-<port>/`), so there is no single fixed path to assume. Exactly
- *  one found → use it (the common case: one kolu on the box). More than one →
- *  bail asking for `--socket`, since we can't guess which kolu you mean. None →
- *  the bare `kaval` default, so the connect error names a sensible path. */
-function resolveSocketPath(
-  override: string | undefined,
-  kavalDefault: string,
-): string {
-  if (override) return getPtyHostSocketPath(override);
-  const found = discoverPtyHostSockets();
-  const [first, ...rest] = found;
-  if (first !== undefined && rest.length === 0) return first;
-  if (rest.length > 0) {
+/** The socket to dial. The selection policy (explicit `--socket` wins; else
+ *  discover the running daemon; one→use it; many→ambiguous; none→bare default)
+ *  plus the candidate labels live in `kaval`'s `resolveRunningKavalSocket` —
+ *  beside the namespace construction they invert — so here kaval-tui only renders
+ *  the `many` case as its own `--socket`-flavored `fail()`. */
+function resolveSocketPath(override: string | undefined): string {
+  const resolved = resolveRunningKavalSocket(override);
+  if (resolved.kind === "many") {
     fail(
-      `more than one kaval daemon is running:\n  ${found.join(
-        "\n  ",
-      )}\nPass --socket <path> to pick one.`,
+      `more than one kaval daemon is running:\n  ${resolved.candidates
+        .map(({ socket, label }) => `${socket}    (${label})`)
+        .join("\n  ")}\nPass --socket <path> to pick one.`,
     );
   }
-  return kavalDefault;
+  return resolved.socket;
 }
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
@@ -447,8 +439,7 @@ async function assertCompatible(conn: Connection): Promise<void> {
  *  `--socket`, else the discovered/default one. Fails loud with an actionable
  *  hint if nothing is listening. */
 function connectLocal(socketOverride: string | undefined): Promise<Connection> {
-  const kavalDefault = getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
-  const socketPath = resolveSocketPath(socketOverride, kavalDefault);
+  const socketPath = resolveSocketPath(socketOverride);
   return connectPtyHost(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
     // The kolu-server hint names the SAME path kolu computes — and the

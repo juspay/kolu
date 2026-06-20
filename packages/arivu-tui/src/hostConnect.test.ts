@@ -1,0 +1,150 @@
+/**
+ * Unit tests for the arivu-tui `--host` wrapper. The one-shot dial composition
+ * (drv-map parse, arch-probe + lookup, pin → probe → markConnected → destroy)
+ * lives in `@kolu/surface-nix-host`'s `dialAgentOnce` and is tested there; here
+ * we mock `dialAgentOnce` and prove the thin seam this wrapper owns: it passes
+ * arivu's three volatile values (binary, env var, drvNoun) and a `probe` that
+ * roundtrips the `version` cell (arivu has no `system.heartbeat`). The probe is
+ * exercised against a REAL in-process arivu client (a `directLink` over the
+ * served `arivuSurface`), and the returned `Connection` flows back unchanged.
+ */
+import {
+  type AwarenessValue,
+  arivuSurface,
+  DEFAULT_VERSION,
+  type TerminalId,
+} from "@kolu/arivu-contract";
+import { directLink } from "@kolu/surface/links/direct";
+import {
+  implementSurface,
+  inMemoryChannelByName,
+  inMemoryStore,
+} from "@kolu/surface/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const h = vi.hoisted(() => ({ dialAgentOnce: vi.fn() }));
+
+vi.mock("@kolu/surface-nix-host", () => ({ dialAgentOnce: h.dialAgentOnce }));
+
+import { dialAgentOnce } from "@kolu/surface-nix-host";
+import { connectArivuViaHost } from "./hostConnect.ts";
+import { snapshotAwareness } from "./read.ts";
+
+/** A real in-process arivu surface client over a `directLink` — the awareness
+ *  collection backed by a plain Map, the `version` cell at this build's default.
+ *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
+ *  the probe exercises a real `arivuSurface` round-trip in place of the ssh wire. */
+function makeInProcessArivuClient(
+  cache = new Map<TerminalId, AwarenessValue>(),
+) {
+  const { router } = implementSurface(arivuSurface, {
+    channel: inMemoryChannelByName(),
+    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
+    collections: {
+      awareness: {
+        readAll: () => cache,
+        upsert: (key, value) => {
+          cache.set(key, value);
+        },
+        remove: (key) => {
+          cache.delete(key);
+        },
+      },
+    },
+  });
+  return directLink<typeof arivuSurface.contract>(router);
+}
+
+afterEach(() => vi.clearAllMocks());
+
+describe("connectArivuViaHost", () => {
+  it("dials with arivu's binary, env var, and drvNoun", async () => {
+    const client = makeInProcessArivuClient();
+    h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
+
+    const conn = await connectArivuViaHost("nix@prod");
+
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+    expect(opts).toMatchObject({
+      host: "nix@prod",
+      binary: "arivu",
+      envVar: "ARIVU_AGENT_DRVS_JSON",
+      drvNoun: "arivu",
+    });
+
+    // The returned Connection is the SAME shape cmd*() use.
+    const rows = await snapshotAwareness(conn.client);
+    expect(Array.isArray(rows)).toBe(true);
+
+    // No --kaval → no extraArgs, so the remote arivu discovers its kaval.
+    expect(opts?.extraArgs).toBeUndefined();
+  });
+
+  it("forwards --kaval as extraArgs to the remote arivu", async () => {
+    h.dialAgentOnce.mockResolvedValue({
+      client: makeInProcessArivuClient(),
+      dispose: () => {},
+    });
+    await connectArivuViaHost(
+      "nix@prod",
+      "/run/user/1000/kaval-7692/pty-host.sock",
+    );
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+    expect(opts?.extraArgs).toEqual([
+      "--kaval",
+      "/run/user/1000/kaval-7692/pty-host.sock",
+    ]);
+  });
+
+  it("the probe reads the first frame of the version cell (arivu has no heartbeat)", async () => {
+    const client = makeInProcessArivuClient();
+    h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
+
+    await connectArivuViaHost("nix@prod");
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+
+    // Running the probe against the real in-process surface resolves with the
+    // version cell's first frame — the connectivity proof the one-shot dial uses.
+    // biome-ignore lint/suspicious/noExplicitAny: the mocked generic collapses the probe's client type; the directLink client speaks the same contract.
+    await expect(opts?.probe(client as any)).resolves.toEqual(DEFAULT_VERSION);
+  });
+
+  it("the probe THROWS when the version stream ends empty (link/protocol failure, not connected)", async () => {
+    h.dialAgentOnce.mockResolvedValue({
+      client: makeInProcessArivuClient(),
+      dispose: () => {},
+    });
+    await connectArivuViaHost("nix@prod");
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+
+    // A client whose `version.get` resolves to a stream that ends WITHOUT a
+    // snapshot frame. The probe must surface that as a failure — an empty stream
+    // is a dead/half-open link, never a "connected" session (the F4 regression).
+    const emptyStreamClient = {
+      surface: {
+        version: {
+          // eslint-disable-next-line require-yield
+          get: async () =>
+            (async function* () {
+              /* no frames — the remote surface yielded nothing */
+            })(),
+        },
+      },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: a hand-rolled stub standing in for the contract client; only `version.get` is exercised.
+    await expect(opts?.probe(emptyStreamClient as any)).rejects.toThrow(
+      /yielded no snapshot frame/,
+    );
+  });
+
+  it("threads dispose back through the Connection", async () => {
+    const dispose = vi.fn();
+    h.dialAgentOnce.mockResolvedValue({
+      client: makeInProcessArivuClient(),
+      dispose,
+    });
+    const conn = await connectArivuViaHost("nix@prod");
+    conn.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});

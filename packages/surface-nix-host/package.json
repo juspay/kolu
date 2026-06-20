@@ -15,6 +15,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13"

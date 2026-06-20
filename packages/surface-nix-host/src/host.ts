@@ -3,6 +3,7 @@
  *  "are we talking to ourselves?" check and the per-line stderr fanout
  *  in one place so they evolve together. */
 
+import { shellQuoteArg } from "@kolu/shell-quote";
 import { controlOptPairs } from "./controlMaster";
 
 export function isLocalHost(host: string): boolean {
@@ -159,10 +160,18 @@ export function buildAgentCommand(opts: {
   host: string;
   agentPath: string;
   binary: string;
+  /** Extra args appended after `--stdio` on the agent command line — a generic
+   *  spawn-arg carrier; what the args mean is the caller's concern. Empty by
+   *  default. For a real remote these are POSIX-quoted (ssh re-splits the command
+   *  through the remote login shell); localhost runs the binary directly via
+   *  `spawn`, so they pass through verbatim. */
+  extraArgs?: readonly string[];
 }): { command: string; args: string[] } {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
+  const extra = opts.extraArgs ?? [];
   if (isLocalHost(opts.host)) {
-    return { command: exe, args: ["--stdio"] };
+    // Direct `spawn`, no shell — args pass through verbatim, no quoting.
+    return { command: exe, args: ["--stdio", ...extra] };
   }
   return {
     command: "ssh",
@@ -181,6 +190,13 @@ export function buildAgentCommand(opts: {
       opts.host,
       exe,
       "--stdio",
+      // ssh joins everything after the host into ONE string run by the remote
+      // login shell, so a caller-supplied value (a `--kaval` socket path with a
+      // space, say) must be POSIX-quoted or it would re-split / inject. The
+      // canonical `@kolu/shell-quote` owns that quoting axis repo-wide (zero
+      // runtime deps, so it adds no weight to this drishti-shared closure). The
+      // fixed tokens above are metacharacter-free store paths, so they don't.
+      ...extra.map(shellQuoteArg),
     ],
   };
 }

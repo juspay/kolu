@@ -1,38 +1,25 @@
 /**
- * Unit tests for the `--host` connect path — no ssh, no nix. `resolveSystem`
- * and `getHostSession` (the ssh/provision machinery) are mocked; the fake
- * session's `pin()` yields a REAL in-process kaval client, so the test proves
- * the wiring (`pin` → `heartbeat` → `markConnected` → `dispose`) and that the
- * returned `Connection` is the SAME shape every `cmd*()` consumes — over a real
- * `ptyHostSurface` round-trip, just without the transport. The genuine ssh
- * wire is exercised separately against a real `pu` box for PR evidence.
+ * Unit tests for the kaval-tui `--host` wrapper. The one-shot dial composition
+ * (drv-map parse, arch-probe + lookup, pin → probe → markConnected → destroy)
+ * lives in `@kolu/surface-nix-host`'s `dialAgentOnce` and is tested there; here
+ * we mock `dialAgentOnce` and prove the thin seam this wrapper owns: it passes
+ * kaval's three volatile values (binary, env var, drvNoun) and a `probe` that
+ * roundtrips `system.heartbeat` (kaval's atomic liveness verb). The probe is
+ * exercised against a REAL in-process kaval client, and the returned
+ * `Connection` flows back unchanged.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({
-  markConnected: vi.fn(),
-  destroy: vi.fn(),
-  resolveSystem: vi.fn(),
-  // Indirection so each test can swap what pin() resolves to.
-  pin: { current: async (): Promise<unknown> => ({}) },
-}));
+const h = vi.hoisted(() => ({ dialAgentOnce: vi.fn() }));
 
-vi.mock("@kolu/surface-nix-host", () => ({
-  resolveSystem: h.resolveSystem,
-  getHostSession: vi.fn(() => ({
-    pin: () => h.pin.current(),
-    markConnected: h.markConnected,
-    destroy: h.destroy,
-    onState: () => () => {},
-  })),
-}));
+vi.mock("@kolu/surface-nix-host", () => ({ dialAgentOnce: h.dialAgentOnce }));
 
 import { createInProcessPtyHost, type InProcessPtyHostDeps } from "kaval";
-import { getHostSession } from "@kolu/surface-nix-host";
-import { connectPtyHostViaHost, resolveKavalAgentDrv } from "./hostConnect.ts";
+import { dialAgentOnce } from "@kolu/surface-nix-host";
+import { connectPtyHostViaHost } from "./hostConnect.ts";
 
 const silentLog = {
   debug: () => {},
@@ -42,116 +29,56 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as InProcessPtyHostDeps["log"];
 
-const ORIGINAL_DRVS = process.env.KAVAL_AGENT_DRVS_JSON;
-afterEach(() => {
-  if (ORIGINAL_DRVS === undefined) delete process.env.KAVAL_AGENT_DRVS_JSON;
-  else process.env.KAVAL_AGENT_DRVS_JSON = ORIGINAL_DRVS;
-  vi.clearAllMocks();
-});
+function inProcessKavalClient() {
+  return createInProcessPtyHost({
+    log: silentLog,
+    rcDir: mkdtempSync(join(tmpdir(), "kaval-host-rc-")),
+  }).client;
+}
 
-describe("resolveKavalAgentDrv", () => {
-  // The map is already parsed+validated by the caller; this resolver only does
-  // the genuinely-per-host arch probe + lookup against it.
-  beforeEach(() => h.resolveSystem.mockResolvedValue("x86_64-linux"));
-
-  it("ships the host-arch derivation: probe system, then map-lookup", async () => {
-    await expect(
-      resolveKavalAgentDrv("nix@prod", {
-        "x86_64-linux": "/nix/store/aaa-kaval.drv",
-        "aarch64-darwin": "/nix/store/bbb-kaval.drv",
-      }),
-    ).resolves.toBe("/nix/store/aaa-kaval.drv");
-  });
-
-  it("fails clearly when no derivation is baked for the host's system", async () => {
-    await expect(
-      resolveKavalAgentDrv("nix@prod", {
-        "aarch64-darwin": "/nix/store/bbb-kaval.drv",
-      }),
-    ).rejects.toThrow(/no kaval derivation baked for system=x86_64-linux/);
-  });
-});
-
-describe("connectPtyHostViaHost: eager drv-map validation", () => {
-  // The static-config check runs eagerly at the --host entry — BEFORE the
-  // session is constructed — so a missing/malformed map fails synchronously
-  // (caught by connectHost's fail-fast) and never enters the session's
-  // retryable "network" classification.
-  it("fails when the drv map is missing entirely (run outside the Nix wrapper)", async () => {
-    delete process.env.KAVAL_AGENT_DRVS_JSON;
-    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
-      /KAVAL_AGENT_DRVS_JSON is not set/,
-    );
-    // It threw before ever constructing a session — no reconnect path entered.
-    expect(getHostSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects a malformed (non-string-valued) map", async () => {
-    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({ "x86_64-linux": 7 });
-    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
-      /must be a JSON object of \{ system: drvPath \} strings/,
-    );
-    expect(getHostSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects a JSON array (an object whose string values would slip the shape check)", async () => {
-    // An array passes `typeof === "object"` and all-string `Object.values`, so
-    // without an explicit array guard it would slip past eager validation and
-    // only fail later as a host-system map miss after the ssh probe.
-    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify(["/nix/store/x.drv"]);
-    await expect(connectPtyHostViaHost("nix@prod")).rejects.toThrow(
-      /must be a JSON object of \{ system: drvPath \} strings/,
-    );
-    expect(getHostSession).not.toHaveBeenCalled();
-  });
-});
+afterEach(() => vi.clearAllMocks());
 
 describe("connectPtyHostViaHost", () => {
-  let dispose: () => void;
+  it("dials with kaval's binary, env var, and drvNoun", async () => {
+    const client = inProcessKavalClient();
+    h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
 
-  beforeEach(() => {
-    // `connectPtyHostViaHost` parses the drv map eagerly at entry, so the
-    // happy-path dial needs a valid one even though the fake session never
-    // invokes the deferred resolver.
-    process.env.KAVAL_AGENT_DRVS_JSON = JSON.stringify({
-      "x86_64-linux": "/nix/store/aaa-kaval.drv",
-    });
-    const inproc = createInProcessPtyHost({
-      log: silentLog,
-      rcDir: mkdtempSync(join(tmpdir(), "kaval-host-rc-")),
-    });
-    // The fake ssh session hands back a real in-process kaval client.
-    h.pin.current = async () => inproc.client;
-  });
-
-  afterEach(() => dispose?.());
-
-  it("dials, proves the link, marks the session connected, and yields a usable client", async () => {
     const conn = await connectPtyHostViaHost("nix@prod");
-    dispose = conn.dispose;
 
-    // getHostSession was asked for THIS host with binary=kaval and a deferred
-    // resolver (not awaited at construction).
-    expect(getHostSession).toHaveBeenCalledWith(
-      expect.objectContaining({ host: "nix@prod", binary: "kaval" }),
-    );
-    const opts = vi.mocked(getHostSession).mock.calls[0]?.[0];
-    expect(typeof opts?.resolveDrvPath).toBe("function");
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+    expect(opts).toMatchObject({
+      host: "nix@prod",
+      binary: "kaval",
+      envVar: "KAVAL_AGENT_DRVS_JSON",
+      drvNoun: "kaval",
+    });
 
-    // The connect path roundtripped one RPC and flipped the watchdog off — so a
-    // long `attach` can't be reaped at 30s.
-    expect(h.markConnected).toHaveBeenCalledTimes(1);
-
-    // The returned Connection is the SAME shape cmd*() use: a real ptyHostSurface
-    // round-trip works over it (here `list`, against the in-process host).
+    // The returned Connection is the SAME shape cmd*() use.
     const { entries } = await conn.client.surface.terminal.list({});
     expect(Array.isArray(entries)).toBe(true);
   });
 
-  it("dispose tears down the ssh session", async () => {
+  it("the probe roundtrips system.heartbeat (kaval's liveness verb)", async () => {
+    const client = inProcessKavalClient();
+    h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
+
+    await connectPtyHostViaHost("nix@prod");
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+
+    // Running the probe against the real in-process host roundtrips one RPC —
+    // the connectivity proof the one-shot dial uses.
+    // biome-ignore lint/suspicious/noExplicitAny: the mocked generic collapses the probe's client type; the in-process client speaks the same contract.
+    await expect(opts?.probe(client as any)).resolves.toBeDefined();
+  });
+
+  it("threads dispose back through the Connection", async () => {
+    const dispose = vi.fn();
+    h.dialAgentOnce.mockResolvedValue({
+      client: inProcessKavalClient(),
+      dispose,
+    });
     const conn = await connectPtyHostViaHost("nix@prod");
-    dispose = conn.dispose;
     conn.dispose();
-    expect(h.destroy).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 });

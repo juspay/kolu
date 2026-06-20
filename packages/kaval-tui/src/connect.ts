@@ -14,7 +14,7 @@ import {
 
 /** The contract-typed pty-host client — `ContractRouterClient<contract,
  *  ClientRetryPluginContext>`. Identical whether the link is a local unix socket
- *  (`unixSocketLink`) or an ssh stdio child (`getHostSession` → `stdioLink`), so
+ *  (`unixSocketLink`) or an ssh stdio child (`dialAgentOnce` → `stdioLink`), so
  *  one client type backs both transports. */
 export type PtyTuiClient = UnixSocketConnection<
   typeof ptyHostSurface.contract

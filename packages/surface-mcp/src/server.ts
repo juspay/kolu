@@ -17,6 +17,7 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  */
 
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -555,17 +556,14 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   if (call === undefined) return undefined;
   if (call.kind === "event") return { value: null, mimeType: call.mimeType };
   const source = await call.proc(call.input);
-  const value = await firstFrame(source);
+  // An MCP snapshot reads as JSON `null` (never `undefined`) when the source has
+  // no current value, so coerce the empty-stream `undefined` to `null` here.
+  const value =
+    source === undefined || source === null
+      ? null
+      : ((await firstFrameOrUndefined(source as AsyncIterable<unknown>)) ??
+        null);
   return { value, mimeType: call.mimeType };
-}
-
-/** The first frame of a snapshot-then-deltas stream — its current snapshot. */
-async function firstFrame(source: unknown): Promise<unknown> {
-  if (source === undefined || source === null) return null;
-  for await (const frame of source as AsyncIterable<unknown>) {
-    return frame;
-  }
-  return null;
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's

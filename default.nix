@@ -36,6 +36,12 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
+  # Per-system `{ system → arivu .drv }` map, baked onto the arivu-tui wrapper as
+  # ARIVU_AGENT_DRVS_JSON so `arivu-tui --host <ssh>` can ship the target-arch
+  # arivu DAEMON derivation (provisionAgent copies+realises it on the remote).
+  # Built across all systems in flake.nix and threaded in here, exactly like
+  # kavalAgentDrvsJson. Defaults to "{}" for a bare `nix-build default.nix`.
+, arivuAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -392,6 +398,32 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
+  # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
+  # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
+  # remote. Both kaval-tui and arivu-tui are this exact shape, differing only in
+  # name, entrypoint, and the per-system `{ system → agent .drv }` map env var —
+  # so the makeWrapper invocation lives here once instead of being copy-pasted per
+  # CLI. The map is baked with `--set` (NOT `--set-default`): it is a baked build
+  # fact — the exact derivations this wrapper ships and realises on the remote —
+  # not a tunable. `--set-default` would let an ambient/stale
+  # `*_AGENT_DRVS_JSON` inherited from the caller's env silently override the
+  # Nix-computed source of truth and make the wrapper provision the WRONG agent,
+  # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
+  # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
+  # provisionAgent's `nix copy` / `nix-store`).
+  mkAgentTuiWrapper = { name, entry, envVar, agentDrvsJson }:
+    pkgs.runCommand name
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        meta.mainProgram = name;
+      } ''
+      mkdir -p $out/bin
+      makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
+        --add-flags "${kolu}/${entry}" \
+        --set ${envVar} '${agentDrvsJson}' \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
+    '';
+
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
   # (or, with --socket, a kolu-server's) pty-host unix socket and lists/snapshots/
   # attaches its live PTYs. Runs from the SAME built workspace closure as `kolu`
@@ -400,20 +432,13 @@ let
   #
   # R-2's `--host <ssh>` rides this wrapper: KAVAL_AGENT_DRVS_JSON carries the
   # per-system `{ system → kaval .drv }` map so the CLI can ship the target-arch
-  # kaval derivation to a remote, and openssh + nix are on PATH for the provision
-  # (resolveSystem's ssh arch-probe + provisionAgent's `nix copy` / `nix-store`).
-  # `--set-default` (not `--set`) so a power user can override the map.
-  kaval-tui = pkgs.runCommand "kaval-tui"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "kaval-tui";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kaval-tui \
-      --add-flags "${kolu}/packages/kaval-tui/src/main.ts" \
-      --set-default KAVAL_AGENT_DRVS_JSON '${kavalAgentDrvsJson}' \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
-  '';
+  # kaval derivation to a remote.
+  kaval-tui = mkAgentTuiWrapper {
+    name = "kaval-tui";
+    entry = "packages/kaval-tui/src/main.ts";
+    envVar = "KAVAL_AGENT_DRVS_JSON";
+    agentDrvsJson = kavalAgentDrvsJson;
+  };
 
   # arivu (arivu plan P1c): the standalone terminal-awareness daemon. Dials a
   # running kaval as a plain ptyHostSurface client, runs the awareness sensors
@@ -441,22 +466,22 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # arivu-tui (arivu plan P1c): the terminal-side viewer that dials a running
-  # arivu's awareness socket and lists/watches what each terminal IS IN (branch
-  # · PR · agent · foreground). Runs from the SAME built workspace closure as
-  # `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no state
-  # dir, just nodejs. (A remote `--host <ssh>` dial, riding @kolu/surface-nix-host
-  # like kaval-tui's, is P2 — this build registers the local viewer.)
-  arivu-tui = pkgs.runCommand "arivu-tui"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "arivu-tui";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/arivu-tui \
-      --add-flags "${kolu}/packages/arivu-tui/src/bin.ts" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
-  '';
+  # arivu-tui (arivu plan P1c + P2): the terminal-side viewer that dials a
+  # running arivu's awareness socket and lists/watches what each terminal IS IN
+  # (branch · PR · agent · foreground). Runs from the SAME built workspace closure
+  # as `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no
+  # state dir.
+  #
+  # P2's `--host <ssh>` rides this wrapper (the same shape as kaval-tui's, via
+  # mkAgentTuiWrapper): ARIVU_AGENT_DRVS_JSON carries the per-system `{ system →
+  # arivu .drv }` map so the viewer can ship the target-arch arivu DAEMON
+  # derivation to a remote.
+  arivu-tui = mkAgentTuiWrapper {
+    name = "arivu-tui";
+    entry = "packages/arivu-tui/src/bin.ts";
+    envVar = "ARIVU_AGENT_DRVS_JSON";
+    agentDrvsJson = arivuAgentDrvsJson;
+  };
 
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`

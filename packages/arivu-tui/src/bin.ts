@@ -9,8 +9,18 @@
  *
  * `list` prints a short id (the leading chars of the full uuid); `<id>` in
  * `watch` is that short form or any unique prefix, resolved against the live set.
- * By default it reaches an arivu on THIS machine; `--socket PATH` points at a
- * different local socket. (A remote `--host <ssh>` dial is P2.)
+ * By default it reaches an arivu on THIS machine. Two ways to point it
+ * elsewhere, mutually exclusive:
+ *   --socket PATH   a different LOCAL socket.
+ *   --host <ssh>    a REMOTE arivu over ssh: provision the daemon's closure with
+ *                   Nix, run `arivu --stdio`, and dial it — the same awareness
+ *                   surface over a different transport (see `hostConnect.ts`).
+ *                   The remote arivu DISCOVERS the running kaval — a standalone
+ *                   one or a home-manager kolu-server (namespaced by listen
+ *                   port) — so `--host` lands on your remote kolu's terminals
+ *                   with no extra flag. Add `--kaval <path>` only to pick one
+ *                   when several kavals run on the host. Nothing survives the
+ *                   link (arivu is ephemeral by design).
  */
 
 import { homedir } from "node:os";
@@ -18,6 +28,7 @@ import { ARIVU_CONTRACT_VERSION, type TerminalId } from "@kolu/arivu-contract";
 import { arivuSocketPath } from "@kolu/arivu-contract/socket";
 import { cli, command } from "cleye";
 import { type Connection, connectArivu } from "./connect.ts";
+import { connectArivuViaHost } from "./hostConnect.ts";
 import { snapshotAwareness } from "./read.ts";
 import {
   formatAwarenessJson,
@@ -37,12 +48,36 @@ const socketFlag = {
   },
 } as const;
 
+// --host reaches a REMOTE arivu over ssh, provisioning it with Nix. Mutually
+// exclusive with --socket (a local path); the conflict is rejected in main().
+const hostFlag = {
+  host: {
+    type: String,
+    description:
+      "reach an arivu on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote arivu dials the remote kaval and recomputes awareness from now. Mutually exclusive with --socket. Goes AFTER the subcommand.",
+  },
+} as const;
+
+// --kaval pins WHICH kaval the remote arivu dials, for a host running several
+// (e.g. two kolu-servers). Only meaningful with --host; rejected otherwise.
+const kavalFlag = {
+  kaval: {
+    type: String,
+    description:
+      "with --host: the kaval pty-host socket the remote arivu should dial (e.g. $XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock). Default: the remote arivu discovers the running kaval (standalone, or a kolu-server). Goes AFTER the subcommand.",
+  },
+} as const;
+
+// Every subcommand can target a local socket or a remote host (+ pick the
+// remote's kaval).
+const endpointFlags = { ...socketFlag, ...hostFlag, ...kavalFlag } as const;
+
 const argv = cli({
   name: "arivu-tui",
   version: ARIVU_CONTRACT_VERSION,
   help: {
     description:
-      "A viewer for the arivu terminal-awareness daemon (beta). Dials a running arivu over its local unix socket — start it with `arivu` (which itself needs a running kaval).",
+      "A viewer for the arivu terminal-awareness daemon (beta). Dials a running arivu over its local unix socket — start it with `arivu` (which itself needs a running kaval). Use `--host <ssh>` to provision and dial an arivu on a remote machine.",
   },
   commands: [
     command({
@@ -52,7 +87,7 @@ const argv = cli({
           "Show every terminal's awareness — a vertical record per terminal.",
       },
       flags: {
-        ...socketFlag,
+        ...endpointFlags,
         json: {
           type: Boolean,
           description: "machine-readable JSON output (a top-level array)",
@@ -67,7 +102,7 @@ const argv = cli({
         description:
           "Follow one terminal's awareness live until Ctrl-C. <id> is the short id from `list` or any unique prefix.",
       },
-      flags: { ...socketFlag },
+      flags: { ...endpointFlags },
     }),
   ],
 });
@@ -77,9 +112,9 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-/** Dial the arivu daemon — an explicit `--socket`, else the default path. Fails
- *  loud with an actionable hint if nothing is listening. */
-function connect(socketOverride: string | undefined): Promise<Connection> {
+/** Dial a LOCAL arivu over its unix socket — an explicit `--socket`, else the
+ *  default path. Fails loud with an actionable hint if nothing is listening. */
+function connectLocal(socketOverride: string | undefined): Promise<Connection> {
   const socketPath = arivuSocketPath(socketOverride);
   return connectArivu(socketPath).catch((err) => {
     const code = (err as NodeJS.ErrnoException).code;
@@ -87,6 +122,20 @@ function connect(socketOverride: string | undefined): Promise<Connection> {
       `no arivu at ${socketPath}${code ? ` (${code})` : ""} — is it running? Start it with \`arivu\` (it needs a running kaval).`,
     );
   });
+}
+
+/** Reach a REMOTE arivu over ssh (`--host`): provision the daemon with Nix and
+ *  dial it. Fails loud with the underlying ssh/nix error so a misconfigured host
+ *  (no passwordless ssh, the user not in the remote's `trusted-users`) reads as
+ *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
+ *  the first failure instead of spinning on HostSession's reconnect loop. */
+function connectHost(
+  host: string,
+  kavalSocket: string | undefined,
+): Promise<Connection> {
+  return connectArivuViaHost(host, kavalSocket).catch((err) =>
+    fail(`could not reach arivu on ${host} — ${(err as Error).message}`),
+  );
 }
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
@@ -136,8 +185,18 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
           break;
         }
       }
-    } catch {
-      // aborted, or the keys stream ended — nothing to do.
+    } catch (err) {
+      // An abort (Ctrl-C, or the terminal departed) and the normal
+      // dispose-driven teardown both surface here as aborted — stay silent.
+      // A keys-stream failure BEFORE any abort is a real fault, not "nothing to
+      // do": surface it rather than collapse it to empty (the main `get` stream
+      // usually reports the same link failure, but a keys-only fault would
+      // otherwise vanish).
+      if (!abort.signal.aborted) {
+        process.stderr.write(
+          `arivu-tui: terminal-departure watch failed: ${(err as Error).message}\n`,
+        );
+      }
     }
   })();
 
@@ -175,7 +234,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const conn = await connect(argv.flags.socket);
+  // Pick the transport: --host reaches a remote arivu over ssh; otherwise dial
+  // a local socket. They name two different daemons (an ssh target vs a path),
+  // so passing both is a usage error rather than a precedence puzzle.
+  if (argv.flags.host !== undefined && argv.flags.socket !== undefined) {
+    fail(
+      "--host and --socket are mutually exclusive: --host reaches a remote arivu over ssh, --socket dials a local one. Pass just one.",
+    );
+  }
+  // --kaval selects WHICH kaval the remote arivu dials — it only travels over
+  // the --host dial. Without --host there is no remote arivu to point at (a
+  // local arivu was already started against its own kaval), so reject it loudly
+  // rather than silently ignore it.
+  if (argv.flags.kaval !== undefined && argv.flags.host === undefined) {
+    fail(
+      "--kaval only applies with --host (it picks which kaval the remote arivu dials). For a local arivu, point arivu itself at the kaval when you start it.",
+    );
+  }
+  const conn =
+    argv.flags.host !== undefined
+      ? await connectHost(argv.flags.host, argv.flags.kaval)
+      : await connectLocal(argv.flags.socket);
   try {
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "watch") await cmdWatch(conn, argv._.id);

@@ -2,9 +2,10 @@
  * Dial an `arivu` daemon over its unix socket and hand back a contract-typed
  * client for the awareness surface. The transport is `unixSocketLink` — the
  * local-IPC member of `@kolu/surface`'s link family, the same one kaval-tui
- * uses for the pty-host. A future `--host <ssh>` (P2) swaps only the link
- * (`getHostSession` → stdio over `arivu --stdio`); every command is written
- * against `Connection`, so it stays transport-blind.
+ * uses for the pty-host. The `--host <ssh>` path swaps only the link
+ * (`dialAgentOnce` → stdio over `arivu --stdio`, see `hostConnect.ts`) and
+ * returns this SAME `Connection`; every command is written against it, so it
+ * stays transport-blind.
  */
 
 import type { arivuSurface } from "@kolu/arivu-contract";

@@ -396,6 +396,26 @@ a3f10000  feat/dial-ssh  #1412 ✓   claude · working  node
 b7c20000  master         —         codex · waiting   codex
 c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      Like <code class="mono text-ink">kaval-tui</code>, arivu-tui reaches{" "}
+      <span class="text-ink">another machine</span> over ssh with{" "}
+      <code class="mono text-ink">--host</code>: it Nix-provisions the arivu
+      daemon there, runs it against the remote kaval, and renders the same
+      dashboard — the read-only viewer is the only thing that runs locally. The
+      remote arivu <span class="text-ink">discovers</span> the running kaval — a
+      standalone one, or a kolu-server (each namespaced by listen port) — so it
+      lands on your remote kolu's terminals with <span class="text-ink">no
+      flag</span>; add <code class="mono text-ink">--kaval &lt;path&gt;</code>{" "}
+      only to pick one when several kavals run on the host.
+    </p>
+    <div class="kv-term">
+      <span class="cmd"
+        >nix run github:juspay/kolu#arivu-tui -- list --host nix@prod</span
+      >
+      <span class="cmd"
+        >nix run github:juspay/kolu#arivu-tui -- watch &lt;id&gt; --host nix@prod</span
+      >
+    </div>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       Where <code class="mono text-ink">kaval-tui</code> shows what's{" "}
       <em>running</em> in each PTY, <code class="mono text-ink">arivu-tui</code>{" "}
       shows what each terminal <em>is in</em> — a "what is every agent doing,

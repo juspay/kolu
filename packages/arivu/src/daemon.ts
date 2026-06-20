@@ -43,11 +43,10 @@ import {
 } from "@kolu/terminal-awareness";
 import { implement } from "@orpc/server";
 import {
-  getPtyHostSocketPath,
-  KAVAL_NS_PREFIX,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostListEntry,
   type ptyHostSurface,
+  resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
 import { makeAwarenessSink } from "./hooks.ts";
@@ -60,8 +59,10 @@ export type ArivuServe =
   | { kind: "stdio" };
 
 export interface ArivuDaemonOptions {
-  /** The kaval socket to dial. Default: the standalone kaval's own socket
-   *  (`$XDG_RUNTIME_DIR/kaval/pty-host.sock`). */
+  /** The kaval socket to dial. Default: the running kaval, **discovered** — a
+   *  standalone `kaval` or a kolu-server (which namespaces its daemon by listen
+   *  port). Set explicitly (`--kaval`) only to override discovery or to pick one
+   *  when several daemons are up. */
   kavalSocket?: string;
   serve: ArivuServe;
   log: Logger;
@@ -82,12 +83,34 @@ export type ArivuReady =
 
 const DEFAULT_POLL_MS = 1000;
 
+/** The kaval socket arivu dials. The selection policy (explicit wins; else
+ *  discover; one→use it; many→ambiguous; none→default) plus the candidate labels
+ *  live in `kaval`'s `resolveRunningKavalSocket` — beside the namespace
+ *  construction they invert — so here arivu only renders the `many` case as its
+ *  own `--kaval`-flavored error. */
+export function resolveKavalSocket(explicit: string | undefined): string {
+  const resolved = resolveRunningKavalSocket(explicit);
+  if (resolved.kind === "many") {
+    // Each candidate, ready to paste back after `--kaval`; the label tells a
+    // port-namespaced kolu-server apart from a standalone daemon.
+    const { candidates } = resolved;
+    const options = candidates.map(
+      ({ socket, label }) => `  --kaval ${socket}    (${label})`,
+    );
+    throw new Error(
+      `more than one kaval is running on this host — say which to read by re-running with --kaval:\n${options.join(
+        "\n",
+      )}\n(e.g. arivu-tui list --host <ssh> --kaval ${candidates[0]?.socket})`,
+    );
+  }
+  return resolved.socket;
+}
+
 /** Run the arivu daemon to completion. Resolves when the serve link ends
  *  (stdio) or a stop signal fires (socket). */
 export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
   const { log, signal } = opts;
-  const kavalSocket =
-    opts.kavalSocket ?? getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
+  const kavalSocket = resolveKavalSocket(opts.kavalSocket);
 
   // ── Dial kaval (upstream) and confirm a compatible contract ─────────
   let kaval: UnixSocketConnection<typeof ptyHostSurface.contract>;
