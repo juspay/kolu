@@ -120,6 +120,21 @@ stdenv.mkDerivation (finalAttrs: {
     runHook postInstall
   '';
 
+  # Build-time smoke: run the INSTALLED entry under Bun so a missing hydrated
+  # dep, a Bun-vs-Node resolver gap, or a node-compat hole fails the Nix build
+  # here — not silently at the user's first invocation. `--help` is the cheapest
+  # full proof: cleye's `cli()` runs at module top level, so reaching the help
+  # exit forces Bun to resolve+evaluate the ENTIRE import graph (every hydrated
+  # @kolu/* and ./connect, ./hostConnect, ./read, ./render) before it prints and
+  # exits 0 — all WITHOUT a live arivu socket. Exercises $out's exact tree (the
+  # installed src + hydrated node_modules), the same files the wrapper exec's.
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    ${bun}/bin/bun $out/lib/arivu-tui/src/bin.ts --help > /dev/null
+    runHook postInstallCheck
+  '';
+
   # `entryPath` is the single source of truth for the Bun entry the wrapper in
   # `../../default.nix` exec's: installPhase produces it under this `$out`, and
   # the wrapper consumes `arivuTuiBuilt.entryPath` — one value, so the two files

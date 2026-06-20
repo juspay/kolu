@@ -42,14 +42,6 @@
   # Built across all systems in flake.nix and threaded in here, exactly like
   # kavalAgentDrvsJson. Defaults to "{}" for a bare `nix-build default.nix`.
 , arivuAgentDrvsJson ? "{}"
-  # The bun2nix helper set (`lib.mkBun2nix { pkgs }` output), threaded from
-  # flake.nix. Needed ONLY by the bun-built `arivu-tui` viewer (arivu P3 PR1) to
-  # realise its dep cache from the committed bun.nix. Lazy: a bare
-  # `nix-build default.nix` (or the daemon-drvPath import in flake.nix) leaves it
-  # null and never forces the bun build, which throws a clear error if accessed
-  # without it. The Bun runtime is contained to the viewer — the arivu daemon and
-  # the rest of kolu stay Node.
-, b2n ? null
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -496,26 +488,28 @@ let
   # `nix-store` path mkAgentTuiWrapper documents); nodejs is NOT — Bun replaces
   # it, and the viewer spawns no node locally.
   arivu-tui =
-    if b2n == null
-    then throw "arivu-tui is a Bun build (arivu P3 PR1) — invoke via flake.nix, which threads `b2n`; a bare `nix-build default.nix` can't realise it"
-    else
-      let
-        arivuTuiBuilt = pkgs.callPackage ./nix/packages/arivu-tui {
-          bun2nix = b2n;
-          koluSrc = src;
-        };
-      in
-      pkgs.runCommand "arivu-tui"
-        {
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          meta.mainProgram = "arivu-tui";
-        } ''
-        mkdir -p $out/bin
-        makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
-          --add-flags "${arivuTuiBuilt.entryPath}" \
-          --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
-          --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]}
-      '';
+    let
+      # bun2nix via npins (NOT a flake input) — see nix/bun2nix.nix. Forced only
+      # here (the daemon-drvPath import in flake.nix and a bare `nix-build
+      # default.nix` never touch this attr), so `nix develop` cold eval and the
+      # Node build paths never realise bun2nix's transitive nodes.
+      b2n = import ./nix/bun2nix.nix { inherit pkgs; };
+      arivuTuiBuilt = pkgs.callPackage ./nix/packages/arivu-tui {
+        bun2nix = b2n;
+        koluSrc = src;
+      };
+    in
+    pkgs.runCommand "arivu-tui"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        meta.mainProgram = "arivu-tui";
+      } ''
+      mkdir -p $out/bin
+      makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
+        --add-flags "${arivuTuiBuilt.entryPath}" \
+        --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]}
+    '';
 
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
