@@ -3,8 +3,8 @@
 import { resumeAgentCommand } from "anyagent/cli";
 import {
   type InitialTerminalMetadata,
+  type PersistedTerminalFields,
   type SavedSession,
-  type SavedTerminal,
   sleepingArm,
   type TerminalId,
   type TerminalInfo,
@@ -159,9 +159,14 @@ export function useSessionRestore(deps: {
    *  layers that on top, and wake sets the active id itself.
    *
    *  `resume` gates the agent auto-launch (session restore honors the user's
-   *  per-terminal opt-out; wake always resumes). Returns the new id. */
+   *  per-terminal opt-out; wake always resumes). Returns the new id.
+   *
+   *  Takes only the persisted base (`PersistedTerminalFields`) it actually
+   *  consumes — neither caller forges a discriminant: the session loop passes its
+   *  `SavedActiveTerminal` (a structural superset) and Wake passes the
+   *  `SleepingTerminal` record unchanged, no `state: "active"` cast. */
   async function restoreOneTerminal(
-    t: SavedTerminal,
+    t: PersistedTerminalFields,
     resume: boolean,
   ): Promise<TerminalId> {
     // `t.location` is deliberately NOT forwarded: the create seam carries only
@@ -204,15 +209,12 @@ export function useSessionRestore(deps: {
     const rec = sleepingArm(store.getMetadata(sleepingId));
     if (!rec) return;
     // restore-one FIRST — create + resume against the frozen base. The record is
-    // `SleepingTerminal` (persisted base + sleptAt); `SavedTerminal` is the same
-    // base + id, so it slots straight in. If create throws, `handleCreate`
-    // already toasted and the await propagates — the sleeping record is left
-    // intact (we never reach the discard below), so the Wake button stays
-    // retryable.
-    const newId = await restoreOneTerminal(
-      { ...rec, id: sleepingId, state: "active" },
-      true,
-    );
+    // `SleepingTerminal` (persisted base + sleptAt); `restoreOneTerminal` consumes
+    // only the persisted base, so the record slots straight in with no
+    // `state: "active"` cast. If create throws, `handleCreate` already toasted and
+    // the await propagates — the sleeping record is left intact (we never reach
+    // the discard below), so the Wake button stays retryable.
+    const newId = await restoreOneTerminal(rec, true);
     // Only after the replacement spawns: drop the retired sleeping record (no
     // PTY to kill — it was released at sleep time).
     await client.terminal
