@@ -158,7 +158,16 @@ const KeepAliveMode: Component<{
   );
   return (
     <Show when={visited()}>
-      <div class="h-full w-full" classList={{ hidden: !props.show }}>
+      {/* `aria-hidden` on the inactive slot mirrors RightPanel's kept-alive
+          content pane: `display:none` already removes it from the a11y tree,
+          so this is belt-and-suspenders, but it keeps the repo's keep-alive
+          slots consistent rather than handling the same hidden-surface a11y
+          axis two different ways. */}
+      <div
+        class="h-full w-full"
+        classList={{ hidden: !props.show }}
+        aria-hidden={!props.show}
+      >
         {props.render(heldFile())}
       </div>
     </Show>
