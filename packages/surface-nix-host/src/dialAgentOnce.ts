@@ -158,26 +158,26 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // Capture the agent's OWN fatal reason as the session streams it. When the
   // agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
-  // the agent's last stderr line (on the session's `progressLines`) is the real
-  // reason. The agent writes its fatal as `<drvNoun>: <message>` to stderr right
-  // before exiting (see arivu's bin.ts), which lands in `progressLines`
-  // alongside the session's OWN local lifecycle lines ("agent exited",
-  // "reconnecting in 2000ms…"). The mere PRESENCE of such an agent-prefixed line
-  // IS the failure reason — it's only ever written on a fatal — so we pick it by
-  // prefix (NOT `at(-1)`, the session's reconnect chatter). Capturing it the
-  // instant it streams avoids depending on the child-`exit` event having landed
-  // `failureCause` yet, which races the probe's stream-closed rejection.
-  // `HostSession` stores a forwarded remote-stderr line as `[remote] <line>`
-  // (local lifecycle is `[local] …`), so the agent's fatal is `[remote]
-  // <drvNoun>: <message>`. Match that exact shape and strip the whole prefix.
-  const agentFatal = (lines: readonly string[]): string | undefined => {
-    const prefix = `[remote] ${opts.drvNoun}:`;
-    const own = lines.filter((l) => l.startsWith(prefix)).at(-1);
+  // the agent's last stderr line (on the session's `remoteProgressLines`) is the
+  // real reason. The agent writes its fatal as `<drvNoun>: <message>` to its own
+  // stderr right before exiting (see arivu's bin.ts), forwarded onto
+  // `remoteProgressLines` — the remote-origin lines, already separated from the
+  // session's OWN local lifecycle chatter ("agent exited", "reconnecting in
+  // 2000ms…"). Reading them BY ORIGIN (the field) rather than re-parsing the
+  // session's internal `[remote] ` tag keeps the only shared convention here the
+  // agent's own `<drvNoun>:` fatal shape. The mere PRESENCE of such a line IS the
+  // failure reason — it's only ever written on a fatal — so we match by that
+  // prefix (NOT `at(-1)`). Capturing it the instant it streams avoids depending
+  // on the child-`exit` event having landed `failureCause` yet, which races the
+  // probe's stream-closed rejection.
+  const agentFatal = (remoteLines: readonly string[]): string | undefined => {
+    const prefix = `${opts.drvNoun}:`;
+    const own = remoteLines.filter((l) => l.startsWith(prefix)).at(-1);
     return own?.slice(prefix.length).trim();
   };
   let agentReason: string | undefined;
   const offState = session.onState((s) => {
-    agentReason = agentFatal(s.progressLines) ?? agentReason;
+    agentReason = agentFatal(s.remoteProgressLines) ?? agentReason;
   });
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
   // failure anywhere in pin/probe must destroy the session itself — otherwise
@@ -206,7 +206,8 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // the session state before we read it.
     await new Promise((resolve) => setImmediate(resolve));
     offState();
-    const reason = agentReason ?? agentFatal(session.current().progressLines);
+    const reason =
+      agentReason ?? agentFatal(session.current().remoteProgressLines);
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {

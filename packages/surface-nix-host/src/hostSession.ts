@@ -81,8 +81,18 @@ export type ConnectionState =
 export interface HostSessionState {
   connection: ConnectionState;
   /** Free-form progress lines (last 20) — `nix copy` output, ssh
-   *  start, agent fatal-error tails. */
+   *  start, agent fatal-error tails. Carries BOTH parent-side (`[local] …`)
+   *  and forwarded remote-stderr (`[remote] …`) lines for a unified log; a
+   *  consumer that needs only the remote ones reads `remoteProgressLines`
+   *  rather than re-parsing the `[remote] ` tag. */
   progressLines: readonly string[];
+  /** The forwarded remote-agent stderr lines (last 20), WITHOUT the `[remote] `
+   *  log tag — the agent's own output as it wrote it. Exposed as its own field
+   *  so a consumer can read the agent's fatal line by origin (e.g. the one-shot
+   *  dialer surfacing the remote's real reason) instead of string-matching the
+   *  `[remote] ` prefix `progressLines` mixes in, which would couple it to this
+   *  session's internal tagging convention. */
+  remoteProgressLines: readonly string[];
   /** Last error if `connection === "disconnected"` or `"failed"`. */
   lastError: string | null;
   /** Why the link is down — set alongside `disconnected`/`failed`, and
@@ -166,6 +176,7 @@ export class HostSession<C extends AnyContractRouter> {
   private readonly stateCell = inMemoryCell<HostSessionState>({
     connection: "copying",
     progressLines: [],
+    remoteProgressLines: [],
     lastError: null,
     failureCause: null,
   });
@@ -311,10 +322,15 @@ export class HostSession<C extends AnyContractRouter> {
   private updateState(patch: Partial<HostSessionState>): void {
     const prev = this.stateCell.current();
     const next: HostSessionState = { ...prev, ...patch };
-    // Cap the progress-lines tail so we don't OOM on a long-running
+    // Cap the progress-lines tails so we don't OOM on a long-running
     // session that produces many copy/restart cycles.
     if (patch.progressLines !== undefined) {
       next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
+    }
+    if (patch.remoteProgressLines !== undefined) {
+      next.remoteProgressLines = patch.remoteProgressLines.slice(
+        -MAX_PROGRESS_LINES,
+      );
     }
     if (patch.connection !== undefined) {
       this.logTransition(prev.connection, patch.connection);
@@ -350,15 +366,16 @@ export class HostSession<C extends AnyContractRouter> {
   }
 
   /** A line the *remote* agent wrote to its own stderr, forwarded
-   *  through the ssh subprocess. Tagged `[remote]` so the parent's
-   *  own activity is distinguishable in the same log. */
+   *  through the ssh subprocess. Tagged `[remote]` in the unified
+   *  `progressLines` log so the parent's own activity is distinguishable, and
+   *  kept UNTAGGED in `remoteProgressLines` so a consumer reads the agent's own
+   *  output by origin rather than re-parsing the tag. */
   private addRemoteProgress(line: string): void {
     process.stderr.write(`[host:${this.opts.host} remote] ${line}\n`);
+    const current = this.stateCell.current();
     this.updateState({
-      progressLines: [
-        ...this.stateCell.current().progressLines,
-        `[remote] ${line}`,
-      ],
+      progressLines: [...current.progressLines, `[remote] ${line}`],
+      remoteProgressLines: [...current.remoteProgressLines, line],
     });
   }
 

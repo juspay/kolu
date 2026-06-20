@@ -41,6 +41,7 @@ const h = vi.hoisted(() => ({
   state: {
     connection: "connecting",
     progressLines: [] as string[],
+    remoteProgressLines: [] as string[],
     lastError: null as string | null,
     failureCause: null as string | null,
   },
@@ -87,6 +88,7 @@ afterEach(() => {
   h.state = {
     connection: "connecting",
     progressLines: [],
+    remoteProgressLines: [],
     lastError: null,
     failureCause: null,
   };
@@ -270,16 +272,21 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     fakeSession({});
     h.state = {
       connection: "disconnected",
-      // The agent's own line, THEN the session's local lifecycle lines — so a
-      // naive `at(-1)` would wrongly surface the reconnect chatter. The agent's
-      // `<drvNoun>:`-prefixed line is the one to pick (and its prefix stripped,
-      // since the caller re-labels with "could not reach …").
-      // The real stored shape: forwarded remote stderr is `[remote] <line>`,
-      // the session's own lifecycle is `[local] <line>`.
+      // The session's local lifecycle lives in the unified `progressLines` (with
+      // its `[local]`/`[remote]` tags); the agent's OWN stderr is also exposed
+      // UNTAGGED on `remoteProgressLines`, which is the field dialAgentOnce reads
+      // by origin. It matches the agent's `<drvNoun>:` fatal there — no longer
+      // re-parsing the session's internal `[remote] ` tag.
       progressLines: [
         "[remote] arivu: more than one kaval is running on this host",
         "[local] agent exited (code=1, signal=null)",
         "[local] reconnecting in 2000ms… (attempt 1/5)",
+      ],
+      // The remote-origin lines, untagged — including a noise line before the
+      // fatal, so the `<drvNoun>:` match (not `at(-1)`) is what picks it.
+      remoteProgressLines: [
+        "spawning awareness sensors",
+        "arivu: more than one kaval is running on this host",
       ],
       lastError: "agent exited (code=1, signal=null)",
       // null on purpose: the child-`exit` event that sets `failureCause` races
