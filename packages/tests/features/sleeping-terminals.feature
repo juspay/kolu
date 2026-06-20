@@ -69,3 +69,13 @@ Feature: Sleeping terminals
     When I sleep the active terminal
     Then there should be 1 sleeping tile
     And there should be no page errors
+
+  # A sleeping tile is a first-class tile EVERYWHERE, including the minimap (the
+  # canvas's spatial map). It was omitted entirely before — the minimap read the
+  # live-only terminal store. It now renders, moonlit-distinct (data-sleeping).
+  Scenario: A sleeping tile appears on the minimap
+    When I create a terminal
+    When I sleep the active terminal
+    Then there should be 1 sleeping tile
+    And the minimap should show 1 sleeping tile
+    And there should be no page errors

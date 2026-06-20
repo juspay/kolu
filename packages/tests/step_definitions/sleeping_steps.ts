@@ -107,6 +107,24 @@ Then(
   },
 );
 
+// A sleeping tile is a first-class tile EVERYWHERE — including the minimap, the
+// canvas's spatial map. A sleeping rect carries `data-sleeping` (moonlit), so
+// this both confirms presence (the unfixed minimap dropped sleeping tiles
+// entirely) and that it's marked distinct, not drawn as an idle live tile.
+Then(
+  "the minimap should show {int} sleeping tile(s)",
+  async function (this: KoluWorld, count: number) {
+    await this.page.waitForFunction(
+      (n) =>
+        document.querySelectorAll(
+          '[data-testid="minimap-tile-rect"][data-sleeping]',
+        ).length === n,
+      count,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "there should be {int} live tile(s)",
   async function (this: KoluWorld, count: number) {
