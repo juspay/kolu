@@ -200,6 +200,7 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
+    handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
       void importSession().then(

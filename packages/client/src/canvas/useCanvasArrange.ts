@@ -16,13 +16,17 @@ import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { getBucketFor } from "./placementPolicy";
 import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
+import { snapToGrid } from "./viewport/transforms";
+import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 export function useCanvasArrange() {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
   const pendingLayouts = usePendingLayouts();
+  const viewport = useCanvasViewport();
 
   /** Apply a tile's geometry — drag-end, resize-end, default-place,
    *  and arrange all flow through this single point. The 500ms session
@@ -84,5 +88,37 @@ export function useCanvasArrange() {
     if (id) store.activate(id);
   }
 
-  return { applyTileGeometry, handleCanvasAutoArrange, centerActive };
+  /** Reset the active terminal's tile to the default width/height and drop it
+   *  back at the viewport center — the "Reset terminal size" Debug palette
+   *  command for a tile dragged or resized into an awkward state. Seeds pending
+   *  for instant feedback (same path as drag/resize/arrange), persists the new
+   *  geometry, and recenters via `activate`. No-op off the spatial canvas
+   *  (mobile / narrow) or at zero tiles. */
+  function resetActiveTileSize() {
+    if (!supportsSpatialCanvas()) return;
+    const id = store.activeId();
+    if (!id) return;
+    // Canvas-space coordinate at the viewport center — same math the
+    // default-placement effect uses to drop a freshly created tile.
+    const { width, height } = viewport.viewportSize();
+    const zoom = viewport.zoom();
+    const cx = viewport.panX() + width / (2 * zoom);
+    const cy = viewport.panY() + height / (2 * zoom);
+    const layout: TileLayout = {
+      x: snapToGrid(cx - DEFAULT_TILE_W / 2),
+      y: snapToGrid(cy - DEFAULT_TILE_H / 2),
+      w: DEFAULT_TILE_W,
+      h: DEFAULT_TILE_H,
+    };
+    pendingLayouts.setOne(id, layout);
+    applyTileGeometry(id, layout);
+    store.activate(id);
+  }
+
+  return {
+    applyTileGeometry,
+    handleCanvasAutoArrange,
+    centerActive,
+    resetActiveTileSize,
+  };
 }

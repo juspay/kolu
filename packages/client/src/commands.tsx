@@ -138,6 +138,8 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
+  /** Reset the active terminal to its default size, centered in the viewport. */
+  handleResetActiveTileSize: () => void;
   /** Download the saved session as JSON (diagnostic backup). */
   handleExportSession: () => void;
   /** Pick a session JSON file and restore it on top of the current canvas. */
@@ -445,6 +447,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
+        },
+        {
+          kind: "action",
+          name: "Reset terminal size",
+          description:
+            "Restore the active terminal to its default size, centered",
+          onSelect: () => deps.handleResetActiveTileSize(),
         },
         {
           kind: "action",
