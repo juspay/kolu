@@ -15,6 +15,7 @@ export type PipVariant =
   | "awaiting" // bucket awaiting, !unread: quiet dim dot (lingering)
   | "working" // hollow spinning ring
   | "idle" // muted small dot
+  | "sleeping" // frozen tile — moon glyph
   | "empty"; // parked / none — render nothing
 
 /** Pure A→B bucket-to-pip mapping. TypeScript's required-property check
@@ -25,10 +26,14 @@ const BUCKET_TO_PIP: Record<DockRowBucket, PipVariant> = {
   working: "working",
   idle: "idle",
   parked: "empty",
+  sleeping: "sleeping",
   none: "empty",
 };
 
 export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
+  // A sleeping tile reads as asleep even if it had a lingering unread when it
+  // was put down — the moon wins, there's no live agent to attend to.
+  if (bucket === "sleeping") return "sleeping";
   if (unread) return "attention";
   return BUCKET_TO_PIP[bucket];
 }

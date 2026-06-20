@@ -74,6 +74,29 @@ export function snapshotSession(): SessionSnapshot {
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
+/** Snapshot ONE terminal and its split sub-terminals as `SavedTerminal[]`,
+ *  reusing the exact strip-live-fields-add-id projection of `snapshotSession`.
+ *  Parent first, then its `parentId`-children — so a wake replays
+ *  parent-before-child. Empty when `id` isn't a live terminal. This is the
+ *  single capture op behind `terminal.sleep`. */
+export function snapshotTerminal(id: TerminalId): SavedTerminal[] {
+  const entries = [...terminalEntries()];
+  const parent = entries.find(([tid]) => tid === id);
+  if (!parent) return [];
+  // Parent first, then its splits (parentId === id; a parent never has
+  // parentId === its own id, so no duplication).
+  const tree = [parent, ...entries.filter(([, e]) => e.meta.parentId === id)];
+  return tree.map(([tid, entry]): SavedTerminal => {
+    const {
+      pr: _pr,
+      agent: _agent,
+      foreground: _foreground,
+      ...persisted
+    } = entry.meta;
+    return { id: tid, ...persisted };
+  });
+}
+
 /** Create a new terminal. The endpoint owns PTY spawn, provider
  *  startup, and registry insert; this wrapper just mints an id and
  *  forwards. `initial` seeds client-owned

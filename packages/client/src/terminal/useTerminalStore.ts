@@ -42,6 +42,15 @@ export const useTerminalStore = createSharedRoot(() => {
   function focusedId(): TerminalId | null {
     const parentId = view.activeId();
     if (parentId === null) return null;
+    // The active TILE may be a sleeping (non-live) tile — `activeId` names the
+    // focused tile, but a sleeping one has no live TERMINAL to route input to,
+    // theme from, or inspect. This is the one narrowing the sleeping decomplect
+    // introduces: an active tile absent from the live list resolves to null, so
+    // every terminal-content consumer of `focusedId` treats it as "nothing live"
+    // rather than dereferencing a dead id. (A just-created tile not yet in the
+    // metadata-derived list is harmless here — focusedId's consumers are
+    // user-initiated actions, not create-time.)
+    if (!metadata.terminalIds().includes(parentId)) return null;
     const panel = subPanel.getSubPanel(parentId);
     return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
       ? panel.activeSubTab

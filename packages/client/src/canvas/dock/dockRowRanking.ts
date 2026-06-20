@@ -22,8 +22,17 @@ import { agentBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
  *  idle) because it carries a different visual treatment (faded, tinier
- *  row) and routes through staleness, not the idle-bucket classifier. */
-export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
+ *  row) and routes through staleness, not the idle-bucket classifier.
+ *  `sleeping` is a frozen, PTY-released tile — a content kind, not an agent
+ *  state, so it's decided from the tile registry (`isSleeping`), never from
+ *  metadata. */
+export type DockRowBucket =
+  | "awaiting"
+  | "working"
+  | "idle"
+  | "parked"
+  | "sleeping"
+  | "none";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
  *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
@@ -35,7 +44,8 @@ const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   working: 1,
   idle: 2,
   parked: 3,
-  none: 4,
+  sleeping: 4,
+  none: 5,
 };
 
 function classifyDockRow(
@@ -68,12 +78,18 @@ export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number) => boolean,
+  /** A sleeping (frozen, PTY-released) tile — its `meta` is synthesized from the
+   *  record, so liveness can't be read off the agent. The registry decides it.
+   *  Defaults to "never sleeping" for callers that only have live terminals. */
+  isSleeping: (id: TerminalId) => boolean = () => false,
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const bucket = classifyDockRow(meta, isStale(meta.lastActivityAt));
+    const bucket = isSleeping(id)
+      ? "sleeping"
+      : classifyDockRow(meta, isStale(meta.lastActivityAt));
     rows.push({ id, bucket, ts: meta.lastActivityAt });
   }
   rows.sort((a, b) => {

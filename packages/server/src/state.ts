@@ -25,6 +25,7 @@ import {
   type Preferences,
   PreferencesSchema,
   SavedSessionSchema,
+  SleepingTerminalSchema,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { z } from "zod";
@@ -136,6 +137,9 @@ const PersistedStateSchema = z.object({
   activityFeed: ActivityFeedSchema,
   session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
+  /** Slept terminal trees — durable across restarts; rehydrated AS sleeping.
+   *  Disjoint from `session` so the live-session autosave never clobbers it. */
+  sleepingTerminals: z.array(SleepingTerminalSchema),
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
@@ -145,7 +149,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.26.0";
+const SCHEMA_VERSION = "1.27.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -171,6 +175,7 @@ export const store = new Conf<PersistedState>({
     activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
     session: null,
     preferences: DEFAULT_PREFERENCES,
+    sleepingTerminals: [],
   },
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
@@ -538,6 +543,12 @@ export const store = new Conf<PersistedState>({
         terminals: terminals as typeof session.terminals,
       });
     },
+    // New persisted domain: `sleepingTerminals` (slept terminal trees). Seed the
+    // new array key so the now-present field parses for users upgrading from a
+    // store that predates it.
+    "1.27.0": (store: Conf<PersistedState>) => {
+      if (!store.has("sleepingTerminals")) store.set("sleepingTerminals", []);
+    },
   },
 });
 
@@ -549,6 +560,7 @@ const result = PersistedStateSchema.safeParse({
   activityFeed: store.get("activityFeed"),
   session: store.get("session"),
   preferences: store.get("preferences"),
+  sleepingTerminals: store.get("sleepingTerminals"),
 });
 if (!result.success) {
   const summary = result.error.issues

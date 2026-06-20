@@ -50,9 +50,12 @@ import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { sleepingContent } from "../../tile/tileContent";
+import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
 import type { DockRowBucket } from "./dockRowRanking";
 import { type PipVariant, pipVariant } from "./pipVariant";
+import { sleepingDockRowData } from "./sleepingDockRow";
 import { SubCountChip } from "./SubCountChip";
 
 /** Per-row combined reactive data — `info` + `meta` in a single memo.
@@ -64,11 +67,15 @@ export function createDockRowData(
   id: TerminalId,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   return createMemo(() => {
     const info = store.getDisplayInfo(id);
     const meta = store.getMetadata(id);
-    if (!info || !meta) return null;
-    return { info, meta };
+    if (info && meta) return { info, meta };
+    // No live terminal — the tile may be sleeping. Synthesize the row's
+    // {info, meta} from the record so it renders through this exact path.
+    const record = sleepingContent(tileStore.contentOf(id))?.record;
+    return record ? (sleepingDockRowData(record) ?? null) : null;
   });
 }
 
@@ -146,6 +153,14 @@ export const StatePip: Component<{
         <Match when={variant() === "idle"}>
           <span class="w-1.5 h-1.5 rounded-full bg-fg-3/55" />
         </Match>
+        <Match when={variant() === "sleeping"}>
+          <span
+            class="text-[0.7rem] leading-none text-fg-3/70"
+            aria-hidden="true"
+          >
+            ☾
+          </span>
+        </Match>
       </Switch>
     </span>
   );
@@ -156,5 +171,6 @@ const PIP_TITLES: Record<PipVariant, string> = {
   awaiting: "Awaiting input",
   working: "Working",
   idle: "Idle",
+  sleeping: "Asleep",
   empty: "",
 };

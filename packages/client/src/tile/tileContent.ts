@@ -10,7 +10,7 @@
  *  drag, resize, focus, active selection, dock ordering, and persistence for
  *  free from the content-agnostic machinery above. */
 
-import type { TerminalId } from "kolu-common/surface";
+import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
 
 /** A tile's stable identity.
  *
@@ -27,11 +27,26 @@ export type TileId = TerminalId;
 /** What a tile currently holds. A discriminated union so every consumer
  *  dispatches on `kind` instead of branching on a tile's liveness:
  *
- *  - `terminal` — a live terminal tile (the only variant today).
- *  - `sleeping` — PR 2: a frozen, PTY-released terminal that can still be
- *    focused, dragged, and resized like any tile.
+ *  - `terminal` — a live terminal tile (PTY · xterm · agent).
+ *  - `sleeping` — a frozen, PTY-released terminal that can still be focused,
+ *    dragged, and resized like any tile. Its `record` carries the full
+ *    `SavedTerminal` tree (so wake respawns it faithfully) plus the saved
+ *    canvas layout the registry reads through `getLayout`.
  *  - `planned`  — later: a tile with only a future (activate → start fresh).
  *
  *  Adding a kind is one new arm here plus one new `<Match>`/`.with(...)` at each
  *  dispatch — the silo becomes unrepresentable. */
-export type TileContent = { kind: "terminal"; terminalId: TerminalId };
+export type TileContent =
+  | { kind: "terminal"; terminalId: TerminalId }
+  | { kind: "sleeping"; record: SleepingTerminal };
+
+/** Narrow a tile's content to one arm — the accessors a `<Switch>`/`<Match>`
+ *  dispatch passes to `when`, so each `<Match>` body gets the arm's concrete
+ *  type (not the union). Stable-boolean by construction (they key off `kind`),
+ *  so the dispatch can't fall into the #989 remount trap that `match(freshObj)`
+ *  would. Pure functions over the union — the single home for "is this tile a
+ *  terminal / sleeping tile", reused by the canvas and dock. */
+export const terminalContent = (c: TileContent | undefined) =>
+  c?.kind === "terminal" ? c : undefined;
+export const sleepingContent = (c: TileContent | undefined) =>
+  c?.kind === "sleeping" ? c : undefined;

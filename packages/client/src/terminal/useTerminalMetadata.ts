@@ -22,6 +22,7 @@ import type {
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
+import { sameTerminalIdOrder } from "./terminalIdOrder";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -37,16 +38,11 @@ import {
  *  trigger; display-relevant changes (git / cwd / parentId) still re-run
  *  `displayInfos` via its own field-level subscriptions, as they should. This is
  *  the reactivity keystone of the performance map
- *  (`docs/atlas/.../performance.mdx`). Order is significant — it drives sidebar
- *  position labels — so a reorder must invalidate. A bounded-algorithm leaf,
- *  deliberately domain-specific to terminal ids rather than a generic
- *  array-equality receptacle. */
-export function sameTerminalIdOrder(
-  a: readonly TerminalId[],
-  b: readonly TerminalId[],
-): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-}
+ *  (`docs/atlas/.../performance.mdx`). The comparator itself now lives in the
+ *  `terminalIdOrder` leaf so the tile registry can gate its `tileIds` memo on
+ *  the same rule without importing this heavy module; re-exported here for
+ *  existing callers. */
+export { sameTerminalIdOrder };
 
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;

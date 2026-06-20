@@ -31,6 +31,7 @@ import {
   type RecentAgent,
   type RecentRepo,
   type SavedSession,
+  type SleepingTerminal,
   surfaces,
 } from "kolu-common/surface";
 import type { WebSocket as PartySocket } from "partysocket";
@@ -149,6 +150,18 @@ const _savedSession = app.cells.session.use({
 export const savedSession = (): SavedSession | null =>
   _savedSession.value() ?? null;
 export const savedSessionSub = _savedSession.sub;
+
+// Sleeping (slept) terminals — server-owned, read-only here; written via the
+// `terminal.sleep` / `terminal.wake` / `terminal.setSleepingLayout` procedures.
+// Durable across restarts and rehydrated AS sleeping, never auto-woken.
+const _sleepingTerminals = app.cells.sleepingTerminals.use({
+  onError: (err) =>
+    toast.error(`Sleeping-terminals subscription error: ${err.message}`),
+});
+/** Persisted list of slept terminal trees (empty until the first yield). */
+export const sleepingTerminals = (): SleepingTerminal[] =>
+  _sleepingTerminals.value() ?? [];
+export const sleepingTerminalsSub = _sleepingTerminals.sub;
 
 // Live terminal list — server-driven on create/kill.
 const _terminalList = app.cells.terminalList.use({

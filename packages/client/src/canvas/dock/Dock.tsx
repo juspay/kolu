@@ -459,6 +459,11 @@ const DockRow: Component<{
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
+          // A sleeping (dormant) row recedes like an inactive sleeping tile;
+          // active stays full-strength so a focused sleeping tile reads clearly.
+          classList={{
+            "opacity-60": props.bucket === "sleeping" && !active(),
+          }}
           onClick={() => tileStore.activate(props.id)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {

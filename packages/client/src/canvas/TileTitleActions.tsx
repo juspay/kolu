@@ -15,6 +15,7 @@ import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
+import { useSleepActions } from "../terminal/useSleepActions";
 import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalSearch } from "../terminal/useTerminalSearch";
@@ -34,6 +35,7 @@ const TileTitleActions: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
+  const sleepActions = useSleepActions();
   const search = useTerminalSearch();
   const commandPalette = useCommandPalette();
   const rightPanel = useRightPanel();
@@ -153,6 +155,19 @@ const TileTitleActions: Component<{
       >
         <ScreenshotIcon />
       </button>
+      <Tip label="Sleep terminal — freeze & resume later">
+        <button
+          type="button"
+          data-testid="tile-sleep"
+          class={`${TILE_BUTTON_CLASS} w-7`}
+          style={{ color: "var(--color-fg-3, currentColor)" }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => onTile(e, () => void sleepActions.sleep(props.id))}
+          aria-label="Sleep terminal"
+        >
+          ☾
+        </button>
+      </Tip>
     </>
   );
 };

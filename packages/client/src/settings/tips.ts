@@ -86,6 +86,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
   },
   {
+    id: "amb-sleep-terminal",
+    text: `The ☾ button in a tile's title bar (or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "Sleep terminal") freezes a terminal — its PTY and agent are released, but the tile stays put to wake later, right where you left it`,
+  },
+  {
     id: "amb-chrome-maximize",
     text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the maximize toggle in the header, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
   },

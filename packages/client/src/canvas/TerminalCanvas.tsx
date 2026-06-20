@@ -19,7 +19,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { TerminalId } from "kolu-common/surface";
+import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -33,9 +33,14 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { useSleepActions } from "../terminal/useSleepActions";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import type { TileId } from "../tile/tileContent";
+import {
+  sleepingContent,
+  terminalContent,
+  type TileId,
+} from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
@@ -44,6 +49,8 @@ import { useTileAura } from "./useTileAura";
 import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
+import SleepingTileBody from "./SleepingTileBody";
+import { MOON, MOON_BG } from "./sleepingTilePalette";
 import type { TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
@@ -108,6 +115,7 @@ const TerminalCanvas: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileStore = useTileStore();
+  const sleepActions = useSleepActions();
   const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
@@ -408,6 +416,65 @@ const TerminalCanvas: Component<{
     );
   }
 
+  /** Render a sleeping (dormant) tile — the SAME `CanvasTile` shell as a live
+   *  tile (so it inherits drag, resize, pan/zoom, maximize, and the active
+   *  outline for free), with sleeping-derived props injected: a moonlit theme
+   *  instead of a repo colour, a placeholder body carrying the Wake verb, the
+   *  × wired to DISCARD (not kill a dead terminal), and no run-state aura. This
+   *  is the whole payoff of the decomplect — a content variant rendered through
+   *  the shared path, not a parallel `SleepingCanvasTile` re-implementing the
+   *  shell. */
+  function renderSleepingTile(
+    tileId: TileId,
+    record: SleepingTerminal,
+  ): JSX.Element {
+    const active = () => tileStore.activeId() === tileId;
+    const mode = (): CanvasTileMode =>
+      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+    const label = () => {
+      const top =
+        record.terminals.find((t) => !t.parentId) ?? record.terminals[0];
+      return (
+        top?.intent?.trim() ||
+        (top ? (top.cwd.split("/").filter(Boolean).pop() ?? top.cwd) : "asleep")
+      );
+    };
+    return (
+      <CanvasTile
+        id={tileId}
+        active={active()}
+        mode={mode()}
+        dimmed
+        theme={{ bg: MOON_BG, fg: MOON }}
+        repoColor={MOON}
+        onSelect={() => props.onSelect(tileId)}
+        onClose={() => void sleepActions.discard(record)}
+        onToggleMaximize={posture.toggle}
+        renderTitle={() => (
+          <span
+            class="flex items-center gap-1.5 text-xs font-semibold truncate"
+            style={{ color: MOON }}
+          >
+            <span aria-hidden="true">☾</span>
+            <span class="truncate">{label()}</span>
+          </span>
+        )}
+        renderBody={() => (
+          <SleepingTileBody
+            record={record}
+            onWake={() => void sleepActions.wake(record)}
+          />
+        )}
+        layouts={layouts()}
+        startResize={startResize}
+        panX={viewport.panX}
+        panY={viewport.panY}
+        zoom={viewport.zoom}
+        viewportSize={viewport.viewportSize}
+      />
+    );
+  }
+
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
@@ -459,20 +526,26 @@ const TerminalCanvas: Component<{
           <For each={props.tileIds}>
             {(id) => {
               // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
-              // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
-              // keys each arm on a STABLE boolean (not `match(content())`, which
-              // would re-create the tile subtree every tick), the same
-              // discipline App.tsx's canvas-mode <Switch> relies on. Today the
-              // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
-              // inherits drag / resize / focus / active for free.
+              // never by its liveness. `<Switch>` / `<Match>` keys each arm on a
+              // STABLE boolean via the `terminalContent`/`sleepingContent`
+              // narrowers (NOT `match(content())`, which would re-create the tile
+              // subtree every tick), the same discipline App.tsx's canvas-mode
+              // <Switch> relies on. Both arms render through the SAME CanvasTile
+              // shell, so a sleeping tile inherits drag / resize / focus / active
+              // for free — it differs only in the injected content.
               const content = () => tileStore.contentOf(id);
               return (
                 <Show when={content()}>
                   {(c) => (
                     <Switch>
-                      <Match when={c().kind === "terminal" && c()}>
+                      <Match when={terminalContent(c())}>
                         {(terminal) =>
                           renderTerminalTile(id, terminal().terminalId)
+                        }
+                      </Match>
+                      <Match when={sleepingContent(c())}>
+                        {(sleeping) =>
+                          renderSleepingTile(id, sleeping().record)
                         }
                       </Match>
                     </Switch>

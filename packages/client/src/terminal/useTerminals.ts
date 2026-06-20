@@ -90,11 +90,10 @@ export function useTerminals() {
   );
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
-  const session = useSessionRestore({
-    store,
-    handleCreate: crud.handleCreate,
-    handleCreateSubTerminal: crud.handleCreateSubTerminal,
-  });
+  // Singleton (wires its own store + crud internally) so the sleep/wake
+  // orchestration can replay a slept tree through the same `handleRestoreSession`
+  // without re-instantiating this composition root.
+  const session = useSessionRestore();
 
   const worktree = useWorktreeOps({
     store,

@@ -76,6 +76,19 @@ export const TerminalSetSubPanelInputSchema = z.object({
   panelSize: z.number(),
 });
 
+/** Wake a sleeping terminal record by its id (the original top-level terminal
+ *  id). The client drives the respawn (reusing the session-restore protocol);
+ *  this procedure only removes the record from the `sleepingTerminals` cell. */
+export const TerminalWakeInputSchema = z.object({ id: TerminalIdSchema });
+
+/** Persist a sleeping tile's new canvas position/size — a sleeping tile is a
+ *  real, draggable + resizable tile, so its layout round-trips to disk like a
+ *  live tile's, written onto the record's top terminal. */
+export const TerminalSetSleepingLayoutInputSchema = z.object({
+  id: TerminalIdSchema,
+  layout: CanvasLayoutSchema,
+});
+
 export const TerminalSetRightPanelInputSchema =
   RightPanelPerTerminalStateSchema.extend({
     id: TerminalIdSchema,
@@ -171,6 +184,17 @@ export const contract = oc.router({
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    /** Put a terminal (and its splits) to sleep: snapshot the tree into the
+     *  `sleepingTerminals` cell. Persist-only — the client kills the live
+     *  terminal afterward via the normal kill path. Persist-before-kill. */
+    sleep: oc.input(TerminalAttachInputSchema).output(z.void()),
+    /** Remove a sleeping record after the client has respawned it (or to
+     *  discard it without waking). Idempotent. */
+    wake: oc.input(TerminalWakeInputSchema).output(z.void()),
+    /** Persist a sleeping tile's dragged/resized canvas layout. */
+    setSleepingLayout: oc
+      .input(TerminalSetSleepingLayoutInputSchema)
+      .output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

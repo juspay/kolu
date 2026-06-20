@@ -2,7 +2,6 @@
 
 import { resumeAgentCommand } from "anyagent/cli";
 import type {
-  InitialTerminalMetadata,
   SavedSession,
   TerminalId,
   TerminalInfo,
@@ -10,6 +9,7 @@ import type {
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
@@ -18,25 +18,17 @@ import {
   savedSession as serverSavedSession,
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
-import type { TerminalStore } from "./useTerminalStore";
+import { useTerminalCrud } from "./useTerminalCrud";
+import { useTerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the `terminalMetadata` collection
  *  having yielded for every entry, so `m` is always defined. */
 type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
 
-export function useSessionRestore(deps: {
-  store: TerminalStore;
-  handleCreate: (
-    cwd?: string,
-    initial?: InitialTerminalMetadata,
-  ) => Promise<TerminalId>;
-  handleCreateSubTerminal: (
-    parentId: TerminalId,
-    cwd?: string,
-  ) => Promise<void>;
-}) {
-  const { store } = deps;
+export const useSessionRestore = createSharedRoot(() => {
+  const store = useTerminalStore();
+  const crud = useTerminalCrud();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
@@ -153,7 +145,14 @@ export function useSessionRestore(deps: {
     // (default) or an arbitrary blob from a caller like the diagnostic
     // "Import session" command. If a third source ever appears, replace this
     // optional bag with a discriminated `source` union rather than widening it.
-    options: { resumeIds?: ReadonlySet<string>; session?: SavedSession } = {},
+    // `label` overrides only the toast copy (NOT the respawn logic), so the
+    // single-tree wake path can read "Waking terminal…" while reusing this exact
+    // respawn — see `useSleepActions`.
+    options: {
+      resumeIds?: ReadonlySet<string>;
+      session?: SavedSession;
+      label?: { loading: string; success: (resumed: number) => string };
+    } = {},
   ) {
     if (isRestoring()) return;
     const session = options.session ?? savedSession();
@@ -169,7 +168,8 @@ export function useSessionRestore(deps: {
     setIsRestoring(true);
     const resumeIds = options.resumeIds;
     const id = toast.loading(
-      `Restoring ${session.terminals.length} terminals…`,
+      options.label?.loading ??
+        `Restoring ${session.terminals.length} terminals…`,
     );
     try {
       const oldToNew = new Map<string, TerminalId>();
@@ -250,7 +250,7 @@ export function useSessionRestore(deps: {
         // replaces this loop with dial+adopt; until then a remote terminal
         // would silently restore locally, so remote terminals must not ship
         // before P3 lands.
-        const newId = await deps.handleCreate(t.cwd, {
+        const newId = await crud.handleCreate(t.cwd, {
           themeName: t.themeName,
           canvasLayout: t.canvasLayout,
           subPanel: t.subPanel,
@@ -295,7 +295,7 @@ export function useSessionRestore(deps: {
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId);
-        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+        if (newParentId) await crud.handleCreateSubTerminal(newParentId, t.cwd);
       }
       // Step 3: post-loop reassert (see protocol block above).
       if (restoredActiveId !== null) {
@@ -304,8 +304,9 @@ export function useSessionRestore(deps: {
         const newActiveId = oldToNew.get(session.activeTerminalId);
         if (newActiveId) store.setActiveSilently(newActiveId);
       }
-      const summary =
-        resumed > 0
+      const summary = options.label
+        ? options.label.success(resumed)
+        : resumed > 0
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
       setSavedSession(null);
@@ -344,4 +345,4 @@ export function useSessionRestore(deps: {
     isRestoring,
     handleRestoreSession,
   };
-}
+});

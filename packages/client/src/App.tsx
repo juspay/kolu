@@ -61,6 +61,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import { useSleepActions } from "./terminal/useSleepActions";
 import { useTerminals } from "./terminal/useTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { refocusTerminal } from "./ui/ModalDialog";
@@ -82,6 +83,7 @@ const App: Component = () => {
   // stays the source for terminal CONTENT (display info, metadata, the active
   // terminal behind RightPanel / theme / screenshot).
   const tileStore = useTileStore();
+  const sleepActions = useSleepActions();
 
   const {
     committedThemeName,
@@ -200,7 +202,23 @@ const App: Component = () => {
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
     handleClose: () => {
       const id = store.activeId();
-      if (id) closeTerminal(id);
+      if (!id) return;
+      // The active tile may be sleeping — "close" then discards its record
+      // rather than no-opping against a terminal that isn't live.
+      const content = tileStore.contentOf(id);
+      if (content?.kind === "sleeping") {
+        void sleepActions.discard(content.record);
+        return;
+      }
+      closeTerminal(id);
+    },
+    handleSleep: () => {
+      const id = store.activeId();
+      // Only a live terminal can be slept; the active tile may already be a
+      // sleeping one (a no-op) — dispatch on its content kind.
+      if (id && tileStore.contentOf(id)?.kind === "terminal") {
+        void sleepActions.sleep(id);
+      }
     },
     handleClearLocalStorage: () => {
       localStorage.clear();
