@@ -10,7 +10,6 @@ import {
 } from "solid-js";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
@@ -21,6 +20,7 @@ import {
   startViewportDrag,
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
+import { MOON, MOON_BG } from "./sleepingTilePalette";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -106,7 +106,6 @@ const CanvasMinimap: Component<{
   onAutoArrange?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
-  const store = useTerminalStore();
   const tileStore = useTileStore();
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
@@ -297,9 +296,12 @@ const CanvasMinimap: Component<{
             const layout = () => props.layouts[id];
             const theme = () => tileTheme(id);
             // Per-tile display info, resolved once and shared by the
-            // geometry memo and the badge-state memo. Without this both
-            // walked the store's keyed map independently.
-            const info = createMemo(() => store.getDisplayInfo(id));
+            // geometry memo and the badge-state memo. Read through the TILE
+            // registry (not the terminal store) so a sleeping tile resolves to
+            // its synthesized row data and shows on the map like any other tile
+            // — the minimap is a spatial map of the canvas, and a sleeping tile
+            // occupies canvas space.
+            const info = createMemo(() => tileStore.getDisplayInfo(id));
             // Single accessor that yields all the per-tile data the
             // rectangle needs, or null when the tile isn't ready yet
             // (no layout, or metadata still arriving). The `Show` below
@@ -371,6 +373,10 @@ const CanvasMinimap: Component<{
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
             const isActive = () => tileStore.activeId() === id;
+            // A sleeping (PTY-released) tile wears the moonlit palette here, the
+            // same cue the canvas tile and dock row carry — present on the map
+            // like any tile, but visibly dormant rather than an idle live one.
+            const sleeping = () => tileStore.contentOf(id)?.kind === "sleeping";
             const hasAgent = () => state().bucket !== "none";
             const badgeVisible = () => hasAgent() && !parked();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
@@ -398,8 +404,12 @@ const CanvasMinimap: Component<{
                 top: `${t.y}px`,
                 width: `${t.w}px`,
                 height: `${t.h}px`,
-                "background-color": theme().bg,
-                border: `1px solid ${t.repoColor}`,
+                // Moonlit fill + moon border for a sleeping tile — the SAME
+                // palette its canvas tile wears — so the map marks it asleep,
+                // not as another idle live tile. Live tiles keep their per-repo
+                // theme bg + repo-color border.
+                "background-color": sleeping() ? MOON_BG : theme().bg,
+                border: `1px solid ${sleeping() ? MOON : t.repoColor}`,
               };
             };
             return (
@@ -412,6 +422,7 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
+                    data-sleeping={sleeping() ? "" : undefined}
                     class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
                       "rounded-full bg-fg-3/40": parked(),
