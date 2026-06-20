@@ -1,5 +1,8 @@
 import type { PtyHostListEntry } from "kaval";
-import { type SavedTerminal, SavedTerminalSchema } from "kolu-common/surface";
+import {
+  type SavedActiveTerminal,
+  SavedActiveTerminalSchema,
+} from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { adoptedMeta, orphanMeta } from "./local.ts";
 
@@ -22,8 +25,9 @@ function liveEntry(over: Partial<PtyHostListEntry> = {}): PtyHostListEntry {
 // it into the round-trip rather than letting it slip the adoption path silently
 // (exactly how #1275 dropped `parentId` and `lastAgentCommand`). lastActivityAt
 // is a real, non-zero epoch so a drop-to-default can't pass by coincidence.
-const sentinel: SavedTerminal = {
+const sentinel: SavedActiveTerminal = {
   id: "term-sentinel",
+  state: "active",
   cwd: "/sentinel/cwd",
   // Deliberately the REMOTE variant: `adoptedMeta` seeds `createMetadata(_,
   // LOCAL_LOCATION)` then spreads the persisted record over it, so a distinct
@@ -59,7 +63,7 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     // forcing it into the round-trip below rather than silently slipping the
     // adoption path — the structural guard that closes the #1275 class.
     expect(Object.keys(sentinel).sort()).toEqual(
-      Object.keys(SavedTerminalSchema.shape).sort(),
+      Object.keys(SavedActiveTerminalSchema.shape).sort(),
     );
   });
 
@@ -67,10 +71,10 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     // Use a live entry whose cwd MATCHES the saved record so this test isolates
     // the whole-record carry-through; the live-cwd-wins case is asserted below.
     const meta = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
-    for (const key of Object.keys(SavedTerminalSchema.shape)) {
+    for (const key of Object.keys(SavedActiveTerminalSchema.shape)) {
       if (key === "id") continue; // `id` is the registry key, not a `meta` field
       expect(meta[key as keyof typeof meta]).toEqual(
-        sentinel[key as keyof SavedTerminal],
+        sentinel[key as keyof SavedActiveTerminal],
       );
     }
   });

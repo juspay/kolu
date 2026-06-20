@@ -20,6 +20,10 @@ bar for quality and correctness.** Autonomy is earned by the agent meeting that 
 a quality gate (skipping evidence, softening the review gauntlet, calling tests-pass
 "done") is the worst failure of this skill, not a win.
 
+**Speed is the second axis — autonomy first.** Same shipped PR, less wall-clock and
+fewer tokens, most often by running *independent* work in parallel (forked subagents,
+a dynamic workflow) instead of serially.
+
 Every human follow-up in this session — a correction, an interruption, an approval, a
 "continue", a "you forgot X" — marks a point where a skill failed to carry the run past
 it and a human had to step in. Mine those and engineer each one out. Treat every
@@ -48,17 +52,20 @@ note's corpus audit.
    the human didn't have to flag: failed tool calls (`is_error`), Read-before-Edit
    (`File has not been read yet`), production-kill near-misses (a `pkill`/`just dev` while
    `dev-server` was never loaded), scope over-reach (`gh pr merge --admin`), premature
-   'done' (`stub`, or "tests pass" for "I watched it work"), `Stop hook feedback`, speed waste.
+   'done' (`stub`, or "tests pass" for "I watched it work"), `Stop hook feedback`, and speed
+   waste — redundant re-reads and *independent* work run serially that a fan-out would collapse.
 3. **Keep only what durably recurs** — ≥3 hits, an irreversible near-miss, or a repeat
    from a prior run; everything else is an observation for the PR body, not an edit.
    Nothing durable → report "clean run" and stop. (With ultracode, confirm survivors with
    a read-only fan-out, one agent each, before editing.)
 4. **Engineer it out, lowest-churn first** — a fix turns a human intervention into a
-   baked-in default: cross-link an existing skill (most friction is a rule that just
-   wasn't loaded) > sharpen one clause > write a new rule or skill, last resort. The fix
-   lands in `.apm/skills/*` **sources only** (`.claude/`, `.agents/`, `AGENTS.md` are
-   generated; §5 applies it inside the worktree, not PWD). Each edit honors fail-fast /
-   electricity / reuse-source and trips no llm-autonomy anti-pattern.
+   baked-in default, or a serial bottleneck into parallel work: cross-link an existing
+   skill (most friction is a rule that just wasn't loaded) > sharpen one clause > write a
+   new rule or skill, last resort. A **speed** fix routes *independent* work to forked
+   subagents or a dynamic workflow — never the serial review gauntlet, which stays
+   sole-editor. The fix lands in `.apm/skills/*` **sources only** (`.claude/`, `.agents/`,
+   `AGENTS.md` are generated; §5 applies it inside the worktree, not PWD). Each edit honors
+   fail-fast / electricity / reuse-source and trips no llm-autonomy anti-pattern.
 5. **Ship from a throwaway worktree — PWD is NEVER mutated.** Steps 1–4 only *read*
    PWD (the transcript lives outside the repo; target discovery greps `.apm` read-only),
    so do **zero** mutation here — no `git switch`, no edits, no commit in PWD. Cut a fresh

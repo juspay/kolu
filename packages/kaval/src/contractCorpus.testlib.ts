@@ -26,6 +26,7 @@ import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
 } from "./ptyHostSurface.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 
 /** Every contract entry the corpus exercises. Asserted against the live surface
  *  by `coverage.test.ts` — keep it in lockstep with the `it`s below AND with
@@ -51,6 +52,7 @@ export const CONTRACT_COVERAGE = {
     "commandRun",
     "foreground",
     "exit",
+    "inventory",
   ],
 } as const;
 
@@ -113,6 +115,21 @@ async function firstYield<T>(stream: AsyncIterable<T>, ms = 5000): Promise<T> {
     // next subscription. Swallow — `return()` on an already-errored stream can
     // reject.
     void Promise.resolve(iterator.return?.()).catch(() => {});
+  }
+}
+
+/** Pull frames until `match` is satisfied, discarding the rest — the corpus runs
+ *  on a SHARED host, so unrelated created/exited deltas from a neighbouring test
+ *  may interleave on the host-global inventory feed. */
+async function frameUntil<T>(
+  it: AsyncIterator<T>,
+  match: (v: T) => boolean,
+  ms = 8000,
+): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const v = await nextFrame(it, Math.max(0, deadline - Date.now()));
+    if (match(v)) return v;
   }
 }
 
@@ -345,6 +362,47 @@ export function runContractCorpus(opts: {
       expect(typeof entry?.foregroundProcess).toBe("string");
 
       await client().surface.terminal.kill({ id });
+    });
+
+    it("inventory: a snapshot first, then created/exited as PTYs come and go", {
+      timeout: 20000,
+    }, async () => {
+      // The host-global membership feed kolu-server's live reconciler reads: one
+      // ISOLATED subscription kept open across a spawn and a kill, so this never
+      // poisons the shared connection (a left-open socket stream rejects on
+      // dispose). Subscribe FIRST — the spawn below must land as a `created`
+      // delta, not be missed.
+      await withIsolated(async (c) => {
+        const inv = await c.surface.inventory.get({});
+        const it = inv[Symbol.asyncIterator]();
+        try {
+          // First frame: a snapshot of every live PTY (snapshot-then-deltas).
+          const snapshot = await nextFrame(it);
+          expect(snapshot.kind).toBe("snapshot");
+
+          // A fresh spawn arrives as a `created` for its id (intervening deltas
+          // from the shared host are skipped by `frameUntil`).
+          const { id } = await c.surface.terminal.spawn(
+            spawnInput(opts.makeCwd()),
+          );
+          const created = await frameUntil(
+            it,
+            (e) => e.kind === "created" && e.entry.id === id,
+          );
+          expect(created).toMatchObject({ kind: "created", entry: { id } });
+
+          // …and its kill arrives as an `exited` for the same id.
+          await c.surface.terminal.kill({ id });
+          const exited = await frameUntil(
+            it,
+            (e) => e.kind === "exited" && e.id === id,
+          );
+          expect(exited).toEqual({ kind: "exited", id });
+        } finally {
+          // Close the subscription (the socket-safety `firstYield` documents).
+          void Promise.resolve(it.return?.()).catch(() => {});
+        }
+      });
     });
 
     it("terminal.killAll reaps every live PTY", {

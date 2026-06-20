@@ -3,8 +3,11 @@
  *  and terminals that live in a git worktree. */
 
 import Dialog from "@corvu/dialog";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { prValue } from "anyforge/schemas";
+import {
+  activePr,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";
@@ -132,7 +135,7 @@ const CloseConfirm: Component<{
             )}
           </Show>
 
-          <Show when={props.target ? prValue(props.target.meta.pr) : null}>
+          <Show when={activePr(props.target?.meta)}>
             {(pr) => (
               <a
                 href={pr().url}

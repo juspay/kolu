@@ -10,7 +10,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { agentBucket } from "./dockModel";
+import { metaBucket } from "./dockModel";
 import { type TileAura, tileAura } from "./tileAura";
 
 export function useTileAura(): (id: TerminalId) => TileAura {
@@ -20,7 +20,7 @@ export function useTileAura(): (id: TerminalId) => TileAura {
     const meta = store.getMetadata(id);
     if (!meta) return "none";
     return tileAura(
-      agentBucket(meta.agent),
+      metaBucket(meta),
       store.isUnread(id),
       isStale(meta.lastActivityAt),
     );

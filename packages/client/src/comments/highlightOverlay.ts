@@ -11,27 +11,23 @@
 
 import {
   applyHighlights,
+  COMMENT_HIGHLIGHT_NAME_PREFIX,
   COMMENT_HIGHLIGHT_STYLE_THEMED,
   findQuote,
   type QuoteRoot,
   rangeFromOffsets,
   rootTextContent,
 } from "@kolu/artifact-sdk/client";
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+} from "solid-js";
 import { useCommentScrollRequest } from "./scrollRequest";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import type { Comment } from "./types";
-
-const HIGHLIGHT_NAME = "kolu-comment";
-const STYLE_ELEMENT_ID = "kolu-comment-highlight-style";
-
-function ensureStyle(): void {
-  if (document.getElementById(STYLE_ELEMENT_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ELEMENT_ID;
-  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { ${COMMENT_HIGHLIGHT_STYLE_THEMED} }`;
-  document.head.appendChild(style);
-}
 
 /** Resolve the root the highlight overlay should walk for re-find +
  *  Range construction. Pierre's virtualized path nests a `<diffs-container>`
@@ -61,11 +57,38 @@ export interface OverlayOptions {
    *  scroll, and a MutationObserver there would thrash — those re-finds ride
    *  `contentTick` + the scroll-request rAF instead. */
   observeMutations?: boolean;
+  /** Which browse surface this overlay belongs to, when the file is
+   *  multi-surface (Markdown's Source ⇄ Rendered). Since the keep-alive toggle
+   *  now mounts BOTH surfaces at once, the overlay only owns the scroll request
+   *  whose `surface` matches — otherwise the hidden/wrong surface, whose effect
+   *  re-runs independently (its own `domTick`), could consume-and-clear a
+   *  request meant for the other surface (a prose-only quote that doesn't exist
+   *  in source, or vice versa), so the intended surface never scrolls. Undefined
+   *  for single-surface views (plain source, diff) — those match a request with
+   *  no surface. */
+  surface?: Accessor<"source" | "prose" | undefined>;
 }
 
 export function useHighlightOverlay(opts: OverlayOptions): void {
   if (!window.CSS?.highlights || !window.Highlight) return; // unsupported
-  ensureStyle();
+  // A per-INSTANCE highlight name + style element. The CSS Custom Highlight
+  // registry is one global map keyed by name, and `applyHighlights` *replaces*
+  // the named highlight on each call — so two text surfaces mounted at once (the
+  // Source ⇄ Rendered toggle now keeps both alive) sharing one name would
+  // clobber each other's ranges, blanking the visible surface. A name per
+  // instance lets each own its ranges independently; a hidden surface's ranges
+  // just don't lay out, and the browser repaints them when it's shown again —
+  // no re-apply on toggle needed. The suffix is the instance's own stable
+  // identity (`createUniqueId`), so the name is derived from the surface rather
+  // than threaded through an external mutable counter.
+  const name = `${COMMENT_HIGHLIGHT_NAME_PREFIX}-${createUniqueId()}`;
+  const styleEl = document.createElement("style");
+  styleEl.textContent = `::highlight(${name}) { ${COMMENT_HIGHLIGHT_STYLE_THEMED} }`;
+  document.head.appendChild(styleEl);
+  onCleanup(() => {
+    window.CSS.highlights?.delete(name);
+    styleEl.remove();
+  });
   const scroll = useCommentScrollRequest();
 
   // A subtree-mutation ticker for `observeMutations` surfaces (see the option
@@ -105,7 +128,7 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     domTick(); // dependency — re-apply after the prose renderer swaps its DOM
     if (!host) return;
     const root = findHostRoot(host);
-    applyHighlights(window, root, comments, HIGHLIGHT_NAME);
+    applyHighlights(window, root, comments, name);
 
     // After the highlight set is applied for this file, consume any
     // pending scroll request. We resolve the target comment's range
@@ -113,6 +136,13 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     // renders — the DOM may have been replaced).
     const req = scroll.request();
     if (!req) return;
+    // Only the overlay whose surface matches the request owns it. Both
+    // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
+    // wrong surface could find-or-fail and `scroll.clear()` the request before
+    // the intended surface — re-running on its own `domTick` (lazy Shiki/
+    // markdown swap) — gets to scroll. `undefined === undefined` matches the
+    // single-surface views (plain source, diff) against a surface-less request.
+    if (req.surface !== opts.surface?.()) return;
     const target = comments.find((c) => c.id === req.commentId);
     if (!target) return;
     const text = rootTextContent(root);
@@ -142,9 +172,5 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
       el?.scrollIntoView({ block: "center", behavior: "smooth" });
       scroll.clear();
     });
-  });
-
-  onCleanup(() => {
-    window.CSS.highlights?.delete(HIGHLIGHT_NAME);
   });
 }

@@ -60,8 +60,11 @@ import { z } from "zod";
  *  ones. Internal refactors (the kolu binary, the provider DAG) do NOT bump
  *  it — that's the point, so a long-lived pty-host survives most kolu
  *  upgrades. Bumped to 3.0 by B0: `spawn` became fully specified (breaking)
- *  and `system.info` was added. */
-export const PTY_HOST_CONTRACT_VERSION = "3.0";
+ *  and `system.info` was added. Bumped to 3.1 (additive · minor): the
+ *  host-global `inventory` stream — a daemon that predates it (a 3.0 survivor)
+ *  is wire-incompatible and forced to recycle, never silently degraded to a
+ *  boot-only adoption. */
+export const PTY_HOST_CONTRACT_VERSION = "3.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -141,6 +144,22 @@ const TerminalListEntrySchema = z.object({
 const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("snapshot"), data: z.string() }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
+]);
+
+/** A membership change in the host's live-PTY set — the host-global inventory
+ *  feed (contract 3.1). `snapshot` (the stream's first frame, snapshot-then-
+ *  deltas) carries every live PTY; `created` / `exited` are the deltas as PTYs
+ *  other clients spawn or end. A consumer subscribes once and discovers PTYs it
+ *  did not spawn (a `kaval-tui create`) without polling `list`. Mirrors
+ *  `TerminalDataMsgSchema`'s snapshot/delta discriminator so a client reducer
+ *  replaces on snapshot and applies the deltas. */
+const InventoryEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    entries: z.array(TerminalListEntrySchema),
+  }),
+  z.object({ kind: z.literal("created"), entry: TerminalListEntrySchema }),
+  z.object({ kind: z.literal("exited"), id: PtyIdSchema }),
 ]);
 
 /** Raw foreground sample (`tcgetpgrp(3)` pid + node-pty process name) — the
@@ -228,6 +247,14 @@ export const ptyHostSurface = defineSurface({
       inputSchema: TerminalIdInputSchema,
       outputSchema: z.object({ exitCode: z.number().int() }),
     },
+    /** Host-global membership feed (contract 3.1) — a snapshot of every live PTY,
+     *  then created/exited deltas. Takes no id (it spans the whole host), so a
+     *  consumer subscribes once and discovers PTYs other clients spawned (a
+     *  `kaval-tui create`) without polling `list`. */
+    inventory: {
+      inputSchema: z.object({}),
+      outputSchema: InventoryEventSchema,
+    },
   },
   procedures: {
     terminal: {
@@ -281,6 +308,7 @@ export const ptyHostSurface = defineSurface({
 export type PtyHostSurface = SurfaceTypes<typeof ptyHostSurface.spec>;
 export type PtyHostListEntry = z.infer<typeof TerminalListEntrySchema>;
 export type PtyHostDataMsg = z.infer<typeof TerminalDataMsgSchema>;
+export type PtyHostInventoryEvent = z.infer<typeof InventoryEventSchema>;
 export type PtyHostForegroundMsg = z.infer<typeof ForegroundMsgSchema>;
 export type PtyHostSystemVersion = z.infer<typeof SystemVersionOutputSchema>;
 export type PtyHostSystemInfo = z.infer<typeof SystemInfoOutputSchema>;

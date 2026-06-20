@@ -18,7 +18,7 @@
  *  would invite label-collision bugs. */
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { agentBucket } from "../dockModel";
+import { metaBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
  *  idle) because it carries a different visual treatment (faded, tinier
@@ -43,7 +43,7 @@ function classifyDockRow(
   parked: boolean,
 ): DockRowBucket {
   if (parked) return "parked";
-  const agent = agentBucket(meta.agent);
+  const agent = metaBucket(meta);
   // A terminal that *has* an agent but no live attention state reads
   // as "idle" in the dock — quieter than a working pill. Plain shells
   // (`lastActivityAt === 0`) route to `none`.

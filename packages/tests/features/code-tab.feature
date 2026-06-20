@@ -932,6 +932,26 @@ Feature: Code tab (review + browse)
     Then the file content should contain "# Heading One"
     And the markdown preview should not be visible
 
+  # Keep-alive: the rendered Markdown is mounted ONCE and hidden (not unmounted)
+  # while the Source view shows, so toggling back is a pure visibility flip — no
+  # re-parse / re-sanitize / re-tokenize of the whole doc. Proven structurally: a
+  # marker set on the rendered preview survives the Source ⇄ Rendered round-trip
+  # (a remount would mint a fresh, unmarked element).
+  Scenario: Toggling Source and Rendered keeps the rendered preview alive
+    When I run "rm -rf /tmp/kolu-md-keepalive && git init /tmp/kolu-md-keepalive && cd /tmp/kolu-md-keepalive"
+    And I run "printf '# Keep Alive\n\nbody text\n' > notes.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "notes.md" in the file browser
+    Then the markdown preview should be visible
+    When I mark the rendered markdown preview
+    And I switch the file view to "source"
+    Then the markdown preview should not be visible
+    When I switch the file view to "rendered"
+    Then the markdown preview should be visible
+    And the rendered markdown preview should be the kept-alive element
+
   # ── Rendered Markdown: GFM + inline HTML + sanitization ──
   # The rendered view is a marked(GFM) → DOMPurify pipeline
   # (@kolu/solid-markdown), so it must produce real GitHub-Flavored structure —
@@ -1731,6 +1751,38 @@ Feature: Code tab (review + browse)
     Then the file view should be showing "rendered"
     And the markdown preview should be visible
 
+  # Regression (keep-alive): both Source ⇄ Rendered surfaces are now mounted at
+  # once, so a path-only comment filter would let the WRONG surface consume the
+  # tray-jump scroll request. The quote here ("# Heading Src") exists only in the
+  # source view — the rendered preview drops the `#` ("Heading Src") — so a prose
+  # overlay handling it would find nothing and clear the request before the
+  # source overlay scrolls. Surface-keyed comments + scroll gating route the jump
+  # to Source: the toggle flips back and the source quote highlights. (Mirror of
+  # the prose-jump scenario above, in the opposite direction.)
+  Scenario: Tray jump returns to the Source Markdown surface
+    When I run "rm -rf /tmp/kolu-comments-md-src-jump && git init /tmp/kolu-comments-md-src-jump && cd /tmp/kolu-comments-md-src-jump"
+    And I run "printf '# Heading Src\n\nbody text\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I switch the file view to "source"
+    Then the file view should be showing "source"
+    And the file content should contain "# Heading Src"
+    When I select text "# Heading Src" in the file content
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "source-only comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "source-only comment"
+    # Move to Rendered (no remount — the file stays open), so the jump must flip
+    # the toggle back to Source where the `#`-prefixed quote lives.
+    When I switch the file view to "rendered"
+    Then the file view should be showing "rendered"
+    When I click the tray comment "source-only comment"
+    Then the file view should be showing "source"
+    And the comment highlight should be present
+
   # Regression: a tray jump to a comment with NO source lineRange (a
   # rendered-Markdown / prose comment) used to bypass the history front door —
   # it set the browse view + selection directly without recording. Back/forward
@@ -1891,7 +1943,14 @@ Feature: Code tab (review + browse)
     And I click the file "notes.md" in the file browser
     Then the markdown preview should be visible
     When I switch the file view to "source"
-    And I select text "md-source-comment-marker" in the file content
+    # Wait for the source Pierre view to be the shown surface and to have rendered
+    # the line before selecting — with the keep-alive toggle the source view is
+    # mounted lazily on first switch, so a select fired the same tick lands before
+    # its shadow DOM is selection-ready (the rendered-mode marker text isn't a
+    # source line, so this also pins the drag to the source surface).
+    Then the file view should be showing "source"
+    And the file content should contain "md-source-comment-marker"
+    When I select text "md-source-comment-marker" in the file content
     Then the comment pill should be visible
 
   # Regression for #1026: Pierre's virtualizer defaults its row-height metric
