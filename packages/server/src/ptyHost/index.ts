@@ -123,13 +123,17 @@ export async function ensureLocalEndpoint(opts: {
    *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
   onAdopted?: () => Promise<void>;
-  /** Start live inventory discovery (B3.5) once the boot settles — subscribe to
-   *  the daemon's `inventory` feed so a PTY created OUT-OF-BAND (a `kaval-tui
-   *  create` against the same daemon) is adopted while kolu runs, not just at
-   *  the next boot. Injected (not imported) for the same reason as `onAdopted`.
-   *  Given a process-lifetime signal; the reconciler re-subscribes across daemon
-   *  recycles until it aborts. Runs on every boot, survivor or fresh. */
-  onConnected?: (signal: AbortSignal) => void;
+  /** Run after the boot try/catch settles, REGARDLESS of outcome — NOT on
+   *  connection. Even when the daemon came up `dead` this fires; the name says
+   *  "boot settled," not "connected," precisely because there is no connection
+   *  event to honor here. Used to start live inventory discovery (B3.5):
+   *  subscribe to the daemon's `inventory` feed so a PTY created OUT-OF-BAND (a
+   *  `kaval-tui create` against the same daemon) is adopted while kolu runs, not
+   *  just at the next boot. Injected (not imported) for the same reason as
+   *  `onAdopted`. Given a process-lifetime signal; the reconciler re-subscribes
+   *  across daemon recycles until it aborts (and absorbs a dead-on-boot daemon
+   *  the same way — it simply waits, then picks up once the daemon connects). */
+  onBootSettled?: (signal: AbortSignal) => void;
 }): Promise<void> {
   const socketPath = kavalSocketPath(opts.port);
   // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
@@ -174,13 +178,15 @@ export async function ensureLocalEndpoint(opts: {
     log.error({ err }, "kaval endpoint failed to come up at boot");
   }
 
-  // Start live inventory discovery (B3.5). Runs whatever the boot outcome:
-  // if the daemon is down, the reconciler's re-subscribe loop simply waits and
-  // picks up once it connects; if a survivor was adopted above, its snapshot is
-  // already-known terminals (idempotent no-ops). The signal is process-lifetime
-  // — never aborted today (no shutdown hook; the per-terminal taps live the same
-  // way), so the loop runs until the process ends and survives daemon recycles.
-  opts.onConnected?.(new AbortController().signal);
+  // Boot settled (success OR `dead`) — run whatever the caller hooked here. Used
+  // to start live inventory discovery (B3.5), which runs whatever the boot
+  // outcome: if the daemon is down, the reconciler's re-subscribe loop simply
+  // waits and picks up once it connects; if a survivor was adopted above, its
+  // snapshot is already-known terminals (idempotent no-ops). The signal is
+  // process-lifetime — never aborted today (no shutdown hook; the per-terminal
+  // taps live the same way), so the loop runs until the process ends and
+  // survives daemon recycles.
+  opts.onBootSettled?.(new AbortController().signal);
 }
 
 /** Run a serialized, session-preserving restart of the local kaval endpoint

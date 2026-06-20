@@ -339,8 +339,10 @@ await ensureLocalEndpoint({
   onAdopted: adoptSurvivingSession,
   // Subscribe to the daemon's inventory feed so a terminal created out-of-band
   // (a `kaval-tui create` against this server's kaval) shows up as a tile while
-  // kolu runs — not only after the next restart's boot adoption (B3.5).
-  onConnected: startInventoryReconciler,
+  // kolu runs — not only after the next restart's boot adoption (B3.5). Runs
+  // after the boot try/catch settles regardless of outcome (not on connection);
+  // the reconciler's own re-subscribe loop absorbs the down/connect lifecycle.
+  onBootSettled: startInventoryReconciler,
 });
 
 // --- TLS setup ---
