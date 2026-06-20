@@ -61,6 +61,15 @@ and prints the resolved URLs before forking server + client with HMR:
 ports positionally (`just dev 7681 5173`). `dev-auto` is the only launch command.
 Run it in the background (it stays up serving with hot reload).
 
+**Wait for it with a bounded poll, never a bare `sleep`.** A foreground `sleep` and an
+unbounded busy-spin are killed by this harness (SIGSTKFLT, exit 144), which burns turns.
+To wait for the server to come up, poll the resolved URL with a capped retry — a real
+command per iteration, finite bound — rather than `sleep N` between launch and use:
+
+```sh
+for i in $(seq 1 60); do curl -sf "$server_url/health" >/dev/null && break || curl -s "$server_url" >/dev/null && break; done
+```
+
 ## 2. Remember both ports — persist, don't re-grep
 
 Parse the two URLs once and persist them to a per-worktree scratch file so every

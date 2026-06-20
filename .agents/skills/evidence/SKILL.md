@@ -176,7 +176,15 @@ surface no `.feature` touches), drive a running kolu directly with the **chrome-
 1. **Serve kolu from source on the box** the same way §B does — `nix develop -c just test-quick`
    builds the client and spawns the server, and leaves it serving; note the URL/port it prints
    (default `http://localhost:<port>`). Reach it from the MCP browser over the box's ssh tunnel
-   (`pu connect` forwards a port), or run the MCP browser on the box.
+   (`pu connect` forwards a port), or run the MCP browser on the box. **Serve live kolu on the
+   box, never on the user's local host** — the live chrome-devtools path spawns a real server (and,
+   for arivu/kaval, PTYs and unix sockets); on the user's machine that races the running production
+   `kolu.service` and risks killing production terminals. The box has its own loopback, so it binds
+   the defaults safely. **If you genuinely must serve locally** (the box can't reach the state),
+   launch *only* via the **`dev-server` skill** (`just dev-auto` → two random free ports, scratch-file
+   ports, scoped teardown) — never hand-roll `just dev` / `nohup … src/index.ts` / a broad `pkill -f
+   kolu|vite|tsx`, which is exactly the production-kill that made a real run trip "DON'T KILL
+   PRODUCTION KOLU".
 2. **Stage the on-disk precondition the state needs** with a plain shell command on the box —
    ordinary setup, not a parallel capture harness (see the note above). For the symlink case:
    `pu connect "$host" -- 'ln -s /etc/passwd ~/kolu/<workspace>/leak'`. For an empty-state, seed or

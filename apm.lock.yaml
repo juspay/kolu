@@ -330,8 +330,8 @@ local_deployed_file_hashes:
   .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
   .agents/skills/codex-debate/scripts/codex-review.sh: sha256:e7f96490d9bbd13b692b4a80641f69447b2c9051eb3f4222daeb263c73d43b8f
   .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-  .agents/skills/dev-server/SKILL.md: sha256:c262372b9922036f4dfe2620b5af00750aff4b441e625cf5f56a34f4dbae3516
-  .agents/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .agents/skills/dev-server/SKILL.md: sha256:e48c90b267dcfd047a783c9df8b2a039e20cf936b3c2761c6cbe39297aca5de0
+  .agents/skills/evidence/SKILL.md: sha256:0cea85fa6cc3e4539b51743cafc04ac34c7ba0738bdda5b7929b02c0eddf5c77
   .agents/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
   .agents/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
@@ -365,8 +365,8 @@ local_deployed_file_hashes:
   .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
   .claude/skills/codex-debate/scripts/codex-review.sh: sha256:e7f96490d9bbd13b692b4a80641f69447b2c9051eb3f4222daeb263c73d43b8f
   .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
-  .claude/skills/dev-server/SKILL.md: sha256:c262372b9922036f4dfe2620b5af00750aff4b441e625cf5f56a34f4dbae3516
-  .claude/skills/evidence/SKILL.md: sha256:80f5e02c4e9c55b27534402465c8cda1710dc34d89c38a8bd438ef52658dbe1e
+  .claude/skills/dev-server/SKILL.md: sha256:e48c90b267dcfd047a783c9df8b2a039e20cf936b3c2761c6cbe39297aca5de0
+  .claude/skills/evidence/SKILL.md: sha256:0cea85fa6cc3e4539b51743cafc04ac34c7ba0738bdda5b7929b02c0eddf5c77
   .claude/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
   .claude/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
