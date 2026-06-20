@@ -222,7 +222,8 @@ export function entryBucket(
   idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
 ): AgentBucketKind {
   if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
-  return agentBucket(info.meta.agent);
+  // sleeping: no live overlay → idle bucket via agentBucket(null)
+  return agentBucket(info.meta.state === "active" ? info.meta.agent : null);
 }
 
 const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
@@ -248,6 +249,7 @@ function add(values: string[], value: unknown): void {
 }
 
 function prSearchFields(info: TerminalDisplayInfo): string[] {
+  if (info.meta.state !== "active") return []; // sleeping: no live overlay
   const pr = info.meta.pr;
   switch (pr.kind) {
     case "ok":
@@ -275,8 +277,9 @@ function searchTextFor(entry: {
 }): string {
   const { info } = entry;
   const git = info.meta.git;
-  const fg = info.meta.foreground;
-  const agent = info.meta.agent;
+  // sleeping: no live overlay → fg/agent read as null
+  const fg = info.meta.state === "active" ? info.meta.foreground : null;
+  const agent = info.meta.state === "active" ? info.meta.agent : null;
   const values: string[] = [
     entry.repoName,
     entry.label,
@@ -349,7 +352,10 @@ export function buildDockModel(
     return {
       ...baseFields,
       searchText,
-      bucket: agentBucket(source.info.meta.agent),
+      // sleeping: no live overlay → idle bucket via agentBucket(null)
+      bucket: agentBucket(
+        source.info.meta.state === "active" ? source.info.meta.agent : null,
+      ),
     };
   });
 

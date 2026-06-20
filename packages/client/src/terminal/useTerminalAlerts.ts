@@ -85,7 +85,11 @@ export function useTerminalAlerts(deps: {
   // SolidJS's on() tracks previous values natively — no manual Map needed.
   createEffect(
     on(
-      () => deps.terminalIds().map((id) => deps.getMetadata(id)?.agent?.state),
+      () =>
+        deps.terminalIds().map((id) => {
+          const m = deps.getMetadata(id);
+          return m?.state === "active" ? m.agent?.state : undefined;
+        }),
       (states, prevStates) => {
         const ids = deps.terminalIds();
         if (!prevStates) return;

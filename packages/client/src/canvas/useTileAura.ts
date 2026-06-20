@@ -20,7 +20,7 @@ export function useTileAura(): (id: TerminalId) => TileAura {
     const meta = store.getMetadata(id);
     if (!meta) return "none";
     return tileAura(
-      agentBucket(meta.agent),
+      agentBucket(meta.state === "active" ? meta.agent : null),
       store.isUnread(id),
       isStale(meta.lastActivityAt),
     );

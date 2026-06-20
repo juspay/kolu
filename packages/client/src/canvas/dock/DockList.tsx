@@ -15,7 +15,7 @@
  *  supplies a `flex flex-col h-full` container and decides selection semantics —
  *  the drawer dismisses on select, the rail does not. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
@@ -198,7 +198,7 @@ function DockListRow(props: {
               {(line) => (
                 <span
                   data-testid={
-                    c().meta.agent
+                    activeArm(c().meta)?.agent
                       ? "mobile-dock-agent-subline"
                       : "mobile-dock-foreground"
                   }

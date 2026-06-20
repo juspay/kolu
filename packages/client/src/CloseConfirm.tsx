@@ -132,7 +132,13 @@ const CloseConfirm: Component<{
             )}
           </Show>
 
-          <Show when={props.target ? prValue(props.target.meta.pr) : null}>
+          <Show
+            when={
+              props.target?.meta.state === "active"
+                ? prValue(props.target.meta.pr)
+                : null
+            }
+          >
             {(pr) => (
               <a
                 href={pr().url}

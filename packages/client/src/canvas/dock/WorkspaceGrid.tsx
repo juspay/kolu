@@ -475,8 +475,14 @@ const WorkspaceCard: Component<{
   unread: boolean;
   onSelect: () => void;
 }> = (props) => {
-  const agent = () => props.entry.info.meta.agent;
-  const pr = () => prValue(props.entry.info.meta.pr);
+  const agent = () =>
+    props.entry.info.meta.state === "active"
+      ? props.entry.info.meta.agent
+      : null;
+  const pr = () =>
+    props.entry.info.meta.state === "active"
+      ? prValue(props.entry.info.meta.pr)
+      : null;
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);

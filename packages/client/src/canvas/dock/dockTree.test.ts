@@ -19,6 +19,7 @@ function makeGetInfo(
       branchColor: e.color,
       annotationColor: e.color,
       meta: {
+        state: "active",
         cwd: "/tmp",
         git: null,
         location: LOCAL_LOCATION,

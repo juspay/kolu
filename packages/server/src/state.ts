@@ -129,6 +129,30 @@ export function backfillLocation_1_26_0(
   return { ...t, location: LOCAL_LOCATION };
 }
 
+/** Backfill `state: "active"` on a restored terminal saved before `SavedTerminal`
+ *  became a `discriminatedUnion` on `state` (the sleeping-terminals redesign,
+ *  Phase 1). Every pre-1.27 terminal was an attached, live PTY — no sleeping
+ *  record was ever persisted — so the only honest backfill is the active arm.
+ *  Without it the now-required `state` discriminant rejects every legacy session
+ *  at startup (the same EVENT_ITERATOR_VALIDATION_FAILED class as #1237 / #1244
+ *  / `backfillLocation_1_26_0`).
+ *
+ *  The discriminant is stamped HERE and nowhere read-side: read sites narrow on
+ *  `state`, they never coalesce (`?? "active"` would be a defect). Idempotent and
+ *  keyed on the discriminant key, not its value — a record that already carries a
+ *  `state` (a future `state: "sleeping"` record with its `sleptAt`, or a re-run of
+ *  this migration) passes through untouched, exactly as `backfillLocation_1_26_0`
+ *  keys on `"location" in t`.
+ *
+ *  Exported so `state.test.ts` can exercise the backfill directly without a
+ *  `Conf` store. */
+export function backfillTerminalState_1_27_0(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("state" in t) return t;
+  return { ...t, state: "active" };
+}
+
 /** What conf stores to disk — survives server restart. Internal: clients see
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
  *  this aggregate. Adding a new domain key requires a migration entry below. */
@@ -145,7 +169,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.26.0";
+const SCHEMA_VERSION = "1.27.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -533,6 +557,22 @@ export const store = new Conf<PersistedState>({
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
       ).map(backfillLocation_1_26_0);
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
+    },
+    // `SavedTerminal` became a `discriminatedUnion` on a new `state` field
+    // (`Terminal = active | sleeping`, sleeping-terminals Phase 1). Every
+    // pre-1.27 terminal was an attached live PTY, so backfill the active arm on
+    // each restored terminal (see `backfillTerminalState_1_27_0`); without it the
+    // now-required discriminant rejects the whole session at startup.
+    "1.27.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map(backfillTerminalState_1_27_0);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,

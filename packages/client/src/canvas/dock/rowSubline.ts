@@ -22,6 +22,7 @@ import type { TerminalMetadata } from "kolu-common/surface";
 import { stateLabels } from "../../ui/agentDisplay";
 
 export function rowSubline(meta: TerminalMetadata): string {
+  if (meta.state !== "active") return ""; // sleeping: no live overlay
   if (meta.agent) {
     return meta.agent.summary ?? stateLabels[meta.agent.state];
   }

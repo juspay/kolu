@@ -14,6 +14,7 @@ function live(id: string, pid = 1000): PtyHostListEntry {
 function term(id: string): SavedTerminal {
   return {
     id,
+    state: "active",
     cwd: "/x",
     git: null,
     location: LOCAL_LOCATION,

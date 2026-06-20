@@ -18,7 +18,7 @@ export function terminalSubject(
   const title = meta.git
     ? `${key.group}/${key.label}${key.suffix ?? ""}`
     : key.label;
-  const pr = prValue(meta.pr);
+  const pr = meta.state === "active" ? prValue(meta.pr) : null;
   if (pr) return { title, description: prLabel(pr) };
   return { title };
 }

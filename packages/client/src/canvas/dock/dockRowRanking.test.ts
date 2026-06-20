@@ -1,4 +1,5 @@
 import {
+  type ActiveTerminal,
   type AgentInfo,
   LOCAL_LOCATION,
   type TerminalId,
@@ -20,8 +21,9 @@ function makeAgent(state: AgentInfo["state"]): AgentInfo {
   };
 }
 
-function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
+function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
+    state: "active",
     cwd: "/tmp",
     git: null,
     location: LOCAL_LOCATION,

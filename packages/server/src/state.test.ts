@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backfillLocation_1_26_0,
   backfillRemoteUrl_1_25_0,
+  backfillTerminalState_1_27_0,
   migrateLegacyTerminal_1_18_0,
 } from "./state.ts";
 
@@ -192,5 +193,38 @@ describe("backfillLocation_1_26_0", () => {
       location: { kind: "remote", hostId: "local" },
     };
     expect(backfillLocation_1_26_0(record)).toEqual(record);
+  });
+});
+
+describe("backfillTerminalState_1_27_0", () => {
+  it("no state ⇒ active (every pre-1.27 terminal was an attached PTY)", () => {
+    const migrated = backfillTerminalState_1_27_0({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+      location: LOCAL_LOCATION,
+    });
+    expect(migrated).toEqual({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+      location: LOCAL_LOCATION,
+      state: "active",
+    });
+  });
+
+  it("is idempotent — a record that already carries a state passes through", () => {
+    // A future sleeping terminal (or a re-run of the migration): the saved
+    // state wins, never clobbered back to active, and its sleeping-only
+    // `sleptAt` rides through untouched.
+    const record = {
+      id: "t",
+      cwd: "/r",
+      git: null,
+      location: LOCAL_LOCATION,
+      state: "sleeping",
+      sleptAt: 1_700_000_000_000,
+    };
+    expect(backfillTerminalState_1_27_0(record)).toEqual(record);
   });
 });

@@ -328,7 +328,9 @@ const CanvasMinimap: Component<{
               const i = info();
               if (!i) return { bucket: "none" as const, parked: false };
               return {
-                bucket: agentBucket(i.meta.agent),
+                bucket: agentBucket(
+                  i.meta.state === "active" ? i.meta.agent : null,
+                ),
                 parked: isParked(i.meta.lastActivityAt),
               };
             });

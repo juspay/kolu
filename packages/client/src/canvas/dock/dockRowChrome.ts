@@ -9,6 +9,7 @@ export function agentLabel(agent: AgentInfo | null | undefined): string {
 
 export function metaLine(entry: DockEntry): string {
   const { meta } = entry.info;
+  if (meta.state !== "active") return meta.cwd; // sleeping: no live overlay
   if (meta.agent?.summary) return meta.agent.summary;
   if (meta.foreground?.title) return meta.foreground.title;
   if (meta.foreground?.name) return meta.foreground.name;

@@ -43,7 +43,8 @@ function classifyDockRow(
   parked: boolean,
 ): DockRowBucket {
   if (parked) return "parked";
-  const agent = agentBucket(meta.agent);
+  // sleeping: no live overlay → idle bucket via agentBucket(null)
+  const agent = agentBucket(meta.state === "active" ? meta.agent : null);
   // A terminal that *has* an agent but no live attention state reads
   // as "idle" in the dock — quieter than a working pill. Plain shells
   // (`lastActivityAt === 0`) route to `none`.

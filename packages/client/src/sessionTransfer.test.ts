@@ -13,6 +13,7 @@ const valid: SavedSession = {
   terminals: [
     {
       id: "t1",
+      state: "active",
       cwd: "/home/user",
       git: null,
       location: LOCAL_LOCATION,

@@ -3,6 +3,7 @@
 
 import { prValue } from "anyforge/schemas";
 import {
+  activeArm,
   prUnavailableSource,
   type TerminalId,
   type TerminalMetadata,
@@ -83,77 +84,87 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Pull Request */}
-          <Show when={prValue(meta().pr)}>
-            {(pr) => (
-              <Section title="Pull Request">
-                <div class="space-y-0.5">
-                  <Row label="PR">
-                    <a
-                      href={pr().url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="inline-flex items-center gap-1.5 text-accent hover:underline"
-                    >
-                      <PrStateIcon state={pr().state} class="w-3.5 h-3.5" />
-                      <span class="font-mono">#{pr().number}</span>
-                    </a>
-                  </Row>
-                  <Row label="Title">
-                    <span class="text-fg">{pr().title}</span>
-                  </Row>
-                  <Show when={pr().checks}>
-                    {(checks) => (
-                      <Row label="CI" variant="badge">
-                        <ChecksIndicator status={checks()} />
-                        <span class="capitalize">{checks()}</span>
-                      </Row>
-                    )}
-                  </Show>
-                  {/* Per-check breakdown rendered inline — same data
-                   *  the dock-pip / tile-title tooltip carries, but
-                   *  inspector has the real estate to lay it out
-                   *  vertically so a fail/pending list is scannable
-                   *  without hovering. Skipped when the server
-                   *  hasn't sent per-check entries (older payload). */}
-                  <Show when={pr().checkRuns.length > 0}>
-                    <Row label="Checks">
-                      <ul
-                        data-testid="inspector-pr-checks"
-                        class="flex flex-col gap-0.5 text-[11px]"
-                      >
-                        <For each={pr().checkRuns}>
-                          {(c) => (
-                            <li class="flex items-center gap-1.5 min-w-0">
-                              <ChecksIndicator status={c.outcome} />
-                              <span class="font-mono truncate min-w-0">
-                                {c.name}
-                              </span>
-                            </li>
+          {/* Pull Request — gated on the active arm; a sleeping terminal has
+              no live PR resolution. */}
+          <Show when={activeArm(meta())}>
+            {(active) => (
+              <>
+                <Show when={prValue(active().pr)}>
+                  {(pr) => (
+                    <Section title="Pull Request">
+                      <div class="space-y-0.5">
+                        <Row label="PR">
+                          <a
+                            href={pr().url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex items-center gap-1.5 text-accent hover:underline"
+                          >
+                            <PrStateIcon
+                              state={pr().state}
+                              class="w-3.5 h-3.5"
+                            />
+                            <span class="font-mono">#{pr().number}</span>
+                          </a>
+                        </Row>
+                        <Row label="Title">
+                          <span class="text-fg">{pr().title}</span>
+                        </Row>
+                        <Show when={pr().checks}>
+                          {(checks) => (
+                            <Row label="CI" variant="badge">
+                              <ChecksIndicator status={checks()} />
+                              <span class="capitalize">{checks()}</span>
+                            </Row>
                           )}
-                        </For>
-                      </ul>
-                    </Row>
-                  </Show>
-                </div>
-              </Section>
-            )}
-          </Show>
-          <Show when={prUnavailableSource(meta().pr)}>
-            {(source) => (
-              <Section title="Pull Request">
-                <div
-                  data-testid="inspector-pr-unavailable"
-                  class="space-y-2 text-xs"
-                >
-                  <ProviderUnavailableContent source={source()} />
-                </div>
-              </Section>
+                        </Show>
+                        {/* Per-check breakdown rendered inline — same data
+                         *  the dock-pip / tile-title tooltip carries, but
+                         *  inspector has the real estate to lay it out
+                         *  vertically so a fail/pending list is scannable
+                         *  without hovering. Skipped when the server
+                         *  hasn't sent per-check entries (older payload). */}
+                        <Show when={pr().checkRuns.length > 0}>
+                          <Row label="Checks">
+                            <ul
+                              data-testid="inspector-pr-checks"
+                              class="flex flex-col gap-0.5 text-[11px]"
+                            >
+                              <For each={pr().checkRuns}>
+                                {(c) => (
+                                  <li class="flex items-center gap-1.5 min-w-0">
+                                    <ChecksIndicator status={c.outcome} />
+                                    <span class="font-mono truncate min-w-0">
+                                      {c.name}
+                                    </span>
+                                  </li>
+                                )}
+                              </For>
+                            </ul>
+                          </Row>
+                        </Show>
+                      </div>
+                    </Section>
+                  )}
+                </Show>
+                <Show when={prUnavailableSource(active().pr)}>
+                  {(source) => (
+                    <Section title="Pull Request">
+                      <div
+                        data-testid="inspector-pr-unavailable"
+                        class="space-y-2 text-xs"
+                      >
+                        <ProviderUnavailableContent source={source()} />
+                      </div>
+                    </Section>
+                  )}
+                </Show>
+              </>
             )}
           </Show>
 
           {/* Agent */}
-          <Show when={meta().agent}>
+          <Show when={activeArm(meta())?.agent}>
             {(agent) => (
               <Section title="Agent" accent="border-busy">
                 <div class="space-y-0.5">
@@ -224,7 +235,7 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Foreground process */}
-          <Show when={meta().foreground}>
+          <Show when={activeArm(meta())?.foreground}>
             {(fg) => (
               <Section title="Foreground">
                 <div class="space-y-0.5">

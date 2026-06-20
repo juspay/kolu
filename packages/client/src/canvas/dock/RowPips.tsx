@@ -76,7 +76,9 @@ export function createDockRowData(
  *  layout (typically a flex container alongside the subline text).
  *  Renders nothing when there's no PR. */
 export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
-  const pr = (): PrInfo | null => prValue(props.meta.pr);
+  // sleeping: no live overlay → no PR pill
+  const pr = (): PrInfo | null =>
+    props.meta.state === "active" ? prValue(props.meta.pr) : null;
   return (
     <Show when={pr()}>
       {(p) => (
