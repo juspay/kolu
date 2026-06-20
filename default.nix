@@ -36,6 +36,12 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
+  # Per-system `{ system → arivu .drv }` map, baked onto the arivu-tui wrapper as
+  # ARIVU_AGENT_DRVS_JSON so `arivu-tui --host <ssh>` can ship the target-arch
+  # arivu DAEMON derivation (provisionAgent copies+realises it on the remote).
+  # Built across all systems in flake.nix and threaded in here, exactly like
+  # kavalAgentDrvsJson. Defaults to "{}" for a bare `nix-build default.nix`.
+, arivuAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -441,12 +447,18 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # arivu-tui (arivu plan P1c): the terminal-side viewer that dials a running
-  # arivu's awareness socket and lists/watches what each terminal IS IN (branch
-  # · PR · agent · foreground). Runs from the SAME built workspace closure as
-  # `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no state
-  # dir, just nodejs. (A remote `--host <ssh>` dial, riding @kolu/surface-nix-host
-  # like kaval-tui's, is P2 — this build registers the local viewer.)
+  # arivu-tui (arivu plan P1c + P2): the terminal-side viewer that dials a
+  # running arivu's awareness socket and lists/watches what each terminal IS IN
+  # (branch · PR · agent · foreground). Runs from the SAME built workspace closure
+  # as `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no
+  # state dir.
+  #
+  # P2's `--host <ssh>` rides this wrapper (the one-level-up clone of kaval-tui's):
+  # ARIVU_AGENT_DRVS_JSON carries the per-system `{ system → arivu .drv }` map so
+  # the viewer can ship the target-arch arivu DAEMON derivation to a remote, and
+  # openssh + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
+  # provisionAgent's `nix copy` / `nix-store`). `--set-default` (not `--set`) so a
+  # power user can override the map.
   arivu-tui = pkgs.runCommand "arivu-tui"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -455,7 +467,8 @@ let
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/arivu-tui \
       --add-flags "${kolu}/packages/arivu-tui/src/bin.ts" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+      --set-default ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 
   # @kolu/surface example demos — derivations live next to each demo's

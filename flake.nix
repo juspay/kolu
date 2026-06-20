@@ -38,10 +38,23 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
       kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
+      # Per-system { system → arivu .drv } map, baked onto arivu-tui's wrapper
+      # (ARIVU_AGENT_DRVS_JSON) so `arivu-tui --host <ssh>` ships the TARGET-arch
+      # arivu DAEMON derivation — the `arivu` daemon (it carries the sensors +
+      # git/gh + node:sqlite), NOT the arivu-tui viewer: the remote box runs
+      # `arivu --stdio`. Same context-free, IFD-free discipline as kavalDrvBySystem
+      # above (the arivu daemon drv doesn't depend on the map, so building it this
+      # way can't cycle back through the koluBySystem that consumes it).
+      arivuDrvBySystem = eachSystem (pkgs:
+        builtins.unsafeDiscardStringContext
+          (import ./default.nix { inherit pkgs commitHash; }).arivu.drvPath);
+      arivuAgentDrvsJson = builtins.toJSON arivuDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs:
-        import ./default.nix { inherit pkgs commitHash kavalAgentDrvsJson; });
+        import ./default.nix {
+          inherit pkgs commitHash kavalAgentDrvsJson arivuAgentDrvsJson;
+        });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
       websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });

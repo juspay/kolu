@@ -38,9 +38,23 @@ nix run github:juspay/kolu#arivu-tui -- list
 nix run github:juspay/kolu#arivu-tui -- watch a3f1
 ```
 
-By default it dials an arivu on this machine; `--socket PATH` points at a
-different local socket. (A remote `--host <ssh>` dial, riding the same Nix
-provisioning as `kaval-tui --host`, is a later phase.)
+By default it dials an arivu on this machine. Two ways to point it elsewhere,
+**mutually exclusive**:
+
+- `--socket PATH` — a different local socket.
+- `--host <ssh>` — a **remote** arivu over ssh. It provisions the daemon's
+  closure with Nix and runs `arivu --stdio`, then dials it — the same awareness
+  surface over a different transport (riding the same `@kolu/surface-nix-host`
+  provisioning as `kaval-tui --host`). The remote arivu dials the remote kaval
+  and recomputes awareness from now (it's ephemeral by design). Cross-arch: an
+  aarch64-darwin laptop can provision an x86_64-linux box.
+
+```sh
+nix run github:juspay/kolu#arivu-tui -- list --host nix@prod
+```
+
+`--host` ships the target-arch arivu **daemon** closure, so run arivu-tui from
+its Nix wrapper (the command above) — the bare entrypoint has no baked drv map.
 
 The full design lives in the
 [arivu atlas note](https://kolu.dev/atlas/arivu.html).

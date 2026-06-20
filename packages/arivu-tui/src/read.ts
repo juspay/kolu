@@ -8,8 +8,12 @@ import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import type { ArivuClient } from "./connect.ts";
 
 /** The first value an async stream yields, or `undefined` if it ends empty.
- *  Returning out of the loop closes the underlying subscription. */
-async function firstValue<T>(stream: AsyncIterable<T>): Promise<T | undefined> {
+ *  Returning out of the loop closes the underlying subscription. Shared with
+ *  `hostConnect.ts`, where reading the first frame of the `version` cell is the
+ *  `--host` dial's connectivity probe (arivu has no `system.heartbeat`). */
+export async function firstValue<T>(
+  stream: AsyncIterable<T>,
+): Promise<T | undefined> {
   for await (const v of stream) return v;
   return undefined;
 }

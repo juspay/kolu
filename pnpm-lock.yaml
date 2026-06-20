@@ -89,6 +89,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
