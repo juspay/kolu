@@ -70,7 +70,6 @@ import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
-import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -87,6 +86,7 @@ import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -436,7 +436,6 @@ const DockRow: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const activity = useTerminalActivity();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
@@ -484,24 +483,14 @@ const DockRow: Component<{
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell. While output is streaming, "live now" supersedes
-           *  "Xs ago" (the relative time is moot when it's happening this
-           *  second), so the cell swaps the timestamp for the pulsing dot in
-           *  place. The cell sits in an `auto` grid track, so a row (or a whole
-           *  section) showing the 6px dot instead of "5m ago" would shrink the
-           *  track and shift the name column; `w-[8ch]` reserves the WIDEST
-           *  `formatTimeAgo` string ("just now" = 8ch, also covers "59m ago" /
-           *  "23h ago" / "99d ago") so neither the dot swap nor the timestamp
-           *  text reflows or overflows the column. Right-aligned so it lands in
-           *  one column across rows. */}
-          <span class="inline-flex justify-end w-[8ch] font-mono text-[0.6rem] tabular-nums text-fg-3">
-            <Show
-              when={activity.isLive(props.id)}
-              fallback={formatTimeAgo(c().meta.lastActivityAt)}
-            >
-              <LiveActivityDot />
-            </Show>
-          </span>
+          {/* Recency cell — "Xs ago", swapped for the live dot while streaming.
+           *  Shared with the touch drawer; the no-reflow width contract lives
+           *  in RecencyCell. */}
+          <RecencyCell
+            id={props.id}
+            lastActivityAt={c().meta.lastActivityAt}
+            textSize="text-[0.6rem]"
+          />
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"

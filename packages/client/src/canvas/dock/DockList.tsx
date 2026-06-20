@@ -19,15 +19,13 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import LiveActivityDot from "../../terminal/LiveActivityDot";
-import { formatTimeAgo } from "../../terminal/staleness";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -129,7 +127,6 @@ function DockListRow(props: {
   const combined = createDockRowData(props.id);
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const activity = useTerminalActivity();
   return (
     <Show when={combined()}>
       {(c) => (
@@ -179,20 +176,13 @@ function DockListRow(props: {
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — same swap as the desktop dock: while output is
-           *  streaming, the pulsing live dot supersedes the now-moot "Xs ago".
-           *  `w-[8ch]` reserves the WIDEST `formatTimeAgo` string ("just now" =
-           *  8ch) so swapping in the narrower dot (or a section where every row
-           *  is live) never collapses the track and the timestamp text never
-           *  overflows into the adjacent columns. */}
-          <span class="inline-flex justify-end w-[8ch] font-mono text-[0.65rem] tabular-nums text-fg-3">
-            <Show
-              when={activity.isLive(props.id)}
-              fallback={formatTimeAgo(c().meta.lastActivityAt)}
-            >
-              <LiveActivityDot />
-            </Show>
-          </span>
+          {/* Recency cell — same dot/timestamp swap and no-reflow width as the
+           *  desktop dock, shared via RecencyCell. */}
+          <RecencyCell
+            id={props.id}
+            lastActivityAt={c().meta.lastActivityAt}
+            textSize="text-[0.65rem]"
+          />
           {/* Second line — flex row spanning col 2 → end. PR pip on
            *  the left (anchored to col 2 left edge so it aligns
            *  across every section), subline text following. */}
