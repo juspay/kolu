@@ -117,6 +117,11 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  frame of its `version` cell. The result is discarded; a rejection fails the
    *  dial (and destroys the session). */
   probe: (client: AgentClient<C>) => Promise<unknown>;
+  /** Extra args appended after `--stdio` on the remote agent command — e.g.
+   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
+   *  kaval when several are running. Omit to let the agent's own default (its
+   *  discovery) apply. */
+  extraRemoteArgs?: readonly string[];
 }
 
 /** Dial an agent on `host` over ssh, one-shot. Provisions the daemon's closure,
@@ -147,6 +152,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   const session = new HostSession<C>({
     host: opts.host,
     binary: opts.binary,
+    extraArgs: opts.extraRemoteArgs,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
   });
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a

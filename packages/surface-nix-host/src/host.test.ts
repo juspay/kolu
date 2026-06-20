@@ -157,6 +157,36 @@ describe("buildAgentCommand", () => {
     expect(args[sep + 1]).toBe(evil);
     expect(args.slice(0, sep)).not.toContain(evil);
   });
+
+  it("appends extraArgs after --stdio, verbatim for localhost (no shell)", () => {
+    const { args } = buildAgentCommand({
+      host: "localhost",
+      agentPath: "/nix/store/x-agent",
+      binary: "arivu",
+      extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
+    });
+    expect(args).toEqual([
+      "--stdio",
+      "--kaval",
+      "/run/user/1000/kaval-7692/pty-host.sock",
+    ]);
+  });
+
+  it("POSIX-quotes extraArgs for a real remote (ssh re-splits through the remote shell)", () => {
+    const { args } = buildAgentCommand({
+      host: "bob.example",
+      agentPath: "/nix/store/x-agent",
+      binary: "arivu",
+      // A value with a space + a single quote would re-split / break the remote
+      // command line unquoted; the quoting must make it one literal token.
+      extraArgs: ["--kaval", "/tmp/we ird/pty's.sock"],
+    });
+    expect(args.slice(-3)).toEqual([
+      "--stdio",
+      "'--kaval'",
+      "'/tmp/we ird/pty'\\''s.sock'",
+    ]);
+  });
 });
 
 describe("NIX_SSHOPTS", () => {

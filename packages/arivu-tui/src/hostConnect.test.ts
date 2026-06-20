@@ -75,6 +75,25 @@ describe("connectArivuViaHost", () => {
     // The returned Connection is the SAME shape cmd*() use.
     const rows = await snapshotAwareness(conn.client);
     expect(Array.isArray(rows)).toBe(true);
+
+    // No --kaval → no extraRemoteArgs, so the remote arivu discovers its kaval.
+    expect(opts?.extraRemoteArgs).toBeUndefined();
+  });
+
+  it("forwards --kaval as extraRemoteArgs to the remote arivu", async () => {
+    h.dialAgentOnce.mockResolvedValue({
+      client: makeInProcessArivuClient(),
+      dispose: () => {},
+    });
+    await connectArivuViaHost(
+      "nix@prod",
+      "/run/user/1000/kaval-7692/pty-host.sock",
+    );
+    const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
+    expect(opts?.extraRemoteArgs).toEqual([
+      "--kaval",
+      "/run/user/1000/kaval-7692/pty-host.sock",
+    ]);
   });
 
   it("the probe reads the first frame of the version cell (arivu has no heartbeat)", async () => {

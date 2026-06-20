@@ -52,8 +52,14 @@ type ArivuContract = typeof arivuSurface.contract;
 const ARIVU_AGENT_DRVS_ENV = "ARIVU_AGENT_DRVS_JSON";
 
 /** Dial an arivu on `host` over ssh. Provisions the daemon's closure, runs
- *  `arivu --stdio`, and returns the contract-typed `Connection`. */
-export function connectArivuViaHost(host: string): Promise<Connection> {
+ *  `arivu --stdio`, and returns the contract-typed `Connection`. `kavalSocket`
+ *  points the remote arivu at a specific kaval (`arivu --stdio --kaval <path>`);
+ *  omit it and the remote arivu **discovers** the running kaval — a standalone
+ *  one or a home-manager kolu-server (namespaced by listen port). */
+export function connectArivuViaHost(
+  host: string,
+  kavalSocket?: string,
+): Promise<Connection> {
   return dialAgentOnce<ArivuContract>({
     host,
     // `${agentPath}/bin/arivu`, run as `arivu --stdio`. The drv map is keyed to
@@ -62,6 +68,9 @@ export function connectArivuViaHost(host: string): Promise<Connection> {
     envVar: ARIVU_AGENT_DRVS_ENV,
     agentDrvsJson: process.env[ARIVU_AGENT_DRVS_ENV],
     drvNoun: "arivu",
+    // Only pin the remote kaval when the user asked (--kaval); otherwise let the
+    // remote arivu discover it, so a single remote kolu is found with no flag.
+    extraRemoteArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
     // arivu has no `system.heartbeat`, so read the first frame of the `version`
     // cell as the connectivity probe.
     probe: (client) => firstFrame(client.surface.version.get({})),

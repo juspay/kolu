@@ -152,6 +152,35 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     await expect(resolveDrvPath()).resolves.toBe("/nix/store/aaa-agent.drv");
   });
 
+  it("threads extraRemoteArgs to the session's extraArgs (the --kaval passthrough)", async () => {
+    fakeSession({});
+    await dialAgentOnce({
+      host: "nix@prod",
+      binary: "arivu",
+      envVar: "AGENT_DRVS_JSON",
+      agentDrvsJson: VALID_MAP,
+      drvNoun: "arivu",
+      probe: async () => undefined,
+      extraRemoteArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
+    });
+    expect(h.HostSession.mock.calls[0]?.[0]).toMatchObject({
+      extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
+    });
+  });
+
+  it("leaves extraArgs undefined when no extraRemoteArgs given (discover-by-default)", async () => {
+    fakeSession({});
+    await dialAgentOnce({
+      host: "nix@prod",
+      binary: "arivu",
+      envVar: "AGENT_DRVS_JSON",
+      agentDrvsJson: VALID_MAP,
+      drvNoun: "arivu",
+      probe: async () => undefined,
+    });
+    expect(h.HostSession.mock.calls[0]?.[0]?.extraArgs).toBeUndefined();
+  });
+
   it("fails clearly when no derivation is baked for the host's system", async () => {
     h.resolveSystem.mockResolvedValue("x86_64-linux");
     fakeSession({});

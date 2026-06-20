@@ -159,10 +159,18 @@ export function buildAgentCommand(opts: {
   host: string;
   agentPath: string;
   binary: string;
+  /** Extra args appended after `--stdio` on the agent command line — e.g.
+   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
+   *  kaval. Empty by default. For a real remote these are POSIX-quoted (ssh
+   *  re-splits the command through the remote login shell); localhost runs the
+   *  binary directly via `spawn`, so they pass through verbatim. */
+  extraArgs?: readonly string[];
 }): { command: string; args: string[] } {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
+  const extra = opts.extraArgs ?? [];
   if (isLocalHost(opts.host)) {
-    return { command: exe, args: ["--stdio"] };
+    // Direct `spawn`, no shell — args pass through verbatim, no quoting.
+    return { command: exe, args: ["--stdio", ...extra] };
   }
   return {
     command: "ssh",
@@ -181,8 +189,21 @@ export function buildAgentCommand(opts: {
       opts.host,
       exe,
       "--stdio",
+      // ssh joins everything after the host into ONE string run by the remote
+      // login shell, so a caller-supplied value (a `--kaval` socket path with a
+      // space, say) must be POSIX-quoted or it would re-split / inject. The
+      // fixed tokens above are metacharacter-free store paths, so they don't.
+      ...extra.map(posixQuote),
     ],
   };
+}
+
+/** POSIX single-quote a token so the remote login shell reads it as one literal
+ *  argument (ssh runs the command string through that shell). A standalone
+ *  one-liner, not `@kolu/shell-quote`, to keep this drishti-shared package free
+ *  of a new workspace dependency for a single call site. */
+function posixQuote(s: string): string {
+  return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
 /** Argv to run a one-shot command against `host`. Localhost runs the

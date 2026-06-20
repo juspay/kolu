@@ -114,6 +114,11 @@ export interface HostSessionOptions {
    *  `process-monitor-agent`, `kolu-terminal-agent`). The full spawn
    *  path is `${agentPath}/bin/${binary}`. */
   binary: string;
+  /** Extra args appended after `--stdio` on the agent command line (e.g.
+   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
+   *  kaval). POSIX-quoted for a real remote; verbatim for localhost. See
+   *  `buildAgentCommand`. */
+  extraArgs?: readonly string[];
   /** How long between disconnect and reconnect attempts. Default 2s. */
   reconnectDelayMs?: number;
   /** How long to wait for the first RPC after the ssh child is spawned
@@ -445,6 +450,7 @@ export class HostSession<C extends AnyContractRouter> {
       host: this.opts.host,
       agentPath: realisedAgentPath,
       binary: this.opts.binary,
+      extraArgs: this.opts.extraArgs,
     });
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;

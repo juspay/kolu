@@ -15,9 +15,12 @@
  *   --host <ssh>    a REMOTE arivu over ssh: provision the daemon's closure with
  *                   Nix, run `arivu --stdio`, and dial it — the same awareness
  *                   surface over a different transport (see `hostConnect.ts`).
- *                   The remote arivu dials the remote kaval and recomputes
- *                   awareness from now; nothing survives the link (it's
- *                   ephemeral by design).
+ *                   The remote arivu DISCOVERS the running kaval — a standalone
+ *                   one or a home-manager kolu-server (namespaced by listen
+ *                   port) — so `--host` lands on your remote kolu's terminals
+ *                   with no extra flag. Add `--kaval <path>` only to pick one
+ *                   when several kavals run on the host. Nothing survives the
+ *                   link (arivu is ephemeral by design).
  */
 
 import { homedir } from "node:os";
@@ -55,8 +58,19 @@ const hostFlag = {
   },
 } as const;
 
-// Every subcommand can target either a local socket or a remote host.
-const endpointFlags = { ...socketFlag, ...hostFlag } as const;
+// --kaval pins WHICH kaval the remote arivu dials, for a host running several
+// (e.g. two kolu-servers). Only meaningful with --host; rejected otherwise.
+const kavalFlag = {
+  kaval: {
+    type: String,
+    description:
+      "with --host: the kaval pty-host socket the remote arivu should dial (e.g. $XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock). Default: the remote arivu discovers the running kaval (standalone, or a kolu-server). Goes AFTER the subcommand.",
+  },
+} as const;
+
+// Every subcommand can target a local socket or a remote host (+ pick the
+// remote's kaval).
+const endpointFlags = { ...socketFlag, ...hostFlag, ...kavalFlag } as const;
 
 const argv = cli({
   name: "arivu-tui",
@@ -115,8 +129,11 @@ function connectLocal(socketOverride: string | undefined): Promise<Connection> {
  *  (no passwordless ssh, the user not in the remote's `trusted-users`) reads as
  *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
  *  the first failure instead of spinning on HostSession's reconnect loop. */
-function connectHost(host: string): Promise<Connection> {
-  return connectArivuViaHost(host).catch((err) =>
+function connectHost(
+  host: string,
+  kavalSocket: string | undefined,
+): Promise<Connection> {
+  return connectArivuViaHost(host, kavalSocket).catch((err) =>
     fail(`could not reach arivu on ${host} — ${(err as Error).message}`),
   );
 }
@@ -225,9 +242,18 @@ async function main(): Promise<void> {
       "--host and --socket are mutually exclusive: --host reaches a remote arivu over ssh, --socket dials a local one. Pass just one.",
     );
   }
+  // --kaval selects WHICH kaval the remote arivu dials — it only travels over
+  // the --host dial. Without --host there is no remote arivu to point at (a
+  // local arivu was already started against its own kaval), so reject it loudly
+  // rather than silently ignore it.
+  if (argv.flags.kaval !== undefined && argv.flags.host === undefined) {
+    fail(
+      "--kaval only applies with --host (it picks which kaval the remote arivu dials). For a local arivu, point arivu itself at the kaval when you start it.",
+    );
+  }
   const conn =
     argv.flags.host !== undefined
-      ? await connectHost(argv.flags.host)
+      ? await connectHost(argv.flags.host, argv.flags.kaval)
       : await connectLocal(argv.flags.socket);
   try {
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
