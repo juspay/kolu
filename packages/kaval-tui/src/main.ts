@@ -425,14 +425,11 @@ async function cmdAttach(
 
 /** End a terminal the daemon owns. `resolveOne` already proved `id` is live
  *  (failing loud on no-match/ambiguity), so reaching here means a real PTY is
- *  being torn down — the daemon's kill is idempotent and acks `{ ok }`. A non-ok
- *  ack is surfaced loud rather than swallowed (fail-fast: a refused kill must not
- *  read as success). The confirmation goes to stderr like `attach`'s trailers, so
+ *  being torn down. The confirmation goes to stderr like `attach`'s trailers, so
  *  stdout stays empty: `kill` yields no scriptable payload, only an exit code
  *  (0 on success, the catch-all 1 on an RPC error). */
 async function cmdKill(conn: Connection, id: string): Promise<void> {
-  const { ok } = await conn.client.surface.terminal.kill({ id });
-  if (!ok) fail(`the daemon refused to kill ${shortId(id)}`);
+  await conn.client.surface.terminal.kill({ id });
   process.stderr.write(`— killed ${shortId(id)}\n`);
 }
 
