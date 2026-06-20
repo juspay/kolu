@@ -404,7 +404,8 @@ let
   # in arivu P3 PR1 (its own wrapper below) and no longer shares this shape. The
   # factory still earns its keep as kaval-tui's home and the template a future
   # tsx-based `--host` CLI would reuse: name, entrypoint, and the per-system
-  # `{ system → agent .drv }` map env var are the only volatile axes. The map is baked with `--set` (NOT `--set-default`): it is a baked build
+  # `{ system → agent .drv }` map env var are the only volatile axes. The map is
+  # baked with `--set` (NOT `--set-default`): it is a baked build
   # fact — the exact derivations this wrapper ships and realises on the remote —
   # not a tunable. `--set-default` would let an ambient/stale
   # `*_AGENT_DRVS_JSON` inherited from the caller's env silently override the

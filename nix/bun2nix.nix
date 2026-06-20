@@ -19,7 +19,10 @@
 # stays npins alone.
 { pkgs }:
 let
-  pin = (builtins.fromJSON (builtins.readFile ../npins/sources.json)).pins.bun2nix;
+  # The canonical npins accessor (the same `import ./npins` the `odu` pin rides
+  # in default.nix), which exposes each pin's `revision` + `hash` — not a second
+  # hand-rolled `fromJSON (readFile sources.json)` parse of the same file.
+  pin = (import ../npins).bun2nix;
   bun2nixFlake = builtins.getFlake (
     "github:juspay/bun2nix/${pin.revision}?narHash=${pin.hash}"
   );
