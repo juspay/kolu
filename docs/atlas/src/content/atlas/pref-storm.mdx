@@ -31,7 +31,7 @@ The right-panel splitter and the Code-tab tree splitter are both `@corvu/resizab
 The handler persisted it on every emission, with **no** equality gate and **no** coalescing:
 
 ```ts
-// App.tsx:604-614  (and CodeTab.tsx:482-483, vertical split)
+// App.tsx:604-614  (and CodeTabImpl.tsx:886-889, vertical split)
 onSizesChange={(sizes) => {
   if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
 }}

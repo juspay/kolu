@@ -39,7 +39,7 @@ projects a path set into the tree:
 
 `type in filter` → `searchQuery()` → `projectFileTreeSearch` → `{ projectedPaths, expandedAncestors }` → `<FileTree>` batch + expand
 
-- `projectFileTreeSearch(treePaths(), searchQuery())` (`CodeTab.tsx:331-333`) returns `projectedPaths` (matching **files only**) and `expandedAncestors` (`fileSearch.ts:44-62`). For `docs plans` that's the files under `docs/plans/` and the ancestors `["docs/", "docs/plans/"]`.
+- `projectFileTreeSearch(treePaths(), searchQuery())` (`CodeTabImpl.tsx:584-586`) returns `projectedPaths` (matching **files only**) and `expandedAncestors` (`fileSearch.ts:44-62`). For `docs plans` that's the files under `docs/plans/` and the ancestors `["docs/", "docs/plans/"]`.
 - `<FileTree>` receives `paths={…projectedPaths}`, `search={false}`, `expandPaths={…expandedAncestors}`. `search={false}` means Pierre's `hide-non-matches` machinery is dormant — **all filtering is kolu-side**.
 - The wrapper turns the old inventory into the new one as an **in-place delta**: `pathDiffOperations(appliedPaths, paths)` emits `{type:"remove"}` for each dropped file, then `tree.batch(ops)`, then additively `.expand()`s the ancestors (`FileTree.tsx:205-227`). It uses `batch` rather than `resetPaths` specifically so hand-opened folders survive.
 
@@ -102,7 +102,7 @@ still listed → + stale expanded flag → empty expanded rows.
 
 <Callout kind="good" title="Chosen: prune the emptied directories inside FileTree.tsx, derived from the file set">
 Reject the collapse pass. Reject `resetPaths`-on-filter. Lowy fixes the
-*boundary* (the fix belongs in the wrapper; `fileSearch.ts` and `CodeTab.tsx`
+*boundary* (the fix belongs in the wrapper; `fileSearch.ts` and `CodeTabImpl.tsx`
 stay inert). Hickey fixes the *internals* (derive directories from
 `appliedPaths`; no parallel `appliedDirs` state; no collapse pass). They are the
 intended complement — Lowy gets the seam right, Hickey gets the structure right.

@@ -111,7 +111,7 @@ with no directory hint. That sounds like it needs a new file index.
 
 It doesn't. `fsListAll` already streams `git ls-files --cached --others
 --exclude-standard` into the client (`integrations/git/src/browse.ts`),
-materialised as `treePaths()` in `CodeTab.tsx` — a live, gitignore-respecting,
+materialised as `treePaths()` in `CodeTabImpl.tsx` — a live, gitignore-respecting,
 NFC-normalised list of every repo path, already the back-end of the "open this
 file" front door.
 

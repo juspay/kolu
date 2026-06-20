@@ -71,7 +71,7 @@ browser, and today it is complected across five files:
 | Smeared across | Owns (a browser organ) |
 | --- | --- |
 | `right-panel/openInCodeTab.ts` <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="78-85" /> | The **address bar** — the single "navigate to this location" front door. |
-| `right-panel/CodeTab.tsx` <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="515-542" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
+| `right-panel/CodeTabImpl.tsx` <Cite file="packages/client/src/right-panel/CodeTabImpl.tsx" lines="635-666" /> | `handleSelect` — the **navigation controller** (apply a location to the view). |
 | `right-panel/markdownImageSrc.ts` → now `solid-browser/src/relativePath.ts` <Cite file="packages/solid-browser/src/relativePath.ts" /> | **Relative-link resolution** (GitHub rules) — agnostic URI math. |
 | `right-panel/iframePreviewNav.ts` → now `solid-browser/src/previewPath.ts` <Cite file="packages/solid-browser/src/previewPath.ts" /> | **In-frame link interception** — map an iframe `pathname` back to a location. |
 | `right-panel/BrowseIframeRenderer.tsx` <Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="56-64" /> | **In-iframe link observation** — a navigation edge *out* of rendered HTML (the iframe *drawing* is already `@kolu/solid-fileview`'s). |
@@ -117,7 +117,7 @@ not now (see the phase-2 as-built callout for why `<Browser>` is deferred).
 direction: down
 
 kolu: "kolu app — the consumer" {
-  CodeTab: "right-panel/CodeTab.tsx"
+  CodeTab: "right-panel/CodeTabImpl.tsx"
   gitResolver: "gitResolver.ts (git domain) — deferred"
 }
 
@@ -249,7 +249,7 @@ originating discussion):
   becomes a *derived view* of "current location filtered to this mode," not the
   source of truth.
 - **Tree clicks count as navigation.** `handleSelect`
-  <Cite file="packages/client/src/right-panel/CodeTab.tsx" lines="515-542" />
+  <Cite file="packages/client/src/right-panel/CodeTabImpl.tsx" lines="635-666" />
   routes through `navigate()`, so back returns to the previously-viewed file no
   matter how you reached the current one.
 - **Restore where you *were*, not just what.** A faithful entry is
@@ -277,7 +277,7 @@ originating discussion):
 | File | Change |
 | --- | --- |
 | `right-panel/useRightPanel.ts` <Pill variant="ok">phase 2</Pill> | Hosts a per-terminal `Browser<BrowserLocation>` (in-memory; seeded on restore, dropped on teardown) and exposes `recordNavigation`/`navigateBack`/`navigateForward`/`canNavigateBack`/`canNavigateForward`. `selectedFileByMode` **stays** the render + restore truth; history is *additive* over it. |
-| `right-panel/CodeTab.tsx` <Pill variant="ok">phase 2</Pill> | Records every selection (tree click, in-iframe link, resolved front-door open) into history; ◀ ▶ toolbar buttons + a scoped `Alt+←/→` listener re-apply earlier locations. Cheap-v1 re-highlight rides the existing front-door pipeline. |
+| `right-panel/CodeTabImpl.tsx` <Pill variant="ok">phase 2</Pill> | Records every selection (tree click, in-iframe link, resolved front-door open) into history; ◀ ▶ toolbar buttons + a scoped `Alt+←/→` listener re-apply earlier locations. Cheap-v1 re-highlight rides the existing front-door pipeline. |
 | `gitResolver.ts` · `<Browser>` · unified `navigate` <Pill variant="todo">deferred</Pill> | The `resolve(location)→FileData` injection, the `<Browser>` component, and folding the two nav paths into one `navigate` wait on a uniform viewport — diffs don't fit `FileData`, so a `<Browser>` would wrap only browse mode (hollow). See the phase-2 as-built callout. |
 | `right-panel/markdownImageSrc.ts` <Pill variant="ok">phase 1</Pill> | Delegates resolution to the package; keeps only the file-route URL build (real composition, not a pass-through). |
 | `right-panel/iframePreviewNav.ts` <Pill variant="ok">deleted (phase 1)</Pill> | The agnostic inversion moved to the package; the kolu codec is bound *inline* at `BrowseIframeRenderer`'s call site — no thin wrapper (`.agency/code-police.md` → `no-thin-wrapper-functions`). |

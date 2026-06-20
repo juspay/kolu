@@ -294,7 +294,7 @@ churn.
 - **Full metadata object per live-field update** (`terminalEndpoint/metadata.ts:96-136`) — real, but upstream dedup gates (`prResultEqual`, `agentInfoEqual`) already cap cadence to PR-poll 30s / screen-scrape 1s; splitting live vs persisted deltas is lower priority. <Pill variant="lo">low</Pill>
 - **`base64` stdio framing adds ~33%** (`links/stdio-codec.ts:25-64`) — framing is already swappable; a length-prefixed binary frame is the upgrade, **gated on measured large-payload ops** (git diff, `fsListAll`). <Pill variant="lo">low</Pill>
 - **`useCollection` subscribes to all keys** even if one is consumed (`useTerminalMetadata.ts:34`) — bounded, since rendered terminals genuinely need metadata; only worth lazy-subscribing in 50+ terminal workspaces with most invisible. <Pill variant="lo">low</Pill>
-- **Three parallel git-status subscriptions per Code tab** (`CodeTab.tsx:314-349`) — real duplication, but **documented as load-bearing** (the passive subs swallow `BASE_BRANCH_NOT_FOUND` while the active one revives after fetch). Do not coalesce blindly. <Pill variant="lo">low</Pill>
+- **Three parallel git-status subscriptions per Code tab** (`CodeTabImpl.tsx:319-363`) — real duplication, but **documented as load-bearing** (the passive subs swallow `BASE_BRANCH_NOT_FOUND` while the active one revives after fetch). Do not coalesce blindly. <Pill variant="lo">low</Pill>
 
 ### kaval memory & streaming
 

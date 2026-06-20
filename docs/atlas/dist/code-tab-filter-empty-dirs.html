@@ -21,7 +21,7 @@ promote-to-explicit behavior correctly.</p></div> </aside>
 projects a path set into the tree:</p>
 <p><code>type in filter</code> → <code>searchQuery()</code> → <code>projectFileTreeSearch</code> → <code>{ projectedPaths, expandedAncestors }</code> → <code>&lt;FileTree&gt;</code> batch + expand</p>
 <ul>
-<li><code>projectFileTreeSearch(treePaths(), searchQuery())</code> (<code>CodeTab.tsx:331-333</code>) returns <code>projectedPaths</code> (matching <strong>files only</strong>) and <code>expandedAncestors</code> (<code>fileSearch.ts:44-62</code>). For <code>docs plans</code> that’s the files under <code>docs/plans/</code> and the ancestors <code>[&quot;docs/&quot;, &quot;docs/plans/&quot;]</code>.</li>
+<li><code>projectFileTreeSearch(treePaths(), searchQuery())</code> (<code>CodeTabImpl.tsx:584-586</code>) returns <code>projectedPaths</code> (matching <strong>files only</strong>) and <code>expandedAncestors</code> (<code>fileSearch.ts:44-62</code>). For <code>docs plans</code> that’s the files under <code>docs/plans/</code> and the ancestors <code>[&quot;docs/&quot;, &quot;docs/plans/&quot;]</code>.</li>
 <li><code>&lt;FileTree&gt;</code> receives <code>paths={…projectedPaths}</code>, <code>search={false}</code>, <code>expandPaths={…expandedAncestors}</code>. <code>search={false}</code> means Pierre’s <code>hide-non-matches</code> machinery is dormant — <strong>all filtering is kolu-side</strong>.</li>
 <li>The wrapper turns the old inventory into the new one as an <strong>in-place delta</strong>: <code>pathDiffOperations(appliedPaths, paths)</code> emits <code>{type:&quot;remove&quot;}</code> for each dropped file, then <code>tree.batch(ops)</code>, then additively <code>.expand()</code>s the ancestors (<code>FileTree.tsx:205-227</code>). It uses <code>batch</code> rather than <code>resetPaths</code> specifically so hand-opened folders survive.</li>
 </ul>
@@ -105,7 +105,7 @@ would still appear — just collapsed rather than expanded.</p>
 still listed → + stale expanded flag → empty expanded rows.</p></div> </aside>
 <h2 id="fix--hickey--lowy-verdict-shipped">Fix — /hickey + /lowy verdict <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>shipped</span></h2>
 <aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Chosen: prune the emptied directories inside FileTree.tsx, derived from the file set</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Reject the collapse pass. Reject <code>resetPaths</code>-on-filter. Lowy fixes the
-<em>boundary</em> (the fix belongs in the wrapper; <code>fileSearch.ts</code> and <code>CodeTab.tsx</code>
+<em>boundary</em> (the fix belongs in the wrapper; <code>fileSearch.ts</code> and <code>CodeTabImpl.tsx</code>
 stay inert). Hickey fixes the <em>internals</em> (derive directories from
 <code>appliedPaths</code>; no parallel <code>appliedDirs</code> state; no collapse pass). They are the
 intended complement — Lowy gets the seam right, Hickey gets the structure right.</p></div> </aside>

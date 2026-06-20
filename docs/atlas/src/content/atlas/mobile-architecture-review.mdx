@@ -98,7 +98,7 @@ One source, two voltages, two clean outlets — then exposed mains:
       <text x="644" y="312" fill="#f0c48b">🔌 useTips.ts:65,73 — suppress tips ×2</text>
       <text x="644" y="330" fill="#f0c48b">🔌 commands.tsx:318 — erase canvas section</text>
       <text x="644" y="348" fill="#f0c48b">🔌 openInCodeTab.ts:76 — fork the intent</text>
-      <text x="644" y="366" fill="#f0c48b">🔌 CodeTab.tsx:103/548 — density + scroll</text>
+      <text x="644" y="366" fill="#f0c48b">🔌 CodeTabImpl.tsx:142/844 — density + scroll</text>
       <text x="644" y="384" fill="#f0c48b">🔌 App.tsx:194/225 — center / switcher</text>
       <text x="644" y="402" fill="#ef6f6f">🔌 Terminal.tsx:538 — contenteditable surgery</text>
     </g>
@@ -217,7 +217,7 @@ Two non-reactive reads at construction: `treeDensity = isMobile() ? "relaxed" : 
 (line 103) and `if (isMobile()) attachPierreTouchScroll(el)` (line 548). The review
 called the **touch-scroll gate keying off `isMobile` (viewport) instead of `isTouch`
 (modality)** a genuine wrong-axis bug. Re-examined in <PrLink pr={1088} />: density
-is now keyed on `isTouch` (tap-target rationale in `CodeTab.tsx`), while the
+is now keyed on `isTouch` (tap-target rationale in `CodeTabImpl.tsx`), while the
 touch-scroll gate deliberately stays on `isMobile` — the workaround targets the
 mobile drawer layout's iOS native scroll, not touch modality (rationale in-code and
 in `capabilities.ts`'s deliberate-raw-read list) — so the wrong-axis verdict is

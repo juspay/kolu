@@ -26,7 +26,7 @@ opens straight away; a miss toasts.</p></div> </aside>
 is <em>pathless</em> — it finds <code>Architecture.md</code> by basename, scanning the whole repo,
 with no directory hint. That sounds like it needs a new file index.</p>
 <p>It doesn’t. <code>fsListAll</code> already streams <code>git ls-files --cached --others --exclude-standard</code> into the client (<code>integrations/git/src/browse.ts</code>),
-materialised as <code>treePaths()</code> in <code>CodeTab.tsx</code> — a live, gitignore-respecting,
+materialised as <code>treePaths()</code> in <code>CodeTabImpl.tsx</code> — a live, gitignore-respecting,
 NFC-normalised list of every repo path, already the back-end of the “open this
 file” front door.</p>
 <aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>What the resolver actually does</p> <div class="callout-body" data-astro-cid-mrmim4ef><p><code>resolveWikilink(target, repoPaths)</code> (<code>@kolu/solid-markdown</code>’s <code>wikilink.ts</code>,
