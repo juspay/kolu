@@ -3,6 +3,7 @@
  *  "are we talking to ourselves?" check and the per-line stderr fanout
  *  in one place so they evolve together. */
 
+import { shellQuoteArg } from "@kolu/shell-quote";
 import { controlOptPairs } from "./controlMaster";
 
 export function isLocalHost(host: string): boolean {
@@ -192,18 +193,12 @@ export function buildAgentCommand(opts: {
       // ssh joins everything after the host into ONE string run by the remote
       // login shell, so a caller-supplied value (a `--kaval` socket path with a
       // space, say) must be POSIX-quoted or it would re-split / inject. The
+      // canonical `@kolu/shell-quote` owns that quoting axis repo-wide (zero
+      // runtime deps, so it adds no weight to this drishti-shared closure). The
       // fixed tokens above are metacharacter-free store paths, so they don't.
-      ...extra.map(posixQuote),
+      ...extra.map(shellQuoteArg),
     ],
   };
-}
-
-/** POSIX single-quote a token so the remote login shell reads it as one literal
- *  argument (ssh runs the command string through that shell). A standalone
- *  one-liner, not `@kolu/shell-quote`, to keep this drishti-shared package free
- *  of a new workspace dependency for a single call site. */
-function posixQuote(s: string): string {
-  return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
 /** Argv to run a one-shot command against `host`. Localhost runs the

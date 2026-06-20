@@ -1203,6 +1203,9 @@ importers:
 
   packages/surface-nix-host:
     dependencies:
+      '@kolu/shell-quote':
+        specifier: workspace:*
+        version: link:../shell-quote
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

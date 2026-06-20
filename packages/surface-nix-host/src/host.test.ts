@@ -178,12 +178,14 @@ describe("buildAgentCommand", () => {
       agentPath: "/nix/store/x-agent",
       binary: "arivu",
       // A value with a space + a single quote would re-split / break the remote
-      // command line unquoted; the quoting must make it one literal token.
+      // command line unquoted; the quoting must make it one literal token. A
+      // safe bare word like `--kaval` is left unquoted by `shellQuoteArg` (the
+      // canonical quoter) — equivalent through the remote shell.
       extraArgs: ["--kaval", "/tmp/we ird/pty's.sock"],
     });
     expect(args.slice(-3)).toEqual([
       "--stdio",
-      "'--kaval'",
+      "--kaval",
       "'/tmp/we ird/pty'\\''s.sock'",
     ]);
   });
