@@ -79,7 +79,7 @@ Sleeping is one record whose <code>state</code> flag says whether its PTY is cur
 
 
 
-<table><thead><tr><th>Phase</th><th>What lands</th><th>Why separable</th></tr></thead><tbody><tr><td><strong>1 — Seat the sum</strong></td><td>Add <code>state</code>; flip <code>TerminalMetadataSchema</code> to a <code>discriminatedUnion</code>; presence surfaces read the <code>Terminal</code> union off the terminal store; ship with only the <code>active</code> arm constructed</td><td><strong>Zero behavior change</strong> — a pure structural move that makes the narrowing seam exist before any sleep logic depends on it</td></tr><tr><td><strong>2 — Sleep / Wake</strong></td><td>Populate the <code>sleeping</code> arm: sleep writes a sleeping record from the base + releases PTY/xterm/agent; wake = restore-one (a fresh active record from the base); the merged id list carries both onto every presence surface</td><td>The user-facing core; no new component, no second loop</td></tr><tr><td><strong>3 — Frozen screenshot body</strong></td><td>Capture just before sleep, write under <code>KOLU_STATE_DIR</code>, serve through a small static image route; the reference rides the record</td><td>Isolated surface — one capture + one route</td></tr><tr><td><strong>4 — Unify with session-restore</strong></td><td>Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set</td><td>Behavior-preserving consolidation, landed last</td></tr></tbody></table>
+<table><thead><tr><th>Phase</th><th>What lands</th><th>Why separable</th></tr></thead><tbody><tr><td><strong>1 — Seat the sum</strong></td><td>Add <code>state</code>; flip <code>TerminalMetadataSchema</code> to a <code>discriminatedUnion</code>; presence surfaces read the <code>Terminal</code> union off the terminal store; ship with only the <code>active</code> arm constructed</td><td><strong>Zero behavior change</strong> — a pure structural move that makes the narrowing seam exist before any sleep logic depends on it</td></tr><tr><td><strong>2 — Sleep / Wake</strong></td><td>Populate the <code>sleeping</code> arm: sleep writes a sleeping record from the base + releases PTY/xterm/agent; wake = restore-one (a fresh active record from the base); the merged id list carries both onto every presence surface</td><td>The user-facing core; no new component, no second loop</td></tr><tr><td><strong>3 — Frozen screenshot body</strong></td><td>Capture just before sleep, write under <code>KOLU_STATE_DIR</code>, serve through a small static image route; the reference rides the record — and the captured frame is what the live→frozen swap <strong>cross-fades into</strong>, so the sleep transition turns seamless here</td><td>Isolated surface — one capture, one route, one fade</td></tr><tr><td><strong>4 — Unify with session-restore</strong></td><td>Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set</td><td>Behavior-preserving consolidation, landed last</td></tr></tbody></table>
 <h3 id="phase-1--seat-the-sum-zero-behavior-change--shipped">Phase 1 — seat the sum (zero behavior change) · shipped</h3>
 <p><strong><a href="https://github.com/juspay/kolu/pull/1449" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
 #1449 </a>.</strong> <code>TerminalMetadataSchema</code> flipped from a flat <code>.merge</code> to
@@ -103,7 +103,11 @@ from birth and nothing ever rewrites a live field onto a sleeping one. The serve
 runs each transition as a single op and re-emits the <strong>merged id list once</strong>, so the
 client never renders both records — continuity rides the base: the new record
 carries the same <code>canvasLayout</code>, so the tile keeps its slot and dock order across
-the swap, and the active selection follows to the successor.</p>
+the swap, and the active selection follows to the successor. Because the id
+changes, the canvas <em>swaps</em> tiles rather than morphing one in place — in Phase 2
+that swap is <strong>un-animated</strong> (the successor simply appears in the same slot); the
+seamless live→frozen cross-fade rides Phase 3, where the captured frame to fade
+<em>into</em> finally exists.</p>
 <p><strong>The seam that makes a sleeping terminal real is the wire, not the type.</strong> The
 client subscribes to terminal metadata keyed off the server’s id list, which is
 active-only today; Phase 2’s load-bearing change is to make that the <strong>merged
@@ -185,7 +189,14 @@ provider ever rewrites a live field onto a sleeping one (the overlay isn’t on 
 arm — a type error, which is the point). Re-minting on both transitions buys the
 win — wake is just restore-one — at the cost of a brief two-record swap the server
 must sequence (retire, <em>then</em> emit the merged list) so the client never renders
-both.</li>
+both. The alternative, <em>mutate in place</em> (keep the id across sleep), would let the
+tile morph instead of swap — but it can’t reuse the restore path for wake (it needs
+a new respawn-under-id spawn that edits the flake-sensitive boot hydration) and
+makes the publisher emit two shapes per key over its life. <strong>We’d revisit only if a
+stable id gains a real external consumer</strong> — a deep-link, a <em>reopen terminal X</em> —
+since agent-resume keys off the base, not the kolu id, so nothing needs it today.
+(The un-animated swap is not a reason to revisit: the Phase 3 cross-fade closes it
+without touching the model.)</li>
 </ul>
 <aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>When we&#39;d revisit</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>If a genuine <em>non-terminal</em> canvas kind ever lands — a sticky note, a web embed —
 introduce a content-kind layer then, designed against <strong>two real kinds</strong>. Location

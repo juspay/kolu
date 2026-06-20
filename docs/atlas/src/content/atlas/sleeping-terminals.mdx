@@ -189,7 +189,7 @@ Each is one reviewable PR; each leaves `master` shippable.
 |---|---|---|
 | **1 — Seat the sum** | Add `state`; flip `TerminalMetadataSchema` to a `discriminatedUnion`; presence surfaces read the `Terminal` union off the terminal store; ship with only the `active` arm constructed | **Zero behavior change** — a pure structural move that makes the narrowing seam exist before any sleep logic depends on it |
 | **2 — Sleep / Wake** | Populate the `sleeping` arm: sleep writes a sleeping record from the base + releases PTY/xterm/agent; wake = restore-one (a fresh active record from the base); the merged id list carries both onto every presence surface | The user-facing core; no new component, no second loop |
-| **3 — Frozen screenshot body** | Capture just before sleep, write under `KOLU_STATE_DIR`, serve through a small static image route; the reference rides the record | Isolated surface — one capture + one route |
+| **3 — Frozen screenshot body** | Capture just before sleep, write under `KOLU_STATE_DIR`, serve through a small static image route; the reference rides the record — and the captured frame is what the live→frozen swap **cross-fades into**, so the sleep transition turns seamless here | Isolated surface — one capture, one route, one fade |
 | **4 — Unify with session-restore** | Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set | Behavior-preserving consolidation, landed last |
 
 ### Phase 1 — seat the sum (zero behavior change) · shipped
@@ -217,7 +217,11 @@ from birth and nothing ever rewrites a live field onto a sleeping one. The serve
 runs each transition as a single op and re-emits the **merged id list once**, so the
 client never renders both records — continuity rides the base: the new record
 carries the same `canvasLayout`, so the tile keeps its slot and dock order across
-the swap, and the active selection follows to the successor.
+the swap, and the active selection follows to the successor. Because the id
+changes, the canvas *swaps* tiles rather than morphing one in place — in Phase 2
+that swap is **un-animated** (the successor simply appears in the same slot); the
+seamless live→frozen cross-fade rides Phase 3, where the captured frame to fade
+*into* finally exists.
 
 **The seam that makes a sleeping terminal real is the wire, not the type.** The
 client subscribes to terminal metadata keyed off the server's id list, which is
@@ -308,7 +312,14 @@ thing.
   arm — a type error, which is the point). Re-minting on both transitions buys the
   win — wake is just restore-one — at the cost of a brief two-record swap the server
   must sequence (retire, *then* emit the merged list) so the client never renders
-  both.
+  both. The alternative, *mutate in place* (keep the id across sleep), would let the
+  tile morph instead of swap — but it can't reuse the restore path for wake (it needs
+  a new respawn-under-id spawn that edits the flake-sensitive boot hydration) and
+  makes the publisher emit two shapes per key over its life. **We'd revisit only if a
+  stable id gains a real external consumer** — a deep-link, a *reopen terminal X* —
+  since agent-resume keys off the base, not the kolu id, so nothing needs it today.
+  (The un-animated swap is not a reason to revisit: the Phase 3 cross-fade closes it
+  without touching the model.)
 
 <Callout kind="accent" title="When we'd revisit">
 If a genuine *non-terminal* canvas kind ever lands — a sticky note, a web embed —
