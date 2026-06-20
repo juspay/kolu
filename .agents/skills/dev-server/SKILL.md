@@ -118,8 +118,12 @@ done
 rm -f .dev-server/ports.json
 ```
 
-**Never** `pkill -f kolu` / `vite` / `tsx` — those broad patterns can hit
-production or unrelated processes. Match the remembered ports only.
+**Never** `pkill -f <substring>` at all — not `kolu` / `vite` / `tsx`, and not a
+"more specific" source path like `packages/server/src/index.ts` either. Production
+runs that exact source from the nix store, so a path substring is *not* safer than
+a name — it matched and killed production `kolu.service` once. A bracket trick
+(`[v]ite`) only dodges self-match, not the production process. Match the
+remembered ports only; if you can't resolve a PID by port, leave the process.
 
 ## Acceptance (verify before declaring the app launched / torn down)
 
