@@ -112,6 +112,23 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/** Which output medium a command should render to — the single decision both
+ *  `list` and `watch` defer to. `--json` serializes; a non-TTY stdout (a pipe /
+ *  file) or an empty set gets plain text (the OpenTUI renderer takes raw-mode
+ *  ownership of the terminal and would corrupt a piped stream, and a live
+ *  dashboard of zero rows is just the honest one-liner); an interactive TTY gets
+ *  the truecolour OpenTUI view. This is choosing the right output for the medium,
+ *  NOT a graceful-degradation fallback. */
+function outputMode(opts: {
+  json: boolean;
+  isTTY: boolean;
+  empty?: boolean;
+}): "json" | "text" | "tui" {
+  if (opts.json) return "json";
+  if (opts.empty || !opts.isTTY) return "text";
+  return "tui";
+}
+
 /** Dial a LOCAL arivu over its unix socket — an explicit `--socket`, else the
  *  default path. Fails loud with an actionable hint if nothing is listening. */
 function connectLocal(socketOverride: string | undefined): Promise<Connection> {
@@ -140,26 +157,30 @@ function connectHost(
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
   const entries = await snapshotAwareness(conn.client);
-  // `--json` and a non-TTY stdout (a pipe / file) get plain serialization: the
-  // OpenTUI renderer takes raw-mode ownership of the terminal and would corrupt
-  // a piped stream, so this is choosing the right output for the medium — NOT a
-  // graceful-degradation fallback. An empty set is likewise plain (a live
-  // dashboard of zero rows is just the honest one-liner).
-  if (json) {
-    process.stdout.write(`${formatAwarenessJson(entries)}\n`);
-    return;
+  switch (
+    outputMode({
+      json,
+      isTTY: process.stdout.isTTY,
+      empty: entries.length === 0,
+    })
+  ) {
+    case "json":
+      process.stdout.write(`${formatAwarenessJson(entries)}\n`);
+      return;
+    case "text":
+      process.stdout.write(
+        `${formatAwarenessList(entries, { home: homedir() })}\n`,
+      );
+      return;
+    case "tui": {
+      // Paint the truecolour OpenTUI record once and exit. Imported dynamically
+      // + behind the `tui` case so a piped/JSON run never loads the Bun-only
+      // native renderer.
+      const { renderListTui } = await import("./tui.tsx");
+      await renderListTui(entries, { home: homedir() });
+      return;
+    }
   }
-  if (entries.length === 0 || !process.stdout.isTTY) {
-    process.stdout.write(
-      `${formatAwarenessList(entries, { home: homedir() })}\n`,
-    );
-    return;
-  }
-  // Interactive terminal: paint the truecolour OpenTUI record once and exit.
-  // Imported dynamically + behind the TTY gate so a piped/JSON run never loads
-  // the Bun-only native renderer.
-  const { renderListTui } = await import("./tui.tsx");
-  await renderListTui(entries, { home: homedir() });
 }
 
 async function cmdWatch(conn: Connection, query: string): Promise<void> {
@@ -217,37 +238,47 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
     { signal: abort.signal },
   );
 
-  // Non-TTY (piped) watch: stream the plain text record per update — the live
-  // OpenTUI renderer can't drive a pipe. Choosing the right output for the
-  // medium, not a fallback.
-  if (!process.stdout.isTTY) {
-    process.stderr.write(`— watching ${shortId(id)} · Ctrl-C to stop\n`);
-    try {
-      for await (const value of values) {
-        process.stdout.write(
-          `${formatAwarenessRow(id, value, { home: homedir() })}\n`,
-        );
+  // `watch` has no JSON form and no empty-set case, so the medium is just
+  // text (piped) vs tui (interactive) — but the decision is the same classifier
+  // `list` uses, in one place.
+  switch (outputMode({ json: false, isTTY: process.stdout.isTTY })) {
+    case "json":
+      // Unreachable for watch (json:false), but the switch stays exhaustive.
+      return;
+    case "text": {
+      // Stream the plain text record per update — the live OpenTUI renderer
+      // can't drive a pipe.
+      process.stderr.write(`— watching ${shortId(id)} · Ctrl-C to stop\n`);
+      try {
+        for await (const value of values) {
+          process.stdout.write(
+            `${formatAwarenessRow(id, value, { home: homedir() })}\n`,
+          );
+        }
+      } catch (err) {
+        if (!abort.signal.aborted) fail((err as Error).message);
       }
-    } catch (err) {
-      if (!abort.signal.aborted) fail((err as Error).message);
+      return;
     }
-    return;
-  }
-
-  // Interactive terminal: the live truecolour OpenTUI record, repainting on
-  // every push until the terminal departs (abort) or Ctrl-C (OpenTUI's own
-  // exit handling, which calls `stop` to unwind the follow stream).
-  const { runWatchTui } = await import("./tui.tsx");
-  try {
-    await runWatchTui({
-      id,
-      home: homedir(),
-      values,
-      until: abort.signal,
-      stop: () => abort.abort(),
-    });
-  } catch (err) {
-    fail((err as Error).message);
+    case "tui": {
+      // The live truecolour OpenTUI record, repainting on every push until the
+      // terminal departs (abort) or Ctrl-C (OpenTUI's own exit handling, which
+      // calls `stop` to unwind the follow stream). Imported dynamically + behind
+      // the `tui` case so a piped run never loads the Bun-only native renderer.
+      const { runWatchTui } = await import("./tui.tsx");
+      try {
+        await runWatchTui({
+          id,
+          home: homedir(),
+          values,
+          until: abort.signal,
+          stop: () => abort.abort(),
+        });
+      } catch (err) {
+        fail((err as Error).message);
+      }
+      return;
+    }
   }
 }
 
