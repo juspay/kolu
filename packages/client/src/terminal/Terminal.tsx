@@ -406,6 +406,7 @@ const Terminal: Component<{
     streamAbort?.abort();
     cancelAnimationFrame(fitRaf);
     unregisterTerminalRefs(props.terminalId);
+    activity.forget(props.terminalId);
     disposeDiagnostics?.();
     disposeDiagnostics = null;
     unloadWebgl();

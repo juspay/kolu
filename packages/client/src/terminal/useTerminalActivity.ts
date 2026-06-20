@@ -16,7 +16,7 @@
  *  debounce timer is what flips it back to static. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
 
 /** Output quiet-period before a terminal reads as static again. ~1s keeps a
@@ -39,8 +39,11 @@ export const useTerminalActivity = createSharedRoot(() => {
     timers.set(
       id,
       setTimeout(() => {
+        // Natural idle prunes the key entirely (delete, not flag-false) so the
+        // store stays bounded — a once-active-then-quiet terminal leaves no
+        // residual `false`.
         timers.delete(id);
-        setLive(id, false);
+        setLive(produce((s) => void delete s[id]));
       }, IDLE_AFTER_MS),
     );
   }
@@ -50,5 +53,16 @@ export const useTerminalActivity = createSharedRoot(() => {
     return live[id] ?? false;
   }
 
-  return { noteOutput, isLive };
+  /** Drop all state for `id` — clears any pending quiet-period timer and
+   *  removes the key from both the timer Map and the store. Called from a
+   *  terminal's close path (`Terminal.tsx` onCleanup) so a closed terminal
+   *  leaves no dead key and no late `setLive` firing after it's gone. */
+  function forget(id: TerminalId): void {
+    const pending = timers.get(id);
+    if (pending) clearTimeout(pending);
+    timers.delete(id);
+    setLive(produce((s) => void delete s[id]));
+  }
+
+  return { noteOutput, isLive, forget };
 });

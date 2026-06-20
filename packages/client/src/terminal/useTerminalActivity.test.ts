@@ -39,4 +39,19 @@ describe("useTerminalActivity", () => {
     vi.advanceTimersByTime(100);
     expect(a.isLive(id)).toBe(false);
   });
+
+  it("forget(id) drops the key and clears its pending timer", () => {
+    const a = useTerminalActivity();
+    const id = tid("forget");
+    a.noteOutput(id);
+    expect(a.isLive(id)).toBe(true);
+    // The terminal closes mid-stream — forget prunes the entry outright.
+    a.forget(id);
+    expect(a.isLive(id)).toBe(false);
+    // No stale timer survives to fire setLive after the terminal is gone:
+    // advancing past the quiet window is a no-op, and no timers are pending.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(2000);
+    expect(a.isLive(id)).toBe(false);
+  });
 });
