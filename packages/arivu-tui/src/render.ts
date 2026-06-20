@@ -124,20 +124,12 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
-/** Every field of the awareness value as `[label, value]` rows, in one place so
- *  `list` and `watch` never drift. The header (id + cwd) is separate. */
+/** The awareness value's `[label, value]` rows for the text path — a projection
+ *  of `fieldRows()` that drops the tone the text view doesn't use. The field set,
+ *  order, labels, and value formatters all live in `fieldRows()`, so the text and
+ *  OpenTUI views share one enumeration. The header (id + cwd) is separate. */
 function fields(v: AwarenessValue, now: number): Array<[string, string]> {
-  return [
-    ["agent", agentValue(v.agent)],
-    ["pr", prValueText(v.pr)],
-    ["branch", orDash(v.git?.branch)],
-    ["repo", orDash(v.git?.repoName)],
-    ["remote", orDash(v.git?.remoteUrl)],
-    ["foreground", orDash(v.foreground?.name)],
-    ["title", orDash(v.foreground?.title)],
-    ["agent cmd", orDash(v.lastAgentCommand)],
-    ["active", relativeTime(v.lastActivityAt, now)],
-  ];
+  return fieldRows(v, now).map((r) => [r.label, r.value]);
 }
 
 const LABEL_WIDTH = 11;
