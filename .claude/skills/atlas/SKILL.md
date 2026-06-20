@@ -17,12 +17,18 @@ renders the committed `docs/atlas/dist/<slug>.html`. Sync rules:
 ---
 title: Title in Title Case
 description: One line — what this note is about.
-kind: reference        # bug · feature · analysis · reference (the index section)
-status: proposed        # optional — proposed → accepted → implemented → superseded
-maturity: seedling      # seedling → budding → evergreen
-parents: [slug]         # optional — nests under same-kind parents; cross-kind ⇒ a "related" link
+parents: [feature]     # REQUIRED — the one filing edge. A category (bug · feature · analysis · reference) is itself a note marked `moc: true`; there is no `kind` field. List the index note and/or topical hubs, e.g. [solid-fileview, feature].
+status: proposed       # optional — proposed → accepted → implemented → superseded
+maturity: seedling     # seedling → budding → evergreen (a tag, not a location)
+updated: <YYYY-MM-DD>  # date of the last meaningful edit
 ---
 ```
+
+Every note is filed into the index through `parents` — the single edge mechanism.
+There is **no `kind` enum**: the four index roots (Bugs · Features · Analysis ·
+Reference) are ordinary notes marked `moc: true`, and you reach one by listing it
+in `parents` (a note may list several — its index plus any topical hubs). A
+proposal is just a note under its real index carrying `status: proposed`.
 
 - Prose in markdown; reach for the **kit** in `docs/atlas/src/components/` only where markdown can't (`<Cite>`, `<Callout>`, `<PrLink>`, `<Terminal>`, `<AtlasMockup>`, `<Svg>`, `<D2>`, …).
 - **Headings are an outline, not a count.** Decide the 3–5 *concepts* the note is about, name each as a `##`, then write the body under them. The TOC should read as an outline, not a flat enumeration. Do **not** hit the number by re-leveling: taking a flat list of `##`s and demoting some to `###` to satisfy "≈4" is the wrong move — if you're changing `#` counts on existing headers rather than moving content, you're cheating the rule, not following it. Every `##` must be a genuine peer concept; never invent a catch-all bucket ("Building it", "Details", "Misc", "Other") for whatever's left over. A `###` lives under its parent because it's *part of that concept*, not because the parent had a free slot.
@@ -48,6 +54,7 @@ note ships with the next Pages deploy.
 Notes are **living** — git is the history, no frozen copies. Advance `status` as
 it matures and link the implementing PR with `<PrLink pr={<n>} />`. A contributor
 proposal is just a note carrying `status: proposed` (see `CONTRIBUTING.md`);
-acceptance flips the status, not the `kind`.
+acceptance flips the status, not its `parents` (the index parent was right from
+the start).
 
 ARGUMENTS: $ARGUMENTS

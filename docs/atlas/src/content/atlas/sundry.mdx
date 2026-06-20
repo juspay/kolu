@@ -1,0 +1,37 @@
+---
+title: Sundry
+description: A holding pen for small, miscellaneous items to work on that don't (yet) warrant their own Atlas note.
+parents: [feature]
+maturity: seedling
+updated: 2026-06-20
+---
+
+Most work earns a dedicated Atlas note — a bug with a root cause, a feature with
+a design, an analysis with measurements. **Sundry is the holding pen for
+everything too small for that**: a one-line idea, a chore, a "we should look at
+this" that would be overkill as its own note. Jot it down here so it isn't lost,
+and when an item grows a real shape, graduate it to its own note.
+
+## What belongs here
+
+An item belongs in Sundry when it's **real work but not yet note-sized** — there
+is no design to argue, no root cause to diagnose, no measurement to report. The
+bar is deliberately low: a single row with a *what* and a *goal* is enough. The
+moment an item needs more than that — a diagram, a repro, a plan, a debate — it
+has outgrown Sundry (see *Graduating an item*).
+
+## The list
+
+| Item | What | Goal |
+| --- | --- | --- |
+| **Revamp Atlas SVG diagrams** | The hand-authored SVGs across Atlas notes are mostly plain boxes-and-arrows. | Make them more useful and interesting — *semantic* use of colour, shape, proportion, and emphasis — so each diagram carries meaning, not just topology. |
+| **arivu-tui: Bun → Node.js** | `arivu-tui` runs on the Bun runtime today. | Move it to Node.js, and assess the knock-on impact on OpenTUI (compatibility and performance). |
+
+## Graduating an item
+
+When a Sundry item earns a design, a repro, or a plan, it has stopped being
+sundry. Create a real note under its true index (`parents: [bug]`, `[feature]`,
+`[analysis]`, or `[reference]`), move the substance there, and **delete the row**
+here — keeping a one-line prose pointer only if the link is worth following.
+Sundry should stay short: a long list is a signal that items are being hoarded
+instead of either done or promoted.
