@@ -181,10 +181,11 @@ function DockListRow(props: {
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — same swap as the desktop dock: while output is
            *  streaming, the pulsing live dot supersedes the now-moot "Xs ago".
-           *  `w-[4.5ch]` reserves the timestamp's width so swapping in the
-           *  narrower dot (or a section where every row is live) never collapses
-           *  the track and shifts the columns. */}
-          <span class="inline-flex justify-end w-[4.5ch] font-mono text-[0.65rem] tabular-nums text-fg-3">
+           *  `w-[8ch]` reserves the WIDEST `formatTimeAgo` string ("just now" =
+           *  8ch) so swapping in the narrower dot (or a section where every row
+           *  is live) never collapses the track and the timestamp text never
+           *  overflows into the adjacent columns. */}
+          <span class="inline-flex justify-end w-[8ch] font-mono text-[0.65rem] tabular-nums text-fg-3">
             <Show
               when={activity.isLive(props.id)}
               fallback={formatTimeAgo(c().meta.lastActivityAt)}

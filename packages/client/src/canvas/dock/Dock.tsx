@@ -489,10 +489,12 @@ const DockRow: Component<{
            *  second), so the cell swaps the timestamp for the pulsing dot in
            *  place. The cell sits in an `auto` grid track, so a row (or a whole
            *  section) showing the 6px dot instead of "5m ago" would shrink the
-           *  track and shift the name column; `w-[4.5ch]` reserves the
-           *  timestamp's width so the swap is in-place and the grid never
-           *  reflows. Right-aligned so it lands in one column across rows. */}
-          <span class="inline-flex justify-end w-[4.5ch] font-mono text-[0.6rem] tabular-nums text-fg-3">
+           *  track and shift the name column; `w-[8ch]` reserves the WIDEST
+           *  `formatTimeAgo` string ("just now" = 8ch, also covers "59m ago" /
+           *  "23h ago" / "99d ago") so neither the dot swap nor the timestamp
+           *  text reflows or overflows the column. Right-aligned so it lands in
+           *  one column across rows. */}
+          <span class="inline-flex justify-end w-[8ch] font-mono text-[0.6rem] tabular-nums text-fg-3">
             <Show
               when={activity.isLive(props.id)}
               fallback={formatTimeAgo(c().meta.lastActivityAt)}
@@ -628,13 +630,18 @@ const RailChip: Component<{
               </span>
             </span>
             {/* The glyph-only rail has no timestamp cell to swap, so the live
-             *  dot rides as a top-right corner overlay. The agent-state glow
-             *  below tracks an AGENT's thinking/waiting; this dot is the
-             *  orthogonal "moving bytes right now" signal (a compile, a
-             *  `tail -f`, any non-agent shell) — without it, a live non-agent
-             *  terminal is indistinguishable from an idle one in the rail. */}
+             *  dot rides as a corner overlay. It sits BOTTOM-right to stay clear
+             *  of the three already-claimed corners: the unread badge
+             *  (`.dock-rail-chip[data-unread]::after`, top-right) and the
+             *  shortcut hint (`.dock-rail-chip-hint`, top-left) — an unread+live
+             *  chip would otherwise paint both pips in the same top-right corner,
+             *  making each signal ambiguous. The agent-state glow below tracks an
+             *  AGENT's thinking/waiting; this dot is the orthogonal "moving bytes
+             *  right now" signal (a compile, a `tail -f`, any non-agent shell) —
+             *  without it, a live non-agent terminal is indistinguishable from an
+             *  idle one in the rail. */}
             <Show when={activity.isLive(props.id)}>
-              <span class="pointer-events-none absolute -top-1 -right-1">
+              <span class="pointer-events-none absolute -bottom-1 -right-1">
                 <LiveActivityDot />
               </span>
             </Show>

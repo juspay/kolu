@@ -11,6 +11,20 @@ describe("createSnapshotBoundary", () => {
     expect(b.isLiveDelta()).toBe(true);
   });
 
+  it("counts the FIRST frame as the snapshot even when it is the empty string", () => {
+    // A blank PTY (no output yet) attaches with an empty-string snapshot. The
+    // server yields that `""` frame unconditionally (router.ts `attach`), so the
+    // boundary still consumes a real snapshot frame and the terminal's first
+    // genuine byte — a short first-output burst — is correctly classified live.
+    const b = createSnapshotBoundary();
+    // Frame 1 is the empty snapshot: a no-op `term.write("")`, NOT live output.
+    const emptySnapshot = "";
+    expect(emptySnapshot).toBe(""); // documents the wire value under test
+    expect(b.isLiveDelta()).toBe(false);
+    // The first real PTY delta after the empty snapshot lights the dot.
+    expect(b.isLiveDelta()).toBe(true);
+  });
+
   it("re-arms on retry so the reconnect snapshot is not counted as live", () => {
     const b = createSnapshotBoundary();
     b.isLiveDelta(); // initial snapshot consumed

@@ -2,10 +2,15 @@
  *
  *  The terminal `attach` stream yields a serialized screen snapshot
  *  (scrollback) as its FIRST item, then live PTY deltas — see `terminal.attach`
- *  in router.ts. Consumers that treat the snapshot as live output (lighting a
- *  "streaming now" indicator, say) lie on every mount and on every transparent
- *  reconnect, because `ClientRetryPlugin` re-subscribes and replays a fresh
- *  snapshot first.
+ *  in router.ts, which yields the snapshot frame UNCONDITIONALLY, including the
+ *  empty string for a PTY that has produced no output yet. That guarantee is
+ *  what makes this one-bit gate sound: the first frame is ALWAYS the snapshot,
+ *  so a blank terminal's first genuine byte (a short first-output burst) is
+ *  still classified as a live delta rather than swallowed as the snapshot.
+ *  Consumers that treat the snapshot as live output (lighting a "streaming now"
+ *  indicator, say) lie on every mount and on every transparent reconnect,
+ *  because `ClientRetryPlugin` re-subscribes and replays a fresh snapshot
+ *  first.
  *
  *  This is the one-bit gate that distinguishes the snapshot frame from a live
  *  delta. `isLiveDelta()` returns false for the first frame after construction
