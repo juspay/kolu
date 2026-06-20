@@ -33,7 +33,10 @@ describe("backfillSurface", () => {
   });
 
   it("does not clobber an already-tagged Markdown comment", () => {
-    const out = backfillSurface([mk("doc.md", "prose"), mk("doc.md", "source")]);
+    const out = backfillSurface([
+      mk("doc.md", "prose"),
+      mk("doc.md", "source"),
+    ]);
     expect(out.map((c) => c.surface)).toEqual(["prose", "source"]);
   });
 
