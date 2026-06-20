@@ -94,6 +94,18 @@ const App: Component = () => {
   } = useThemeManager();
 
   const rightPanel = useRightPanel();
+  // Bundle the active terminal id with ITS OWN metadata in a single memo so the
+  // (id, meta) pair handed to the right panel can never tear. Passed as two
+  // separate reactive sources — the `activeId()` signal and the `activeMeta()`
+  // memo — they can propagate in different steps on a terminal switch, briefly
+  // pairing the NEW active id with the PREVIOUS terminal's metadata; CodeTab's
+  // repo-change reset then sees (newTerminal, oldRepo) and wipes the new
+  // terminal's Code-tab history (a darwin-only flake — see the Flaky Test
+  // Tracker). Reading getMetadata(id) for the bundled id keeps them consistent.
+  const activePanel = createMemo(() => {
+    const id = store.activeId();
+    return { id, meta: id !== null ? (store.getMetadata(id) ?? null) : null };
+  });
   const { colorScheme } = useColorScheme();
   const { appTitle, themeColor } = useServerIdentity();
   const commandPalette = useCommandPalette();
@@ -463,8 +475,8 @@ const App: Component = () => {
                 };
                 return (
                   <RightPanelDrawer
-                    terminalId={store.activeId()}
-                    meta={store.activeMeta()}
+                    terminalId={activePanel().id}
+                    meta={activePanel().meta}
                     themeName={activeThemeName()}
                     onThemeClick={() => commandPalette.openGroup("Set theme")}
                     contentClass={m === "phone" ? "flex-col" : undefined}
@@ -576,8 +588,8 @@ const App: Component = () => {
                     minSize={0.1}
                   >
                     <RightPanel
-                      terminalId={store.activeId()}
-                      meta={store.activeMeta()}
+                      terminalId={activePanel().id}
+                      meta={activePanel().meta}
                       onToggle={rightPanel.togglePanel}
                       themeName={activeThemeName()}
                       onThemeClick={() => commandPalette.openGroup("Set theme")}
