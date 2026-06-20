@@ -47,69 +47,80 @@ loop** — with the GPU/canvas/diff hot paths already green.
 
 export const PerfSurfaces = () => (
   <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 720 524" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+    <svg viewBox="0 0 720 524" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui" role="img" aria-label="Kolu's performance surfaces as a runtime spine: CLIENT render and load, down to WIRE surface/oRPC subscriptions, down to BACKEND server and kaval PTY host, then MOBILE battery and DEV-LOOP/CI side by side. Each cell is green where shipped (with PR number) or amber where still to tune; the highest-leverage to-tune items — reactivity metadata, the wire collection key-set, and the mobile 15s heartbeat — are emphasised.">
       <defs>
-        <marker id="ah" markerWidth="9" markerHeight="9" refX="5" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" />
+        <marker id="perf-ah" markerWidth="9" markerHeight="9" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="#0D32B2" />
         </marker>
       </defs>
-      <text x="20" y="26" font-size="13" font-weight="700" fill="#0f172a">Kolu's performance surfaces</text>
-      <rect x="430" y="16" width="13" height="12" rx="3" fill="#e6f4ea" stroke="#1b7a3a" />
-      <text x="449" y="26" font-size="11" fill="#334155">shipped</text>
-      <rect x="528" y="16" width="13" height="12" rx="3" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="547" y="26" font-size="11" fill="#334155">to tune</text>
+      <text x="20" y="26" font-size="14" font-weight="700" fill="#0A0F25">Kolu's performance surfaces</text>
+      <rect x="430" y="15" width="13" height="13" rx="3" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="449" y="26" font-size="11" fill="#3f444b">shipped</text>
+      <rect x="528" y="15" width="13" height="13" rx="3" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="547" y="26" font-size="11" fill="#3f444b">to tune</text>
 
-      <rect x="16" y="40" width="688" height="150" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-      <text x="28" y="60" font-size="11.5" font-weight="700" fill="#334155">CLIENT — render &amp; load</text>
-      <rect x="28" y="70" width="212" height="44" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="40" y="88" font-size="10.5" fill="#7a4f00">Reactivity — metadata</text>
-      <text x="40" y="103" font-size="10.5" fill="#7a4f00">derivation re-runs</text>
-      <rect x="252" y="70" width="212" height="44" rx="7" fill="#e6f4ea" stroke="#1b7a3a" />
-      <text x="264" y="88" font-size="10.5" fill="#166534">Canvas render loop</text>
-      <text x="264" y="103" font-size="10.5" fill="#166534">rAF-coalesced ✓ #1368</text>
-      <rect x="476" y="70" width="216" height="44" rx="7" fill="#e6f4ea" stroke="#1b7a3a" />
-      <text x="488" y="88" font-size="10.5" fill="#166534">WebGL contexts</text>
-      <text x="488" y="103" font-size="10.5" fill="#166534">capped ✓ #1399</text>
-      <rect x="28" y="124" width="212" height="44" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="40" y="142" font-size="10.5" fill="#7a4f00">Bundle — CodeTab +</text>
-      <text x="40" y="157" font-size="10.5" fill="#7a4f00">Shiki always mounted</text>
-      <rect x="252" y="124" width="212" height="44" rx="7" fill="#e6f4ea" stroke="#1b7a3a" />
-      <text x="264" y="142" font-size="10.5" fill="#166534">Markdown / Pierre</text>
-      <text x="264" y="157" font-size="10.5" fill="#166534">worker pool ✓ #1363</text>
-      <rect x="476" y="124" width="216" height="44" rx="7" fill="#e6f4ea" stroke="#1b7a3a" />
-      <text x="488" y="142" font-size="10.5" fill="#166534">Memory lifecycle</text>
-      <text x="488" y="157" font-size="10.5" fill="#166534">storesByKey freed ✓</text>
+      {/* runtime spine: client -> wire -> backend, a request/runtime path descending through the layers */}
+      <line x1="58" y1="58" x2="58" y2="380" stroke="#0D32B2" stroke-width="2.5" />
+      <line x1="58" y1="190" x2="58" y2="206" stroke="#0D32B2" stroke-width="2.5" marker-end="url(#perf-ah)" />
+      <line x1="58" y1="278" x2="58" y2="294" stroke="#0D32B2" stroke-width="2.5" marker-end="url(#perf-ah)" />
+      <circle cx="58" cy="58" r="4" fill="#0D32B2" />
+      <circle cx="58" cy="380" r="4" fill="#0D32B2" />
 
-      <line x1="360" y1="190" x2="360" y2="206" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#ah)" marker-start="url(#ah)" />
-      <rect x="16" y="206" width="688" height="72" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-      <text x="28" y="226" font-size="11.5" font-weight="700" fill="#334155">WIRE — surface / oRPC subscriptions</text>
-      <rect x="28" y="234" width="320" height="34" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="40" y="255" font-size="10.5" fill="#7a4f00">Collection key-set re-published in full</text>
-      <rect x="362" y="234" width="330" height="34" rx="7" fill="#fbf6e8" stroke="#d9c089" />
-      <text x="374" y="255" font-size="10.5" fill="#92722a">base64 stdio framing (+33% bytes)</text>
+      <rect x="40" y="40" width="664" height="150" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
+      <text x="74" y="60" font-size="13" font-weight="700" fill="#11203a">CLIENT — render &amp; load</text>
+      {/* highest-leverage to-tune: reactivity metadata — halo + thicker stroke */}
+      <rect x="71" y="67" width="218" height="50" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
+      <rect x="74" y="70" width="212" height="44" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
+      <text x="86" y="88" font-size="10.5" fill="#92400E">Reactivity — metadata</text>
+      <text x="86" y="103" font-size="10.5" fill="#92400E">derivation re-runs</text>
+      <rect x="298" y="70" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="310" y="88" font-size="10.5" fill="#166534">Canvas render loop</text>
+      <text x="310" y="103" font-size="10.5" fill="#166534">rAF-coalesced ✓ #1368</text>
+      <rect x="522" y="70" width="170" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="534" y="88" font-size="10.5" fill="#166534">WebGL contexts</text>
+      <text x="534" y="103" font-size="10.5" fill="#166534">capped ✓ #1399</text>
+      <rect x="74" y="124" width="212" height="44" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="86" y="142" font-size="10.5" fill="#92400E">Bundle — CodeTab +</text>
+      <text x="86" y="157" font-size="10.5" fill="#92400E">Shiki always mounted</text>
+      <rect x="298" y="124" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="310" y="142" font-size="10.5" fill="#166534">Markdown / Pierre</text>
+      <text x="310" y="157" font-size="10.5" fill="#166534">worker pool ✓ #1363</text>
+      <rect x="522" y="124" width="170" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="534" y="142" font-size="10.5" fill="#166534">Memory lifecycle</text>
+      <text x="534" y="157" font-size="10.5" fill="#166534">storesByKey freed ✓</text>
 
-      <line x1="360" y1="278" x2="360" y2="294" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#ah)" marker-start="url(#ah)" />
-      <rect x="16" y="294" width="688" height="86" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-      <text x="28" y="314" font-size="11.5" font-weight="700" fill="#334155">BACKEND — server + kaval PTY host</text>
-      <rect x="28" y="322" width="320" height="48" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="40" y="340" font-size="10.5" fill="#7a4f00">kaval — Channel queues (item-bounded),</text>
-      <text x="40" y="355" font-size="10.5" fill="#7a4f00">scrollback snapshot per attach</text>
-      <rect x="362" y="322" width="330" height="48" rx="7" fill="#fbf6e8" stroke="#d9c089" />
-      <text x="374" y="340" font-size="10.5" fill="#92722a">server — full metadata object</text>
-      <text x="374" y="355" font-size="10.5" fill="#92722a">published per live-field update</text>
+      <rect x="40" y="206" width="664" height="72" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
+      <text x="74" y="226" font-size="13" font-weight="700" fill="#11203a">WIRE — surface / oRPC subscriptions</text>
+      {/* highest-leverage to-tune: full collection key-set re-publish — halo + thicker stroke */}
+      <rect x="71" y="231" width="304" height="40" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
+      <rect x="74" y="234" width="298" height="34" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
+      <text x="86" y="255" font-size="10.5" fill="#92400E">Collection key-set re-published in full</text>
+      <rect x="388" y="234" width="304" height="34" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="400" y="255" font-size="10.5" fill="#92400E">base64 stdio framing (+33% bytes)</text>
 
-      <rect x="16" y="398" width="336" height="106" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-      <text x="28" y="418" font-size="11.5" font-weight="700" fill="#334155">MOBILE — battery</text>
-      <rect x="28" y="426" width="312" height="64" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="40" y="448" font-size="10.5" fill="#7a4f00">heartbeat 15s · staleness ticker</text>
-      <text x="40" y="463" font-size="10.5" fill="#7a4f00">· per-terminal visibility listeners</text>
-      <text x="40" y="481" font-size="10.5" fill="#7a4f00">— wake regardless of visibility</text>
-      <rect x="368" y="398" width="336" height="106" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-      <text x="380" y="418" font-size="11.5" font-weight="700" fill="#334155">DEV-LOOP / CI</text>
-      <rect x="380" y="426" width="312" height="64" rx="7" fill="#fbf1dc" stroke="#b8860b" />
-      <text x="392" y="448" font-size="10.5" fill="#7a4f00">vitest serial across 44 packages</text>
-      <text x="392" y="463" font-size="10.5" fill="#7a4f00">· nix pnpmDeps hash double-fetch</text>
-      <text x="392" y="481" font-size="10.5" fill="#7a4f00">(2m45s darwin / 25s linux)</text>
+      <rect x="40" y="294" width="664" height="86" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
+      <text x="74" y="314" font-size="13" font-weight="700" fill="#11203a">BACKEND — server + kaval PTY host</text>
+      <rect x="74" y="322" width="298" height="48" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="86" y="340" font-size="10.5" fill="#92400E">kaval — Channel queues (item-bounded),</text>
+      <text x="86" y="355" font-size="10.5" fill="#92400E">scrollback snapshot per attach</text>
+      <rect x="388" y="322" width="304" height="48" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="400" y="340" font-size="10.5" fill="#92400E">server — full metadata object</text>
+      <text x="400" y="355" font-size="10.5" fill="#92400E">published per live-field update</text>
+
+      <rect x="16" y="398" width="336" height="106" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
+      <text x="28" y="418" font-size="13" font-weight="700" fill="#11203a">MOBILE — battery</text>
+      {/* highest-leverage to-tune: 15s heartbeat — halo + thicker stroke */}
+      <rect x="25" y="423" width="318" height="70" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
+      <rect x="28" y="426" width="312" height="64" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
+      <text x="40" y="448" font-size="10.5" fill="#92400E">heartbeat 15s · staleness ticker</text>
+      <text x="40" y="463" font-size="10.5" fill="#92400E">· per-terminal visibility listeners</text>
+      <text x="40" y="481" font-size="10.5" fill="#92400E">— wake regardless of visibility</text>
+      <rect x="368" y="398" width="336" height="106" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
+      <text x="380" y="418" font-size="13" font-weight="700" fill="#11203a">DEV-LOOP / CI</text>
+      <rect x="380" y="426" width="312" height="64" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="392" y="448" font-size="10.5" fill="#92400E">vitest serial across 44 packages</text>
+      <text x="392" y="463" font-size="10.5" fill="#92400E">· nix pnpmDeps hash double-fetch</text>
+      <text x="392" y="481" font-size="10.5" fill="#92400E">(2m45s darwin / 25s linux)</text>
     </svg>
   </div>
 );

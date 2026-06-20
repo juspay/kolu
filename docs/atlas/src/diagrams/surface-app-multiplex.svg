@@ -1,65 +1,108 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Independent surfaces multiplexed over one transport; the plural layer keys each by its registration name.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 720" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Two independent surfaces — surfaceApp (blue) and admin (amber) — each declared standalone, keyed by its registration name through a thin plural layer, and multiplexed down into one shared WS transport that carries both lineages' wire keys.">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="sam-arrow-app" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#0D32B2"/>
     </marker>
+    <marker id="sam-arrow-admin" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#B45309"/>
+    </marker>
     <style>
-      .container { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
-      .node      { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
-      .ctitle    { fill:#0A0F25; font-size:17px; font-weight:700; }
-      .ntitle    { fill:#0A0F25; font-size:14px; font-weight:600; }
-      .nsub      { fill:#676C7E; font-size:12.5px; }
-      .edge      { stroke:#0D32B2; stroke-width:1.6; fill:none; }
-      .elabel    { fill:#0A0F25; font-size:12px; font-style:italic; }
-      .echip     { fill:#FFFFFF; stroke:#0D32B2; stroke-width:1; }
+      .sam-paper    { fill:#ffffff; }
+      .sam-banner   { fill:#1a1c20; font-size:13px; font-weight:700; }
+      .sam-bannersub{ fill:#6b7178; font-size:11px; }
+      .sam-tier     { fill:#9aa0a6; font-size:11px; font-weight:700; letter-spacing:0.06em; }
+
+      /* surfaceApp lineage — brand blue */
+      .sam-app-box   { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
+      .sam-app-key   { fill:#E3E9FD; stroke:#0D32B2; stroke-width:2; }
+      .sam-app-title { fill:#0A0F25; font-size:14px; font-weight:700; }
+      .sam-app-sub   { fill:#4A5072; font-size:11.5px; }
+      .sam-app-edge  { stroke:#0D32B2; stroke-width:2; fill:none; }
+      .sam-app-tag   { fill:#11203a; font-size:11px; font-weight:700; }
+
+      /* admin lineage — amber/gold */
+      .sam-adm-box   { fill:#FFFBF1; stroke:#B45309; stroke-width:2; }
+      .sam-adm-key   { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
+      .sam-adm-title { fill:#7a4f00; font-size:14px; font-weight:700; }
+      .sam-adm-sub   { fill:#92400E; font-size:11.5px; }
+      .sam-adm-edge  { stroke:#B45309; stroke-width:2; fill:none; }
+      .sam-adm-tag   { fill:#92400E; font-size:11px; font-weight:700; }
+
+      /* shared transport — green, the one wire */
+      .sam-wire      { fill:#E6F4EA; stroke:#15803D; stroke-width:2.5; }
+      .sam-wire-t    { fill:#14532d; font-size:14px; font-weight:700; }
+      .sam-wire-sub  { fill:#166534; font-size:11px; }
+
+      .sam-mono      { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .sam-key-lbl   { fill:#1a1c20; font-size:11px; font-weight:700; }
     </style>
   </defs>
 
-  <!-- CONTAINER 1: app — declares standalone surfaces -->
-  <rect class="container" x="60" y="24" width="840" height="150" rx="10"/>
-  <text class="ctitle" x="80" y="50">app — declares standalone surfaces</text>
-  <rect class="node" x="80" y="70" width="390" height="84" rx="8"/>
-  <text class="ntitle" x="100" y="100">surfaceAppSurface</text>
-  <text class="nsub"   x="100" y="122">buildInfo cell</text>
-  <text class="nsub"   x="100" y="140">+ identity probe</text>
-  <rect class="node" x="490" y="70" width="390" height="84" rx="8"/>
-  <text class="ntitle" x="510" y="100">adminSurface</text>
-  <text class="nsub"   x="510" y="122">hosts collection</text>
-  <text class="nsub"   x="510" y="140">+ procedures</text>
+  <rect class="sam-paper" x="0" y="0" width="960" height="720"/>
 
-  <!-- CONTAINER 2: implementSurfaces / surfaceClients (thin plural layer) -->
-  <rect class="container" x="60" y="288" width="840" height="150" rx="10"/>
-  <text class="ctitle" x="80" y="314">implementSurfaces / surfaceClients (thin plural layer)</text>
-  <rect class="node" x="80" y="334" width="390" height="84" rx="8"/>
-  <text class="ntitle" x="100" y="368">key</text>
-  <text class="nsub"   x="100" y="392">keys each surface by its</text>
-  <text class="nsub"   x="100" y="410">registration name</text>
-  <rect class="node" x="490" y="334" width="390" height="84" rx="8"/>
-  <text class="ntitle" x="510" y="368">chan</text>
-  <text class="nsub"   x="510" y="392">namespaces each surface's</text>
-  <text class="nsub"   x="510" y="410">channel bus by key</text>
+  <!-- two lineage lanes: surfaceApp (left, blue) · admin (right, amber) -->
+  <text class="sam-banner" x="36" y="34">Many independent surfaces, ONE transport</text>
+  <text class="sam-bannersub" x="36" y="52">colour = surface lineage — follow each hue down into the single shared wire</text>
 
-  <!-- CONTAINER 3: one transport (WS) — multiplexed -->
-  <rect class="container" x="60" y="552" width="840" height="150" rx="10"/>
-  <text class="ctitle" x="80" y="578">one transport (WS) — multiplexed</text>
-  <rect class="node" x="80" y="598" width="490" height="84" rx="8"/>
-  <text class="ntitle" x="100" y="630">w1</text>
-  <text class="nsub"   x="100" y="654">surface.surfaceApp.buildInfo ·</text>
-  <text class="nsub"   x="100" y="672">surface.surfaceApp.identity.info</text>
-  <rect class="node" x="590" y="598" width="290" height="84" rx="8"/>
-  <text class="ntitle" x="610" y="630">w2</text>
-  <text class="nsub"   x="610" y="654">surface.admin.hosts…</text>
+  <!-- ================= TIER 1: app declares standalone surfaces ================= -->
+  <text class="sam-tier" x="36" y="86">DECLARE — each a complete standalone surface (defineSurface)</text>
 
-  <!-- EDGES -->
-  <path class="edge" d="M275 154 L275 334" marker-end="url(#arrow)"/>
-  <rect class="echip" x="150" y="234" width="200" height="22" rx="5"/>
-  <text class="elabel" x="160" y="249">registered under 'surfaceApp'</text>
+  <!-- surfaceApp -->
+  <rect class="sam-app-box" x="60" y="100" width="380" height="92" rx="10"/>
+  <text class="sam-app-title sam-mono" x="80" y="128">surfaceAppSurface</text>
+  <text class="sam-app-sub" x="80" y="150">buildInfo cell</text>
+  <text class="sam-app-sub" x="80" y="170">+ identity.info probe</text>
 
-  <path class="edge" d="M685 154 L685 334" marker-end="url(#arrow)"/>
-  <rect class="echip" x="600" y="234" width="172" height="22" rx="5"/>
-  <text class="elabel" x="610" y="249">registered under 'admin'</text>
+  <!-- admin -->
+  <rect class="sam-adm-box" x="520" y="100" width="380" height="92" rx="10"/>
+  <text class="sam-adm-title sam-mono" x="540" y="128">adminSurface</text>
+  <text class="sam-adm-sub" x="540" y="150">hosts collection</text>
+  <text class="sam-adm-sub" x="540" y="170">+ hosts procedures</text>
 
-  <path class="edge" d="M480 418 L480 598" marker-end="url(#arrow)"/>
-  <rect class="echip" x="378" y="498" width="204" height="22" rx="5"/>
-  <text class="elabel" x="388" y="513">one router, one ctx, keyed</text>
+  <!-- keying edges, each tagged with its registration name -->
+  <path class="sam-app-edge" d="M250 192 L250 268" marker-end="url(#sam-arrow-app)"/>
+  <rect class="sam-app-key" x="158" y="216" width="184" height="28" rx="14"/>
+  <text class="sam-key-lbl sam-mono" x="250" y="234" text-anchor="middle" fill="#0A0F25">key 'surfaceApp'</text>
+
+  <path class="sam-adm-edge" d="M710 192 L710 268" marker-end="url(#sam-arrow-admin)"/>
+  <rect class="sam-adm-key" x="630" y="216" width="160" height="28" rx="14"/>
+  <text class="sam-key-lbl sam-mono" x="710" y="234" text-anchor="middle" fill="#7a4f00">key 'admin'</text>
+
+  <!-- ================= TIER 2: thin plural layer keys + namespaces ================= -->
+  <text class="sam-tier" x="36" y="296">KEY &amp; NAMESPACE — implementSurfaces / surfaceClients (one shared surfaces map)</text>
+
+  <rect class="sam-app-key" x="60" y="308" width="380" height="86" rx="10"/>
+  <text class="sam-app-title sam-mono" x="80" y="334">surfaceApp →</text>
+  <text class="sam-app-sub sam-mono" x="80" y="356">surface.surfaceApp.*</text>
+  <text class="sam-app-sub" x="80" y="376">channel bus namespaced by key</text>
+
+  <rect class="sam-adm-key" x="520" y="308" width="380" height="86" rx="10"/>
+  <text class="sam-adm-title sam-mono" x="540" y="334">admin →</text>
+  <text class="sam-adm-sub sam-mono" x="540" y="356">surface.admin.*</text>
+  <text class="sam-adm-sub" x="540" y="376">channel bus namespaced by key</text>
+
+  <!-- both lineages converge into the one wire -->
+  <path class="sam-app-edge" d="M250 394 L250 460 L380 460 L380 524" marker-end="url(#sam-arrow-app)"/>
+  <path class="sam-adm-edge" d="M710 394 L710 460 L580 460 L580 524" marker-end="url(#sam-arrow-admin)"/>
+  <rect class="sam-app-key" x="318" y="446" width="324" height="28" rx="14"/>
+  <text class="sam-key-lbl" x="480" y="464" text-anchor="middle" fill="#11203a">one router · one ctx · keyed map → one link</text>
+
+  <!-- ================= TIER 3: one multiplexed WS transport (stadium / bus) ================= -->
+  <text class="sam-tier" x="36" y="552">MULTIPLEX — a single WS transport carries them all</text>
+
+  <!-- the shared wire: a stadium / bus -->
+  <rect class="sam-wire" x="60" y="564" width="840" height="120" rx="60"/>
+  <text class="sam-wire-t sam-mono" x="92" y="598">one WS transport</text>
+  <text class="sam-wire-sub" x="92" y="618">multiplexed — every surface keyed by its registration name</text>
+
+  <!-- w1 — surfaceApp keys ride the wire (blue) -->
+  <rect class="sam-app-key" x="92" y="630" width="430" height="40" rx="20"/>
+  <text class="sam-app-tag" x="108" y="654">w1</text>
+  <text class="sam-app-sub sam-mono" x="140" y="648">surface.surfaceApp.buildInfo ·</text>
+  <text class="sam-app-sub sam-mono" x="140" y="664">surface.surfaceApp.identity.info</text>
+
+  <!-- w2 — admin keys ride the same wire (amber) -->
+  <rect class="sam-adm-key" x="540" y="630" width="328" height="40" rx="20"/>
+  <text class="sam-adm-tag" x="556" y="654">w2</text>
+  <text class="sam-adm-sub sam-mono" x="588" y="656">surface.admin.hosts…</text>
 </svg>

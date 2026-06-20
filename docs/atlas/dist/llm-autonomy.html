@@ -110,39 +110,41 @@ end-to-end unattended. Autonomy is not a model-capability problem; it is an
 <strong>enforcement + specification</strong> problem. The fix is to make the contract
 deterministic (exit codes, not prose) and to give every run the ground truth the
 clean runs happened to have.</p>
-<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The proposed /be enforcement backbone. The /be flow runs top-to-bottom: User /be task to the §0 interview to the §1–§5 stages to Done. The fix adds a green run-state spine that /be does not write today, plus a guards cluster (an extended Stop hook and new PreToolUse hooks) that reads the spine and blocks turn-end and dangerous actions — forming a clockwise enforcement loop: stages write the spine at each boundary, guards read it, guards block-and-auto-resume the stages. This loop replaces the dashed grey human gate that re-drives the run by hand today with 'continue', 'run ci', 'don't kill prod', 'post evidence'.">
+<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The proposed /be enforcement is a clockwise control loop. The /be flow runs top-to-bottom: User /be task to the §0 interview to the §1–§5 stages to Done. The §1–§5 stages WRITE the green run-state spine (.do-results.json) at each boundary; the guards cluster — an extended Stop hook and new PreToolUse hooks — READS the spine, then BLOCKS turn-end and dangerous actions and AUTO-RESUMES the stages. This closed green loop (write → read → block-and-resume) is the new backbone; it replaces the dashed grey human gate that re-drives the run by hand today with 'continue', 'run ci', 'don't kill prod', 'post evidence'.">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="lae-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#0D32B2"/>
     </marker>
-    <marker id="garrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#2f8132"/>
+    <marker id="lae-garrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#15803D"/>
     </marker>
-    <marker id="harrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="lae-harrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#9aa0aa"/>
     </marker>
     <style>
-      .flow      { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
-      .spine     { fill:#EAF6EC; stroke:#2f8132; stroke-width:1.8; }
-      .guards    { fill:#F1FAF2; stroke:#2f8132; stroke-width:1.6; }
-      .guardbox  { fill:#EAF6EC; stroke:#2f8132; stroke-width:1.2; }
+      .flow      { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
+      .spineglow { fill:#E6F4EA; }
+      .spine     { fill:#E6F4EA; stroke:#15803D; stroke-width:2.4; }
+      .guards    { fill:#EFF6F0; stroke:#15803D; stroke-width:2.4; }
+      .guardbox  { fill:#FFFFFF; stroke:#15803D; stroke-width:1.4; }
       .ghost     { fill:#F4F4F5; stroke:#9aa0aa; stroke-width:1.4; stroke-dasharray:5 4; }
-      .title     { fill:#0D32B2; font-weight:700; font-size:14px; }
-      .sub       { fill:#3a4358; font-size:11px; }
-      .gtitle    { fill:#1d4023; font-weight:700; font-size:13px; }
-      .gsub      { fill:#1d4023; font-size:11px; }
-      .gnote     { fill:#2f8132; font-size:11px; font-style:italic; }
-      .gboxtitle { fill:#1d4023; font-weight:700; font-size:12.5px; }
-      .gboxsub   { fill:#27502c; font-size:10.5px; }
-      .htitle    { fill:#52525b; font-weight:700; font-size:12.5px; }
+      .title     { fill:#11203a; font-weight:700; font-size:14px; }
+      .sub       { fill:#4A5072; font-size:11px; }
+      .mono      { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .gtitle    { fill:#14532d; font-weight:700; font-size:13.5px; }
+      .gsub      { fill:#166534; font-size:11px; }
+      .gnote     { fill:#15803D; font-size:11px; font-style:italic; }
+      .gboxtitle { fill:#14532d; font-weight:700; font-size:12.5px; }
+      .gboxsub   { fill:#166534; font-size:10.5px; }
+      .htitle    { fill:#71717a; font-weight:700; font-size:12.5px; }
       .hsub      { fill:#71717a; font-size:11px; }
-      .edge      { stroke:#0D32B2; stroke-width:1.8; fill:none; }
-      .gedge     { stroke:#2f8132; stroke-width:1.8; fill:none; }
-      .hedge     { stroke:#9aa0aa; stroke-width:1.6; fill:none; stroke-dasharray:5 4; }
+      .edge      { stroke:#0D32B2; stroke-width:1.6; fill:none; }
+      .gedge     { stroke:#15803D; stroke-width:2.4; fill:none; }
       .elabel    { fill:#0D32B2; font-size:10.5px; font-style:italic; }
-      .glabel    { fill:#2f8132; font-size:10.5px; font-style:italic; }
+      .glabel    { fill:#15803D; font-size:11px; font-style:italic; font-weight:700; }
+      .hedge     { stroke:#9aa0aa; stroke-width:1.6; fill:none; stroke-dasharray:5 4; }
       .hlabel    { fill:#71717a; font-size:10.5px; font-style:italic; }
-      .legend    { fill:#3a4358; font-size:11px; }
+      .legend    { fill:#3f444b; font-size:11px; }
     </style>
   </defs>
 
@@ -150,70 +152,80 @@ clean runs happened to have.</p>
   <rect class="flow"  x="40"  y="14" width="14" height="12" rx="2"/>
   <text class="legend" x="60" y="24">today — /be flow</text>
   <rect class="spine" x="210" y="14" width="14" height="12" rx="2"/>
-  <text class="legend" x="230" y="24">proposed enforcement</text>
-  <rect class="ghost" x="410" y="14" width="14" height="12" rx="2"/>
-  <text class="legend" x="430" y="24">human gate — to be removed</text>
+  <text class="legend" x="230" y="24">proposed enforcement loop</text>
+  <rect class="ghost" x="430" y="14" width="14" height="12" rx="2"/>
+  <text class="legend" x="450" y="24">human gate — to be removed</text>
 
-  <!-- MAIN /be FLOW (top to bottom, centred x=300) -->
-  <rect class="flow" x="195" y="44" width="210" height="44" rx="8"/>
-  <text class="title" x="300" y="71" text-anchor="middle">User: /be &lt;task&gt;</text>
+  <!-- ============ MAIN /be FLOW (top to bottom, left column) ============ -->
+  <rect class="flow" x="150" y="48" width="220" height="42" rx="8"/>
+  <text class="title" x="260" y="74" text-anchor="middle">User: <tspan class="mono">/be &lt;task&gt;</tspan></text>
 
-  <rect class="flow" x="155" y="108" width="290" height="44" rx="8"/>
-  <text class="title" x="300" y="135" text-anchor="middle" font-size="12.5">§0 Interview — the ONE sanctioned question</text>
+  <rect class="flow" x="110" y="110" width="300" height="42" rx="8"/>
+  <text class="title" x="260" y="136" text-anchor="middle" font-size="12.5">§0 Interview — the ONE sanctioned question</text>
 
-  <rect class="flow" x="150" y="178" width="300" height="72" rx="10"/>
-  <text class="title" x="300" y="206" text-anchor="middle">§1–§5 stages</text>
-  <text class="sub"   x="300" y="228" text-anchor="middle">setup · implement · PR · gauntlet · ci + evidence</text>
+  <!-- the stages: the WRITER of the spine, emphasised as the loop's source -->
+  <rect class="flow" x="118" y="262" width="284" height="76" rx="10" stroke-width="2"/>
+  <text class="title" x="260" y="290" text-anchor="middle">§1–§5 stages</text>
+  <text class="sub"   x="260" y="311" text-anchor="middle">setup · implement · PR · gauntlet · ci + evidence</text>
+  <text class="gnote" x="260" y="329" text-anchor="middle">writer of the spine</text>
 
-  <rect class="flow" x="170" y="520" width="260" height="48" rx="8"/>
-  <text class="title" x="300" y="549" text-anchor="middle" font-size="12.5">Done — only when every guard passes</text>
+  <rect class="flow" x="140" y="520" width="240" height="46" rx="8"/>
+  <text class="title" x="260" y="542" text-anchor="middle" font-size="12.5">Done</text>
+  <text class="sub"   x="260" y="558" text-anchor="middle">only when every guard passes</text>
 
-  <!-- RUN-STATE SPINE (proposed, green; /be does NOT write this today) -->
-  <rect class="spine" x="560" y="160" width="320" height="104" rx="10"/>
-  <text class="gtitle" x="720" y="188" text-anchor="middle">run-state spine (.do-results.json)</text>
-  <text class="gsub"   x="720" y="210" text-anchor="middle">stage · pr · ci · evidence · verified</text>
-  <text class="gnote"  x="720" y="240" text-anchor="middle">— /be does NOT write this today</text>
+  <!-- ============ RUN-STATE SPINE (proposed, green backbone) ============ -->
+  <rect class="spineglow" x="556" y="92" width="328" height="124" rx="14" opacity="0.55"/>
+  <rect class="spine" x="562" y="98" width="316" height="112" rx="12"/>
+  <text class="gtitle" x="720" y="126" text-anchor="middle">run-state spine</text>
+  <text class="gtitle mono" x="720" y="148" text-anchor="middle" font-size="12">.do-results.json</text>
+  <text class="gsub mono"  x="720" y="172" text-anchor="middle" font-size="10.5">stage · pr · ci · evidence · verified</text>
+  <text class="gnote"  x="720" y="196" text-anchor="middle">— /be does NOT write this today</text>
 
-  <!-- GUARDS cluster (proposed, green) -->
-  <rect class="guards" x="560" y="300" width="320" height="240" rx="12"/>
-  <text class="gtitle" x="720" y="326" text-anchor="middle" font-size="13.5">Guards — exit codes, not prose</text>
+  <!-- ============ GUARDS cluster (proposed, green) — the READER ============ -->
+  <rect class="guards" x="562" y="296" width="316" height="246" rx="12"/>
+  <text class="gtitle" x="720" y="322" text-anchor="middle" font-size="13.5">Guards — exit codes, not prose</text>
 
-  <rect class="guardbox" x="578" y="340" width="284" height="88" rx="8"/>
-  <text class="gboxtitle" x="720" y="362" text-anchor="middle">Stop hook (extend)</text>
-  <text class="gboxsub"   x="720" y="383" text-anchor="middle">block turn-end while active = working</text>
-  <text class="gboxsub"   x="720" y="400" text-anchor="middle">+ Done post-conditions:</text>
-  <text class="gboxsub"   x="720" y="417" text-anchor="middle">ci-green · evidence · gauntlet · repro-green</text>
+  <!-- Stop hook gate (notched = gate/guard) -->
+  <path class="guardbox" d="M578 338 H854 a8 8 0 0 1 8 8 V414 a8 8 0 0 1 -8 8 H578 a8 8 0 0 1 -8 -8 V382 l12 -12 l-12 -12 V346 a8 8 0 0 1 8 -8 z"/>
+  <text class="gboxtitle" x="724" y="360" text-anchor="middle">Stop hook (extend)</text>
+  <text class="gboxsub"   x="724" y="379" text-anchor="middle">block turn-end while active = working</text>
+  <text class="gboxsub"   x="724" y="396" text-anchor="middle">+ Done post-conditions:</text>
+  <text class="gboxsub mono" x="724" y="412" text-anchor="middle" font-size="10">ci-green · evidence · gauntlet · repro-green</text>
 
-  <rect class="guardbox" x="578" y="440" width="284" height="84" rx="8"/>
-  <text class="gboxtitle" x="720" y="462" text-anchor="middle">PreToolUse hooks (new)</text>
-  <text class="gboxsub"   x="720" y="484" text-anchor="middle">block prod-kolu kill / prod-port bind</text>
-  <text class="gboxsub"   x="720" y="503" text-anchor="middle">block AskUserQuestion after §0</text>
+  <!-- PreToolUse gate (notched = gate/guard) -->
+  <path class="guardbox" d="M578 438 H854 a8 8 0 0 1 8 8 V510 a8 8 0 0 1 -8 8 H578 a8 8 0 0 1 -8 -8 V478 l12 -12 l-12 -12 V446 a8 8 0 0 1 8 -8 z"/>
+  <text class="gboxtitle" x="724" y="460" text-anchor="middle">PreToolUse hooks (new)</text>
+  <text class="gboxsub"   x="724" y="481" text-anchor="middle">block prod-kolu kill / prod-port bind</text>
+  <text class="gboxsub"   x="724" y="500" text-anchor="middle">block AskUserQuestion after §0</text>
 
-  <!-- HUMAN GATE (today; dashed grey, being removed) -->
-  <rect class="ghost" x="40" y="330" width="250" height="104" rx="10"/>
-  <text class="htitle" x="165" y="358" text-anchor="middle">Human — today: the gate</text>
-  <text class="hsub"   x="165" y="382" text-anchor="middle">'continue' · 'run ci'</text>
-  <text class="hsub"   x="165" y="402" text-anchor="middle">'DON'T KILL PROD'</text>
-  <text class="hsub"   x="165" y="422" text-anchor="middle">'post evidence'</text>
+  <!-- ============ HUMAN GATE (today; dashed grey, being removed) ============ -->
+  <rect class="ghost" x="30" y="372" width="216" height="104" rx="10"/>
+  <text class="htitle" x="138" y="398" text-anchor="middle">Human — today: the gate</text>
+  <text class="hsub"   x="138" y="421" text-anchor="middle">'continue' · 'run ci'</text>
+  <text class="hsub"   x="138" y="441" text-anchor="middle">'DON'T KILL PROD'</text>
+  <text class="hsub"   x="138" y="461" text-anchor="middle">'post evidence'</text>
 
-  <!-- EDGES: main flow -->
-  <path class="edge" d="M300 88 V108" marker-end="url(#arrow)"/>
-  <path class="edge" d="M300 152 V178" marker-end="url(#arrow)"/>
-  <path class="edge" d="M300 250 V520" marker-end="url(#arrow)"/>
+  <!-- ===== EDGES: main /be flow (blue, top to bottom) ===== -->
+  <path class="edge" d="M260 90 V110" marker-end="url(#lae-arrow)"/>
+  <path class="edge" d="M260 152 V262" marker-end="url(#lae-arrow)"/>
+  <path class="edge" d="M260 338 V520" marker-end="url(#lae-arrow)"/>
 
-  <!-- EDGES: enforcement loop (clockwise) -->
-  <path class="edge" d="M450 200 H560" marker-end="url(#arrow)"/>
-  <text class="elabel" x="505" y="192" text-anchor="middle">write at each boundary</text>
+  <!-- ===== EDGES: the CLOCKWISE green enforcement loop ===== -->
+  <!-- WRITE: stages -> spine (up-right) -->
+  <path class="gedge" d="M402 280 H480 V154 H562" marker-end="url(#lae-garrow)"/>
+  <text class="glabel" x="552" y="146" text-anchor="end">1. write at each boundary</text>
 
-  <path class="gedge" d="M720 264 V300" marker-end="url(#garrow)"/>
-  <text class="glabel" x="728" y="286" text-anchor="start">read</text>
+  <!-- READ: spine -> guards (down) -->
+  <path class="gedge" d="M720 210 V296" marker-end="url(#lae-garrow)"/>
+  <text class="glabel" x="730" y="258" text-anchor="start">2. read</text>
 
-  <path class="gedge" d="M560 400 H500 V235 H450" marker-end="url(#garrow)"/>
-  <text class="glabel" x="508" y="330" text-anchor="start">block &amp; auto-resume</text>
+  <!-- BLOCK & AUTO-RESUME: guards -> stages (down-left back to source) -->
+  <path class="gedge" d="M562 478 H470 V300 H402" marker-end="url(#lae-garrow)"/>
+  <text class="glabel" x="412" y="332" text-anchor="start">3. block &amp; auto-resume</text>
 
-  <!-- EDGE: human gate (dashed, the path the loop replaces) -->
-  <path class="hedge" d="M200 330 V252" marker-end="url(#harrow)"/>
-  <text class="hlabel" x="210" y="292" text-anchor="start">today: manual re-drive</text>
+  <!-- ===== EDGE: human gate (dashed grey — the path the loop replaces) ===== -->
+  <path class="hedge" d="M210 372 V340" marker-end="url(#lae-harrow)"/>
+  <text class="hlabel" x="100" y="356" text-anchor="middle">today: manual re-drive</text>
 </svg>
  <figcaption data-astro-cid-rhux3v4s>The proposed enforcement backbone. Today the green spine and the guard boxes do not exist for /be — its stages are connected by prose only, so the run yields the turn and the human (dashed) re-drives it. The fix: /be writes a run-state spine at every stage boundary, and the existing Stop hook (extended) plus new PreToolUse hooks read it to block turn-end and dangerous actions — converting &#39;continue&#39;, &#39;run ci&#39;, &#39;don&#39;t kill prod&#39;, &#39;post evidence&#39; from human nudges into automatic resume/refusal.</figcaption> </figure>
 <p>The spine is one artifact with four jobs: <strong>(1)</strong> Stop-guard self-resume,
