@@ -20,6 +20,7 @@ export type TileAura =
   | "waiting-fresh" // awaiting + recent — a steady repo-color comet sweeps the ring
   | "working" // thinking / tools / background — runs as marching ants; busy, asks nothing
   | "waiting-stale" // awaiting but aged past the activity window — same comet, slowed and dimmed
+  | "sleeping" // PTY-released, frozen — a STATIC moonlit ring, keyed purely on state==="sleeping", decoupled from staleness/bucket (resolved by useTileAura before the live fold, never produced by tileAura())
   | "none"; // idle / parked / no agent — no glow
 
 export function tileAura(

@@ -34,7 +34,7 @@
  */
 
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
-import { TerminalIdSchema } from "kolu-common/surface";
+import { TerminalIdSchema, tolerateSleepingRecord } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
@@ -47,6 +47,25 @@ import {
   adoptLocalTerminal,
   reapUnrepresentablePty,
 } from "./local.ts";
+
+/** Seed sleeping records from the saved session into the in-memory store, AS
+ *  sleeping — on EVERY boot (surviving OR cold), because a sleeping record has
+ *  no live PTY for the adopt path to find. Called BEFORE the endpoint boots so
+ *  the surviving-path converge (`adoptSurvivingSession` → `saveSession`)
+ *  re-persists them, and so a cold/recycled boot (which never runs
+ *  `adoptSurvivingSession`) still rehydrates them. conf does not validate the
+ *  session on read, so each candidate runs through `tolerateSleepingRecord`
+ *  (record-granular safeParse-and-drop): one malformed on-disk record is dropped
+ *  here, never poisoning the rest of the set. */
+export function seedSleepingRecords(): void {
+  const saved = getSavedSession();
+  for (const record of saved?.terminals ?? []) {
+    if (record.state !== "sleeping") continue;
+    const tolerated = tolerateSleepingRecord(record);
+    if (tolerated) putSleeping(tolerated);
+    else log.warn({ id: record.id }, "dropped malformed sleeping record");
+  }
+}
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
@@ -97,13 +116,6 @@ export async function adoptSurvivingSession(): Promise<void> {
     }
     adoptLocalOrphan(parsed.data, orphan);
     orphansAdopted += 1;
-  }
-
-  // Seed sleeping records AS sleeping — they have no live PTY (reconcile pairs
-  // only active records), so the adopt path never sees them. Without this, a
-  // slept terminal would evaporate on a kolu restart.
-  for (const record of saved?.terminals ?? []) {
-    if (record.state === "sleeping") putSleeping(record);
   }
 
   const adoptedCount = adopt.length + orphansAdopted;

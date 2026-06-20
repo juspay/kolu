@@ -151,6 +151,16 @@ export const StatePip: Component<{
         <Match when={variant() === "idle"}>
           <span class="w-1.5 h-1.5 rounded-full bg-fg-3/55" />
         </Match>
+        <Match when={variant() === "sleeping"}>
+          {/* Crescent glyph — the shape carries "dormant" so it survives
+              reduced color and peripheral glance, distinct from the idle dot. */}
+          <span
+            class="text-[0.7rem] leading-none text-fg-3/70"
+            aria-hidden="true"
+          >
+            ☾
+          </span>
+        </Match>
       </Switch>
     </span>
   );
@@ -161,5 +171,6 @@ const PIP_TITLES: Record<PipVariant, string> = {
   awaiting: "Awaiting input",
   working: "Working",
   idle: "Idle",
+  sleeping: "Sleeping",
   empty: "",
 };

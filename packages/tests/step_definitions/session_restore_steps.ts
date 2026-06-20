@@ -28,7 +28,7 @@ async function postSavedSession(
  *  verbatim on subsequent self-heal re-POSTs — so the test always
  *  asserts that the *originally persisted* session restores, never a
  *  fresh-savedAt one a regression might require. */
-async function postSavedSessionPayload(
+export async function postSavedSessionPayload(
   world: KoluWorld,
   terminals: SavedTerminal[],
   activeTerminalId?: string,

@@ -254,6 +254,14 @@ let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
 
+/** The current server base URL. A reboot (`startServerChild`) picks a fresh
+ *  random port, so a step that opens the app AFTER a mid-scenario reboot must
+ *  navigate to this ABSOLUTE url — the page context's `baseURL` (and thus a bare
+ *  `goto("/")`) was captured at context-create time and points at the old port. */
+export function currentBaseUrl(): string {
+  return baseUrl;
+}
+
 // Reuse TCP connections across scenarios to avoid TIME_WAIT socket
 // accumulation on macOS (see #334).
 const keepAliveAgent = new http.Agent({ keepAlive: true });
@@ -1003,5 +1011,87 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
     `[worker:${workerId}] @kaval-restart: rebooting server to respawn its kaval daemon.`,
   );
   killServer(); // also reaps any surviving kaval
+  await startServerChild(koluServer);
+});
+
+/** Write a MALFORMED sleeping record (plus a good active terminal) straight into
+ *  the worker's on-disk `config.json`, then reboot the server so a fresh boot
+ *  reads the corrupt disk. The malformed record fails the cross-field invariant
+ *  (`sleptAt` non-numeric), so it can ONLY be seeded on disk — the session RPC's
+ *  wire validator would reject it. The migration version is pinned to the current
+ *  `SCHEMA_VERSION` (1.27.0) so the backfill ladder doesn't run and "repair" the
+ *  bad record; the read-boundary `tolerateSleepingRecord` is what must drop it.
+ *
+ *  Only meaningful when the worker owns its server (binary mode). In URL mode the
+ *  reboot is impossible, so this is a no-op (the scenario then exercises whatever
+ *  the shared server already holds — acceptable, as the malformed case is a
+ *  binary-mode boot concern). */
+export async function seedMalformedSessionAndReboot(): Promise<void> {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) return;
+  const cfgPath = path.join(koluStateDir, "config.json");
+  const raw = fs.existsSync(cfgPath)
+    ? (JSON.parse(fs.readFileSync(cfgPath, "utf8")) as Record<string, unknown>)
+    : {};
+  const home = os.homedir();
+  // A VALID sleeping record — it must rehydrate through the cold boot (seeded AS
+  // sleeping, independent of any live PTY), so the malformed sibling's drop is
+  // proven not to poison the rest of the set.
+  const good = {
+    id: "0",
+    location: { kind: "local" },
+    state: "sleeping",
+    cwd: home,
+    git: null,
+    lastActivityAt: 0,
+    sleptAt: 1000,
+  };
+  // `sleptAt: "soon"` is non-numeric → fails SavedSleepingTerminalSchema; sits in
+  // the SAME terminals array as the good active record, so dropping it must not
+  // poison the load.
+  const bad = {
+    id: "1",
+    location: { kind: "local" },
+    state: "sleeping",
+    cwd: home,
+    git: null,
+    sleptAt: "soon",
+  };
+  raw.session = {
+    terminals: [good, bad],
+    activeTerminalId: "0",
+    savedAt: Date.now(),
+  };
+  // Pin conf's migration version so the 1.27.0 backfill doesn't run (`conf`
+  // stores it under `__internal__.migrations.version`).
+  raw.__internal__ = { migrations: { version: "1.27.0" } };
+  fs.writeFileSync(cfgPath, JSON.stringify(raw));
+  killServer();
+  await startServerChild(koluServer);
+}
+
+/** Restore a CLEAN server after the @sleeping-malformed scenario. The server is
+ *  per-worker (not per-scenario), so the corrupt `config.json` it just booted
+ *  against would poison the next scenario the queue assigns to THIS worker.
+ *  Wipe the session key and reboot so the worker comes back pristine. Mirrors the
+ *  @kaval-restart After-hook's reasoning. */
+After({ tags: "@sleeping-malformed" }, async function (this: KoluWorld) {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) return;
+  const cfgPath = path.join(koluStateDir, "config.json");
+  try {
+    const raw = JSON.parse(fs.readFileSync(cfgPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    raw.session = null;
+    fs.writeFileSync(cfgPath, JSON.stringify(raw));
+  } catch {
+    // Best-effort: a missing/garbled config just means the reboot starts fresh.
+  }
+  console.log(
+    `[worker:${workerId}] @sleeping-malformed: rebooting server with a clean session.`,
+  );
+  killServer();
   await startServerChild(koluServer);
 });

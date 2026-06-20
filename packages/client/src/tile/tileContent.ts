@@ -34,4 +34,6 @@ export type TileId = TerminalId;
  *
  *  Adding a kind is one new arm here plus one new `<Match>`/`.with(...)` at each
  *  dispatch — the silo becomes unrepresentable. */
-export type TileContent = { kind: "terminal"; terminalId: TerminalId };
+export type TileContent =
+  | { kind: "terminal"; terminalId: TerminalId }
+  | { kind: "sleeping"; terminalId: TerminalId };

@@ -14,11 +14,12 @@
 
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
-import type { TerminalId } from "kolu-common/surface";
+import { sleepingArm, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
   createSignal,
+  type JSX,
   Match,
   Show,
   Switch,
@@ -32,6 +33,7 @@ import CommandPalette from "./CommandPalette";
 import { realSizes } from "./ui/corvuResizable";
 import Resizable from "@corvu/resizable";
 import CanvasWatermark from "./canvas/CanvasWatermark";
+import DormantTileBody from "./canvas/DormantTileBody";
 import Dock from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
@@ -202,6 +204,14 @@ const App: Component = () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
     },
+    handleSleepActive: () => {
+      const id = store.activeId();
+      if (id) void crud.handleSleep(id);
+    },
+    handleWakeActive: () => {
+      const id = store.activeId();
+      if (id) void session.handleWake(id);
+    },
     handleClearLocalStorage: () => {
       localStorage.clear();
       location.reload();
@@ -219,33 +229,53 @@ const App: Component = () => {
     recencyOf,
   });
 
-  /** Canvas tile body — every tile stays mounted (`visible={true}`) so
+  /** The one content-kind dispatch for a sleeping tile's body — desktop AND
+   *  mobile route through here so neither surface mounts xterm against a
+   *  PTY-released terminal. Returns the dormant placeholder (intent/cwd/Wake)
+   *  for a sleeping id, or `null` for a live id (the caller renders the live
+   *  body in that case). */
+  function renderSleepingBodyIfSleeping(id: TerminalId): JSX.Element | null {
+    if (tileStore.contentOf(id)?.kind !== "sleeping") return null;
+    const meta = sleepingArm(store.getMetadata(id));
+    if (!meta) return null;
+    return (
+      <DormantTileBody meta={meta} onWake={() => void session.handleWake(id)} />
+    );
+  }
+
+  /** Canvas tile body — every live tile stays mounted (`visible={true}`) so
    *  inactive xterms keep their grid sized correctly; only the focused tile
-   *  takes keyboard focus. */
+   *  takes keyboard focus. A sleeping tile renders the frozen dormant body
+   *  instead (no PTY/xterm). */
   function renderCanvasTileBody(id: TerminalId, active: () => boolean) {
     return (
-      <TerminalContent
-        terminalId={id}
-        visible={true}
-        focused={active()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-        onFocus={() => store.setActiveSilently(id)}
-      />
+      renderSleepingBodyIfSleeping(id) ?? (
+        <TerminalContent
+          terminalId={id}
+          visible={true}
+          focused={active()}
+          theme={getTerminalTheme(id)}
+          onCloseTerminal={closeTerminal}
+          onFocus={() => store.setActiveSilently(id)}
+        />
+      )
     );
   }
 
   /** Mobile body — only the active terminal is visible (others hide via
-   *  the parent's classList) so xterm doesn't try to size a 0×0 element. */
+   *  the parent's classList) so xterm doesn't try to size a 0×0 element. A
+   *  sleeping tile renders the dormant body instead. */
   function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
     return (
-      <TerminalContent
-        terminalId={id}
-        visible={visible()}
-        focused={visible()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-      />
+      renderSleepingBodyIfSleeping(id) ?? (
+        <TerminalContent
+          terminalId={id}
+          visible={visible()}
+          focused={visible()}
+          theme={getTerminalTheme(id)}
+          onCloseTerminal={closeTerminal}
+        />
+      )
     );
   }
 
@@ -333,7 +363,15 @@ const App: Component = () => {
           setCloseConfirmTarget(null);
           // Don't refocus — the natural reactive focus handlers (sub-panel,
           // active terminal) restore focus to the right place after the kill.
-          if (target) void crud.handleKillWithSubs(target.id);
+          if (!target) return;
+          // A sleeping tile has no PTY to kill — closing it DISCARDS the frozen
+          // record (the same confirm, reworded). Routes to discardSleeping, not
+          // a kill.
+          if (target.meta.state === "sleeping") {
+            void session.handleDiscardSleeping(target.id);
+          } else {
+            void crud.handleKillWithSubs(target.id);
+          }
         }}
         onCloseAndRemove={() => {
           const target = closeConfirmTarget();
@@ -543,7 +581,11 @@ const App: Component = () => {
                         />
                       )}
                       renderTileTitleActions={(id) => (
-                        <TileTitleActions id={id} />
+                        <TileTitleActions
+                          id={id}
+                          onSleep={() => void crud.handleSleep(id)}
+                          onWake={() => void session.handleWake(id)}
+                        />
                       )}
                       renderTileBody={renderCanvasTileBody}
                     />

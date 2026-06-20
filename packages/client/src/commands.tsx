@@ -136,6 +136,11 @@ export interface CommandDeps extends ActionContext {
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
+  // Sleep / Wake — flips on the active tile's state. Sleep releases the PTY and
+  // freezes the record; Wake = restore-one. Bound by App to the crud / session
+  // handlers; commands stay declarative.
+  handleSleepActive: () => void;
+  handleWakeActive: () => void;
   // Workspace search — the live-terminal source list and recency
   // accessor the "Search workspaces" group walks to populate its rows.
   workspaceEntries: Accessor<DockSourceEntry[]>;
@@ -237,6 +242,24 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             section: "active-terminal" as const,
             onSelect: () => deps.handleClose(),
           },
+          // ONE Sleep/Wake command — flips on the active tile's state. A live
+          // tile reads "Sleep terminal" (release PTY, freeze record); a sleeping
+          // tile reads "Wake terminal" (restore-one).
+          activeArm(deps.activeMeta())
+            ? {
+                kind: "action" as const,
+                name: "Sleep terminal",
+                section: "active-terminal" as const,
+                description: "Release the PTY but keep the tile on the canvas",
+                onSelect: () => deps.handleSleepActive(),
+              }
+            : {
+                kind: "action" as const,
+                name: "Wake terminal",
+                section: "active-terminal" as const,
+                description: "Respawn the PTY and resume the agent",
+                onSelect: () => deps.handleWakeActive(),
+              },
           actionPaletteCommand("toggleSubPanel", deps, {
             section: "active-terminal",
           }),

@@ -271,8 +271,9 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Attach — the shell-side handle on this terminal via kaval-tui;
-           *  copy the command and grab it from any shell. */}
-          <Show when={props.terminalId}>
+           *  copy the command and grab it from any shell. Gated on the active
+           *  arm: a sleeping terminal has no live PTY to attach to. */}
+          <Show when={activeArm(meta()) && props.terminalId}>
             {(id) => (
               <Section title="Attach">
                 <KavalAttachCommand terminalId={id()} />

@@ -197,6 +197,19 @@ export const useTerminalCrud = createSharedRoot(() => {
     await handleKill(id);
   }
 
+  /** Put a terminal to sleep — the server releases its PTY/xterm/agent and
+   *  freezes its persisted base as an (immutable) sleeping record under a fresh
+   *  id. One-shot mutation; the merged terminal list re-snapshots the dormant
+   *  tile in place (no client re-keying needed). Fires a discoverability tip so
+   *  the user learns the slept tile stays on the canvas. */
+  async function handleSleep(id: TerminalId) {
+    await client.terminal.sleep({ id }).catch((err: Error) => {
+      toast.error(`Failed to sleep terminal: ${err.message}`);
+      throw err;
+    });
+    showTipOnce(CONTEXTUAL_TIPS.sleep);
+  }
+
   async function handleCopyTerminalText() {
     const id = store.focusedId();
     if (id === null) return;
@@ -268,6 +281,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
+    handleSleep,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,

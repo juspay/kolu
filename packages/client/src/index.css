@@ -356,6 +356,24 @@ body {
   filter: brightness(0.85) saturate(0.8);
 }
 
+/* sleeping — a STATIC moonlit band. A dormant tile asks nothing and must not
+ * burn a frame, so unlike the live tiers there is no comet and no animation:
+ * the same ring-mask trick paints a dim, cool, steady glow in the repo color.
+ * Decoupled from staleness/dimming; keyed on state==="sleeping". */
+[data-canvas-tile][data-aura="sleeping"] .tile-aura {
+  padding: 2px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  background: color-mix(in oklch, var(--aura-c) 18%, transparent);
+  opacity: 0.6;
+}
+
 /* Reduced motion: hold the ants / comet still — the themed ring still reads,
  * it just stops moving. The `[data-aura]` qualifier is load-bearing: the
  * per-state animations are declared at `[data-canvas-tile][data-aura="…"]`

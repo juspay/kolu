@@ -52,8 +52,13 @@ export const useTileStore = createSharedRoot(() => {
    *  per-id projection: a present id maps to its `terminal` content (the only
    *  kind today), an absent one to `undefined`. PR 2 makes this the one dispatch
    *  site where a sleeping id resolves to its own content kind. */
-  const contentOf = (id: TileId): TileContent | undefined =>
-    tileIds().includes(id) ? { kind: "terminal", terminalId: id } : undefined;
+  const contentOf = (id: TileId): TileContent | undefined => {
+    const meta = store.getMetadata(id);
+    if (!meta) return undefined;
+    return meta.state === "sleeping"
+      ? { kind: "sleeping", terminalId: id }
+      : { kind: "terminal", terminalId: id };
+  };
 
   /** A tile's saved position/size. The registry HIDES where layout lives: for a
    *  terminal tile it reads `TerminalMetadata.canvasLayout` (no schema change —
@@ -62,7 +67,10 @@ export const useTileStore = createSharedRoot(() => {
    *  knowing layout is a field on the terminal. */
   const getLayout = (id: TileId): TileLayout | undefined => {
     const content = contentOf(id);
-    if (content?.kind !== "terminal") return undefined;
+    if (!content) return undefined;
+    // Both arms read `canvasLayout` off the same persisted base — only the
+    // content-kind guard differs (a sleeping record carries its frozen layout
+    // so the tile keeps its position across a sleep).
     return store.getMetadata(content.terminalId)?.canvasLayout;
   };
 

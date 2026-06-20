@@ -326,10 +326,21 @@ const CanvasMinimap: Component<{
             // because the JSX reads it 7× per tile per tick.
             const state = createMemo(() => {
               const i = info();
-              if (!i) return { bucket: "none" as const, parked: false };
+              if (!i)
+                return {
+                  bucket: "none" as const,
+                  parked: false,
+                  sleeping: false,
+                };
+              // A sleeping tile keeps its full rect with a moonlit marker — it
+              // is NEVER morphed to the parked ghost regardless of age (sleep is
+              // not staleness). Suppress `parked` when sleeping so the ghost
+              // branch can't fire.
+              const sleeping = i.meta.state === "sleeping";
               return {
                 bucket: metaBucket(i.meta),
-                parked: isParked(i.meta.lastActivityAt),
+                parked: !sleeping && isParked(i.meta.lastActivityAt),
+                sleeping,
               };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
@@ -370,6 +381,7 @@ const CanvasMinimap: Component<{
             // parked-ghost; CSS interpolates between them so the tile glides
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
+            const sleeping = () => state().sleeping;
             const isActive = () => tileStore.activeId() === id;
             const hasAgent = () => state().bucket !== "none";
             const badgeVisible = () => hasAgent() && !parked();
@@ -399,7 +411,11 @@ const CanvasMinimap: Component<{
                 width: `${t.w}px`,
                 height: `${t.h}px`,
                 "background-color": theme().bg,
-                border: `1px solid ${t.repoColor}`,
+                // Sleeping keeps its full rect but trades the repo-color border
+                // for a cool moonlit one so it reads dormant-but-present.
+                border: sleeping()
+                  ? "1px solid color-mix(in oklch, var(--color-fg-3) 60%, transparent)"
+                  : `1px solid ${t.repoColor}`,
               };
             };
             return (
@@ -412,6 +428,7 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
+                    data-state={sleeping() ? "sleeping" : undefined}
                     class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
                       "rounded-full bg-fg-3/40": parked(),
@@ -444,6 +461,18 @@ const CanvasMinimap: Component<{
                             .accentVar,
                         }}
                       />
+                    </Show>
+                    {/* Sleeping marker — a ☾ moonlit glyph distinct from the
+                        agent dot, so a dormant tile reads as present (never the
+                        parked ghost). */}
+                    <Show when={sleeping()}>
+                      <span
+                        data-testid="minimap-sleeping-dot"
+                        class="absolute -top-1 -right-0.5 text-[0.55rem] leading-none text-fg-3/80 pointer-events-none"
+                        aria-hidden="true"
+                      >
+                        ☾
+                      </span>
                     </Show>
                   </div>
                 )}

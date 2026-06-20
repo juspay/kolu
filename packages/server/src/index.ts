@@ -41,7 +41,10 @@ import { publisherSize } from "./publisher.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
-import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
+import {
+  adoptSurvivingSession,
+  seedSleepingRecords,
+} from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -333,6 +336,11 @@ const { host, port } = argv.flags;
 // Awaited before the HTTP server starts so no terminal RPC can race an unready
 // endpoint; a boot failure reports `dead` (not a crash), so the server still
 // listens and the UI honestly shows the down state.
+// Seed sleeping records (PTY-less, so the adopt path never finds them) BEFORE
+// the endpoint boots — on every boot, surviving or cold — so a slept terminal
+// rehydrates as sleeping regardless of daemon survival, and the surviving-path
+// session converge re-persists them.
+seedSleepingRecords();
 await ensureLocalEndpoint({
   port,
   onStatus: publishDaemonStatus,

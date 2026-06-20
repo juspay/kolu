@@ -409,6 +409,60 @@ const TerminalCanvas: Component<{
     );
   }
 
+  /** Render a sleeping tile — a frozen, PTY-released terminal. Reuses
+   *  `CanvasTile` verbatim (drag / resize / focus / active / maximize all
+   *  inherit), differing only in WHAT renders inside: the body routes through
+   *  the same `props.renderTileBody`, which the caller (App) dispatches on
+   *  content kind to the dormant placeholder — so the canvas never knows about
+   *  `DormantTileBody` or wake. The moonlit ring resolves through `useTileAura`
+   *  keyed on `state` (decoupled from staleness); `dimmed`/`sleeping` are keyed
+   *  on `state === "sleeping"`, never on age. */
+  function renderSleepingTile(
+    tileId: TileId,
+    terminalId: TerminalId,
+  ): JSX.Element {
+    const active = () => tileStore.activeId() === tileId;
+    const mode = (): CanvasTileMode =>
+      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+    return (
+      <Show when={store.getDisplayInfo(terminalId)}>
+        {(info) => (
+          <CanvasTile
+            id={tileId}
+            active={active()}
+            mode={mode()}
+            dimmed={true}
+            sleeping={true}
+            theme={tileTheme(terminalId)}
+            repoColor={info().repoColor}
+            onSelect={() => props.onSelect(tileId)}
+            onClose={() => props.onClose(tileId)}
+            onToggleMaximize={posture.toggle}
+            renderTitle={() => props.renderTileTitle(tileId)}
+            renderTitleActions={
+              props.renderTileTitleActions
+                ? () => props.renderTileTitleActions?.(tileId)
+                : undefined
+            }
+            renderBody={() =>
+              props.renderTileBody(
+                tileId,
+                () => tileStore.activeId() === tileId,
+              )
+            }
+            layouts={layouts()}
+            startResize={startResize}
+            panX={viewport.panX}
+            panY={viewport.panY}
+            zoom={viewport.zoom}
+            viewportSize={viewport.viewportSize}
+            auraTier={() => tileAuraOf(terminalId)}
+          />
+        )}
+      </Show>
+    );
+  }
+
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
@@ -474,6 +528,11 @@ const TerminalCanvas: Component<{
                       <Match when={c().kind === "terminal" && c()}>
                         {(terminal) =>
                           renderTerminalTile(id, terminal().terminalId)
+                        }
+                      </Match>
+                      <Match when={c().kind === "sleeping" && c()}>
+                        {(sleeping) =>
+                          renderSleepingTile(id, sleeping().terminalId)
                         }
                       </Match>
                     </Switch>

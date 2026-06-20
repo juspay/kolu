@@ -480,6 +480,7 @@ const WorkspaceCard: Component<{
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
+  const sleeping = () => props.entry.isSleeping;
 
   return (
     <button
@@ -489,6 +490,7 @@ const WorkspaceCard: Component<{
       data-terminal-id={props.entry.id}
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
+      data-state={sleeping() ? "sleeping" : undefined}
       data-active={props.active ? "" : undefined}
       data-highlighted={props.highlighted ? "" : undefined}
       class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || idle() ? "" : bucketInfo().borderClass}`}
@@ -499,7 +501,8 @@ const WorkspaceCard: Component<{
           props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
-        "opacity-60": idle() && !props.active && !props.highlighted,
+        "opacity-60":
+          (idle() || sleeping()) && !props.active && !props.highlighted,
       }}
       style={{
         "--card-color": props.entry.info.repoColor,
@@ -589,9 +592,11 @@ const WorkspaceCard: Component<{
           aria-hidden="true"
           class={`font-mono leading-none shrink-0 ${bucketInfo().textClass}`}
         >
-          {bucketInfo().glyph}
+          {sleeping() ? "☾" : bucketInfo().glyph}
         </span>
-        <span class="truncate">{agentLabel(agent())}</span>
+        <span class="truncate">
+          {sleeping() ? "Asleep — PTY released" : agentLabel(agent())}
+        </span>
         <Show when={tokens()}>
           {(t) => (
             <span class="font-mono text-[0.62rem] text-fg-3 tabular-nums shrink-0 ml-auto">

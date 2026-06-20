@@ -55,6 +55,10 @@ function init() {
   function handleSetTheme(themeName: string) {
     const id = store.activeId();
     if (id === null) return;
+    // A sleeping terminal's theme is frozen on its immutable record — there is
+    // no live terminal to re-theme, and the server has no setTheme path for a
+    // sleeping id. Guard so the active-but-sleeping tile is a no-op.
+    if (store.getMetadata(id)?.state === "sleeping") return;
     setThemeName(id, themeName);
   }
 

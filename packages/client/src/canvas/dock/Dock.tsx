@@ -455,6 +455,7 @@ const DockRow: Component<{
           data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
+          data-state={props.bucket === "sleeping" ? "sleeping" : undefined}
           data-agent-state={activeArm(c().meta)?.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
@@ -467,6 +468,7 @@ const DockRow: Component<{
             }
           }}
           class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          classList={{ "opacity-70": props.bucket === "sleeping" }}
           title="Jump to this terminal"
         >
           <StatePip bucket={props.bucket} unread={unread()} />
@@ -580,6 +582,7 @@ const RailChip: Component<{
             data-testid="dock-rail"
             data-terminal-id={props.id}
             data-bucket={props.bucket}
+            data-state={props.bucket === "sleeping" ? "sleeping" : undefined}
             data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
@@ -588,6 +591,7 @@ const RailChip: Component<{
             }
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"
+            classList={{ "opacity-70": props.bucket === "sleeping" }}
             style={{ "--repo-color": c().info.repoColor }}
             title={chipTooltip(c().info, props.bucket)}
             aria-label={chipTooltip(c().info, props.bucket)}

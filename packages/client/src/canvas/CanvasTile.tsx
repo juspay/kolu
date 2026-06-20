@@ -54,6 +54,11 @@ const CanvasTile: Component<{
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
   dimmed?: boolean;
+  /** This tile holds a frozen, PTY-released sleeping terminal. Emits a
+   *  `data-state="sleeping"` hook (decoupled from `data-dimmed`) the presence
+   *  surfaces / e2e assert. The shell only honors the bit — the dormant body
+   *  and moonlit aura are decided by the caller. */
+  sleeping?: boolean;
   theme: TileTheme;
   /** Per-repo identity color; drives the tile border. */
   repoColor: string;
@@ -266,6 +271,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      data-state={props.sleeping ? "sleeping" : undefined}
       data-aura={showAura() ? aura() : undefined}
       // `inert` (when covered) removes the subtree from tab order, blocks
       // pointer events, and hides from assistive tech in one go — matches

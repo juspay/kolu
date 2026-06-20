@@ -19,6 +19,10 @@ export function useTileAura(): (id: TerminalId) => TileAura {
   return (id) => {
     const meta = store.getMetadata(id);
     if (!meta) return "none";
+    // The single decoupling point: a sleeping tile's moonlit ring is keyed
+    // PURELY on state, before the live fold — never on staleness or bucket
+    // (a long-slept tile must read dormant, not "parked to none").
+    if (meta.state === "sleeping") return "sleeping";
     return tileAura(
       metaBucket(meta),
       store.isUnread(id),

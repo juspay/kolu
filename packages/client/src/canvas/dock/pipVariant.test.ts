@@ -17,6 +17,9 @@ const cases: Array<[DockRowBucket, boolean, PipVariant]> = [
   ["idle", false, "idle"],
   ["none", false, "empty"],
   ["parked", false, "empty"],
+  // sleeping is dormant — unread must NOT escalate it to "attention".
+  ["sleeping", true, "sleeping"],
+  ["sleeping", false, "sleeping"],
 ];
 
 describe("pipVariant", () => {

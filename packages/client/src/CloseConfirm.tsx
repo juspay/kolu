@@ -61,7 +61,16 @@ const CloseConfirm: Component<{
     return e && !e.eligible ? e.reason : undefined;
   };
   const splitCount = () => props.target?.splitCount ?? 0;
-  const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
+  // A sleeping tile has no PTY — closing it DISCARDS the frozen record. Same
+  // dialog (still driven off the persisted git/worktree info), reworded so the
+  // user reads "discard", not "kill".
+  const sleeping = () => props.target?.meta.state === "sleeping";
+  const closeLabel = () =>
+    sleeping()
+      ? "Discard sleeping terminal"
+      : splitCount() > 0
+        ? "Close all"
+        : "Close terminal";
   const chrome = surface({ portalled: true });
 
   return (
@@ -80,14 +89,21 @@ const CloseConfirm: Component<{
       >
         <Dialog.Label class="font-semibold text-fg">
           <Show
-            when={canRemoveWorktree()}
+            when={sleeping()}
             fallback={
-              splitCount() > 0
-                ? "Close terminal and splits?"
-                : "Close terminal?"
+              <Show
+                when={canRemoveWorktree()}
+                fallback={
+                  splitCount() > 0
+                    ? "Close terminal and splits?"
+                    : "Close terminal?"
+                }
+              >
+                Remove worktree too?
+              </Show>
             }
           >
-            Remove worktree too?
+            Discard sleeping terminal?
           </Show>
         </Dialog.Label>
 

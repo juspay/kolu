@@ -143,6 +143,7 @@ function DockListRow(props: {
           data-testid="mobile-dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
+          data-state={props.bucket === "sleeping" ? "sleeping" : undefined}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
@@ -163,6 +164,7 @@ function DockListRow(props: {
           // side is symmetric between the two surfaces, so it ships
           // as one symbol.
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          classList={{ "opacity-70": props.bucket === "sleeping" }}
         >
           <StatePip bucket={props.bucket} unread={unread()} />
           <span

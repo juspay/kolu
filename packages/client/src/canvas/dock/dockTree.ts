@@ -81,6 +81,9 @@ export function buildDockTree(
       parkedCount++;
       continue;
     }
+    // "sleeping" deliberately falls through here — a slept row keeps its repo
+    // section and is NEVER parked-dropped (classifyDockRow routes it to
+    // "sleeping" ahead of the parked check precisely so this loop can't drop it).
     const info = getDisplayInfo(row.id);
     if (!info) continue;
     let group = byName.get(info.key.group);

@@ -31,6 +31,10 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
+  /** Put this tile to sleep — bound by App to `crud.handleSleep`. */
+  onSleep: () => void;
+  /** Wake this (sleeping) tile — bound by App to the restore-one handler. */
+  onWake: () => void;
 }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
@@ -42,6 +46,10 @@ const TileTitleActions: Component<{
   const { showTipOnce } = useTips();
 
   const meta = () => store.getMetadata(props.id);
+  // A sleeping tile has no live PTY, so its terminal-scoped affordances
+  // (find / screenshot / split / theme) are suppressed; the ☾ Sleep button
+  // swaps to Wake.
+  const sleeping = () => meta()?.state === "sleeping";
   const themeName = () =>
     store.activeId() === props.id ? activeThemeName() : meta()?.themeName;
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
@@ -81,78 +89,115 @@ const TileTitleActions: Component<{
           </button>
         )}
       </Show>
-      <Show when={themeName()}>
-        {(name) => (
-          <Tip label={`Theme: ${name()}`}>
-            <button
-              type="button"
-              data-testid="tile-theme-pill"
-              class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
-              style={{ color: "var(--color-fg-3, currentColor)" }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) =>
-                onTile(e, () => {
-                  commandPalette.openGroup("Set theme");
-                  setTimeout(
-                    () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
-                    500,
-                  );
-                })
-              }
-            >
-              {name()}
-            </button>
-          </Tip>
-        )}
-      </Show>
-      <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
+      <Show when={!sleeping()}>
+        <Show when={themeName()}>
+          {(name) => (
+            <Tip label={`Theme: ${name()}`}>
+              <button
+                type="button"
+                data-testid="tile-theme-pill"
+                class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
+                style={{ color: "var(--color-fg-3, currentColor)" }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) =>
+                  onTile(e, () => {
+                    commandPalette.openGroup("Set theme");
+                    setTimeout(
+                      () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                      500,
+                    );
+                  })
+                }
+              >
+                {name()}
+              </button>
+            </Tip>
+          )}
+        </Show>
+        <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
+          <button
+            type="button"
+            data-testid="tile-split-toggle"
+            class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
+            classList={{ "bg-black/20": splitExpanded() }}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => onTile(e, () => crud.toggleSubPanel(props.id))}
+            aria-label="Toggle split"
+          >
+            <SplitToggleIcon />
+            <Show when={subCount() > 0}>
+              <span
+                data-testid="sub-count"
+                class="text-[0.65rem] tabular-nums leading-none"
+              >
+                {subCount()}
+              </span>
+            </Show>
+          </button>
+        </Tip>
+        <Tip label="Find in terminal">
+          <button
+            type="button"
+            data-testid="tile-find"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => onTile(e, () => search.openFor(props.id))}
+            aria-label="Find in terminal"
+          >
+            <SearchIcon />
+          </button>
+        </Tip>
         <button
           type="button"
-          data-testid="tile-split-toggle"
-          class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
-          classList={{ "bg-black/20": splitExpanded() }}
-          style={{ color: "var(--color-fg-3, currentColor)" }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => onTile(e, () => crud.toggleSubPanel(props.id))}
-          aria-label="Toggle split"
-        >
-          <SplitToggleIcon />
-          <Show when={subCount() > 0}>
-            <span
-              data-testid="sub-count"
-              class="text-[0.65rem] tabular-nums leading-none"
-            >
-              {subCount()}
-            </span>
-          </Show>
-        </button>
-      </Tip>
-      <Tip label="Find in terminal">
-        <button
-          type="button"
-          data-testid="tile-find"
           class={`${TILE_BUTTON_CLASS} w-7`}
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => onTile(e, () => search.openFor(props.id))}
-          aria-label="Find in terminal"
+          onClick={(e) =>
+            onTile(e, () => void screenshotTerminal(props.id, meta()))
+          }
+          title="Screenshot terminal"
+          data-testid="screenshot-button"
         >
-          <SearchIcon />
+          <ScreenshotIcon />
         </button>
-      </Tip>
-      <button
-        type="button"
-        class={`${TILE_BUTTON_CLASS} w-7`}
-        style={{ color: "var(--color-fg-3, currentColor)" }}
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) =>
-          onTile(e, () => void screenshotTerminal(props.id, meta()))
+      </Show>
+      {/* Sleep / Wake — the manual Phase-2 control. ☾ puts a live tile to
+       *  sleep (releasing its PTY); on a sleeping tile it swaps to Wake
+       *  (restore-one). The only affordance kept on a sleeping tile. */}
+      <Show
+        when={sleeping()}
+        fallback={
+          <Tip label="Sleep terminal">
+            <button
+              type="button"
+              data-testid="canvas-tile-sleep"
+              class={`${TILE_BUTTON_CLASS} w-7`}
+              style={{ color: "var(--color-fg-3, currentColor)" }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => onTile(e, () => props.onSleep())}
+              aria-label="Sleep terminal"
+            >
+              ☾
+            </button>
+          </Tip>
         }
-        title="Screenshot terminal"
-        data-testid="screenshot-button"
       >
-        <ScreenshotIcon />
-      </button>
+        <Tip label="Wake terminal">
+          <button
+            type="button"
+            data-testid="canvas-tile-wake"
+            class={`${TILE_BUTTON_CLASS} px-2 text-xs`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => onTile(e, () => props.onWake())}
+            aria-label="Wake terminal"
+          >
+            Wake
+          </button>
+        </Tip>
+      </Show>
     </>
   );
 };

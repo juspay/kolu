@@ -41,6 +41,11 @@ export const useTerminalStore = createSharedRoot(() => {
   function focusedId(): TerminalId | null {
     const parentId = view.activeId();
     if (parentId === null) return null;
+    // A sleeping tile can be the ACTIVE tile (focus-frozen: navigating onto it
+    // focuses, never wakes) but has no PTY to route input to — so there is no
+    // focused TERMINAL. Input-routing callers (copy-pane-text,
+    // run-in-active-terminal, the mobile key bar) already null-check this.
+    if (metadata.getMetadata(parentId)?.state === "sleeping") return null;
     const panel = subPanel.getSubPanel(parentId);
     return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
       ? panel.activeSubTab
@@ -55,7 +60,15 @@ export const useTerminalStore = createSharedRoot(() => {
    *  cross the cap boundary; when the whole working set fits, focus switches
    *  churn nothing (the #1399 fix). */
   const webglTileBudget = createMemo(() => {
-    const live = new Set(metadata.terminalIds());
+    // Only ACTIVE tiles are eligible for a GPU context — a sleeping tile renders
+    // a static dormant body (no xterm), so it must never grab a WebGL slot.
+    // `terminalIds()` stays the full tile set (sleeping ids still reach the
+    // canvas/dock); only the budget Set is narrowed.
+    const live = new Set(
+      metadata
+        .terminalIds()
+        .filter((id) => metadata.getMetadata(id)?.state === "active"),
+    );
     const ordered = view.mruOrder().filter((id) => live.has(id));
     // `tileWebglCost` is the one home for a tile's context cost (main pane + an
     // expanded, active split), so the running count is the true number of live

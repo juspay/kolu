@@ -1,12 +1,14 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import { resumeAgentCommand } from "anyagent/cli";
-import type {
-  InitialTerminalMetadata,
-  SavedSession,
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
+import {
+  type InitialTerminalMetadata,
+  type SavedSession,
+  type SavedTerminal,
+  sleepingArm,
+  type TerminalId,
+  type TerminalInfo,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -148,6 +150,89 @@ export function useSessionRestore(deps: {
     }
   });
 
+  /** Restore ONE saved terminal: spawn a fresh ACTIVE terminal (new id) seeded
+   *  with the record's persisted metadata, seed its client-only sub-panel /
+   *  right-panel state, and auto-launch the resume form of its last agent
+   *  command. The single re-mint-id + resume mechanism shared by full-session
+   *  restore (the loop below) and Wake (restore-one off a sleeping record) — so
+   *  the two can't drift. Pure of the active-marker protocol; the session loop
+   *  layers that on top, and wake sets the active id itself.
+   *
+   *  `resume` gates the agent auto-launch (session restore honors the user's
+   *  per-terminal opt-out; wake always resumes). Returns the new id. */
+  async function restoreOneTerminal(
+    t: SavedTerminal,
+    resume: boolean,
+  ): Promise<TerminalId> {
+    // `t.location` is deliberately NOT forwarded: the create seam carries only
+    // client-owned `InitialTerminalMetadata`, and the endpoint owns location —
+    // so each terminal re-spawns at `LOCAL_LOCATION`. Correct while every
+    // terminal is local; P3 replaces this with dial+adopt.
+    const newId = await deps.handleCreate(t.cwd, {
+      themeName: t.themeName,
+      canvasLayout: t.canvasLayout,
+      subPanel: t.subPanel,
+      rightPanel: t.rightPanel,
+      lastActivityAt: t.lastActivityAt,
+      intent: t.intent,
+    });
+    // Client-side sub-panel state (activeSubTab, focusTarget) isn't
+    // server-persisted — seed it locally so the restored panel reopens to the
+    // same tab. The server-persisted fields ride `handleCreate` above.
+    if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
+    // Right-panel per-terminal state: the persisted record rides `handleCreate`;
+    // `seedPanel` here is the early-read optimization for the in-memory store.
+    if (t.rightPanel) rightPanel.seedPanel(newId, t.rightPanel);
+    // Auto-launch the resume form of the previously captured agent command. The
+    // command is already normalized (prompts/positionals stripped at capture),
+    // so there's nothing arbitrary to smuggle through.
+    if (resume && t.lastAgentCommand) {
+      const resumeForm = resumeAgentCommand(t.lastAgentCommand);
+      if (resumeForm) {
+        await client.terminal.sendInput({ id: newId, data: `${resumeForm}\r` });
+      }
+    }
+    return newId;
+  }
+
+  /** Wake a sleeping terminal — restore-one. Reads the frozen sleeping record
+   *  off the client metadata store, spawns a fresh ACTIVE terminal + resumes its
+   *  agent FIRST (so a failed create leaves the sleeping record intact for a
+   *  retry), then on success drops the retired sleeping record server-side and
+   *  makes the new terminal active. */
+  async function handleWake(sleepingId: TerminalId): Promise<void> {
+    const rec = sleepingArm(store.getMetadata(sleepingId));
+    if (!rec) return;
+    // restore-one FIRST — create + resume against the frozen base. The record is
+    // `SleepingTerminal` (persisted base + sleptAt); `SavedTerminal` is the same
+    // base + id, so it slots straight in. If create throws, `handleCreate`
+    // already toasted and the await propagates — the sleeping record is left
+    // intact (we never reach the discard below), so the Wake button stays
+    // retryable.
+    const newId = await restoreOneTerminal(
+      { ...rec, id: sleepingId, state: "active" },
+      true,
+    );
+    // Only after the replacement spawns: drop the retired sleeping record (no
+    // PTY to kill — it was released at sleep time).
+    await client.terminal
+      .discardSleeping({ id: sleepingId })
+      .catch((err: Error) =>
+        toast.error(`Failed to drop sleeping record: ${err.message}`),
+      );
+    store.setActiveSilently(newId);
+  }
+
+  /** Discard a sleeping record outright — the close-as-discard path (no PTY to
+   *  kill). Routed here so the close-confirm calls one verb. */
+  async function handleDiscardSleeping(id: TerminalId): Promise<void> {
+    await client.terminal
+      .discardSleeping({ id })
+      .catch((err: Error) =>
+        toast.error(`Failed to discard sleeping terminal: ${err.message}`),
+      );
+  }
+
   async function handleRestoreSession(
     // `session` selects the input source: the server-persisted snapshot
     // (default) or an arbitrary blob from a caller like the diagnostic
@@ -211,7 +296,12 @@ export function useSessionRestore(deps: {
 
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
-      const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
+      // Only ACTIVE records spawn through the restore card: a sleeping record
+      // rehydrates AS sleeping server-side (boot seed), so the restore path must
+      // never re-spawn one as a live terminal.
+      const topLevelInSavedOrder = session.terminals.filter(
+        (t) => t.state === "active" && !t.parentId,
+      );
       // Step 1: active-first reorder.
       const topLevel =
         session.activeTerminalId !== undefined
@@ -230,9 +320,11 @@ export function useSessionRestore(deps: {
             })()
           : topLevelInSavedOrder;
       // Type predicate so the body of the loop below sees `parentId`
-      // narrowed to `string` instead of `string | undefined`.
+      // narrowed to `string` instead of `string | undefined`. Sub-terminals are
+      // always active (only a top-level terminal can sleep).
       const subTerminals = session.terminals.filter(
-        (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
+        (t): t is typeof t & { parentId: string } =>
+          t.state === "active" && t.parentId !== undefined,
       );
       let resumed = 0;
       /** New id of the saved active terminal — captured in step 2, used in step 3. */
@@ -242,22 +334,11 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        // `t.location` is deliberately NOT forwarded: the create seam carries
-        // only client-owned `InitialTerminalMetadata`, and the *endpoint* owns
-        // location — so each terminal re-spawns at `LOCAL_LOCATION`. That is
-        // correct while every terminal is local, but it means restore here is
-        // read-record-and-respawn, not "dial the saved host + adopt". P3
-        // replaces this loop with dial+adopt; until then a remote terminal
-        // would silently restore locally, so remote terminals must not ship
-        // before P3 lands.
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          rightPanel: t.rightPanel,
-          lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
-        });
+        // Re-mint id + resume off the saved base — the shared restore-one
+        // mechanism (also used by Wake). The user's per-terminal opt-out gates
+        // the agent auto-launch.
+        const optedIn = !resumeIds || resumeIds.has(t.id);
+        const newId = await restoreOneTerminal(t, optedIn);
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.
@@ -265,32 +346,12 @@ export function useSessionRestore(deps: {
           restoredActiveId = newId;
           store.setActiveSilently(newId);
         }
-        // Client-side sub-panel state (activeSubTab, focusTarget) isn't
-        // server-persisted — seed it locally so the restored panel reopens
-        // to the same tab. The server-persisted fields (collapsed, panelSize)
-        // ride along via handleCreate above.
-        if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
-        // Right-panel per-terminal state: the persisted record rides
-        // `handleCreate` (server seeds `meta.rightPanel` from
-        // `initial.rightPanel` in the first `terminal.list` snapshot);
-        // `seedPanel` here is the early-read optimization for the
-        // in-memory store, so reads that happen before the metadata
-        // collection resnapshots see the restored value.
-        if (t.rightPanel) rightPanel.seedPanel(newId, t.rightPanel);
-        // Auto-launch the resume form of the previously captured agent
-        // command, if the user didn't opt out. The command is already
-        // normalized (prompts/positionals stripped by the allowlist at
-        // capture time), so there's nothing arbitrary to smuggle through.
-        const optedIn = !resumeIds || resumeIds.has(t.id);
-        if (t.lastAgentCommand && optedIn) {
-          const resumeForm = resumeAgentCommand(t.lastAgentCommand);
-          if (resumeForm) {
-            await client.terminal.sendInput({
-              id: newId,
-              data: `${resumeForm}\r`,
-            });
-            resumed++;
-          }
+        if (
+          optedIn &&
+          t.lastAgentCommand &&
+          resumeAgentCommand(t.lastAgentCommand)
+        ) {
+          resumed++;
         }
       }
       for (const t of subTerminals) {
@@ -343,5 +404,10 @@ export function useSessionRestore(deps: {
     savedSession,
     isRestoring,
     handleRestoreSession,
+    // Wake = restore-one (spawn fresh active terminal + resume, then drop the
+    // retired sleeping record). Lives here so it reuses `restoreOneTerminal`
+    // verbatim rather than hand-rolling a parallel restore.
+    handleWake,
+    handleDiscardSleeping,
   };
 }

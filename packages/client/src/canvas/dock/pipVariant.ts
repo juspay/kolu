@@ -15,6 +15,7 @@ export type PipVariant =
   | "awaiting" // bucket awaiting, !unread: quiet dim dot (lingering)
   | "working" // hollow spinning ring
   | "idle" // muted small dot
+  | "sleeping" // dormant: a ☾ crescent, no attention escalation
   | "empty"; // parked / none — render nothing
 
 /** Pure A→B bucket-to-pip mapping. TypeScript's required-property check
@@ -24,11 +25,16 @@ const BUCKET_TO_PIP: Record<DockRowBucket, PipVariant> = {
   awaiting: "awaiting",
   working: "working",
   idle: "idle",
+  sleeping: "sleeping",
   parked: "empty",
   none: "empty",
 };
 
 export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
+  // Sleeping carries no live attention obligation (the PTY is released), so it
+  // is NOT escalated to "attention" by a stale unread flag — checked before the
+  // unread override.
+  if (bucket === "sleeping") return "sleeping";
   if (unread) return "attention";
   return BUCKET_TO_PIP[bucket];
 }
