@@ -11,6 +11,7 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
+    "./first-frame": "./src/firstFrame.ts",
     "./loopback": "./src/loopback.ts",
     "./project": "./src/project.ts",
     "./server": "./src/server.ts",

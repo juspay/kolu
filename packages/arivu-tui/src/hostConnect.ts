@@ -39,6 +39,7 @@
  * zero source changes; see the kolu PR body's merge-gate bullet.)
  */
 import type { arivuSurface } from "@kolu/arivu-contract";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 
@@ -72,25 +73,16 @@ export function connectArivuViaHost(
     // remote arivu discover it, so a single remote kolu is found with no flag.
     extraRemoteArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
     // arivu has no `system.heartbeat`, so read the first frame of the `version`
-    // cell as the connectivity probe.
-    probe: (client) => firstFrame(client.surface.version.get({})),
+    // cell as the connectivity probe. A `version` cell ALWAYS opens with a
+    // snapshot frame, so an empty stream is a protocol/link failure, not a
+    // benign "no value yet" — the probe exists to PROVE the remote arivu surface
+    // yielded its snapshot, and `dialAgentOnce` discards the value before
+    // `markConnected`, so `firstFrameOrThrow` surfaces the empty-stream failure
+    // rather than collapsing it into a "connected" session.
+    probe: async (client) =>
+      firstFrameOrThrow(
+        await client.surface.version.get({}),
+        "arivu version cell yielded no snapshot frame — the remote surface stream ended empty (link or protocol failure)",
+      ),
   });
-}
-
-/** Read the first value an async stream yields (then close it) — used to turn
- *  arivu's snapshot-then-delta `version` cell into the one-shot dial's
- *  connectivity probe. A `version` cell ALWAYS opens with a snapshot frame, so
- *  an empty stream is a protocol/link failure, not a benign "no value yet": the
- *  probe exists to PROVE the remote arivu surface yielded its snapshot, and
- *  `dialAgentOnce` discards the value before `markConnected`. Returning
- *  `undefined` on an empty stream would collapse that failure into a "connected"
- *  session (see `.agency/code-police.md` → caught-error-must-not-collapse-to-
- *  empty), so we throw instead. */
-async function firstFrame(
-  streamPromise: Promise<AsyncIterable<unknown>>,
-): Promise<unknown> {
-  for await (const v of await streamPromise) return v;
-  throw new Error(
-    "arivu version cell yielded no snapshot frame — the remote surface stream ended empty (link or protocol failure)",
-  );
 }
