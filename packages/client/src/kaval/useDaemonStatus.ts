@@ -13,6 +13,7 @@ import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import type { WsStatus } from "../rpc/rpc";
+import { compactDelta } from "../terminal/staleness";
 import { app } from "../wire";
 import { announceReattach } from "./reattachAnnounce";
 
@@ -72,15 +73,12 @@ export const DAEMON_STATE_PRESENTATION: Record<
 /** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
  *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
  *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
- *  both call this, so a format tweak reaches both surfaces at once. */
+ *  both call this, so a format tweak reaches both surfaces at once. Renders the
+ *  dual-unit form of the shared {@link compactDelta} ladder (the sub-tier where
+ *  one exists), so the sec/min/hr/day thresholds stay defined in one place. */
 export function formatUptime(ms: number): string {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 60) return `${sec}s`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ${min % 60}m`;
-  return `${Math.floor(hr / 24)}d ${hr % 24}h`;
+  const { value, unit, sub } = compactDelta(ms);
+  return sub ? `${value}${unit} ${sub.value}${sub.unit}` : `${value}${unit}`;
 }
 
 /** A tone → status-dot class. The one place `warming`==`animate-pulse` etc. is

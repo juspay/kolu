@@ -86,19 +86,42 @@ export function useIdleClassifier(): (
   };
 }
 
-/** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
- *  coarse, matching `formatTimeAgo` (and the 60s tick that drives the live
- *  "Running for" readout — sub-minute precision wouldn't refresh anyway).
- *  Negative input clamps to 0 (clock skew between the agent host and the
- *  client must never render a negative age). */
-export function formatDuration(ms: number): string {
+/** The one coarse-magnitude bucketing rule, shared by every compact-duration
+ *  formatter in the app (`formatDuration`, `formatTimeAgo`, and `formatUptime`
+ *  in `useDaemonStatus.ts`). Returns the dominant `{value, unit}` and — for the
+ *  hour/day tiers — the next-finer `sub` unit, so a caller can render either a
+ *  single unit (`2h`) or two (`2h 20m`) without re-walking the ladder. The
+ *  sec<60 / min<60 / hr<24 / else thresholds and the negative-clamp (clock skew
+ *  between the agent host and the client must never render a negative age) live
+ *  here and nowhere else. */
+type DeltaUnit = "s" | "m" | "h" | "d";
+export function compactDelta(ms: number): {
+  value: number;
+  unit: DeltaUnit;
+  sub?: { value: number; unit: DeltaUnit };
+} {
   const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 60) return `${sec}s`;
+  if (sec < 60) return { value: sec, unit: "s" };
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m`;
+  if (min < 60) return { value: min, unit: "m" };
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h`;
-  return `${Math.floor(hr / 24)}d`;
+  if (hr < 24) {
+    return { value: hr, unit: "h", sub: { value: min % 60, unit: "m" } };
+  }
+  return {
+    value: Math.floor(hr / 24),
+    unit: "d",
+    sub: { value: hr % 24, unit: "h" },
+  };
+}
+
+/** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
+ *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
+ *  ladder. The 60s tick that drives the live "Running for" readout means
+ *  sub-minute precision wouldn't refresh anyway. */
+export function formatDuration(ms: number): string {
+  const { value, unit } = compactDelta(ms);
+  return `${value}${unit}`;
 }
 
 /** Reactive elapsed-since formatter. Returns a function consumers call with a
@@ -112,16 +135,13 @@ export function useDuration(): (startedAtMs: number) => string {
 }
 
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
- *  (= "no agent transition observed yet"). Plain `Date.now()` read,
- *  not reactive: tooltips and hover panels recompute on mount, which is
- *  finer-grained than the 60s tick anyway. */
+ *  (= "no agent transition observed yet"), "just now" under a minute. Single-
+ *  unit "ago" suffix over the shared {@link compactDelta} ladder. Plain
+ *  `Date.now()` read, not reactive: tooltips and hover panels recompute on
+ *  mount, which is finer-grained than the 60s tick anyway. */
 export function formatTimeAgo(ts: number): string {
   if (ts === 0) return "";
-  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
+  const { value, unit } = compactDelta(Date.now() - ts);
+  if (unit === "s") return "just now";
+  return `${value}${unit} ago`;
 }
