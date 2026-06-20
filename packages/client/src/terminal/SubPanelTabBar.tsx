@@ -2,9 +2,11 @@
 
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type Component, For } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
+import LiveActivityDot from "./LiveActivityDot";
+import { useTerminalActivity } from "./useTerminalActivity";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -15,6 +17,11 @@ const SubPanelTabBar: Component<{
   onCreate: () => void;
   onCollapse: () => void;
 }> = (props) => {
+  // Sub-terminals mount the same `Terminal` component, so each one already
+  // records output under its own `subId` — but the top-level dock/title readers
+  // are keyed by the PARENT id and never surface it. This tab bar is the only
+  // per-sub UI, so it owns the sub-terminal's live-output reader.
+  const activity = useTerminalActivity();
   return (
     <div
       data-testid="sub-panel-tab-bar"
@@ -44,6 +51,9 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
+                <Show when={activity.isLive(id)}>
+                  <LiveActivityDot />
+                </Show>
                 <span class="truncate">
                   <IntentMarkdownInline markdown={label()} />
                 </span>

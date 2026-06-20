@@ -69,8 +69,9 @@ import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { formatTimeAgo } from "../../terminal/staleness";
+import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -85,6 +86,7 @@ import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -483,9 +485,14 @@ const DockRow: Component<{
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
-            {formatTimeAgo(c().meta.lastActivityAt)}
-          </span>
+          {/* Recency cell — "Xs ago", swapped for the live dot while streaming.
+           *  Shared with the touch drawer; the no-reflow width contract lives
+           *  in RecencyCell. */}
+          <RecencyCell
+            id={props.id}
+            lastActivityAt={c().meta.lastActivityAt}
+            textSize="text-[0.6rem]"
+          />
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"
@@ -570,6 +577,7 @@ const RailChip: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const activity = useTerminalActivity();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
@@ -614,6 +622,22 @@ const RailChip: Component<{
                 {labels().sub}
               </span>
             </span>
+            {/* The glyph-only rail has no timestamp cell to swap, so the live
+             *  dot rides as a corner overlay. It sits BOTTOM-right to stay clear
+             *  of the three already-claimed corners: the unread badge
+             *  (`.dock-rail-chip[data-unread]::after`, top-right) and the
+             *  shortcut hint (`.dock-rail-chip-hint`, top-left) — an unread+live
+             *  chip would otherwise paint both pips in the same top-right corner,
+             *  making each signal ambiguous. The agent-state glow below tracks an
+             *  AGENT's thinking/waiting; this dot is the orthogonal "moving bytes
+             *  right now" signal (a compile, a `tail -f`, any non-agent shell) —
+             *  without it, a live non-agent terminal is indistinguishable from an
+             *  idle one in the rail. */}
+            <Show when={activity.isLive(props.id)}>
+              <span class="pointer-events-none absolute -bottom-1 -right-1">
+                <LiveActivityDot />
+              </span>
+            </Show>
             {/* Agent-state glow on its own child so it animates opacity/transform
              *  (compositor) rather than repainting the chip's box-shadow every
              *  frame — see #1308. Only the two live buckets render it; the CSS

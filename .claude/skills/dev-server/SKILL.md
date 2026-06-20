@@ -19,6 +19,44 @@ happened on [#1109](https://github.com/juspay/kolu/issues/1109). Never bind the
 defaults; never touch the systemd unit. This skill is the canonical "run the app
 locally" path so that can't recur.
 
+## 0. First decide local vs. pu — production lives on this machine
+
+Disrupting production is **not only a port collision.** A second incident: an
+agent ran `just dev-auto` repeatedly (each forks a node server + a kaval daemon)
+plus nix builds, all on the user's machine *while production kolu and other
+agents were live* — the pile-up drove the **OOM-killer to `SIGKILL` production**
+(`status=9/KILL`). Random ports kept it off production's *ports*; nothing kept it
+off production's *RAM*. The user's standing rule after that: **"always run on pu,
+nothing locally."**
+
+A third incident proved the threat isn't just `just dev`/`dev-auto`: an agent
+reached for `just build` (`nix build`) to test the **production binary**
+"deterministically," reasoning it was *safer* than the flaky dev server. But the
+built `result/bin/kolu` **ignores `KOLU_STATE_DIR`** and binds the **production
+state dir** `~/.config/kolu` + the production kaval socket ([#1414](https://github.com/juspay/kolu/issues/1414)) —
+a worse collision than ports/RAM, sharing *state* with live `kolu.service`. It
+left a stray instance alive on production's socket. So: **the built binary
+(`just build` → `result/bin/kolu`) is a forbidden local route too** — never run a
+production build locally beside a live kolu; it goes on a pu box like everything
+else. "Production-faithful" is not "production-safe"; faithfulness is exactly why
+it collides.
+
+So before launching anything, decide where it runs:
+
+- **Run on a `pu` box (the default for `/be`-style runs)** whenever production
+  kolu is live on this machine — i.e. any time `systemctl --user is-active kolu`
+  is `active`. Builds, the dev server, and evidence capture all go on a fresh pu
+  box (see the **pu** and **evidence** skills): the box has its own RAM and
+  loopback, so a local OOM can't reach production. **Never** loop `just dev-auto`
+  + nix builds locally next to a live production kolu — and **never run the built
+  `result/bin/kolu` locally** either (it grabs the production state dir + kaval
+  socket; isolating ports is not enough).
+- **Run locally only** when production is **not** running here (`is-active` →
+  `inactive`/`failed`), or the user has explicitly OK'd local execution this
+  session. Then the rest of this skill (random ports, scoped teardown) applies.
+
+When in doubt, prefer pu — a clean CI-like box never touches the user's machine.
+
 ## 1. Launch on two random free ports — always `just dev-auto`
 
 ```sh
@@ -94,14 +132,24 @@ done
 rm -f .dev-server/ports.json
 ```
 
-**Never** `pkill -f kolu` / `vite` / `tsx` — those broad patterns can hit
-production or unrelated processes. Match the remembered ports only.
+**Never** `pkill -f <substring>` at all — not `kolu` / `vite` / `tsx`, and not a
+"more specific" source path like `packages/server/src/index.ts` either. Production
+runs that exact source from the nix store, so a path substring is *not* safer than
+a name — it matched and killed production `kolu.service` once. A bracket trick
+(`[v]ite`) only dodges self-match, not the production process. Match the
+remembered ports only; if you can't resolve a PID by port, leave the process.
 
 ## Acceptance (verify before declaring the app launched / torn down)
 
+- **Local was the right venue at all** — production kolu was `inactive` (or the
+  user OK'd local). If production is live here, heavy work belonged on a pu box
+  (§0); a single throwaway local launch is one thing, but **never** a loop of
+  `dev-auto` + builds beside it.
 - Two **random** ports, both remembered in `.dev-server/ports.json` and reused
   across the session (no re-grepping, no guessing).
 - Production `kolu.service` **provably untouched** — `systemctl --user status
-  kolu` shows the same PID/uptime before and after your run.
+  kolu` shows the same PID **and uptime** before and after your run (a changed
+  uptime means it restarted — an OOM kill counts as touching it, even if no
+  command of yours named it).
 - Teardown removes **only** the dev instance (the remembered PIDs); production
   keeps running.

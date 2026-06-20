@@ -38,6 +38,40 @@ export const NIX_ENV_WHITELIST =
 let envWhitelist: Set<string> | undefined;
 
 /**
+ * Kolu-family internal env that the nix wrapper bakes into the SERVER's own
+ * process (see `default.nix`'s `koluBin` / `default` `--set`s) and that must
+ * never reach a hosted shell. Two groups, both server-internal:
+ *
+ *   - `KOLU_*` — the server's own config (`KOLU_KAVAL_BIN`, `KOLU_STATE_DIR`,
+ *     `KOLU_COMMIT_HASH`, …). `KOLU_KAVAL_BIN` is the spawn-deciding one: a
+ *     nested from-source kolu that inherits a stale value spawns a
+ *     contract-skewed daemon.
+ *   - `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` — the running kaval's *identity*,
+ *     baked onto the kolu wrapper (default.nix:336-337) because kaval runs
+ *     in-process there. `buildId.ts` reads these to derive the "update
+ *     pending" / staleKey signal. A from-source kolu spawned inside a
+ *     production kolu terminal would otherwise inherit the OUTER production
+ *     identity and report the wrong build (masking the stale-daemon nudge) —
+ *     the same wrapper-baked-env leak as `KOLU_*`, one prefix over.
+ *
+ * Note this is NOT the `KAVAL_*` namespace wholesale: a user could legitimately
+ * have their own `KAVAL_*` env, and `KAVAL_AGENT_DRVS_JSON` (kaval-tui) is a
+ * different concern. Only the two identity vars the kolu wrapper bakes are
+ * internal, so they're listed explicitly rather than matched by prefix.
+ */
+const KOLU_INTERNAL_ENV_EXACT = new Set([
+  "KAVAL_BUILD_ID",
+  "KAVAL_COMMIT_HASH",
+]);
+
+/** True for any env key the kolu nix wrapper bakes into the server for its own
+ *  use — the `KOLU_*` namespace plus the two baked kaval identity vars. These
+ *  are stripped at the `cleanEnv` boundary so none ride into a hosted shell. */
+function isKoluInternalEnvKey(key: string): boolean {
+  return key.startsWith("KOLU_") || KOLU_INTERNAL_ENV_EXACT.has(key);
+}
+
+/**
  * Configure nix shell env handling at startup.
  *
  * - "default"       → use NIX_ENV_WHITELIST
@@ -66,6 +100,11 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
  * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
  * and override SHELL with the user's login shell from /etc/passwd.
  *
+ * Either way, a single shared post-step strips kolu's own internal env
+ * (the `KOLU_*` namespace plus the wrapper-baked kaval identity vars — see
+ * `isKoluInternalEnvKey` and the inline note above the strip) so the invariant
+ * holds independent of how env was built.
+ *
  * Scope note: this layer only filters what the parent process exposes.
  * Restoring user env that the parent doesn't carry (e.g. PATH from
  * ~/.zshenv under macOS launchd) is the wrapper rcfile's job — see
@@ -89,6 +128,23 @@ export function cleanEnv(): Record<string, string> {
     // Ensure SHELL is set — systemd user services may not have it.
     env.SHELL ??= loginShell;
   }
+  // Don't forward kolu's own internal env into the user's shell. The nix
+  // wrapper bakes these into the SERVER's process for its own use (e.g.
+  // KOLU_KAVAL_BIN, which tells the server which kaval to spawn, and the kaval
+  // identity vars KAVAL_BUILD_ID / KAVAL_COMMIT_HASH that buildId.ts reads to
+  // derive the "update pending" signal) — never meant for a hosted terminal.
+  // Forwarded, they leak into every PTY child: a nested from-source kolu
+  // (`just dev` run inside a kolu terminal) inherits a STALE KOLU_KAVAL_BIN and
+  // spawns a contract-skewed daemon, and inherits the OUTER kaval identity so
+  // its staleness readout reports the wrong build. kolu owns this env, so
+  // stripping it here — at the leak boundary — can't drop a var a user shell
+  // legitimately needs (and a user-defined KOLU_* set in their own dotfiles is
+  // re-applied by the rcfile replay, see prepareShellInit). One shared strip
+  // for both branches: the invariant is a property of cleanEnv, not of one
+  // branch (and independent of NIX_ENV_WHITELIST's future contents).
+  env = Object.fromEntries(
+    Object.entries(env).filter(([k]) => !isKoluInternalEnvKey(k)),
+  );
   return env;
 }
 
