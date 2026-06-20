@@ -742,12 +742,21 @@ Feature: Code tab (review + browse)
     # back is still live and retraces A's own stack, not wiped by the reset.
     When I select workspace switcher entry 1
     Then the selected file should show content "two-A"
+    # Wait for A's repo view to RE-HYDRATE after the switch before checking the
+    # toolbar. The file viewer can paint A's *cached* content while repoPath() is
+    # still re-resolving (the toolbar not yet re-rendered); the tree row is gated
+    # on the repoPath-driven fsListAll, so it appears only once the view settles —
+    # the deterministic signal the back-button enablement actually needs. Without
+    # it, the bare POLL_TIMEOUT poll on :enabled is starved under darwin CI load.
+    And the file browser should show a file "two.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "one-A"
     # And terminal B's history is likewise intact when we return to it.
     When I select workspace switcher entry 2
     Then the selected file should show content "two-B"
+    # Same re-hydration wait as above on the return to terminal B.
+    And the file browser should show a file "two.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "one-B"
