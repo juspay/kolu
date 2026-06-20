@@ -41,6 +41,15 @@ proposal is just a note under its real index carrying `status: proposed`.
 atlas::check-sync` (the `ci::atlas-sync` gate): it rebuilds and fails if the
 committed HTML is stale or host-dependent.
 
+- **Let the build finish before you stage — and stage `dist/` by pathspec, never
+  `git add -A`.** `atlas::build` *empties* `dist/` and then regenerates it, so any
+  `git status` / `git add` / `git commit` that runs **during** the build sees the
+  whole `dist/` as deleted; a `git add -A && git commit` in that window silently
+  stages ~50 deletions and wipes the rendered Atlas. Run the build in the
+  foreground (don't background it and race a `git add`), and stage the rendered
+  output as `git add docs/atlas/dist/ <your source files>`, so a half-written
+  `dist/` can never sneak deletions into the commit.
+
 ## 3. Preview & share
 
 Each `dist/<slug>.html` is self-contained: it previews in kolu's Code tab, and —
