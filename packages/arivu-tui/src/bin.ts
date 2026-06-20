@@ -168,8 +168,18 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
           break;
         }
       }
-    } catch {
-      // aborted, or the keys stream ended — nothing to do.
+    } catch (err) {
+      // An abort (Ctrl-C, or the terminal departed) and the normal
+      // dispose-driven teardown both surface here as aborted — stay silent.
+      // A keys-stream failure BEFORE any abort is a real fault, not "nothing to
+      // do": surface it rather than collapse it to empty (the main `get` stream
+      // usually reports the same link failure, but a keys-only fault would
+      // otherwise vanish).
+      if (!abort.signal.aborted) {
+        process.stderr.write(
+          `arivu-tui: terminal-departure watch failed: ${(err as Error).message}\n`,
+        );
+      }
     }
   })();
 
