@@ -24,22 +24,30 @@ MCP** is fine to *triage* which it is — but a rerun is never how a flake gets
 
 Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> → <Pill variant="ok">fixed</Pill> (then strike the row).
 
+_Queue clear — the eight below were fixed in <PrLink pr={1440} /> (struck = done; the reusable patterns live in [Common flake classes](#common-flake-classes))._
+
 | Test | Lane | Symptom | Repro'd in | Status | Fix |
 | --- | --- | --- | --- | --- | --- |
-| Code tab history survives switching between terminals in different repos (`code-tab.feature:714`) | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Clicking a folder ref reveals and expands the directory (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — a fresh-open (cold panel) reveal races `fsListAll`'s first snapshot via a one-shot resolve with no re-yield, so a commit-marker barrier can't fix it. Mount the tree first; the fresh-open resolve is covered by `lineRef.test.ts` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Close sub-terminal via tab close button (`sub-terminal.feature:107`) | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Scroll on terminal does not pan the canvas (`canvas.feature:161`) | `e2e@aarch64-darwin` | tile-centering pan raced the recorded baseline → `canvas transform changed unexpectedly` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Tile chrome shows task progress when Claude has tasks (`claude-code.feature:77`) | `e2e@aarch64-darwin` | appended-transcript fs event dropped → task progress `3/5` never showed (`waitForFunction` timeout; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| arivu daemon — dials a kaval, serves awareness (`daemon.test.ts`) | `unit@x86_64-linux` | `waitFor` didn't catch a transient oRPC stream error from the live awareness collection → test threw (vitest, no retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| ~~Code tab history survives switching between terminals in different repos (`code-tab.feature:714`)~~ | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Clicking a folder ref reveals and expands the directory (`file-ref-link.feature:69`)~~ | `e2e@aarch64-darwin` | `app/core` never expands — a fresh-open (cold panel) reveal races `fsListAll`'s first snapshot via a one-shot resolve with no re-yield, so a commit-marker barrier can't fix it. Mount the tree first; the fresh-open resolve is covered by `lineRef.test.ts` | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`)~~ | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`)~~ | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Close sub-terminal via tab close button (`sub-terminal.feature:107`)~~ | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close) | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Scroll on terminal does not pan the canvas (`canvas.feature:161`)~~ | `e2e@aarch64-darwin` | tile-centering pan raced the recorded baseline → `canvas transform changed unexpectedly` | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~Tile chrome shows task progress when Claude has tasks (`claude-code.feature:77`)~~ | `e2e@aarch64-darwin` | appended-transcript fs event dropped → task progress `3/5` never showed | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~arivu daemon — dials a kaval, serves awareness (`daemon.test.ts`)~~ | `unit@x86_64-linux` | `waitFor` didn't catch a transient oRPC stream error from the live awareness collection → test threw (vitest, no retry) | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
 
 ## Logging a flake
 
 When a lane goes red and a single-node rerun comes back green, **add a row**: test
 name, `recipe@platform` lane, the assertion/timeout, the PR it reproduced in
 (`<PrLink pr={…} />`), <Pill variant="new">open</Pill>. No investigation needed to log it.
+
+**Keep the tracker in lock-step with your PR.** Log a flake your CI surfaced in the
+*same* PR that hit it — don't defer to a later cleanup; and a PR that *fixes* a
+flake flips its row to <Pill variant="ok">fixed</Pill> (and strikes it) in that
+same PR, regenerating `docs/atlas/dist/`. The queue only stays trustworthy if every
+PR that touches a flake updates this note alongside its own diff.
 
 ## Fixing routine
 
@@ -60,8 +68,9 @@ Non-negotiable rules:
   waiting on a deterministic signal (a real DOM/aria state, an app event, an
   awaited promise, correct setup ordering) — *never* by bumping a timeout or
   adding a sleep.
-- **Reuse past de-flake PRs.** Read how this suite was de-flaked before and apply
-  the established deterministic-wait patterns instead of inventing one.
+- **Reuse past de-flake PRs.** Read how this suite was de-flaked before — start
+  from [Common flake classes](#common-flake-classes) below — and apply the
+  established pattern instead of inventing one.
 - **Code changes pass `/codex-debate` before the streak counts.** Batch the fixes,
   then drive them through `/codex-debate` to consensus — a CI pass is only trusted
   on codex-debate-passed commits (docs are exempt, and the debate is expensive, so
@@ -75,3 +84,43 @@ The loop: **fail** → streak resets to 0, root-cause and fix the test
 with `<PrLink pr={…} />`); while there, drop any <Pill variant="new">open</Pill>
 row that no longer reproduces. **Pass** → streak +1. **Done = N green runs
 back-to-back with the backlog cleared.**
+
+## Common flake classes
+
+The shapes this suite keeps throwing, and the fix that held — reach for these
+before inventing one (full detail in each linked PR / the fix's code comment).
+
+- **darwin drops a *second* fs event.** An *append* or a 2nd create (a transcript
+  append, a `<pid>.json` after its dir) is the event FSEvents/inotify drops under
+  parallel-worker load, so the watcher never re-fires. Fix: write
+  **data-then-trigger** (the reliable first event carries the payload), or
+  **`nudgeFiles` the path every poll tick** (`tests/support/nudge.ts`) to re-fire
+  the watch. (`claude-code.feature:77`)
+- **A one-shot resolve against a stream's first snapshot can't recover.** If a
+  consumer resolves once on the first `!pending()` frame and the stream won't
+  re-yield (state already settled), a stale first snapshot is permanent — no marker
+  barrier saves it. Fix: **warm / mount the source first** so it has enumerated
+  before the action. (`file-ref-link.feature:69`)
+- **A baseline recorded mid-settle drifts.** Recording a transform/value while an
+  animation or a sensor re-resolve is in flight captures a moving target. Fix:
+  **settle-before-baseline** — wait on the steady-state signal (tile centered, git
+  settled to the repo, tree row enumerated) before recording or asserting.
+  (`canvas.feature:161`, `code-tab.feature:714`)
+- **A passive reader observes a half-built git state.** A gitStatus first read can
+  tear the stream down for good on `BASE_BRANCH_NOT_FOUND` if it lands between
+  repo-init and base-ref creation. Fix: **make the base ref exist atomically**
+  (seed a bare origin, then `git clone`) and **do setup in a subshell** so the
+  terminal's cwd never enters the in-between repo. (`code-tab.feature:148`)
+- **Faking occlusion by swallowing render output leaks.** Suppressing `refreshRows`
+  still lets an incidental sync paint through. Fix: **model the real freeze — park
+  `requestAnimationFrame`** so only a forced sync repaint counts.
+  (`render_recovery.feature:16`)
+- **An edge-triggered effect can't re-assert after a non-change** *(app fix)*. Focus
+  stolen by a transient element when the reactive `focused` state didn't change
+  leaves the edge effect unfired. Fix: **bump a level nonce** the handler increments
+  so the effect re-asserts. (`sub-terminal.feature:107`)
+- **Polling a live, reconciling collection throws transients** *(esp. vitest — no
+  retry)*. A poll hits transient stream errors as the collection settles or a key
+  reconciles out mid-read. Fix: **catch-and-retry in the poll**, and **skip a key
+  that vanishes** between `keys()` and `get()` — the snapshot helper owns the narrow
+  suppression, the poller stays a pure condition-checker. (`daemon.test.ts`)
