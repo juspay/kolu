@@ -16,6 +16,7 @@
 
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
+import { backfillSurface } from "./backfillSurface";
 import type { Comment, PersistedShape } from "./types";
 
 const STORAGE_PREFIX = "kolu:comments-by-terminal:";
@@ -43,7 +44,7 @@ function storeFor(terminalId: string) {
     parse: (raw): PersistedShape => {
       const parsed = JSON.parse(raw) as Partial<PersistedShape>;
       if (parsed && parsed.v === 1 && Array.isArray(parsed.comments)) {
-        return parsed as PersistedShape;
+        return { v: 1, comments: backfillSurface(parsed.comments) };
       }
       throw new Error("unexpected comments shape");
     },

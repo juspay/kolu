@@ -31,12 +31,12 @@
 import { seedAwarenessValue } from "@kolu/terminal-awareness";
 import { prValue } from "anyforge/schemas";
 import {
+  type ActiveTerminal,
   type HostLocation,
   type LiveTerminalFields,
   prUnavailableReason,
   type ServerPersistedTerminalFields,
   type TerminalClientMetadata,
-  type TerminalMetadata,
 } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
@@ -57,11 +57,15 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 export function createMetadata(
   cwd: string,
   location: HostLocation,
-): TerminalMetadata {
+): ActiveTerminal {
   // The generic awareness seed is owned by @kolu/terminal-awareness (beside the
   // schema it produces); kolu layers only its own `location` on top. One seed,
-  // shared with `arivu` — see `seedAwarenessValue`.
-  return { ...seedAwarenessValue(cwd), location };
+  // shared with `arivu` — see `seedAwarenessValue`. `state: "active"` is the
+  // discriminant the awareness seed deliberately doesn't carry (the awareness
+  // wire stays flat) — this is the single seam every live terminal is born
+  // through, so stamping it once here makes spawn/adopt/orphan active by
+  // construction.
+  return { ...seedAwarenessValue(cwd), location, state: "active" };
 }
 
 /** Log + emit the current metadata snapshot to the surface collection.

@@ -40,6 +40,7 @@ import { log } from "./log.ts";
 import { publisherSize } from "./publisher.ts";
 import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
 import { ensureLocalEndpoint } from "./ptyHost/index.ts";
+import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
@@ -336,6 +337,12 @@ await ensureLocalEndpoint({
   port,
   onStatus: publishDaemonStatus,
   onAdopted: adoptSurvivingSession,
+  // Subscribe to the daemon's inventory feed so a terminal created out-of-band
+  // (a `kaval-tui create` against this server's kaval) shows up as a tile while
+  // kolu runs — not only after the next restart's boot adoption (B3.5). Runs
+  // after the boot try/catch settles regardless of outcome (not on connection);
+  // the reconciler's own re-subscribe loop absorbs the down/connect lifecycle.
+  onBootSettled: startInventoryReconciler,
 });
 
 // --- TLS setup ---

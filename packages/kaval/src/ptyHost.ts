@@ -188,6 +188,17 @@ export interface ForegroundSample {
   foregroundPid: number | undefined;
 }
 
+/** A change to the set of live PTYs the host owns — the host-global membership
+ *  feed. Unlike the per-PTY taps (cwd/title/command-run/foreground/exit), which
+ *  a consumer can only subscribe to once it already KNOWS the id, this announces
+ *  ids as they appear and vanish — so a consumer learns about PTYs OTHER clients
+ *  spawned (a `kaval-tui create` against the same daemon) without polling
+ *  {@link PtyHost.list}. The primitive emits only these deltas; the serving layer
+ *  prepends a `list` snapshot (snapshot-then-deltas). */
+export type PtyInventoryEvent =
+  | { kind: "created"; entry: PtyListEntry }
+  | { kind: "exited"; id: PtyId };
+
 /** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, last activity,
  *  and the metadata taps' current values (so a one-shot `list` carries the full
  *  picture without per-row tap subscriptions). */
@@ -248,6 +259,12 @@ export interface PtyHost {
   kill(id: PtyId, signal?: NodeJS.Signals): void;
   /** Snapshot of every live PTY. */
   list(): PtyListEntry[];
+  /** Subscribe to membership deltas — a `created` / `exited` for EVERY PTY this
+   *  host owns, including ones spawned by other clients. Eager-subscribe (the
+   *  {@link Channel} contract), so a spawn racing the subscribe is captured, not
+   *  dropped. Does NOT replay the current set — the serving layer prepends a
+   *  {@link list} snapshot (snapshot-then-deltas). */
+  subscribeInventory(signal?: AbortSignal): AsyncIterable<PtyInventoryEvent>;
   /** Whether this host still owns a PTY with `id` (an existence check, not a
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
@@ -335,11 +352,30 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // down — lets exitPromise() honour its "already-exited" contract with the
   // real code instead of a fabricated 0.
   const exitCodes = new Map<PtyId, number>();
+  // Host-global membership feed — one channel for the whole host (not per-PTY,
+  // like the taps), broadcasting a `created`/`exited` from the two `entries`
+  // mutation sites (spawn / teardown). Eager-subscribe, so a spawn racing a
+  // subscriber is captured; never closed except on dispose (host shutdown).
+  const inventoryChannel = new Channel<PtyInventoryEvent>();
 
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
     if (!entry) throw new Error(`pty-host: no PTY with id ${id}`);
     return entry;
+  }
+
+  /** Project an {@link Entry} to its {@link PtyListEntry} row — the one mapping
+   *  `list()` and the inventory `created` delta share, so a live PTY reads the
+   *  same whether a consumer learns of it by snapshot or by delta. */
+  function listEntryOf(entry: Entry): PtyListEntry {
+    return {
+      id: entry.id,
+      pid: entry.proc.pid,
+      cwd: entry.cwd,
+      lastActivity: entry.lastActivity,
+      title: entry.title,
+      foregroundProcess: entry.proc.process,
+    };
   }
 
   /** Sample `{process, foregroundPid}` and publish to the entry's foreground
@@ -394,6 +430,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       if (oldest !== undefined) exitCodes.delete(oldest);
     }
     entries.delete(entry.id);
+    // Announce the membership change AFTER the delete, so a consumer reacting to
+    // `exited` that re-checks `has`/`list` sees the PTY already gone.
+    inventoryChannel.publish({ kind: "exited", id: entry.id });
   }
 
   function spawn(spawnOpts: PtySpawnOpts): PtySpawnResult {
@@ -576,6 +615,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       }),
     );
 
+    // The PTY is fully wired and in `entries` — announce it on the membership
+    // feed so a consumer that reacts to `created` and immediately attaches /
+    // lists finds a live, fully-tapped entry. Published last, so the snapshot a
+    // racing inventory subscriber takes is consistent with this delta.
+    inventoryChannel.publish({ kind: "created", entry: listEntryOf(entry) });
+
     return { id, pid: proc.pid };
   }
 
@@ -695,15 +740,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     write,
     resize,
     kill: (id, signal) => entries.get(id)?.proc.kill(signal),
-    list: () =>
-      [...entries.values()].map((entry) => ({
-        id: entry.id,
-        pid: entry.proc.pid,
-        cwd: entry.cwd,
-        lastActivity: entry.lastActivity,
-        title: entry.title,
-        foregroundProcess: entry.proc.process,
-      })),
+    list: () => [...entries.values()].map(listEntryOf),
+    subscribeInventory: (signal) => inventoryChannel.subscribe(signal),
     has: (id) => entries.has(id),
     size: () => entries.size,
     getForegroundPid,
@@ -715,6 +753,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     handle,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();
+      // Host shutdown — end every inventory subscription gracefully. The async
+      // `onExit` → teardown `exited` publishes from the kills above land on a
+      // closed channel (a no-op), which is fine: the host is going away.
+      inventoryChannel.close();
     },
   };
 }

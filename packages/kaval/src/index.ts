@@ -78,6 +78,7 @@ export {
   type PtyHostIdentity,
   PtyHostIdentitySchema,
   type PtyHostInitFile,
+  type PtyHostInventoryEvent,
   type PtyHostListEntry,
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,

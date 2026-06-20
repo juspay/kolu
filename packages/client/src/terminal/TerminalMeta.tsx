@@ -13,7 +13,11 @@
  *  `TerminalMetaCompact`. */
 
 import { prValue } from "anyforge/schemas";
-import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
+import {
+  activeArm,
+  prUnavailableSource,
+  type TerminalId,
+} from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import { agentBucket } from "../canvas/dockModel";
@@ -80,7 +84,7 @@ const TerminalMeta: Component<{
              *  Replaces what used to be the cwd slot; cwd is now a
              *  tooltip on the repo name. `flex-1` so it fills until
              *  the progress bar (when shown) eats its right edge. */}
-            <Show when={info().meta.foreground}>
+            <Show when={activeArm(info().meta)?.foreground}>
               {(fg) => (
                 <span
                   data-testid="process-name"
@@ -91,12 +95,12 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={agentWorkflow(info().meta.agent)}>
+            <Show when={agentWorkflow(activeArm(info().meta)?.agent)}>
               {(wf) => (
                 <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
               )}
             </Show>
-            <Show when={info().meta.agent?.taskProgress}>
+            <Show when={activeArm(info().meta)?.agent?.taskProgress}>
               {(tp) => (
                 <AgentTaskProgress
                   completed={tp().completed}
@@ -124,7 +128,7 @@ const TerminalMeta: Component<{
              *  shows no pip (exactly as its agent-kind indicator vanishes
              *  when the session ends), leaving the dock's idle/parked
              *  triage states — which fold in recency/staleness — dock-only. */}
-            <Show when={info().meta.agent}>
+            <Show when={activeArm(info().meta)?.agent}>
               {(agent) => (
                 <StatePip bucket={agentBucket(agent())} unread={props.unread} />
               )}
@@ -155,36 +159,42 @@ const TerminalMeta: Component<{
                 />
               </button>
             </Tip>
-            <Show when={prValue(info().meta.pr)}>
-              {(pr) => (
-                <span
-                  class="flex items-center gap-1 text-fg-2 truncate min-w-0"
-                  data-testid="terminal-meta-pr"
-                  title={prTooltip(pr())}
-                >
-                  <PrStateIcon state={pr().state} class="w-3 h-3" />
-                  <Show when={pr().checks}>
-                    {(checks) => <ChecksIndicator status={checks()} />}
+            <Show when={activeArm(info().meta)}>
+              {(active) => (
+                <>
+                  <Show when={prValue(active().pr)}>
+                    {(pr) => (
+                      <span
+                        class="flex items-center gap-1 text-fg-2 truncate min-w-0"
+                        data-testid="terminal-meta-pr"
+                        title={prTooltip(pr())}
+                      >
+                        <PrStateIcon state={pr().state} class="w-3 h-3" />
+                        <Show when={pr().checks}>
+                          {(checks) => <ChecksIndicator status={checks()} />}
+                        </Show>
+                        <a
+                          href={pr().url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="hover:text-accent shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          #{pr().number}
+                        </a>
+                        <span class="truncate">{pr().title}</span>
+                      </span>
+                    )}
                   </Show>
-                  <a
-                    href={pr().url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="hover:text-accent shrink-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    #{pr().number}
-                  </a>
-                  <span class="truncate">{pr().title}</span>
-                </span>
-              )}
-            </Show>
-            <Show when={prUnavailableSource(info().meta.pr)}>
-              {(source) => (
-                <PrUnavailableButton
-                  source={source()}
-                  testId="terminal-meta-pr-unavailable"
-                />
+                  <Show when={prUnavailableSource(active().pr)}>
+                    {(source) => (
+                      <PrUnavailableButton
+                        source={source()}
+                        testId="terminal-meta-pr-unavailable"
+                      />
+                    )}
+                  </Show>
+                </>
               )}
             </Show>
           </div>
@@ -226,31 +236,37 @@ export const TerminalMetaCompact: Component<{
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
            *  the enclosing Drawer.Trigger. */}
-          <Show when={prValue(info().meta.pr)}>
-            {(pr) => (
-              <a
-                data-testid="terminal-meta-pr-compact"
-                href={pr().url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
-                title={prTooltip(pr())}
-                onClick={(e) => e.stopPropagation()}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                #{pr().number}
-              </a>
+          <Show when={activeArm(info().meta)}>
+            {(active) => (
+              <>
+                <Show when={prValue(active().pr)}>
+                  {(pr) => (
+                    <a
+                      data-testid="terminal-meta-pr-compact"
+                      href={pr().url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
+                      title={prTooltip(pr())}
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      #{pr().number}
+                    </a>
+                  )}
+                </Show>
+                <Show when={prUnavailableSource(active().pr)}>
+                  {(source) => (
+                    <PrUnavailableButton
+                      source={source()}
+                      testId="terminal-meta-pr-unavailable-compact"
+                    />
+                  )}
+                </Show>
+              </>
             )}
           </Show>
-          <Show when={prUnavailableSource(info().meta.pr)}>
-            {(source) => (
-              <PrUnavailableButton
-                source={source()}
-                testId="terminal-meta-pr-unavailable-compact"
-              />
-            )}
-          </Show>
-          <Show when={info().meta.agent?.taskProgress}>
+          <Show when={activeArm(info().meta)?.agent?.taskProgress}>
             {(tp) => (
               <AgentTaskProgress
                 completed={tp().completed}

@@ -11,9 +11,9 @@
 
 import { ORPCError } from "@orpc/server";
 import type {
+  ActiveTerminal,
   TerminalId,
   TerminalInfo,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 
@@ -26,7 +26,13 @@ import type { TerminalHandle } from "kolu-common/terminalEndpoint";
  *  termination path). */
 export interface TerminalProcess {
   info: TerminalInfo;
-  meta: TerminalMetadata;
+  /** The live registry holds only ACTIVE terminals: a `TerminalProcess` is a
+   *  running PTY, so its metadata is the active arm by construction. A sleeping
+   *  terminal has no live process — it lives only as a persisted `SavedTerminal`
+   *  record, never here. (The `terminalMetadata` collection's value is still the
+   *  `Terminal` union, so client presence consumers narrow `state === "active"`;
+   *  the server registry never has to.) */
+  meta: ActiveTerminal;
   handle: TerminalHandle;
 }
 

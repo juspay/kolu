@@ -63,7 +63,7 @@
  *  canvas as well as the populated one. */
 
 import { persistedPref } from "../../persistedPref";
-import type { TerminalId } from "kolu-common/surface";
+import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -458,7 +458,7 @@ const DockRow: Component<{
           data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
-          data-agent-state={c().meta.agent?.state}
+          data-agent-state={activeArm(c().meta)?.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
@@ -528,7 +528,7 @@ const DockRow: Component<{
               {(line) => (
                 <span
                   data-testid={
-                    c().meta.agent
+                    activeArm(c().meta)?.agent
                       ? "dock-agent-subline"
                       : "dock-quiet-foreground"
                   }
@@ -593,7 +593,7 @@ const RailChip: Component<{
             data-testid="dock-rail"
             data-terminal-id={props.id}
             data-bucket={props.bucket}
-            data-agent-state={c().meta.agent?.state}
+            data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
             data-sub-count={

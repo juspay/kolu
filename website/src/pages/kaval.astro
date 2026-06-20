@@ -117,7 +117,10 @@ const escapes = [
       spawns its <em>own</em> <code class="mono text-ink">kaval</code> and dials
       it over a unix socket, exactly as{" "}
       <code class="mono text-ink">kaval-tui</code> does from the shell. Same
-      daemon, same terminals, two faces.
+      daemon, same terminals, two faces — and the link runs <em>both</em> ways:
+      the daemon streams live updates back to every client, so a terminal you{" "}
+      <code class="mono text-ink">kaval-tui create</code> from the shell shows up
+      in <code class="mono text-ink">kolu</code> the moment it's born.
     </p>
     <figure class="rounded-xl border border-rule px-5 py-6 overflow-x-auto">
       <svg
@@ -128,7 +131,9 @@ const escapes = [
       >
         <title id="kv-diagram-title"
           >kolu and kaval-tui are both clients of one kaval daemon, which owns
-          the PTYs and serves them over a unix socket</title
+          the PTYs and serves them over a unix socket — clients call the daemon
+          and the daemon streams live updates back, so a terminal either client
+          creates appears in the other</title
         >
         <defs>
           <marker
@@ -156,12 +161,17 @@ const escapes = [
         {/* socket boundary */}
         <path d="M300,62 V206" class="kv-d-socket"></path>
 
-        {/* connectors: clients → socket → daemon */}
+        {/* connectors: clients ⇄ socket ⇄ daemon — two-way: clients call the
+            daemon AND the daemon streams live updates (taps + the inventory
+            feed) back, so a create in one client surfaces in the other */}
         <path d="M174,98 H250" class="kv-d-flow"></path>
         <path d="M174,174 H250" class="kv-d-flow"></path>
         <path d="M250,98 V174" class="kv-d-flow"></path>
-        <path d="M250,136 H372" class="kv-d-flow" marker-end="url(#kv-arrow)"
-        ></path>
+        <path
+          d="M250,136 H372"
+          class="kv-d-flow"
+          marker-start="url(#kv-arrow)"
+          marker-end="url(#kv-arrow)"></path>
 
         {/* daemon → PTYs (ownership) */}
         <path d="M528,136 H554" class="kv-d-flow"></path>

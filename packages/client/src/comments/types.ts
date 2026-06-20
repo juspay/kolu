@@ -25,8 +25,12 @@ export type Comment = {
    *  the Source ⇄ Rendered toggle back to the surface the quote lives in:
    *  a prose quote ("Hello Doc") needn't exist verbatim in source ("# Hello
    *  Doc"), so landing on the wrong surface would fail to re-find it. Absent
-   *  for single-surface files (plain source, diff), HTML-iframe comments, and
-   *  older persisted entries — the jump leaves the toggle untouched then. */
+   *  for single-surface files (plain source, diff) and HTML-iframe comments —
+   *  the jump leaves the toggle untouched then. Markdown comments persisted
+   *  before this field existed (when only the source view was commentable) are
+   *  backfilled to `"source"` at load (`backfillSurface.ts`), so
+   *  a multi-surface file never carries a surface-less entry the overlay's
+   *  exact-match filter would orphan. */
   surface?: "source" | "prose";
   body: string;
   createdAt: number;

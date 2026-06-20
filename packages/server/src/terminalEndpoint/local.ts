@@ -25,10 +25,10 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import { LOCAL_LOCATION } from "kolu-common/surface";
 import type {
-  SavedTerminal,
+  ActiveTerminal,
+  SavedActiveTerminal,
   TerminalId,
   TerminalInfo,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -219,8 +219,13 @@ class PtyHostTerminalProxy implements TerminalHandle {
  *  (kill / exit). The contract stream call resolves to the async iterable (a
  *  `ClientPromiseResult`), so the source is awaited first. An aborted stream
  *  surfaces as a thrown error, so an aborted signal is treated as expected
- *  teardown, not a failure. */
-function bridgeStream<T>(
+ *  teardown, not a failure.
+ *
+ *  Returns a Promise that resolves when the stream ends or aborts (it never
+ *  rejects — failures are logged / routed to `onError`). The per-terminal taps
+ *  ignore it (fire-and-forget); the inventory reconciler awaits it to know when
+ *  to re-subscribe across a daemon recycle. */
+export function bridgeStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
@@ -230,8 +235,8 @@ function bridgeStream<T>(
   // updating that field, logged generically. The exit tap supplies one because
   // a dropped *exit* stream is a lifecycle problem, not a missing field.
   onError?: (err: unknown) => void,
-): void {
-  void (async () => {
+): Promise<void> {
+  return (async () => {
     try {
       const iter = await source;
       for await (const value of iter) {
@@ -300,14 +305,14 @@ interface TerminalLifecycle {
  *  so it stays null until the title tap fires. */
 function liveForeground(
   liveEntry: PtyHostListEntry,
-): TerminalMetadata["foreground"] {
+): ActiveTerminal["foreground"] {
   return liveEntry.foregroundProcess
     ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
     : null;
 }
 
-/** The whole-record adoption mapping (B3.3): a `SavedTerminal`'s persisted fields
- *  become a live `TerminalMetadata` as a UNIT — `createMetadata` seeds the
+/** The whole-record adoption mapping (B3.3): a `SavedActiveTerminal`'s persisted
+ *  fields become a live `ActiveTerminal` as a UNIT — `createMetadata` seeds the
  *  live-field defaults (pr/agent re-derived by the sensors against the
  *  surviving taps), then the persisted record is spread on **whole**, never
  *  reconstructed field-by-field (the #1275 lossy-adoption class that dropped
@@ -325,9 +330,9 @@ function liveForeground(
  *  live truth. The survivor's listed `cwd` wins; the git sensor re-resolves
  *  against it on start. */
 export function adoptedMeta(
-  record: SavedTerminal,
+  record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): TerminalMetadata {
+): ActiveTerminal {
   const { id: _id, ...persisted } = record;
   return {
     ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
@@ -345,7 +350,7 @@ export function adoptedMeta(
  *  never made it to disk is gone, but the live shell and its scrollback survive,
  *  which is the headline guarantee; the sensors re-derive git/agent/pr from the
  *  surviving taps. */
-export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
+export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
   return {
     ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
     foreground: liveForeground(liveEntry),
@@ -379,7 +384,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    const meta: TerminalMetadata = { ...createMetadata(cwd, LOCAL_LOCATION) };
+    const meta: ActiveTerminal = { ...createMetadata(cwd, LOCAL_LOCATION) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
@@ -415,7 +420,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
   adoptTerminal(
     id: TerminalId,
-    meta: TerminalMetadata,
+    meta: ActiveTerminal,
     liveEntry: PtyHostListEntry,
   ): void {
     const tlog = log.child({ terminal: id });
@@ -585,7 +590,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Bridge the raw VT taps onto the awareness signals. cwd also lands on
     // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
     // `signals.cwd` to re-resolve git).
-    bridgeStream(
+    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
+    // is intentionally not awaited (only the inventory reconciler awaits it).
+    void bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
       (msg) => {
@@ -595,17 +602,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals.cwd.publish(msg.cwd);
       },
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.title.get({ id }, { signal }),
       signal,
       (msg) => signals.title.publish(msg.title),
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
       (msg) => signals.commandRun.publish(msg.command),
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
@@ -619,7 +626,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
     // ever fires for a genuine exit.
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.exit.get({ id }, { signal }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
@@ -757,7 +764,7 @@ export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
  *  is local-only today — P3's remote-host adoption is an additive sibling, not
  *  a retrofit of the shared interface. */
 export function adoptLocalTerminal(
-  record: SavedTerminal,
+  record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
 ): void {
   localEndpointImpl.adoptTerminal(
@@ -771,11 +778,61 @@ export function adoptLocalTerminal(
  *  create that never reached the debounced autosave before the restart. The live
  *  shell is adopted (never reaped), seeded entirely from the daemon snapshot
  *  (`orphanMeta`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
- *  case the reconcile partition surfaces separately. */
-export function adoptLocalOrphan(liveEntry: PtyHostListEntry): void {
-  localEndpointImpl.adoptTerminal(
-    liveEntry.id as TerminalId,
-    orphanMeta(liveEntry),
-    liveEntry,
+ *  case the reconcile partition surfaces separately. `id` is an ALREADY-VALIDATED
+ *  `TerminalId` — the caller (the boot reconcile or the inventory boundary) parsed
+ *  it against `TerminalIdSchema`, so this no longer re-casts a raw wire string. */
+export function adoptLocalOrphan(
+  id: TerminalId,
+  liveEntry: PtyHostListEntry,
+): void {
+  localEndpointImpl.adoptTerminal(id, orphanMeta(liveEntry), liveEntry);
+}
+
+/** Adopt a PTY discovered LIVE on the inventory feed (B3.5) — a `kaval-tui create`
+ *  against the daemon kolu is already a client of. Same orphan adoption as
+ *  `adoptLocalOrphan`, but it ALSO arms the session autosave (F2): the boot path
+ *  converges + persists the session EXPLICITLY after adopting all survivors, so
+ *  `adoptTerminal` is deliberately silent there — but a single tile appearing
+ *  mid-session has no such explicit save, so without arming the autosave the
+ *  out-of-band terminal would render yet never enter the saved session until some
+ *  LATER dirtying event (a metadata change, an exit) happened to fire. A
+ *  kolu-server restart in that window would lose it. Emitting `terminalsDirty`
+ *  here schedules the same debounced `saveSession(snapshot())` a fresh spawn does,
+ *  so the adopted tile is persisted on the next 500ms tick. */
+export function adoptLocalInventoryOrphan(
+  id: TerminalId,
+  liveEntry: PtyHostListEntry,
+): void {
+  // Identical orphan adoption to the boot path, plus the autosave arming — so it
+  // composes `adoptLocalOrphan` rather than repeating `adoptTerminal(orphanMeta…)`.
+  adoptLocalOrphan(id, liveEntry);
+  emitTerminalsDirty();
+}
+
+/** Fail CLOSED on a live PTY whose wire id kolu cannot represent (F1) — a
+ *  non-UUID id (kolu's registry is keyed on `TerminalId` = `z.string().uuid()`).
+ *  Every real client mints a UUID (`crypto.randomUUID()`: kolu-server, kaval-tui),
+ *  so this is an anomaly outside kolu's domain rather than valid state to keep:
+ *  it cannot be registered (no tile, no exit tap, no way to surface or kill it
+ *  through kolu), and leaving it alive is a hidden live process — the same
+ *  fail-open the boot recycle guards against. So KILL it rather than log-and-drop;
+ *  the contract's `kill` RPC takes the opaque wire string. A kill failure is
+ *  logged, not thrown — there is nothing else kolu can do, and a throw here would
+ *  end the inventory subscription / abort the boot adoption for every later PTY.
+ *  Shared by the boot reconcile (`reattach.ts`) and the live inventory boundary
+ *  (`inventoryReconcile.ts`) so the "unrepresentable id" policy lives in one
+ *  place. */
+export function reapUnrepresentablePty(rawId: string): void {
+  log.warn(
+    { rawId },
+    "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
   );
+  void ptyHostClient.surface.terminal
+    .kill({ id: rawId })
+    .catch((err) =>
+      log.error(
+        { err, rawId },
+        "kill of unrepresentable PTY failed; it remains live on the daemon",
+      ),
+    );
 }

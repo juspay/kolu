@@ -19,6 +19,7 @@ import {
   createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 import type { Logger } from "@kolu/surface-daemon";
 
 const silentLog: Logger = {
@@ -60,6 +61,42 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
       }
     };
     await expect(iterate()).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("inventory yields a snapshot first, then created/exited deltas (snapshot-then-deltas)", async () => {
+    // The contract kolu-server's live reconciler reads: the first frame is a
+    // snapshot of every live PTY, then membership deltas. Spawn one BEFORE
+    // subscribing so it appears in the snapshot; spawn a second AFTER so it
+    // arrives as a `created`; kill it for the `exited`.
+    const client = makeClient();
+    const { id: first } = await client.surface.terminal.spawn(
+      spawnInput(makeCwd()),
+    );
+    const ac = new AbortController();
+    const it = (await client.surface.inventory.get({}, { signal: ac.signal }))[
+      Symbol.asyncIterator
+    ]();
+
+    const snapshot = await nextFrame(it);
+    expect(snapshot.kind).toBe("snapshot");
+    if (snapshot.kind !== "snapshot") throw new Error("unreachable");
+    expect(snapshot.entries.map((e) => e.id)).toContain(first);
+
+    const { id: second } = await client.surface.terminal.spawn(
+      spawnInput(makeCwd()),
+    );
+    // The snapshot already contained `first`, so the next NEW-id frame is the
+    // `created` for `second` (a duplicate of `first` can't occur — it was live
+    // before we subscribed).
+    const created = await nextFrame(it);
+    expect(created).toMatchObject({ kind: "created", entry: { id: second } });
+
+    await client.surface.terminal.kill({ id: second });
+    const exited = await nextFrame(it);
+    expect(exited).toEqual({ kind: "exited", id: second });
+
+    ac.abort();
+    await client.surface.terminal.kill({ id: first });
   });
 
   it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {

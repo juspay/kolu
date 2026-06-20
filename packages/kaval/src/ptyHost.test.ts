@@ -11,6 +11,7 @@ import {
   HEADLESS_TERM_ID,
   type PtyHost,
 } from "./ptyHost.ts";
+import { nextFrame } from "./streamFrame.testlib.ts";
 
 // @xterm packages ship CJS only — same interop as ptyHost.ts.
 const require = createRequire(import.meta.url);
@@ -123,14 +124,7 @@ async function firstEvent(
   ms = 3000,
 ): Promise<string> {
   const it = iter[Symbol.asyncIterator]();
-  const result = await Promise.race([
-    it.next(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout waiting for event")), ms),
-    ),
-  ]);
-  if (result.done) throw new Error("stream ended before any event");
-  return result.value;
+  return nextFrame(it, ms);
 }
 
 describe("createPtyHost", () => {
@@ -423,6 +417,63 @@ describe("createPtyHost", () => {
     expect(handle.pid).toBe(pid);
     expect(handle.cwd).toBe("/tmp");
     expect(typeof handle.process).toBe("string");
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("announces a spawn on the inventory feed as `created`", async () => {
+    host = createPtyHost({ log: silentLog });
+    // Subscribe BEFORE spawning — the eager-subscribe contract means a spawn on
+    // the very next line is captured, not raced away. This is the property a
+    // consumer (kolu-server) leans on to never miss an out-of-band create.
+    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
+    const { id, pid } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    const ev = await nextFrame(inv, 3000);
+    expect(ev).toEqual({
+      kind: "created",
+      entry: expect.objectContaining({ id, pid, cwd: "/tmp" }),
+    });
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("announces a teardown on the inventory feed as `exited`", async () => {
+    host = createPtyHost({ log: silentLog });
+    // Subscribe BEFORE spawning so neither delta can race the subscription:
+    // a `/bin/sh -c 'exit 0'` would otherwise be free to exit (and publish its
+    // `exited` to an empty channel — dropped, no replay) before a post-spawn
+    // subscribe registers. Spawn a long-lived shell, consume its `created`,
+    // then KILL it to make the `exited` deterministic.
+    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    expect(await nextFrame(inv, 3000)).toMatchObject({ kind: "created" });
+    host.kill(id);
+    await host.exitPromise(id);
+    expect(await nextFrame(inv, 3000)).toEqual({ kind: "exited", id });
+  });
+
+  it("fans the inventory feed out to multiple independent subscribers", async () => {
+    host = createPtyHost({ log: silentLog });
+    const a = host.subscribeInventory()[Symbol.asyncIterator]();
+    const b = host.subscribeInventory()[Symbol.asyncIterator]();
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    expect(await nextFrame(a, 3000)).toMatchObject({ kind: "created" });
+    expect(await nextFrame(b, 3000)).toMatchObject({ kind: "created" });
     host.kill(id);
     await host.exitPromise(id);
   });
