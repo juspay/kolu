@@ -32,9 +32,13 @@ import type { TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
 import { createSharedRoot } from "../createSharedRoot";
 
-/** Output quiet-period before a terminal reads as static again. ~1s keeps a
- *  steady stream (compiles, `tail -f`, an agent printing tokens) lit while a
- *  single prompt-and-stop blips off promptly. */
+/** Output quiet-period before a terminal reads as static again. This is a raw
+ *  byte-motion signal with a ~1s trailing window: a stream with sub-second gaps
+ *  (compiles, `tail -f`) stays lit, while one that pauses longer than ~1s blinks
+ *  off then back on when it resumes — by design, since this tracks bytes moving,
+ *  not whether a session is conceptually working (that distinction from the
+ *  agent border is drawn in `LiveActivityDot.tsx`). So an agent that pauses
+ *  >1s between thinking and emitting tokens will flicker, and that's correct. */
 const IDLE_AFTER_MS = 1000;
 
 export const useTerminalActivity = createSharedRoot(() => {
