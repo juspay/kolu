@@ -367,6 +367,11 @@ const CanvasMinimap: Component<{
             };
             const handleTilePointerDown = (e: PointerEvent) => {
               e.stopPropagation();
+              // A sleeping tile's layout has no persist sink, so a minimap drag
+              // would silently no-op on reload (same reason CanvasTile gates its
+              // drag/resize off `sleeping`). Match the affordance to the
+              // capability — a sleeping rect clicks to select, never drags.
+              if (state().sleeping) return;
               const drag = props.onStartTileDrag(id);
               if (!drag) return;
               abortTileDrag = startTileDrag(e, minimapScale(), abortTileDrag, {

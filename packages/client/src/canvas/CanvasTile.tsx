@@ -100,6 +100,12 @@ const CanvasTile: Component<{
 }> = (props) => {
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
+  // A sleeping tile keeps its frozen layout but is NOT movable: its layout has
+  // no write sink (the registry's `setLayout` quietly drops the sleeping arm),
+  // so an enabled drag/resize would silently no-op on reload. Gate the
+  // affordance to the layout it can actually persist — only a TILED, non-sleeping
+  // tile drags/resizes.
+  const interactive = () => props.mode === "tiled" && !props.sleeping;
   const { id } = props;
   const draggable = createDraggable(id);
   const layout = () =>
@@ -297,8 +303,9 @@ const CanvasTile: Component<{
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
        *  contrast against the tile background, regardless of theme. The
-       *  drag activators only attach when tiled — a maximized tile shouldn't
-       *  start a drag on grab. Double-click toggles maximize.
+       *  drag activators only attach when `interactive` — a maximized tile
+       *  shouldn't start a drag on grab, and a sleeping tile's moved position
+       *  has no persist sink. Double-click toggles maximize regardless.
        *
        *  Layout is `items-start` so window controls hug the top edge even
        *  when the title block grows multi-row (branch + PR + agent rows).
@@ -309,7 +316,7 @@ const CanvasTile: Component<{
         data-testid="canvas-tile-titlebar"
         class="flex items-start gap-2 px-3 py-1.5 shrink-0 select-none"
         classList={{
-          "cursor-grab active:cursor-grabbing": !isMaximized(),
+          "cursor-grab active:cursor-grabbing": interactive(),
         }}
         style={{
           "background-color": tileTitleBarBg(props.theme),
@@ -332,7 +339,7 @@ const CanvasTile: Component<{
           e.stopPropagation();
           props.onToggleMaximize();
         }}
-        {...(props.mode === "tiled" ? draggable.dragActivators : {})}
+        {...(interactive() ? draggable.dragActivators : {})}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         <div class="flex items-center gap-1 shrink-0">
@@ -379,10 +386,11 @@ const CanvasTile: Component<{
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
        *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. Only in
-       *  `tiled` mode — maximized has nothing to resize against, covered tiles
-       *  are inert and should not have interactive handles in the DOM. */}
-      <Show when={props.mode === "tiled"}>
+       *  order paints them on top of the edge strips they overlap. Only when
+       *  `interactive` — maximized has nothing to resize against, covered tiles
+       *  are inert, and a sleeping tile's new size has no persist sink, so none
+       *  of them should carry interactive handles in the DOM. */}
+      <Show when={interactive()}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
             <div
