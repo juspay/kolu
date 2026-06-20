@@ -9,7 +9,9 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 interface RenderProbeWindow {
   __paintCount: number;
   __syncRefreshes: number;
-  __stalled: boolean;
+  /** The page's real requestAnimationFrame, stashed while it's parked to model
+   *  an occluded window's frozen paint loop; restored on focus regain. */
+  __origRaf?: typeof window.requestAnimationFrame;
 }
 
 When(
@@ -21,9 +23,11 @@ When(
         el as unknown as {
           __xterm?: {
             onRender(cb: () => void): { dispose(): void };
+            options?: { cursorBlink?: boolean };
             _core?: {
               _renderService?: {
                 refreshRows?: (s: number, e: number, sync?: boolean) => void;
+                _renderDebouncer?: { _animationFrame?: number };
               };
             };
           };
@@ -36,28 +40,14 @@ When(
       const w = window as unknown as RenderProbeWindow;
       w.__paintCount = 0;
       w.__syncRefreshes = 0;
-      // PHASE flag: while stalled, swallow EVERY refresh so the screen cannot
-      // repaint — `the window regains focus` flips it false so only the fix's
-      // forced repaint after focus is allowed through and counted.
-      w.__stalled = true;
-      // NOTE on the `__name`-avoidance shapes below: esbuild's keep-names
-      // transform decorates any NAME-INFERRED function (an arrow assigned to a
-      // variable/property, or an object-literal value) with a `__name(...)`
-      // call that doesn't exist in page.evaluate's browser context, so it
-      // crashes (see file_drop_steps.ts). Call-argument arrows (the onRender
-      // callback) are safe — no name is inferred — but a `value: () => …` and a
-      // `rs.refreshRows = () => …` are not, so this uses a bound function and an
-      // array element (neither name-inferred) instead.
-      //
+      // Disable cursor blink — its periodic repaint would bump __paintCount on
+      // its own, independent of output rendering.
+      if (term.options) term.options.cursorBlink = false;
       // Model occlusion: the window is backgrounded, so `document.hasFocus()` is
       // false. The production watchdog (renderRecovery.noteData) only arms while
       // the document has focus, so forcing this false keeps it disarmed through
-      // `I generate 30 lines of output` — otherwise, on a slow runner, output +
-      // the buffer wait could exceed WATCHDOG_DELAY_MS (250ms) and the watchdog
-      // would fire the sync repaint before the "not repainted yet" assertion
-      // (paintCount > 0), flaking the test. `the window regains focus` restores
-      // it before dispatching the focus event. `Boolean.bind(null, false)` is a
-      // no-literal hasFocus()→false.
+      // `I generate 30 lines of output`. `the window regains focus` restores it.
+      // `Boolean.bind(null, false)` is a no-literal hasFocus()→false.
       Object.defineProperty(document, "hasFocus", {
         configurable: true,
         value: Boolean.bind(null, false),
@@ -65,29 +55,38 @@ When(
       term.onRender(() => {
         w.__paintCount++;
       });
-      // Swallow the debounced/async refresh the way a parked rAF would (a frame
-      // never serviced under occlusion), but let the forced SYNCHRONOUS refresh
-      // — what the fix calls on window focus — through, and count it. The
-      // wrapper lives as an array element so esbuild leaves it anonymous.
-      const orig = rs.refreshRows.bind(rs);
-      // While stalled, drop ALL refreshes — including the incidental FULL-RANGE
-      // sync repaint that generating output triggers (refreshRows(0, rows-1,
-      // true) on scroll). Range alone can't tell that apart from the fix's
-      // forced repaint, which is exactly why a range filter still flaked. The
-      // data still lands in xterm's buffer (refreshRows only paints), so the
-      // buffer assertion holds while __paintCount stays 0. Once focus is regained
-      // (__stalled=false), recover()'s forced sync repaint passes through and is
-      // the only counted paint. Array element so esbuild leaves it anonymous.
-      const swallow = [
+      // Count the FORCED sync repaint the fix issues on focus (recover ->
+      // refreshRows(_, _, true)); pass every refresh through unchanged. The
+      // wrapper is an array element so esbuild's keep-names leaves it anonymous —
+      // a NAME-INFERRED `rs.refreshRows = () => …` gets a `__name(...)` call that
+      // doesn't exist in page.evaluate and crashes (see file_drop_steps.ts).
+      const origRefresh = rs.refreshRows.bind(rs);
+      const wrap = [
         (s: number, e: number, sync?: boolean) => {
-          if (w.__stalled) return;
-          if (sync) {
-            w.__syncRefreshes++;
-            orig(s, e, true);
-          }
+          if (sync) w.__syncRefreshes++;
+          origRefresh(s, e, sync);
         },
       ];
-      rs.refreshRows = swallow[0];
+      rs.refreshRows = wrap[0];
+      // Model the occlusion freeze the way it ACTUALLY happens (renderRecovery.ts):
+      // xterm funnels every async paint through ONE requestAnimationFrame with no
+      // timer fallback, so an occluded window — whose rAFs are never serviced —
+      // accumulates buffer writes with ZERO onRender firings. Cancel any in-flight
+      // render frame, then PARK rAF so no async paint can fire: __paintCount stays
+      // 0 airtight (a refreshRows swallow missed the debounced/in-flight render
+      // and flaked). The forced SYNC refreshRows on focus bypasses rAF and still
+      // repaints. The array element keeps the replacement anonymous for esbuild.
+      const rd = rs._renderDebouncer;
+      if (rd && rd._animationFrame !== undefined) {
+        cancelAnimationFrame(rd._animationFrame);
+        rd._animationFrame = undefined;
+      }
+      w.__origRaf = window.requestAnimationFrame;
+      const park = [
+        ((_cb: FrameRequestCallback) =>
+          0) as typeof window.requestAnimationFrame,
+      ];
+      window.requestAnimationFrame = park[0];
     }, ACTIVE_TERMINAL);
   },
 );
@@ -115,9 +114,10 @@ When("the window regains focus", async function (this: KoluWorld) {
   // Restore real focus reporting first (the stall step forced hasFocus()=false
   // to model occlusion), then dispatch the focus event the listener keys off.
   await this.page.evaluate(() => {
-    // Leave the stall phase BEFORE dispatching focus so recover()'s forced
-    // repaint is allowed through the swallow (and counted).
-    (window as unknown as RenderProbeWindow).__stalled = false;
+    // Resume frame production (the window is visible again) BEFORE dispatching
+    // focus, so the fix's recover() runs against a live rAF.
+    const w = window as unknown as RenderProbeWindow;
+    if (w.__origRaf) window.requestAnimationFrame = w.__origRaf;
     delete (document as unknown as { hasFocus?: unknown }).hasFocus;
     window.dispatchEvent(new FocusEvent("focus"));
   });
