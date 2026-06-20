@@ -137,8 +137,10 @@ export function backfillLocation_1_26_0(
  *  at startup (the same EVENT_ITERATOR_VALIDATION_FAILED class as #1237 / #1244
  *  / `backfillLocation_1_26_0`).
  *
- *  The discriminant is stamped HERE and nowhere read-side: read sites narrow on
- *  `state`, they never coalesce (`?? "active"` would be a defect). Idempotent and
+ *  The discriminant value `"active"` lives only in `activeArm` (surface.ts) on
+ *  the live-metadata read path; read sites narrow through that seam and never
+ *  coalesce (`?? "active"` would be a defect). The saved-record path narrows it
+ *  once in reconcile. Idempotent and
  *  keyed on the discriminant key, not its value — a record that already carries a
  *  `state` (a future `state: "sleeping"` record with its `sleptAt`, or a re-run of
  *  this migration) passes through untouched, exactly as `backfillLocation_1_26_0`
