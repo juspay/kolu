@@ -450,12 +450,12 @@ const CodeTab: Component<{
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
-  // right-click "Open path:N" entries, and any future producer. The effect
-  // resolves against the live `fsListAll` list and RETRIES across snapshots
-  // until the path enumerates: while the stream is still loading
-  // (`allPaths.pending()`), a not-yet-listed path is left pending for the first
-  // authoritative snapshot rather than dropped. `openInCodeTab` flips the panel
-  // to browse mode itself; this effect only sets `selectedPath`.
+  // right-click "Open path:N" entries, and any future producer. The
+  // effect waits for the live `fsListAll` stream to settle so
+  // resolution can validate against a complete file list — otherwise
+  // a request fired during boot would toast "not found" on a path
+  // that just hasn't been enumerated yet. `openInCodeTab` flips the
+  // panel to browse mode itself; this effect only sets `selectedPath`.
   createEffect(
     on(
       () => {
@@ -469,6 +469,11 @@ const CodeTab: Component<{
         if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== req.targetMode || isPending) return;
+        // Committed to handling this request on this tick — mark it consumed
+        // before resolution so any re-run (terminal round-trip, treePaths
+        // settling) can't reprocess it, even after a manual tree-click has
+        // reset `handled`.
+        consumedRequest = req;
         const resolved = resolveRef({
           rawPath: req.ref.path,
           repoRoot: repo,
@@ -481,51 +486,36 @@ const CodeTab: Component<{
           hasLine: req.ref.startLine !== null,
         });
         if (resolved === null) {
-          // We only get here once `!isPending` (gated above): `fsListAll` has
-          // delivered an AUTHORITATIVE snapshot for this repo — its first yield
-          // is a full `git ls-files --cached --others` read (tracked + untracked
-          // working-tree files), not a partial. (A transparent
-          // STREAM_RETRY resubscribe replaces the value in place WITHOUT
-          // re-arming `pending()`, so there's no `[]` flicker to mistake for a
-          // fresh load; `pending()` only re-arms when the repo/view input
-          // changes, which this effect's `isPending` guard already covers.)
-          // An authoritative snapshot that lacks the path is therefore a genuine
-          // not-found WHETHER the list is empty or populated — surface it loudly
-          // and consume. (Length is NOT a freshness signal: an empty list is an
-          // authoritative snapshot of an empty repo, and a populated one can
-          // still be a pre-mutation snapshot — gating on length both swallowed
-          // empty-repo not-founds forever and risked false not-founds on a stale
-          // populated read. This mirrors the `selectedPath` membership effect
-          // below, which likewise treats empty-once-`!pending()` as truth.)
           toast.error(`File reference not found: ${req.ref.path}`);
-          consumedRequest = req;
           setHandled({ request: req, resolvedPath: null });
           return;
         }
-        // Resolved — consume now, before the side effects, so a re-run (terminal
-        // round-trip, treePaths settling) can't reprocess it, even after a
-        // manual tree-click reset `handled` (separate state).
-        consumedRequest = req;
         if (resolved.kind === "directory") {
           // A folder ref reveals (expands + scrolls to) the directory in the
-          // tree without changing the shown file — selection stays put, and the
-          // reveal isn't content navigation, so it's not recorded in history.
+          // tree without changing the shown file — selection stays put, and
+          // the request leaves no line highlight, mirroring the not-found
+          // branch. The reveal isn't a content navigation, so it's not
+          // recorded in back/forward history.
           //
-          // Resolution ran against the full `treePaths()`, but the mounted tree
-          // shows `treeSearch().projectedPaths` — a *filtered* set when a browse
-          // search is active. A folder outside the filter has no row to reveal,
-          // so clear the search first: the projection falls back to the full
-          // tree, the target row exists, and the reveal lands.
+          // Resolution ran against the full `treePaths()`, but the mounted
+          // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
+          // browse search is active. A folder outside the current filter has no
+          // row to reveal, so the request would be silently consumed with
+          // nothing on screen. Clear the search first: the projection falls
+          // back to the full tree, the target row exists, and the reveal lands.
           setSearchQuery("");
           setRevealDir({ path: resolved.path });
           setHandled({ request: req, resolvedPath: null });
           return;
         }
         const rel = resolved.path;
-        // Record the front-door open in history *with* its line ref, so a later
-        // back() re-issues it through this same pipeline and repaints the
-        // highlight. Idempotent on mode+path. The echoed Pierre `onSelect(rel)`
-        // is suppressed in `handleSelect` so it can't clobber this ref.
+        // Record the front-door open in history *with* its line ref, so a
+        // later back() re-issues it through this same pipeline and repaints
+        // the highlight (cheap-v1 "restore where you were"). Idempotent on
+        // mode+path, so a re-click of the same path:line refreshes the entry
+        // in place rather than deepening history. The echoed Pierre
+        // `onSelect(rel)` is suppressed in `handleSelect` so it can't clobber
+        // this ref with a plain (mode, path) record.
         select(req.targetMode, rel, {
           ref:
             req.ref.startLine !== null && req.ref.endLine !== null
