@@ -270,22 +270,40 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     fakeSession({});
     h.state = {
       connection: "disconnected",
-      progressLines: ["arivu: more than one kaval is running on this host"],
+      // The agent's own line, THEN the session's local lifecycle lines — so a
+      // naive `at(-1)` would wrongly surface the reconnect chatter. The agent's
+      // `<drvNoun>:`-prefixed line is the one to pick (and its prefix stripped,
+      // since the caller re-labels with "could not reach …").
+      // The real stored shape: forwarded remote stderr is `[remote] <line>`,
+      // the session's own lifecycle is `[local] <line>`.
+      progressLines: [
+        "[remote] arivu: more than one kaval is running on this host",
+        "[local] agent exited (code=1, signal=null)",
+        "[local] reconnecting in 2000ms… (attempt 1/5)",
+      ],
       lastError: "agent exited (code=1, signal=null)",
-      failureCause: "remote",
+      // null on purpose: the child-`exit` event that sets `failureCause` races
+      // the probe's rejection and may NOT have landed yet — the agent's stderr
+      // line is captured regardless, so surfacing must not gate on it.
+      failureCause: null,
     };
-    await expect(
-      dialAgentOnce({
-        host: "nix@prod",
-        binary: "arivu",
-        envVar: "AGENT_DRVS_JSON",
-        agentDrvsJson: VALID_MAP,
-        drvNoun: "arivu",
-        probe: async () => {
-          throw new Error("[AsyncIdQueue] Queue[1] was closed");
-        },
-      }),
-    ).rejects.toThrow(/more than one kaval is running/);
+    let msg = "";
+    await dialAgentOnce({
+      host: "nix@prod",
+      binary: "arivu",
+      envVar: "AGENT_DRVS_JSON",
+      agentDrvsJson: VALID_MAP,
+      drvNoun: "arivu",
+      probe: async () => {
+        throw new Error("[AsyncIdQueue] Queue[1] was closed");
+      },
+    }).catch((e: Error) => {
+      msg = e.message;
+    });
+    // The agent's own line — prefix stripped, no transport noise, no reconnect
+    // chatter, not the `at(-1)` line.
+    expect(msg).toBe("more than one kaval is running on this host");
+    expect(msg).not.toMatch(/AsyncIdQueue|reconnecting/);
     expect(h.destroy).toHaveBeenCalledTimes(1);
   });
 

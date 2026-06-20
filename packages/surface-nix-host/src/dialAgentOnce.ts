@@ -159,14 +159,25 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
   // the agent's last stderr line (on the session's `progressLines`) is the real
-  // reason. `onState` records it the instant the child-exit handler marks the
-  // session `"remote"` (the agent itself ran and exited) — NOT `"network"`,
-  // where the transport error itself is the better signal.
-  let agentExitReason: string | undefined;
+  // reason. The agent writes its fatal as `<drvNoun>: <message>` to stderr right
+  // before exiting (see arivu's bin.ts), which lands in `progressLines`
+  // alongside the session's OWN local lifecycle lines ("agent exited",
+  // "reconnecting in 2000ms…"). The mere PRESENCE of such an agent-prefixed line
+  // IS the failure reason — it's only ever written on a fatal — so we pick it by
+  // prefix (NOT `at(-1)`, the session's reconnect chatter). Capturing it the
+  // instant it streams avoids depending on the child-`exit` event having landed
+  // `failureCause` yet, which races the probe's stream-closed rejection.
+  // `HostSession` stores a forwarded remote-stderr line as `[remote] <line>`
+  // (local lifecycle is `[local] …`), so the agent's fatal is `[remote]
+  // <drvNoun>: <message>`. Match that exact shape and strip the whole prefix.
+  const agentFatal = (lines: readonly string[]): string | undefined => {
+    const prefix = `[remote] ${opts.drvNoun}:`;
+    const own = lines.filter((l) => l.startsWith(prefix)).at(-1);
+    return own?.slice(prefix.length).trim();
+  };
+  let agentReason: string | undefined;
   const offState = session.onState((s) => {
-    if (s.failureCause === "remote" && s.progressLines.length > 0) {
-      agentExitReason = s.progressLines.at(-1);
-    }
+    agentReason = agentFatal(s.progressLines) ?? agentReason;
   });
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
   // failure anywhere in pin/probe must destroy the session itself — otherwise
@@ -195,9 +206,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // the session state before we read it.
     await new Promise((resolve) => setImmediate(resolve));
     offState();
-    const state = session.current();
-    const agentQuit = state.failureCause === "remote";
-    const reason = agentExitReason ?? state.progressLines.at(-1);
+    const reason = agentReason ?? agentFatal(session.current().progressLines);
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {
@@ -205,9 +214,10 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     } catch {
       // teardown failed; the error below is the one that matters.
     }
-    // Surface the agent's own reason ("arivu: more than one kaval …") over the
-    // transport's opaque "[AsyncIdQueue] … closed" when the agent itself quit.
-    if (agentQuit && reason) throw new Error(reason);
+    // Surface the agent's own reason ("more than one kaval …") over the
+    // transport's opaque "[AsyncIdQueue] … closed" / the session's reconnect
+    // chatter when the agent itself quit.
+    if (reason) throw new Error(reason);
     throw err;
   }
 }
