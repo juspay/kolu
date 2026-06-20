@@ -206,6 +206,8 @@ is supplied; read sites narrow, never coalesce.
 
 ### Phase 2 — Sleep / Wake
 
+**Shipped — <PrLink pr={1466} />.**
+
 Populate the `sleeping` arm. The lifecycle is **immutable records, not an in-place
 flip**. **Sleep** writes a fresh sleeping record from the active terminal's
 persisted base, then releases the PTY/xterm/agent — *persist before kill*, never
