@@ -1,18 +1,15 @@
 ---
-title: "Sleeping terminals — on a first-class Tile"
-description: A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn't sleep — it's that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs.
+title: "Sleeping terminals — a terminal state, not a tile"
+description: A plan of record for Sleep/Wake, re-grounded a second time. The first re-plan built a first-class Tile registry (PR 1435, merged) to host sleeping as a tile content kind; building on it (PR 1441) surfaced that the Tile was the wrong level — sleeping is a STATE of a terminal, and the field partition already expresses it. So we collapse the tile layer, model Terminal = active | sleeping, and let sleeping, persistence, and session-restore unify on one record with a state flag.
 parents: [phantom-running-background, feature]
 status: proposed
 maturity: seedling
+updated: 2026-06-20
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
-import Svg from "../../components/Svg.astro";
-import tile from "../../diagrams/sleeping-terminals-tile.svg?raw";
-import lifecycle from "../../diagrams/sleeping-terminals-lifecycle.svg?raw";
-import spine from "../../diagrams/sleeping-terminals-spine.svg?raw";
 
 export const C = {
   bg: "#15171c", grid: "#1b1e25", chrome: "#1b1e24", panel: "#171a20",
@@ -36,10 +33,6 @@ export const Frame = (props) => (
   </figure>
 );
 
-export const TitleDot = (props) => (
-  <span style={`width:9px;height:9px;border-radius:50%;background:${props.c};display:inline-block;flex:0 0 auto`}></span>
-);
-
 export const dot = (c) => `width:9px;height:9px;border-radius:50%;background:${c};display:inline-block;flex:0 0 auto`;
 
 export const TileChrome = (props) => (
@@ -59,7 +52,7 @@ export const TileChrome = (props) => (
 );
 
 export const CanvasTiles = () => (
-  <Frame title="kolu · canvas" w="46rem" cap="Two real tiles — same size, same chrome, both draggable and resizable. The sleeping one (right) just has a dormant body: a frozen screenshot taken at sleep time, dimmed, with ☾ and a Wake button. Click it to focus it like any tile; Wake to bring it back to life.">
+  <Frame title="kolu · canvas" w="46rem" cap="Two terminals, one asleep — same card, same chrome, both draggable and resizable. The sleeping one (right) is the SAME terminal record with its PTY released: a frozen last frame, dimmed, with ☾ and a Wake button. Click it to focus it like any terminal; Wake respawns its PTY.">
     <div style="display:flex;gap:.85rem;align-items:stretch">
       <TileChrome live={true}>
         <div style={`padding:.55rem .6rem;font:.63rem/1.5 ui-monospace,monospace;color:${C.dim};min-height:7rem`}>
@@ -88,7 +81,7 @@ export const CanvasTiles = () => (
 );
 
 export const DockUnified = () => (
-  <Frame title="kolu · dock" w="21rem" cap="One list. A sleeping terminal is a row like any other — same group, same selection, dimmed with a ☾ state pip. Clicking it FOCUSES it (it can be the active tile); a small Wake brings it back. No separate section.">
+  <Frame title="kolu · dock" w="21rem" cap="One list. A sleeping terminal is a row like any other — same group, same selection, dimmed with a ☾ state pip. Clicking it FOCUSES it (it can be the active/selected tile); a small Wake brings it back. No separate section, because there is no separate kind.">
     <div style={`border-left:3px solid ${C.repoRust};padding-left:.6rem`}>
       <div style={`font:700 .6rem/1 ui-sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${C.faint};margin:.1rem 0 .5rem`}>api</div>
       {[
@@ -107,155 +100,182 @@ export const DockUnified = () => (
   </Frame>
 );
 
-You asked for Sleep: leave a Claude Code terminal blocked for days, **sleep** it
+export const Layer = (props) => (
+  <div style={`border:${props.dim ? `1.5px dashed ${C.faint}` : `1px solid ${props.c || C.line}`};border-radius:9px;padding:.5rem .6rem;background:${props.bg || C.panel};opacity:${props.dim ? 0.72 : 1}`}>
+    <div style={`font:700 .64rem/1.3 ui-sans-serif;color:${props.tc || C.fg};margin-bottom:${props.children ? ".28rem" : "0"}`}>{props.title}</div>
+    {props.children && <div style={`font:.58rem/1.5 ui-monospace,monospace;color:${props.bodyc || C.dim}`}>{props.children}</div>}
+  </div>
+);
+
+export const Down = () => (
+  <div style={`text-align:center;color:${C.faint};font:.85rem/1 ui-monospace;margin:.18rem 0`}>↓</div>
+);
+
+export const Arch = () => (
+  <Frame title="presence vs liveness — where the fold lives" w="50rem" cap="Before: a registry layer keeps tile PRESENCE separate from terminal LIVENESS by indirection — but tileIds and the selection signals are verbatim re-exports, contentOf fabricates a one-arm object per read, and sleeping would need a separate cell plus a dedup window. After: the discriminant moves onto the terminal; one store holds Terminal = active | sleeping, presence reads the union, liveness narrows state === 'active'. No registry, no second cell.">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.15rem">
+      <div>
+        <div style={`font:700 .6rem/1 ui-sans-serif;letter-spacing:.05em;text-transform:uppercase;color:${C.faint};margin-bottom:.5rem`}>Before — PR 1435</div>
+        <Layer title="canvas · dock · minimap · arrange · cycle">read tileIds · contentOf · getLayout · activeId</Layer>
+        <Down/>
+        <Layer title="tile/useTileStore — registry singleton" dim={true} bg={C.moonBg} bodyc={C.faint}>tileIds = re-export · activeId = re-export · contentOf → {`{kind:"terminal"}`} synthesized per read · getLayout → kind-dispatch</Layer>
+        <Down/>
+        <Layer title="terminal store + view-state">terminalIds · getMetadata · activeId · persistCanvasLayout</Layer>
+        <div style={`margin-top:.5rem;font:.56rem/1.5 ui-monospace,monospace;color:${C.faint}`}>sleeping → a SEPARATE dormant cell + a "live wins during persist→kill" dedup + wake-as-cross-arm-transition</div>
+      </div>
+      <div>
+        <div style={`font:700 .6rem/1 ui-sans-serif;letter-spacing:.05em;text-transform:uppercase;color:${C.moon};margin-bottom:.5rem`}>After — the sum</div>
+        <Layer title="canvas · dock · minimap · arrange · cycle">read the Terminal union directly</Layer>
+        <Down/>
+        <Layer title="terminal store — keyed by Terminal = active | sleeping" c={C.moon} bg="#161b27" tc={C.moon} bodyc={C.moon}>active → base + live overlay (PTY · xterm · agent)<br/>sleeping → base + sleptAt (overlay absent by type)<br/>terminalIds · getMetadata().canvasLayout (both arms) · activeId</Layer>
+        <Down/>
+        <Layer title={`live fields require  state === "active"`}>persistCanvasLayout · PTY/xterm · agent stream — active arm only</Layer>
+        <div style={`margin-top:.5rem;font:.56rem/1.5 ui-monospace,monospace;color:${C.moon}`}>sleeping = one record whose state says its PTY is currently released</div>
+      </div>
+    </div>
+  </Frame>
+);
+
+You asked for **Sleep**: leave a Claude Code terminal blocked for days, sleep it
 (its PTY, xterm, WebGL context, and agent all released — gone, like closing it),
-and **wake** it later in place with the agent resumed. A first cut shipped the
-mechanism — but built the sleeping tile as a **parallel silo** (its own
-component, its own dock section, a list it was *excluded* from). It worked, but
-it was wrong, and a structural review (**lowy** volatility + **hickey**
-simplicity) said why: there is **no first-class "tile"** in
-kolu. A tile *is* a live terminal. So a tile with no live terminal has nowhere to
-exist, and the only move left was to bolt one on beside the real ones.
+and **wake** it later in place with the agent resumed.
 
-This note is the re-plan. It fixes the wart first, then sleep falls out almost
-for free — and a future **planned terminal** comes for free after that. Four
-phased PRs.
+This is the plan's **second** re-grounding, and it reverses the first. The first
+re-plan diagnosed the blocker as "there is no first-class *tile* in kolu — a tile
+*is* a live terminal", and fixed it by building a Tile registry (<PrLink pr={1435} />,
+merged) with a `TileContent` union, intending sleeping to be a second content
+*kind*. Building sleeping on it (<PrLink pr={1441} />) surfaced the deeper truth:
+**sleeping is a *state* of a terminal, not a kind of canvas content** — and the
+tile layer we added to host that "second kind" hosts a phantom, because the kind
+never materialized. So we close <PrLink pr={1441} />, **collapse** the tile layer,
+and move the discriminant where it belongs: onto the terminal.
 
-## The wart — a tile *is* a live terminal
+## The pivot — sleeping is a terminal state
 
-The canvas calls itself "domain-agnostic — tiles, content injected via render
-props." It isn't, quite. Four identities are fused into "terminal", so a tile
-cannot exist without a live one:
+A first-class tile would earn its keep the day the canvas holds something that
+*isn't* a terminal (a sticky note, a web view). It doesn't, and it isn't on the
+near roadmap — so a content-kind layer above the terminal is **speculative
+generality**: a one-armed union whose only "second kind" is a mis-levelled state.
+Both the data-loss bug and the "wrong store" bug class on <PrLink pr={1441} /> trace
+to that mis-levelling and to its enabling alias, `TileId = TerminalId`.
 
-- `tileIds === terminalIds` — the canvas iterates the live terminal list.
-- `tile.layout === TerminalMetadata.canvasLayout` (`surface.ts:245`) — a tile's
-  position is a field *on the terminal*.
-- `activeTile === activeId`, a *terminal* id — selection is keyed to terminals.
-- dock rows rank `terminalIds` — a tile that isn't a live terminal is invisible.
+The clean model puts the sum on the **terminal** itself — and the fold already
+exists in the schema. `surface.ts` splits a terminal's fields into a **persisted
+base** (cwd · git · intent · theme · `canvasLayout` — survives a restart) and a
+**live overlay** (agent · foreground · live-PR · the PTY/xterm/attach handles —
+"never persisted; a restore must re-derive it"). That partition *is*
+active-vs-sleeping:
 
-<Svg svg={tile} caption="Today (left): a tile is projected from the live terminal list, with layout, active, and dock all hanging off the terminal — so a non-live tile has no home and gets a silo. Proposed (right): a first-class Tile registry owns identity, layout, active/selection, and MRU plus a TileContent union (terminal-only today); the live list feeds it, and the canvas, dock, and selection all read the one source. Sleeping and planned become union variants, not silos." />
+```ts
+// surface.ts bases UNCHANGED — the fold already exists; exactly one field is added.
+const ActiveTerminalSchema =
+  PersistedTerminalFieldsSchema.merge(LiveTerminalFieldsSchema)   // live overlay present
+    .extend({ state: z.literal("active") });
 
-<Callout kind="warn" title="The silo, named — both lenses independently flagged the same fingerprints">
-The first attempt proved the wart by reproducing it: a second `<For>` loop, a
-second layout store inside the sleeping record, and a split-brained reconciler
-(`layoutOf`/`persistLayout` branching on `sleeping.getLayout(id) !== undefined`).
-That branch is the smell — drag/resize/active should *never* know a tile's kind.
-Both lenses also caught real latent bugs born of the parallel registry:
-`pendingLayouts.dropEvicted` never evicts a sleeping tile's pending layout (it
-isn't in the live set), and `terminalCount + sleeping.records().length` leaks the
-two-registry split into the canvas-mode decision. Fragmentation, not
-decomposition.
-</Callout>
+const SleepingTerminalSchema =
+  PersistedTerminalFieldsSchema                                   // base only — overlay absent by type
+    .extend({ state: z.literal("sleeping"), sleptAt: z.number() });
 
-## A first-class Tile <Pill variant="run">PR 1</Pill>
+const TerminalMetadataSchema =                                   // the wire/collection shape
+  z.discriminatedUnion("state", [ActiveTerminalSchema, SleepingTerminalSchema]);
 
-The fix is **not** an electricity (no `@kolu/*` package — a tile is app-domain
-state, hiding a bounded algorithm, not a transport-class volatility; the same
-verdict `electricity.mdx` already records for `@kolu/geometry`). It's an in-app
-**decomplect**: separate *tile presence* from *terminal liveness*.
+type Terminal =
+  | ({ state: "active" }                    & PersistedTerminalFields & LiveTerminalFields)
+  | ({ state: "sleeping"; sleptAt: number } & PersistedTerminalFields);
 
-A **Tile registry** (`useTileStore`, fed by the existing terminal store) becomes
-the one source of truth for what the canvas, dock, and selection read:
+// Reading: presence reads the union; touching a live field MUST narrow.
+const placeTile  = (t: Terminal) => t.canvasLayout;             // both arms — no narrow
+const routeInput = (t: Terminal) => {
+  if (t.state !== "active") return;                             // compiler-forced narrow
+  send(t /* now carries pr · agent · foreground + a live PTY */);
+};
+```
 
-| The **Tile** owns | The **Terminal** owns |
-|---|---|
-| identity (`TileId`), layout, active/selection, MRU | PTY · xterm · agent · attach stream |
-| a `TileContent` discriminated union | repo/branch identity, agent state, the live body |
-
-`TileContent` is `{ kind: "terminal", terminalId }` — and that is the **only**
-variant in PR 1. The canvas renders **one** `<For>` over `tileStore.tileIds()`,
-dispatching on `tileStore.contentOf(id).kind`; `activeId` becomes a `TileId`;
-`focusedId` narrows `TileId → TerminalId` only when `kind === "terminal"`;
-`mode()` keys off `tileStore.tileCount()`. The reconciler disappears. **Zero
-behavior change** — Terminal is the only tile there is.
-
-<Callout kind="accent" title="Why this is the load-bearing PR">
-This is the whole point of the re-plan: once a tile is a real thing with its own
-identity, layout, selection, and a *content union*, "sleeping" is a new union
-variant — it inherits drag, resize, focus, active, dock ordering, and
-persistence **for free**, because those operate on the content-agnostic registry.
-The silo becomes unrepresentable. A future *planned terminal* is then a third
-variant, not a third silo.
-</Callout>
-
-## Sleeping is a tile state <Pill variant="run">PR 2</Pill> · <Pill variant="run">PR 3</Pill>
-
-With the registry in place, a sleeping terminal is a tile whose content is
-`{ kind: "sleeping", record }` and whose liveness is false. It behaves **no
-differently from a live terminal**: same dock row (selectable — clicking
-**focuses** it, it can be the *active* tile, it never auto-wakes), same draggable
-and resizable canvas tile, same MRU. The only differences are a dormant body and
-one added verb — **Wake** (re-spawn PTY + resume the agent, flipping the content
-back to `terminal`).
+`sleptAt` is the sleeping arm's analogue of the live overlay — the only new
+scalar. An active terminal is `base + overlay`; a sleeping terminal is
+`base + sleptAt`. Sleeping is one record whose `state` flag says whether its PTY
+is currently spawned.
 
 <CanvasTiles />
 
 <DockUnified />
 
-### A frozen screenshot for the dormant body <Pill variant="run">PR 3</Pill>
+## Before → after
 
-The dormant body shouldn't be a bare card — it should be the terminal as you left
-it. Just before sleeping, capture a **screenshot** of the tile, write it to the
-state dir, and serve it back so the sleeping tile shows its **frozen** last frame
-(dimmed, with ☾ and Wake). It reuses the existing `screenshotTerminal` path; the
-new surface is a small **served image route** from `KOLU_STATE_DIR` (the
-`serve-dir` / iframe-preview route is the precedent), and the screenshot rides
-the sleeping record so it survives a restart.
+<Arch />
 
-### Sleep / Wake mechanism (reused wholesale)
+The registry's whole stated job was to keep tile **presence** (exists, sits on
+the canvas, focusable, has a dock row) apart from terminal **liveness** (PTY ·
+xterm · agent · attach). But it does that by *indirection over a fold the schema
+already owns*: `tileIds` is a verbatim re-export of `terminalIds()`, the
+selection signals are verbatim re-exports of view-state, `contentOf` fabricates a
+`{kind:"terminal",terminalId:id}` object on every read, and `getLayout/setLayout`
+are a one-kind dispatch. Move the discriminant onto the terminal and the layer
+has nothing left to do: presence consumers read the union, liveness consumers
+narrow, and there is no second store, no synthesized content object, and no
+separate dormant cell to merge.
 
-The freeze/resume machinery itself is settled and survives from the first cut —
-it's **session restore scoped to one tile**:
+## The surgical collapse
 
-<Svg svg={spine} caption="Sleep = snapshot the tree (reuse snapshotTerminal) → persist into the sleepingTerminals store → tear down the live terminal (reuse handleKillWithSubs). Wake = replay the record through the existing handleRestoreSession, which respawns and resumes the agent. Only the store + two RPCs are new; the rest is reused. (PR 2 rehosts this behind the Tile content union instead of a silo.)" />
+It isn't a `git revert` — the genuinely-good canvas primitives stay; only the
+presence-vs-liveness *bridge* goes. Tellingly, the two keystones <PrLink pr={1435} />
+advertised don't even live in `tile/`: the reference-stability memo is in
+`useTerminalMetadata.ts`, the selection signals in `useViewState.ts`. So the
+**entire `tile/` directory is drop**, and every keep either already lives outside
+it or only needs its import edge re-pointed from `tileStore.*` to `store.*`.
 
-## Persisted and restored — tiles, not just terminals
+| Keep | Why it stays |
+|---|---|
+| `CanvasTile.tsx` — the content-agnostic card shell (drag/resize, title bar, pan/zoom transform, mode union, aura/on-screen gating) | A real UI primitive keyed on `id: string` + render-prop slots; knows nothing of terminals. The #988 wrapper-less transform is load-bearing canvas mechanics the sum never touches. |
+| `TerminalCanvas.tsx` spatial machinery — `pendingLayouts`, placement cascade, drag/resize commit + grid-snap, focus/center effects, minimap drag | Pure geometry over `tileIds: string[]` + a layout seam; survives unchanged, only the seam re-points at the terminal store. |
+| `sameTerminalIdOrder` + the `terminalIds()` memo (#1425 keystone) | Already lives in `useTerminalMetadata.ts`; the re-export is what's deleted. The metadata-only-tick equals gate keeps suppressing canvas/dock/mode churn. |
+| `persistCanvasLayout.ts`; `useCanvasArrange.ts` domain logic | Dependency-light leaves / genuine canvas behavior. Algorithms untouched; plumbing re-points off `tileStore.*`. |
 
-Tiles must survive a reload and a restart, live or sleeping — that's the whole
-point of sleeping for days. The model makes this explicit:
+| Drop | Replaced by |
+|---|---|
+| `tile/useTileStore.ts` — the registry singleton | The terminal store itself, keyed by the `Terminal` union. Presence-vs-liveness is a `state === "active"` narrow, not a second store. |
+| `tile/tileContent.ts` — `TileContent` peer union + `TileId = TerminalId` alias | The discriminant on the terminal (`state`). No separate id space — terminal ids are canvas ids; the `kind:"terminal"` arm carried no information. |
+| synthesize-on-read `contentOf` + the single-arm `<Switch>` dispatch | `<For>` renders each terminal; the body narrows on `terminal.state` — `active` mounts the live xterm body, `sleeping` renders the frozen body off the base. No object fabricated per read. |
+| `getLayout`/`setLayout` as "hide where layout lives" seams | `canvasLayout` is a base field on **both** arms — nothing to hide. Reads hit `getMetadata(id)?.canvasLayout`; writes hit `persistCanvasLayout` directly (gated on active). The fail-fast absent-record guard moves onto that path. |
+| Re-exposed `activeId`/`activate`/`setActiveSilently`/`tileCount` | Read view-state directly; `tileCount()` becomes `terminalIds().length` (counting sleeping). The wrong-store bug class disappears at the type level, so the re-export buys nothing. |
 
-- **Live tiles** persist + restore exactly as today: the `session` cell holds
-  each terminal's layout/theme/intent/agent, and session restore respawns them.
-- **Sleeping tiles** persist in their own on-disk `sleepingTerminals` store
-  (disjoint from `session`, so the live-session autosave can't clobber them) and
-  rehydrate on boot **as sleeping** — never auto-woken. The frozen screenshot is
-  part of that record.
-- On boot the Tile registry **merges both sources** into one tile list, so the
-  canvas/dock see a single, ordered set of tiles — some live, some asleep —
-  restored to their saved positions.
+## The phases
 
-<Svg svg={lifecycle} caption="One Tile, content states over time. A planned tile (later) has only a future — activate → start fresh. A live tile sleeps (snapshot + release) and wakes (respawn + resume). All three are variants of one TileContent union on one Tile — never separate objects." />
+Each is one reviewable PR; each leaves `master` shippable.
 
-<Callout kind="accent" title="Layout's home — decided with the lenses">
-hickey argued `canvasLayout` should move off `TerminalMetadata` onto the tile
-record; lowy argued defer that schema migration (the client registry split needs
-no schema change — `SleepingTerminal.id` is already a stable tile id). **We take
-lowy's sequencing:** PR 1 introduces the client-side Tile registry with no schema
-change (live-tile layout still reads from terminal metadata, sleeping-tile layout
-from the record — the registry hides which); a server-side unified tile store is
-a *later, optional* migration, only if a second consumer of "persisted tile
-position independent of liveness" appears. Don't move the schema on spec.
-</Callout>
-
-## The four phases
-
-Each phase is one reviewable PR; each leaves `master` shippable.
-
-| Phase | PR | What lands | Why separable |
-|---|---|---|---|
-| **1 — Tile** | <PrLink pr={1435} /> | `useTileStore` + `TileContent` union (terminal-only), one canvas `<For>` over `tileIds()` dispatching on `contentOf(id).kind`, `TileId` selection, `mode()` on `tileCount()`, layout read/write through the registry | Pure decomplect, **zero behavior change** — reviewable on its own, de-risks everything after |
-| **2 — Sleeping state** | feature | `{kind:"sleeping"}` variant + sleep/wake RPCs + the persisted store + restore-as-sleeping; dock row + canvas tile via the shared paths | The user-facing core; no silo, no new dock section |
-| **3 — Frozen screenshot** | feature | capture-on-sleep, served image route from the state dir, frozen body | Cohesive, isolated surface (a route + a capture) |
-| **4 — Louder alerts & parity** | feature | the *awaiting/alert* signals get louder everywhere (an escape hatch earns it), switcher parity, the 48h idle-nudge | Polish; keeps PR 2 tight |
+| Phase | What lands | Why separable |
+|---|---|---|
+| **1 — Collapse + seat the sum** | Delete `tile/`; re-point every consumer (canvas `<For>`, dock, minimap, arrange, view-posture, commands, right-panel) at the terminal store; add the `state` discriminant but ship with only the `active` arm populated | **Zero behavior change** (every terminal is `active`) — a pure structural move that makes the narrowing seam exist and compile before any sleep logic does |
+| **2 — Sleep / Wake core** | Populate the `sleeping` arm: sleep = snapshot the base + release PTY/xterm/agent (reuse kill-with-subs); wake = respawn from the base (reuse restore). Sleeping terminals join the one set the canvas/dock iterate — focusable/draggable tiles, selectable rows — with a dormant placeholder body and one Wake verb. Rehydrate-as-sleeping on boot | The user-facing core; the dedup-window and cross-arm-transition awkwardness are gone *by construction* |
+| **3 — Frozen screenshot body** | Capture via the existing `screenshotTerminal` path just before sleep, write under `KOLU_STATE_DIR`, serve through a small static image route (serve-dir / iframe-preview precedent); the reference rides the record | Isolated surface — one capture + one route; swaps Phase 2's placeholder for a real frame |
+| **4 — Unify with session-restore** | Collapse boot-restore and wake onto one seam: "rehydrate a persisted terminal by respawning its PTY from the base." Boot = bulk wake, wake = activate-one, sleep = the inverse; the disjoint sleeping store and the session snapshot merge into one ordered terminal set | Behavior-preserving consolidation, landed last, designed against three concrete callers instead of two hypothetical ones |
 
 <Callout kind="good" title="Why the order is the point">
 Sleep was never the hard part — the machinery shipped in a day. The hard part was
-that there was nowhere clean to *put* a dormant tile. Phase 1 builds that place.
-Everything after is a variant, a body, or a signal — small, because the structure
-finally fits.
+where a *dormant* terminal lives. Phase 1 stops answering that with a layer and
+answers it with a flag. Everything after is a body, a route, or a consolidation —
+small, because the structure finally fits the thing.
 </Callout>
 
-The open decisions, now narrow: whether the served screenshot route reuses
-`iframePreviewRoute`'s static-serve path or gets its own; whether a focused
-sleeping tile shows a hint that typing will offer to wake it; and the eventual
-server-side tile-store migration (deferred above). None block Phase 1.
+*Dropped from earlier plans:* the registry as a durable layer (<PrLink pr={1435} />, collapsed in the new P1); the `planned` third variant (non-terminal content isn't near — speculative generality); the "sleeping as a `TileContent` variant" framing (<PrLink pr={1441} />, discarded); and the old P4 louder-alerts/switcher-parity grab-bag (polish — its slot now spends on the restore unification).
+
+## Payoff & trade-offs
+
+Two wins fall out of putting the discriminant on the terminal:
+
+- **Type-safe presence vs liveness.** A consumer that touches pr/agent/foreground/PTY must first narrow `state === "active"` — the compiler refuses a live field on the bare union. The "wrong store" bug class (<PrLink pr={1441} />'s minimap/mobile/cycle/arrange reading a live-only list) becomes *unrepresentable*, because there is no live-only list. The same narrow relocates `focusedId()` (the split-focus divergence is real and stays, but input-routing resolves *inside* the active narrow) and re-points `holdsWebgl`/`webglTileBudget` at the `active` set — a sleeping tile sits in the MRU and on the canvas yet holds no WebGL context, by construction.
+- **Session-restore unification.** `SavedTerminal` is already `PersistedTerminalFields + id` — the sleeping arm's exact payload minus `sleptAt`. A boot-restored terminal and a slept terminal become the *same on-disk record*, distinguished only by `state`. One persistence channel; restore = bulk wake, wake = restore-one, sleep = the inverse.
+
+And the costs, named so they're chosen, not discovered:
+
+- **A migration is mandatory.** `SavedTerminalSchema` is persisted, so adding `state` needs a `state.ts` migration defaulting legacy records to `"active"` + a `SCHEMA_VERSION` bump — the `discriminatedUnion` rejects a record with no `state` until the migration stamps it. That is the *one* sanctioned place to supply the legacy default; **read sites must narrow, never coalesce** (no read-time `?? "active"`).
+- **A wide type-level ripple is the diff.** Flipping `TerminalMetadataSchema` from a flat `.merge` to a `discriminatedUnion` forces every liveness reader to either stay in the presence subset or add a narrow. That sweep *is* the win, but it is the bulk of the work.
+- **`state` must be lifecycle-owned.** Only the sleep/wake transitions write `state`; a metadata provider must never resurrect a live field on a sleeping record (the overlay isn't on that arm — a type error, which is the point).
+
+<Callout kind="accent" title="When we'd revisit">
+If a genuine *non-terminal* canvas kind ever lands — a sticky note, a web embed —
+reintroduce a content-kind layer, but designed against **two real kinds**, not the
+one-armed speculative union we're removing now. Location is structure: the
+receptacle is justified the day there's a second thing to put in it, and not
+before. (See `electricity.mdx` — the same trap, named three ways.)
+</Callout>
