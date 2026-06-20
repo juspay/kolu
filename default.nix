@@ -512,7 +512,7 @@ let
         } ''
         mkdir -p $out/bin
         makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
-          --add-flags "${arivuTuiBuilt}/lib/arivu-tui/src/bin.ts" \
+          --add-flags "${arivuTuiBuilt.entryPath}" \
           --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
           --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]}
       '';

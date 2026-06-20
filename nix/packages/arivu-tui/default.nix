@@ -62,7 +62,7 @@ let
     "kolu-opencode" = "integrations/opencode";
   };
 in
-stdenv.mkDerivation {
+stdenv.mkDerivation (finalAttrs: {
   pname = "arivu-tui-built";
   version = "0.1.0";
   inherit src;
@@ -117,18 +117,18 @@ stdenv.mkDerivation {
     cp -rL ${koluSrc}/packages/arivu-tui/src $out/lib/arivu-tui/src
     cp -r node_modules $out/lib/arivu-tui/
     cp package.json bunfig.toml $out/lib/arivu-tui/
-    # Guard: the wrapper in ../../default.nix hard-codes this entry path. Fail
-    # the build (not runtime) if it moves.
-    entry="$out/lib/arivu-tui/src/bin.ts"
-    test -e "$entry" || {
-      echo "installPhase: $entry missing — update ../../default.nix if the path changed"
-      exit 1
-    }
     runHook postInstall
   '';
+
+  # `entryPath` is the single source of truth for the Bun entry the wrapper in
+  # `../../default.nix` exec's: installPhase produces it under this `$out`, and
+  # the wrapper consumes `arivuTuiBuilt.entryPath` — one value, so the two files
+  # cannot silently desync (no cross-file string to keep in step, no build-time
+  # guard).
+  passthru.entryPath = "${finalAttrs.finalPackage}/lib/arivu-tui/src/bin.ts";
 
   meta = {
     description = "arivu-tui viewer — Bun-built tree (viewer source + hydrated @kolu/* + node_modules)";
     platforms = lib.platforms.unix;
   };
-}
+})
