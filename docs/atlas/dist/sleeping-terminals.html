@@ -1,127 +1,53 @@
-<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sleeping terminals — on a first-class Tile · the kolu Atlas</title><meta name="description" content="A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn't sleep — it's that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs."><meta name="generator" content="Astro v6.4.8"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/sleeping-terminals.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Sleeping terminals — on a first-class Tile · the kolu Atlas"><meta property="og:description" content="A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn't sleep — it's that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/sleeping-terminals.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Sleeping terminals — on a first-class Tile · the kolu Atlas"><meta name="twitter:description" content="A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn't sleep — it's that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}.backlinks[data-astro-cid-3hqllcy6]{margin:2.5rem 0 0;padding-top:1.25rem;border-top:1px solid var(--rule)}.backlinks-h[data-astro-cid-3hqllcy6]{margin:0 0 .7rem;font-family:var(--sans);font-size:.72rem;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}.backlinks-list[data-astro-cid-3hqllcy6]{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.45rem 1rem}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]{font-size:.92rem;color:var(--ink-dim);text-decoration:none;border-bottom:1px solid var(--rule)}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]:hover{color:var(--amber);border-color:var(--amber)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}.diagram[data-astro-cid-rhux3v4s]{margin:1.75rem 0;text-align:center}.diagram[data-astro-cid-rhux3v4s] svg{max-width:100%;height:auto}.diagram[data-astro-cid-rhux3v4s] figcaption[data-astro-cid-rhux3v4s]{margin-top:.5rem;font-size:.8rem;color:var(--faint, #7a8089);font-family:var(--sans, ui-sans-serif, system-ui)}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Sleeping terminals — on a first-class Tile</h1> <div class="meta-row"> <span>Features</span><span class="meta-sep">·</span> <span>seedling</span> <span class="meta-sep">·</span><span>proposed</span>   </div> <p class="note-sub">A plan of record for Sleep/Wake, re-grounded after a structural review (lowy + hickey). The blocker isn&#39;t sleep — it&#39;s that a tile is complected with a terminal (tileIds equal terminalIds), so a non-live tile has no home and a first attempt bolted it on as a silo. Fix the wart first — a first-class Tile registry with a TileContent union (terminal-only today), then sleeping is just a tile STATE — focusable, draggable, resizable, persisted and restored like any tile — with a frozen screenshot for its dormant body. Four phased PRs.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-wart--a-tile-is-a-live-terminal" data-astro-cid-lht5lwky>The wart — a tile is a live terminal</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#a-first-class-tile-pr-1" data-astro-cid-lht5lwky>A first-class Tile PR 1</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#sleeping-is-a-tile-state-pr-2--pr-3" data-astro-cid-lht5lwky>Sleeping is a tile state PR 2 · PR 3</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#a-frozen-screenshot-for-the-dormant-body-pr-3" data-astro-cid-lht5lwky>A frozen screenshot for the dormant body PR 3</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#sleep--wake-mechanism-reused-wholesale" data-astro-cid-lht5lwky>Sleep / Wake mechanism (reused wholesale)</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#persisted-and-restored--tiles-not-just-terminals" data-astro-cid-lht5lwky>Persisted and restored — tiles, not just terminals</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-four-phases" data-astro-cid-lht5lwky>The four phases</a>  </li> </ul></nav> </header> <div class="prose"> <p>You asked for Sleep: leave a Claude Code terminal blocked for days, <strong>sleep</strong> it
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sleeping terminals · the kolu Atlas</title><meta name="description" content="A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Presence (canvas, dock, minimap) reads the union; touching a live field (PTY, agent) narrows to active. Phased — seat the sum (zero behavior change), then sleep/wake, then frozen screenshot, then unify with session-restore."><meta name="generator" content="Astro v6.4.8"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/sleeping-terminals.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Sleeping terminals · the kolu Atlas"><meta property="og:description" content="A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Presence (canvas, dock, minimap) reads the union; touching a live field (PTY, agent) narrows to active. Phased — seat the sum (zero behavior change), then sleep/wake, then frozen screenshot, then unify with session-restore."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/sleeping-terminals.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-20T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Sleeping terminals · the kolu Atlas"><meta name="twitter:description" content="A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Presence (canvas, dock, minimap) reads the union; touching a live field (PTY, agent) narrows to active. Phased — seat the sum (zero behavior change), then sleep/wake, then frozen screenshot, then unify with session-restore."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.backlinks[data-astro-cid-3hqllcy6]{margin:2.5rem 0 0;padding-top:1.25rem;border-top:1px solid var(--rule)}.backlinks-h[data-astro-cid-3hqllcy6]{margin:0 0 .7rem;font-family:var(--sans);font-size:.72rem;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}.backlinks-list[data-astro-cid-3hqllcy6]{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.45rem 1rem}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]{font-size:.92rem;color:var(--ink-dim);text-decoration:none;border-bottom:1px solid var(--rule)}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]:hover{color:var(--amber);border-color:var(--amber)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Sleeping terminals</h1> <div class="meta-row"> <span>Features</span><span class="meta-sep">·</span> <span>seedling</span> <span class="meta-sep">·</span><span>proposed</span>  <span class="meta-sep">·</span><time datetime="2026-06-20T00:00:00.000Z">JUN 20, 2026</time> </div> <p class="note-sub">A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Presence (canvas, dock, minimap) reads the union; touching a live field (PTY, agent) narrows to active. Phased — seat the sum (zero behavior change), then sleep/wake, then frozen screenshot, then unify with session-restore.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#a-terminal-is-active-or-sleeping" data-astro-cid-lht5lwky>A terminal is active or sleeping</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#presence-reads-the-union-liveness-narrows" data-astro-cid-lht5lwky>Presence reads the union, liveness narrows</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-phases" data-astro-cid-lht5lwky>The phases</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#phase-1--seat-the-sum-zero-behavior-change" data-astro-cid-lht5lwky>Phase 1 — seat the sum (zero behavior change)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#phase-2--sleep--wake" data-astro-cid-lht5lwky>Phase 2 — Sleep / Wake</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#trade-offs--when-wed-revisit" data-astro-cid-lht5lwky>Trade-offs &amp; when we’d revisit</a>  </li> </ul></nav> </header> <div class="prose"> <p>You asked for <strong>Sleep</strong>: leave a Claude Code terminal blocked for days, sleep it
 (its PTY, xterm, WebGL context, and agent all released — gone, like closing it),
-and <strong>wake</strong> it later in place with the agent resumed. A first cut shipped the
-mechanism — but built the sleeping tile as a <strong>parallel silo</strong> (its own
-component, its own dock section, a list it was <em>excluded</em> from). It worked, but
-it was wrong, and a structural review (<strong>lowy</strong> volatility + <strong>hickey</strong>
-simplicity) said why: there is <strong>no first-class “tile”</strong> in
-kolu. A tile <em>is</em> a live terminal. So a tile with no live terminal has nowhere to
-exist, and the only move left was to bolt one on beside the real ones.</p>
-<p>This note is the re-plan. It fixes the wart first, then sleep falls out almost
-for free — and a future <strong>planned terminal</strong> comes for free after that. Four
-phased PRs.</p>
-<h2 id="the-wart--a-tile-is-a-live-terminal">The wart — a tile <em>is</em> a live terminal</h2>
-<p>The canvas calls itself “domain-agnostic — tiles, content injected via render
-props.” It isn’t, quite. Four identities are fused into “terminal”, so a tile
-cannot exist without a live one:</p>
+and <strong>wake</strong> it later in place with the agent resumed.</p>
+<p>The model is one move: make the terminal a sum — <strong><code>Terminal = active | sleeping</code></strong>.
+A dormant terminal is a <em>state</em> on the same record, so it inherits focus, drag,
+dock ordering, and persistence for free — it <em>is</em> the terminal the canvas already
+renders, just without a PTY. Four phased PRs; the first is a zero-behavior-change
+foundation.</p>
+<h2 id="a-terminal-is-active-or-sleeping">A terminal is active or sleeping</h2>
+<p>The fold already lives in the schema. <code>surface.ts</code> splits a terminal’s fields into
+a <strong>persisted base</strong> (cwd · git · intent · theme · <code>canvasLayout</code> — survives a
+restart) and a <strong>live overlay</strong> (agent · foreground · live-PR · the PTY/xterm/attach
+handles — “never persisted; a restore must re-derive it”). That partition <em>is</em>
+active-vs-sleeping, so the sum maps onto bases that already exist — exactly one
+field is added:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> ActiveTerminalSchema</span><span style="color:#D73A49"> =</span></span>
+<span class="line"><span style="color:#24292E">  PersistedTerminalFieldsSchema.</span><span style="color:#6F42C1">merge</span><span style="color:#24292E">(LiveTerminalFieldsSchema)   </span><span style="color:#6A737D">// live overlay present</span></span>
+<span class="line"><span style="color:#24292E">    .</span><span style="color:#6F42C1">extend</span><span style="color:#24292E">({ state: z.</span><span style="color:#6F42C1">literal</span><span style="color:#24292E">(</span><span style="color:#032F62">&quot;active&quot;</span><span style="color:#24292E">) });</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> SleepingTerminalSchema</span><span style="color:#D73A49"> =</span></span>
+<span class="line"><span style="color:#24292E">  PersistedTerminalFieldsSchema                                   </span><span style="color:#6A737D">// base only — overlay absent by type</span></span>
+<span class="line"><span style="color:#24292E">    .</span><span style="color:#6F42C1">extend</span><span style="color:#24292E">({ state: z.</span><span style="color:#6F42C1">literal</span><span style="color:#24292E">(</span><span style="color:#032F62">&quot;sleeping&quot;</span><span style="color:#24292E">), sleptAt: z.</span><span style="color:#6F42C1">number</span><span style="color:#24292E">() });</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> TerminalMetadataSchema</span><span style="color:#D73A49"> =</span><span style="color:#6A737D">                                   // the wire / collection shape</span></span>
+<span class="line"><span style="color:#24292E">  z.</span><span style="color:#6F42C1">discriminatedUnion</span><span style="color:#24292E">(</span><span style="color:#032F62">&quot;state&quot;</span><span style="color:#24292E">, [ActiveTerminalSchema, SleepingTerminalSchema]);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">type</span><span style="color:#6F42C1"> Terminal</span><span style="color:#D73A49"> =</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> ({ </span><span style="color:#E36209">state</span><span style="color:#D73A49">:</span><span style="color:#032F62"> &quot;active&quot;</span><span style="color:#24292E"> }                    </span><span style="color:#D73A49">&amp;</span><span style="color:#6F42C1"> PersistedTerminalFields</span><span style="color:#D73A49"> &amp;</span><span style="color:#6F42C1"> LiveTerminalFields</span><span style="color:#24292E">)</span></span>
+<span class="line"><span style="color:#D73A49">  |</span><span style="color:#24292E"> ({ </span><span style="color:#E36209">state</span><span style="color:#D73A49">:</span><span style="color:#032F62"> &quot;sleeping&quot;</span><span style="color:#24292E">; </span><span style="color:#E36209">sleptAt</span><span style="color:#D73A49">:</span><span style="color:#005CC5"> number</span><span style="color:#24292E"> } </span><span style="color:#D73A49">&amp;</span><span style="color:#6F42C1"> PersistedTerminalFields</span><span style="color:#24292E">);</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">// Presence reads the union; touching a live field MUST narrow.</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#6F42C1"> placeTile</span><span style="color:#D73A49">  =</span><span style="color:#24292E"> (</span><span style="color:#E36209">t</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Terminal</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> t.canvasLayout;             </span><span style="color:#6A737D">// both arms — no narrow</span></span>
+<span class="line"><span style="color:#D73A49">const</span><span style="color:#6F42C1"> routeInput</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> (</span><span style="color:#E36209">t</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> Terminal</span><span style="color:#24292E">) </span><span style="color:#D73A49">=&gt;</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#D73A49">  if</span><span style="color:#24292E"> (t.state </span><span style="color:#D73A49">!==</span><span style="color:#032F62"> &quot;active&quot;</span><span style="color:#24292E">) </span><span style="color:#D73A49">return</span><span style="color:#24292E">;                             </span><span style="color:#6A737D">// compiler-forced narrow</span></span>
+<span class="line"><span style="color:#6F42C1">  send</span><span style="color:#24292E">(t </span><span style="color:#6A737D">/* now carries pr · agent · foreground + a live PTY */</span><span style="color:#24292E">);</span></span>
+<span class="line"><span style="color:#24292E">};</span></span></code></pre>
+<p><code>sleptAt</code> is the sleeping arm’s analogue of the live overlay — the only new scalar.
+An active terminal is <code>base + overlay</code>; a sleeping terminal is <code>base + sleptAt</code>.
+Sleeping is one record whose <code>state</code> flag says whether its PTY is currently spawned.</p>
+<figure style="margin:1.6rem 0"><div style="max-width:46rem;margin:0 auto;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">kolu · canvas</span></div><div style="padding:1rem 1.05rem;background:#15171c;background-image:radial-gradient(#1b1e25 1px, transparent 1px);background-size:18px 18px"><div style="display:flex;gap:.85rem;align-items:stretch"><div style="flex:1 1 0;border:1px solid #6ea8e0;border-radius:10px;overflow:hidden;background:#171a20;box-shadow:0 0 0 1.5px #6ea8e055,0 6px 18px rgba(0,0,0,.4);opacity:1"><div style="display:flex;align-items:center;gap:.45rem;padding:.4rem .6rem;border-bottom:1px solid #2a2e37;background:#1d2026"><span style="width:9px;height:9px;border-radius:50%;background:#6ea8e0;display:inline-block;flex:0 0 auto"></span><span style="font:650 .72rem/1 ui-sans-serif;color:#c7ccd6">api</span><span style="font:.64rem/1 ui-monospace,monospace;color:#5b626d">main</span><span style="margin-left:auto;display:flex;gap:.35rem;align-items:center;color:#5b626d;font-size:.78rem"><span title="Sleep" style="color:#8895ad;border:1px solid #8895ad66;border-radius:5px;padding:0 .28rem;font-size:.64rem">☾</span><span>▢</span><span>×</span></span></div><div style="padding:.55rem .6rem;font:.63rem/1.5 ui-monospace,monospace;color:#8b929d;min-height:7rem"><div style="color:#6cc070">● claude · working</div><div>&gt; running the load test to repro…</div><div style="color:#5b626d">  ⎿ 1,204 reqs · 3 failures</div><div style="color:#d6a35c">↻ marching-ants aura on the border</div></div></div><div style="flex:1 1 0;border:1.5px dashed #8895ad99;border-radius:10px;overflow:hidden;background:#1d2230;box-shadow:0 6px 18px rgba(0,0,0,.4);opacity:0.98"><div style="display:flex;align-items:center;gap:.45rem;padding:.4rem .6rem;border-bottom:1px solid #2a2e37;background:#161b27"><span style="width:9px;height:9px;border-radius:50%;background:#8895ad;display:inline-block;flex:0 0 auto"></span><span style="font:650 .72rem/1 ui-sans-serif;color:#8895ad">api</span><span style="font:.64rem/1 ui-monospace,monospace;color:#5b626d">main · asleep</span><span style="margin-left:auto;display:flex;gap:.35rem;align-items:center;color:#5b626d;font-size:.78rem"><span style="font:650 .62rem/1 ui-sans-serif;color:#0e1014;background:#8895ad;border-radius:5px;padding:.18rem .45rem">Wake</span></span></div><div style="position:relative;min-height:7rem;background:#171a20;opacity:.6;filter:grayscale(.4)"><div style="padding:.55rem .6rem;font:.6rem/1.5 ui-monospace,monospace;color:#5b626d"><div>fix the auth race that only repros…</div><div>&gt; claude --model sonnet</div><div>  ⎿ analyzing 14 files…</div><div style="color:#8895ad">  ✓ wrote a failing test</div></div><div style="position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:space-between;padding:.5rem .6rem;background:linear-gradient(180deg,transparent,rgba(20,24,33,.85))"><span style="font:600 .6rem/1 ui-sans-serif;color:#8895ad">☾ frozen · asleep 3d</span><span style="font:600 .58rem/1 ui-sans-serif;color:#5b626d">PTY released</span></div></div></div></div></div></div><figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">Two terminals, one asleep — same card, same chrome, both draggable and resizable. The sleeping one (right) is the SAME terminal record with its PTY released: a frozen last frame, dimmed, with ☾ and a Wake button. Click it to focus it like any terminal; Wake respawns its PTY.</figcaption></figure>
+<figure style="margin:1.6rem 0"><div style="max-width:21rem;margin:0 auto;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">kolu · dock</span></div><div style="padding:1rem 1.05rem;background:#15171c;background-image:radial-gradient(#1b1e25 1px, transparent 1px);background-size:18px 18px"><div style="border-left:3px solid #cf8e57;padding-left:.6rem"><div style="font:700 .6rem/1 ui-sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#5b626d;margin:.1rem 0 .5rem">api</div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#171a20;opacity:1"><span style="color:#6cc070;font-size:.7rem">●</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#c7ccd6">load test</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">working</span></div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#171a20;opacity:1"><span style="color:#d6a35c;font-size:.7rem">◐</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#c7ccd6">review pr</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">awaiting you</span></div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#222734;box-shadow:inset 3px 0 0 #8895ad;opacity:0.85"><span style="color:#8895ad;font-size:.7rem">☾</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#8895ad">auth race</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">asleep · 3d</span><span style="font:650 .56rem/1 ui-sans-serif;color:#0e1014;background:#8895ad;border-radius:4px;padding:.16rem .36rem">Wake</span></div></div></div></div><figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">One list. A sleeping terminal is a row like any other — same group, same selection, dimmed with a ☾ state pip. Clicking it FOCUSES it (it can be the active/selected tile); a small Wake brings it back. No separate section, because there is no separate kind.</figcaption></figure>
+<h2 id="presence-reads-the-union-liveness-narrows">Presence reads the union, liveness narrows</h2>
+<figure style="margin:1.6rem 0"><div style="max-width:44rem;margin:0 auto;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">presence reads the union · liveness narrows</span></div><div style="padding:1rem 1.05rem;background:#15171c;background-image:radial-gradient(#1b1e25 1px, transparent 1px);background-size:18px 18px"><div style="border:1px solid #2a2e37;border-radius:9px;padding:.5rem .6rem;background:#171a20"><div style="font:700 .64rem/1.3 ui-sans-serif;color:#c7ccd6;margin-bottom:.28rem">canvas · dock · minimap · arrange · cycle · switcher</div><div style="font:.58rem/1.5 ui-monospace,monospace;color:#8b929d">read the Terminal union — presence (exists, on canvas, focusable, has a dock row)</div></div><div style="text-align:center;color:#5b626d;font:.62rem/1 ui-monospace;margin:.2rem 0">↓</div><div style="border:1px solid #8895ad;border-radius:9px;padding:.5rem .6rem;background:#161b27"><div style="font:700 .64rem/1.3 ui-sans-serif;color:#8895ad;margin-bottom:.28rem">terminal store — Terminal = active | sleeping</div><div style="font:.58rem/1.5 ui-monospace,monospace;color:#8895ad">active → base + live overlay (PTY · xterm · agent)<br/>sleeping → base + sleptAt (overlay absent by type)<br/>terminalIds · getMetadata().canvasLayout (both arms) · activeId</div></div><div style="text-align:center;color:#5b626d;font:.62rem/1 ui-monospace;margin:.2rem 0">↓<span style="color:#8b929d;margin-left:.4rem">state === &quot;active&quot;  narrow</span></div><div style="border:1px solid #2a2e37;border-radius:9px;padding:.5rem .6rem;background:#171a20"><div style="font:700 .64rem/1.3 ui-sans-serif;color:#c7ccd6;margin-bottom:.28rem">live fields — PTY/xterm · agent stream · input routing</div><div style="font:.58rem/1.5 ui-monospace,monospace;color:#8b929d">active arm only</div></div></div></div><figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">One store. Presence consumers read the Terminal union; a consumer that touches a live field must narrow state === &#39;active&#39; — the compiler refuses a PTY/agent field on a bare terminal, so a sleeping terminal can sit on the canvas and in the MRU yet can never be an input or WebGL target.</figcaption></figure>
+<p>Putting the discriminant on the terminal buys two structural properties:</p>
 <ul>
-<li><code>tileIds === terminalIds</code> — the canvas iterates the live terminal list.</li>
-<li><code>tile.layout === TerminalMetadata.canvasLayout</code> (<code>surface.ts:245</code>) — a tile’s
-position is a field <em>on the terminal</em>.</li>
-<li><code>activeTile === activeId</code>, a <em>terminal</em> id — selection is keyed to terminals.</li>
-<li>dock rows rank <code>terminalIds</code> — a tile that isn’t a live terminal is invisible.</li>
+<li><strong>Type-safe presence vs liveness.</strong> A consumer that reads <code>agent</code>/<code>foreground</code>/<code>pr</code>/PTY/xterm must first narrow <code>state === &quot;active&quot;</code>; the compiler refuses a live field on the bare union. There is no live-only list to read from by mistake — so a presence surface (canvas, dock, minimap, arrange, cycle, switcher) physically <em>cannot</em> omit or mis-render a sleeping terminal. Input routing resolves inside the active narrow, so a sleeping terminal can be the active/selected/panned-to tile yet is never an input target. <code>holdsWebgl</code>/<code>webglTileBudget</code> filter on the <code>active</code> set, so a sleeping terminal holds no WebGL context by construction.</li>
+<li><strong>One persistence channel.</strong> <code>SavedTerminal</code> is already <code>PersistedTerminalFields + id</code> — the sleeping arm’s exact payload minus <code>sleptAt</code>. A restored terminal and a slept terminal are the <em>same on-disk record</em>, distinguished only by <code>state</code>. Session save emits one list; sleeping terminals join it; restore is bulk-wake, wake is restore-one, sleep is the inverse.</li>
 </ul>
-<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Today a tile is a live terminal: tileIds equal terminalIds, layout lives on terminal metadata, the active tile is the active terminal, and dock rows come from terminal ids — so a non-live tile has no home and gets bolted on as a silo. Proposed: a first-class Tile registry owns identity, layout, active/selection and MRU, plus a TileContent discriminated union whose only variant today is terminal; the live terminal list feeds the registry, and sleeping and planned become union variants, not silos. The canvas, dock and selection all read the one registry.">
-  <defs>
-    <marker id="t-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#5f6b80"/>
-    </marker>
-    <marker id="t-arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#1B7A3A"/>
-    </marker>
-    <style>
-      .live  { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
-      .tile  { fill:#E6F4EA; stroke:#1B7A3A; stroke-width:1.7; }
-      .kind  { fill:#FBF1DC; stroke:#B8860B; stroke-width:1.5; }
-      .silo  { fill:#FCEEEC; stroke:#C0392B; stroke-width:1.5; stroke-dasharray:5 3; }
-      .h     { fill:#0A0F25; font-size:13.5px; font-weight:700; }
-      .t     { fill:#0A0F25; font-size:13px; font-weight:650; }
-      .s     { fill:#5b6470; font-size:11px; }
-      .mono  { fill:#0A2A14; font-size:11.5px; font-weight:650; font-family:ui-monospace,monospace; }
-      .e     { stroke:#5f6b80; stroke-width:1.5; fill:none; }
-      .eG    { stroke:#1B7A3A; stroke-width:1.8; fill:none; }
-      .el    { fill:#27303f; font-size:10.5px; }
-      .red   { fill:#C0392B; font-size:11px; font-weight:650; }
-      .grn   { fill:#1B7A3A; font-size:11px; font-weight:650; }
-    </style>
-  </defs>
-
-  <line x1="500" y1="40" x2="500" y2="560" stroke="#cfd4dc" stroke-width="1.2" stroke-dasharray="3 4"/>
-
-  <!-- LEFT: today -->
-  <text class="h" x="40" y="32">Today — a tile IS a live terminal</text>
-  <rect class="live" x="60" y="56" width="360" height="46" rx="8"/>
-  <text class="t" x="78" y="78">terminalList (live)</text>
-  <text class="s" x="78" y="94">server-driven on create / kill</text>
-
-  <rect class="live" x="60" y="150" width="360" height="120" rx="8"/>
-  <text class="t" x="78" y="174">Terminal</text>
-  <text class="mono" x="78" y="196" fill="#0A0F25">canvasLayout</text><text class="s" x="190" y="196">← on TerminalMetadata</text>
-  <text class="mono" x="78" y="216" fill="#0A0F25">activeId</text><text class="s" x="190" y="216">← a terminal id</text>
-  <text class="mono" x="78" y="236" fill="#0A0F25">dock rank</text><text class="s" x="190" y="236">← from terminalIds</text>
-  <text class="mono" x="78" y="256" fill="#0A0F25">PTY · xterm · agent</text>
-
-  <path class="e" d="M240 102 L240 150" marker-end="url(#t-arr)"/>
-  <rect fill="#fff" stroke="#9aa3b2" x="156" y="116" width="168" height="18" rx="4"/>
-  <text class="el" x="164" y="129">tileIds === terminalIds</text>
-
-  <rect class="silo" x="60" y="318" width="360" height="56" rx="8"/>
-  <text class="red" x="78" y="342">A non-live tile has no home</text>
-  <text class="s" x="78" y="360">→ sleeping bolted on as a parallel silo</text>
-  <path class="e" d="M240 270 L240 318" marker-end="url(#t-arr)"/>
-
-  <!-- RIGHT: proposed -->
-  <text class="h" x="540" y="32">Proposed — Tile owns presence; Terminal is content</text>
-
-  <rect class="tile" x="560" y="56" width="380" height="116" rx="8"/>
-  <text class="t" x="580" y="80">Tile registry</text>
-  <text class="mono" x="580" y="102">id · layout · activeId · MRU</text>
-  <text class="mono" x="580" y="122">content: TileContent</text>
-  <text class="s" x="580" y="144">the one source the canvas + dock + selection read —</text>
-  <text class="s" x="580" y="160">content-agnostic; drag / resize / active never branch on kind</text>
-
-  <rect class="kind" x="560" y="206" width="380" height="92" rx="8"/>
-  <text class="t" x="580" y="228">TileContent — a discriminated union</text>
-  <text class="mono" x="580" y="250" fill="#5a3a00">{ kind: "terminal", terminalId }</text><text class="grn" x="812" y="250">today</text>
-  <text class="mono" x="580" y="270" fill="#5a3a00">{ kind: "sleeping", record }</text><text class="s" x="812" y="270">PR 2</text>
-  <text class="mono" x="580" y="290" fill="#5a3a00">{ kind: "planned", intent }</text><text class="s" x="812" y="290">later</text>
-
-  <rect class="live" x="560" y="330" width="380" height="58" rx="8"/>
-  <text class="t" x="580" y="353">Terminal (liveness)</text>
-  <text class="s" x="580" y="371">PTY · xterm · agent · attach stream — the content of a terminal tile</text>
-
-  <path class="eG" d="M560 388 C 470 388, 470 130, 560 120" marker-end="url(#t-arrG)"/>
-  <text class="grn" x="430" y="250" transform="rotate(-90 430 250)">live list FEEDS the registry</text>
-
-  <!-- registry → consumers -->
-  <rect class="tile" x="560" y="430" width="118" height="40" rx="7"/>
-  <text class="t" x="578" y="455">Canvas</text>
-  <rect class="tile" x="691" y="430" width="118" height="40" rx="7"/>
-  <text class="t" x="709" y="455">Dock</text>
-  <rect class="tile" x="822" y="430" width="118" height="40" rx="7"/>
-  <text class="t" x="838" y="455">Selection</text>
-  <path class="eG" d="M619 172 C 619 360, 619 400, 619 430" marker-end="url(#t-arrG)"/>
-  <path class="eG" d="M700 172 C 740 360, 750 400, 750 430" marker-end="url(#t-arrG)"/>
-  <path class="eG" d="M760 172 C 860 360, 881 400, 881 430" marker-end="url(#t-arrG)"/>
-  <text class="grn" x="600" y="500">sleeping / planned = union variants, not silos · one read path</text>
-</svg>
- <figcaption data-astro-cid-rhux3v4s>Today (left): a tile is projected from the live terminal list, with layout, active, and dock all hanging off the terminal — so a non-live tile has no home and gets a silo. Proposed (right): a first-class Tile registry owns identity, layout, active/selection, and MRU plus a TileContent union (terminal-only today); the live list feeds it, and the canvas, dock, and selection all read the one source. Sleeping and planned become union variants, not silos.</figcaption> </figure>
-<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The silo, named — both lenses independently flagged the same fingerprints</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The first attempt proved the wart by reproducing it: a second <code>&lt;For&gt;</code> loop, a
-second layout store inside the sleeping record, and a split-brained reconciler
-(<code>layoutOf</code>/<code>persistLayout</code> branching on <code>sleeping.getLayout(id) !== undefined</code>).
-That branch is the smell — drag/resize/active should <em>never</em> know a tile’s kind.
-Both lenses also caught real latent bugs born of the parallel registry:
-<code>pendingLayouts.dropEvicted</code> never evicts a sleeping tile’s pending layout (it
-isn’t in the live set), and <code>terminalCount + sleeping.records().length</code> leaks the
-two-registry split into the canvas-mode decision. Fragmentation, not
-decomposition.</p></div> </aside>
-<h2 id="a-first-class-tile-pr-1">A first-class Tile <span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-2qeywk4b>PR 1</span></h2>
-<p>The fix is <strong>not</strong> an electricity (no <code>@kolu/*</code> package — a tile is app-domain
-state, hiding a bounded algorithm, not a transport-class volatility; the same
-verdict <code>electricity.mdx</code> already records for <code>@kolu/geometry</code>). It’s an in-app
-<strong>decomplect</strong>: separate <em>tile presence</em> from <em>terminal liveness</em>.</p>
-<p>A <strong>Tile registry</strong> (<code>useTileStore</code>, fed by the existing terminal store) becomes
-the one source of truth for what the canvas, dock, and selection read:</p>
+<h2 id="the-phases">The phases</h2>
+<p>Each is one reviewable PR; each leaves <code>master</code> shippable.</p>
 
 
 
@@ -139,255 +65,98 @@ the one source of truth for what the canvas, dock, and selection read:</p>
 
 
 
-<table><thead><tr><th>The <strong>Tile</strong> owns</th><th>The <strong>Terminal</strong> owns</th></tr></thead><tbody><tr><td>identity (<code>TileId</code>), layout, active/selection, MRU</td><td>PTY · xterm · agent · attach stream</td></tr><tr><td>a <code>TileContent</code> discriminated union</td><td>repo/branch identity, agent state, the live body</td></tr></tbody></table>
-<p><code>TileContent</code> is <code>{ kind: &quot;terminal&quot;, terminalId }</code> — and that is the <strong>only</strong>
-variant in PR 1. The canvas renders <strong>one</strong> <code>&lt;For&gt;</code> over <code>tileStore.tileIds()</code>,
-dispatching on <code>tileStore.contentOf(id).kind</code>; <code>activeId</code> becomes a <code>TileId</code>;
-<code>focusedId</code> narrows <code>TileId → TerminalId</code> only when <code>kind === &quot;terminal&quot;</code>;
-<code>mode()</code> keys off <code>tileStore.tileCount()</code>. The reconciler disappears. <strong>Zero
-behavior change</strong> — Terminal is the only tile there is.</p>
-<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Why this is the load-bearing PR</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>This is the whole point of the re-plan: once a tile is a real thing with its own
-identity, layout, selection, and a <em>content union</em>, “sleeping” is a new union
-variant — it inherits drag, resize, focus, active, dock ordering, and
-persistence <strong>for free</strong>, because those operate on the content-agnostic registry.
-The silo becomes unrepresentable. A future <em>planned terminal</em> is then a third
-variant, not a third silo.</p></div> </aside>
-<h2 id="sleeping-is-a-tile-state-pr-2--pr-3">Sleeping is a tile state <span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-2qeywk4b>PR 2</span> · <span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-2qeywk4b>PR 3</span></h2>
-<p>With the registry in place, a sleeping terminal is a tile whose content is
-<code>{ kind: &quot;sleeping&quot;, record }</code> and whose liveness is false. It behaves <strong>no
-differently from a live terminal</strong>: same dock row (selectable — clicking
-<strong>focuses</strong> it, it can be the <em>active</em> tile, it never auto-wakes), same draggable
-and resizable canvas tile, same MRU. The only differences are a dormant body and
-one added verb — <strong>Wake</strong> (re-spawn PTY + resume the agent, flipping the content
-back to <code>terminal</code>).</p>
-<figure style="margin:1.6rem 0"><div style="max-width:46rem;margin:0 auto;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">kolu · canvas</span></div><div style="padding:1rem 1.05rem;background:#15171c;background-image:radial-gradient(#1b1e25 1px, transparent 1px);background-size:18px 18px"><div style="display:flex;gap:.85rem;align-items:stretch"><div style="flex:1 1 0;border:1px solid #6ea8e0;border-radius:10px;overflow:hidden;background:#171a20;box-shadow:0 0 0 1.5px #6ea8e055,0 6px 18px rgba(0,0,0,.4);opacity:1"><div style="display:flex;align-items:center;gap:.45rem;padding:.4rem .6rem;border-bottom:1px solid #2a2e37;background:#1d2026"><span style="width:9px;height:9px;border-radius:50%;background:#6ea8e0;display:inline-block;flex:0 0 auto"></span><span style="font:650 .72rem/1 ui-sans-serif;color:#c7ccd6">api</span><span style="font:.64rem/1 ui-monospace,monospace;color:#5b626d">main</span><span style="margin-left:auto;display:flex;gap:.35rem;align-items:center;color:#5b626d;font-size:.78rem"><span title="Sleep" style="color:#8895ad;border:1px solid #8895ad66;border-radius:5px;padding:0 .28rem;font-size:.64rem">☾</span><span>▢</span><span>×</span></span></div><div style="padding:.55rem .6rem;font:.63rem/1.5 ui-monospace,monospace;color:#8b929d;min-height:7rem"><div style="color:#6cc070">● claude · working</div><div>&gt; running the load test to repro…</div><div style="color:#5b626d">  ⎿ 1,204 reqs · 3 failures</div><div style="color:#d6a35c">↻ marching-ants aura on the border</div></div></div><div style="flex:1 1 0;border:1.5px dashed #8895ad99;border-radius:10px;overflow:hidden;background:#1d2230;box-shadow:0 6px 18px rgba(0,0,0,.4);opacity:0.98"><div style="display:flex;align-items:center;gap:.45rem;padding:.4rem .6rem;border-bottom:1px solid #2a2e37;background:#161b27"><span style="width:9px;height:9px;border-radius:50%;background:#8895ad;display:inline-block;flex:0 0 auto"></span><span style="font:650 .72rem/1 ui-sans-serif;color:#8895ad">api</span><span style="font:.64rem/1 ui-monospace,monospace;color:#5b626d">main · asleep</span><span style="margin-left:auto;display:flex;gap:.35rem;align-items:center;color:#5b626d;font-size:.78rem"><span style="font:650 .62rem/1 ui-sans-serif;color:#0e1014;background:#8895ad;border-radius:5px;padding:.18rem .45rem">Wake</span></span></div><div style="position:relative;min-height:7rem;background:#171a20;opacity:.6;filter:grayscale(.4)"><div style="padding:.55rem .6rem;font:.6rem/1.5 ui-monospace,monospace;color:#5b626d"><div>fix the auth race that only repros…</div><div>&gt; claude --model sonnet</div><div>  ⎿ analyzing 14 files…</div><div style="color:#8895ad">  ✓ wrote a failing test</div></div><div style="position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:space-between;padding:.5rem .6rem;background:linear-gradient(180deg,transparent,rgba(20,24,33,.85))"><span style="font:600 .6rem/1 ui-sans-serif;color:#8895ad">☾ frozen · asleep 3d</span><span style="font:600 .58rem/1 ui-sans-serif;color:#5b626d">PTY released</span></div></div></div></div></div></div><figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">Two real tiles — same size, same chrome, both draggable and resizable. The sleeping one (right) just has a dormant body: a frozen screenshot taken at sleep time, dimmed, with ☾ and a Wake button. Click it to focus it like any tile; Wake to bring it back to life.</figcaption></figure>
-<figure style="margin:1.6rem 0"><div style="max-width:21rem;margin:0 auto;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 6px 22px rgba(0,0,0,.32)"><div style="display:flex;align-items:center;gap:.45rem;padding:.5rem .8rem;background:#1b1e24;border-bottom:1px solid #2a2e37"><span style="width:10px;height:10px;border-radius:50%;background:#ff5f56;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#ffbd2e;display:inline-block"></span><span style="width:10px;height:10px;border-radius:50%;background:#27c93f;display:inline-block"></span><span style="margin-left:.4rem;font:600 .72rem/1 ui-monospace,monospace;color:#8b929d">kolu · dock</span></div><div style="padding:1rem 1.05rem;background:#15171c;background-image:radial-gradient(#1b1e25 1px, transparent 1px);background-size:18px 18px"><div style="border-left:3px solid #cf8e57;padding-left:.6rem"><div style="font:700 .6rem/1 ui-sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#5b626d;margin:.1rem 0 .5rem">api</div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#171a20;opacity:1"><span style="color:#6cc070;font-size:.7rem">●</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#c7ccd6">load test</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">working</span></div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#171a20;opacity:1"><span style="color:#d6a35c;font-size:.7rem">◐</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#c7ccd6">review pr</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">awaiting you</span></div><div style="display:flex;align-items:center;gap:.5rem;padding:.35rem .4rem;border-radius:7px;margin-bottom:.35rem;background:#222734;box-shadow:inset 3px 0 0 #8895ad;opacity:0.85"><span style="color:#8895ad;font-size:.7rem">☾</span><span style="font:600 .72rem/1.2 ui-sans-serif;color:#8895ad">auth race</span><span style="margin-left:auto;font:.6rem/1 ui-sans-serif;color:#5b626d">asleep · 3d</span><span style="font:650 .56rem/1 ui-sans-serif;color:#0e1014;background:#8895ad;border-radius:4px;padding:.16rem .36rem">Wake</span></div></div></div></div><figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">One list. A sleeping terminal is a row like any other — same group, same selection, dimmed with a ☾ state pip. Clicking it FOCUSES it (it can be the active tile); a small Wake brings it back. No separate section.</figcaption></figure>
-<h3 id="a-frozen-screenshot-for-the-dormant-body-pr-3">A frozen screenshot for the dormant body <span class="pill" style="color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6" data-astro-cid-2qeywk4b>PR 3</span></h3>
-<p>The dormant body shouldn’t be a bare card — it should be the terminal as you left
-it. Just before sleeping, capture a <strong>screenshot</strong> of the tile, write it to the
-state dir, and serve it back so the sleeping tile shows its <strong>frozen</strong> last frame
-(dimmed, with ☾ and Wake). It reuses the existing <code>screenshotTerminal</code> path; the
-new surface is a small <strong>served image route</strong> from <code>KOLU_STATE_DIR</code> (the
-<code>serve-dir</code> / iframe-preview route is the precedent), and the screenshot rides
-the sleeping record so it survives a restart.</p>
-<h3 id="sleep--wake-mechanism-reused-wholesale">Sleep / Wake mechanism (reused wholesale)</h3>
-<p>The freeze/resume machinery itself is settled and survives from the first cut —
-it’s <strong>session restore scoped to one tile</strong>:</p>
-<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Sleep and Wake are session-restore scoped to one terminal: sleep snapshots the live terminal into a new sleepingTerminals cell and tears down the PTY; the cell is projected as a sleeping tile on the canvas, a sleeping row in the Dock, and a sleeping card in the switcher; Wake replays the saved record through the existing handleRestoreSession and resumes the agent in place.">
-  <defs>
-    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#5f6b80"/>
-    </marker>
-    <marker id="arrG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#1B7A3A"/>
-    </marker>
-    <style>
-      .live  { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.6; }
-      .reuse { fill:#E6F4EA; stroke:#1B7A3A; stroke-width:1.6; }
-      .new   { fill:#FBF1DC; stroke:#B8860B; stroke-width:1.6; }
-      .ntitle { fill:#0A0F25; font-size:14.5px; font-weight:650; }
-      .nsub   { fill:#5b6470; font-size:11.5px; }
-      .nmono  { fill:#0A2A14; font-size:12.5px; font-weight:650; font-family:ui-monospace,monospace; }
-      .nmonoA { fill:#5a3a00; font-size:12.5px; font-weight:650; font-family:ui-monospace,monospace; }
-      .edge   { stroke:#5f6b80; stroke-width:1.7; fill:none; }
-      .edgeG  { stroke:#1B7A3A; stroke-width:1.9; fill:none; }
-      .edgeF  { stroke:#5f6b80; stroke-width:1.4; fill:none; stroke-dasharray:4 4; }
-      .echip  { fill:#ffffff; stroke:#9aa3b2; stroke-width:1; }
-      .elabel { fill:#27303f; font-size:11.5px; }
-      .step   { fill:#0A0F25; font-size:12px; font-weight:700; }
-      .legtxt { fill:#27303f; font-size:11.5px; }
-    </style>
-  </defs>
 
-  <!-- title + legend -->
-  <text class="title" x="40" y="30" fill="#0A0F25" font-size="15" font-weight="700">Sleep / Wake — session-restore, scoped to one terminal</text>
-  <rect x="606" y="18" width="14" height="14" rx="3" class="reuse"/>
-  <text class="legtxt" x="626" y="30">reused verbatim</text>
-  <rect x="748" y="18" width="14" height="14" rx="3" class="new"/>
-  <text class="legtxt" x="768" y="30">new surface</text>
-  <rect x="876" y="18" width="14" height="14" rx="3" class="live"/>
-  <text class="legtxt" x="896" y="30">live</text>
 
-  <!-- LEFT COLUMN: the lifecycle cycle -->
-  <rect class="live" x="90" y="66" width="240" height="86" rx="9"/>
-  <text class="ntitle" x="110" y="98">Live terminal</text>
-  <text class="nsub"   x="110" y="120">xterm · PTY · WebGL context</text>
-  <text class="nsub"   x="110" y="138">agent process</text>
 
-  <rect class="reuse" x="90" y="208" width="240" height="80" rx="9"/>
-  <text class="nmono"  x="110" y="238">snapshotTerminal(id)</text>
-  <text class="nsub"   x="110" y="258">strip pr/agent/foreground</text>
-  <text class="nsub"   x="110" y="276">→ SavedTerminal[ ] (+ subs)</text>
 
-  <rect class="reuse" x="382" y="214" width="184" height="68" rx="9"/>
-  <text class="nmono"  x="400" y="242">handleKillWithSubs</text>
-  <text class="nsub"   x="400" y="264">free PTY · WebGL · xterm</text>
 
-  <rect class="new" x="90" y="348" width="240" height="100" rx="9"/>
-  <text class="nmonoA" x="110" y="378">sleepingTerminals</text>
-  <text class="nsub"   x="110" y="398">surface cell · conf / on disk</text>
-  <text class="nsub"   x="110" y="416">read-only stream to client</text>
-  <text class="nsub"   x="110" y="434">peer of the `session` cell</text>
 
-  <rect class="reuse" x="90" y="520" width="252" height="92" rx="9"/>
-  <text class="nmono"  x="110" y="550">handleRestoreSession</text>
-  <text class="nmono"  x="110" y="568">  ({ session })</text>
-  <text class="nsub"   x="110" y="590">respawn + resumeAgentCommand</text>
 
-  <!-- RIGHT COLUMN: the sleeping projections -->
-  <rect class="new" x="650" y="86" width="300" height="120" rx="9"/>
-  <text class="ntitle" x="672" y="116">Sleeping tile — canvas slot</text>
-  <text class="nsub"   x="672" y="138">holds its position, sized to</text>
-  <text class="nsub"   x="672" y="156">content · dimmed · ☾</text>
-  <text class="nsub"   x="672" y="180">click to wake in place</text>
-  <text class="nsub"   x="672" y="198">(canvas mode)</text>
 
-  <rect class="new" x="650" y="240" width="300" height="86" rx="9"/>
-  <text class="ntitle" x="672" y="270">Sleeping row — Dock</text>
-  <text class="nsub"   x="672" y="292">new `sleeping` bucket + pip glyph</text>
-  <text class="nsub"   x="672" y="312">present in both modes</text>
 
-  <rect class="new" x="650" y="360" width="300" height="86" rx="9"/>
-  <text class="ntitle" x="672" y="390">Sleeping card — switcher</text>
-  <text class="nsub"   x="672" y="412">Sleeping column in WorkspaceGrid</text>
-  <text class="nsub"   x="672" y="432">carries intent · $PWD · agent</text>
 
-  <!-- EDGES: sleep pipeline -->
-  <path class="edge" d="M210 152 L210 208" marker-end="url(#arr)"/>
-  <rect class="echip" x="222" y="168" width="62" height="20" rx="5"/>
-  <text class="step"  x="231" y="182">① Sleep</text>
 
-  <path class="edge" d="M330 248 L382 248" marker-end="url(#arr)"/>
-  <rect class="echip" x="336" y="196" width="48" height="19" rx="5"/>
-  <text class="step"  x="343" y="210">③ kill</text>
 
-  <path class="edge" d="M210 288 L210 348" marker-end="url(#arr)"/>
-  <rect class="echip" x="222" y="306" width="104" height="20" rx="5"/>
-  <text class="elabel" x="230" y="320">② persist first</text>
 
-  <!-- EDGES: cell → sleeping projections (read-only stream, both modes) -->
-  <path class="edgeF" d="M330 372 C 470 360, 520 150, 650 146" marker-end="url(#arr)"/>
-  <path class="edgeF" d="M330 392 C 480 392, 520 284, 650 283" marker-end="url(#arr)"/>
-  <path class="edgeF" d="M330 416 C 470 430, 520 404, 650 403" marker-end="url(#arr)"/>
-  <rect class="echip" x="396" y="332" width="156" height="20" rx="5"/>
-  <text class="elabel" x="404" y="346">render · read-only stream</text>
-
-  <!-- EDGE: wake (click a sleeping surface) → restore -->
-  <path class="edge" d="M650 403 C 470 470, 430 566, 342 566" marker-end="url(#arr)"/>
-  <rect class="echip" x="436" y="508" width="112" height="20" rx="5"/>
-  <text class="step"  x="444" y="522">④ Wake (click)</text>
-
-  <!-- EDGE: restore → live (close the loop, far-left arc) -->
-  <path class="edgeG" d="M90 560 C 44 560, 44 110, 90 110" marker-end="url(#arrG)"/>
-  <text class="elabel" x="20" y="330" transform="rotate(-90 20 330)" fill="#1B7A3A">agent resumed in place</text>
-</svg>
- <figcaption data-astro-cid-rhux3v4s>Sleep = snapshot the tree (reuse snapshotTerminal) → persist into the sleepingTerminals store → tear down the live terminal (reuse handleKillWithSubs). Wake = replay the record through the existing handleRestoreSession, which respawns and resumes the agent. Only the store + two RPCs are new; the rest is reused. (PR 2 rehosts this behind the Tile content union instead of a silo.)</figcaption> </figure>
-<h2 id="persisted-and-restored--tiles-not-just-terminals">Persisted and restored — tiles, not just terminals</h2>
-<p>Tiles must survive a reload and a restart, live or sleeping — that’s the whole
-point of sleeping for days. The model makes this explicit:</p>
+<table><thead><tr><th>Phase</th><th>What lands</th><th>Why separable</th></tr></thead><tbody><tr><td><strong>1 — Seat the sum</strong></td><td>Add <code>state</code>; flip <code>TerminalMetadataSchema</code> to a <code>discriminatedUnion</code>; presence surfaces read the <code>Terminal</code> union off the terminal store; ship with only the <code>active</code> arm constructed</td><td><strong>Zero behavior change</strong> — a pure structural move that makes the narrowing seam exist before any sleep logic depends on it</td></tr><tr><td><strong>2 — Sleep / Wake</strong></td><td>Populate the <code>sleeping</code> arm: sleep snapshots the base + releases PTY/xterm/agent; wake respawns from the base; sleeping terminals join the canvas/dock as ordinary cards and rows</td><td>The user-facing core; no new component, no second loop</td></tr><tr><td><strong>3 — Frozen screenshot body</strong></td><td>Capture just before sleep, write under <code>KOLU_STATE_DIR</code>, serve through a small static image route; the reference rides the record</td><td>Isolated surface — one capture + one route</td></tr><tr><td><strong>4 — Unify with session-restore</strong></td><td>Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set</td><td>Behavior-preserving consolidation, landed last</td></tr></tbody></table>
+<h3 id="phase-1--seat-the-sum-zero-behavior-change">Phase 1 — seat the sum (zero behavior change)</h3>
+<p>Add the <code>state</code> discriminant to the terminal and flip <code>TerminalMetadataSchema</code>
+from a flat <code>.merge</code> to <code>z.discriminatedUnion(&quot;state&quot;, …)</code>, but <strong>construct only
+the <code>active</code> arm</strong>. Every terminal is <code>active</code>, so the UX is pixel-identical; what
+the phase delivers is the <code>state === &quot;active&quot;</code> seam, compiling and in place. Presence
+surfaces — the canvas <code>&lt;For&gt;</code>, dock ranking, the minimap, arrange-by-repo, the
+<code>nextTerminal</code>/<code>prevTerminal</code> cycle, view-posture’s count gate, the right-panel
+<code>hasTerminals</code> check — read the <code>Terminal</code> union directly off the terminal store,
+with no registry between them. The canvas card shell, the layout writer, and
+arrange’s clustering algorithm are untouched; only their data source changes.</p>
+<p>Two things land here because the schema flip forces them:</p>
 <ul>
-<li><strong>Live tiles</strong> persist + restore exactly as today: the <code>session</code> cell holds
-each terminal’s layout/theme/intent/agent, and session restore respawns them.</li>
-<li><strong>Sleeping tiles</strong> persist in their own on-disk <code>sleepingTerminals</code> store
-(disjoint from <code>session</code>, so the live-session autosave can’t clobber them) and
-rehydrate on boot <strong>as sleeping</strong> — never auto-woken. The frozen screenshot is
-part of that record.</li>
-<li>On boot the Tile registry <strong>merges both sources</strong> into one tile list, so the
-canvas/dock see a single, ordered set of tiles — some live, some asleep —
-restored to their saved positions.</li>
+<li><strong>The migration.</strong> <code>SavedTerminal</code> is persisted, so the <code>discriminatedUnion</code>
+rejects a legacy record with no <code>state</code> key. A <code>state.ts</code> migration stamps
+<code>state: &quot;active&quot;</code> on every legacy terminal and bumps <code>SCHEMA_VERSION</code> — the <em>one</em>
+sanctioned place to supply the default. Read sites narrow; they never coalesce
+(a read-time <code>?? &quot;active&quot;</code> is a defect — fail fast).</li>
+<li><strong>The liveness-reader sweep.</strong> Every reader that touches <code>agent</code>/<code>foreground</code>/<code>pr</code>/PTY/xterm
+(the agent indicator, the PR popover, the xterm pane, the WebGL budget, input
+routing, <code>activeMeta</code>) either stays in the presence subset or adds a
+<code>state === &quot;active&quot;</code> narrow. That sweep is the bulk of the diff — and it <em>is</em> the
+win: afterward a live field on a bare terminal won’t compile.</li>
 </ul>
-<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 210" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="One dormant-tile primitive with two producers. A planned tile carries intent only — a future — and activates into a live terminal by starting fresh. A live terminal sleeps into a sleeping tile — a saved record, a past — and wakes back to life by resuming its agent. Sleep ships now; planned tiles are the deferred future sibling.">
-  <defs>
-    <marker id="la" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" fill="#5f6b80"/>
-    </marker>
-    <style>
-      .plan  { fill:#FBF1DC; stroke:#B8860B; stroke-width:1.6; stroke-dasharray:6 4; }
-      .live  { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.6; }
-      .fold  { fill:#E7EEF4; stroke:#5b7088; stroke-width:1.6; }
-      .t     { fill:#0A0F25; font-size:14px; font-weight:650; }
-      .s     { fill:#5b6470; font-size:11.5px; }
-      .e     { stroke:#5f6b80; stroke-width:1.7; fill:none; }
-      .el    { fill:#27303f; font-size:11px; }
-      .tense { font-size:11px; font-weight:700; }
-    </style>
-  </defs>
-
-  <rect class="plan" x="34" y="64" width="176" height="76" rx="10"/>
-  <text class="t" x="56" y="94">Planned tile</text>
-  <text class="s" x="56" y="114">intent only</text>
-  <text class="tense" x="56" y="158" fill="#B8860B">a future · deferred (#760)</text>
-
-  <rect class="live" x="272" y="58" width="176" height="88" rx="10"/>
-  <text class="t" x="296" y="92">Live terminal</text>
-  <text class="s" x="296" y="112">PTY · agent · now</text>
-
-  <rect class="fold" x="510" y="64" width="176" height="76" rx="10"/>
-  <text class="t" x="534" y="94">Sleeping tile</text>
-  <text class="s" x="534" y="114">saved record · ☾</text>
-  <text class="tense" x="534" y="158" fill="#5b7088">a past · ships now</text>
-
-  <path class="e" d="M210 102 L270 102" marker-end="url(#la)"/>
-  <text class="el" x="206" y="46">activate · start fresh</text>
-
-  <path class="e" d="M448 86 C 480 74, 482 74, 510 80" marker-end="url(#la)"/>
-  <text class="el" x="452" y="60">sleep</text>
-  <path class="e" d="M510 122 C 482 132, 480 132, 450 124" marker-end="url(#la)"/>
-  <text class="el" x="448" y="150">wake · resume agent</text>
-</svg>
- <figcaption data-astro-cid-rhux3v4s>One Tile, content states over time. A planned tile (later) has only a future — activate → start fresh. A live tile sleeps (snapshot + release) and wakes (respawn + resume). All three are variants of one TileContent union on one Tile — never separate objects.</figcaption> </figure>
-<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Layout&#39;s home — decided with the lenses</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>hickey argued <code>canvasLayout</code> should move off <code>TerminalMetadata</code> onto the tile
-record; lowy argued defer that schema migration (the client registry split needs
-no schema change — <code>SleepingTerminal.id</code> is already a stable tile id). <strong>We take
-lowy’s sequencing:</strong> PR 1 introduces the client-side Tile registry with no schema
-change (live-tile layout still reads from terminal metadata, sleeping-tile layout
-from the record — the registry hides which); a server-side unified tile store is
-a <em>later, optional</em> migration, only if a second consumer of “persisted tile
-position independent of liveness” appears. Don’t move the schema on spec.</p></div> </aside>
-<h2 id="the-four-phases">The four phases</h2>
-<p>Each phase is one reviewable PR; each leaves <code>master</code> shippable.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Phase</th><th>PR</th><th>What lands</th><th>Why separable</th></tr></thead><tbody><tr><td><strong>1 — Tile</strong></td><td><a href="https://github.com/juspay/kolu/pull/1435" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
-#1435 </a></td><td><code>useTileStore</code> + <code>TileContent</code> union (terminal-only), one canvas <code>&lt;For&gt;</code> over <code>tileIds()</code> dispatching on <code>contentOf(id).kind</code>, <code>TileId</code> selection, <code>mode()</code> on <code>tileCount()</code>, layout read/write through the registry</td><td>Pure decomplect, <strong>zero behavior change</strong> — reviewable on its own, de-risks everything after</td></tr><tr><td><strong>2 — Sleeping state</strong></td><td>feature</td><td><code>{kind:&quot;sleeping&quot;}</code> variant + sleep/wake RPCs + the persisted store + restore-as-sleeping; dock row + canvas tile via the shared paths</td><td>The user-facing core; no silo, no new dock section</td></tr><tr><td><strong>3 — Frozen screenshot</strong></td><td>feature</td><td>capture-on-sleep, served image route from the state dir, frozen body</td><td>Cohesive, isolated surface (a route + a capture)</td></tr><tr><td><strong>4 — Louder alerts &amp; parity</strong></td><td>feature</td><td>the <em>awaiting/alert</em> signals get louder everywhere (an escape hatch earns it), switcher parity, the 48h idle-nudge</td><td>Polish; keeps PR 2 tight</td></tr></tbody></table>
-<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Why the order is the point</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Sleep was never the hard part — the machinery shipped in a day. The hard part was
-that there was nowhere clean to <em>put</em> a dormant tile. Phase 1 builds that place.
-Everything after is a variant, a body, or a signal — small, because the structure
-finally fits.</p></div> </aside>
-<p>The open decisions, now narrow: whether the served screenshot route reuses
-<code>iframePreviewRoute</code>’s static-serve path or gets its own; whether a focused
-sleeping tile shows a hint that typing will offer to wake it; and the eventual
-server-side tile-store migration (deferred above). None block Phase 1.</p> </div>  <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>
+<p>Acceptance: <code>master</code> is shippable, the UX is identical, and the seam every later
+phase leans on is in place.</p>
+<h3 id="phase-2--sleep--wake">Phase 2 — Sleep / Wake</h3>
+<p>Populate the <code>sleeping</code> arm. <strong>Sleep</strong> snapshots the persisted base, then releases
+the PTY/xterm/agent — <em>persist before kill</em>, never kill-then-pray, so a crash
+mid-sleep loses nothing. <strong>Wake</strong> respawns from the base and resumes the agent. A
+terminal transitions <code>active → sleeping</code> atomically on one record, so there is no
+“live wins” dedup window and no cross-arm transition to reconcile. Sleeping
+terminals join the one set the canvas and dock already iterate, so they are
+focusable/draggable/resizable cards and selectable dock rows with <strong>no new
+component and no second loop</strong> — only a dormant placeholder body (Phase 3 swaps in
+the frozen frame) and one new verb, Wake. On boot they rehydrate <em>as sleeping</em>,
+never auto-woken, and count toward <code>tileCount</code> so a sleeping-only workspace stays
+on the canvas.</p>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Non-negotiables for Phase 2</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>These are requirements, not nice-to-haves — each closes a failure mode that is
+easy to ship without noticing.</p><ul>
+<li><strong>Snapshot the top terminal only.</strong> A sleeping record is a single terminal —
+splits are released, not frozen. The record is rooted by construction (its id is
+the terminal it was), so no orphan record can arise.</li>
+<li><strong>Tolerate a malformed record; never let one poison the set.</strong> Validate <em>shape</em>
+in the schema and enforce the cross-field invariant (the base is well-formed) by
+<strong>dropping</strong> a bad record at the read boundary — never a fatal validator on the
+persisted collection. The stakes are high because sleeping records share the
+terminal list: one corrupt record must not break the whole list. (See the
+<code>persisted-schema-stays-tolerant</code> code-police rule.)</li>
+<li><strong>First-class <em>and visually distinct</em> in every presence surface.</strong> A sleeping
+terminal renders — moonlit, ☾, dimmed — in the canvas, dock, minimap, switcher,
+and mobile; arrange clusters it with its repo; the cycle traverses it. The sum
+makes omission unrepresentable, but verify it on each surface.</li>
+<li><strong>A sleeping tile can be the active tile.</strong> Click/select focuses it; input
+routing narrows to <code>active</code>, so it is never an input target — a type fact, not a
+runtime guard.</li>
+<li><strong>An e2e that drives the real failure modes.</strong> Seed a <em>malformed</em> record (it must
+not poison the set), sleep a terminal (it must not vanish), wake it (it must be
+usable), and assert sleeping appears on each presence surface — driven like a
+user, not asserted on counts. A green count-only test over a fresh state proves
+nothing here.</li>
+</ul></div> </aside>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Why the order is the point</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Sleep’s machinery is small. The design work is <em>where a dormant terminal lives</em> —
+Phase 1 answers that with a flag instead of a layer, and everything after is a
+body, a route, or a consolidation. Small, because the structure finally fits the
+thing.</p></div> </aside>
+<h2 id="trade-offs--when-wed-revisit">Trade-offs &amp; when we’d revisit</h2>
+<ul>
+<li><strong>A migration is mandatory.</strong> <code>SavedTerminal</code> is persisted, so adding <code>state</code>
+needs the <code>state.ts</code> migration above. There is no shipping this as a pure
+refactor.</li>
+<li><strong>A wide type-level ripple is the diff.</strong> Flipping <code>TerminalMetadataSchema</code> to a
+<code>discriminatedUnion</code> forces every liveness reader to either stay in the presence
+subset or add a narrow. That sweep <em>is</em> the win, but it is the bulk of the work.</li>
+<li><strong><code>state</code> must be lifecycle-owned.</strong> Only the sleep/wake transitions write
+<code>state</code>; a metadata provider must never resurrect a live field on a sleeping
+record (the overlay isn’t on that arm — a type error, which is the point).</li>
+</ul>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>When we&#39;d revisit</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>If a genuine <em>non-terminal</em> canvas kind ever lands — a sticky note, a web embed —
+introduce a content-kind layer then, designed against <strong>two real kinds</strong>. Location
+is structure: the receptacle is justified the day there’s a second thing to put in
+it, and not before. (See <code>electricity.mdx</code> — the same trap, named three ways.)</p></div> </aside> </div>  <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>

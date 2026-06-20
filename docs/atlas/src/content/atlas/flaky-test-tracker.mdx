@@ -3,7 +3,7 @@ title: Flaky Test Tracker
 description: A backlog of flaky tests — e2e (Cucumber + Playwright) and unit (vitest). Drop a row when you hit one; an agent clears the queue from time to time.
 parents: [reference]
 maturity: seedling
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -27,7 +27,7 @@ Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> �
 | Test | Lane | Symptom | Repro'd in | Status | Fix |
 | --- | --- | --- | --- | --- | --- |
 | Code tab history survives switching between terminals in different repos (`code-tab.feature:714`) | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
-| Clicking a folder ref reveals and expands the directory from a cold panel (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — `waitFor` 60s timeout (folder click raced its own `git add && git commit`; `terminalRun` doesn't wait for command completion, so the panel-open `git ls-files` read a tree without `app/`) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Clicking a folder ref reveals and expands the directory (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — a fresh-open (cold panel) reveal races `fsListAll`'s first snapshot via a one-shot resolve with no re-yield, so a commit-marker barrier can't fix it. Mount the tree first; the fresh-open resolve is covered by `lineRef.test.ts` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Close sub-terminal via tab close button (`sub-terminal.feature:107`) | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
@@ -62,6 +62,13 @@ Non-negotiable rules:
   adding a sleep.
 - **Reuse past de-flake PRs.** Read how this suite was de-flaked before and apply
   the established deterministic-wait patterns instead of inventing one.
+- **Code changes pass `/codex-debate` before the streak counts.** Batch the fixes,
+  then drive them through `/codex-debate` to consensus — a CI pass is only trusted
+  on codex-debate-passed commits (docs are exempt, and the debate is expensive, so
+  debate the batch, not each edit). The debate is read-only code review, so its
+  consensus still needs **CI verification**: defend an empirically-grounded fix
+  rather than concede a plausible-but-unverified simplification — a consensus that
+  contradicts an observed CI failure is wrong until CI proves otherwise.
 
 The loop: **fail** → streak resets to 0, root-cause and fix the test
 (<Pill variant="run">fixing</Pill> → <Pill variant="ok">fixed</Pill>, link the PR
