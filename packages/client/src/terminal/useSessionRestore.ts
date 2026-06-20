@@ -159,7 +159,10 @@ export function useSessionRestore(deps: {
    *  layers that on top, and wake sets the active id itself.
    *
    *  `resume` gates the agent auto-launch (session restore honors the user's
-   *  per-terminal opt-out; wake always resumes). Returns the new id.
+   *  per-terminal opt-out; wake always resumes). Returns the new id AND whether
+   *  it actually sent a resume — the single source of truth for "did this
+   *  terminal resume", so the session loop's `resumed` counter reads the same
+   *  derivation that drove the send rather than recomputing `resumeAgentCommand`.
    *
    *  Takes only the persisted base (`PersistedTerminalFields`) it actually
    *  consumes — neither caller forges a discriminant: the session loop passes its
@@ -168,7 +171,7 @@ export function useSessionRestore(deps: {
   async function restoreOneTerminal(
     t: PersistedTerminalFields,
     resume: boolean,
-  ): Promise<TerminalId> {
+  ): Promise<{ id: TerminalId; resumed: boolean }> {
     // `t.location` is deliberately NOT forwarded: the create seam carries only
     // client-owned `InitialTerminalMetadata`, and the endpoint owns location —
     // so each terminal re-spawns at `LOCAL_LOCATION`. Correct while every
@@ -191,13 +194,15 @@ export function useSessionRestore(deps: {
     // Auto-launch the resume form of the previously captured agent command. The
     // command is already normalized (prompts/positionals stripped at capture),
     // so there's nothing arbitrary to smuggle through.
+    let resumed = false;
     if (resume && t.lastAgentCommand) {
       const resumeForm = resumeAgentCommand(t.lastAgentCommand);
       if (resumeForm) {
         await client.terminal.sendInput({ id: newId, data: `${resumeForm}\r` });
+        resumed = true;
       }
     }
-    return newId;
+    return { id: newId, resumed };
   }
 
   /** Wake a sleeping terminal — restore-one. Reads the frozen sleeping record
@@ -214,7 +219,8 @@ export function useSessionRestore(deps: {
     // `state: "active"` cast. If create throws, `handleCreate` already toasted and
     // the await propagates — the sleeping record is left intact (we never reach
     // the discard below), so the Wake button stays retryable.
-    const newId = await restoreOneTerminal(rec, true);
+    // Wake always resumes, so the `resumed` flag is irrelevant here.
+    const { id: newId } = await restoreOneTerminal(rec, true);
     // Only after the replacement spawns: drop the retired sleeping record (no
     // PTY to kill — it was released at sleep time).
     await client.terminal
@@ -340,7 +346,10 @@ export function useSessionRestore(deps: {
         // mechanism (also used by Wake). The user's per-terminal opt-out gates
         // the agent auto-launch.
         const optedIn = !resumeIds || resumeIds.has(t.id);
-        const newId = await restoreOneTerminal(t, optedIn);
+        const { id: newId, resumed: didResume } = await restoreOneTerminal(
+          t,
+          optedIn,
+        );
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.
@@ -348,13 +357,9 @@ export function useSessionRestore(deps: {
           restoredActiveId = newId;
           store.setActiveSilently(newId);
         }
-        if (
-          optedIn &&
-          t.lastAgentCommand &&
-          resumeAgentCommand(t.lastAgentCommand)
-        ) {
-          resumed++;
-        }
+        // Count off the actual send (not a recomputed `resumeAgentCommand` gate),
+        // so the summary can't disagree with what restore-one really resumed.
+        if (didResume) resumed++;
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId);
