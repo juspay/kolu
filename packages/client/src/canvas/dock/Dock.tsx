@@ -494,7 +494,7 @@ const DockRow: Component<{
               when={activity.isLive(props.id)}
               fallback={formatTimeAgo(c().meta.lastActivityAt)}
             >
-              <LiveActivityDot id={props.id} />
+              <LiveActivityDot />
             </Show>
           </span>
           <Show when={showShortcutHint()}>

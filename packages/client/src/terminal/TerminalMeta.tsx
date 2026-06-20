@@ -31,6 +31,7 @@ import LiveActivityDot from "./LiveActivityDot";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+import { useTerminalActivity } from "./useTerminalActivity";
 
 const TerminalMeta: Component<{
   id: TerminalId;
@@ -45,6 +46,7 @@ const TerminalMeta: Component<{
   onOpenIntent: () => void;
 }> = (props) => {
   const i = () => props.info;
+  const activity = useTerminalActivity();
   return (
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
@@ -61,10 +63,13 @@ const TerminalMeta: Component<{
           <div class="relative flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             {/* Live-output dot — an absolute overlay sitting in the title
              *  bar's left gutter, so it never pushes the name: appearing or
-             *  disappearing leaves the title text exactly where it was. */}
-            <span class="pointer-events-none absolute -left-2.5 top-1/2 -translate-y-1/2">
-              <LiveActivityDot id={props.id} />
-            </span>
+             *  disappearing leaves the title text exactly where it was. The
+             *  live/static gate lives here (the dot itself is presentational). */}
+            <Show when={activity.isLive(props.id)}>
+              <span class="pointer-events-none absolute -left-2.5 top-1/2 -translate-y-1/2">
+                <LiveActivityDot />
+              </span>
+            </Show>
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (

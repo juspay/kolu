@@ -9,20 +9,20 @@
  *  accent=blue), so the two axes never blur into one. Mirrors
  *  `ChecksIndicator`'s dot geometry so it reads as one visual family. */
 
-import type { TerminalId } from "kolu-common/surface";
-import { type Component, Show } from "solid-js";
-import { useTerminalActivity } from "./useTerminalActivity";
+import { type Component } from "solid-js";
 
-const LiveActivityDot: Component<{ id: TerminalId }> = (props) => {
-  const activity = useTerminalActivity();
+/** Pure visual leaf: it encapsulates only the dot's geometry and always renders.
+ *  The live/static GATE lives once per call site (each surface owns when to mount
+ *  it) — the dock swaps the timestamp for this dot, the title bar overlays it —
+ *  so the `isLive` predicate is consulted exactly once where the layout choice
+ *  differs, never re-asked here. */
+const LiveActivityDot: Component = () => {
   return (
-    <Show when={activity.isLive(props.id)}>
-      <span
-        data-testid="live-activity-dot"
-        class="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-ok animate-pulse ring-2 ring-ok/25"
-        title="Live — output updating"
-      />
-    </Show>
+    <span
+      data-testid="live-activity-dot"
+      class="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-ok animate-pulse ring-2 ring-ok/25"
+      title="Live — output updating"
+    />
   );
 };
 
