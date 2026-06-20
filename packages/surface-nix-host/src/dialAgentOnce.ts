@@ -170,7 +170,15 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
       dispose: () => session.destroy(),
     };
   } catch (err) {
-    session.destroy();
+    // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
+    // and clears timers) must NOT replace the original pin/probe failure, which
+    // is the error the caller needs to see. Ignore the cleanup throw; rethrow
+    // the real one.
+    try {
+      session.destroy();
+    } catch {
+      // teardown failed; the original error below is the one that matters.
+    }
     throw err;
   }
 }
