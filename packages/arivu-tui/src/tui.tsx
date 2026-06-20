@@ -32,9 +32,9 @@ import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { For, onMount, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
-  FIELD_LABEL_WIDTH,
   type FieldTone,
   fieldRows,
+  LABEL_WIDTH,
   recordHeader,
 } from "./render.ts";
 
@@ -79,7 +79,7 @@ export function AwarenessRecord(props: {
       <For each={rows()}>
         {(row) => (
           <box flexDirection="row">
-            <text fg={LABEL}>{`  ${row.label.padEnd(FIELD_LABEL_WIDTH)}`}</text>
+            <text fg={LABEL}>{`  ${row.label.padEnd(LABEL_WIDTH)}`}</text>
             <text fg={TONE_COLOR[row.tone]}>{row.value}</text>
           </box>
         )}

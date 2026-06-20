@@ -146,7 +146,9 @@ function fields(v: AwarenessValue, now: number): Array<[string, string]> {
   return fieldRows(v, now).map((r) => [r.label, r.value]);
 }
 
-const LABEL_WIDTH = 11;
+/** The fixed label column width both views pad to — the text `record()` and the
+ *  OpenTUI record import the same constant, so they align identically. */
+export const LABEL_WIDTH = 11;
 
 // ── Structured projection for the OpenTUI view ────────────────────────
 //
@@ -237,10 +239,6 @@ export function recordHeader(
     cwd: sanitize(tildeify(v.cwd, home)) || DASH,
   };
 }
-
-/** The fixed label column width the OpenTUI record pads to (matches the text
- *  record's `LABEL_WIDTH`, so both views align identically). */
-export const FIELD_LABEL_WIDTH = LABEL_WIDTH;
 
 /** Per-row render options threaded from the CLI. */
 export interface RenderOptions {
