@@ -431,7 +431,9 @@ export const ActivityFeedSchema = z.object({
  * and a slept terminal are the same on-disk record, distinguished only by
  * `state` — session save emits one list and sleeping terminals join it. The
  * discriminant means a legacy record with no `state` key is rejected on read,
- * which the `state.ts` 1.27.0 migration backfills (`state: "active"`).
+ * which `backfillTerminalState` repairs (`state: "active"`) — run by both the
+ * `state.ts` 1.27.0 migration (persisted state) and the client import hatch
+ * (`backfillSavedSession`, for an exported `kolu-session.json`).
  *
  * Within-group ordering is the array index; the server writes terminals
  * in `Map` insertion order (stable per ES2015) and restore replays that
@@ -933,4 +935,94 @@ export function activePr(
 ): PrInfo | null {
   const arm = activeArm(m);
   return arm ? prValue(arm.pr) : null;
+}
+
+// ── Saved-terminal backfills (legacy → current shape) ─────────────────
+//
+// Pure record transforms that bring a legacy on-disk `SavedTerminal` up to the
+// current `SavedTerminalSchema`, one per schema bump that added a now-required
+// field. They live HERE, beside the schema they restore, because TWO callers
+// run them on the SAME blob: the server's versioned migration ladder
+// (`state.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
+// "Import session" hatch (`sessionTransfer.ts`), which ingests an exported
+// `kolu-session.json` that may predate any of these fields. A second hand-rolled
+// backfill on the import side would be a parallel source of truth — the bug
+// codex flagged in the Phase-1 review — so the import path composes these same
+// functions via `backfillSavedSession` instead.
+//
+// Each is idempotent and keyed on the field's presence, never its value, so the
+// composed pass is order-independent and safe to re-run on already-current data.
+
+/** Backfill `git.remoteUrl = null` on a saved terminal whose `git` record
+ *  predates the field (#1244). Sessions saved between the 1.18 migration and
+ *  1.25 carry a populated `git` with no `remoteUrl`, which the now-required
+ *  `GitInfoSchema` field rejects. The live git watcher re-resolves the real
+ *  value on first restore. Idempotent: a `git` that already has `remoteUrl` —
+ *  or a null `git` — passes through untouched. */
+export function backfillRemoteUrl(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const git = t.git;
+  if (!git || typeof git !== "object") return t;
+  if ("remoteUrl" in git) return t;
+  return {
+    ...t,
+    git: { ...(git as Record<string, unknown>), remoteUrl: null },
+  };
+}
+
+/** Backfill `location = { kind: "local" }` on a saved terminal from before
+ *  `location` became a required field (#1398). Every terminal that could have
+ *  been persisted before then was an in-process (local) PTY — remote terminals
+ *  do not yet exist — so the only honest backfill is the local variant.
+ *  Idempotent: a record that already carries a `location` (a future remote
+ *  terminal, or a re-run) is left untouched. */
+export function backfillLocation(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("location" in t) return t;
+  return { ...t, location: LOCAL_LOCATION };
+}
+
+/** Backfill `state: "active"` on a saved terminal from before `SavedTerminal`
+ *  became a `discriminatedUnion` on `state` (the sleeping-terminals redesign,
+ *  Phase 1). Every pre-discriminant terminal was an attached, live PTY — no
+ *  sleeping record was ever persisted — so the only honest backfill is the
+ *  active arm. Idempotent and keyed on the discriminant KEY, not its value: a
+ *  record that already carries a `state` (a future `state: "sleeping"` record
+ *  with its `sleptAt`, or a re-run) passes through untouched. */
+export function backfillTerminalState(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("state" in t) return t;
+  return { ...t, state: "active" };
+}
+
+/** Bring one legacy saved-terminal record up to the current
+ *  `SavedTerminalSchema` by composing every field backfill above. Order-free
+ *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
+export function backfillSavedTerminal(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  return backfillTerminalState(backfillLocation(backfillRemoteUrl(t)));
+}
+
+/** Bring a parsed-but-unvalidated saved-session blob up to the current schema
+ *  by backfilling each terminal, so a `kolu-session.json` exported before a
+ *  schema bump survives re-import (the recovery hatch its `sessionTransfer.ts`
+ *  callers exist to provide). A non-object, or one with no `terminals` array,
+ *  is returned untouched for `SavedSessionSchema` to reject with its own error.
+ *  Pure — no validation here; the caller validates the result. */
+export function backfillSavedSession(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const session = parsed as Record<string, unknown>;
+  if (!Array.isArray(session.terminals)) return parsed;
+  return {
+    ...session,
+    terminals: session.terminals.map((t) =>
+      t && typeof t === "object"
+        ? backfillSavedTerminal(t as Record<string, unknown>)
+        : t,
+    ),
+  };
 }

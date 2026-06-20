@@ -20,8 +20,10 @@ import Conf from "conf";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
+  backfillLocation,
+  backfillRemoteUrl,
+  backfillTerminalState,
   DEFAULT_PREFERENCES,
-  LOCAL_LOCATION,
   type Preferences,
   PreferencesSchema,
   SavedSessionSchema,
@@ -86,74 +88,14 @@ export function migrateLegacyTerminal_1_18_0(
   return { ...kept, git: null };
 }
 
-/** Backfill `git.remoteUrl = null` on a restored terminal whose `git` record
- *  predates the field (#1244). Only the legacy-flat path in
- *  `migrateLegacyTerminal_1_18_0` stamps `remoteUrl`; sessions saved by any
- *  version between the 1.18 migration and this one carry a populated `git`
- *  object with no `remoteUrl`, which the now-required `GitInfoSchema` field
- *  rejects. Backfill null (the live git watcher re-resolves the real value on
- *  first restore) so those records validate again. Idempotent: a `git` that
- *  already has `remoteUrl` — or a null `git` — passes through untouched.
- *
- *  Exported so `state.test.ts` can exercise the backfill directly without a
- *  `Conf` store. */
-export function backfillRemoteUrl_1_25_0(
-  t: Record<string, unknown>,
-): Record<string, unknown> {
-  const git = t.git;
-  if (!git || typeof git !== "object") return t;
-  if ("remoteUrl" in git) return t;
-  return {
-    ...t,
-    git: { ...(git as Record<string, unknown>), remoteUrl: null },
-  };
-}
-
-/** Backfill `location = { kind: "local" }` on a restored terminal saved before
- *  `location` became a required field. Every terminal that could have been
- *  persisted before this migration was an in-process (local) PTY — remote
- *  terminals do not yet exist — so the only honest backfill is the local
- *  variant. Without it, the now-required `location` on `SavedTerminalSchema`
- *  rejects every legacy session at startup (the same
- *  EVENT_ITERATOR_VALIDATION_FAILED class as #1237 / #1244).
- *
- *  Idempotent: a record that already carries a `location` (a future remote
- *  terminal, or a re-run of this migration) is left untouched.
- *
- *  Exported so `state.test.ts` can exercise the backfill directly without a
- *  `Conf` store. */
-export function backfillLocation_1_26_0(
-  t: Record<string, unknown>,
-): Record<string, unknown> {
-  if ("location" in t) return t;
-  return { ...t, location: LOCAL_LOCATION };
-}
-
-/** Backfill `state: "active"` on a restored terminal saved before `SavedTerminal`
- *  became a `discriminatedUnion` on `state` (the sleeping-terminals redesign,
- *  Phase 1). Every pre-1.27 terminal was an attached, live PTY — no sleeping
- *  record was ever persisted — so the only honest backfill is the active arm.
- *  Without it the now-required `state` discriminant rejects every legacy session
- *  at startup (the same EVENT_ITERATOR_VALIDATION_FAILED class as #1237 / #1244
- *  / `backfillLocation_1_26_0`).
- *
- *  The discriminant value `"active"` lives only in `activeArm` (surface.ts) on
- *  the live-metadata read path; read sites narrow through that seam and never
- *  coalesce (`?? "active"` would be a defect). The saved-record path narrows it
- *  once in reconcile. Idempotent and
- *  keyed on the discriminant key, not its value — a record that already carries a
- *  `state` (a future `state: "sleeping"` record with its `sleptAt`, or a re-run of
- *  this migration) passes through untouched, exactly as `backfillLocation_1_26_0`
- *  keys on `"location" in t`.
- *
- *  Exported so `state.test.ts` can exercise the backfill directly without a
- *  `Conf` store. */
-export function backfillTerminalState_1_27_0(
-  t: Record<string, unknown>,
-): Record<string, unknown> {
-  if ("state" in t) return t;
-  return { ...t, state: "active" };
-}
+// The per-field backfills the migration ladder runs (`backfillRemoteUrl` /
+// `backfillLocation` / `backfillTerminalState`) live in `kolu-common/surface`,
+// beside the `SavedTerminalSchema` they restore, because the client's
+// diagnostic "Import session" hatch composes the SAME functions on an exported
+// blob (see `backfillSavedSession` / `sessionTransfer.ts`). Keeping them in one
+// place avoids a parallel hand-rolled backfill on the import side. `migrateLegacyTerminal_1_18_0`
+// stays here — it is the 1.18-only flat-fields→`GitInfo` synthesis, not a
+// presence-keyed field backfill, and has no second caller.
 
 /** What conf stores to disk — survives server restart. Internal: clients see
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
@@ -533,14 +475,14 @@ export const store = new Conf<PersistedState>({
     // 1.18.0 pass only stamps it on the legacy-flat synthesis path; sessions
     // saved by any version in between carry a populated `git` with no
     // `remoteUrl`, which the now-required field rejects. Backfill null on every
-    // restored terminal's `git` (see `backfillRemoteUrl_1_25_0`); the live git
+    // restored terminal's `git` (see `backfillRemoteUrl`); the live git
     // watcher re-resolves the real value on first restore.
     "1.25.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillRemoteUrl_1_25_0);
+      ).map(backfillRemoteUrl);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,
@@ -551,14 +493,14 @@ export const store = new Conf<PersistedState>({
     // for an in-process PTY), not the absence of a host id, so a restore can
     // never silently respawn a remote terminal locally. Every pre-1.26 session
     // predates remote terminals, so backfill the local variant on each restored
-    // terminal (see `backfillLocation_1_26_0`); without it the now-required
+    // terminal (see `backfillLocation`); without it the now-required
     // field rejects the whole session at startup.
     "1.26.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillLocation_1_26_0);
+      ).map(backfillLocation);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,
@@ -567,14 +509,14 @@ export const store = new Conf<PersistedState>({
     // `SavedTerminal` became a `discriminatedUnion` on a new `state` field
     // (`Terminal = active | sleeping`, sleeping-terminals Phase 1). Every
     // pre-1.27 terminal was an attached live PTY, so backfill the active arm on
-    // each restored terminal (see `backfillTerminalState_1_27_0`); without it the
+    // each restored terminal (see `backfillTerminalState`); without it the
     // now-required discriminant rejects the whole session at startup.
     "1.27.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillTerminalState_1_27_0);
+      ).map(backfillTerminalState);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,

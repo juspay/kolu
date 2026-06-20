@@ -1,11 +1,11 @@
-import { LOCAL_LOCATION } from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
 import {
-  backfillLocation_1_26_0,
-  backfillRemoteUrl_1_25_0,
-  backfillTerminalState_1_27_0,
-  migrateLegacyTerminal_1_18_0,
-} from "./state.ts";
+  backfillLocation,
+  backfillRemoteUrl,
+  backfillTerminalState,
+  LOCAL_LOCATION,
+} from "kolu-common/surface";
+import { describe, expect, it } from "vitest";
+import { migrateLegacyTerminal_1_18_0 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
@@ -112,11 +112,11 @@ describe("migrateLegacyTerminal_1_18_0", () => {
   });
 });
 
-describe("backfillRemoteUrl_1_25_0", () => {
+describe("backfillRemoteUrl", () => {
   it("backfills remoteUrl: null on an already-migrated git record missing the field", () => {
     // The common shape: a session saved between the 1.18 migration and 1.25
     // carries a populated `git` with no `remoteUrl`.
-    const migrated = backfillRemoteUrl_1_25_0({
+    const migrated = backfillRemoteUrl({
       id: "term-1",
       cwd: "/home/alice/app",
       git: {
@@ -153,12 +153,12 @@ describe("backfillRemoteUrl_1_25_0", () => {
       mainRepoRoot: "/r",
       remoteUrl: "https://github.com/owner/r.git",
     };
-    const migrated = backfillRemoteUrl_1_25_0({ id: "t", cwd: "/r", git });
+    const migrated = backfillRemoteUrl({ id: "t", cwd: "/r", git });
     expect(migrated).toEqual({ id: "t", cwd: "/r", git });
   });
 
   it("leaves a null git untouched", () => {
-    const migrated = backfillRemoteUrl_1_25_0({
+    const migrated = backfillRemoteUrl({
       id: "t",
       cwd: "/tmp",
       git: null,
@@ -167,9 +167,9 @@ describe("backfillRemoteUrl_1_25_0", () => {
   });
 });
 
-describe("backfillLocation_1_26_0", () => {
+describe("backfillLocation", () => {
   it("no location ⇒ { kind: local } (every pre-1.26 terminal was in-process)", () => {
-    const migrated = backfillLocation_1_26_0({
+    const migrated = backfillLocation({
       id: "term-1",
       cwd: "/home/alice/app",
       git: null,
@@ -192,13 +192,13 @@ describe("backfillLocation_1_26_0", () => {
       git: null,
       location: { kind: "remote", hostId: "local" },
     };
-    expect(backfillLocation_1_26_0(record)).toEqual(record);
+    expect(backfillLocation(record)).toEqual(record);
   });
 });
 
-describe("backfillTerminalState_1_27_0", () => {
+describe("backfillTerminalState", () => {
   it("no state ⇒ active (every pre-1.27 terminal was an attached PTY)", () => {
-    const migrated = backfillTerminalState_1_27_0({
+    const migrated = backfillTerminalState({
       id: "term-1",
       cwd: "/home/alice/app",
       git: null,
@@ -225,6 +225,6 @@ describe("backfillTerminalState_1_27_0", () => {
       state: "sleeping",
       sleptAt: 1_700_000_000_000,
     };
-    expect(backfillTerminalState_1_27_0(record)).toEqual(record);
+    expect(backfillTerminalState(record)).toEqual(record);
   });
 });
