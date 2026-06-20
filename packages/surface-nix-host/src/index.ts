@@ -8,6 +8,11 @@
 
 export { resolveSystem } from "./arch";
 export {
+  type AgentDial,
+  dialAgentOnce,
+  type DialAgentOnceOptions,
+} from "./dialAgentOnce";
+export {
   buildAgentCommand,
   buildSshProbeCommand,
   forEachLine,
