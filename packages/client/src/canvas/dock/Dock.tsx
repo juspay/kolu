@@ -421,8 +421,9 @@ const RepoSection: Component<{
  *    Line 1: `activity · agent · branch · sub-count · time`
  *    Line 2: `[PR pip] subline`  (branch col → end)
  *
- *  The PR pip rides on line 2 at the leftmost X (anchored to col 2's
- *  left edge) so PR icons align across every section. Sub-count cell
+ *  The PR pip rides on line 2 at the leftmost X (anchored to the
+ *  branch column's left edge, col 3) so PR icons align across every
+ *  section. Sub-count cell
  *  is empty when the row has none, collapsing the column back into
  *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock

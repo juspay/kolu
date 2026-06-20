@@ -1,13 +1,19 @@
 /** Presence pips that ride on every dock row.
  *
- *  Three independent change axes share this file because each
+ *  Four independent change axes share this file because each
  *  produces a small JSX cell consumed identically by both the
  *  desktop dock and the mobile drawer. The file groups them so the
- *  two callers can `import { StatePip, PrPip, SubCountCell }`
- *  rather than reach into three single-export modules:
+ *  two callers can `import { ActivityPip, StatePip, PrPip, SubCountCell }`
+ *  rather than reach into four single-export modules:
  *
- *    - `StatePip` (row-state-only visualization) — first grid
- *      column. Always renders a cell so subgrid placement stays
+ *    - `ActivityPip` (live-output presence) — first grid column,
+ *      left of the `StatePip`. Holds the `LiveActivityDot` while the
+ *      terminal streams output and an empty width-reserved cell
+ *      otherwise (full definition below). "Moving bytes right now",
+ *      a distinct axis from the agent's working/awaiting state.
+ *    - `StatePip` (row-state-only visualization) — second grid
+ *      column, immediately after `ActivityPip`. Always renders a
+ *      cell so subgrid placement stays
  *      stable; renders nothing inside for `none`/`parked`. Shape
  *      itself encodes the state, not color or animation alone:
  *      filled disk (needs attention — unread fresh transition),
