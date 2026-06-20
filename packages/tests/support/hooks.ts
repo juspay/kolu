@@ -786,6 +786,11 @@ Before(async function (this: KoluWorld, scenario) {
       json: { recentRepos: [], recentAgents: [] },
     }),
     postJSON(`${baseUrl}/rpc/surface/kolu/session/test__set`, { json: null }),
+    // Sleeping records persist across a server restart on purpose; reset them
+    // per scenario too so a tile slept in one scenario can't leak into the next.
+    postJSON(`${baseUrl}/rpc/surface/kolu/sleepingTerminals/test__set`, {
+      json: [],
+    }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,

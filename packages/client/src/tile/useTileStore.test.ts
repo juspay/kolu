@@ -79,6 +79,16 @@ const rec = (
     terminals: [{ id, canvasLayout: layout }],
   }) as unknown as SleepingTerminal;
 
+/** An ORPHAN record: its root id matches no terminal in its own tree (the legacy
+ *  UUID-keyed format). It must be filtered out — never a tile, never passed to
+ *  the throwing `topTerminal` — so one corrupt record can't poison the rest. */
+const orphanRec = (recordId: string, terminalId: string): SleepingTerminal =>
+  ({
+    id: recordId,
+    sleptAt: 1000,
+    terminals: [{ id: terminalId }],
+  }) as unknown as SleepingTerminal;
+
 // Drive the registry from signal-backed live + sleeping lists. Wired BEFORE the
 // first `useTileStore()` call so the singleton factory captures these sources.
 const [ids, setIds] = createSignal<TerminalId[]>(tids("a", "b"));
@@ -148,6 +158,16 @@ describe("useTileStore — sleeping is a union variant on the same registry", ()
     setSleeping([rec("c")]);
     setWaking(new Set([tid("c")]));
     expect(store.tileIds()).toEqual(["a", "b"]); // c suppressed while waking
+  });
+
+  it("filters out an orphan record (no root terminal) so one can't poison the rest", () => {
+    // The data-loss bug: a single legacy/corrupt record whose root id matches no
+    // terminal used to empty the whole cell — every sleep "vanished". It must be
+    // dropped, leaving the well-formed records (and never reaching topTerminal).
+    setSleeping([rec("c"), orphanRec("ghost", "real")]);
+    expect(store.tileIds()).toEqual(["a", "b", "c"]); // ghost (+ its terminal) excluded
+    expect(store.contentOf(tid("ghost"))).toBeUndefined();
+    expect(store.contentOf(tid("c"))?.kind).toBe("sleeping");
   });
 });
 
