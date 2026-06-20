@@ -30,6 +30,7 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
+import { useTileStore } from "./tile/useTileStore";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
@@ -138,6 +139,8 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
+  /** Reset the active terminal to its default size, centered in the viewport. */
+  handleResetActiveTileSize: () => void;
   /** Download the saved session as JSON (diagnostic backup). */
   handleExportSession: () => void;
   /** Pick a session JSON file and restore it on top of the current canvas. */
@@ -163,10 +166,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   // shortcut also uses), so the two surfaces never drift if App later wraps
   // the toggle with a guard or telemetry.
   const posture = useViewPosture();
+  const tileStore = useTileStore();
 
   return createMemo((): PaletteCommand[] => [
     // --- Workspaces ---
-    ...(deps.terminalIds().length > 0
+    ...(tileStore.tileCount() > 0
       ? [
           {
             kind: "body-group" as const,
@@ -352,7 +356,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // Hide arrange when only one tile exists — a single-tile arrange
           // is a visual no-op, and offering a command that does nothing
           // surfaces as broken.
-          ...(deps.terminalIds().length > 1
+          ...(tileStore.tileCount() > 1
             ? [
                 {
                   kind: "action" as const,
@@ -372,7 +376,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     // exactly the "offering a command that does nothing surfaces as broken"
     // case the canvas-arrange gate above avoids. The header button is disabled
     // for the same reason.
-    ...(deps.terminalIds().length > 0
+    ...(tileStore.tileCount() > 0
       ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
@@ -445,6 +449,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
+        },
+        {
+          kind: "action",
+          name: "Reset terminal size",
+          description:
+            "Restore the active terminal to its default size, centered",
+          onSelect: () => deps.handleResetActiveTileSize(),
         },
         {
           kind: "action",

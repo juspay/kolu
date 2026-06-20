@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
-// the wire singleton, and resolves the active terminal from useTerminalStore.
-// Stub both so the size mutators can be exercised without a live socket.
+// the wire singleton, resolves the active terminal from useTerminalStore, and
+// gates `hasTerminals` on the tile registry's count. Stub all three so the size
+// mutators can be exercised without a live socket (mocking useTileStore also
+// keeps its persistCanvasLayout → solid-sonner chain out of the test env).
 const h = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
   setRightPanel: vi.fn(() => Promise.resolve()),
@@ -23,6 +25,10 @@ vi.mock("../wire", () => ({
 
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({ activeId: () => h.activeId }),
+}));
+
+vi.mock("../tile/useTileStore", () => ({
+  useTileStore: () => ({ tileCount: () => (h.activeId ? 1 : 0) }),
 }));
 
 import type { TerminalId } from "kolu-common/surface";
