@@ -61,6 +61,7 @@ import SearchBar from "./SearchBar";
 import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
 import { createRenderRecovery } from "./renderRecovery";
+import { createSnapshotBoundary } from "./snapshotBoundary";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalActivity } from "./useTerminalActivity";
@@ -768,9 +769,17 @@ const Terminal: Component<{
           streamAbort = new AbortController();
           const signal = streamAbort.signal;
 
-          // Attach stream: yields scrollback first, then live PTY output.
-          // onRetry resets xterm before the retried iterator's first yield
-          // (a fresh screenState snapshot) — otherwise it double-paints.
+          // The attach stream's FIRST yield is a serialized screen snapshot
+          // (scrollback), not live output — see `terminal.attach` in router.ts.
+          // Lighting the live dot for it would mean a quiet terminal with
+          // scrollback flashes "live" for ~1s on every mount, mode remount, or
+          // reconnect retry — the indicator lying exactly when a glance across
+          // the workspace relies on it. The snapshot boundary swallows that one
+          // frame's `noteOutput`, then every later chunk is a genuine PTY delta.
+          // It re-arms in `onRetry` because a transparent re-subscribe replays a
+          // fresh snapshot first too. The snapshot is still WRITTEN to xterm;
+          // only the activity ping is suppressed.
+          const snapshotBoundary = createSnapshotBoundary();
           consumeStream(
             () =>
               streamCall(
@@ -781,16 +790,20 @@ const Terminal: Component<{
                   onRetry: () => {
                     terminal?.reset();
                     scrollLock.reset();
+                    snapshotBoundary.armSnapshot();
                   },
                 },
               ),
             (data) => {
               if (terminal) {
-                // Every chunk off the attach stream is live output — light the
-                // terminal's live-activity dot (dock + title), even when scroll-
-                // locked (the bytes still arrived; the user just isn't at the
-                // bottom). The store debounces back to static after a quiet gap.
-                activity.noteOutput(props.terminalId);
+                // Every chunk AFTER the snapshot boundary is live output — light
+                // the terminal's live-activity dot (dock + title), even when
+                // scroll-locked (the bytes still arrived; the user just isn't at
+                // the bottom). The store debounces back to static after a quiet
+                // gap.
+                if (snapshotBoundary.isLiveDelta()) {
+                  activity.noteOutput(props.terminalId);
+                }
                 // Key the render-stall watchdog to xterm's PARSE, not stream
                 // receipt: `term.write` returns immediately and parses the
                 // chunk asynchronously (off a setTimeout), so noteData() run

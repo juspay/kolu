@@ -20,7 +20,13 @@ const LiveActivityDot: Component = () => {
   return (
     <span
       data-testid="live-activity-dot"
-      class="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-ok animate-pulse ring-2 ring-ok/25"
+      // `motion-safe:` gates the pulse on `prefers-reduced-motion: no-preference`
+      // so reduced-motion users get a static dot (it still reads as live — the
+      // colour carries the signal, the motion only amplifies it). The named-class
+      // indicators (tile aura, rail glow) reach the same end via an explicit
+      // `animation: none` block in index.css; this dot is a Tailwind utility, so
+      // it rides Tailwind's own reduced-motion variant rather than a bespoke class.
+      class="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-ok motion-safe:animate-pulse ring-2 ring-ok/25"
       title="Live — output updating"
     />
   );

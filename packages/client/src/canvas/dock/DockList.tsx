@@ -19,7 +19,9 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { formatTimeAgo } from "../../terminal/staleness";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
@@ -127,6 +129,7 @@ function DockListRow(props: {
   const combined = createDockRowData(props.id);
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const activity = useTerminalActivity();
   return (
     <Show when={combined()}>
       {(c) => (
@@ -176,8 +179,18 @@ function DockListRow(props: {
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 text-right">
-            {formatTimeAgo(c().meta.lastActivityAt)}
+          {/* Recency cell — same swap as the desktop dock: while output is
+           *  streaming, the pulsing live dot supersedes the now-moot "Xs ago".
+           *  `w-[4.5ch]` reserves the timestamp's width so swapping in the
+           *  narrower dot (or a section where every row is live) never collapses
+           *  the track and shifts the columns. */}
+          <span class="inline-flex justify-end w-[4.5ch] font-mono text-[0.65rem] tabular-nums text-fg-3">
+            <Show
+              when={activity.isLive(props.id)}
+              fallback={formatTimeAgo(c().meta.lastActivityAt)}
+            >
+              <LiveActivityDot />
+            </Show>
           </span>
           {/* Second line — flex row spanning col 2 → end. PR pip on
            *  the left (anchored to col 2 left edge so it aligns

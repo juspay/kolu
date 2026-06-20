@@ -487,9 +487,12 @@ const DockRow: Component<{
           {/* Recency cell. While output is streaming, "live now" supersedes
            *  "Xs ago" (the relative time is moot when it's happening this
            *  second), so the cell swaps the timestamp for the pulsing dot in
-           *  place — right-aligned in the same slot, so it lands in one column
-           *  across rows and never reflows the grid. */}
-          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
+           *  place. The cell sits in an `auto` grid track, so a row (or a whole
+           *  section) showing the 6px dot instead of "5m ago" would shrink the
+           *  track and shift the name column; `w-[4.5ch]` reserves the
+           *  timestamp's width so the swap is in-place and the grid never
+           *  reflows. Right-aligned so it lands in one column across rows. */}
+          <span class="inline-flex justify-end w-[4.5ch] font-mono text-[0.6rem] tabular-nums text-fg-3">
             <Show
               when={activity.isLive(props.id)}
               fallback={formatTimeAgo(c().meta.lastActivityAt)}
@@ -581,6 +584,7 @@ const RailChip: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const activity = useTerminalActivity();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
@@ -623,6 +627,17 @@ const RailChip: Component<{
                 {labels().sub}
               </span>
             </span>
+            {/* The glyph-only rail has no timestamp cell to swap, so the live
+             *  dot rides as a top-right corner overlay. The agent-state glow
+             *  below tracks an AGENT's thinking/waiting; this dot is the
+             *  orthogonal "moving bytes right now" signal (a compile, a
+             *  `tail -f`, any non-agent shell) — without it, a live non-agent
+             *  terminal is indistinguishable from an idle one in the rail. */}
+            <Show when={activity.isLive(props.id)}>
+              <span class="pointer-events-none absolute -top-1 -right-1">
+                <LiveActivityDot />
+              </span>
+            </Show>
             {/* Agent-state glow on its own child so it animates opacity/transform
              *  (compositor) rather than repainting the chip's box-shadow every
              *  frame — see #1308. Only the two live buckets render it; the CSS
