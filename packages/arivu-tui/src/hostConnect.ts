@@ -31,8 +31,12 @@
  * REQUIRES a corresponding drishti PR that updates drishti for the new surface
  * API and passes full CI, linked from the kolu PR before merge. (Earlier text
  * here claimed "no drishti mirror PR needed" — that was true only while the dep
- * was consumed read-only and unchanged; adding an export changed the package's
- * `exports` surface, so it no longer holds.)
+ * was consumed read-only and unchanged; adding a new exported symbol to
+ * `index.ts` is an observable module-API delta (the rule names "exported types"
+ * explicitly), so it no longer holds. Mechanically the mirror is an npins
+ * `kolu` pin bump in drishti once this lands on `juspay/kolu` master, kept green
+ * by CI — drishti imports none of the symbols this branch touched, so it needs
+ * zero source changes; see the kolu PR body's merge-gate bullet.)
  */
 import type { arivuSurface } from "@kolu/arivu-contract";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
