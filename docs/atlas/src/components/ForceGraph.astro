@@ -18,8 +18,10 @@ interface Props {
   edges: GraphEdge[];
 }
 const { viewBox, nodes, edges } = Astro.props as Props;
-const kindEdges = edges.filter((e) => e.rel === "kind");
-const realEdges = edges.filter((e) => e.rel !== "kind");
+// Membership spokes (an edge touching an index note) are drawn first and faint,
+// so the topical note→note links stay the legible foreground.
+const mocEdges = edges.filter((e) => e.toMoc);
+const realEdges = edges.filter((e) => !e.toMoc);
 ---
 
 <figure class="atlas-graph">
@@ -47,14 +49,14 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     class="graph-svg"
     viewBox={viewBox}
     role="img"
-    aria-label="Force-directed graph of the Atlas: every note, wired to its kind hub and its links"
+    aria-label="Force-directed graph of the Atlas: every note, wired to its index note and its links"
     preserveAspectRatio="xMidYMid meet"
   >
     <g class="edges">
       {
-        kindEdges.map((e) => (
+        mocEdges.map((e) => (
           <line
-            class="edge kind"
+            class="edge moc"
             x1={e.x1}
             y1={e.y1}
             x2={e.x2}
@@ -83,12 +85,18 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     <g class="nodes">
       {
         nodes.map((n) =>
-          n.isKind ? (
-            <a class="node kind" href={n.href} data-id={n.id} data-nb={n.neighbors}>
+          n.isMoc ? (
+            <a
+              class="node moc"
+              href={n.href}
+              data-id={n.id}
+              data-nb={n.neighbors}
+              data-search={`${n.title} ${n.id}`.toLowerCase()}
+            >
               <g transform={`translate(${n.x} ${n.y})`}>
                 <title>{n.title}</title>
                 <rect
-                  class={`chip kc-${n.kind}`}
+                  class={`chip c-${n.color}`}
                   x={-(n.chipW ?? 0) / 2}
                   y={-9}
                   width={n.chipW}
@@ -109,7 +117,7 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
               <g transform={`translate(${n.x} ${n.y})`}>
                 <title>{n.title}</title>
                 <circle
-                  class={`dot k-${n.kind} m-${n.maturity}`}
+                  class={`dot c-${n.color} m-${n.maturity}`}
                   r={n.r}
                   vector-effect="non-scaling-stroke"
                 />
@@ -417,8 +425,8 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
   .edge.link {
     stroke-dasharray: 2 3;
   }
-  /* note→kind spokes: faint structural background, not the story */
-  .edge.kind {
+  /* note→index membership spokes: faint structural background, not the story */
+  .edge.moc {
     stroke: var(--rule);
     opacity: 0.45;
   }
@@ -436,18 +444,28 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
   .node:hover .dot {
     filter: brightness(1.06);
   }
-  /* fill = kind (the index's category colours) */
-  .k-bug {
+  /* fill = accent token (an index note's `color`, inherited by its notes).
+     The token set is open — add a moc note with a new colour and a `.c-*` rule. */
+  .c-red {
     fill: var(--alert);
   }
-  .k-feature {
+  .c-teal {
     fill: var(--teal);
   }
-  .k-analysis {
+  .c-gold {
     fill: var(--gold);
   }
-  .k-reference {
+  .c-grey {
     fill: var(--ink-muted);
+  }
+  .c-green {
+    fill: var(--green);
+  }
+  .c-blue {
+    fill: #1f6feb;
+  }
+  .c-purple {
+    fill: #7c3aed;
   }
   /* ring stroke = maturity */
   .m-seedling {
@@ -482,21 +500,9 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     opacity: 1;
   }
 
-  /* kind hubs: labeled chips in the category colour */
+  /* index notes: labeled chips in the note's accent colour (fill via `.c-*`) */
   .chip {
     transition: filter 0.18s ease;
-  }
-  .kc-bug {
-    fill: var(--alert);
-  }
-  .kc-feature {
-    fill: var(--teal);
-  }
-  .kc-analysis {
-    fill: var(--gold);
-  }
-  .kc-reference {
-    fill: #5c6066;
   }
   .chip-label {
     fill: #fff;
@@ -507,7 +513,7 @@ const realEdges = edges.filter((e) => e.rel !== "kind");
     dominant-baseline: central;
     pointer-events: none;
   }
-  .node.kind:hover .chip {
+  .node.moc:hover .chip {
     filter: brightness(1.08);
   }
 

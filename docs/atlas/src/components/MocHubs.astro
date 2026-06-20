@@ -1,12 +1,12 @@
 ---
-// "Maps of Content" — the single entry index. Every hub is a card:
-//   - the four KIND hubs (Bugs/Features/Analysis/Reference), each listing ALL its
-//     notes — so the four cards together name every note, and the page is fully
+// "Maps of Content" — the single entry index, every hub a card:
+//   - INDEX notes (`moc: true`) first, each listing every note filed under it —
+//     so the index cards together name every note, and the page is fully
 //     navigable with no JS;
-//   - TOPICAL hubs (electricity, solid-fileview, …), each listing its cluster —
-//     the cross-cutting entry points the link graph surfaces on its own.
-// Kind cards carry the `#moc-<kind>` anchor a kind chip in the graph links to, and
-// every card's `data-hub` lights up its node + neighborhood in the graph on hover.
+//   - TOPICAL hubs (electricity, solid-fileview, …) after, each listing the notes
+//     that reference it — the cross-cutting entry points the link graph surfaces.
+// Both are real notes: the card title links to the note's own page. `data-hub`
+// lights up the note + its neighborhood in the graph on hover.
 import type { HubCard } from "../lib/graphView";
 
 interface Props {
@@ -20,19 +20,14 @@ const { hubs } = Astro.props as Props;
     {
       hubs.map((h) => (
         <article
-          class={`hub-card kind-${h.kind}${h.isKind ? " is-kind" : ""}`}
-          id={h.anchorId}
+          class={`hub-card cc-${h.color}${h.isMoc ? " is-moc" : ""}`}
           data-hub={h.id}
         >
           <header class="hub-head">
             <span class="hub-bar" />
-            {h.href ? (
-              <a class="hub-title" href={h.href}>
-                {h.label}
-              </a>
-            ) : (
-              <span class="hub-title">{h.label}</span>
-            )}
+            <a class="hub-title" href={h.href}>
+              {h.label}
+            </a>
             <span class="hub-count">
               {h.count} {h.countLabel}
             </span>
@@ -44,11 +39,7 @@ const { hubs } = Astro.props as Props;
                 <a class="cluster-row" href={`./${c.id}.html`}>
                   <span class={`cluster-dot m-${c.maturity}`} />
                   <span class="cluster-t">{c.title}</span>
-                  {h.isKind ? (
-                    <span class="cluster-d">{c.description}</span>
-                  ) : (
-                    <span class={`cluster-kind k-${c.kind}`}>{c.kind}</span>
-                  )}
+                  {h.isMoc && <span class="cluster-d">{c.description}</span>}
                 </a>
               </li>
             ))}
@@ -75,7 +66,6 @@ const { hubs } = Astro.props as Props;
     border-left: 3px solid var(--cat-color, var(--ink-muted));
     border-radius: 12px;
     padding: 1rem 1.1rem 1.1rem;
-    scroll-margin-top: 1.5rem;
     transition: box-shadow 0.15s ease;
   }
   .hub-card:hover {
@@ -83,27 +73,37 @@ const { hubs } = Astro.props as Props;
       0 1px 0 var(--rule),
       0 6px 20px -14px rgba(26, 28, 32, 0.4);
   }
-  /* kind cards are the index — let them span two columns on wide grids so the
-     complete listings breathe and don't tower in a single narrow column */
-  .hub-card.is-kind {
+  /* index cards are the full listing — span two columns so they breathe */
+  .hub-card.is-moc {
     grid-column: span 2;
   }
   @media (max-width: 660px) {
-    .hub-card.is-kind {
+    .hub-card.is-moc {
       grid-column: span 1;
     }
   }
-  .hub-card.kind-bug {
+
+  /* accent token → the card's --cat-color (open set; mirrors the graph's `.c-*`) */
+  .cc-red {
     --cat-color: var(--alert);
   }
-  .hub-card.kind-feature {
+  .cc-teal {
     --cat-color: var(--teal);
   }
-  .hub-card.kind-analysis {
+  .cc-gold {
     --cat-color: var(--gold);
   }
-  .hub-card.kind-reference {
+  .cc-grey {
     --cat-color: var(--ink-muted);
+  }
+  .cc-green {
+    --cat-color: var(--green);
+  }
+  .cc-blue {
+    --cat-color: #1f6feb;
+  }
+  .cc-purple {
+    --cat-color: #7c3aed;
   }
 
   .hub-head {
@@ -127,7 +127,7 @@ const { hubs } = Astro.props as Props;
     color: var(--ink);
     text-decoration: none;
   }
-  a.hub-title:hover {
+  .hub-title:hover {
     color: var(--amber);
   }
   .hub-count {
@@ -154,8 +154,8 @@ const { hubs } = Astro.props as Props;
     display: grid;
     gap: 0.05rem;
   }
-  /* kind cards (the full index) flow their long listings into columns */
-  .is-kind .cluster {
+  /* index cards (the full listing) flow their long lists into columns */
+  .is-moc .cluster {
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 0.05rem 1.4rem;
   }
@@ -206,26 +206,6 @@ const { hubs } = Astro.props as Props;
     white-space: nowrap;
     text-overflow: ellipsis;
     font-size: 0.78rem;
-    color: var(--ink-faint);
-  }
-  .cluster-kind {
-    margin-left: auto;
-    flex: none;
-    font-family: var(--mono);
-    font-size: 0.56rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .cluster-kind.k-bug {
-    color: var(--alert);
-  }
-  .cluster-kind.k-feature {
-    color: var(--teal);
-  }
-  .cluster-kind.k-analysis {
-    color: var(--gold);
-  }
-  .cluster-kind.k-reference {
     color: var(--ink-faint);
   }
 </style>

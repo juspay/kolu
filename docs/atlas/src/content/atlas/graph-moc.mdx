@@ -1,10 +1,9 @@
 ---
 title: Graph view + Maps of Content
-description: The Atlas index IS a force-directed graph — the four kinds become hub nodes, every note edges to its kind, and the Maps of Content fall straight out of the existing links. One entry point, everything reachable.
-kind: feature
+description: The Atlas index is one force-directed graph over every note. A category is a real note marked moc:true, every note files under one via parents, and the Maps of Content fall straight out of the links. One entry point, everything reachable.
+parents: [meta, feature]
 maturity: budding
 status: implemented
-parents: [meta]
 updated: 2026-06-19
 ---
 
@@ -12,40 +11,47 @@ import Callout from "../../components/Callout.astro";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 
-**The Atlas index *is* the graph.** Instead of a categorical tree plus a separate
-graph page, there is [one entry point](./index.html): a force-directed graph of
-every note, with a **Maps of Content** strip below it. The graph answers *"what's
-connected to what,"* the hubs answer *"where do I start,"* and together they reach
-every note — there is no second index to keep in sync.
+**The Atlas index *is* the graph.** There is [one entry point](./index.html): a
+force-directed graph of every note, with a **Maps of Content** strip below it. The
+graph answers *"what's connected to what,"* the index notes answer *"where do I
+start,"* and together they reach every note — there is no second index to keep in
+sync.
 
 > Open the [Atlas](./index.html). Hover a node to trace its neighborhood, click to
-> open the note, drag/scroll to move around.
+> open the note, type in the search box to filter by title, drag/scroll to move.
 
-## Kinds are hubs, not a separate skeleton
+## A category is just a note
 
-The old index had a hardcoded skeleton — one section per `kind`. The graph dissolves
-that: each of the four kinds (`bug` · `feature` · `analysis` · `reference`) is a
-**synthetic hub node**, and every note carries an implicit edge to its kind. Two
-things fall out for free:
+The old index had a hardcoded skeleton — a closed `kind` enum
+(`bug`/`feature`/`analysis`/`reference`) baked into the schema, fabricated as
+synthetic graph nodes, and special-cased in a metadata table. That's one concept
+smeared across three places, and it was closed. The graph dissolves it: each
+category is now a **real note** marked `moc: true` — [Bugs](./bug.html),
+[Features](./feature.html), [Analysis](./analysis.html),
+[Reference](./reference.html) — and a note is filed under one through the **single**
+edge mechanism, `parents`. Nothing is synthetic; nothing is complected:
 
-- **Nothing is unfiled and nothing is an orphan.** Every note is connected — to its
-  kind hub at minimum — so the graph is one piece and *every* node is reachable by
-  traversal, not just the well-linked ones.
-- **The Maps of Content are complete.** A kind hub's cluster is exactly the notes of
-  that kind, so the four kind cards together name every note. That's what lets the
-  page be browsed — and every node reached — with **no JavaScript at all**.
+- **No enum, no synthetic nodes.** An index note is a node like any other — it just
+  renders large (a labeled chip in its accent `color`) and seeds its own card.
+  Want a fifth category, Terminals or Surfaces? Write a fifth `moc` note. The set
+  is open.
+- **No orphans, complete by construction.** Every note carries its index in
+  `parents`, so it's connected — the graph is one piece — and it appears in exactly
+  one index card. The four index cards together name every note, so the whole Atlas
+  is reachable with **no JavaScript at all**.
 
-High-degree *topical* notes (`electricity`, `solid-fileview`, `pty-daemon`, …)
-surface as hubs the same way — by degree — so a cross-cutting entry point is
-discovered, never declared.
+High-degree *topical* notes (`electricity`, `solid-fileview`, `pty-daemon`, …) are
+emphasized as nodes in the graph (always-on labels), but only the explicit `moc`
+notes get cards below it.
 
 ## It reuses the links the Atlas already has
 
-No new frontmatter. The real edges are exactly the two the Atlas already authors —
-`parents` and same-directory `./slug.html` prose links — derived by the very same
-pass that powers the dead-link gate and the "Referenced by" backlinks. The kind
-edges are synthetic, added only in the graph layout. A node's **degree** sets its
-size; its **inbound** count ranks it as a topical hub.
+No special frontmatter for edges. A note's `parents` — its index note plus any
+topical hubs — and its same-directory `./slug.html` prose links are the *only*
+edges, derived by the very pass that powers the dead-link gate and the "Referenced
+by" backlinks. A node's **degree** sets its size; an index note's accent (`color`)
+tints the notes filed under it; membership spokes (an edge touching an index note)
+are drawn faint so the topical links stay the legible foreground.
 
 ## How the page stays a self-contained file
 
@@ -62,28 +68,30 @@ drift). The graph honors both:
   of ticks runs synchronously, and every coordinate is rounded. d3-force v3 carries
   no `Math.random`, so the baked geometry is byte-identical on every rebuild.
 - **The only client JS is one `is:inline` script** for interaction (zoom/pan,
-  hover-highlight, click-to-open) — so no `_astro` bundle is emitted and the page
-  stays one file. Nodes are real `<a>` links and the Maps-of-Content cards are plain
-  linked lists, so the page **reads and navigates with JavaScript off**.
+  hover-highlight, title search, click-to-open) — so no `_astro` bundle is emitted
+  and the page stays one file. Nodes are real `<a>` links and the Maps-of-Content
+  cards are plain linked lists, so the page **reads and navigates with JS off**.
 
-<Callout kind="accent" title="Why one view instead of two">
-A tree and a graph over the same notes are two things to keep in sync, and the tree
-only ever showed the skeleton the graph now expresses as structure. Folding them
-into one entry point means a single data source — the link graph — drives the
-picture *and* the browsable index, so they can never disagree, and "navigate to any
-note" is guaranteed by construction.
+<Callout kind="accent" title="Why one view, decomplected">
+A tree and a graph over the same notes are two things to keep in sync, and the
+tree only ever showed a skeleton the graph now expresses as real structure.
+Folding them into one entry point — driven by one data model where a category is
+*just a note* — means a single source of truth drives the picture *and* the
+browsable index, so they can never disagree, and "navigate to any note" is
+guaranteed by construction.
 </Callout>
 
 ## Where this could go
 
 <Roadmap>
-  <Milestone status="done" label="unify">Graph + Maps of Content as the single index; kinds as synthetic hub nodes so every note is connected and reachable; build-time d3-force baked to a self-contained SVG.</Milestone>
-  <Milestone status="next" label="1">Filter/focus by <code>kind</code> or maturity; isolate a single hub's cluster in place.</Milestone>
-  <Milestone status="next" label="2">Flag weakly-linked notes (only the kind edge) as a "wire these up" nudge — now that true orphans are gone, near-orphans are the signal.</Milestone>
+  <Milestone status="done" label="decomplect">A category is a real `moc` note filed via `parents` (no `kind` enum, no synthetic nodes); graph + Maps of Content as the single index; title search; build-time d3-force baked to a self-contained SVG.</Milestone>
+  <Milestone status="next" label="1">Filter/focus by index or maturity; isolate one index's cluster in place.</Milestone>
+  <Milestone status="next" label="2">Flag weakly-linked notes (only the index edge) as a "wire these up" nudge.</Milestone>
   <Milestone status="next" label="3">Deep-link into the graph centered on the note you came from (a "see this in context" link from each note).</Milestone>
 </Roadmap>
 
 ---
 
-*The index, rethought — one graph over the existing link structure. The link graph
-is the source of truth; this is the way to see and walk it.*
+*The index, rethought — one graph over the existing link structure, where a
+category is just a note. The link graph is the source of truth; this is the way to
+see and walk it.*

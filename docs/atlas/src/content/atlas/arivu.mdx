@@ -1,10 +1,9 @@
 ---
 title: arivu — terminal awareness as an ephemeral surface on kaval
 description: A clean-slate design for kolu terminal awareness (git · PR · agent · foreground). Repeat the kaval decoupling one level up — the awareness sensors become a generic library kolu runs in-process locally (writing terminalMetadata directly), and an ephemeral daemon (arivu) on top of kaval serves the same awareness over ssh for remote terminals, mirrored + folded into kolu. One sensor library, two homes — in-process locally, a served daemon remotely. It ships standalone first (arivu + arivu-tui, the kaval-tui move one level up).
-kind: feature
+parents: [kaval-sessions, feature]
 status: proposed
 maturity: seedling
-parents: [kaval-sessions]
 updated: 2026-06-19
 ---
 

@@ -4,6 +4,7 @@ import AtlasLayout from "../layouts/AtlasLayout.astro";
 import Toc from "../components/Toc.astro";
 import Backlinks from "../components/Backlinks.astro";
 import { buildAtlasGraph } from "../lib/atlasGraph";
+import { resolveParents } from "../lib/indexTree";
 
 export async function getStaticPaths() {
   // Match index.astro's working set: drafts are hidden from the build (but
@@ -15,13 +16,27 @@ export async function getStaticPaths() {
   // Build the inbound link graph once for the whole collection (and fail the
   // build on any dead internal link), then hand each page its own backlinks.
   const { backlinks } = buildAtlasGraph(notes);
+  const byId = new Map(notes.map((n) => [n.id, n]));
+  // The note's index membership, shown in the header: "index" if it's an index
+  // note, else the title of the first `moc` note in its `parents`.
+  const indexLabelOf = (note: (typeof notes)[number]) => {
+    if (note.data.moc) return "index";
+    for (const pid of resolveParents(byId, note)) {
+      if (byId.get(pid)?.data.moc) return byId.get(pid)!.data.title;
+    }
+    return undefined;
+  };
   return notes.map((note) => ({
     params: { slug: note.id },
-    props: { note, backlinks: backlinks.get(note.id) ?? [] },
+    props: {
+      note,
+      backlinks: backlinks.get(note.id) ?? [],
+      indexLabel: indexLabelOf(note),
+    },
   }));
 }
 
-const { note, backlinks } = Astro.props;
+const { note, backlinks, indexLabel } = Astro.props;
 const { Content, headings } = await render(note);
 const d = note.data;
 
@@ -38,7 +53,13 @@ const fmtDate = (date: Date) =>
     .toUpperCase();
 ---
 
-<AtlasLayout title={d.title} description={d.description}>
+<AtlasLayout
+  title={d.title}
+  description={d.description}
+  path={`${note.id}.html`}
+  ogType="article"
+  pubDate={d.updated}
+>
   <article class="wrap">
     <header>
       <a class="backlink" href="./index.html">← the Atlas</a>
@@ -46,8 +67,7 @@ const fmtDate = (date: Date) =>
       <h1 class="note-h1">{d.title}</h1>
 
       <div class="meta-row">
-        <span>{d.kind}</span>
-        <span class="meta-sep">·</span>
+        {indexLabel && (<><span>{indexLabel}</span><span class="meta-sep">·</span></>)}
         <span>{d.maturity}</span>
         {d.status && (<><span class="meta-sep">·</span><span>{d.status}</span></>)}
         {d.draft && (<><span class="meta-sep">·</span><span class="badge-draft">draft</span></>)}

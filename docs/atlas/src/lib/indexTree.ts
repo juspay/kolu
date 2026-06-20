@@ -1,33 +1,10 @@
 import type { CollectionEntry } from "astro:content";
 
-export type Category = "bug" | "feature" | "analysis" | "reference";
-
-/** The four kinds, in display order. Each becomes a hub node in the graph view
- *  (lib/graphView) — every note edges to its kind — so `kind` files a note
- *  without a separate categorical index. */
-export const CATEGORY_ORDER: Category[] = [
-  "bug",
-  "feature",
-  "analysis",
-  "reference",
-];
-
-export const CATEGORY_META: Record<Category, { label: string; blurb: string }> =
-  {
-    bug: { label: "Bugs", blurb: "Diagnosed defects and their fix direction." },
-    feature: {
-      label: "Features",
-      blurb: "Proposed capabilities, not yet built.",
-    },
-    analysis: {
-      label: "Analysis",
-      blurb: "Investigations into how the system behaves.",
-    },
-    reference: {
-      label: "Reference",
-      blurb: "Durable knowledge — designs, decisions, how it works.",
-    },
-  };
+// Shared note-edge primitives: how `parents` resolves to edges, how a note id
+// projects to a renderable ref, and the pinned title collation. Used by both the
+// backlink graph (lib/atlasGraph) and the graph layout (lib/graphView) so they
+// agree on what an edge is. (There is no categorical tree anymore — an index is
+// just a note marked `moc: true`; see content.config.ts.)
 
 /** A clickable reference to another note — rendered as a relative `./<id>.html`
  *  anchor with the title as link text. Shared by the graph view and the backlink
