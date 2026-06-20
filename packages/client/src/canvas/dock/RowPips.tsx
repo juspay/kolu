@@ -44,11 +44,11 @@
  *  noun for the file). */
 
 import {
-  activeArm,
+  activePr,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
-import { type PrInfo, prValue } from "anyforge/schemas";
+import type { PrInfo } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
@@ -81,10 +81,7 @@ export function createDockRowData(
  *  Renders nothing when there's no PR. */
 export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
   // sleeping/absent → no live PR resolution → no pill
-  const pr = (): PrInfo | null | undefined => {
-    const arm = activeArm(props.meta);
-    return arm && prValue(arm.pr);
-  };
+  const pr = (): PrInfo | null => activePr(props.meta);
   return (
     <Show when={pr()}>
       {(p) => (

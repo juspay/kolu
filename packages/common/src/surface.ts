@@ -41,6 +41,7 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-awareness/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
+import { type PrInfo, prValue } from "anyforge/schemas";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -908,4 +909,19 @@ export function activeArm(
   m: TerminalMetadata | null | undefined,
 ): ActiveTerminal | undefined {
   return m?.state === "active" ? m : undefined;
+}
+
+/** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,
+ *  else `null`. The single accessor for 'is it active and does it have a resolved
+ *  PR' — the active narrow (`activeArm`) and the `ok`-arm projection (`prValue`)
+ *  composed once, so value sites read one accessor instead of re-wiring the two
+ *  primitives (and don't leak the `false` an `arm && prValue(arm.pr)` chain
+ *  returns). JSX sites that narrow the arm to read BOTH `prValue` and
+ *  `prUnavailableSource` off it keep the `activeArm` narrow — this value
+ *  projection only collapses the `PrInfo | null` reads. */
+export function activePr(
+  m: TerminalMetadata | null | undefined,
+): PrInfo | null {
+  const arm = activeArm(m);
+  return arm ? prValue(arm.pr) : null;
 }
