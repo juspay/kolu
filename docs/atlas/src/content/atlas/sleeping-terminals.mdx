@@ -2,12 +2,13 @@
 title: "Sleeping terminals"
 description: A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Presence (canvas, dock, minimap) reads the union; touching a live field (PTY, agent) narrows to active. Phased — seat the sum (zero behavior change), then sleep/wake, then frozen screenshot, then unify with session-restore.
 parents: [phantom-running-background, feature]
-status: proposed
+status: accepted
 maturity: seedling
 updated: 2026-06-20
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 
 export const C = {
   bg: "#15171c", grid: "#1b1e25", chrome: "#1b1e24", panel: "#171a20",
@@ -191,6 +192,10 @@ Each is one reviewable PR; each leaves `master` shippable.
 | **4 — Unify with session-restore** | Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set | Behavior-preserving consolidation, landed last |
 
 ### Phase 1 — seat the sum (zero behavior change)
+
+**Shipped — <PrLink pr={1449} />.** The server registry holds only the `active`
+arm (`TerminalProcess.meta: ActiveTerminal`); the union flows on the client,
+where presence surfaces narrow `state === "active"` through one `activeArm` seam.
 
 Add the `state` discriminant to the terminal and flip `TerminalMetadataSchema`
 from a flat `.merge` to `z.discriminatedUnion("state", …)`, but **construct only
