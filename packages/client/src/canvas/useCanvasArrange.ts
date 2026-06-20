@@ -92,12 +92,9 @@ export function useCanvasArrange() {
     if (!supportsSpatialCanvas()) return;
     const id = tileStore.activeId();
     if (!id) return;
-    // Canvas-space coordinate at the viewport center — same math the
+    // Canvas-space coordinate at the viewport center — same accessor the
     // default-placement effect uses to drop a freshly created tile.
-    const { width, height } = viewport.viewportSize();
-    const zoom = viewport.zoom();
-    const cx = viewport.panX() + width / (2 * zoom);
-    const cy = viewport.panY() + height / (2 * zoom);
+    const { x: cx, y: cy } = viewport.viewportCenter();
     const layout: TileLayout = {
       x: snapToGrid(cx - DEFAULT_TILE_W / 2),
       y: snapToGrid(cy - DEFAULT_TILE_H / 2),

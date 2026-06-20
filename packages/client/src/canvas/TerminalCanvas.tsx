@@ -172,10 +172,7 @@ const TerminalCanvas: Component<{
     on(
       () => props.tileIds,
       (ids) => {
-        const { width, height } = viewport.viewportSize();
-        const zoom = viewport.zoom();
-        const cx = viewport.panX() + width / (2 * zoom);
-        const cy = viewport.panY() + height / (2 * zoom);
+        const { x: cx, y: cy } = viewport.viewportCenter();
         const placed: {
           id: TileId;
           layout: TileLayout;

@@ -20,6 +20,7 @@ import {
   type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
+  viewportCenter as viewportCenterPure,
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
 
@@ -136,6 +137,9 @@ export interface CanvasViewport {
   setPan: (x: number, y: number) => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
+  /** Canvas-space point at the viewport center — the forward projection of
+   *  pan+zoom+size that consumers use to drop a tile under the camera. */
+  viewportCenter: () => { x: number; y: number };
   /** Snap a value to the canvas grid. */
   snapToGrid: (value: number) => number;
   /** CSS background-position for the grid, tracking pan+zoom. */
@@ -258,6 +262,11 @@ function viewportSize() {
   };
 }
 
+function viewportCenter() {
+  const { width, height } = viewportSize();
+  return viewportCenterPure(panX(), panY(), width, height, zoom());
+}
+
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
   beginAuthoritativeMutation();
@@ -284,6 +293,7 @@ const viewport: CanvasViewport = {
   panTo,
   setPan,
   viewportSize,
+  viewportCenter,
   snapToGrid: snapToGridPure,
   gridBgPosition: () => gridBgPositionCSS(panX(), panY(), zoom()),
   gridBgSize: () => gridBgSizeCSS(zoom()),
