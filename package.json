@@ -26,7 +26,8 @@
       "qs": "^6.15.2",
       "@anthropic-ai/sdk": "^0.91.1",
       "@xterm/xterm": "6.1.0-beta.225",
-      "@xterm/addon-webgl": "0.20.0-beta.224"
+      "@xterm/addon-webgl": "0.20.0-beta.224",
+      "solid-js": "1.9.12"
     }
   }
 }

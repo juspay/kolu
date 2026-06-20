@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "start": "tsx src/bin.ts",
+    "start": "bun run src/bin.ts",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
@@ -13,8 +13,11 @@
     "@kolu/arivu-contract": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-nix-host": "workspace:*",
+    "@opentui/core": "^0.4.1",
+    "@opentui/solid": "^0.4.1",
     "cleye": "^2.3.0",
-    "columnify": "^1.6.0"
+    "columnify": "^1.6.0",
+    "solid-js": "^1.9.0"
   },
   "devDependencies": {
     "@types/columnify": "^1.5.4",

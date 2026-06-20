@@ -17,3 +17,10 @@ packageExtensions:
         optional: true
       react-dom:
         optional: true
+  # @opentui/core declares web-tree-sitter as a peer only for its <code>/<markdown>
+  # syntax-highlighting renderables, which arivu-tui (the only OpenTUI consumer)
+  # does not use — so it's optional, not a missing dep.
+  "@opentui/core":
+    peerDependenciesMeta:
+      web-tree-sitter:
+        optional: true
