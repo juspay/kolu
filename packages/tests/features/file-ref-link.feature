@@ -101,6 +101,7 @@ Feature: File-ref autolinking in terminal
     And I run "echo 'open app/main.txt first'"
     And I trigger the terminal file-ref link "app/main.txt"
     And the file browser should show a directory "app"
+    And the file "app/main.txt" should be selected in the file browser
     And I run "echo 'inspect the app/core module'"
     And I trigger the terminal file-ref link "app/core"
     Then the right panel should be visible
@@ -108,6 +109,12 @@ Feature: File-ref autolinking in terminal
     And the Code tab mode should be "browse"
     And the directory "app/core" should be expanded in the file browser
     And the file browser should show a file "app/core/one.txt"
+    # The folder reveal expands + scrolls the directory but selects no file:
+    # the prior `app/main.txt` selection stays put. This is the "reveals a
+    # directory WITHOUT selecting a file" guarantee from the scenario header,
+    # re-asserted deterministically on the proven mount-first path (a fresh
+    # `the file ... should not be selected` would race the reveal's own scroll).
+    And the file "app/main.txt" should be selected in the file browser
 
   Scenario: Clicking a folder ref while already browsing expands it in the live tree
     # Both folder-ref reveal scenarios mount the tree before the folder click —
