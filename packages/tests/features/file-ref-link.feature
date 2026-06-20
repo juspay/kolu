@@ -79,12 +79,15 @@ Feature: File-ref autolinking in terminal
     # `app` also holds a sibling file so `app/` and `app/core/` stay distinct
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
-    # The marker is split across an empty shell-quote (`commi""tted`) so the token
+    # The marker is split across an empty shell-quote (`commi''tted`) so the token
     # we wait for appears ONLY in the command's OUTPUT, never the echoed command
     # line. The terminal buffer includes the typed/echoed input, so waiting for a
     # token that is present verbatim in the typed command would match the echo and
-    # prove nothing about whether the command finished.
-    And I run "git add . && git commit -m files && echo files-commi""tted"
+    # prove nothing about whether the command finished. Single-quotes (not `""`)
+    # are used for the split because the doubled `"` would terminate this Gherkin
+    # `{string}` argument; `''` is an empty shell string that the shell strips, so
+    # the OUTPUT is still `files-committed`.
+    And I run "git add . && git commit -m files && echo files-commi''tted"
     # Gate on the commit actually finishing before the FRESH-OPEN folder-ref
     # click. The fresh-open reveal consumes the request EXACTLY ONCE the instant
     # `!allPaths.pending()` — i.e. against `fsListAll`'s first snapshot, which is
