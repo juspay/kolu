@@ -63,6 +63,7 @@ import { isTerminalQueryResponse } from "@kolu/terminal-protocol";
 import { createRenderRecovery } from "./renderRecovery";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
+import { useTerminalActivity } from "./useTerminalActivity";
 import { useTerminalStore } from "./useTerminalStore";
 import {
   trackCreate,
@@ -136,6 +137,7 @@ const Terminal: Component<{
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
+  const activity = useTerminalActivity();
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -783,6 +785,11 @@ const Terminal: Component<{
               ),
             (data) => {
               if (terminal) {
+                // Every chunk off the attach stream is live output — light the
+                // terminal's live-activity dot (dock + title), even when scroll-
+                // locked (the bytes still arrived; the user just isn't at the
+                // bottom). The store debounces back to static after a quiet gap.
+                activity.noteOutput(props.terminalId);
                 // Key the render-stall watchdog to xterm's PARSE, not stream
                 // receipt: `term.write` returns immediately and parses the
                 // chunk asynchronously (off a setTimeout), so noteData() run

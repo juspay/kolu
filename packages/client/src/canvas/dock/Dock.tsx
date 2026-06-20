@@ -69,6 +69,7 @@ import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -481,7 +482,12 @@ const DockRow: Component<{
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
+          {/* Recency cell — "5s ago" is the hours-scale staleness clock; the
+           *  live dot beside it is the sub-second "actually streaming right
+           *  now" axis, so a glance down the dock separates the sessions doing
+           *  work from the ones merely touched recently. */}
+          <span class="flex items-center justify-end gap-1 font-mono text-[0.6rem] tabular-nums text-fg-3">
+            <LiveActivityDot id={props.id} />
             {formatTimeAgo(c().meta.lastActivityAt)}
           </span>
           <Show when={showShortcutHint()}>

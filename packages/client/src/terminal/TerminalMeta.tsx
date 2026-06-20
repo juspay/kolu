@@ -13,7 +13,7 @@
  *  `TerminalMetaCompact`. */
 
 import { prValue } from "anyforge/schemas";
-import { prUnavailableSource } from "kolu-common/surface";
+import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import { agentBucket } from "../canvas/dockModel";
@@ -23,11 +23,13 @@ import { agentWorkflow } from "../ui/agentDisplay";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
+import LiveActivityDot from "./LiveActivityDot";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
+  id: TerminalId;
   info: TerminalDisplayInfo | undefined;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row
@@ -53,6 +55,7 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <LiveActivityDot id={props.id} />
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (
