@@ -100,13 +100,34 @@ export function resolveKavalSocket(explicit: string | undefined): string {
   const [first, ...rest] = found;
   if (first !== undefined && rest.length === 0) return first;
   if (rest.length > 0) {
+    // Each candidate, ready to paste back after `--kaval`. A socket whose dir is
+    // namespaced by a port (`kaval-<port>/`) is a running kolu-server on that
+    // port; a bare `kaval/` is a standalone daemon — so the label tells the two
+    // apart without the reader decoding the path.
+    const options = found.map((s) => `  --kaval ${s}    (${labelKaval(s)})`);
     throw new Error(
-      `more than one kaval daemon is running:\n  ${found.join(
-        "\n  ",
-      )}\nPass --kaval <path> to pick one (e.g. arivu-tui list --host <ssh> --kaval <path>).`,
+      `more than one kaval is running on this host — say which to read by re-running with --kaval:\n${options.join(
+        "\n",
+      )}\n(e.g. arivu-tui list --host <ssh> --kaval ${found[0]})`,
     );
   }
   return getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX);
+}
+
+/** A human label for a discovered kaval socket: a kolu-server (its kaval dir is
+ *  port-namespaced `kaval-<port>/`) vs a standalone daemon (a bare `kaval/`, or
+ *  `kaval-<uid>/` on the `/tmp` fallback). A bare-with-one-number dir is
+ *  genuinely ambiguous (port vs uid), so it's reported as "kolu-server or
+ *  standalone" rather than guessing. */
+function labelKaval(socketPath: string): string {
+  // …/<dir>/pty-host.sock — the dir basename carries the namespace.
+  const dir = socketPath.split("/").slice(-2, -1)[0] ?? "";
+  const m = dir.match(/^kaval(?:-(\d+))?(?:-(\d+))?$/);
+  if (m === null) return "kaval";
+  const [, a, b] = m;
+  if (b !== undefined) return `kolu-server on port ${a}`; // kaval-<port>-<uid>
+  if (a !== undefined) return `kolu-server on port ${a}, or a standalone kaval`;
+  return "standalone kaval"; // bare kaval/
 }
 
 /** Run the arivu daemon to completion. Resolves when the serve link ends

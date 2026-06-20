@@ -43,13 +43,23 @@ describe("resolveKavalSocket", () => {
     expect(resolveKavalSocket(undefined)).toBe(h.bareDefault);
   });
 
-  it("bails asking for --kaval when several kavals are running", () => {
+  it("bails with a labeled, ready-to-paste --kaval list when several kavals run", () => {
+    // The exact shape seen on a real Mac (no $XDG_RUNTIME_DIR → /tmp fallback):
+    // a standalone kaval-<uid> and a kolu-server kaval-<port>-<uid>.
     h.discover.mockReturnValue([
-      "/run/user/1000/kaval-7692/pty-host.sock",
-      "/run/user/1000/kaval-8001/pty-host.sock",
+      "/tmp/kaval-501/pty-host.sock",
+      "/tmp/kaval-7692-501/pty-host.sock",
     ]);
-    expect(() => resolveKavalSocket(undefined)).toThrow(
-      /more than one kaval daemon is running/,
-    );
+    let msg = "";
+    try {
+      resolveKavalSocket(undefined);
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toMatch(/more than one kaval is running on this host/);
+    // Each candidate is a ready-to-paste `--kaval <path>`…
+    expect(msg).toContain("--kaval /tmp/kaval-7692-501/pty-host.sock");
+    // …and the port-namespaced one is labeled as the kolu-server it is.
+    expect(msg).toContain("kolu-server on port 7692");
   });
 });

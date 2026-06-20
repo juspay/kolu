@@ -35,6 +35,15 @@ const h = vi.hoisted(() => ({
     markConnected: ReturnType<typeof vi.fn>;
     destroy: ReturnType<typeof vi.fn>;
   }>,
+  // What `session.current()` returns — the failure-surfacing path reads it on a
+  // dial rejection. Default: a benign "connecting" state (no agent-quit), so the
+  // raw probe error is preserved; a test can swap in a `"remote"` quit + stderr.
+  state: {
+    connection: "connecting",
+    progressLines: [] as string[],
+    lastError: null as string | null,
+    failureCause: null as string | null,
+  },
 }));
 
 vi.mock("./arch", () => ({ resolveSystem: h.resolveSystem }));
@@ -57,6 +66,7 @@ function fakeSession(client: unknown) {
       markConnected: vi.fn(),
       destroy: vi.fn(),
       onState: () => () => {},
+      current: () => h.state,
     };
     h.sessions.push(session);
     h.pin = session.pin;
@@ -74,6 +84,12 @@ const VALID_MAP = JSON.stringify({
 afterEach(() => {
   vi.clearAllMocks();
   h.sessions.length = 0;
+  h.state = {
+    connection: "connecting",
+    progressLines: [],
+    lastError: null,
+    failureCause: null,
+  };
 });
 
 describe("dialAgentOnce: eager drv-map validation", () => {
@@ -244,6 +260,51 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     ).rejects.toThrow(/link dead/);
     expect(h.markConnected).not.toHaveBeenCalled();
     expect(h.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the agent's own fatal reason over the transport error when the agent quit", async () => {
+    // The agent exited before serving (e.g. a multi-kaval pick) → the probe
+    // rejects with a transport "stream closed" error, but the session captured
+    // the agent's stderr tail + a `"remote"` quit. dialAgentOnce must surface
+    // THAT, not the opaque transport noise.
+    fakeSession({});
+    h.state = {
+      connection: "disconnected",
+      progressLines: ["arivu: more than one kaval is running on this host"],
+      lastError: "agent exited (code=1, signal=null)",
+      failureCause: "remote",
+    };
+    await expect(
+      dialAgentOnce({
+        host: "nix@prod",
+        binary: "arivu",
+        envVar: "AGENT_DRVS_JSON",
+        agentDrvsJson: VALID_MAP,
+        drvNoun: "arivu",
+        probe: async () => {
+          throw new Error("[AsyncIdQueue] Queue[1] was closed");
+        },
+      }),
+    ).rejects.toThrow(/more than one kaval is running/);
+    expect(h.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the raw error for a transport fault (agent did not quit)", async () => {
+    // failureCause stays null (the default state) — a transport hiccup, not the
+    // agent exiting — so the original error is the better signal, not overridden.
+    fakeSession({});
+    await expect(
+      dialAgentOnce({
+        host: "nix@prod",
+        binary: "agent",
+        envVar: "AGENT_DRVS_JSON",
+        agentDrvsJson: VALID_MAP,
+        drvNoun: "agent",
+        probe: async () => {
+          throw new Error("transport blip");
+        },
+      }),
+    ).rejects.toThrow(/transport blip/);
   });
 });
 

@@ -155,6 +155,19 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     extraArgs: opts.extraRemoteArgs,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
   });
+  // Capture the agent's OWN fatal reason as the session streams it. When the
+  // agent exits before serving — a bad `--kaval` pick, a startup crash — the
+  // `probe` below rejects with the transport's opaque "stream closed" error, but
+  // the agent's last stderr line (on the session's `progressLines`) is the real
+  // reason. `onState` records it the instant the child-exit handler marks the
+  // session `"remote"` (the agent itself ran and exited) — NOT `"network"`,
+  // where the transport error itself is the better signal.
+  let agentExitReason: string | undefined;
+  const offState = session.onState((s) => {
+    if (s.failureCause === "remote" && s.progressLines.length > 0) {
+      agentExitReason = s.progressLines.at(-1);
+    }
+  });
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
   // failure anywhere in pin/probe must destroy the session itself — otherwise
   // its ref-counted reconnect loop/watchdog timer leaks for any caller that
@@ -171,20 +184,30 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // any real command.
     await opts.probe(client);
     session.markConnected();
+    offState();
     return {
       client,
       dispose: () => session.destroy(),
     };
   } catch (err) {
+    // The probe's stream-closed rejection can win the race with the child's
+    // `exit` event, so yield once to let that handler land the agent's reason on
+    // the session state before we read it.
+    await new Promise((resolve) => setImmediate(resolve));
+    offState();
+    const state = session.current();
+    const agentQuit = state.failureCause === "remote";
+    const reason = agentExitReason ?? state.progressLines.at(-1);
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
-    // and clears timers) must NOT replace the original pin/probe failure, which
-    // is the error the caller needs to see. Ignore the cleanup throw; rethrow
-    // the real one.
+    // and clears timers) must NOT replace the failure the caller needs to see.
     try {
       session.destroy();
     } catch {
-      // teardown failed; the original error below is the one that matters.
+      // teardown failed; the error below is the one that matters.
     }
+    // Surface the agent's own reason ("arivu: more than one kaval …") over the
+    // transport's opaque "[AsyncIdQueue] … closed" when the agent itself quit.
+    if (agentQuit && reason) throw new Error(reason);
     throw err;
   }
 }

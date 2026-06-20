@@ -28,9 +28,9 @@ Usage:
   arivu --stdio [--kaval PATH]
 
 Options:
-  --kaval PATH    the kaval pty-host socket to dial
-                  (default: the standalone kaval's own socket,
-                  $XDG_RUNTIME_DIR/kaval/pty-host.sock).
+  --kaval PATH    the kaval pty-host socket to dial (default: the running kaval,
+                  discovered — a standalone one, or a kolu-server namespaced by
+                  listen port; pass this to pick one when several are up).
   --socket PATH   serve the awareness surface on an explicit socket
                   (default: $XDG_RUNTIME_DIR/arivu/awareness.sock). Ignored
                   with --stdio.
@@ -70,6 +70,12 @@ runArivuDaemon({
 })
   .then(() => process.exit(0))
   .catch((err: unknown) => {
-    log.error({ err }, "arivu: fatal");
+    const msg = err instanceof Error ? err.message : String(err);
+    // A plain, human line on stderr — readable in an `--host` dial's streamed
+    // output (and surfaced by `dialAgentOnce` as the dial's failure reason),
+    // instead of a pino JSON blob. The structured error (with stack) stays at
+    // debug for field debugging (ARIVU_LOG_LEVEL=debug).
+    process.stderr.write(`arivu: ${msg}\n`);
+    log.debug({ err }, "arivu: fatal");
     process.exit(1);
   });
