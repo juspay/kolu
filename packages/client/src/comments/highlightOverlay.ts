@@ -18,14 +18,16 @@ import {
   rangeFromOffsets,
   rootTextContent,
 } from "@kolu/artifact-sdk/client";
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  onCleanup,
+} from "solid-js";
 import { useCommentScrollRequest } from "./scrollRequest";
 import { walkShadowRoots } from "../dom/shadowWalk";
 import type { Comment } from "./types";
-
-// A monotonic suffix so each overlay instance owns a distinct CSS highlight
-// name (see the per-instance rationale in `useHighlightOverlay`).
-let highlightSeq = 0;
 
 /** Resolve the root the highlight overlay should walk for re-find +
  *  Range construction. Pierre's virtualized path nests a `<diffs-container>`
@@ -66,9 +68,10 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
   // clobber each other's ranges, blanking the visible surface. A name per
   // instance lets each own its ranges independently; a hidden surface's ranges
   // just don't lay out, and the browser repaints them when it's shown again —
-  // no re-apply on toggle needed.
-  highlightSeq += 1;
-  const name = `${COMMENT_HIGHLIGHT_NAME_PREFIX}-${highlightSeq}`;
+  // no re-apply on toggle needed. The suffix is the instance's own stable
+  // identity (`createUniqueId`), so the name is derived from the surface rather
+  // than threaded through an external mutable counter.
+  const name = `${COMMENT_HIGHLIGHT_NAME_PREFIX}-${createUniqueId()}`;
   const styleEl = document.createElement("style");
   styleEl.textContent = `::highlight(${name}) { ${COMMENT_HIGHLIGHT_STYLE_THEMED} }`;
   document.head.appendChild(styleEl);
