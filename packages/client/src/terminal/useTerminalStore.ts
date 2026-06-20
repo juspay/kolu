@@ -15,7 +15,10 @@ import { createSharedRoot } from "../createSharedRoot";
 import { useViewState } from "../useViewState";
 import { terminalListSub } from "../wire";
 import { useSubPanel } from "./useSubPanel";
-import { useTerminalMetadata } from "./useTerminalMetadata";
+import {
+  sameTerminalIdOrder,
+  useTerminalMetadata,
+} from "./useTerminalMetadata";
 import {
   admitWebglTiles,
   isActiveSplit,
@@ -52,6 +55,20 @@ export const useTerminalStore = createSharedRoot(() => {
       : parentId;
   }
 
+  /** Active top-level tile ids, equals-gated on the id ARRAY so the WebGL budget
+   *  recomputes only when the active SET changes (a sleep/wake transition) — not
+   *  on every per-terminal metadata tick (agent-state, lastActivityAt, tokens),
+   *  which would otherwise re-run `admitWebglTiles` on hot agent-stream traffic.
+   *  `terminalIds()` stays the full tile set (sleeping ids still reach the
+   *  canvas/dock); only the WebGL-eligible subset is narrowed. */
+  const activeTileIds = createMemo(
+    () =>
+      metadata
+        .terminalIds()
+        .filter((id) => activeArm(metadata.getMetadata(id))),
+    [],
+    { equals: sameTerminalIdOrder },
+  );
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
    *  tiles that fit under `WEBGL_CONTEXT_CAP`. Derived from the tile MRU
    *  (`mruOrder`) intersected with the live top-level tiles, so a closed tile is
@@ -62,13 +79,7 @@ export const useTerminalStore = createSharedRoot(() => {
   const webglTileBudget = createMemo(() => {
     // Only ACTIVE tiles are eligible for a GPU context — a sleeping tile renders
     // a static dormant body (no xterm), so it must never grab a WebGL slot.
-    // `terminalIds()` stays the full tile set (sleeping ids still reach the
-    // canvas/dock); only the budget Set is narrowed.
-    const live = new Set(
-      metadata
-        .terminalIds()
-        .filter((id) => activeArm(metadata.getMetadata(id))),
-    );
+    const live = new Set(activeTileIds());
     const ordered = view.mruOrder().filter((id) => live.has(id));
     // `tileWebglCost` is the one home for a tile's context cost (main pane + an
     // expanded, active split), so the running count is the true number of live

@@ -13,6 +13,7 @@
 
 import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { firstIntentLine } from "../intent/text";
 import { useSessionRestore } from "../terminal/useSessionRestore";
 
 const DormantTileBody: Component<{
@@ -31,7 +32,7 @@ const DormantTileBody: Component<{
       <Show when={props.meta.intent}>
         {(intent) => (
           <div class="max-w-full truncate text-sm text-fg-2 text-center">
-            {intent().split("\n")[0]}
+            {firstIntentLine(intent())}
           </div>
         )}
       </Show>
