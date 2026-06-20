@@ -92,9 +92,27 @@ export const useTerminalStore = createSharedRoot(() => {
     return budget.includes(parentId) && isActiveSplit(panel, id);
   }
 
+  // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
+  // consistent (id, meta) pair from one reactive read. Handed to the right panel
+  // as two separate sources — the activeId signal and the activeMeta memo — they
+  // can tear on a terminal switch (the new active id paired with the PREVIOUS
+  // terminal's metadata for a propagation step), which makes CodeTab's repo-
+  // change reset wipe the new terminal's Code-tab history (a darwin-only flake;
+  // see the Flaky Test Tracker). Reading getMetadata(id) for the bundled id is
+  // glitch-free.
+  const activePanel = createMemo(() => {
+    const id = view.activeId();
+    return {
+      id,
+      meta: id !== null ? (metadata.getMetadata(id) ?? null) : null,
+    };
+  });
+
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
     listSub: terminalListSub,
+    // The active terminal id bundled with its own metadata (a consistent pair).
+    activePanel,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
