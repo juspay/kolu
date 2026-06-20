@@ -13,8 +13,8 @@
  *     share state or cross-dispose (the F1 regression).
  *
  * The CLI wrappers (kaval-tui / arivu-tui) supply only their binary, env-var
- * name + value, drvNoun, and probe; those thin seams are tested in their own
- * packages.
+ * name + value, drvNoun, fatalPrefix, and probe; those thin seams are tested in
+ * their own packages.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -103,6 +103,7 @@ describe("dialAgentOnce: eager drv-map validation", () => {
     binary: "agent",
     envVar: "AGENT_DRVS_JSON",
     drvNoun: "agent",
+    fatalPrefix: "agent:",
     probe: async () => undefined,
   };
 
@@ -164,6 +165,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
         "aarch64-darwin": "/nix/store/bbb-agent.drv",
       }),
       drvNoun: "agent",
+      fatalPrefix: "agent:",
       probe: async () => undefined,
     });
     const resolveDrvPath = h.HostSession.mock.calls[0]?.[0]?.resolveDrvPath;
@@ -178,6 +180,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
       drvNoun: "arivu",
+      fatalPrefix: "arivu:",
       probe: async () => undefined,
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
@@ -194,6 +197,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
       drvNoun: "arivu",
+      fatalPrefix: "arivu:",
       probe: async () => undefined,
     });
     expect(h.HostSession.mock.calls[0]?.[0]?.extraArgs).toBeUndefined();
@@ -210,6 +214,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
         "aarch64-darwin": "/nix/store/bbb-widget.drv",
       }),
       drvNoun: "widget",
+      fatalPrefix: "widget:",
       probe: async () => undefined,
     });
     const resolveDrvPath = h.HostSession.mock.calls[0]?.[0]?.resolveDrvPath;
@@ -232,6 +237,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
       drvNoun: "agent",
+      fatalPrefix: "agent:",
       probe,
     });
 
@@ -255,6 +261,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         envVar: "AGENT_DRVS_JSON",
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
+        fatalPrefix: "agent:",
         probe: async () => {
           throw new Error("link dead");
         },
@@ -264,29 +271,36 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     expect(h.destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces the agent's own fatal reason over the transport error when the agent quit", async () => {
-    // The agent exited before serving (e.g. a multi-kaval pick) → the probe
-    // rejects with a transport "stream closed" error, but the session captured
-    // the agent's stderr tail + a `"remote"` quit. dialAgentOnce must surface
-    // THAT, not the opaque transport noise.
+  it("surfaces the agent's own MULTI-LINE fatal block over the transport error when the agent quit", async () => {
+    // The agent exited before serving (the documented "several kavals on the
+    // host" ambiguity) → the probe rejects with a transport "stream closed"
+    // error, but the session captured the agent's stderr tail + a `"remote"`
+    // quit. dialAgentOnce must surface THAT — and the WHOLE block, not just the
+    // prefixed first line: arivu's ambiguity error lists each `--kaval <socket>`
+    // candidate the user needs to recover, and `forEachLine` split those onto
+    // their own `remoteProgressLines` entries (only the first carries `arivu:`).
     fakeSession({});
     h.state = {
       connection: "disconnected",
       // The session's local lifecycle lives in the unified `progressLines` (with
       // its `[local]`/`[remote]` tags); the agent's OWN stderr is also exposed
       // UNTAGGED on `remoteProgressLines`, which is the field dialAgentOnce reads
-      // by origin. It matches the agent's `<drvNoun>:` fatal there — no longer
-      // re-parsing the session's internal `[remote] ` tag.
+      // by origin — matching the caller's `fatalPrefix`, not re-parsing the
+      // session's internal `[remote] ` tag.
       progressLines: [
-        "[remote] arivu: more than one kaval is running on this host",
+        "[remote] arivu: more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "[local] agent exited (code=1, signal=null)",
         "[local] reconnecting in 2000ms… (attempt 1/5)",
       ],
-      // The remote-origin lines, untagged — including a noise line before the
-      // fatal, so the `<drvNoun>:` match (not `at(-1)`) is what picks it.
+      // The remote-origin lines, untagged — a noise line BEFORE the fatal (so
+      // the prefix match, not `at(-1)`, picks the block start) and the candidate
+      // lines AFTER it (so the block capture, not a single line, keeps them).
       remoteProgressLines: [
         "spawning awareness sensors",
-        "arivu: more than one kaval is running on this host",
+        "arivu: more than one kaval is running on this host — say which to read by re-running with --kaval:",
+        "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
+        "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
+        "(e.g. arivu-tui list --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ],
       lastError: "agent exited (code=1, signal=null)",
       // null on purpose: the child-`exit` event that sets `failureCause` races
@@ -301,17 +315,63 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
       drvNoun: "arivu",
+      fatalPrefix: "arivu:",
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
     }).catch((e: Error) => {
       msg = e.message;
     });
-    // The agent's own line — prefix stripped, no transport noise, no reconnect
-    // chatter, not the `at(-1)` line.
-    expect(msg).toBe("more than one kaval is running on this host");
-    expect(msg).not.toMatch(/AsyncIdQueue|reconnecting/);
+    // The agent's own block — prefix stripped from the header, candidate lines
+    // preserved verbatim, no transport noise, no reconnect chatter, no pre-fatal
+    // "spawning awareness sensors" noise line.
+    expect(msg).toBe(
+      [
+        "more than one kaval is running on this host — say which to read by re-running with --kaval:",
+        "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
+        "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
+        "(e.g. arivu-tui list --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+      ].join("\n"),
+    );
+    expect(msg).toContain("--kaval /run/user/1000/kaval-7692/pty-host.sock");
+    expect(msg).not.toMatch(/AsyncIdQueue|reconnecting|spawning awareness/);
     expect(h.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches a multi-word fatalPrefix (kaval's `kaval --stdio:`, not `kaval:`)", async () => {
+    // The remote runs `kaval --stdio`, whose fatal prefix is `kaval --stdio:` —
+    // NOT `kaval:`. A `${drvNoun}:`-shaped guess would NOT match this line and
+    // would silently surface the opaque transport error instead, which is exactly
+    // why `fatalPrefix` is caller-supplied. (drvNoun stays `kaval` for the
+    // separate "no derivation baked" error.)
+    fakeSession({});
+    h.state = {
+      connection: "disconnected",
+      progressLines: [],
+      remoteProgressLines: [
+        "kaval --stdio: the durable daemon failed to come up — its socket never appeared",
+      ],
+      lastError: "agent exited (code=1, signal=null)",
+      failureCause: null,
+    };
+    let msg = "";
+    await dialAgentOnce({
+      host: "nix@prod",
+      binary: "kaval",
+      envVar: "KAVAL_AGENT_DRVS_JSON",
+      agentDrvsJson: VALID_MAP,
+      drvNoun: "kaval",
+      fatalPrefix: "kaval --stdio:",
+      probe: async () => {
+        throw new Error("[AsyncIdQueue] Queue[1] was closed");
+      },
+    }).catch((e: Error) => {
+      msg = e.message;
+    });
+    expect(msg).toBe(
+      "the durable daemon failed to come up — its socket never appeared",
+    );
+    expect(msg).not.toMatch(/AsyncIdQueue/);
   });
 
   it("keeps the raw error for a transport fault (agent did not quit)", async () => {
@@ -325,6 +385,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         envVar: "AGENT_DRVS_JSON",
         agentDrvsJson: VALID_MAP,
         drvNoun: "agent",
+        fatalPrefix: "agent:",
         probe: async () => {
           throw new Error("transport blip");
         },
@@ -345,6 +406,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
     envVar: "AGENT_DRVS_JSON",
     agentDrvsJson: VALID_MAP,
     drvNoun: "agent",
+    fatalPrefix: "agent:",
     probe: async () => "ok",
   };
 

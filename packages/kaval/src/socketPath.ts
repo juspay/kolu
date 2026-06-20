@@ -73,17 +73,27 @@ function isPrivateOwnedDir(dir: string): boolean {
 }
 
 /** Discover the rendezvous sockets of running pty-host daemons under the per-user
- *  runtime root — every kolu-server's per-port namespace (`kaval-<port>/`) plus a
- *  bare standalone `kaval/`. Lets a flag-less `kaval-tui` dial the daemon without
- *  knowing the server's port.
+ *  runtime root, EACH LABELED by the branch that matched — every kolu-server's
+ *  per-port namespace (`kaval-<port>/` → "kolu-server on port <port>") plus a bare
+ *  standalone `kaval/` (→ "standalone kaval"). Lets a flag-less `kaval-tui` dial
+ *  the daemon without knowing the server's port, and a `many`-candidate error name
+ *  each one correctly.
  *
  *  The runtime root and the env's namespace decoration are NOT re-derived here:
  *  they are READ BACK from `getRuntimeSocketPath` itself, so discovery can never
  *  spell the path shape differently than construction. Build the bare daemon's
  *  socket path, then walk back up — its grandparent is the root to scan, its
  *  parent's basename is the (possibly `-$UID`-decorated) bare namespace dir. The
- *  per-port pattern is the same decoration with `\d+` substituted for the port,
- *  learnt from a probe build with port `0`.
+ *  per-port pattern is the same decoration with a `(\d+)` capture substituted for
+ *  the port, learnt from a probe build with port `0`.
+ *
+ *  Labeling is the INVERSE of `kavalNamespace`, derived from THIS match — not a
+ *  later re-parse of the basename. That distinction matters: a re-parse of a bare
+ *  `kaval-7692` basename alone can't tell a port from an off-XDG `-$UID` suffix
+ *  and would have to hedge ("port 7692, or a standalone kaval"). Here, a name that
+ *  equals `bareName` IS the standalone daemon and a name that matches the ported
+ *  pattern IS a kolu-server — the ambiguity never arises because the matching
+ *  branch already decided, against this user's actual `bareName`/`portedRe`.
  *
  *  A name match is necessary but NOT sufficient: every candidate's namespace dir
  *  must also pass the same owner-only privacy check the serving side enforces, so
@@ -91,7 +101,7 @@ function isPrivateOwnedDir(dir: string): boolean {
  *  they can spell freely, `-$UID` and all) is never dialed. The socket inode must
  *  itself be a socket — not any file a name-squatter dropped in. Returns every
  *  surviving `<ns>/pty-host.sock`; never throws (an unreadable root → []). */
-export function discoverPtyHostSockets(): string[] {
+export function discoverKavalCandidates(): KavalSocketCandidate[] {
   // The bare daemon's socket: `<root>/<bareDir>/pty-host.sock`. Whatever shape
   // surface gives it (XDG `kaval/`, or `/tmp` `kaval-$UID/`) the decoration is
   // baked into `bareDir`, never re-decided here.
@@ -103,8 +113,8 @@ export function discoverPtyHostSockets(): string[] {
 
   // Learn the env's port decoration from the builder too: a probe build with
   // port `0` yields the decorated per-port name; turn its literal `0` back into
-  // `\d+` to match any port. (Escape the rest so a `/tmp` path can't inject
-  // regex metacharacters.)
+  // a `(\d+)` capture group to both match any port AND read it back for the
+  // label. (Escape the rest so a `/tmp` path can't inject regex metacharacters.)
   const portedName = basename(
     dirname(
       getRuntimeSocketPath({
@@ -114,7 +124,7 @@ export function discoverPtyHostSockets(): string[] {
     ),
   );
   const portedRe = new RegExp(
-    `^${portedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "\\d+")}$`,
+    `^${portedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("0", "(\\d+)")}$`,
   );
 
   let entries: string[];
@@ -123,9 +133,19 @@ export function discoverPtyHostSockets(): string[] {
   } catch {
     return [];
   }
-  const found: string[] = [];
+  const found: KavalSocketCandidate[] = [];
   for (const name of entries) {
-    if (name !== bareName && !portedRe.test(name)) continue;
+    // Classify by the branch that matches — this IS the label, decided here
+    // against this user's real bareName/portedRe, so the later "many" error
+    // never has to hedge between a port and an off-XDG `-$UID`.
+    let label: string;
+    if (name === bareName) {
+      label = "standalone kaval";
+    } else {
+      const m = portedRe.exec(name);
+      if (m === null) continue;
+      label = `kolu-server on port ${m[1]}`;
+    }
     // Name match alone is not ownership: require the namespace dir to be ours
     // and owner-only (the serving-side boundary), and the inode to be an actual
     // socket — so a name-squatter's planted dir/file under a shared root is
@@ -133,9 +153,16 @@ export function discoverPtyHostSockets(): string[] {
     const dir = join(root, name);
     if (!isPrivateOwnedDir(dir)) continue;
     const sock = join(dir, PTY_HOST_SOCK_FILE);
-    if (isSocketInode(sock)) found.push(sock);
+    if (isSocketInode(sock)) found.push({ socket: sock, label });
   }
   return found;
+}
+
+/** The discovered sockets as bare paths — the back-compat shape for callers that
+ *  only need the paths (not the labels). `discoverKavalCandidates` is the source
+ *  of truth; this drops the labels. */
+export function discoverPtyHostSockets(): string[] {
+  return discoverKavalCandidates().map((c) => c.socket);
 }
 
 /** Is `path` an actual socket inode? `lstatSync` (NOT `statSync`) so a symlink
@@ -149,29 +176,11 @@ function isSocketInode(path: string): boolean {
   }
 }
 
-/** A human label for a discovered kaval socket: a kolu-server (its kaval dir is
- *  port-namespaced `kaval-<port>/`) vs a standalone daemon (a bare `kaval/`, or
- *  `kaval-<uid>/` on the `/tmp` fallback). A bare-with-one-number dir is
- *  genuinely ambiguous (port vs uid), so it's reported as "kolu-server or
- *  standalone" rather than guessing. This is the INVERSE of `kavalNamespace`: the
- *  grammar it decodes (`KAVAL_NS_PREFIX` bare, `-<port>`, the `-$UID` `/tmp`
- *  decoration, and the combined `-<port>-<uid>` form) is constructed in this same
- *  module, so construction and decoding move together. */
-function labelKavalSocket(socketPath: string): string {
-  // …/<dir>/pty-host.sock — the dir basename carries the namespace.
-  const dir = basename(dirname(socketPath));
-  const m = dir.match(
-    new RegExp(`^${KAVAL_NS_PREFIX}(?:-(\\d+))?(?:-(\\d+))?$`),
-  );
-  if (m === null) return KAVAL_NS_PREFIX;
-  const [, a, b] = m;
-  if (b !== undefined) return `kolu-server on port ${a}`; // kaval-<port>-<uid>
-  if (a !== undefined) return `kolu-server on port ${a}, or a standalone kaval`;
-  return "standalone kaval"; // bare kaval/
-}
-
 /** A labeled candidate kaval socket — the pasteable path plus a human label that
- *  tells a kolu-server (port-namespaced) apart from a standalone daemon. */
+ *  tells a kolu-server (port-namespaced) apart from a standalone daemon. The label
+ *  is decided by `discoverKavalCandidates` at the matching branch (`bareName` →
+ *  standalone, the ported pattern → a specific port), so it is never the hedged
+ *  "port N, or a standalone" a basename re-parse would have to fall back to. */
 export interface KavalSocketCandidate {
   socket: string;
   label: string;
@@ -198,19 +207,15 @@ export function resolveRunningKavalSocket(
   if (explicit !== undefined && explicit !== "") {
     return { kind: "explicit", socket: explicit };
   }
-  const found = discoverPtyHostSockets();
+  const found = discoverKavalCandidates();
   const [first, ...rest] = found;
   if (first !== undefined && rest.length === 0) {
-    return { kind: "one", socket: first };
+    return { kind: "one", socket: first.socket };
   }
   if (rest.length > 0) {
-    return {
-      kind: "many",
-      candidates: found.map((socket) => ({
-        socket,
-        label: labelKavalSocket(socket),
-      })),
-    };
+    // Each candidate already carries the label `discoverKavalCandidates` decided
+    // at its matching branch — no re-parse, no hedge.
+    return { kind: "many", candidates: found };
   }
   return {
     kind: "none",

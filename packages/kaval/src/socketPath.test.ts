@@ -244,7 +244,7 @@ describe("resolveRunningKavalSocket", () => {
     });
   });
 
-  it("reports every candidate with a namespace label → many", async () => {
+  it("reports every candidate with an UNAMBIGUOUS namespace label → many", async () => {
     const runtime = await seed(["kaval", "kaval-7692"]);
     process.env.XDG_RUNTIME_DIR = runtime;
     const resolved = resolveRunningKavalSocket(undefined);
@@ -253,12 +253,15 @@ describe("resolveRunningKavalSocket", () => {
     const byLabel = new Map(
       resolved.candidates.map((c) => [c.socket, c.label] as const),
     );
-    // The bare dir is a standalone daemon; the port dir is a kolu-server.
+    // Under XDG the bare `kaval/` IS the standalone daemon and `kaval-7692/` IS a
+    // kolu-server on port 7692 — discovery decides each at its matching branch,
+    // so the port candidate is named outright, NOT hedged as "port 7692, or a
+    // standalone kaval" (the basename-reparse confusion this fix removes).
     expect(byLabel.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
       "standalone kaval",
     );
     expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
-      "kolu-server on port 7692, or a standalone kaval",
+      "kolu-server on port 7692",
     );
   });
 });

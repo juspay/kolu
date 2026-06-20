@@ -44,6 +44,12 @@ export function connectPtyHostViaHost(host: string): Promise<Connection> {
     envVar: KAVAL_AGENT_DRVS_ENV,
     agentDrvsJson: process.env[KAVAL_AGENT_DRVS_ENV],
     drvNoun: "kaval",
+    // The remote runs `kaval --stdio`, whose fatal prefix is `kaval --stdio:`
+    // (NOT `kaval:` — see kaval/src/bin.ts + stdioBridge.ts). This is exactly why
+    // `fatalPrefix` is caller-supplied rather than derived from `drvNoun`: a
+    // `kaval:`-shaped guess would silently drop the remote's real reason and
+    // surface only the transport's opaque "stream closed" error.
+    fatalPrefix: "kaval --stdio:",
     // One cheap RPC that roundtrips kaval's atomic liveness verb.
     probe: (client) => client.surface.system.heartbeat({}),
   });

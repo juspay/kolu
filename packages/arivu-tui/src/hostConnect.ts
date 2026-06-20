@@ -69,6 +69,11 @@ export function connectArivuViaHost(
     envVar: ARIVU_AGENT_DRVS_ENV,
     agentDrvsJson: process.env[ARIVU_AGENT_DRVS_ENV],
     drvNoun: "arivu",
+    // arivu's bin.ts writes its fatal as `arivu: <message>` right before exiting
+    // (a multi-line `--kaval` ambiguity block included), so the dialer surfaces
+    // that whole block as the failure reason. Same as `${drvNoun}:` here, but the
+    // option is explicit because it is NOT always — see kaval-tui's `kaval --stdio:`.
+    fatalPrefix: "arivu:",
     // Only pin the remote kaval when the user asked (--kaval); otherwise let the
     // remote arivu discover it, so a single remote kolu is found with no flag.
     // `extraArgs` is `dialAgentOnce`'s generic spawn-arg passthrough — this is

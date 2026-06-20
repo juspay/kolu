@@ -111,6 +111,16 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
   /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
    *  `kaval`, `arivu`). */
   drvNoun: string;
+  /** The EXACT stderr prefix the remote agent writes before its fatal message,
+   *  right before exiting (e.g. `arivu:`, `kaval --stdio:`). Required and
+   *  caller-supplied because it is NOT always `${drvNoun}:` — kaval's `--stdio`
+   *  front writes `kaval --stdio:`, not `kaval:`. The agent's fatal is the LAST
+   *  thing it writes, so `dialAgentOnce` surfaces everything from the last line
+   *  carrying this prefix through the end of the remote stderr as the dial's
+   *  failure reason — capturing a multi-line block (e.g. arivu's "more than one
+   *  kaval" error listing each `--kaval <socket>` candidate), not just the
+   *  prefixed first line. */
+  fatalPrefix: string;
   /** Roundtrip one cheap RPC on `client` to prove the link before
    *  `markConnected` flips the connect watchdog off. Required and caller-supplied
    *  because surfaces differ: kaval has `system.heartbeat`, arivu reads the first
@@ -158,22 +168,44 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // Capture the agent's OWN fatal reason as the session streams it. When the
   // agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
-  // the agent's last stderr line (on the session's `remoteProgressLines`) is the
-  // real reason. The agent writes its fatal as `<drvNoun>: <message>` to its own
-  // stderr right before exiting (see arivu's bin.ts), forwarded onto
+  // the agent's last stderr (on the session's `remoteProgressLines`) is the real
+  // reason. The agent writes its fatal as `<fatalPrefix> <message>` to its own
+  // stderr right before exiting (see arivu's / kaval's bin.ts), forwarded onto
   // `remoteProgressLines` — the remote-origin lines, already separated from the
   // session's OWN local lifecycle chatter ("agent exited", "reconnecting in
   // 2000ms…"). Reading them BY ORIGIN (the field) rather than re-parsing the
   // session's internal `[remote] ` tag keeps the only shared convention here the
-  // agent's own `<drvNoun>:` fatal shape. The mere PRESENCE of such a line IS the
-  // failure reason — it's only ever written on a fatal — so we match by that
-  // prefix (NOT `at(-1)`). Capturing it the instant it streams avoids depending
-  // on the child-`exit` event having landed `failureCause` yet, which races the
-  // probe's stream-closed rejection.
+  // agent's own `<fatalPrefix>` fatal shape (caller-supplied — it is NOT always
+  // `${drvNoun}:`; kaval's `--stdio` front writes `kaval --stdio:`).
+  //
+  // The fatal is the LAST thing the agent writes, so it captures the whole tail
+  // FROM the last prefixed line THROUGH the end — not just that one line. arivu's
+  // ambiguity error is multi-line (the "more than one kaval" header plus each
+  // `--kaval <socket>` candidate the user needs to recover): `forEachLine` splits
+  // it into separate `remoteProgressLines` entries where only the first carries
+  // the prefix, so matching a single prefixed line would drop the candidates. The
+  // prefix is only ever written on a fatal, so its presence IS the failure
+  // reason. Capturing it the instant it streams avoids depending on the
+  // child-`exit` event having landed `failureCause` yet, which races the probe's
+  // stream-closed rejection.
   const agentFatal = (remoteLines: readonly string[]): string | undefined => {
-    const prefix = `${opts.drvNoun}:`;
-    const own = remoteLines.filter((l) => l.startsWith(prefix)).at(-1);
-    return own?.slice(prefix.length).trim();
+    const prefix = opts.fatalPrefix;
+    // Walk back to the last line that opens the fatal block.
+    let start = -1;
+    for (let i = remoteLines.length - 1; i >= 0; i--) {
+      if (remoteLines[i]?.startsWith(prefix)) {
+        start = i;
+        break;
+      }
+    }
+    if (start === -1) return undefined;
+    // Strip the prefix from the opening line; keep the continuation lines (the
+    // candidate list, the `(e.g. …)` hint) verbatim — they are the block.
+    const block = [
+      remoteLines[start]?.slice(prefix.length).trimStart(),
+      ...remoteLines.slice(start + 1),
+    ].join("\n");
+    return block.trim() || undefined;
   };
   let agentReason: string | undefined;
   const offState = session.onState((s) => {
