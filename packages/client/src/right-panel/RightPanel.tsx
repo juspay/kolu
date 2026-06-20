@@ -22,26 +22,18 @@ import {
   createMemo,
   createSignal,
   For,
-  lazy,
   onMount,
   Show,
-  Suspense,
 } from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
+// CodeTab is the thin lazy/Suspense wrapper that owns the heavy Code-tab
+// chunk's loading strategy (see `./CodeTab`). This router only gates first-load
+// via `codeEverShown` below; it stays a pure dispatcher.
+import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
-
-// The Code tab pulls a heavy main-thread chunk — the Pierre `FileTree`, the
-// `@kolu/solid-markdown` renderer (marked + DOMPurify), the diff/source view
-// wrappers, and the comment system — ~171 kB gzip that a static import would
-// weld onto the eager initial bundle for every session. Lazy-load it so that
-// weight leaves the first-paint critical path: the chunk is fetched only once
-// the Code tab is actually shown (see `codeEverShown`), and kept mounted after
-// (so #818 state preservation across tab switches is unchanged). On a closed
-// mobile drawer or a collapsed desktop panel it never loads at all.
-const CodeTab = lazy(() => import("./CodeTab"));
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -188,18 +180,10 @@ const RightPanel: Component<{
                   ))
                   .with("code", () => (
                     <Show when={codeEverShown()}>
-                      <Suspense
-                        fallback={
-                          <div class="flex h-full items-center justify-center text-xs text-fg-3/50">
-                            Loading…
-                          </div>
-                        }
-                      >
-                        <CodeTab
-                          terminalId={props.terminalId}
-                          meta={props.meta}
-                        />
-                      </Suspense>
+                      <CodeTab
+                        terminalId={props.terminalId}
+                        meta={props.meta}
+                      />
                     </Show>
                   ))
                   .exhaustive()}
