@@ -13,7 +13,12 @@
  *  three echoes of the same truth. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { activeArm, activePr, type TerminalId } from "kolu-common/surface";
+import {
+  activeArm,
+  activePr,
+  isSleeping,
+  type TerminalId,
+} from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -480,7 +485,7 @@ const WorkspaceCard: Component<{
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
-  const sleeping = () => props.entry.isSleeping;
+  const sleeping = () => isSleeping(props.entry.info.meta);
 
   return (
     <button

@@ -130,11 +130,6 @@ type DockEntryBase = {
   suffix?: string;
   info: TerminalDisplayInfo;
   searchText: string;
-  /** This entry's terminal is sleeping. Computed once via the surface helper so
-   *  the switcher card can dim/moon it WITHOUT a 5th AGENT_BUCKET (Option A): a
-   *  sleeping entry routes deterministically into the Idle column, the flag
-   *  carries the dormant treatment. */
-  isSleeping: boolean;
 };
 
 /** Searchable live-terminal entry. Discriminated on `bucket`: only the
@@ -358,21 +353,21 @@ export function buildDockModel(
     : sources;
   const idleClassifier = options.idleClassifier;
   const entries: DockEntry[] = ordered.map((source) => {
-    const sleeping = isSleeping(source.info.meta);
     const baseFields = {
       id: source.id,
       repoName: source.info.key.group,
       label: source.info.key.label,
       suffix: source.info.key.suffix,
       info: source.info,
-      isSleeping: sleeping,
     };
     const searchText = searchTextFor(baseFields);
     // A sleeping entry routes deterministically into the Idle column (Option A —
     // no 5th bucket) regardless of its carried recency, so dormant peers cluster
-    // together; the `isSleeping` flag carries the moonlit card treatment. Its
-    // sub-rung is the oldest (`48h+`) so it sits with the long-parked tiles.
-    if (sleeping) {
+    // together. The routing is computed straight off `isSleeping(meta)` — no
+    // stored flag — and the card derives its moonlit treatment from the same
+    // helper, so the two can't desync. Its sub-rung is the oldest (`48h+`) so it
+    // sits with the long-parked tiles.
+    if (isSleeping(source.info.meta)) {
       return {
         ...baseFields,
         searchText,
