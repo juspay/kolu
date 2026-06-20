@@ -8,7 +8,13 @@ import { basename } from "kolu-common/path";
 import { type SleepingTerminal, topTerminal } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { formatTimeAgo } from "../terminal/staleness";
-import { MOON } from "./sleepingTilePalette";
+import {
+  MOON,
+  MOON_FAINT,
+  MOON_ON,
+  MOON_SUBTLE,
+  MOON_TEXT,
+} from "./sleepingTilePalette";
 
 const SleepingTileBody: Component<{
   record: SleepingTerminal;
@@ -23,32 +29,32 @@ const SleepingTileBody: Component<{
       <Show
         when={intent()}
         fallback={
-          <span class="text-xs font-semibold" style={{ color: "#c7ccd6" }}>
+          <span class="text-xs font-semibold" style={{ color: MOON_TEXT }}>
             {basename(cwd())}
           </span>
         }
       >
         <span
           class="text-xs font-semibold leading-snug"
-          style={{ color: "#c7ccd6" }}
+          style={{ color: MOON_TEXT }}
         >
           {intent()}
         </span>
       </Show>
       <span
         class="text-[0.66rem] font-mono truncate"
-        style={{ color: "#8b929d" }}
+        style={{ color: MOON_SUBTLE }}
       >
         📁 {basename(cwd())}
       </span>
-      <span class="text-[0.6rem]" style={{ color: "#5b626d" }}>
+      <span class="text-[0.6rem]" style={{ color: MOON_FAINT }}>
         ☾ asleep {formatTimeAgo(props.record.sleptAt)} · PTY released
       </span>
       <button
         type="button"
         data-testid="sleeping-tile-wake"
         class="mt-auto self-start text-xs font-semibold rounded px-3 py-1.5 pointer-events-auto"
-        style={{ background: MOON, color: "#0e1014" }}
+        style={{ background: MOON, color: MOON_ON }}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
