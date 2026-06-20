@@ -103,4 +103,6 @@ green before capturing.
 
 Report the PR URL, the gauntlet outcome (lens-debate consensus + fixes applied, codex consensus or reviewer-error, police findings actioned), and CI status. Never merge — the human reviews the commits and merges when satisfied.
 
+**Then close the loop — run `/self-improve` (Skill tool), passing this run's `$CLAUDE_CODE_SESSION_ID`** so it can mine this session for recurring friction and turn it into a sharper skill-set. It runs **forked** (`context: fork`) so the whole analysis stays off your context — hence the explicit session id. It produces nothing unless a lesson durably recurs, ships any fix on its own draft PR (never this branch, never merged), and restores this branch — a clean, no-PR run is the common outcome.
+
 ARGUMENTS: $ARGUMENTS
