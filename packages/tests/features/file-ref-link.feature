@@ -80,19 +80,28 @@ Feature: File-ref autolinking in terminal
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
     And I run "git add . && git commit -m files"
-    # Mount the tree BEFORE the folder-ref click. A folder ref reveals via a
-    # one-shot resolve: it runs EXACTLY ONCE, the instant `!allPaths.pending()`
-    # (the first `fsListAll` snapshot for the repo), and a null match is not
-    # retried — `fsListAll` only re-yields on a git/worktree change, and git
-    # state is already settled by the time the ref is clicked, so no later
-    # snapshot arrives to resolve against. On a FRESH open (tree not yet mounted)
-    # the click resolves against whatever snapshot happens to be first, which is
-    # not reliably the one that has enumerated the just-committed files; when it
-    # isn't, resolveRef returns null, the request is consumed, and nothing is
-    # revealed — observed failing on both CI platforms. Resolving against an
-    # already-mounted tree sidesteps the one-shot race: enumeration is proven
-    # complete before the click. (The fresh-open constructor-reveal path itself
-    # is covered by the `resolveRef` unit tests in `ui/lineRef.test.ts`.)
+    # Mount the tree BEFORE the folder-ref click. The reveal is a one-shot
+    # resolve: it runs EXACTLY ONCE, the instant `!allPaths.pending()` (the first
+    # `fsListAll` snapshot for the repo), and a null match is not retried —
+    # `fsListAll` only re-yields on a git/worktree change. This is SOUND for real
+    # users: terminal output is read (and its files long since committed) before
+    # the ref is clicked, so the subscribe-time `git ls-files` snapshot is
+    # authoritative and the folder is present on that first frame. The lossy
+    # window is narrow and artificial — committing files and clicking the ref in
+    # the SAME breath, exactly what this test does — where, under darwin-CI load,
+    # the panel-open/subscribe interleaving can surface a first frame taken before
+    # the just-committed walk has propagated; resolveRef then returns null, the
+    # request is consumed, and nothing is revealed. That timing flake (NOT a
+    # production folder-reveal regression — the wiring is identical) is the very
+    # thing this branch de-flakes, tracked in the Flaky Test Tracker Atlas note
+    # against `file-ref-link.feature:69`.
+    #
+    # Mounting the tree first sidesteps that subscribe-timing window: enumeration
+    # is proven complete before the folder click, so the SAME consume-once +
+    # directory-reveal wiring (the `pendingOpen` gate and the `kind: "directory"`
+    # branch in CodeTab) runs deterministically. The pure resolution semantics
+    # are additionally covered by the `resolveRef` unit tests in
+    # `ui/lineRef.test.ts`.
     #
     # So: a prior file-ref click to the sibling `app/main.txt` (NOT under
     # `app/core`, so it can't mask the folder ref's hit-test) opens browse and
@@ -118,12 +127,12 @@ Feature: File-ref autolinking in terminal
 
   Scenario: Clicking a folder ref while already browsing expands it in the live tree
     # Both folder-ref reveal scenarios mount the tree before the folder click —
-    # the constructor-reveal-of-just-created-files variant is inherently racy on
-    # darwin (fsListAll only subscribes when the panel opens, so its first
-    # snapshot races the FSEvents walk) and its wiring is covered by resolveRef's
-    # unit tests. Here a file-ref click opens browse and mounts the tree first,
-    # so the folder click exercises the post-mount reveal (expand + scroll on the
-    # already-live tree). The precondition
+    # the alternative (clicking the ref the instant the files are committed, with
+    # the panel still cold) is the artificial subscribe-timing flake the previous
+    # scenario explains, not a path real users hit. Here a file-ref click opens
+    # browse and mounts the tree first, so the folder click exercises the
+    # post-mount reveal (expand + scroll on the already-live tree). The
+    # precondition
     # only needs the tree LIVE — confirm it via the top-level `lib/` row, which is
     # present the moment the tree mounts (no file-content render, no
     # selection/expansion to wait on — both slow, flaky axes under darwin CI
