@@ -33,6 +33,10 @@ vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     terminalIds: bag.terminalIds,
     getMetadata: bag.metaOf,
+    // Live display info — present for a live terminal, undefined otherwise; the
+    // tile-aware `getDisplayInfo` falls back to the synthesized sleeping shape.
+    getDisplayInfo: (id: TerminalId) =>
+      bag.metaOf(id) ? { repoColor: "live" } : undefined,
     activeId: bag.activeId,
     activate: bag.activate,
     setActiveSilently: bag.setActiveSilently,
@@ -47,6 +51,15 @@ vi.mock("./persistSleepingLayout", () => ({
 vi.mock("../wire", () => ({ sleepingTerminals: () => bag.sleeping() }));
 vi.mock("./wakingTiles", () => ({
   useWakingTiles: () => ({ waking: () => bag.waking() }),
+}));
+// The dock-row projection is the dock's concern, not the registry's — stub it so
+// the registry's tile-aware getMetadata/getDisplayInfo can be tested for the
+// live-else-synthesize dispatch without dragging in buildTerminalDisplayInfos.
+vi.mock("../canvas/dock/sleepingDockRow", () => ({
+  sleepingDockRowData: (record: SleepingTerminal) => ({
+    meta: { lastActivityAt: record.sleptAt },
+    info: { repoColor: "moon" },
+  }),
 }));
 
 import { useTileStore } from "./useTileStore";
@@ -172,6 +185,30 @@ describe("useTileStore — layout (the registry hides where it lives)", () => {
     expect(bag.persistSleepingLayout).not.toHaveBeenCalled();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe("useTileStore — tile-aware metadata + display info (one merge home)", () => {
+  it("reads a live terminal's meta + display off the terminal store", () => {
+    expect(store.getMetadata(tid("a"))).toEqual(META.a);
+    expect(store.getDisplayInfo(tid("a"))).toEqual({ repoColor: "live" });
+  });
+
+  it("synthesizes a sleeping tile's meta + display from its record", () => {
+    setSleeping([rec("c")]);
+    expect(store.getMetadata(tid("c"))).toEqual({ lastActivityAt: 1000 });
+    expect(store.getDisplayInfo(tid("c"))).toEqual({ repoColor: "moon" });
+  });
+
+  it("live wins over a same-id sleeping record (the sleep window)", () => {
+    setSleeping([rec("b")]); // b is live AND sleeping
+    expect(store.getMetadata(tid("b"))).toEqual(META.b); // live, not synthesized
+    expect(store.getDisplayInfo(tid("b"))).toEqual({ repoColor: "live" });
+  });
+
+  it("is undefined for a tile that is neither live nor sleeping", () => {
+    expect(store.getMetadata(tid("zzz"))).toBeUndefined();
+    expect(store.getDisplayInfo(tid("zzz"))).toBeUndefined();
   });
 });
 

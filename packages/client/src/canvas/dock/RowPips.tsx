@@ -49,33 +49,28 @@ import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { sleepingContent } from "../../tile/tileContent";
 import { useTileStore } from "../../tile/useTileStore";
 import { PrStateIcon } from "../../ui/Icons";
 import type { DockRowBucket } from "./dockRowRanking";
 import { type PipVariant, pipVariant } from "./pipVariant";
-import { sleepingDockRowData } from "./sleepingDockRow";
 import { SubCountChip } from "./SubCountChip";
 
 /** Per-row combined reactive data — `info` + `meta` in a single memo.
  *  Three components (`DockRow`, `RailChip`, `DockListRow`) build the same
  *  `createMemo(() => { const info = …; const meta = …; … })` pattern.
- *  This factory extracts that once: call it in a component body,
- *  read the accessor to get `{ info, meta }` or `null`. */
+ *  This factory extracts that once: call it in a component body, read the
+ *  accessor to get `{ info, meta }` or `null`. Reads the tile-aware
+ *  `useTileStore` accessors so a sleeping tile resolves to its synthesized row
+ *  data through the same path as a live one — the live-else-synthesize merge
+ *  lives once in the registry, not at this call site. */
 export function createDockRowData(
   id: TerminalId,
 ): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
-  const store = useTerminalStore();
   const tileStore = useTileStore();
   return createMemo(() => {
-    const info = store.getDisplayInfo(id);
-    const meta = store.getMetadata(id);
-    if (info && meta) return { info, meta };
-    // No live terminal — the tile may be sleeping. Synthesize the row's
-    // {info, meta} from the record so it renders through this exact path.
-    const record = sleepingContent(tileStore.contentOf(id))?.record;
-    return record ? (sleepingDockRowData(record) ?? null) : null;
+    const info = tileStore.getDisplayInfo(id);
+    const meta = tileStore.getMetadata(id);
+    return info && meta ? { info, meta } : null;
   });
 }
 

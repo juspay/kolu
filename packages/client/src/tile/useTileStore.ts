@@ -24,9 +24,12 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
-import { topTerminal } from "kolu-common/surface";
+import { type TerminalMetadata, topTerminal } from "kolu-common/surface";
 import { createMemo } from "solid-js";
-import { sleepingDockRowData } from "../canvas/dock/sleepingDockRow";
+import {
+  type DockRowData,
+  sleepingDockRowData,
+} from "../canvas/dock/sleepingDockRow";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
@@ -57,6 +60,21 @@ export const useTileStore = createSharedRoot(() => {
       .map((r) => r.id as TileId)
       .filter((id) => !live.has(id) && !waking.has(id));
   };
+
+  /** Each sleeping record projected to its dock-row `{ meta, info }`, memoized by
+   *  the sleeping cell so the synthesis (`buildTerminalDisplayInfos` per record)
+   *  runs once per sleeping-set change — not per dock render, per call site. The
+   *  ONE home of "a sleeping tile's synthesized row data": `getMetadata` and
+   *  `getDisplayInfo` both read it, and the dock reads them, so the live-else-
+   *  synthesize merge lives here alone instead of at three hand-rolled sites. */
+  const sleepingRowData = createMemo<Map<TileId, DockRowData>>(() => {
+    const map = new Map<TileId, DockRowData>();
+    for (const record of sleepingTerminals()) {
+      const data = sleepingDockRowData(record);
+      if (data) map.set(record.id as TileId, data);
+    }
+    return map;
+  });
 
   /** The ordered tile ids — the canvas `<For>` source and the dock/switcher
    *  set: live terminals first, then sleeping records (a deduped union, live
@@ -108,22 +126,20 @@ export const useTileStore = createSharedRoot(() => {
     return undefined;
   };
 
+  /** A tile's metadata — live from the terminal store, or synthesized from the
+   *  sleeping record so the dock can rank/group a dormant tile through the same
+   *  pipeline (`rankDockRows` reads `meta.agent` / `meta.lastActivityAt`). Live
+   *  wins for a shared id during the sleep window (the store is consulted first). */
+  const getMetadata = (id: TileId): TerminalMetadata | undefined =>
+    store.getMetadata(id) ?? sleepingRowData().get(id)?.meta;
+
   /** A tile's display info — the `{ key, meta, repoColor, … }` row shape the
-   *  switcher / workspace grid render. The registry HIDES where it comes from: a
-   *  live terminal reads `store.getDisplayInfo`; a sleeping tile gets the SAME
-   *  shape synthesized from its record (the dock's projection, `sleepingDockRowData`).
-   *  This is the one reason the workspace switcher can list a sleeping-only
-   *  workspace — `store.getDisplayInfo` alone knows only live terminals, so an
-   *  entry built off it would be silently dropped for every dormant tile. */
-  const getDisplayInfo = (id: TileId): TerminalDisplayInfo | undefined => {
-    const live = store.getDisplayInfo(id);
-    if (live) return live;
-    const content = contentOf(id);
-    if (content?.kind === "sleeping") {
-      return sleepingDockRowData(content.record)?.info;
-    }
-    return undefined;
-  };
+   *  switcher / workspace grid / dock render. Live for a terminal tile; for a
+   *  sleeping tile the SAME shape synthesized from its record. This is the one
+   *  reason the workspace switcher can list a sleeping-only workspace —
+   *  `store.getDisplayInfo` alone knows only live terminals. */
+  const getDisplayInfo = (id: TileId): TerminalDisplayInfo | undefined =>
+    store.getDisplayInfo(id) ?? sleepingRowData().get(id)?.info;
 
   /** Persist a tile's position/size — the single tile-layout write seam.
    *  Dispatches by content kind to the right LEAF sink: `persistCanvasLayout` on
@@ -154,8 +170,11 @@ export const useTileStore = createSharedRoot(() => {
     // Layout — the registry hides the storage home (terminal metadata today).
     getLayout,
     setLayout,
-    // Display info — live for terminal tiles, synthesized for sleeping ones, so
-    // the workspace switcher can list a sleeping-only workspace (F9).
+    // Tile-aware metadata + display info — live for terminal tiles, synthesized
+    // from the record for sleeping ones (the dock ranks/groups through these, and
+    // the workspace switcher can list a sleeping-only workspace). The one home of
+    // the live-else-synthesize merge.
+    getMetadata,
     getDisplayInfo,
     // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that
