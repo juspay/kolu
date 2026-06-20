@@ -66,4 +66,15 @@ proposal is just a note carrying `status: proposed` (see `CONTRIBUTING.md`);
 acceptance flips the status, not its `parents` (the index parent was right from
 the start).
 
+- **A plan-of-record describes current + future work, not the path that got here —
+  when you re-plan, *rewrite*, don't layer.** Git already holds the archaeology, so
+  superseded phases, abandoned attempts, closed-PR post-mortems, and "what we tried
+  before" belong in the commit history, **not** as live sections of the note. Each
+  re-plan **replaces** the old phase list outright; never keep the dead phases beside
+  the new ones to show the journey. And carry **one** numbering scheme at a time:
+  renaming P3a/P3b → PR1/PR2 means the P3a/P3b labels are *gone*, not cross-mapped in a
+  table — two parallel schemes for the same work is the confusion, not the cure. If a
+  reader has to ask "how does PR1 relate to P3a?" or "why does P3a still exist?", the
+  note kept clutter it should have deleted.
+
 ARGUMENTS: $ARGUMENTS
