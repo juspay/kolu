@@ -244,7 +244,7 @@ Each phase is one reviewable PR; each leaves `master` shippable.
 | Phase | PR | What lands | Why separable |
 |---|---|---|---|
 | **1 — Tile** | <PrLink pr={1435} /> | `useTileStore` + `TileContent` union (terminal-only), one canvas `<For>` over `tileIds()` dispatching on `contentOf(id).kind`, `TileId` selection, `mode()` on `tileCount()`, layout read/write through the registry | Pure decomplect, **zero behavior change** — reviewable on its own, de-risks everything after |
-| **2 — Sleeping state** | feature | `{kind:"sleeping"}` variant + sleep/wake RPCs + the persisted store + restore-as-sleeping; dock row + canvas tile via the shared paths | The user-facing core; no silo, no new dock section |
+| **2 — Sleeping state** | <PrLink pr={1441} /> | `{kind:"sleeping"}` variant + sleep/wake RPCs + the persisted store + restore-as-sleeping; dock row + canvas tile via the shared paths | The user-facing core; no silo, no new dock section |
 | **3 — Frozen screenshot** | feature | capture-on-sleep, served image route from the state dir, frozen body | Cohesive, isolated surface (a route + a capture) |
 | **4 — Louder alerts & parity** | feature | the *awaiting/alert* signals get louder everywhere (an escape hatch earns it), switcher parity, the 48h idle-nudge | Polish; keeps PR 2 tight |
 
