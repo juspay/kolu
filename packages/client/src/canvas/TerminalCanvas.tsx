@@ -424,11 +424,12 @@ const TerminalCanvas: Component<{
   /** Render a sleeping (dormant) tile — the SAME `CanvasTile` shell as a live
    *  tile (so it inherits drag, resize, pan/zoom, maximize, and the active
    *  outline for free), with sleeping-derived props injected: a moonlit theme
-   *  instead of a repo colour, a placeholder body carrying the Wake verb, the
-   *  × wired to DISCARD (not kill a dead terminal), and no run-state aura. This
-   *  is the whole payoff of the decomplect — a content variant rendered through
-   *  the shared path, not a parallel `SleepingCanvasTile` re-implementing the
-   *  shell. */
+   *  instead of a repo colour, a placeholder body carrying the Wake verb, and no
+   *  run-state aura. The × routes through `props.onClose` exactly like the live
+   *  arm — the App layer's `requestClose` owns the live-vs-sleeping dispatch
+   *  (discard here, confirm-then-kill there) in one place. This is the whole
+   *  payoff of the decomplect — a content variant rendered through the shared
+   *  path, not a parallel `SleepingCanvasTile` re-implementing the shell. */
   function renderSleepingTile(
     tileId: TileId,
     record: SleepingTerminal,
@@ -446,7 +447,7 @@ const TerminalCanvas: Component<{
         theme={{ bg: MOON_BG, fg: MOON }}
         repoColor={MOON}
         onSelect={() => props.onSelect(tileId)}
-        onClose={() => void sleepActions.discard(record)}
+        onClose={() => props.onClose(tileId)}
         onToggleMaximize={posture.toggle}
         renderTitle={() => (
           <span

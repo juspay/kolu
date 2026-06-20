@@ -63,6 +63,7 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSleepActions } from "./terminal/useSleepActions";
 import { useTerminals } from "./terminal/useTerminals";
+import type { TileId } from "./tile/tileContent";
 import { useTileStore } from "./tile/useTileStore";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
@@ -188,6 +189,21 @@ const App: Component = () => {
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
+  /** The one home for "close this tile" — the live-vs-sleeping close decision.
+   *  A sleeping tile discards its record; any other (live terminal) routes
+   *  through `closeTerminal`, preserving its confirmation + worktree-removal
+   *  path. Every close path (the canvas × on either tile kind, the Cmd+W
+   *  command) flows through here, so the dispatch lives in one place rather
+   *  than being re-derived structurally at each call site. */
+  function requestClose(id: TileId) {
+    const content = tileStore.contentOf(id);
+    if (content?.kind === "sleeping") {
+      void sleepActions.discard(content.record);
+      return;
+    }
+    closeTerminal(id);
+  }
+
   const commands = createCommands({
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
@@ -202,15 +218,7 @@ const App: Component = () => {
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
     handleClose: () => {
       const id = store.activeId();
-      if (!id) return;
-      // The active tile may be sleeping — "close" then discards its record
-      // rather than no-opping against a terminal that isn't live.
-      const content = tileStore.contentOf(id);
-      if (content?.kind === "sleeping") {
-        void sleepActions.discard(content.record);
-        return;
-      }
-      closeTerminal(id);
+      if (id) requestClose(id);
     },
     handleSleep: () => {
       const id = store.activeId();
@@ -551,7 +559,7 @@ const App: Component = () => {
                       onLayoutChange={tileStore.setLayout}
                       onAutoArrange={arrange.handleCanvasAutoArrange}
                       onSelect={tileStore.setActiveSilently}
-                      onClose={(id) => closeTerminal(id)}
+                      onClose={requestClose}
                       {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta
