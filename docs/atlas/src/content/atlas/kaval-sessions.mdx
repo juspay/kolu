@@ -55,74 +55,88 @@ export const KavalCanvas = () => (
 
 export const ProcDiagram = () => (
   <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 680 560" width="100%" style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+    <svg viewBox="0 0 680 560" width="100%" role="img" aria-label="Process and host topology for P3. The LOCAL host runs the browser (packages/client) talking over ws to kolu-server, which holds the provider DAG plus fs and git watchers. An ssh seam (HostSession / stdioLink) crosses to the REMOTE prod host, which exposes one ssh endpoint: kolu-watcher (amber, re-runs fresh, P3) fronting kaval over a unix socket. kaval is the durable survivor (green) — it SURVIVES restarts while kolu-watcher re-runs fresh on the current build." style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
       <defs>
-        <marker id="pd-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M0,0 L7,3 L0,6 Z" fill="#475569" />
+        <marker id="kvsProc-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#3f444b" />
+        </marker>
+        <marker id="kvsProc-arSsh" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#0D32B2" />
         </marker>
       </defs>
 
-      <text x="16" y="22" font-size="11" fill="#64748b">Boundaries:</text>
-      <rect x="96" y="13" width="20" height="11" rx="2" fill="none" stroke="#94a3b8" stroke-dasharray="3 2" />
-      <text x="121" y="22" font-size="11" fill="#64748b">host</text>
-      <rect x="156" y="13" width="20" height="11" rx="2" fill="#fff" stroke="#334155" />
-      <text x="181" y="22" font-size="11" fill="#64748b">process</text>
-      <text x="238" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/…</text>
-      <text x="312" y="22" font-size="11" fill="#64748b">= package</text>
+      <text x="16" y="22" font-size="11" fill="#6b7178">colour = lifecycle ·</text>
+      <rect x="146" y="13" width="20" height="11" rx="2" fill="none" stroke="#9aa0aa" stroke-dasharray="5 4" />
+      <text x="171" y="22" font-size="11" fill="#6b7178">host</text>
+      <rect x="202" y="13" width="20" height="11" rx="2" fill="#ffffff" stroke="#1a1c20" />
+      <text x="227" y="22" font-size="11" fill="#6b7178">process</text>
+      <rect x="285" y="14.5" width="11" height="9" rx="1.5" fill="#E6F4EA" stroke="#15803D" />
+      <text x="301" y="22" font-size="11" fill="#6b7178">durable</text>
+      <rect x="354" y="14.5" width="11" height="9" rx="1.5" fill="#FBF1DC" stroke="#B45309" />
+      <text x="370" y="22" font-size="11" fill="#6b7178">re-runs fresh</text>
+      <text x="462" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#1a1c20">packages/…</text>
+      <text x="538" y="22" font-size="11" fill="#6b7178">= package</text>
 
-      <rect x="8" y="34" width="664" height="186" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
-      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#475569">host · local  —  where kolu-server runs</text>
+      {/* ── LOCAL host ─────────────────────────────────────── */}
+      <rect x="8" y="34" width="664" height="186" rx="9" fill="#FBFBFE" stroke="#9aa0aa" stroke-dasharray="5 4" stroke-width="1.3" />
+      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#4A5072">host · local  —  where kolu-server runs</text>
 
-      <rect x="22" y="64" width="168" height="146" rx="7" fill="#fff" stroke="#334155" />
-      <rect x="22" y="64" width="168" height="22" rx="7" fill="#64748b" />
-      <rect x="22" y="75" width="168" height="11" fill="#64748b" />
-      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#fff">process · browser</text>
-      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/client</text>
-      <text x="32" y="132" font-size="10" font-style="italic" fill="#64748b">the canvas (SolidJS)</text>
+      <rect x="22" y="64" width="168" height="146" rx="7" fill="#ffffff" stroke="#1a1c20" stroke-width="1.4" />
+      <rect x="22" y="64" width="168" height="22" rx="7" fill="#676C7E" />
+      <rect x="22" y="75" width="168" height="11" fill="#676C7E" />
+      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#ffffff">process · browser</text>
+      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#1a1c20">packages/client</text>
+      <text x="32" y="132" font-size="10" font-style="italic" fill="#6b7178">the canvas (SolidJS)</text>
 
-      <rect x="204" y="64" width="452" height="146" rx="7" fill="#fff" stroke="#334155" />
-      <rect x="204" y="64" width="452" height="22" rx="7" fill="#2563eb" />
-      <rect x="204" y="75" width="452" height="11" fill="#2563eb" />
-      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#fff">process · kolu-server</text>
-      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server</text>
-      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon-supervisor</text>
-      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-nix-host</text>
-      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
-      <text x="214" y="186" font-size="10" font-style="italic" fill="#64748b">local tiles: the provider DAG + fs/git watchers run HERE</text>
+      <rect x="204" y="64" width="452" height="146" rx="7" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.6" />
+      <rect x="204" y="64" width="452" height="22" rx="7" fill="#0D32B2" />
+      <rect x="204" y="75" width="452" height="11" fill="#0D32B2" />
+      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#ffffff">process · kolu-server</text>
+      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/server</text>
+      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface-daemon-supervisor</text>
+      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface-nix-host</text>
+      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/integrations/git</text>
+      <text x="214" y="186" font-size="10" font-style="italic" fill="#4A5072">local tiles: the provider DAG + fs/git watchers run HERE</text>
 
-      <line x1="190" y1="150" x2="204" y2="150" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
-      <text x="197" y="144" font-size="9" fill="#334155" text-anchor="middle">ws</text>
+      <line x1="190" y1="150" x2="204" y2="150" stroke="#3f444b" stroke-width="1.4" marker-end="url(#kvsProc-ar)" />
+      <text x="197" y="144" font-size="9.5" font-family="ui-monospace, monospace" fill="#3f444b" text-anchor="middle">ws</text>
 
-      <line x1="290" y1="212" x2="174" y2="336" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
-      <text x="486" y="256" font-size="10.5" font-weight="700" fill="#7c3aed" text-anchor="middle">ssh · HostSession (stdioLink)</text>
-      <text x="486" y="272" font-size="9.5" fill="#64748b" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
+      {/* ── ssh seam (the labelled hop between hosts) ───────── */}
+      <line x1="290" y1="222" x2="174" y2="318" stroke="#0D32B2" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#kvsProc-arSsh)" />
+      <text x="486" y="252" font-size="11" font-weight="700" font-family="ui-monospace, monospace" fill="#0D32B2" text-anchor="middle">ssh · HostSession (stdioLink)</text>
+      <text x="486" y="269" font-size="9.5" fill="#4A5072" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
 
-      <rect x="8" y="306" width="664" height="248" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 3" />
-      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#475569">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
+      {/* ── REMOTE host ────────────────────────────────────── */}
+      <rect x="8" y="306" width="664" height="248" rx="9" fill="#FBFBFE" stroke="#9aa0aa" stroke-dasharray="5 4" stroke-width="1.3" />
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#4A5072">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
 
-      <rect x="22" y="338" width="300" height="200" rx="7" fill="#fff" stroke="#334155" />
-      <rect x="22" y="338" width="300" height="22" rx="7" fill="#b45309" />
-      <rect x="22" y="349" width="300" height="11" fill="#b45309" />
-      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
-      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/server   (R-1.6 provider DAG)</text>
-      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/integrations/git</text>
-      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface</text>
-      <text x="32" y="446" font-size="10" font-style="italic" fill="#64748b">fronts kaval; runs the DAG + native fs/git;</text>
-      <text x="32" y="462" font-size="10" font-style="italic" fill="#64748b">serves pty-host + fs/git over ssh</text>
+      {/* kolu-watcher — re-runs fresh (amber) */}
+      <rect x="22" y="338" width="300" height="200" rx="7" fill="#FFFBF1" stroke="#B45309" stroke-width="1.6" />
+      <rect x="22" y="338" width="300" height="22" rx="7" fill="#B45309" />
+      <rect x="22" y="349" width="300" height="11" fill="#B45309" />
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
+      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/server   (R-1.6 provider DAG)</text>
+      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/integrations/git</text>
+      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface</text>
+      <text x="32" y="446" font-size="10" font-style="italic" fill="#92400E">fronts kaval; runs the DAG + native fs/git;</text>
+      <text x="32" y="462" font-size="10" font-style="italic" fill="#92400E">serves pty-host + fs/git over ssh</text>
 
-      <rect x="380" y="338" width="276" height="200" rx="7" fill="#fff" stroke="#334155" />
-      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803d" />
-      <rect x="380" y="349" width="276" height="11" fill="#15803d" />
-      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#fff">process · kaval  —  durable · SURVIVES</text>
-      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/kaval</text>
-      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/surface-daemon</text>
-      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#0f172a">packages/terminal-protocol</text>
-      <text x="390" y="446" font-size="10" font-style="italic" fill="#64748b">fds + OSC taps; single-instance</text>
-      <text x="390" y="462" font-size="10" font-style="italic" fill="#64748b">pid-gate; serves a unix socket</text>
+      {/* kaval — durable · SURVIVES (green, the highlight) — soft halo */}
+      <rect x="375" y="333" width="286" height="210" rx="10" fill="none" stroke="#15803D" stroke-width="3.5" opacity="0.16" />
+      <rect x="380" y="338" width="276" height="200" rx="7" fill="#EAF6EC" stroke="#15803D" stroke-width="2.4" />
+      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803D" />
+      <rect x="380" y="349" width="276" height="11" fill="#15803D" />
+      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · kaval  —  durable · SURVIVES</text>
+      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/kaval</text>
+      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/surface-daemon</text>
+      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/terminal-protocol</text>
+      <text x="390" y="446" font-size="10" font-style="italic" fill="#166534">fds + OSC taps; single-instance</text>
+      <text x="390" y="462" font-size="10" font-style="italic" fill="#166534">pid-gate; serves a unix socket</text>
+      <text x="518" y="510" font-size="10.5" font-weight="700" fill="#15803D" text-anchor="middle">survives restarts ✓</text>
 
-      <line x1="322" y1="440" x2="380" y2="440" stroke="#475569" stroke-width="1.3" marker-end="url(#pd-ar)" />
-      <text x="351" y="432" font-size="8.5" fill="#334155" text-anchor="middle">unix socket</text>
-      <text x="351" y="454" font-size="8" fill="#64748b" text-anchor="middle">taps + pty-host</text>
+      <line x1="322" y1="440" x2="380" y2="440" stroke="#3f444b" stroke-width="1.4" marker-end="url(#kvsProc-ar)" />
+      <text x="351" y="432" font-size="8.5" font-family="ui-monospace, monospace" fill="#3f444b" text-anchor="middle">unix socket</text>
+      <text x="351" y="454" font-size="8" fill="#6b7178" text-anchor="middle">taps + pty-host</text>
     </svg>
   </div>
 );

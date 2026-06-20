@@ -35,14 +35,14 @@
  */
 
 import type { PtyHostListEntry } from "kaval";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import type { SavedActiveTerminal, SavedSession } from "kolu-common/surface";
 
 /** A saved terminal whose PTY is still alive, paired with that live PTY. The
  *  join lives here (not the caller), so adoption never re-derives it: the
  *  `record` rides through whole (#1275: a unit, never field-by-field) and the
  *  `live` entry is the authority for the non-replayed fields cwd/foreground (F2). */
 export interface AdoptPair {
-  record: SavedTerminal;
+  record: SavedActiveTerminal;
   live: PtyHostListEntry;
 }
 
@@ -66,6 +66,10 @@ export function reconcile(
   const savedIds = new Set(savedTerminals.map((terminal) => terminal.id));
   const adopt: AdoptPair[] = [];
   for (const record of savedTerminals) {
+    // Only an ACTIVE saved terminal can have a surviving PTY — a sleeping
+    // record released its PTY at sleep, so it never pairs with a live entry.
+    // The narrow also makes `record` the active arm for the whole-record adopt.
+    if (record.state !== "active") continue;
     const liveEntry = liveById.get(record.id);
     if (liveEntry) adopt.push({ record, live: liveEntry });
   }

@@ -18,12 +18,14 @@
  *  phone drawer and the compact rail) — both have the same two-line
  *  geometry and the same content rules. */
 
-import type { TerminalMetadata } from "kolu-common/surface";
+import { activeArm, type TerminalMetadata } from "kolu-common/surface";
 import { stateLabels } from "../../ui/agentDisplay";
 
 export function rowSubline(meta: TerminalMetadata): string {
-  if (meta.agent) {
-    return meta.agent.summary ?? stateLabels[meta.agent.state];
+  const arm = activeArm(meta);
+  if (!arm) return ""; // sleeping: no live overlay
+  if (arm.agent) {
+    return arm.agent.summary ?? stateLabels[arm.agent.state];
   }
-  return meta.foreground?.title ?? meta.foreground?.name ?? "";
+  return arm.foreground?.title ?? arm.foreground?.name ?? "";
 }

@@ -9,6 +9,7 @@ function info(group: string, label: string): TerminalDisplayInfo {
     branchColor: "#000",
     annotationColor: "#000",
     meta: {
+      state: "active",
       cwd: "/tmp",
       git: null,
       location: LOCAL_LOCATION,
@@ -24,6 +25,7 @@ function info(group: string, label: string): TerminalDisplayInfo {
 
 function meta(intent?: string): TerminalMetadata {
   return {
+    state: "active",
     cwd: "/tmp",
     git: null,
     location: LOCAL_LOCATION,

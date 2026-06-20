@@ -13,7 +13,11 @@
  *  JSON-parse/validation step is split out as `parseSavedSession` so it can
  *  be unit-tested without a DOM. */
 
-import { type SavedSession, SavedSessionSchema } from "kolu-common/surface";
+import {
+  backfillSavedSession,
+  type SavedSession,
+  SavedSessionSchema,
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 
@@ -39,7 +43,15 @@ export function exportSession(session: SavedSession | null): void {
 
 /** Parse + validate JSON text as a `SavedSession`, throwing an `Error` with
  *  a user-facing message on malformed input. Pure — no DOM, no toasts — so
- *  the validation path is unit-testable. */
+ *  the validation path is unit-testable.
+ *
+ *  An exported `kolu-session.json` is a snapshot of the same on-disk shape the
+ *  server's migration ladder upgrades — so a backup taken before a schema bump
+ *  (no `state`/`location`/`remoteUrl`) must get the SAME backfill the ladder
+ *  applies, or this recovery hatch can't recover the very backups it exists for.
+ *  `backfillSavedSession` runs those exact field backfills (the single source of
+ *  truth shared with `state.ts`) before validation; the discriminated
+ *  `SavedSessionSchema` then rejects anything still malformed. */
 export function parseSavedSession(text: string): SavedSession {
   let parsed: unknown;
   try {
@@ -47,7 +59,7 @@ export function parseSavedSession(text: string): SavedSession {
   } catch {
     throw new Error("file is not valid JSON");
   }
-  const result = SavedSessionSchema.safeParse(parsed);
+  const result = SavedSessionSchema.safeParse(backfillSavedSession(parsed));
   if (!result.success) {
     throw new Error("not a valid kolu session export");
   }

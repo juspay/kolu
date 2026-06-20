@@ -41,6 +41,7 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-awareness/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
+import { type PrInfo, prValue } from "anyforge/schemas";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -165,9 +166,12 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
 //
 // Invariant: every terminal-metadata field appears in EXACTLY ONE of
 // `ServerPersistedTerminalFieldsSchema`, `ClientPersistedTerminalFieldsSchema`,
-// or `LiveTerminalFieldsSchema`. The three schemas partition the
-// `TerminalMetadata` field set; their merge (in `TerminalMetadataSchema`
-// below) is the wire shape.
+// or `LiveTerminalFieldsSchema`. The three schemas partition the persisted +
+// live field set; the `state`/`sleptAt` DISCRIMINANT (see "the active |
+// sleeping sum" below) is the one field group that rides ABOVE this partition
+// rather than inside it. `TerminalMetadataSchema`'s arms are built from these
+// bases: the `active` arm is persisted + live, the `sleeping` arm is persisted
+// + `sleptAt`.
 //
 // Adding a field misclassifies in one of two failure modes:
 //   - Persisted base, but written through the live update helper →
@@ -297,14 +301,65 @@ export const TerminalServerMetadataSchema =
  */
 export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 
-/**
- * Unified wire shape — persisted fields plus transient live status.
- * Flat for convenience; code that only needs one half should import the
- * sub-schema so the dependency is explicit.
- */
-export const TerminalMetadataSchema = PersistedTerminalFieldsSchema.merge(
+// ── The active | sleeping sum ─────────────────────────────────────────
+//
+// A terminal is a discriminated union on `state`. The field partition above
+// already expresses it: an ACTIVE terminal is the persisted base + the live
+// overlay (agent · foreground · pr + the PTY/xterm handles); a SLEEPING
+// terminal is the persisted base alone — its PTY/xterm/agent released — plus
+// `sleptAt`.
+//
+// `state` and `sleptAt` are persisted DISCRIMINANT fields, composed ABOVE the
+// server/client/live partition rather than inside it: a flat `sleptAt` would
+// leak onto the active arm, and `state` must gate the live overlay.
+//
+// Presence consumers (canvas, dock, minimap, arrange, cycle, switcher) read the
+// union; any consumer that touches a live field must first narrow
+// `state === "active"` — the compiler refuses a live field on the bare union, so
+// a sleeping terminal can sit on the canvas yet never be an input/WebGL target.
+// The awareness schemas in `@kolu/terminal-awareness` stay FLAT: the union is
+// recomposed HERE, and `state` never crosses the awareness wire (arivu/kaval
+// never see a sleeping arm).
+
+const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });
+const SleepingDiscriminantSchema = z.object({
+  state: z.literal("sleeping"),
+  /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
+   *  of the live overlay — the one scalar an active terminal doesn't carry. */
+  sleptAt: z.number(),
+});
+
+/** The active arm's persisted core — `persisted base + state: "active"`, the one
+ *  composition both the live and saved active arms build on. The live arm adds
+ *  the overlay; the saved arm adds the id. Spelling it once keeps "active =
+ *  persisted + discriminant" in a single place so the live/saved divergence is
+ *  the only thing each arm restates. */
+const ActivePersistedCoreSchema = PersistedTerminalFieldsSchema.merge(
+  ActiveDiscriminantSchema,
+);
+
+/** An active terminal — persisted base + live overlay + `state: "active"`. The
+ *  only arm Phase 1 ever constructs. */
+export const ActiveTerminalSchema = ActivePersistedCoreSchema.merge(
   LiveTerminalFieldsSchema,
 );
+
+/** A sleeping terminal — persisted base + `sleptAt`, no live overlay (its
+ *  PTY/xterm/agent are released). */
+export const SleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
+  SleepingDiscriminantSchema,
+);
+
+/**
+ * The terminal as a sum — `Terminal = active | sleeping`, discriminated on
+ * `state`. The `terminalMetadata` collection's value (the wire shape). Presence
+ * reads the union; liveness narrows to the `active` arm. Code that only needs
+ * one half should import the sub-schema so the dependency is explicit.
+ */
+export const TerminalMetadataSchema = z.discriminatedUnion("state", [
+  ActiveTerminalSchema,
+  SleepingTerminalSchema,
+]);
 
 /** Client-owned metadata supplied at create time. Seeded onto the new
  *  terminal's `meta` before the first `terminal.list` yield, so session
@@ -369,19 +424,44 @@ export const ActivityFeedSchema = z.object({
 // ── Session persistence ───────────────────────────────────────────────
 
 /**
- * On-disk snapshot of a terminal. Exactly the persisted fields plus a
- * stable `id` for cross-referencing parents. Derived mechanically from
- * `PersistedTerminalFieldsSchema` — adding a persisted field to
- * `TerminalMetadataSchema` automatically rides through here.
+ * On-disk snapshot of a terminal — the persisted projection of the `Terminal`
+ * sum plus a stable `id`. Same discriminant as `TerminalMetadataSchema`, minus
+ * the live overlay (live fields never ride to disk): an active saved record is
+ * the persisted base + id; a sleeping one adds `sleptAt`. So a restored terminal
+ * and a slept terminal are the same on-disk record, distinguished only by
+ * `state` — session save emits one list and sleeping terminals join it. The
+ * discriminant means a legacy record with no `state` key is rejected on read,
+ * which `backfillTerminalState` repairs (`state: "active"`) — run by both the
+ * `state.ts` 1.27.0 migration (persisted state) and the client import hatch
+ * (`backfillSavedSession`, for an exported `kolu-session.json`).
  *
  * Within-group ordering is the array index; the server writes terminals
  * in `Map` insertion order (stable per ES2015) and restore replays that
  * order verbatim.
  */
-export const SavedTerminalSchema = PersistedTerminalFieldsSchema.extend({
+const SavedTerminalIdSchema = z.object({
   /** Stable ID within this session (original terminal UUID at save time). */
   id: z.string(),
 });
+
+/** The active arm of the on-disk record (persisted base + id, no live overlay)
+ *  — the shape restore/adoption produce. Exported so the adoption round-trip
+ *  test can assert it carries every persisted key. */
+export const SavedActiveTerminalSchema = ActivePersistedCoreSchema.merge(
+  SavedTerminalIdSchema,
+);
+
+/** The sleeping arm of the on-disk record (persisted base + `sleptAt` + id, no
+ *  live overlay) — the shape a slept terminal persists. Named symmetrically with
+ *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms. */
+export const SavedSleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
+  SleepingDiscriminantSchema,
+).merge(SavedTerminalIdSchema);
+
+export const SavedTerminalSchema = z.discriminatedUnion("state", [
+  SavedActiveTerminalSchema,
+  SavedSleepingTerminalSchema,
+]);
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
@@ -461,12 +541,21 @@ export type PersistedTerminalFields = z.infer<
   typeof PersistedTerminalFieldsSchema
 >;
 export type LiveTerminalFields = z.infer<typeof LiveTerminalFieldsSchema>;
+/** The active arm of the `Terminal` sum — what `createMetadata` builds and the
+ *  only arm Phase 1 constructs. Narrowing `state === "active"` yields this. */
+export type ActiveTerminal = z.infer<typeof ActiveTerminalSchema>;
+/** The sleeping arm of the `Terminal` sum — persisted base + `sleptAt`. */
+export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
 export type ServerPersistedTerminalFields = z.infer<
   typeof ServerPersistedTerminalFieldsSchema
 >;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
+/** The active arm of `SavedTerminal` — what restore/adoption produce and the
+ *  only on-disk arm Phase 1 writes. The whole-record adoption path is typed to
+ *  this (a sleeping record has no live PTY to adopt). */
+export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
@@ -810,3 +899,130 @@ export type TerminalMetadata =
   Surface["collections"]["terminalMetadata"]["Value"];
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+
+/** Narrow a terminal (or a possibly-absent one) to its active arm, or
+ *  `undefined` when it is sleeping/absent. The single seam presence surfaces use
+ *  to read a live field off the `Terminal` sum — `activeArm(meta)?.agent`,
+ *  `activeArm(meta)?.foreground`, `activeArm(meta)?.pr`. A sleeping terminal has
+ *  no live overlay, so the optional chain yields the same "absent" a live
+ *  terminal with no agent/foreground already carries. Accepts null/undefined so
+ *  a caller can thread `store.getMetadata(id)` / `activeMeta()` straight through
+ *  one call (TS can't narrow a repeated `getMetadata(id).state` across two
+ *  calls; this binds the value once).
+ *
+ *  This reader deliberately collapses "sleeping" and "absent" into one
+ *  `undefined` — exactly what a live-field optional-chain wants. A *sleeping-
+ *  specific* consumer (a ☾ badge, a `sleptAt` line) must NOT widen this to a
+ *  three-way; it gets its own sibling projection (e.g. `sleepingArm`) so the
+ *  active/sleeping/absent distinction is preserved at that seam rather than
+ *  re-scattering `state` checks. */
+export function activeArm(
+  m: TerminalMetadata | null | undefined,
+): ActiveTerminal | undefined {
+  return m?.state === "active" ? m : undefined;
+}
+
+/** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,
+ *  else `null`. The single accessor for 'is it active and does it have a resolved
+ *  PR' — the active narrow (`activeArm`) and the `ok`-arm projection (`prValue`)
+ *  composed once, so value sites read one accessor instead of re-wiring the two
+ *  primitives (and don't leak the `false` an `arm && prValue(arm.pr)` chain
+ *  returns). JSX sites that narrow the arm to read BOTH `prValue` and
+ *  `prUnavailableSource` off it keep the `activeArm` narrow — this value
+ *  projection only collapses the `PrInfo | null` reads. */
+export function activePr(
+  m: TerminalMetadata | null | undefined,
+): PrInfo | null {
+  const arm = activeArm(m);
+  return arm ? prValue(arm.pr) : null;
+}
+
+// ── Saved-terminal backfills (legacy → current shape) ─────────────────
+//
+// Pure record transforms that bring a legacy on-disk `SavedTerminal` up to the
+// current `SavedTerminalSchema`, one per schema bump that added a now-required
+// field. They live HERE, beside the schema they restore, because TWO callers
+// run them on the SAME blob: the server's versioned migration ladder
+// (`state.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
+// "Import session" hatch (`sessionTransfer.ts`), which ingests an exported
+// `kolu-session.json` that may predate any of these fields. A second hand-rolled
+// backfill on the import side would be a parallel source of truth — the bug
+// codex flagged in the Phase-1 review — so the import path composes these same
+// functions via `backfillSavedSession` instead.
+//
+// Each is idempotent and keyed on the field's presence, never its value, so the
+// composed pass is order-independent and safe to re-run on already-current data.
+
+/** Backfill `git.remoteUrl = null` on a saved terminal whose `git` record
+ *  predates the field (#1244). Sessions saved between the 1.18 migration and
+ *  1.25 carry a populated `git` with no `remoteUrl`, which the now-required
+ *  `GitInfoSchema` field rejects. The live git watcher re-resolves the real
+ *  value on first restore. Idempotent: a `git` that already has `remoteUrl` —
+ *  or a null `git` — passes through untouched. */
+export function backfillRemoteUrl(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const git = t.git;
+  if (!git || typeof git !== "object") return t;
+  if ("remoteUrl" in git) return t;
+  return {
+    ...t,
+    git: { ...(git as Record<string, unknown>), remoteUrl: null },
+  };
+}
+
+/** Backfill `location = { kind: "local" }` on a saved terminal from before
+ *  `location` became a required field (#1398). Every terminal that could have
+ *  been persisted before then was an in-process (local) PTY — remote terminals
+ *  do not yet exist — so the only honest backfill is the local variant.
+ *  Idempotent: a record that already carries a `location` (a future remote
+ *  terminal, or a re-run) is left untouched. */
+export function backfillLocation(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("location" in t) return t;
+  return { ...t, location: LOCAL_LOCATION };
+}
+
+/** Backfill `state: "active"` on a saved terminal from before `SavedTerminal`
+ *  became a `discriminatedUnion` on `state` (the sleeping-terminals redesign,
+ *  Phase 1). Every pre-discriminant terminal was an attached, live PTY — no
+ *  sleeping record was ever persisted — so the only honest backfill is the
+ *  active arm. Idempotent and keyed on the discriminant KEY, not its value: a
+ *  record that already carries a `state` (a future `state: "sleeping"` record
+ *  with its `sleptAt`, or a re-run) passes through untouched. */
+export function backfillTerminalState(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("state" in t) return t;
+  return { ...t, state: "active" };
+}
+
+/** Bring one legacy saved-terminal record up to the current
+ *  `SavedTerminalSchema` by composing every field backfill above. Order-free
+ *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
+export function backfillSavedTerminal(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  return backfillTerminalState(backfillLocation(backfillRemoteUrl(t)));
+}
+
+/** Bring a parsed-but-unvalidated saved-session blob up to the current schema
+ *  by backfilling each terminal, so a `kolu-session.json` exported before a
+ *  schema bump survives re-import (the recovery hatch its `sessionTransfer.ts`
+ *  callers exist to provide). A non-object, or one with no `terminals` array,
+ *  is returned untouched for `SavedSessionSchema` to reject with its own error.
+ *  Pure — no validation here; the caller validates the result. */
+export function backfillSavedSession(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const session = parsed as Record<string, unknown>;
+  if (!Array.isArray(session.terminals)) return parsed;
+  return {
+    ...session,
+    terminals: session.terminals.map((t) =>
+      t && typeof t === "object"
+        ? backfillSavedTerminal(t as Record<string, unknown>)
+        : t,
+    ),
+  };
+}

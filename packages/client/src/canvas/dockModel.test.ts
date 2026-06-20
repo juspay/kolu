@@ -1,7 +1,8 @@
 import {
+  activeArm,
+  type ActiveTerminal,
   type AgentInfo,
   LOCAL_LOCATION,
-  type TerminalMetadata,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
@@ -41,8 +42,9 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
   } as AgentInfo;
 }
 
-function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
+function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   return {
+    state: "active",
     cwd: "/home/user/kolu",
     git: makeGit(),
     location: LOCAL_LOCATION,
@@ -56,7 +58,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
 
 function makeInfo(
   id: string,
-  overrides: Partial<TerminalMetadata> = {},
+  overrides: Partial<ActiveTerminal> = {},
 ): TerminalDisplayInfo {
   const meta = makeMeta(overrides);
   return {
@@ -75,7 +77,7 @@ function makeInfo(
 
 function source(
   id: string,
-  overrides: Partial<TerminalMetadata> = {},
+  overrides: Partial<ActiveTerminal> = {},
   layout?: TileLayout,
 ): DockSourceEntry {
   return {
@@ -271,9 +273,9 @@ describe("buildDockModel", () => {
     // The agent metadata survives the bucket move — the render layer
     // (`DockRow` / `DockListRow`) reads `info.meta.agent` to paint the
     // agent state pip and subline on parked rows.
-    expect(m.entries.find((e) => e.id === "t1")?.info.meta.agent?.state).toBe(
-      "waiting",
-    );
+    expect(
+      activeArm(m.entries.find((e) => e.id === "t1")?.info.meta)?.agent?.state,
+    ).toBe("waiting");
   });
 
   it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {

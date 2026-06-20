@@ -24,6 +24,7 @@ import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
 
 const terminal: SavedTerminal = {
   id: "term-1",
+  state: "active",
   cwd: "/home/user/project",
   git: {
     repoRoot: "/home/user/project",
@@ -116,6 +117,7 @@ describe("session persistence", () => {
         cwd: "/a",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         lastActivityAt: 0,
       },
       {
@@ -123,6 +125,7 @@ describe("session persistence", () => {
         cwd: "/b",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         lastActivityAt: 0,
       },
       {
@@ -130,6 +133,7 @@ describe("session persistence", () => {
         cwd: "/c",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         parentId: "a",
         lastActivityAt: 0,
       },
@@ -149,6 +153,7 @@ describe("session persistence", () => {
         cwd: "/a",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         themeName: "Dracula",
         lastActivityAt: 0,
       },
@@ -157,6 +162,7 @@ describe("session persistence", () => {
         cwd: "/b",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         lastActivityAt: 0,
       },
     ];
@@ -179,6 +185,7 @@ describe("session persistence", () => {
         cwd: "/a",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         lastActivityAt: t1,
       },
       {
@@ -186,6 +193,7 @@ describe("session persistence", () => {
         cwd: "/b",
         git: null,
         location: LOCAL_LOCATION,
+        state: "active",
         lastActivityAt: t2,
       },
     ];

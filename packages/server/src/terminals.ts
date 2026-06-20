@@ -15,12 +15,13 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import type {
-  InitialTerminalMetadata,
-  RightPanelPerTerminalState,
-  SavedTerminal,
-  TerminalId,
-  TerminalInfo,
+import {
+  type InitialTerminalMetadata,
+  type RightPanelPerTerminalState,
+  SavedActiveTerminalSchema,
+  type SavedTerminal,
+  type TerminalId,
+  type TerminalInfo,
 } from "kolu-common/surface";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -53,23 +54,21 @@ export {
 
 /** Build a session snapshot from current terminal state.
  *
- *  The persisted fields live on `TerminalMetadata` in the exact shape
- *  `SavedTerminal` needs — so a snapshot is "strip the live fields,
- *  add id". Adding a future persisted field to
- *  `PersistedTerminalFieldsSchema` flows through here with no change.
- *  Order is `Map` insertion order — terminals appear in the sequence
- *  they were created. */
+ *  Each live registry entry (an `ActiveTerminal`) is projected onto
+ *  `SavedActiveTerminalSchema` — the schema IS the single source of truth for
+ *  the persisted-vs-live partition, so the live overlay (pr/agent/foreground) is
+ *  stripped structurally and a future live field can never silently ride to disk.
+ *  A hand-named destructure would have to be kept in sync with the live partition
+ *  by convention (TS does not excess-check object spreads, so a drifted strip
+ *  would type-clean); deriving the strip from the schema makes
+ *  "a persisted record carrying a live field" unrepresentable here. A new
+ *  *persisted* field, being part of the schema, flows through untouched.
+ *  Order is `Map` insertion order — terminals appear in the sequence they were
+ *  created. */
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
-    ([id, entry]): SavedTerminal => {
-      const {
-        pr: _pr,
-        agent: _agent,
-        foreground: _foreground,
-        ...persisted
-      } = entry.meta;
-      return { id, ...persisted };
-    },
+    ([id, entry]): SavedTerminal =>
+      SavedActiveTerminalSchema.parse({ ...entry.meta, id }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

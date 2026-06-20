@@ -13,8 +13,7 @@
  *  three echoes of the same truth. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId } from "kolu-common/surface";
-import { prValue } from "anyforge/schemas";
+import { activeArm, activePr, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -475,8 +474,8 @@ const WorkspaceCard: Component<{
   unread: boolean;
   onSelect: () => void;
 }> = (props) => {
-  const agent = () => props.entry.info.meta.agent;
-  const pr = () => prValue(props.entry.info.meta.pr);
+  const agent = () => activeArm(props.entry.info.meta)?.agent;
+  const pr = () => activePr(props.entry.info.meta);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);

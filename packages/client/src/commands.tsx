@@ -1,6 +1,10 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import type { RecentAgent, TerminalId } from "kolu-common/surface";
+import {
+  activeArm,
+  type RecentAgent,
+  type TerminalId,
+} from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
@@ -251,7 +255,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             section: "active-terminal" as const,
             onSelect: () => deps.handleExportScrollbackAsPdf(),
           },
-          ...(deps.activeMeta()?.agent
+          ...(activeArm(deps.activeMeta())?.agent
             ? [
                 {
                   kind: "action" as const,
