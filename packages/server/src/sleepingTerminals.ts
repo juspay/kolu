@@ -12,18 +12,24 @@
  * is no autosave loop and no dirty-channel wiring.
  */
 
-import type {
-  CanvasLayout,
-  SleepingTerminal,
-  TerminalId,
+import {
+  type CanvasLayout,
+  isRootedSleepingRecord,
+  type SleepingTerminal,
+  type TerminalId,
 } from "kolu-common/surface";
 import { store } from "./state.ts";
 import { surfaceCtx } from "./surfaceCtx.ts";
 import { snapshotTerminal } from "./terminals.ts";
 
-/** Current sleeping records (insertion order = sleep order). */
+/** Current sleeping records (insertion order = sleep order). Orphan records (no
+ *  root terminal) are dropped so a single corrupt / old-format record can never
+ *  empty the served cell — the data-loss bug where every sleep "vanished". The
+ *  1.28.0 migration clears them from disk; this is the runtime guarantee for any
+ *  that slip in (and the single read both the cell and `sleepTerminal` go
+ *  through, so a write can't re-grow the list with an orphan it just read). */
 export function getSleepingTerminals(): SleepingTerminal[] {
-  return store.get("sleepingTerminals");
+  return store.get("sleepingTerminals").filter(isRootedSleepingRecord);
 }
 
 /** Persist via the surface cell — it owns the conf write + the publish so the

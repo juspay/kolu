@@ -64,6 +64,7 @@ import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
+import { getSleepingTerminals } from "./sleepingTerminals.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
 import {
@@ -178,7 +179,14 @@ const koluDeps: Omit<
       store: { get: () => listTerminals(), set: () => {} },
     },
     sleepingTerminals: {
-      store: sleepingTerminalsStore,
+      // Read through `getSleepingTerminals` (mirroring `session`'s
+      // `getSavedSession`) so ORPHAN records — no terminal matching the root id —
+      // are filtered out before they reach the client. One orphan otherwise
+      // empties the cell client-side and every sleep "vanishes".
+      store: {
+        get: () => getSleepingTerminals(),
+        set: sleepingTerminalsStore.set,
+      },
       // Content-level dedup (the shared `jsonEquals`), mirroring `session`.
       // Writes here are explicit (sleep/dropSleeping/setSleepingLayout
       // procedures), never debounced — so no autosave-cancel onWrite is needed,

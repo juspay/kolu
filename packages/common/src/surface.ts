@@ -397,32 +397,30 @@ export const SavedSessionSchema = z.object({
  *  live-session autosave never clobbers it and a restart rehydrates it AS
  *  sleeping (never auto-woken). Reuses `SavedTerminalSchema` verbatim — a future
  *  persisted terminal field rides through with no change here. */
-export const SleepingTerminalSchema = z
-  .object({
-    /** Record id === the ORIGINAL top-level terminal id (a `SavedTerminal.id`),
-     *  NOT a synthetic UUID. The first-class Tile contract keys a sleeping tile
-     *  by the id of the terminal it was, so canvas position, MRU rank, dock-row
-     *  identity, and active-selection carry over the moment it sleeps (no id to
-     *  invent — see `tile/tileContent.ts`). Wake re-mints fresh terminal ids
-     *  when it respawns the tree; this record id is the stable handle until
-     *  then. Typed `TerminalIdSchema` (not a bare string) so it shares the
-     *  terminal-id branding the rest of the surface enforces. */
-    id: TerminalIdSchema,
-    // A record always carries at least its root terminal — an empty tree is a
-    // corrupt record, not an empty workspace. Fail at the schema boundary
-    // rather than letting `topTerminal` paper over it downstream.
-    terminals: z.array(SavedTerminalSchema).min(1),
-    /** When the terminal was put to sleep. Drives the "asleep Nd" recency label. */
-    sleptAt: z.number(),
-  })
-  // The root terminal — the entry whose id IS the record id — must exist.
-  // Every reader (canvas tile, dock row, layout write, label) anchors on
-  // `record.id` to find the root; a record that doesn't contain it is corrupt.
-  // Refine here so a malformed persisted record is rejected loudly at parse
-  // time instead of silently resolving to the wrong entry via a fallback.
-  .refine((r) => r.terminals.some((t) => t.id === r.id), {
-    message: "sleeping record has no terminal matching its root id",
-  });
+export const SleepingTerminalSchema = z.object({
+  /** Record id === the ORIGINAL top-level terminal id (a `SavedTerminal.id`),
+   *  NOT a synthetic UUID. The first-class Tile contract keys a sleeping tile
+   *  by the id of the terminal it was, so canvas position, MRU rank, dock-row
+   *  identity, and active-selection carry over the moment it sleeps (no id to
+   *  invent — see `tile/tileContent.ts`). Wake re-mints fresh terminal ids
+   *  when it respawns the tree; this record id is the stable handle until
+   *  then. Typed `TerminalIdSchema` (not a bare string) so it shares the
+   *  terminal-id branding the rest of the surface enforces. */
+  id: TerminalIdSchema,
+  // A record always carries at least its root terminal — an empty tree is a
+  // corrupt record, not an empty workspace. Fail at the schema boundary
+  // rather than letting `topTerminal` paper over it downstream.
+  terminals: z.array(SavedTerminalSchema).min(1),
+  /** When the terminal was put to sleep. Drives the "asleep Nd" recency label. */
+  sleptAt: z.number(),
+});
+// The root-terminal invariant (a terminal with id === record.id must exist) is
+// deliberately NOT a schema `.refine`. A single orphan record must not reject the
+// WHOLE `sleepingTerminals` array — that empties the cell on the client and makes
+// every sleep "vanish" (an early cut wrote UUID-keyed records that orphaned this
+// way). It is enforced by graceful FILTERING instead: the server drops orphans on
+// read (`getSleepingTerminals`), a migration drops them from disk, and the client
+// registry skips them — see `isRootedSleepingRecord` below.
 
 // ── User preferences (server-side, shared with client) ────────────────
 
@@ -879,6 +877,15 @@ export function topTerminal(record: SleepingTerminal): SavedTerminal {
     );
   }
   return root;
+}
+
+/** Whether a sleeping record is renderable: a terminal whose id IS the record id
+ *  (the root every reader anchors on) exists. The server and client filter on
+ *  this so an orphan record (no such root) is dropped GRACEFULLY rather than
+ *  poisoning the whole cell — which is why `topTerminal` above can safely throw:
+ *  these filters guarantee it is never reached with an orphan. */
+export function isRootedSleepingRecord(record: SleepingTerminal): boolean {
+  return record.terminals.some((t) => t.id === record.id);
 }
 
 /** What string represents a dormant tile — its top terminal's intent, else the

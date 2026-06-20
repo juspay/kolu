@@ -24,7 +24,12 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
-import { type TerminalMetadata, topTerminal } from "kolu-common/surface";
+import {
+  isRootedSleepingRecord,
+  type SleepingTerminal,
+  type TerminalMetadata,
+  topTerminal,
+} from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import {
   type DockRowData,
@@ -45,6 +50,14 @@ export const useTileStore = createSharedRoot(() => {
   const store = useTerminalStore();
   const wakingTiles = useWakingTiles();
 
+  /** Sleeping records safe to render: the server already drops orphans (no root
+   *  terminal) via `getSleepingTerminals`, but skip any that slip through so a
+   *  single corrupt record can never become a tile or reach the throwing
+   *  `topTerminal` — graceful degradation, not a poisoned feature (the data-loss
+   *  bug where every sleep "vanished"). */
+  const sleepingRecords = (): SleepingTerminal[] =>
+    sleepingTerminals().filter(isRootedSleepingRecord);
+
   /** Sleeping records to actually surface as tiles, by id. Two records are
    *  filtered out — the single home of the "live wins over sleeping" rule:
    *   - mid-wake (the `wakingTiles` optimistic hide): the record lingers until
@@ -56,7 +69,7 @@ export const useTileStore = createSharedRoot(() => {
   const sleepingTileIds = (): TileId[] => {
     const live = new Set<TileId>(store.terminalIds());
     const waking = wakingTiles.waking();
-    return sleepingTerminals()
+    return sleepingRecords()
       .map((r) => r.id as TileId)
       .filter((id) => !live.has(id) && !waking.has(id));
   };
@@ -69,7 +82,7 @@ export const useTileStore = createSharedRoot(() => {
    *  synthesize merge lives here alone instead of at three hand-rolled sites. */
   const sleepingRowData = createMemo<Map<TileId, DockRowData>>(() => {
     const map = new Map<TileId, DockRowData>();
-    for (const record of sleepingTerminals()) {
+    for (const record of sleepingRecords()) {
       const data = sleepingDockRowData(record);
       if (data) map.set(record.id as TileId, data);
     }
@@ -107,7 +120,7 @@ export const useTileStore = createSharedRoot(() => {
     if (store.terminalIds().includes(id)) {
       return { kind: "terminal", terminalId: id };
     }
-    const record = sleepingTerminals().find((r) => r.id === id);
+    const record = sleepingRecords().find((r) => r.id === id);
     return record ? { kind: "sleeping", record } : undefined;
   };
 
