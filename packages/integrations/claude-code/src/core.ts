@@ -211,6 +211,10 @@ export function firstTranscriptTimestampMs(filePath: string): number | null {
   try {
     size = fs.statSync(filePath).size;
   } catch {
+    // Transcript absent/unreadable — expected before the first message lands
+    // (claude creates the JSONL lazily). The watcher retries on the next fire
+    // and caches once it resolves, so a silent null here is correct, not a
+    // swallowed error. Mirrors `tailJsonlLines`' documented silent policy.
     return null;
   }
   // Clamp `size` to the head window so `readTailLines`' `start` lands at 0 —
@@ -226,6 +230,9 @@ export function firstTranscriptTimestampMs(filePath: string): number | null {
     try {
       ts = (JSON.parse(raw) as { timestamp?: string }).timestamp;
     } catch {
+      // A partial trailing line in the head window (or any malformed entry):
+      // skip it and try the next — the same skip-malformed-lines policy
+      // `deriveState` applies to the tail. The first well-formed entry wins.
       continue;
     }
     if (typeof ts !== "string") continue;
