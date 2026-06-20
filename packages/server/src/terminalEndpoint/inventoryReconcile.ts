@@ -101,6 +101,15 @@ function applyEvent(ev: PtyHostInventoryEvent): void {
       { terminal: entry.id, pid: entry.pid },
       "adopting out-of-band PTY from kaval inventory",
     );
+    // A live out-of-band adoption deliberately does NOT call `setAdoptedCount`
+    // (the boot path does — reattach.ts:84-85). The "N reattached" confirmation
+    // is a one-shot RESTART summary the boot path owns: it stamps `adoptedAt`
+    // once per server process (daemonStatus.ts:78-82) and the client dedupes the
+    // toast on that timestamp (useDaemonStatus.ts:222-256). A single PTY found
+    // live mid-session is an ordinary tile appearing, not a restart event, so it
+    // materializes WITHOUT the reattach card by design — and firing the count
+    // per live adoption would break the once-per-process `adoptedAt` identity the
+    // toast dedupe depends on. Not an unstated convention: it's the rule.
     adoptLocalOrphan(entry);
   }
 }
