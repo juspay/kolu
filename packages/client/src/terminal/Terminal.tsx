@@ -302,27 +302,16 @@ const Terminal: Component<{
     ),
   );
 
-  // Grab focus when the focused prop transitions to true (e.g. sub-panel toggle).
+  // Restore focus from two trigger sources, one guard. The `focused` prop
+  // transitioning to true (e.g. a sub-panel toggle) grabs focus; and the host
+  // bumping `refocusNonce` re-grabs it even when `focused` is unchanged — that
+  // edge-less case is how a sibling sub-tab close, which moves focus to the
+  // (about-to-be-removed) close button, gets repaired before the browser's
+  // non-deterministic focus-after-removal lands (the linux flake this fixes).
+  // `on` over the array re-runs when either element changes.
   createEffect(
     on(
-      () => props.focused,
-      (focused) => {
-        if (focused && props.visible && terminal) {
-          focusOnSelection();
-        }
-      },
-      { defer: true },
-    ),
-  );
-
-  // Re-grab focus when the host bumps `refocusNonce`. The edge-triggered effect
-  // above only fires on a `focused` transition, so it can't restore focus after
-  // a sibling sub-tab close moves it to the (about-to-be-removed) close button
-  // while this terminal's `focused` state is unchanged — and the browser's
-  // focus-after-removal is non-deterministic (the linux flake this fixes).
-  createEffect(
-    on(
-      () => props.refocusNonce,
+      () => [props.focused, props.refocusNonce] as const,
       () => {
         if (props.focused && props.visible && terminal) focusOnSelection();
       },
