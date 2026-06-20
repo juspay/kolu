@@ -149,10 +149,9 @@ const KeepAliveMode: Component<{
   file: FileData;
   render: (file: FileData) => JSX.Element;
 }> = (props) => {
-  const [visited, setVisited] = createSignal(props.show);
-  createEffect(() => {
-    if (props.show) setVisited(true);
-  });
+  // A one-way latch: stays false until the slot is first shown, then sticks
+  // true (so the appliance mounts lazily on first view and is kept alive after).
+  const visited = createMemo<boolean>((was) => was || props.show, false);
   const heldFile = createMemo<FileData>((prev) =>
     props.show || prev === undefined ? props.file : prev,
   );
