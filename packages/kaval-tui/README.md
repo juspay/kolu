@@ -81,6 +81,13 @@ kaval-tui list                       # the terminals open in your kolu
 kaval-tui snapshot <id> | grep BUILD-
 ```
 
+The reach is **two-way**: a terminal you `kaval-tui create` against that daemon
+shows up in kolu as a tile **live** — the moment it's created, not just at kolu's
+next restart. kolu subscribes to the daemon's inventory feed and adopts any PTY
+it doesn't already own, so the one set of PTYs the daemon owns is what every
+client sees. (A bare `create` carries none of kolu's shell hooks, so its tile has
+no agent/title detection until you run something in it.)
+
 Auto-discovery scans the per-user runtime dir — a standalone `kaval` and every
 kolu. One daemon running → it's picked automatically. More than one → kaval-tui
 lists them and asks you to choose with `--socket <path>` (which goes **after**
