@@ -79,10 +79,16 @@ export function agentShortName(kind: string): string {
   return kind === "claude-code" ? "claude" : kind;
 }
 
-/** Bucket an agent's fine-grained state into the dashboard label: actively
- *  computing → `working`, blocked on you → `awaiting`, idle → `waiting`. An
- *  unrecognized state falls through verbatim so a new agent state is visible. */
-export function agentStatusLabel(state: string): string {
+/** The closed set of dashboard categories an agent's fine-grained state buckets
+ *  into. `other` covers any unrecognized state — both the label and the tone
+ *  derive from this one value, so a new state is bucketed in exactly one place. */
+export type AgentBucket = "working" | "awaiting" | "waiting" | "other";
+
+/** Bucket an agent's fine-grained state into a dashboard category: actively
+ *  computing → `working`, blocked on you → `awaiting`, idle → `waiting`,
+ *  anything unrecognized → `other`. The single source of truth both the label
+ *  and the tone map over. */
+export function agentBucket(state: string): AgentBucket {
   switch (state) {
     case "thinking":
     case "tool_use":
@@ -93,8 +99,16 @@ export function agentStatusLabel(state: string): string {
     case "waiting":
       return "waiting";
     default:
-      return state;
+      return "other";
   }
+}
+
+/** The dashboard label for an agent's state, derived from its bucket. An
+ *  unrecognized (`other`) state falls through verbatim so a new agent state is
+ *  visible rather than silently collapsed. */
+export function agentStatusLabel(state: string): string {
+  const bucket = agentBucket(state);
+  return bucket === "other" ? state : bucket;
 }
 
 function agentValue(agent: AwarenessValue["agent"]): string {
@@ -154,18 +168,20 @@ export type FieldTone =
   | "muted"
   | "plain";
 
-/** The agent state's tone: actively computing → working, blocked on you →
- *  awaiting, idle → idle, no agent → muted. Mirrors `agentStatusLabel`. */
+/** The agent state's tone, keyed on its `agentBucket`: actively computing →
+ *  working, blocked on you → awaiting, idle → idle, an unrecognized state →
+ *  plain, no agent → muted. The exhaustive switch over the closed bucket means a
+ *  new bucket forces a tone decision here rather than silently falling to plain. */
 export function agentTone(agent: AwarenessValue["agent"]): FieldTone {
   if (!agent) return "muted";
-  switch (agentStatusLabel(agent.state)) {
+  switch (agentBucket(agent.state)) {
     case "working":
       return "working";
     case "awaiting":
       return "awaiting";
     case "waiting":
       return "idle";
-    default:
+    case "other":
       return "plain";
   }
 }
