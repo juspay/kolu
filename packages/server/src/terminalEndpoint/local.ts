@@ -776,11 +776,12 @@ export function adoptLocalTerminal(
  *  create that never reached the debounced autosave before the restart. The live
  *  shell is adopted (never reaped), seeded entirely from the daemon snapshot
  *  (`orphanMeta`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
- *  case the reconcile partition surfaces separately. */
-export function adoptLocalOrphan(liveEntry: PtyHostListEntry): void {
-  localEndpointImpl.adoptTerminal(
-    liveEntry.id as TerminalId,
-    orphanMeta(liveEntry),
-    liveEntry,
-  );
+ *  case the reconcile partition surfaces separately. `id` is an ALREADY-VALIDATED
+ *  `TerminalId` — the caller (the boot reconcile or the inventory boundary) parsed
+ *  it against `TerminalIdSchema`, so this no longer re-casts a raw wire string. */
+export function adoptLocalOrphan(
+  id: TerminalId,
+  liveEntry: PtyHostListEntry,
+): void {
+  localEndpointImpl.adoptTerminal(id, orphanMeta(liveEntry), liveEntry);
 }

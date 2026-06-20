@@ -30,6 +30,7 @@
  */
 
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
+import { TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
@@ -65,9 +66,25 @@ export async function adoptSurvivingSession(): Promise<void> {
   // "terminals survive a kolu update" guarantee. `reconcile` already paired each
   // adopted record with its live PTY, so there is no join to redo here.
   for (const pair of adopt) adoptLocalTerminal(pair.record, pair.live);
-  for (const orphan of adoptOrphans) adoptLocalOrphan(orphan);
+  // Validate each orphan's wire id against `TerminalIdSchema` at this boundary
+  // (the contract doc assigns id validation to kolu-server — ptyHostSurface.ts:36)
+  // so `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw
+  // string. A malformed id is dropped (logged), never adopted.
+  let orphansAdopted = 0;
+  for (const orphan of adoptOrphans) {
+    const parsed = TerminalIdSchema.safeParse(orphan.id);
+    if (!parsed.success) {
+      log.warn(
+        { rawId: orphan.id },
+        "surviving orphan id failed TerminalIdSchema — dropping",
+      );
+      continue;
+    }
+    adoptLocalOrphan(parsed.data, orphan);
+    orphansAdopted += 1;
+  }
 
-  const adoptedCount = adopt.length + adoptOrphans.length;
+  const adoptedCount = adopt.length + orphansAdopted;
 
   // Converge the saved session to exactly what is now live: exited terminals
   // drop out (no stale restore card for them), and the active marker is kept
@@ -84,7 +101,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   if (adoptedCount > 0) {
     setAdoptedCount(LOCAL_HOST_ID, adoptedCount);
     log.info(
-      { adopted: adopt.length, orphansAdopted: adoptOrphans.length },
+      { adopted: adopt.length, orphansAdopted },
       "adopted surviving terminals after restart",
     );
   }

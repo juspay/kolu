@@ -30,7 +30,7 @@
  */
 
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
-import type { TerminalId } from "kolu-common/surface";
+import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
@@ -70,23 +70,37 @@ async function runReconciler(signal: AbortSignal): Promise<void> {
   }
 }
 
+/** One PTY to adopt: its already-VALIDATED `TerminalId` (the inventory boundary
+ *  is where the opaque wire string is checked against `TerminalIdSchema`, per
+ *  the contract doc — ptyHostSurface.ts:36) paired with the live daemon entry. */
+export interface InventoryAdoption {
+  id: TerminalId;
+  entry: PtyHostListEntry;
+}
+
 /** Decide which PTYs in an inventory frame kolu must adopt: the entries it does
- *  not already track. Pure — the caller supplies `isTracked` (the registry
- *  lookup) and does the adopting — so the routing is unit-testable without the
- *  registry or the daemon. `snapshot`/`created` adopt the UNKNOWN entries; a
- *  tracked id is kolu's own spawn echoing back (or one already adopted), so it
- *  is skipped — no double-register, no double-wire. `exited` is never an
- *  adoption (empty): every terminal kolu tracks has a per-id `exit` tap that is
- *  the single authority for its teardown (module doc). */
+ *  not already track, whose id PARSES as a `TerminalId`. Pure — the caller
+ *  supplies `isTracked` (the registry lookup), `onInvalid` (drop-logging), and
+ *  does the adopting — so the routing is unit-testable without the registry or
+ *  the daemon. This is the boundary the contract doc names: a raw inventory id is
+ *  validated against `TerminalIdSchema` here, so `isTracked` / `adoptLocalOrphan`
+ *  downstream receive an already-branded `TerminalId` rather than re-casting a
+ *  raw string. A malformed out-of-band id is dropped (logged), never adopted.
+ *  `snapshot`/`created` adopt the UNKNOWN entries; a tracked id is kolu's own
+ *  spawn echoing back (or one already adopted), so it is skipped — no
+ *  double-register, no double-wire. `exited` is never an adoption (empty): every
+ *  terminal kolu tracks has a per-id `exit` tap that is the single authority for
+ *  its teardown (module doc). */
 export function inventoryAdoptions(
   ev: PtyHostInventoryEvent,
-  isTracked: (id: string) => boolean,
-): PtyHostListEntry[] {
+  isTracked: (id: TerminalId) => boolean,
+  onInvalid: (rawId: string) => void,
+): InventoryAdoption[] {
   switch (ev.kind) {
     case "snapshot":
-      return ev.entries.filter((entry) => !isTracked(entry.id));
+      return adoptableEntries(ev.entries, isTracked, onInvalid);
     case "created":
-      return [ev.entry].filter((entry) => !isTracked(entry.id));
+      return adoptableEntries([ev.entry], isTracked, onInvalid);
     case "exited":
       // `exited`'s payload is an id, not an entry — there is nothing to adopt.
       // A stated case, not a fall-through: the per-id `exit` tap is the single
@@ -97,6 +111,28 @@ export function inventoryAdoptions(
       // COMPILE error here rather than silently routing to an empty default.
       return assertNever(ev);
   }
+}
+
+/** Validate each entry's wire id against `TerminalIdSchema` (the inventory
+ *  boundary the contract doc assigns to kolu-server), drop the unparseable ones,
+ *  and keep the untracked rest paired with their branded id. */
+function adoptableEntries(
+  entries: PtyHostListEntry[],
+  isTracked: (id: TerminalId) => boolean,
+  onInvalid: (rawId: string) => void,
+): InventoryAdoption[] {
+  const adoptions: InventoryAdoption[] = [];
+  for (const entry of entries) {
+    const parsed = TerminalIdSchema.safeParse(entry.id);
+    if (!parsed.success) {
+      onInvalid(entry.id);
+      continue;
+    }
+    if (!isTracked(parsed.data)) {
+      adoptions.push({ id: parsed.data, entry });
+    }
+  }
+  return adoptions;
 }
 
 /** Compile-time exhaustiveness guard: reachable only if a discriminated-union
@@ -111,9 +147,13 @@ function assertNever(x: never): never {
  *  silence discovery for every later PTY) lives in `bridgeStream`, the same
  *  receptacle the per-terminal taps plug into — not re-derived here. */
 function applyEvent(ev: PtyHostInventoryEvent): void {
-  for (const entry of inventoryAdoptions(ev, isTrackedById)) {
+  for (const { id, entry } of inventoryAdoptions(
+    ev,
+    isTrackedById,
+    onInvalidId,
+  )) {
     log.info(
-      { terminal: entry.id, pid: entry.pid },
+      { terminal: id, pid: entry.pid },
       "adopting out-of-band PTY from kaval inventory",
     );
     // A live out-of-band adoption deliberately does NOT call `setAdoptedCount`
@@ -125,12 +165,21 @@ function applyEvent(ev: PtyHostInventoryEvent): void {
     // materializes WITHOUT the reattach card by design — and firing the count
     // per live adoption would break the once-per-process `adoptedAt` identity the
     // toast dedupe depends on. Not an unstated convention: it's the rule.
-    adoptLocalOrphan(entry);
+    adoptLocalOrphan(id, entry);
   }
 }
 
-const isTrackedById = (id: string): boolean =>
-  getTerminal(id as TerminalId) !== undefined;
+const isTrackedById = (id: TerminalId): boolean =>
+  getTerminal(id) !== undefined;
+
+/** A malformed out-of-band id never reaches the registry or `adoptLocalOrphan`:
+ *  the inventory boundary drops it (logged) rather than branding an unvalidated
+ *  string, honouring the contract doc's "consumer validates at its boundary". */
+const onInvalidId = (rawId: string): void =>
+  log.warn(
+    { rawId },
+    "kaval inventory id failed TerminalIdSchema — dropping frame entry",
+  );
 
 /** Resolve after `ms`, or early if `signal` aborts — so a shutdown during the
  *  re-subscribe gap ends the loop promptly instead of after the full delay. */
