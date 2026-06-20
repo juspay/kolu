@@ -81,7 +81,7 @@ export const PerfSurfaces = () => (
       <text x="534" y="103" font-size="10.5" fill="#166534">capped ✓ #1399</text>
       <rect x="74" y="124" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
       <text x="86" y="142" font-size="10.5" fill="#166534">Bundle — Code tab</text>
-      <text x="86" y="157" font-size="10.5" fill="#166534">lazy-loaded ✓</text>
+      <text x="86" y="157" font-size="10.5" fill="#166534">lazy-loaded ✓ #1468</text>
       <rect x="298" y="124" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
       <text x="310" y="142" font-size="10.5" fill="#166534">Markdown / Pierre</text>
       <text x="310" y="157" font-size="10.5" fill="#166534">worker pool ✓ #1363</text>
@@ -140,7 +140,7 @@ reactivity cluster.
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
-| 5 | **Lazy-load the Code tab off the eager bundle** <Pill variant="done">shipped</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | **Done** — the Code tab's Pierre/markdown/diff tree was a static import; lazy-loaded (deferred until first shown, kept mounted after — #818), it drops the eager index chunk **745 → 575 kB gzip (−170 kB / −23%)**. Shiki grammars were already lazy — that part of the claim was wrong. |
+| 5 | **Lazy-load the Code tab off the eager bundle** <Pill variant="done">shipped</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | **Done** <PrLink pr={1468} /> — the Code tab's Pierre/markdown/diff tree was a static import; lazy-loaded (deferred until first shown, kept mounted after — #818), it drops the eager index chunk **745 → 575 kB gzip (−170 kB / −23%)**. Shiki grammars were already lazy — that part of the claim was wrong. |
 | 6 | One-shot Nix `pnpmDeps` hash check | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
 | 7 | **Avoid the Markdown Source⇄Rendered toggle re-sanitize** <Pill variant="done">shipped</Pill> | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1446} /> — `FileView` keeps both toggle modes alive (the #818 pattern), so a flip is a visibility change, not a remount: the full marked→DOMPurify→Shiki→`innerHTML` pipeline runs **0× per toggle** (was 1×). Replaces the refuted *"stabilize the resolver reference"* claim — a [measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md). |
 
@@ -166,7 +166,7 @@ their themes as *"remaining within …"*.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
 - **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
 - **Markdown toggle keep-alive** <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize of the doc (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×); a per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change, and each comment overlay took a per-instance CSS-highlight name so the two kept-alive surfaces don't contend. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
-- **Code-tab lazy-load** — the Code tab's Pierre `FileTree` + markdown renderer + diff/source + comment tree (629 kB raw / 171 kB gzip) is deferred off the eager bundle until first shown, then kept mounted (#818); eager index **745 → 575 kB gzip (−23%)**, measured by A/B build, e2e-verified on a pu box. (Shiki grammars and the `@pierre/diffs` worker were already off the eager path.)
+- **Code-tab lazy-load** <PrLink pr={1468} /> — the Code tab's Pierre `FileTree` + markdown renderer + diff/source + comment tree (629 kB raw / 171 kB gzip) is deferred off the eager bundle until first shown, then kept mounted (#818); eager index **745 → 575 kB gzip (−23%)**, measured by A/B build, e2e-verified on a pu box. (Shiki grammars and the `@pierre/diffs` worker were already off the eager path.)
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
@@ -215,7 +215,7 @@ The Code tab mounts a heavy main-thread tree — `@kolu/solid-pierre`'s `FileTre
 the `@kolu/solid-markdown` renderer, the diff/source view wrappers, and the comment
 system — and it was a **static import** in `RightPanel`, so an A/B production build
 measured it welding **629 kB raw / 171 kB gzip** onto the eager `index` chunk for
-every session. **Done** — `RightPanel` now `lazy()`-loads CodeTab, deferred until the
+every session. **Done** <PrLink pr={1468} /> — `RightPanel` now `lazy()`-loads CodeTab, deferred until the
 Code tab is first shown and **kept mounted after** (so the #818 state preservation
 across tab switches is unchanged): eager index **745 → 575 kB gzip (−170 kB / −23%)**,
 CodeTab a deferred 171 kB-gzip chunk. Deferring past `onMount` is load-bearing — the
