@@ -451,12 +451,25 @@ export const SavedActiveTerminalSchema = ActivePersistedCoreSchema.merge(
   SavedTerminalIdSchema,
 );
 
+/** A saved sleeping record's id must be a real `TerminalId` (a UUID), not the
+ *  looser `z.string()` the active arm tolerates (F7). A sleeping id is RE-EXPOSED
+ *  as a live terminal id — it rides `mergedTerminalList()` into the `terminalList`
+ *  cell (`TerminalInfoSchema.id` = `TerminalIdSchema`) and keys the
+ *  `terminalMetadata` collection (`keySchema` = `TerminalIdSchema`). A non-UUID id
+ *  passes `SavedTerminalIdSchema` but then breaks the live surface contract when
+ *  listed, so we validate it as a `TerminalId` AT THE SAVED BOUNDARY: a malformed
+ *  (non-UUID) persisted sleeping record is dropped by `tolerateSleepingRecord`
+ *  rather than surfacing an unrepresentable id. */
+const SavedSleepingTerminalIdSchema = z.object({ id: TerminalIdSchema });
+
 /** The sleeping arm of the on-disk record (persisted base + `sleptAt` + id, no
  *  live overlay) — the shape a slept terminal persists. Named symmetrically with
- *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms. */
+ *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms.
+ *  Its id is a UUID `TerminalId` (see `SavedSleepingTerminalIdSchema`), since a
+ *  sleeping id re-surfaces as a live terminal id. */
 export const SavedSleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
   SleepingDiscriminantSchema,
-).merge(SavedTerminalIdSchema);
+).merge(SavedSleepingTerminalIdSchema);
 
 export const SavedTerminalSchema = z.discriminatedUnion("state", [
   SavedActiveTerminalSchema,

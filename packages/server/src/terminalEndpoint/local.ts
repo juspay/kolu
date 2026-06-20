@@ -21,9 +21,14 @@
  * link.
  */
 
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
-import { LOCAL_LOCATION, toSavedSleeping } from "kolu-common/surface";
+import {
+  type AwarenessRecord,
+  type AwarenessSignals,
+  type AwarenessSink,
+  startAwareness,
+} from "@kolu/terminal-awareness";
+import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
@@ -31,6 +36,7 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
+import { LOCAL_LOCATION, toSavedSleeping } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
   TerminalAttachment,
@@ -56,6 +62,14 @@ import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
+import { flushSessionNow } from "../session.ts";
+import {
+  deleteSleeping,
+  drainSleeping,
+  mergedTerminalList,
+  putSleeping,
+  sleepingMeta,
+} from "../sleeping-store.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
   drainTerminals,
@@ -65,12 +79,6 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import {
-  deleteSleeping,
-  mergedTerminalList,
-  putSleeping,
-  sleepingMeta,
-} from "../sleeping-store.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
 import {
@@ -78,12 +86,6 @@ import {
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
-import {
-  type AwarenessSignals,
-  type AwarenessSink,
-  type AwarenessRecord,
-  startAwareness,
-} from "@kolu/terminal-awareness";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -707,19 +709,35 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Put a terminal to sleep — mint an immutable sleeping record from its
-   *  persisted base, persist it, THEN release the live side (persist-before-kill,
-   *  so a crash mid-transition leaves a recoverable record, never a lost
-   *  terminal). The new id retires the active predecessor; `killTerminal`
-   *  re-emits the merged list, so the client swaps the live tile for the
-   *  sleeping one in a single update and never renders both. */
+   *  persisted base, persist it DURABLY, THEN release the live side
+   *  (persist-before-kill, so a crash mid-transition leaves a recoverable
+   *  record, never a lost terminal). The new id retires the active predecessor;
+   *  `killTerminal` re-emits the merged list, so the client swaps the live tile
+   *  for the sleeping one in a single update and never renders both.
+   *
+   *  The durable write is a SYNCHRONOUS `flushSessionNow()` before the kill —
+   *  NOT the debounced `emitTerminalsDirty()` autosave (F1). The
+   *  registry still holds the live terminal at this point, so the snapshot
+   *  carries every live terminal PLUS the just-inserted sleeping record; a crash
+   *  after the kill but before the next 500 ms autosave tick would otherwise lose
+   *  both the live PTY (already killed) and the sleeping record (in-memory only).
+   *  This is the feature's headline durability guarantee, so it cannot ride a
+   *  timer. */
   async sleepTerminal(
     id: TerminalId,
   ): Promise<SavedSleepingTerminal | undefined> {
     const entry = getTerminal(id);
     if (!entry) return undefined;
     const record = toSavedSleeping(entry.meta, crypto.randomUUID(), Date.now());
-    putSleeping(record); // PERSIST first — synchronous, before any await
-    const meta = sleepingMeta(record.id as TerminalId);
+    putSleeping(record); // stage the record in the in-memory store …
+    // … then flush a durable snapshot NOW (live set + the new sleeping record),
+    // before the kill releases the PTY. Synchronous: `flushSessionNow` →
+    // `saveSession` → `writeSession` is a sync `store.set`, so the record is on
+    // disk before the await below can be interrupted by a crash. Goes through
+    // `session.ts` (not a direct `snapshotSession` import) to stay out of the
+    // `terminals.ts ↔ local.ts` import cycle.
+    flushSessionNow();
+    const meta = sleepingMeta(record.id);
     if (meta) surfaceCtx.collections.terminalMetadata.upsert(record.id, meta);
     await this.killTerminal(id); // then RELEASE PTY/xterm/agent
     return record;
@@ -746,7 +764,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     }
     const entries = drainTerminals();
     for (const entry of entries) cleanupTerminalScratch(entry.info.id);
+    // Close-all clears BOTH terminal stores (F3): sleeping records have no PTY
+    // for `killAll` to reap, so they must be drained here explicitly — otherwise
+    // they outlive the close-all and reappear on the next `terminalList`
+    // snapshot / reload (and leak across e2e scenarios via the `Before` hook's
+    // `killAll`). Re-persist so the now-empty sleeping set is durable: an
+    // emptied session clears to null (`saveSession` empty→null), so a reload
+    // after close-all shows no stale dormant tiles.
+    const drainedSleeping = drainSleeping();
     emitTerminalListChanged();
+    if (drainedSleeping > 0) flushSessionNow();
   }
 
   async attach(

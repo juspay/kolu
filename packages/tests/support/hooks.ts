@@ -1036,9 +1036,14 @@ export async function seedMalformedSessionAndReboot(): Promise<void> {
   const home = os.homedir();
   // A VALID sleeping record — it must rehydrate through the cold boot (seeded AS
   // sleeping, independent of any live PTY), so the malformed sibling's drop is
-  // proven not to poison the rest of the set.
+  // proven not to poison the rest of the set. Its id is a real UUID: a sleeping id
+  // re-surfaces as a live terminal id (`terminalList` / `terminalMetadata`), so
+  // `SavedSleepingTerminalSchema` now requires a UUID (F7) — a placeholder like
+  // "0" would be DROPPED at the read boundary, defeating the "good survives" half
+  // of this scenario.
+  const goodId = "11111111-1111-4111-8111-111111111111";
   const good = {
-    id: "0",
+    id: goodId,
     location: { kind: "local" },
     state: "sleeping",
     cwd: home,
@@ -1047,10 +1052,11 @@ export async function seedMalformedSessionAndReboot(): Promise<void> {
     sleptAt: 1000,
   };
   // `sleptAt: "soon"` is non-numeric → fails SavedSleepingTerminalSchema; sits in
-  // the SAME terminals array as the good active record, so dropping it must not
-  // poison the load.
+  // the SAME terminals array as the good record, so dropping it must not poison
+  // the load. Its id is a valid UUID too, isolating the failure to the cross-field
+  // (`sleptAt`) invariant the read-boundary tolerance must catch.
   const bad = {
-    id: "1",
+    id: "22222222-2222-4222-8222-222222222222",
     location: { kind: "local" },
     state: "sleeping",
     cwd: home,
@@ -1059,7 +1065,7 @@ export async function seedMalformedSessionAndReboot(): Promise<void> {
   };
   raw.session = {
     terminals: [good, bad],
-    activeTerminalId: "0",
+    activeTerminalId: goodId,
     savedAt: Date.now(),
   };
   // Pin conf's migration version so the 1.27.0 backfill doesn't run (`conf`

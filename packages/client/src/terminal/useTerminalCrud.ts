@@ -198,15 +198,34 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Put a terminal to sleep — the server releases its PTY/xterm/agent and
-   *  freezes its persisted base as an (immutable) sleeping record under a fresh
-   *  id. One-shot mutation; the merged terminal list re-snapshots the dormant
-   *  tile in place (no client re-keying needed). Fires a discoverability tip so
-   *  the user learns the slept tile stays on the canvas. */
+   *  freezes its persisted base as an (immutable) sleeping record under a FRESH
+   *  id (the plan-of-record id lifecycle: transitions mint, never mutate). Fires
+   *  a discoverability tip so the user learns the slept tile stays on the canvas.
+   *
+   *  A sleeping record is a SINGLE terminal — "any splits are closed, not frozen"
+   *  (the Phase-2 non-negotiable). So before sleeping the top terminal we close
+   *  its sub-terminals through the same per-split eviction `handleKill` runs (F2):
+   *  killing them on the server AND tearing down their client-side panel/search
+   *  state. Without this the split PTYs keep running, hidden, once their parent
+   *  leaves the live list.
+   *
+   *  Sleep mints a new id, so the old active id is retired by the kill — switch
+   *  the active tile to the returned sleeping record (F4) so the dormant tile is
+   *  selected/panned-to, not a removed id. (A sleeping tile is a valid active
+   *  tile — focus-frozen, never woken by selection.) */
   async function handleSleep(id: TerminalId) {
-    await client.terminal.sleep({ id }).catch((err: Error) => {
+    // Close splits first (server kill + client eviction), mirroring
+    // `handleKillWithSubs` — a sleeping record holds only the top terminal.
+    const subs = store.getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    const record = await client.terminal.sleep({ id }).catch((err: Error) => {
       toast.error(`Failed to sleep terminal: ${err.message}`);
       throw err;
     });
+    // The kill retired `id`; point the active tile at the new sleeping record so
+    // selection/pan follows the dormant tile instead of the just-removed id.
+    // `record.id` is a UUID `TerminalId` by schema (F7), so no cast is needed.
+    store.setActiveSilently(record.id);
     showTipOnce(CONTEXTUAL_TIPS.sleep);
   }
 

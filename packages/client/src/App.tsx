@@ -583,7 +583,6 @@ const App: Component = () => {
                       renderTileTitleActions={(id) => (
                         <TileTitleActions
                           id={id}
-                          onSleep={() => void crud.handleSleep(id)}
                           onWake={() => void session.handleWake(id)}
                         />
                       )}

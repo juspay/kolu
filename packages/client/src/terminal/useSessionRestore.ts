@@ -222,12 +222,25 @@ export function useSessionRestore(deps: {
     // Wake always resumes, so the `resumed` flag is irrelevant here.
     const { id: newId } = await restoreOneTerminal(rec, true);
     // Only after the replacement spawns: drop the retired sleeping record (no
-    // PTY to kill — it was released at sleep time).
-    await client.terminal
-      .discardSleeping({ id: sleepingId })
-      .catch((err: Error) =>
-        toast.error(`Failed to drop sleeping record: ${err.message}`),
+    // PTY to kill — it was released at sleep time). This MUST succeed for wake
+    // to be transactional (F6): a sleeping record left behind stays wakeable, so
+    // a swallowed discard failure would let the user wake the SAME record again
+    // and spawn a duplicate live terminal. So on a discard failure we ROLL BACK
+    // the just-created terminal rather than treat the wake as done — leaving one
+    // sleeping record and no orphan live terminal, retryable from the same tile.
+    try {
+      await client.terminal.discardSleeping({ id: sleepingId });
+    } catch (err) {
+      await client.terminal.kill({ id: newId }).catch(() => {
+        // Best-effort rollback; if the kill itself fails the create toast/list
+        // already reflects the live terminal, and the error below tells the user
+        // the wake did not complete.
+      });
+      toast.error(
+        `Failed to wake terminal: ${(err as Error).message}. The terminal was not woken — try again.`,
       );
+      return;
+    }
     store.setActiveSilently(newId);
   }
 

@@ -70,8 +70,10 @@ export const useTileStore = createSharedRoot(() => {
     const content = contentOf(id);
     if (!content) return undefined;
     // Both arms read `canvasLayout` off the same persisted base — only the
-    // content-kind guard differs (a sleeping record carries its frozen layout
-    // so the tile keeps its position across a sleep).
+    // content-kind guard differs. A sleeping record COPIES its frozen layout from
+    // the active predecessor at sleep time (the transition mints a new id; the
+    // base, including `canvasLayout`, rides through `toSavedSleeping`), so the
+    // dormant tile keeps its position even though its id is fresh.
     return store.getMetadata(content.terminalId)?.canvasLayout;
   };
 

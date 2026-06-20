@@ -2,6 +2,7 @@
 
 import {
   activeArm,
+  isSleeping,
   type RecentAgent,
   type TerminalId,
 } from "kolu-common/surface";
@@ -156,6 +157,40 @@ export interface CommandDeps extends ActionContext {
   handleImportSession: () => void;
 }
 
+/** The Sleep/Wake palette entry for the active tile — at most ONE command, and
+ *  NONE when the active tile's metadata is missing or hasn't arrived yet (F9).
+ *  Branches on the three states explicitly (active / sleeping / absent) rather
+ *  than `activeArm ? Sleep : Wake`, which collapsed "absent" into "sleeping" and
+ *  offered a Wake that targeted a non-sleeping/missing record. Returns an array
+ *  so the caller spreads zero-or-one entries inline. */
+function sleepWakeCommand(deps: CommandDeps): PaletteAction[] {
+  const meta = deps.activeMeta();
+  if (activeArm(meta)) {
+    return [
+      {
+        kind: "action",
+        name: "Sleep terminal",
+        section: "active-terminal",
+        description: "Release the PTY but keep the tile on the canvas",
+        onSelect: () => deps.handleSleepActive(),
+      },
+    ];
+  }
+  if (isSleeping(meta)) {
+    return [
+      {
+        kind: "action",
+        name: "Wake terminal",
+        section: "active-terminal",
+        description: "Respawn the PTY and resume the agent",
+        onSelect: () => deps.handleWakeActive(),
+      },
+    ];
+  }
+  // Metadata absent/stale — show neither rather than a no-op Wake.
+  return [];
+}
+
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   // Stable component reference — created once per `createCommands` call so
   // the `body` slot identity doesn't change on every reactive re-run of the
@@ -244,22 +279,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           // ONE Sleep/Wake command — flips on the active tile's state. A live
           // tile reads "Sleep terminal" (release PTY, freeze record); a sleeping
-          // tile reads "Wake terminal" (restore-one).
-          activeArm(deps.activeMeta())
-            ? {
-                kind: "action" as const,
-                name: "Sleep terminal",
-                section: "active-terminal" as const,
-                description: "Release the PTY but keep the tile on the canvas",
-                onSelect: () => deps.handleSleepActive(),
-              }
-            : {
-                kind: "action" as const,
-                name: "Wake terminal",
-                section: "active-terminal" as const,
-                description: "Respawn the PTY and resume the agent",
-                onSelect: () => deps.handleWakeActive(),
-              },
+          // tile reads "Wake terminal" (restore-one). When the metadata is
+          // missing or hasn't arrived yet (F9), NEITHER is shown — treating
+          // absent metadata as "sleeping" would surface a Wake command that
+          // targets a non-sleeping/missing record and no-ops. So branch on the
+          // three states explicitly rather than `activeArm ? Sleep : Wake`.
+          ...sleepWakeCommand(deps),
           actionPaletteCommand("toggleSubPanel", deps, {
             section: "active-terminal",
           }),

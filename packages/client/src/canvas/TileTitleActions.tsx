@@ -31,9 +31,12 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
-  /** Put this tile to sleep — bound by App to `crud.handleSleep`. */
-  onSleep: () => void;
-  /** Wake this (sleeping) tile — bound by App to the restore-one handler. */
+  /** Wake this (sleeping) tile — bound by App to the restore-one handler.
+   *  Sleep needs no prop (it reads `useTerminalCrud()` directly, like every
+   *  other tile action here); wake stays a prop only because its handler lives
+   *  in `useSessionRestore`, which is NOT yet a `createSharedRoot` singleton —
+   *  singleton-izing it (so this component could call `session.handleWake`
+   *  directly) is a separate refactor that touches the hook's DI test seam. */
   onWake: () => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -176,7 +179,7 @@ const TileTitleActions: Component<{
               class={`${TILE_BUTTON_CLASS} w-7`}
               style={{ color: "var(--color-fg-3, currentColor)" }}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => onTile(e, () => props.onSleep())}
+              onClick={(e) => onTile(e, () => void crud.handleSleep(props.id))}
               aria-label="Sleep terminal"
             >
               ☾

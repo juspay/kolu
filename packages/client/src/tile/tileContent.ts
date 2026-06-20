@@ -15,13 +15,18 @@ import type { TerminalId } from "kolu-common/surface";
 /** A tile's stable identity.
  *
  *  Tiles and terminals share ONE id space: a tile whose content is a terminal
- *  is identified by that workspace-root terminal's id, and a future sleeping
- *  tile keeps the very same id (a slept terminal's record is keyed by its
- *  original id, so its canvas position, MRU rank, and active-selection carry
- *  over seamlessly). There is therefore no synthetic tile id to invent — what
- *  varies between tiles of the same id over time is their {@link TileContent},
- *  not their identity. The alias documents that intent without erecting a
- *  nominal wall the shared id space would only fight. */
+ *  is identified by that workspace-root terminal's id. A sleeping tile is keyed
+ *  by the sleeping RECORD's id — and the id lifecycle is "transitions mint, never
+ *  mutate" (the plan-of-record's immutable-records model): putting a terminal to
+ *  sleep retires the active id and creates a sleeping record under a FRESH id, so
+ *  the dormant tile is a new id, not the live terminal's. Its canvas position /
+ *  MRU rank carry over because the sleeping record copies the persisted base
+ *  (`canvasLayout`, `lastActivityAt`) from the active predecessor — NOT because
+ *  the id is preserved — and `handleSleep` re-points the active selection at the
+ *  new id. There is still no synthetic tile id to invent: what a tile holds is
+ *  its {@link TileContent}, and a sleep swaps one tile (live id) for another
+ *  (sleeping id) in a single merged-list update. The alias documents that the
+ *  two id spaces are one without erecting a nominal wall they'd only fight. */
 export type TileId = TerminalId;
 
 /** What a tile currently holds. A discriminated union so every consumer

@@ -1,6 +1,6 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { isSleeping, type TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { client } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
@@ -9,6 +9,10 @@ export function useWorktreeOps(deps: {
   store: TerminalStore;
   handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleKill: (id: TerminalId) => Promise<void>;
+  /** Drop a sleeping record (no PTY to kill). A sleeping tile on a worktree can
+   *  still reach "remove worktree" in the close confirm, so the release step
+   *  must route to discard, not kill (F5). */
+  handleDiscardSleeping: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
 
@@ -53,16 +57,27 @@ export function useWorktreeOps(deps: {
     }
   }
 
-  /** Kill a terminal and remove its worktree.
-   *  Accepts an explicit ID so callers can snapshot it before confirming. */
+  /** Release a terminal AND remove its worktree. Accepts an explicit ID so
+   *  callers can snapshot it before confirming.
+   *
+   *  The "release" step depends on the tile's state (F5): a LIVE terminal (plus
+   *  its splits) is killed; a SLEEPING tile has no PTY, so its frozen record is
+   *  DISCARDED instead. Without this branch a sleeping id fell through to
+   *  `handleKill` → `terminal.kill`, which the server reports NOT_FOUND and the
+   *  client swallows — leaving the dormant tile (or its reload-rehydrated twin)
+   *  pointing at a now-deleted worktree path. */
   async function handleKillWorktree(targetId?: TerminalId) {
     const id = targetId ?? store.activeId();
     if (!id) return;
     const meta = store.getMetadata(id);
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
-    const subs = store.getSubTerminalIds(id);
-    for (const subId of subs) await deps.handleKill(subId);
-    await deps.handleKill(id);
+    if (isSleeping(meta)) {
+      await deps.handleDiscardSleeping(id);
+    } else {
+      const subs = store.getSubTerminalIds(id);
+      for (const subId of subs) await deps.handleKill(subId);
+      await deps.handleKill(id);
+    }
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {

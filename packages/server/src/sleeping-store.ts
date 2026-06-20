@@ -26,9 +26,10 @@ import { listTerminals } from "./terminal-registry.ts";
 
 const sleeping = new Map<TerminalId, SavedSleepingTerminal>();
 
-/** Insert/replace a sleeping record, keyed by its (minted) id. */
+/** Insert/replace a sleeping record, keyed by its (minted) id. The saved
+ *  sleeping id is a UUID `TerminalId` by schema (F7), so no cast is needed. */
 export function putSleeping(record: SavedSleepingTerminal): void {
-  sleeping.set(record.id as TerminalId, record);
+  sleeping.set(record.id, record);
 }
 
 export function getSleeping(id: TerminalId): SavedSleepingTerminal | undefined {
@@ -38,6 +39,18 @@ export function getSleeping(id: TerminalId): SavedSleepingTerminal | undefined {
 /** Remove a sleeping record. Returns true if it was present. */
 export function deleteSleeping(id: TerminalId): boolean {
   return sleeping.delete(id);
+}
+
+/** Drop every sleeping record — the sibling of `drainTerminals` for the sleeping
+ *  store. `terminal.killAll` clears BOTH the live registry and this store (F3):
+ *  without it, sleeping records survive a close-all and reappear on the next
+ *  `terminalList` snapshot or reload (and leak across e2e scenarios, since the
+ *  `Before` hook resets state via `killAll`). Returns the count cleared so the
+ *  caller can decide whether to re-persist. */
+export function drainSleeping(): number {
+  const count = sleeping.size;
+  sleeping.clear();
+  return count;
 }
 
 export function listSleepingIds(): TerminalId[] {

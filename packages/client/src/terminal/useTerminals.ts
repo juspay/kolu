@@ -100,6 +100,7 @@ export function useTerminals() {
     store,
     handleCreate: crud.handleCreate,
     handleKill: crud.handleKill,
+    handleDiscardSleeping: session.handleDiscardSleeping,
   });
 
   return { store, crud, session, worktree, alerts };

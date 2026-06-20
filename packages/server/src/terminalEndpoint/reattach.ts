@@ -39,7 +39,7 @@ import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
-import { getSavedSession, saveSession } from "../session.ts";
+import { getSavedSession, saveSession, setSavedSession } from "../session.ts";
 import { putSleeping } from "../sleeping-store.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import {
@@ -56,14 +56,45 @@ import {
  *  `adoptSurvivingSession`) still rehydrates them. conf does not validate the
  *  session on read, so each candidate runs through `tolerateSleepingRecord`
  *  (record-granular safeParse-and-drop): one malformed on-disk record is dropped
- *  here, never poisoning the rest of the set. */
+ *  here, never poisoning the rest of the set.
+ *
+ *  Dropping is NOT enough on its own (F8): the malformed record stays in the
+ *  PERSISTED session cell, and `session.get` validates its output against
+ *  `SavedSessionSchema` — so a client subscribing to the saved session would
+ *  still receive (and reject) the raw invalid blob, defeating the record-granular
+ *  tolerance. So when any record is dropped we REWRITE the session cell to the
+ *  cleaned set BEFORE clients can subscribe. Active records (the restore-card
+ *  data) and the `activeTerminalId` ride through untouched — only the malformed
+ *  sleeping records are removed — so this never clears the user's restore data.
+ *  A cold boot never runs `adoptSurvivingSession`, so this is the one place the
+ *  on-disk session is repaired on the PTY-less path. */
 export function seedSleepingRecords(): void {
   const saved = getSavedSession();
-  for (const record of saved?.terminals ?? []) {
-    if (record.state !== "sleeping") continue;
+  if (!saved) return;
+  let dropped = false;
+  const cleaned: typeof saved.terminals = [];
+  for (const record of saved.terminals) {
+    if (record.state !== "sleeping") {
+      // Active records ride through as-is — F8 is scoped to the sleeping arm,
+      // and active-record tolerance is the migration ladder's job, not this seam.
+      cleaned.push(record);
+      continue;
+    }
     const tolerated = tolerateSleepingRecord(record);
-    if (tolerated) putSleeping(tolerated);
-    else log.warn({ id: record.id }, "dropped malformed sleeping record");
+    if (tolerated) {
+      putSleeping(tolerated);
+      cleaned.push(tolerated);
+    } else {
+      dropped = true;
+      log.warn({ id: record.id }, "dropped malformed sleeping record");
+    }
+  }
+  // Only rewrite when we actually removed something — a clean session must not
+  // pay a redundant write (and the equals-dedup'd cell would no-op anyway).
+  if (dropped) {
+    setSavedSession(
+      cleaned.length > 0 ? { ...saved, terminals: cleaned } : null,
+    );
   }
 }
 

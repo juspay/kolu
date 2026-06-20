@@ -374,7 +374,9 @@ const CanvasTile: Component<{
               e.stopPropagation();
               props.onClose();
             }}
-            title="Close terminal"
+            title={
+              props.sleeping ? "Discard sleeping terminal" : "Close terminal"
+            }
           >
             ×
           </button>

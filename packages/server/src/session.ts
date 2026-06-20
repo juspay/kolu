@@ -138,6 +138,33 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
 
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
+/** The registered live-snapshot provider — set once by `initSessionAutoSave`.
+ *  Held at module scope so BOTH the debounced autosave loop and the synchronous
+ *  `flushSessionNow` read the one source of truth (`snapshotSession`) without
+ *  either importing `terminals.ts` (which imports `terminalEndpoint/local.ts` —
+ *  a static `snapshotSession` import there would form an import cycle biome's
+ *  `noImportCycles` rejects). `session.ts` imports neither, so it is the cycle-
+ *  free home for "persist the current snapshot". */
+let snapshotProvider: (() => SessionSnapshot) | null = null;
+
+/** Persist the CURRENT session snapshot synchronously, right now — bypassing the
+ *  500 ms autosave debounce. The persist-before-kill durability seam (F1):
+ *  `sleepTerminal` stages a sleeping record then calls this BEFORE killing the
+ *  PTY, so a crash in the kill window cannot lose both the live terminal and the
+ *  sleeping record. Reuses the registered `snapshotSession` provider so there is
+ *  one definition of what a session snapshot contains. No-op (with a loud log) if
+ *  called before `initSessionAutoSave` has wired the provider — which only
+ *  happens if boot order regresses, a fail-loud condition, not a silent skip. */
+export function flushSessionNow(): void {
+  if (!snapshotProvider) {
+    log.error(
+      "flushSessionNow called before initSessionAutoSave wired the snapshot provider",
+    );
+    return;
+  }
+  saveSession(snapshotProvider());
+}
+
 /** Wire up throttled session save from terminal change events. Called once at startup.
  *
  *  Leading-edge throttle: the first dirty event in a quiet period schedules
@@ -148,10 +175,14 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
  *  watcher fires every 150ms while an agent is streaming, which would
  *  reset the timer indefinitely and the save would never fire.
  *
+ *  Also registers the snapshot provider for `flushSessionNow` (the synchronous
+ *  persist-before-kill path) so both share one snapshot definition.
+ *
  *  Assumes `saveSession` is synchronous (it is — `writeSession` does sync
  *  `store.set` + sync publish). If anyone makes it async, add an in-flight
  *  guard so a new schedule can't race an unfinished write. */
 export function initSessionAutoSave(snapshot: () => SessionSnapshot): void {
+  snapshotProvider = snapshot;
   void (async () => {
     try {
       for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {
