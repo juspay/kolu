@@ -7,11 +7,13 @@
 import type { Connection } from "./connect.ts";
 import { shortId } from "./render.ts";
 
-/** End a terminal the daemon owns. The caller has already proved `id` is live
- *  (`resolveOne` fails loud on no-match/ambiguity), so reaching here means a real
- *  PTY is being torn down. The confirmation goes through `confirm` — stderr in
- *  production, like `attach`'s trailers, so stdout stays empty: `kill` yields no
- *  scriptable payload, only an exit code (0 on success, the catch-all 1 on an RPC
+/** End a terminal the daemon owns. `resolveOne` resolved `id` against the live
+ *  inventory (failing loud on no-match/ambiguity), so it named a real PTY at
+ *  resolution time — modulo the TOCTOU window where the PTY exits before this kill
+ *  lands, which the daemon absorbs as an idempotent no-op (its kill is a no-op for
+ *  an unknown id). The confirmation goes through `confirm` — stderr in production,
+ *  like `attach`'s trailers, so stdout stays empty: `kill` yields no scriptable
+ *  payload, only an exit code (0 on success, the catch-all 1 on an RPC/transport
  *  error). The sink is injected so a test can capture the line without a tty. */
 export async function runKill(
   conn: Connection,
