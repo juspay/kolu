@@ -302,9 +302,6 @@ thing.
 - **A migration is mandatory.** `SavedTerminal` is persisted, so adding `state`
   needs the `state.ts` migration above. There is no shipping this as a pure
   refactor.
-- **A wide type-level ripple is the diff.** Flipping `TerminalMetadataSchema` to a
-  `discriminatedUnion` forces every liveness reader to either stay in the presence
-  subset or add a narrow. That sweep *is* the win, but it is the bulk of the work.
 - **Records are immutable; transitions mint, never mutate.** `state` is fixed at a
   record's birth — sleep and wake *create* a new record and retire the old, so no
   provider ever rewrites a live field onto a sleeping one (the overlay isn't on that

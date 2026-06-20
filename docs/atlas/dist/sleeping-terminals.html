@@ -179,9 +179,6 @@ thing.</p></div> </aside>
 <li><strong>A migration is mandatory.</strong> <code>SavedTerminal</code> is persisted, so adding <code>state</code>
 needs the <code>state.ts</code> migration above. There is no shipping this as a pure
 refactor.</li>
-<li><strong>A wide type-level ripple is the diff.</strong> Flipping <code>TerminalMetadataSchema</code> to a
-<code>discriminatedUnion</code> forces every liveness reader to either stay in the presence
-subset or add a narrow. That sweep <em>is</em> the win, but it is the bulk of the work.</li>
 <li><strong>Records are immutable; transitions mint, never mutate.</strong> <code>state</code> is fixed at a
 record’s birth — sleep and wake <em>create</em> a new record and retire the old, so no
 provider ever rewrites a live field onto a sleeping one (the overlay isn’t on that
