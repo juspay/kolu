@@ -55,9 +55,15 @@ if (values.help) {
 }
 
 // pino to fd 2 (stderr) — NEVER stdout, which is the protocol channel in
-// --stdio mode. The level is env-tunable for field debugging.
+// --stdio mode. Over --stdio (an ssh `--host` dial) default to `warn`: the
+// routine sensor logs (info-level "git watcher installed" per terminal, …) are
+// forwarded to the viewer's terminal and would spam its live TUI; only warnings
+// and errors are worth surfacing across the link. The socket case stays `info`.
+// `ARIVU_LOG_LEVEL` overrides either way, for field debugging.
 const log = pino(
-  { level: process.env.ARIVU_LOG_LEVEL ?? "info" },
+  {
+    level: process.env.ARIVU_LOG_LEVEL ?? (values.stdio ? "warn" : "info"),
+  },
   pino.destination(2),
 );
 
