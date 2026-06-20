@@ -80,14 +80,24 @@ async function snapshot(
     for (const key of keys) {
       // A live, reconciling collection: a key listed by `keys()` can be removed
       // (its terminal reconciled out) before its `get()` resolves, surfacing as
-      // an oRPC stream error. Skip such a key rather than failing the snapshot.
+      // an oRPC stream error ("key not found at first snapshot"). Suppress ONLY
+      // that vanished-key race — confirmed by re-reading `keys()` — so a real
+      // `get` failure on a still-present key surfaces instead of silently
+      // dropping the key (which would let the reconciliation assertion below
+      // pass for the wrong reason). The message isn't reliable across the wire,
+      // so we re-check membership rather than match on it.
       try {
         const v = await firstValue(
           await client.surface.awareness.get({ key }, { signal: abort.signal }),
         );
         if (v) out.set(key, v);
-      } catch {
-        // key vanished between keys() and get() — omit it
+      } catch (e) {
+        const stillListed =
+          (await firstValue(await client.surface.awareness.keys({})))?.includes(
+            key,
+          ) ?? false;
+        if (stillListed) throw e; // a real failure on a present key
+        // else: key vanished between keys() and get() — omit it
       }
     }
   } finally {

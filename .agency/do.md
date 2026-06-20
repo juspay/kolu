@@ -94,7 +94,7 @@ A warm leased box keeps `ci::nix` ~20s (vs ~180s on a cold box re-realising the 
 
 To capture each stage's stderr for the excerpt above, tee it when you invoke `pu` — e.g. `pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
 
-**Flake → add a row to the [Flaky Test Tracker](../docs/atlas/src/content/atlas/flaky-test-tracker.mdx) Atlas note** (published at <https://kolu.dev/atlas/flaky-test-tracker.html>) — scenario, `recipe@platform` lane, the assertion/timeout symptom, the date, and the PR if known. Logging is the whole obligation; an agent works the backlog from time to time. *(The old GitHub flaky-tests log — issue #320 — is retired: flakes live in the Atlas note now, regenerate + commit `docs/atlas/dist/` in the same change.)*
+**Flake → add a row to the [Flaky Test Tracker](../docs/atlas/src/content/atlas/flaky-test-tracker.mdx) Atlas note** (published at <https://kolu.dev/atlas/flaky-test-tracker.html>) — the row's columns are exactly the tracker's schema: scenario, `recipe@platform` lane, the assertion/timeout symptom, the PR it reproduced in, and status. Logging is the whole obligation; an agent works the backlog from time to time. *(The old GitHub flaky-tests log — issue #320 — is retired: flakes live in the Atlas note now, regenerate + commit `docs/atlas/dist/` in the same change.)*
 
 **Evidence required → all GitHub status checks green per `odu protect`.** `/do` is done only when every required status check is green on the PR's current `HEAD`. Source the required list from `nix run .#odu -- protect --dry-run` — it prints the `<recipe>@<platform>` contexts the canonical DAG produces, which are exactly the contexts branch protection gates on. Verify with `gh pr checks`; a green from a positional retry counts (final state matters).
 

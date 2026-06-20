@@ -761,15 +761,19 @@ Feature: Code tab (review + browse)
     # on the repoPath-driven fsListAll, so it appears only once the view settles —
     # the deterministic signal the back-button enablement actually needs. Without
     # it, the bare POLL_TIMEOUT poll on :enabled is starved under darwin CI load.
-    And the file browser should show a file "two.txt"
+    # Key the wait on `only-in-a.txt` (unique to repoA): `two.txt` exists in BOTH
+    # repos, so a stale B tree would satisfy it immediately and the wait would not
+    # prove the fsListAll actually rebound to repoA.
+    And the file browser should show a file "only-in-a.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "one-A"
     # And terminal B's history is likewise intact when we return to it.
     When I select workspace switcher entry 2
     Then the selected file should show content "two-B"
-    # Same re-hydration wait as above on the return to terminal B.
-    And the file browser should show a file "two.txt"
+    # Same re-hydration wait as above on the return to terminal B — key it on
+    # `only-in-b.txt` (unique to repoB) for the same reason.
+    And the file browser should show a file "only-in-b.txt"
     And the Code tab "back" button should be enabled
     When I go back in the Code tab
     Then the selected file should show content "one-B"

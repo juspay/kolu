@@ -79,18 +79,20 @@ Feature: File-ref autolinking in terminal
     # `app` also holds a sibling file so `app/` and `app/core/` stay distinct
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
-    And I run "git add . && git commit -m files"
-    # Mount the tree before the folder-ref click. The fresh-open reveal resolves
-    # EXACTLY ONCE the instant `!allPaths.pending()`, which can flip true before
-    # the FSEvents walk enumerates the just-committed files on a slow darwin
-    # runner — resolveRef then returns null and the request is permanently
-    # consumed (the reveal never happens). A prior file-ref click to the sibling
-    # `app/main.txt` (NOT under `app/core`, so it can't mask the folder ref's
-    # hit-test) opens browse and mounts the tree; waiting for the `app` row
-    # proves fsListAll has enumerated. Same post-mount path as the next scenario.
-    And I run "echo 'open app/main.txt first'"
-    And I trigger the terminal file-ref link "app/main.txt"
-    And the file browser should show a directory "app"
+    And I run "git add . && git commit -m files && echo files-committed"
+    # Gate on the commit actually finishing before the FRESH-OPEN folder-ref
+    # click. The fresh-open reveal consumes the request EXACTLY ONCE the instant
+    # `!allPaths.pending()` — i.e. against `fsListAll`'s first snapshot, which is
+    # `git ls-files`. `I run` only types+Enter (world.ts terminalRun); it does
+    # NOT wait for the command to return, so on a slow runner the folder-ref
+    # click could fire — and the subscription's `git ls-files` read could run —
+    # before the commit lands, yielding a list without `app/core`. resolveRef
+    # then returns null and the request is permanently consumed (the flake).
+    # `files-committed` in the buffer proves the commit returned, so the first
+    # snapshot is authoritative. This keeps the user-facing fresh-open path
+    # (folder ref clicked with the tree NOT yet mounted) under test — the
+    # already-mounted path is the separate scenario below.
+    And the terminal buffer should contain "files-committed"
     And I run "echo 'inspect the app/core module'"
     And I trigger the terminal file-ref link "app/core"
     Then the right panel should be visible
@@ -100,13 +102,12 @@ Feature: File-ref autolinking in terminal
     And the file browser should show a file "app/core/one.txt"
 
   Scenario: Clicking a folder ref while already browsing expands it in the live tree
-    # Both folder-ref reveal scenarios mount the tree before the folder click —
-    # the constructor-reveal-of-just-created-files variant is inherently racy on
-    # darwin (fsListAll only subscribes when the panel opens, so its first
-    # snapshot races the FSEvents walk) and its wiring is covered by resolveRef's
-    # unit tests. Here a file-ref click opens browse and mounts the tree first,
-    # so the folder click exercises the post-mount reveal (expand + scroll on the
-    # already-live tree). The precondition
+    # The scenario above opens the panel FRESH (tree not yet mounted), so the
+    # folder is revealed via the tree's constructor. Here a file-ref click opens
+    # browse and mounts the tree first, so the folder click that follows exercises
+    # the POST-MOUNT reveal path instead (expand + scroll on the already-live
+    # tree). The two scenarios deliberately cover the two distinct reveal paths.
+    # The precondition
     # only needs the tree LIVE — confirm it via the top-level `lib/` row, which is
     # present the moment the tree mounts (no file-content render, no
     # selection/expansion to wait on — both slow, flaky axes under darwin CI
