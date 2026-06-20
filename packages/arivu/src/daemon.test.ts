@@ -124,7 +124,7 @@ async function waitFor<T>(
     }
     if (Date.now() >= deadline)
       throw new Error(
-        `condition not met in time${lastErr ? `: ${String(lastErr)}` : ""}`,
+        `condition not met in time${lastErr ? `: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}` : ""}`,
       );
     await sleep(75);
   }
