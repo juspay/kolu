@@ -79,7 +79,12 @@ Feature: File-ref autolinking in terminal
     # `app` also holds a sibling file so `app/` and `app/core/` stay distinct
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
-    And I run "git add . && git commit -m files && echo files-committed"
+    # The marker is split across an empty shell-quote (`commi""tted`) so the token
+    # we wait for appears ONLY in the command's OUTPUT, never the echoed command
+    # line. The terminal buffer includes the typed/echoed input, so waiting for a
+    # token that is present verbatim in the typed command would match the echo and
+    # prove nothing about whether the command finished.
+    And I run "git add . && git commit -m files && echo files-commi""tted"
     # Gate on the commit actually finishing before the FRESH-OPEN folder-ref
     # click. The fresh-open reveal consumes the request EXACTLY ONCE the instant
     # `!allPaths.pending()` — i.e. against `fsListAll`'s first snapshot, which is
@@ -87,9 +92,10 @@ Feature: File-ref autolinking in terminal
     # NOT wait for the command to return, so on a slow runner the folder-ref
     # click could fire — and the subscription's `git ls-files` read could run —
     # before the commit lands, yielding a list without `app/core`. resolveRef
-    # then returns null and the request is permanently consumed (the flake).
-    # `files-committed` in the buffer proves the commit returned, so the first
-    # snapshot is authoritative. This keeps the user-facing fresh-open path
+    # then returns null and (once the list is authoritative) the request is
+    # permanently consumed with a not-found toast (the flake). `files-committed`
+    # in the OUTPUT proves the commit returned, so the first snapshot is
+    # authoritative AND complete. This keeps the user-facing fresh-open path
     # (folder ref clicked with the tree NOT yet mounted) under test — the
     # already-mounted path is the separate scenario below.
     And the terminal buffer should contain "files-committed"

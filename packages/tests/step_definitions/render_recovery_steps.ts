@@ -76,6 +76,11 @@ When(
       // 0 airtight (a refreshRows swallow missed the debounced/in-flight render
       // and flaked). The forced SYNC refreshRows on focus bypasses rAF and still
       // repaints. The array element keeps the replacement anonymous for esbuild.
+      // NOTE: subsequent steps that wait on buffer CONTENT (`I generate 30 lines
+      // of output`, `the latest output is in the buffer …`) go through
+      // `waitForBufferContains`, which polls on a timer — NOT on rAF — so parking
+      // the page's rAF here cannot deadlock those waits. xterm writes PTY data
+      // into its buffer synchronously; only the paint is rAF-gated.
       const rd = rs._renderDebouncer;
       if (rd && rd._animationFrame !== undefined) {
         cancelAnimationFrame(rd._animationFrame);

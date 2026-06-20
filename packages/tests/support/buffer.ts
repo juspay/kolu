@@ -68,9 +68,18 @@ export function readPerTerminal(
 }
 
 /**
- * Wait for the xterm buffer to contain the expected text using Playwright's
- * native waitForFunction (rAF-based polling inside the browser context).
+ * Wait for the xterm buffer to contain the expected text.
  * Returns the full buffer content on match, or throws on timeout.
+ *
+ * Polls on a fixed timer interval (`builtins.setTimeout` inside the page),
+ * NOT on `requestAnimationFrame` — Playwright's default `polling: 'raf'` would
+ * re-evaluate the predicate on each frame, so a test that PARKS the page's
+ * `window.requestAnimationFrame` (render_recovery models an occluded window's
+ * frozen paint loop that way) would deadlock this wait: the buffer fills from
+ * the PTY round-trip but the rAF poller never re-fires. xterm writes incoming
+ * data into its buffer synchronously on receipt — paint, not buffer mutation,
+ * is what rAF gates — so a buffer-content check has no reason to frame-align.
+ * Timer polling decouples this helper from the page's rAF entirely.
  */
 export async function waitForBufferContains(
   page: Page,
@@ -83,7 +92,7 @@ export async function waitForBufferContains(
       return content.includes(exp) ? content : null;
     },
     { sel: selector, idx: index, exp: expected },
-    { timeout },
+    { timeout, polling: 50 },
   );
   // The handle's predicate above returns either a non-null string (match)
   // or `null`, and `waitForFunction` only resolves on a truthy value — so

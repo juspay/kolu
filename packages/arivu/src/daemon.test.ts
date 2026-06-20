@@ -75,17 +75,35 @@ async function snapshot(
   const abort = new AbortController();
   const out = new Map<TerminalId, AwarenessValue>();
   try {
-    const keys =
-      (await firstValue(await client.surface.awareness.keys({}))) ?? [];
+    // `snapshot` is the SINGLE place that understands the live, reconciling
+    // collection, so it owns the entire transient/real distinction — `waitFor`
+    // below stays a pure condition-poller that never swallows exceptions (a
+    // blanket catch there would silently re-swallow the surgical present-key
+    // rethrow at the end of this function, and bury TypeErrors/assertion bugs
+    // as timeout-shaped failures with no stack). Two transient sources, two
+    // narrow suppressions:
+    //
+    //   1. The `keys()` first frame can error while the surface is still coming
+    //      up (a sensor starting up) — that's "collection not ready yet", which
+    //      is indistinguishable from (and semantically) an empty key set. Treat
+    //      it as such: callers poll `snapshot` until the expected key appears,
+    //      so a persistently-broken `keys()` surfaces as a `waitFor` timeout
+    //      (a clear failure), not a swallowed bug.
+    let keys: readonly TerminalId[];
+    try {
+      keys = (await firstValue(await client.surface.awareness.keys({}))) ?? [];
+    } catch {
+      return out; // surface not ready — no keys yet
+    }
     for (const key of keys) {
-      // A live, reconciling collection: a key listed by `keys()` can be removed
-      // (its terminal reconciled out) before its `get()` resolves, surfacing as
-      // an oRPC stream error ("key not found at first snapshot"). Suppress ONLY
-      // that vanished-key race — confirmed by re-reading `keys()` — so a real
-      // `get` failure on a still-present key surfaces instead of silently
-      // dropping the key (which would let the reconciliation assertion below
-      // pass for the wrong reason). The message isn't reliable across the wire,
-      // so we re-check membership rather than match on it.
+      //   2. A key listed by `keys()` can be removed (its terminal reconciled
+      //      out) before its `get()` resolves, surfacing as an oRPC stream error
+      //      ("key not found at first snapshot"). Suppress ONLY that vanished-key
+      //      race — confirmed by re-reading `keys()` — so a real `get` failure on
+      //      a still-present key surfaces (rethrown below) instead of silently
+      //      dropping the key (which would let the reconciliation assertion pass
+      //      for the wrong reason). The message isn't reliable across the wire,
+      //      so we re-check membership rather than match on it.
       try {
         const v = await firstValue(
           await client.surface.awareness.get({ key }, { signal: abort.signal }),
@@ -106,26 +124,21 @@ async function snapshot(
   return out;
 }
 
+/** Poll `fn` until it returns a defined value or the deadline passes. Pure
+ *  condition-poller: it retries only on an `undefined` ("not yet") result and
+ *  does NOT catch exceptions. Transient collection-settling errors are absorbed
+ *  by `snapshot` (the one place that understands the reconciliation races); a
+ *  thrown error here is therefore a genuine failure — let it propagate with its
+ *  stack intact rather than swallow it into a timeout. */
 async function waitFor<T>(
   fn: () => Promise<T | undefined>,
   ms = 10000,
 ): Promise<T> {
   const deadline = Date.now() + ms;
-  let lastErr: unknown;
   for (;;) {
-    try {
-      const r = await fn();
-      if (r !== undefined) return r;
-    } catch (e) {
-      // Transient while the live collection settles (e.g. an oRPC stream error
-      // as a sensor starts up or a key reconciles out mid-read) — retry until
-      // the deadline rather than failing the test on a benign race.
-      lastErr = e;
-    }
-    if (Date.now() >= deadline)
-      throw new Error(
-        `condition not met in time${lastErr ? `: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}` : ""}`,
-      );
+    const r = await fn();
+    if (r !== undefined) return r;
+    if (Date.now() >= deadline) throw new Error("condition not met in time");
     await sleep(75);
   }
 }

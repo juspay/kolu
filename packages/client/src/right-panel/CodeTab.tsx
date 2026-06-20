@@ -452,10 +452,9 @@ const CodeTab: Component<{
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
   // right-click "Open path:N" entries, and any future producer. The effect
   // resolves against the live `fsListAll` list and RETRIES across snapshots
-  // until the path enumerates: the first snapshot after the panel opens / repo
-  // switches can lag the request (a fresh-open ref to a just-created path, slow
-  // darwin git/FS settling), so a not-yet-listed path is left pending for a
-  // later, fuller snapshot rather than dropped. `openInCodeTab` flips the panel
+  // until the path enumerates: while the stream is still loading
+  // (`allPaths.pending()`), a not-yet-listed path is left pending for the first
+  // authoritative snapshot rather than dropped. `openInCodeTab` flips the panel
   // to browse mode itself; this effect only sets `selectedPath`.
   createEffect(
     on(
@@ -482,17 +481,22 @@ const CodeTab: Component<{
           hasLine: req.ref.startLine !== null,
         });
         if (resolved === null) {
-          // The path isn't in THIS snapshot. The first fsListAll snapshot after
-          // the panel opens / repo switches (and any brief `[]` during a stream
-          // resubscribe) can lag a fresh-open request — the just-created path
-          // not yet enumerated on a slow darwin runner. While the list is still
-          // EMPTY, don't consume or toast: leave the request pending so a later,
-          // fuller snapshot re-runs this effect and resolves it. (Consuming here
-          // against that stale first read was the darwin folder-ref flake.)
-          if (paths.length === 0) return;
-          // The list is non-empty — `git ls-files` is atomic, so a populated
-          // snapshot is the COMPLETE index for this repo. A still-missing path
-          // is therefore a genuine not-found: surface it loudly and consume.
+          // We only get here once `!isPending` (gated above): `fsListAll` has
+          // delivered an AUTHORITATIVE snapshot for this repo — its first yield
+          // is a full `git ls-files --cached --others` read (tracked + untracked
+          // working-tree files), not a partial. (A transparent
+          // STREAM_RETRY resubscribe replaces the value in place WITHOUT
+          // re-arming `pending()`, so there's no `[]` flicker to mistake for a
+          // fresh load; `pending()` only re-arms when the repo/view input
+          // changes, which this effect's `isPending` guard already covers.)
+          // An authoritative snapshot that lacks the path is therefore a genuine
+          // not-found WHETHER the list is empty or populated — surface it loudly
+          // and consume. (Length is NOT a freshness signal: an empty list is an
+          // authoritative snapshot of an empty repo, and a populated one can
+          // still be a pre-mutation snapshot — gating on length both swallowed
+          // empty-repo not-founds forever and risked false not-founds on a stale
+          // populated read. This mirrors the `selectedPath` membership effect
+          // below, which likewise treats empty-once-`!pending()` as truth.)
           toast.error(`File reference not found: ${req.ref.path}`);
           consumedRequest = req;
           setHandled({ request: req, resolvedPath: null });
