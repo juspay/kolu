@@ -39,6 +39,11 @@ export const CodexInfoSchema = z.object({
    *  `info.total_token_usage.total_tokens`. Null on a brand-new thread
    *  before the first assistant turn accounts. */
   contextTokens: z.number().nullable(),
+  /** Epoch-ms the thread was created — decoded from the uuidv7 thread id's
+   *  leading 48-bit timestamp (no extra read; the id is already in hand).
+   *  Null if the id isn't a uuidv7 we can decode. Drives the inspector's
+   *  "Running for" elapsed display. */
+  startedAt: z.number().nullable(),
 });
 
 export type CodexInfo = z.infer<typeof CodexInfoSchema>;

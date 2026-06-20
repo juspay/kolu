@@ -66,6 +66,25 @@ export interface CodexSession {
   /** Absolute path to the rollout JSONL — copied from the DB row at
    *  match time so the watcher doesn't re-query to locate its file. */
   rolloutPath: string;
+  /** Epoch-ms the thread was created, decoded from the uuidv7 `id`'s leading
+   *  48-bit timestamp. Null if `id` isn't a decodable uuidv7. Computed once at
+   *  match time — the id is immutable, so the watcher copies it straight onto
+   *  every `CodexInfo` it emits. */
+  startedAt: number | null;
+}
+
+/** Decode the unix-ms creation time embedded in a uuidv7's leading 48 bits.
+ *  Codex stamps thread ids as uuidv7, whose first 12 hex digits ARE the
+ *  millisecond timestamp — so the thread's start time is already in hand, no
+ *  file read. Returns null unless the value is a real uuidv7 (version nibble
+ *  `7`); never guess a timestamp from a non-v7 id. */
+export function uuidV7TimestampMs(id: string): number | null {
+  // uuidv7 layout: the first 12 hex digits (48 bits) are the unix-ms
+  // timestamp; the 13th hex digit is the version nibble, `7` for v7.
+  const hex = id.replace(/-/g, "");
+  if (hex[12] !== "7" || !/^[0-9a-f]{12}/i.test(hex)) return null;
+  const ms = Number.parseInt(hex.slice(0, 12), 16);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /** Columns our SELECTs depend on. If Codex renames or drops any of
@@ -179,6 +198,7 @@ export function findSessionByDirectory(
       return {
         id: row.id,
         rolloutPath: row.rollout_path,
+        startedAt: uuidV7TimestampMs(row.id),
       };
     },
     "codex threads query failed",

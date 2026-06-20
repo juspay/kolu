@@ -38,6 +38,7 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     summary: "Investigate flaky checkout tests",
     taskProgress: null,
     contextTokens: 42000,
+    startedAt: null,
     ...overrides,
   } as AgentInfo;
 }

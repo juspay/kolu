@@ -69,6 +69,15 @@ export interface AgentInfoShape {
    *  `message.usage`; OpenCode reads `tokens.total` from the latest
    *  assistant message. Both collapse to the same scalar meaning. */
   contextTokens: number | null;
+  /** Epoch-ms the session began — its first message, give or take. Source
+   *  is per-integration but the meaning is shared: Claude Code's session-file
+   *  `startedAt` (process start / `claude -c` resume); Codex's uuidv7 thread-id
+   *  timestamp (thread creation); OpenCode's earliest message `time_created`.
+   *  Null until resolvable — no message yet, or an id we can't decode. Immutable
+   *  once set; drives the inspector's "Running for" elapsed display. Compared in
+   *  `agentInfoEqual` so its first resolution dispatches even if nothing else
+   *  changed. */
+  startedAt: number | null;
 }
 
 /** Agent-detection contract. Type parameters: `Session` is the adapter's
@@ -190,10 +199,11 @@ export function matchesAgent(
   );
 }
 
-/** Structural equality over the shared 5-field AgentInfo shape, plus `kind`.
- *  One implementation serves every adapter — if a new integration wants a
- *  different equality contract, its Info shape is out of bounds anyway and
- *  needs to be addressed schema-side, not by forking the comparator. */
+/** Structural equality over the shared AgentInfo shape (state, model, summary,
+ *  contextTokens, startedAt, taskProgress), plus `kind`. One implementation
+ *  serves every adapter — if a new integration wants a different equality
+ *  contract, its Info shape is out of bounds anyway and needs to be addressed
+ *  schema-side, not by forking the comparator. */
 export function agentInfoEqual<A extends AgentInfoShape>(
   a: A | null,
   b: A | null,
@@ -206,6 +216,7 @@ export function agentInfoEqual<A extends AgentInfoShape>(
   if (a.model !== b.model) return false;
   if (a.summary !== b.summary) return false;
   if (a.contextTokens !== b.contextTokens) return false;
+  if (a.startedAt !== b.startedAt) return false;
   return taskProgressEqual(a.taskProgress, b.taskProgress);
 }
 

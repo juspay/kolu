@@ -12,6 +12,7 @@ function claude(state: AgentInfo["state"]): AgentInfo {
     taskProgress: null,
     workflow: null,
     contextTokens: null,
+    startedAt: null,
   };
 }
 

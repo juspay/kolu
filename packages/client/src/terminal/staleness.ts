@@ -86,6 +86,31 @@ export function useIdleClassifier(): (
   };
 }
 
+/** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
+ *  coarse, matching `formatTimeAgo` (and the 60s tick that drives the live
+ *  "Running for" readout — sub-minute precision wouldn't refresh anyway).
+ *  Negative input clamps to 0 (clock skew between the agent host and the
+ *  client must never render a negative age). */
+export function formatDuration(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  return `${Math.floor(hr / 24)}d`;
+}
+
+/** Reactive elapsed-since formatter. Returns a function consumers call with a
+ *  start timestamp — invoking it inside a tracking context (JSX, `createMemo`)
+ *  subscribes to the shared 60s tick, so a "Running for" readout advances on
+ *  its own. Mirrors `useStaleCheck`'s shape and reuses the one app-wide
+ *  ticker. */
+export function useDuration(): (startedAtMs: number) => string {
+  const tick = getNowTicker();
+  return (startedAtMs) => formatDuration(tick() - startedAtMs);
+}
+
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
  *  (= "no agent transition observed yet"). Plain `Date.now()` read,
  *  not reactive: tooltips and hover panels recompute on mount, which is

@@ -5,6 +5,7 @@ import {
   parseRolloutContextTokens,
   parseRolloutState,
   REQUIRED_THREAD_COLUMNS,
+  uuidV7TimestampMs,
 } from "./core.ts";
 
 /** Build a token_count event_msg with the given `last_token_usage`
@@ -370,5 +371,34 @@ describe("missingThreadColumns", () => {
       [...REQUIRED_THREAD_COLUMNS].sort(),
     );
     db.close();
+  });
+});
+
+describe("uuidV7TimestampMs", () => {
+  it("round-trips the embedded unix-ms timestamp of a uuidv7", () => {
+    const ms = 1_700_000_000_000;
+    const hex = ms.toString(16).padStart(12, "0"); // 48-bit timestamp prefix
+    const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7abc-89ab-0123456789ab`;
+    expect(uuidV7TimestampMs(id)).toBe(ms);
+  });
+
+  it("decodes a real-world Codex thread id into a plausible recent time", () => {
+    // The id shape Codex stamps (see CodexInfoSchema.sessionId example).
+    const ms = uuidV7TimestampMs("019db605-1234-7abc-89ab-0123456789ab");
+    expect(ms).not.toBeNull();
+    expect(ms).toBeGreaterThan(Date.UTC(2025, 0, 1));
+    expect(ms).toBeLessThan(Date.UTC(2027, 0, 1));
+  });
+
+  it("returns null for a non-v7 uuid (wrong version nibble)", () => {
+    // Version 4 — its 13th hex digit is `4`, not `7`; never guess a time.
+    expect(
+      uuidV7TimestampMs("0192b450-0000-4abc-89ab-0123456789ab"),
+    ).toBeNull();
+  });
+
+  it("returns null for strings that aren't a uuid", () => {
+    expect(uuidV7TimestampMs("not-a-uuid")).toBeNull();
+    expect(uuidV7TimestampMs("")).toBeNull();
   });
 });

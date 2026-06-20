@@ -122,6 +122,37 @@ export function getSessionTitle(
   );
 }
 
+// --- Session start time ---
+
+/**
+ * Read the session's start time — the `time_created` (epoch-ms) of its
+ * earliest message. One indexed query against (session_id, time_created),
+ * `LIMIT 1` so it touches a single row. Returns null when the session has
+ * no messages yet (a brand-new session): the caller retries on the next
+ * WAL event until the first message lands, then caches the result (the
+ * value is immutable once a message exists).
+ */
+export function getSessionStartedAt(
+  sessionId: string,
+  log?: Logger,
+  db?: DatabaseSync,
+): number | null {
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT time_created FROM message WHERE session_id = ? ORDER BY time_created ASC LIMIT 1",
+        )
+        .get(sessionId) as { time_created: number } | undefined;
+      return row?.time_created ?? null;
+    },
+    "opencode session start query failed",
+    { sessionId },
+    log,
+    db,
+  );
+}
+
 // --- Todo progress ---
 
 /**

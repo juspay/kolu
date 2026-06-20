@@ -433,6 +433,7 @@ export function createSessionWatcher(
       taskProgress: deriveTaskProgress(taskMap),
       contextTokens: derived.contextTokens,
       workflow,
+      startedAt: session.startedAt ?? null,
     };
 
     if (!claudeInfoEqual(info, lastInfo)) {
