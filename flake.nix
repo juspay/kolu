@@ -67,6 +67,18 @@
       # the committed bun.nix. Lazy: only forced when the arivu-tui attr is
       # accessed — the arivuDrvBySystem import above (the Node daemon's drvPath)
       # never touches it, so it stays out of that pure-eval path.
+      #
+      # NB on flake.lock: bun2nix is the project's ONLY flake input, and it drags
+      # in its own transitive nixpkgs/flake-parts/treefmt-nix/systems nodes, which
+      # flake.lock pins. Those are INERT — locked but never evaluated or realised
+      # on any build path. mkBun2nix takes `pkgs` as an argument, so it's fed OUR
+      # npins-pinned pkgs (above); bun2nix's own nixpkgs node is never the pkgs
+      # that builds anything. So nixpkgs-of-record on the build path is still
+      # npins alone, but the repo does carry a second, INERT nixpkgs rev in the
+      # lock. Those nodes are intentionally OUTSIDE the npins update path; nobody
+      # bumps them via `npins update`, and no `follows` can pin them onto npins —
+      # npins' nixpkgs is a fetchTarball, not a flake input, so there is no in-repo
+      # flake node to follow onto (a follows would dangle).
       b2nBySystem = eachSystem (pkgs: bun2nix.lib.mkBun2nix { inherit pkgs; });
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
