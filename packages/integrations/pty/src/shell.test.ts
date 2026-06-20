@@ -15,8 +15,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  cleanEnv,
   koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
@@ -70,6 +71,42 @@ describe("koluIdentityEnv", () => {
     const layered: Record<string, string> = { VTE_VERSION: "9999" };
     Object.assign(layered, koluIdentityEnv("9.9.9"));
     expect(layered.VTE_VERSION).toBe("7603");
+  });
+});
+
+describe("cleanEnv — kolu's own KOLU_* namespace never reaches a hosted shell", () => {
+  // Regression: a production kolu bakes KOLU_KAVAL_BIN (et al.) into its own
+  // env via the nix wrapper. cleanEnv()'s production passthrough would forward
+  // those into every PTY it spawns — so a nested `just dev` (from source, run
+  // inside a kolu terminal) inherited a STALE KOLU_KAVAL_BIN and spawned a
+  // contract-skewed kaval. cleanEnv must strip the KOLU_* namespace. Default
+  // module state (no configureNixShellEnv call) is passthrough mode — the exact
+  // production path that leaked.
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
+
+  it("strips KOLU_* (incl. the spawn-deciding KOLU_KAVAL_* vars), keeps the user's env", () => {
+    process.env.KOLU_KAVAL_BIN = "/nix/store/stale-kaval/bin/kaval";
+    process.env.KOLU_KAVAL_SOCKET = "/run/stale/pty-host.sock";
+    process.env.KOLU_KAVAL_SPAWN = "detached";
+    process.env.KOLU_STATE_DIR = "/home/x/.config/kolu";
+    process.env.PTY_TEST_USER_VAR = "keep-me";
+
+    const env = cleanEnv();
+
+    // kolu's namespace is gone — nothing ancestral can ride it into the shell.
+    expect(env.KOLU_KAVAL_BIN).toBeUndefined();
+    expect(env.KOLU_KAVAL_SOCKET).toBeUndefined();
+    expect(env.KOLU_KAVAL_SPAWN).toBeUndefined();
+    expect(env.KOLU_STATE_DIR).toBeUndefined();
+    expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
+
+    // the user's real environment is untouched.
+    expect(env.PTY_TEST_USER_VAR).toBe("keep-me");
+    expect(env.PATH).toBe(process.env.PATH);
   });
 });
 
