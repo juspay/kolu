@@ -32,6 +32,7 @@ Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> �
 | Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Close sub-terminal via tab close button (`sub-terminal.feature:107`) | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Scroll on terminal does not pan the canvas (`canvas.feature:161`) | `e2e@aarch64-darwin` | tile-centering pan raced the recorded baseline → `canvas transform changed unexpectedly` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Tile chrome shows task progress when Claude has tasks (`claude-code.feature:77`) | `e2e@aarch64-darwin` | appended-transcript fs event dropped → task progress `3/5` never showed (`waitForFunction` timeout; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 
 ## Logging a flake
 

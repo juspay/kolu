@@ -655,16 +655,32 @@ Then(
 Then(
   "the tile chrome should show task progress {string}",
   async function (this: KoluWorld, expected: string) {
-    await this.page.waitForFunction(
-      (txt) => {
-        const el = document.querySelector(
-          '[data-testid="agent-task-progress"]',
-        );
-        return el?.textContent?.includes(txt) ?? false;
-      },
-      expected,
-      { timeout: POLL_TIMEOUT },
-    );
+    // The tasks are APPENDED to the mock transcript — a SECOND fs event after
+    // the session was already set up, which is exactly the one that drops under
+    // darwin FSEvents / parallel-worker pressure (see the data-then-trigger note
+    // on the mock-state step). When it drops, the session watcher never re-tails
+    // and the progress never appears. Poll the tile chrome while nudging the
+    // transcript each tick to re-fire the dropped watch event — the same
+    // recovery waitForCodeTabReady uses. HYDRATION budget: append → watch →
+    // parse → metadata → tile is the slow first-appearance axis.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          (txt) =>
+            document
+              .querySelector('[data-testid="agent-task-progress"]')
+              ?.textContent?.includes(txt) ?? false,
+          expected,
+        ),
+      isDone: (visible) => visible === true,
+      onTick: () => nudgeFiles([mockTranscriptPath ?? undefined]),
+      onTimeout: (_last, elapsed) =>
+        new Error(
+          `tile chrome never showed task progress "${expected}" within ${elapsed}ms`,
+        ),
+      timeoutMs: HYDRATION_TIMEOUT,
+      intervalMs: 500,
+    });
   },
 );
 
