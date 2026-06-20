@@ -713,10 +713,18 @@ Feature: Code tab (review + browse)
   # terminal's "back" button live (its history intact), not reset.
   Scenario: Code tab history survives switching between terminals in different repos
     When I run "rm -rf /tmp/kolu-hist-term-a && git init /tmp/kolu-hist-term-a && cd /tmp/kolu-hist-term-a"
-    And I run "printf 'one-A\n' > one.txt && printf 'two-A\n' > two.txt"
+    And I run "printf 'one-A\n' > one.txt && printf 'two-A\n' > two.txt && printf 'a\n' > only-in-a.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
+    # Wait for this terminal's git to settle to repoA before recording history.
+    # A new terminal inherits the active terminal's cwd, so the git sensor's
+    # re-resolve after the `cd` lags (slow on darwin) while the file viewer's
+    # faster path already shows the right content; building history before the
+    # settle lets the settle's per-repo history reset wipe it (a flake).
+    # `only-in-a.txt` exists ONLY in repoA, so its tree row proves repoPath
+    # (metadata.git) has settled to repoA.
+    And the file browser should show a file "only-in-a.txt"
     When I click the file "one.txt" in the file browser
     Then the selected file should show content "one-A"
     When I click the file "two.txt" in the file browser
@@ -729,10 +737,15 @@ Feature: Code tab (review + browse)
     # which tab the terminal-1 interactions left active.
     When I create a terminal
     And I run "rm -rf /tmp/kolu-hist-term-b && git init /tmp/kolu-hist-term-b && cd /tmp/kolu-hist-term-b"
-    And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt"
+    And I run "printf 'one-B\n' > one.txt && printf 'two-B\n' > two.txt && printf 'b\n' > only-in-b.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
+    # Settle wait (see terminal A above): only-in-b.txt is unique to repoB, so
+    # its tree row proves B's git re-resolved to repoB after the `cd` — building
+    # history before the settle lets the per-repo reset wipe it (the darwin flake
+    # this scenario hit: B inherits A's cwd = repoA, then cd's to repoB).
+    And the file browser should show a file "only-in-b.txt"
     When I click the file "one.txt" in the file browser
     Then the selected file should show content "one-B"
     When I click the file "two.txt" in the file browser
