@@ -1,4 +1,4 @@
-import type { AgentInfo } from "kolu-common/surface";
+import { activeArm, type AgentInfo } from "kolu-common/surface";
 import { agentNames, stateLabels } from "../../ui/agentDisplay";
 import type { DockEntry } from "../dockModel";
 
@@ -9,11 +9,12 @@ export function agentLabel(agent: AgentInfo | null | undefined): string {
 
 export function metaLine(entry: DockEntry): string {
   const { meta } = entry.info;
-  if (meta.state !== "active") return meta.cwd; // sleeping: no live overlay
-  if (meta.agent?.summary) return meta.agent.summary;
-  if (meta.foreground?.title) return meta.foreground.title;
-  if (meta.foreground?.name) return meta.foreground.name;
-  return meta.cwd;
+  const arm = activeArm(meta);
+  if (!arm) return meta.cwd; // sleeping: no live overlay
+  if (arm.agent?.summary) return arm.agent.summary;
+  if (arm.foreground?.title) return arm.foreground.title;
+  if (arm.foreground?.name) return arm.foreground.name;
+  return arm.cwd;
 }
 
 const tokenFormat = new Intl.NumberFormat("en", {

@@ -253,8 +253,9 @@ function add(values: string[], value: unknown): void {
 }
 
 function prSearchFields(info: TerminalDisplayInfo): string[] {
-  if (info.meta.state !== "active") return []; // sleeping: no live overlay
-  const pr = info.meta.pr;
+  const arm = activeArm(info.meta);
+  if (!arm) return []; // sleeping: no live overlay
+  const pr = arm.pr;
   switch (pr.kind) {
     case "ok":
       return [
