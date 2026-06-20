@@ -4,12 +4,13 @@ description: A recurring audit of how autonomous our PR workflow is. Round 1 cov
 parents: [analysis]
 status: proposed
 maturity: budding
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
-import D2 from "../../components/D2.astro";
+import Svg from "../../components/Svg.astro";
+import enforcement from "../../diagrams/llm-autonomy-enforcement.svg?raw";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 import Cite from "../../components/Cite.astro";
@@ -78,25 +79,9 @@ end-to-end unattended. Autonomy is not a model-capability problem; it is an
 deterministic (exit codes, not prose) and to give every run the ground truth the
 clean runs happened to have.
 
-<D2
+<Svg
+  svg={enforcement}
   caption="The proposed enforcement backbone. Today the green spine and the guard boxes do not exist for /be — its stages are connected by prose only, so the run yields the turn and the human (dashed) re-drives it. The fix: /be writes a run-state spine at every stage boundary, and the existing Stop hook (extended) plus new PreToolUse hooks read it to block turn-end and dangerous actions — converting 'continue', 'run ci', 'don't kill prod', 'post evidence' from human nudges into automatic resume/refusal."
-  code={`direction: down
-prompt: "User: /be <task>"
-interview: "§0 Interview — the ONE sanctioned question"
-state: "run-state spine (.do-results.json)\\nstage · pr · ci · evidence · verified\\n— /be does NOT write this today" { style.bold: true; style.fill: "#e6f4ea" }
-stages: "§1–§5 stages\\nsetup · implement · PR · gauntlet · ci+evidence"
-guards: "Guards — exit codes, not prose" {
-  stop: "Stop hook (extend)\\nblock turn-end while active=working\\n+ Done post-conditions: ci-green · evidence · gauntlet-comments · repro-green"
-  pre: "PreToolUse hooks (new)\\nblock prod-kolu kill / prod-port bind\\nblock AskUserQuestion after §0"
-}
-human: "Human (today: the gate)\\n'continue' · 'run ci' · 'DONT KILL PROD' · 'post evidence'" { style.stroke-dash: 4 }
-done: "Done — only when every guard passes"
-prompt -> interview -> stages
-stages -> state: "write at each boundary"
-state -> guards: "read"
-guards -> stages: "block & auto-resume"
-human -> stages: "today: manual re-drive" { style.stroke-dash: 4 }
-stages -> done`}
 />
 
 The spine is one artifact with four jobs: **(1)** Stop-guard self-resume,
@@ -255,6 +240,21 @@ candidates.
   <Milestone status="now" label="Synthesize (1 agent / category)">Barrier: group all interventions by category in JS, then one agent per bucket distills the theme, root causes, vivid quotes, and 1–4 concrete fixes — each naming an exact lever.</Milestone>
   <Milestone status="now" label="Meta (1 agent)">Rank the deduped improvements by impact ÷ effort, separate quick wins from systemic changes, and call out anti-patterns. Compute the scorecard in JS (don't model it).</Milestone>
 </Roadmap>
+
+<Callout kind="accent" title="The micro loop — this audit, automated per run">
+The sweep above is the **macro loop**: a periodic, hand-run pass over the whole
+corpus. As of <PrLink pr={1448} /> each run also gets a **micro loop** — the
+`/self-improve` skill that `/be` invokes at its very end. It runs **forked** (off
+`/be`'s context, in a throwaway worktree off latest `master`), mines *that one
+session's* transcript for the same intervention classes, and — only when a lesson
+**durably recurs** — ships a small, evidence-cited edit to the `.apm/skills/*`
+sources as its own draft PR. It **reuses this note** (taxonomy, lever map,
+anti-patterns) rather than re-deriving them, holds the quality bar (*autonomy is
+earned by meeting it unprompted, never by weakening a gate*), and **produces
+nothing by default** — restraint over churn. The macro audit still sets the agenda
+and ranks the roadmap; the micro loop keeps each run's lessons from evaporating
+between audits.
+</Callout>
 
 **4 — Feed the agents the levers and verify the claims.** Tell each agent *where
 change is possible* (the `.apm/` skill sources, `settings.json` hooks,
