@@ -62,6 +62,7 @@ import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
+import { useTileStore } from "./tile/useTileStore";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
@@ -76,6 +77,11 @@ import { savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
+  // The tile registry — what the canvas, dock, switcher, and mode read for tile
+  // PRESENCE (the set, layout, active selection, count). The terminal store
+  // stays the source for terminal CONTENT (display info, metadata, the active
+  // terminal behind RightPanel / theme / screenshot).
+  const tileStore = useTileStore();
 
   const {
     committedThemeName,
@@ -105,9 +111,9 @@ const App: Component = () => {
   // exact row the dock paints (group-bucketed, parked rows filtered).
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
-      store.terminalIds(),
+      tileStore.tileIds(),
       store.getDisplayInfo,
-      (id) => store.getMetadata(id)?.canvasLayout,
+      tileStore.getLayout,
     ),
   );
   const recencyOf = (id: TerminalId): number =>
@@ -249,7 +255,10 @@ const App: Component = () => {
   const mode = createMemo<CanvasMode>(() =>
     canvasMode({
       isLoading: session.isLoading,
-      terminalCount: () => store.terminalIds().length,
+      // Keyed off the TILE count: a sleeping-only workspace (PR 2) stays on the
+      // canvas instead of falling back to the empty state. Today === terminal
+      // count.
+      terminalCount: () => tileStore.tileCount(),
     }),
   );
   // Narrow the tagged union for the down/warming arms. Plain functions, not
@@ -518,12 +527,12 @@ const App: Component = () => {
                     minSize={0.3}
                   >
                     <TerminalCanvas
-                      tileIds={store.terminalIds()}
+                      tileIds={tileStore.tileIds()}
                       watermark={appTitle()}
-                      getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                      onLayoutChange={arrange.applyTileGeometry}
+                      getLayout={tileStore.getLayout}
+                      onLayoutChange={tileStore.setLayout}
                       onAutoArrange={arrange.handleCanvasAutoArrange}
-                      onSelect={store.setActiveSilently}
+                      onSelect={tileStore.setActiveSilently}
                       onClose={(id) => closeTerminal(id)}
                       {...dockPalette}
                       renderTileTitle={(id) => (

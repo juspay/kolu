@@ -72,6 +72,7 @@ import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
@@ -426,8 +427,12 @@ const DockRow: Component<{
   flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const active = () => store.activeId() === props.id;
+  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
+  // reads as the active row in PR 2); unread is terminal-attention, stays on
+  // the terminal store.
+  const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
@@ -454,11 +459,11 @@ const DockRow: Component<{
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
-          onClick={() => store.activate(props.id)}
+          onClick={() => tileStore.activate(props.id)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              store.activate(props.id);
+              tileStore.activate(props.id);
             }
           }}
           class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
@@ -556,8 +561,12 @@ const RailChip: Component<{
   flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const active = () => store.activeId() === props.id;
+  // Active-tile highlight follows the TILE registry (so a focused sleeping tile
+  // reads as the active row in PR 2); unread is terminal-attention, stays on
+  // the terminal store.
+  const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
@@ -577,7 +586,7 @@ const RailChip: Component<{
             data-sub-count={
               c().info.subCount > 0 ? c().info.subCount : undefined
             }
-            onClick={() => store.activate(props.id)}
+            onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"
             style={{ "--repo-color": c().info.repoColor }}
             title={chipTooltip(c().info, props.bucket)}

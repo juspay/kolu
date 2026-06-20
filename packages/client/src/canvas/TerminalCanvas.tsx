@@ -27,12 +27,16 @@ import {
   createSignal,
   For,
   type JSX,
+  Match,
   on,
   onCleanup,
   Show,
+  Switch,
 } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import type { TileId } from "../tile/tileContent";
+import { useTileStore } from "../tile/useTileStore";
 import { savedSessionSub } from "../wire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
@@ -64,46 +68,46 @@ function isWheelTargetTerminal(e: WheelEvent): boolean {
 }
 
 const TerminalCanvas: Component<{
-  tileIds: TerminalId[];
+  tileIds: TileId[];
   /** Optional corner watermark (e.g. `kolu@host`) painted in the
    *  top-left of the canvas. Stays outside the pan/zoom transform so
    *  it reads as a fixed identity mark on the surface, not a tile. */
   watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
-  getLayout: (id: TerminalId) => TileLayout | undefined;
+  getLayout: (id: TileId) => TileLayout | undefined;
   /** Optional one-shot arrange trigger. When provided, the minimap
    *  zoom-bar grows an arrange button. The canvas is just plumbing —
    *  the arrange logic itself lives in `useCanvasArrange`.
    *
    *  Threaded as a prop rather than consumed via a singleton hook
    *  (the way `useCanvasViewport` and `usePendingLayouts` are read
-   *  inside `CanvasMinimap`) because `useCanvasArrange` takes
-   *  composition-root deps (`{ store, crud }`) —
-   *  it's a function, not a zero-arg singleton. The prop captures
-   *  the bound result; the minimap doesn't know or care about the
-   *  arrange policy. */
+   *  inside `CanvasMinimap`) because the arrange action is bound once
+   *  at the composition root (App.tsx) and passed down — the prop
+   *  captures that bound result; the minimap doesn't know or care
+   *  about the arrange policy. */
   onAutoArrange?: () => void;
   /** Report a layout change (drag commit, resize commit, default assignment). */
-  onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
-  onSelect: (id: TerminalId) => void;
-  onClose: (id: TerminalId) => void;
+  onLayoutChange: (id: TileId, layout: TileLayout) => void;
+  onSelect: (id: TileId) => void;
+  onClose: (id: TileId) => void;
   /** Invoked when the dock's search-icon button is clicked. Opens the
    *  command palette pre-drilled into the "Search workspaces" group —
    *  the same surface `Mod+Shift+K` reaches. */
   onOpenWorkspaceSearch: () => void;
   /** Open the "new terminal" flow — wired into the dock header's `+`. */
   onCreate: () => void;
-  renderTileTitle: (id: TerminalId) => JSX.Element;
+  renderTileTitle: (id: TileId) => JSX.Element;
   /** Optional title-bar actions injected between the title and the close
    *  button — e.g. the screenshot button, theme pill, agent indicator. */
-  renderTileTitleActions?: (id: TerminalId) => JSX.Element;
+  renderTileTitleActions?: (id: TileId) => JSX.Element;
   /** `active` is passed as an accessor so the subtree doesn't remount on
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
-  renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
+  renderTileBody: (id: TileId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
@@ -173,7 +177,7 @@ const TerminalCanvas: Component<{
         const cx = viewport.panX() + width / (2 * zoom);
         const cy = viewport.panY() + height / (2 * zoom);
         const placed: {
-          id: TerminalId;
+          id: TileId;
           layout: TileLayout;
           isNew: boolean;
         }[] = [];
@@ -202,9 +206,9 @@ const TerminalCanvas: Component<{
         // job here is bumping the centering signal once the new tile's
         // pending layout exists. Same mechanism the `focus.request`
         // effect below uses for every other system-driven activation.
-        const activeId = store.activeId();
+        const activeId = tileStore.activeId();
         if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
-          store.activate(activeId);
+          tileStore.activate(activeId);
         }
       },
     ),
@@ -329,8 +333,8 @@ const TerminalCanvas: Component<{
     // the persisted id. Once `pending()` flips false, `useSessionRestore`'s
     // hydration effect runs synchronously (registered earlier) and assigns
     // the active id, so this effect re-runs and observes it.
-    if (savedSessionSub.pending() && store.activeId() === null) return;
-    const active = store.activeId();
+    if (savedSessionSub.pending() && tileStore.activeId() === null) return;
+    const active = tileStore.activeId();
     const activeLayout = active ? layoutOf(active) : undefined;
     if (activeLayout) {
       requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
@@ -353,6 +357,56 @@ const TerminalCanvas: Component<{
       viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
     });
   });
+
+  /** Render a live-terminal tile. Driven by two id faces that coincide today
+   *  (`tileId === terminalId`) but are split to make the seam explicit: the
+   *  tile's IDENTITY (active selection, drag/resize key, render props) vs. its
+   *  terminal's CONTENT (display info, theme, staleness, run-state aura). PR 2's
+   *  sleeping arm renders a frozen body off the same `tileId` with no terminal. */
+  function renderTerminalTile(
+    tileId: TileId,
+    terminalId: TerminalId,
+  ): JSX.Element {
+    const active = () => tileStore.activeId() === tileId;
+    const mode = (): CanvasTileMode =>
+      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+    return (
+      <Show when={store.getDisplayInfo(terminalId)}>
+        {(info) => (
+          <CanvasTile
+            id={tileId}
+            active={active()}
+            mode={mode()}
+            dimmed={isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0)}
+            theme={tileTheme(terminalId)}
+            repoColor={info().repoColor}
+            onSelect={() => props.onSelect(tileId)}
+            onClose={() => props.onClose(tileId)}
+            onToggleMaximize={posture.toggle}
+            renderTitle={() => props.renderTileTitle(tileId)}
+            renderTitleActions={
+              props.renderTileTitleActions
+                ? () => props.renderTileTitleActions?.(tileId)
+                : undefined
+            }
+            renderBody={() =>
+              props.renderTileBody(
+                tileId,
+                () => tileStore.activeId() === tileId,
+              )
+            }
+            layouts={layouts()}
+            startResize={startResize}
+            panX={viewport.panX}
+            panY={viewport.panY}
+            zoom={viewport.zoom}
+            viewportSize={viewport.viewportSize}
+            auraTier={() => tileAuraOf(terminalId)}
+          />
+        )}
+      </Show>
+    );
+  }
 
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
@@ -404,45 +458,24 @@ const TerminalCanvas: Component<{
            *  per-tile transforms (which also fold in layout coords + drag). */}
           <For each={props.tileIds}>
             {(id) => {
-              const active = () => store.activeId() === id;
-              const mode = (): CanvasTileMode =>
-                posture.mode() === "tiled"
-                  ? "tiled"
-                  : active()
-                    ? "maximized"
-                    : "covered";
+              // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
+              // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
+              // keys each arm on a STABLE boolean (not `match(content())`, which
+              // would re-create the tile subtree every tick), the same
+              // discipline App.tsx's canvas-mode <Switch> relies on. Today the
+              // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
+              // inherits drag / resize / focus / active for free.
+              const content = () => tileStore.contentOf(id);
               return (
-                <Show when={store.getDisplayInfo(id)}>
-                  {(info) => (
-                    <CanvasTile
-                      id={id}
-                      active={active()}
-                      mode={mode()}
-                      dimmed={isStale(
-                        store.getMetadata(id)?.lastActivityAt ?? 0,
-                      )}
-                      theme={tileTheme(id)}
-                      repoColor={info().repoColor}
-                      onSelect={() => props.onSelect(id)}
-                      onClose={() => props.onClose(id)}
-                      onToggleMaximize={posture.toggle}
-                      renderTitle={() => props.renderTileTitle(id)}
-                      renderTitleActions={
-                        props.renderTileTitleActions
-                          ? () => props.renderTileTitleActions?.(id)
-                          : undefined
-                      }
-                      renderBody={() =>
-                        props.renderTileBody(id, () => store.activeId() === id)
-                      }
-                      layouts={layouts()}
-                      startResize={startResize}
-                      panX={viewport.panX}
-                      panY={viewport.panY}
-                      zoom={viewport.zoom}
-                      viewportSize={viewport.viewportSize}
-                      auraTier={() => tileAuraOf(id)}
-                    />
+                <Show when={content()}>
+                  {(c) => (
+                    <Switch>
+                      <Match when={c().kind === "terminal" && c()}>
+                        {(terminal) =>
+                          renderTerminalTile(id, terminal().terminalId)
+                        }
+                      </Match>
+                    </Switch>
                   )}
                 </Show>
               );

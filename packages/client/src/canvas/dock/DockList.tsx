@@ -21,6 +21,7 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { useTileStore } from "../../tile/useTileStore";
 import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
@@ -122,8 +123,9 @@ function DockListRow(props: {
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const combined = createDockRowData(props.id);
-  const active = () => store.activeId() === props.id;
+  const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
