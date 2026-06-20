@@ -19,7 +19,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { TerminalId } from "kolu-common/surface";
+import { isSleeping, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -27,11 +27,9 @@ import {
   createSignal,
   For,
   type JSX,
-  Match,
   on,
   onCleanup,
   Show,
-  Switch,
 } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -359,11 +357,18 @@ const TerminalCanvas: Component<{
     });
   });
 
-  /** Render a live-terminal tile. Driven by two id faces that coincide today
-   *  (`tileId === terminalId`) but are split to make the seam explicit: the
-   *  tile's IDENTITY (active selection, drag/resize key, render props) vs. its
-   *  terminal's CONTENT (display info, theme, staleness, run-state aura). PR 2's
-   *  sleeping arm renders a frozen body off the same `tileId` with no terminal. */
+  /** Render a tile for either content kind — the ONE place the CanvasTile prop
+   *  spread lives, keeping the shell content-agnostic. Driven by two id faces
+   *  that coincide today (`tileId === terminalId`) but are split to make the seam
+   *  explicit: the tile's IDENTITY (active selection, drag/resize key, render
+   *  props) vs. its terminal's CONTENT (display info, theme, staleness, run-state
+   *  aura). The active vs. sleeping deltas are derived from the same `meta` the
+   *  shell already reaches, not restated per kind: `sleeping` flips the moonlit
+   *  ring / frozen affordances, and `dimmed` is (sleeping OR stale) so the
+   *  `data-state`/`data-dimmed` independence holds in code — a stale-but-live tile
+   *  is dimmed-not-sleeping. A sleeping tile renders a frozen body off the same
+   *  `tileId` with no live terminal (the body routes through `props.renderTileBody`,
+   *  which the caller dispatches on content kind to the dormant placeholder). */
   function renderTerminalTile(
     tileId: TileId,
     terminalId: TerminalId,
@@ -371,6 +376,9 @@ const TerminalCanvas: Component<{
     const active = () => tileStore.activeId() === tileId;
     const mode = (): CanvasTileMode =>
       posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+    const sleeping = () => isSleeping(store.getMetadata(terminalId));
+    const dimmed = () =>
+      sleeping() || isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0);
     return (
       <Show when={store.getDisplayInfo(terminalId)}>
         {(info) => (
@@ -378,61 +386,8 @@ const TerminalCanvas: Component<{
             id={tileId}
             active={active()}
             mode={mode()}
-            dimmed={isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0)}
-            theme={tileTheme(terminalId)}
-            repoColor={info().repoColor}
-            onSelect={() => props.onSelect(tileId)}
-            onClose={() => props.onClose(tileId)}
-            onToggleMaximize={posture.toggle}
-            renderTitle={() => props.renderTileTitle(tileId)}
-            renderTitleActions={
-              props.renderTileTitleActions
-                ? () => props.renderTileTitleActions?.(tileId)
-                : undefined
-            }
-            renderBody={() =>
-              props.renderTileBody(
-                tileId,
-                () => tileStore.activeId() === tileId,
-              )
-            }
-            layouts={layouts()}
-            startResize={startResize}
-            panX={viewport.panX}
-            panY={viewport.panY}
-            zoom={viewport.zoom}
-            viewportSize={viewport.viewportSize}
-            auraTier={() => tileAuraOf(terminalId)}
-          />
-        )}
-      </Show>
-    );
-  }
-
-  /** Render a sleeping tile — a frozen, PTY-released terminal. Reuses
-   *  `CanvasTile` verbatim (drag / resize / focus / active / maximize all
-   *  inherit), differing only in WHAT renders inside: the body routes through
-   *  the same `props.renderTileBody`, which the caller (App) dispatches on
-   *  content kind to the dormant placeholder — so the canvas never knows about
-   *  `DormantTileBody` or wake. The moonlit ring resolves through `useTileAura`
-   *  keyed on `state` (decoupled from staleness); `dimmed`/`sleeping` are keyed
-   *  on `state === "sleeping"`, never on age. */
-  function renderSleepingTile(
-    tileId: TileId,
-    terminalId: TerminalId,
-  ): JSX.Element {
-    const active = () => tileStore.activeId() === tileId;
-    const mode = (): CanvasTileMode =>
-      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
-    return (
-      <Show when={store.getDisplayInfo(terminalId)}>
-        {(info) => (
-          <CanvasTile
-            id={tileId}
-            active={active()}
-            mode={mode()}
-            dimmed={true}
-            sleeping={true}
+            dimmed={dimmed()}
+            sleeping={sleeping()}
             theme={tileTheme(terminalId)}
             repoColor={info().repoColor}
             onSelect={() => props.onSelect(tileId)}
@@ -513,30 +468,18 @@ const TerminalCanvas: Component<{
            *  per-tile transforms (which also fold in layout coords + drag). */}
           <For each={props.tileIds}>
             {(id) => {
-              // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
-              // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
-              // keys each arm on a STABLE boolean (not `match(content())`, which
-              // would re-create the tile subtree every tick), the same
-              // discipline App.tsx's canvas-mode <Switch> relies on. Today the
-              // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
-              // inherits drag / resize / focus / active for free.
+              // A tile renders by WHAT IT HOLDS, never by its liveness — but the
+              // shell wiring is content-agnostic, so both content kinds route to
+              // the ONE `renderTerminalTile`, which derives its active/sleeping
+              // deltas from `meta` rather than restating the CanvasTile spread per
+              // kind. The body itself dispatches on content kind inside
+              // `props.renderTileBody`, so the canvas needs no per-kind branch
+              // here. `Show` gates on content presence (an absent id renders
+              // nothing); `terminalId === tileId` today.
               const content = () => tileStore.contentOf(id);
               return (
                 <Show when={content()}>
-                  {(c) => (
-                    <Switch>
-                      <Match when={c().kind === "terminal" && c()}>
-                        {(terminal) =>
-                          renderTerminalTile(id, terminal().terminalId)
-                        }
-                      </Match>
-                      <Match when={c().kind === "sleeping" && c()}>
-                        {(sleeping) =>
-                          renderSleepingTile(id, sleeping().terminalId)
-                        }
-                      </Match>
-                    </Switch>
-                  )}
+                  {(c) => renderTerminalTile(id, c().terminalId)}
                 </Show>
               );
             }}
