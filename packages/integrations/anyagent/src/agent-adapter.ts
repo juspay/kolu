@@ -200,11 +200,12 @@ export function matchesAgent(
   );
 }
 
-/** Structural equality over the shared AgentInfo shape (state, model, summary,
- *  contextTokens, startedAt, taskProgress), plus `kind`. One implementation
- *  serves every adapter — if a new integration wants a different equality
- *  contract, its Info shape is out of bounds anyway and needs to be addressed
- *  schema-side, not by forking the comparator. */
+/** Structural equality over every field of the shared `AgentInfoShape` (see
+ *  its definition for the canonical field set; `taskProgress` compared
+ *  deep, the rest by identity). One implementation serves every adapter — if
+ *  a new integration wants a different equality contract, its Info shape is
+ *  out of bounds anyway and needs to be addressed schema-side, not by forking
+ *  the comparator. */
 export function agentInfoEqual<A extends AgentInfoShape>(
   a: A | null,
   b: A | null,
