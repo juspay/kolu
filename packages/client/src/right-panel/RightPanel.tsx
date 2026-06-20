@@ -122,7 +122,7 @@ const RightPanel: Component<{
       <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
         <For each={TAB_KINDS}>
           {(kind) => {
-            const isActive = () => rightPanel.activeTab().kind === kind;
+            const isActive = () => isActiveKind(kind);
             return (
               <button
                 type="button"
@@ -171,7 +171,7 @@ const RightPanel: Component<{
       <div class="flex-1 min-h-0 overflow-hidden">
         <For each={TAB_KINDS}>
           {(kind) => {
-            const isActive = () => rightPanel.activeTab().kind === kind;
+            const isActive = () => isActiveKind(kind);
             return (
               <div
                 class={isActive() ? "h-full" : "hidden"}
