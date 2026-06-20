@@ -673,7 +673,7 @@ Then(
           expected,
         ),
       isDone: (visible) => visible === true,
-      onTick: () => nudgeFiles([mockTranscriptPath ?? undefined]),
+      onTick: () => nudgeFiles(mockTranscriptPath ? [mockTranscriptPath] : []),
       onTimeout: (_last, elapsed) =>
         new Error(
           `tile chrome never showed task progress "${expected}" within ${elapsed}ms`,
