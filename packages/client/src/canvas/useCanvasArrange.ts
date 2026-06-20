@@ -101,9 +101,10 @@ export function useCanvasArrange() {
     // tile at the bare center (the empty list skips the cascade — recovery
     // wants the known center, not collision avoidance) through the one home of
     // the center→top-left + grid-snap math.
-    const { x: cx, y: cy } = viewport.viewportCenter();
+    const center = viewport.viewportCenter();
+    if (!center) return;
     const layout: TileLayout = {
-      ...findFreeTilePosition(cx, cy, []),
+      ...findFreeTilePosition(center.x, center.y, []),
       w: DEFAULT_TILE_W,
       h: DEFAULT_TILE_H,
     };

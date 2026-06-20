@@ -172,7 +172,11 @@ const TerminalCanvas: Component<{
     on(
       () => props.tileIds,
       (ids) => {
-        const { x: cx, y: cy } = viewport.viewportCenter();
+        const center = viewport.viewportCenter();
+        // Container not mounted yet — defer placement; the effect re-runs when
+        // the tile list next changes (post-mount, with real dimensions).
+        if (!center) return;
+        const { x: cx, y: cy } = center;
         const placed: {
           id: TileId;
           layout: TileLayout;
