@@ -25,6 +25,14 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim
 The agent column buckets each AI agent's fine-grained state into `working` /
 `awaiting` / `waiting`; the PR column rolls its checks up to ✓ / ✗ / ·.
 
+On an interactive terminal both commands render a **live, truecolour** view
+([OpenTUI](https://opentui.com)): the agent state is coloured (working cyan,
+**awaiting you** amber) and the PR checks green/red, so the terminal that needs
+you stands out, and `watch` repaints in place as awareness changes. Piped output
+and `--json` stay plain text / JSON — the right output when there's no terminal
+to draw on. (The viewer runs on Bun for OpenTUI's native renderer; the `arivu`
+daemon stays on Node.)
+
 ## Short ids
 
 Terminal ids are uuids, so `list` prints just the first 8 characters; `watch`
