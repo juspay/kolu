@@ -420,39 +420,54 @@ let
   # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
   # provisionAgent's `nix copy` / `nix-store`).
   #
-  # `interpreter` defaults to pkgs.tsx so the kaval-tui call (which passes no
-  # interpreter) is byte-identical to before: tsx is invoked as `tsx <file>`,
-  # with the entry on `--add-flags`. arivu-tui passes `interpreter = pkgs.bun`
-  # / `interpreterBin = ".../bin/bun"`, which runs a .ts file directly
-  # (`bun <file>`, no subcommand) and is self-contained — so its caller also
-  # drops nodejs from `extraPath` (bun does not shell out to node) and adds
-  # LD_LIBRARY_PATH (via `extraWrapperArgs`) for @opentui/core's native
-  # renderer. These three args keep both shapes in one place without an
-  # override knob: they are baked build facts, not tunables.
+  # The JS RUNTIME is a single discriminated `runtime` argument, so a caller
+  # selects a named runtime instead of hand-assembling four coupled knobs (and
+  # cannot pick bun while forgetting its preload). It defaults to `{ kind =
+  # "tsx"; }`, so the kaval-tui call (which passes no runtime) is byte-identical
+  # to before: tsx is invoked as `tsx <file>`, with the entry on `--add-flags`,
+  # nodejs on PATH. The `bun` variant carries its own `preload` (a JS module that
+  # must precede the script) and `ldLib` (a native-lib package for
+  # LD_LIBRARY_PATH); the wrapper derives interpreterBin, the pre-entry flags,
+  # the PATH additions, and the LD_LIBRARY_PATH prefix from `runtime.kind`. bun
+  # runs a .ts file directly (`bun <file>`, no subcommand) and is self-contained,
+  # so the bun runtime drops nodejs from PATH. These are baked build facts, not
+  # tunables — the runtime argument is the receptacle, not an override knob.
   mkAgentTuiWrapper =
     { name
     , entry
     , envVar
     , agentDrvsJson
-    , interpreter ? pkgs.tsx
-    , interpreterBin ? "${interpreter}/bin/tsx"
-    , extraPath ? [ pkgs.nodejs ]
-    , extraWrapperArgs ? ""
-      # Flags injected BEFORE the entry file (e.g. bun's `--preload`, which must
-      # precede the script). Empty for tsx, so kaval-tui is byte-identical.
-    , preEntryFlags ? ""
+    , runtime ? { kind = "tsx"; }
     }:
+    let
+      rt =
+        if runtime.kind == "tsx" then {
+          interpreterBin = "${pkgs.tsx}/bin/tsx";
+          preEntryFlags = "";
+          extraPath = [ pkgs.nodejs ];
+          ldLibArgs = "";
+        }
+        else if runtime.kind == "bun" then {
+          interpreterBin = "${pkgs.bun}/bin/bun";
+          # bun's `--preload` must precede the entry script.
+          preEntryFlags = ''--add-flags "--preload" --add-flags "${runtime.preload}"'';
+          # bun is self-contained — the viewer never shells out to node.
+          extraPath = [ ];
+          ldLibArgs = "--prefix LD_LIBRARY_PATH : ${runtime.ldLib}/lib";
+        }
+        else throw "mkAgentTuiWrapper: unknown runtime.kind '${runtime.kind}'";
+    in
     pkgs.runCommand name
       {
         nativeBuildInputs = [ pkgs.makeWrapper ];
         meta.mainProgram = name;
       } ''
       mkdir -p $out/bin
-      makeWrapper ${interpreterBin} $out/bin/${name} \
-        ${preEntryFlags} \
+      makeWrapper ${rt.interpreterBin} $out/bin/${name} \
+        ${rt.preEntryFlags} \
         --add-flags "${kolu}/${entry}" \
-        --set ${envVar} '${agentDrvsJson}' ${extraWrapperArgs} \
-        --prefix PATH : ${pkgs.lib.makeBinPath (extraPath ++ [ pkgs.openssh pkgs.nix ])}
+        --set ${envVar} '${agentDrvsJson}' ${rt.ldLibArgs} \
+        --prefix PATH : ${pkgs.lib.makeBinPath (rt.extraPath ++ [ pkgs.openssh pkgs.nix ])}
     '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
@@ -528,19 +543,19 @@ let
     entry = "packages/arivu-tui/src/bin.ts";
     envVar = "ARIVU_AGENT_DRVS_JSON";
     agentDrvsJson = arivuAgentDrvsJson;
-    interpreter = pkgs.bun;
-    interpreterBin = "${pkgs.bun}/bin/bun";
-    # bun is self-contained — the viewer never shells out to node, so nodejs is
-    # NOT on PATH (openssh + nix are appended by mkAgentTuiWrapper for --host).
-    extraPath = [ ];
-    # @opentui/solid's preload registers the babel-preset-solid JSX transform so
-    # `<box>`/`<text>` in tui.tsx compile to Solid's reactive output. It must run
-    # BEFORE bin.ts, hence preEntryFlags. By ABSOLUTE store path because bun finds
-    # bunfig.toml only relative to cwd (which the viewer can't assume) — the
-    # committed packages/arivu-tui/bunfig.toml covers `pnpm start` in dev instead.
-    preEntryFlags = ''--add-flags "--preload" --add-flags "${kolu}/packages/arivu-tui/node_modules/@opentui/solid/scripts/preload.js"'';
-    # libstdc++ for @opentui/core's native renderer (Bun.dlopen libopentui.so).
-    extraWrapperArgs = "--prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib";
+    # The bun runtime: the wrapper derives interpreterBin, the pre-entry preload
+    # flag, the (empty) PATH additions, and the LD_LIBRARY_PATH prefix from this.
+    runtime = {
+      kind = "bun";
+      # @opentui/solid's preload registers the babel-preset-solid JSX transform so
+      # `<box>`/`<text>` in tui.tsx compile to Solid's reactive output. By ABSOLUTE
+      # store path because bun finds bunfig.toml only relative to cwd (which the
+      # viewer can't assume) — the committed packages/arivu-tui/bunfig.toml covers
+      # `pnpm start` in dev instead.
+      preload = "${kolu}/packages/arivu-tui/node_modules/@opentui/solid/scripts/preload.js";
+      # libstdc++ for @opentui/core's native renderer (Bun.dlopen libopentui.so).
+      ldLib = pkgs.stdenv.cc.cc.lib;
+    };
   };
 
   # @kolu/surface example demos — derivations live next to each demo's
