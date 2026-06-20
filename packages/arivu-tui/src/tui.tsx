@@ -114,6 +114,29 @@ export async function runDashboardTui(args: {
 }): Promise<void> {
   const [store, setStore] = createStore<Record<string, AwarenessValue>>({});
 
+  // A full-screen renderer OWNS the terminal: any stray write to the tty
+  // mid-render shreds the alt-screen. Over a `--host` dial the connection layer
+  // forwards the remote daemon's stderr to ours (and writes `[host:…]` progress
+  // lines) — those would corrupt the live table the moment a log arrives.
+  // Capture stderr for the render's lifetime into a capped ring and replay it
+  // once the renderer has torn down (the `finally` below): deferred off the
+  // alt-screen, never lost. Lowering the daemon's log level only thinned this
+  // stream — a single forwarded line still corrupts; owning the terminal fixes
+  // it at the cause.
+  const STDERR_DEFER_CAP = 500;
+  const deferredErr: string[] = [];
+  const realStderrWrite = process.stderr.write.bind(process.stderr);
+  const captureStderr = ((chunk: unknown, ...rest: unknown[]): boolean => {
+    deferredErr.push(typeof chunk === "string" ? chunk : String(chunk));
+    if (deferredErr.length > STDERR_DEFER_CAP) deferredErr.shift();
+    // Honour write()'s callback contract so a caller awaiting the flush resumes.
+    const cb = rest.find((a) => typeof a === "function") as
+      | ((err?: Error | null) => void)
+      | undefined;
+    cb?.();
+    return true;
+  }) as typeof process.stderr.write;
+
   let renderer: CliRenderer | undefined;
   let quitting = false;
   let resolveDone!: () => void;
@@ -172,24 +195,33 @@ export async function runDashboardTui(args: {
   }
 
   let renderErr: unknown;
-  render(() => <App />, {
-    screenMode: "alternate-screen",
-    exitOnCtrlC: true,
-    exitSignals: ["SIGINT", "SIGTERM"],
-    clearOnShutdown: true,
-    // Read-only viewer — no pointer/keyboard input modes to leave on at exit.
-    useMouse: false,
-    enableMouseMovement: false,
-    useKittyKeyboard: null,
-    // Ctrl-C / a kill signal tear the renderer down through OpenTUI's own exit
-    // path — finish the same teardown (dispose the link, release the awaiter).
-    onDestroy: () => quit(),
-  }).catch((err) => {
-    renderErr = err;
-    quit();
-  });
+  // Take the terminal over: from here until teardown, stderr is deferred.
+  process.stderr.write = captureStderr;
+  try {
+    render(() => <App />, {
+      screenMode: "alternate-screen",
+      exitOnCtrlC: true,
+      exitSignals: ["SIGINT", "SIGTERM"],
+      clearOnShutdown: true,
+      // Read-only viewer — no pointer/keyboard input modes to leave on at exit.
+      useMouse: false,
+      enableMouseMovement: false,
+      useKittyKeyboard: null,
+      // Ctrl-C / a kill signal tear the renderer down through OpenTUI's own exit
+      // path — finish the same teardown (dispose the link, release the awaiter).
+      onDestroy: () => quit(),
+    }).catch((err) => {
+      renderErr = err;
+      quit();
+    });
 
-  await done;
-  await mirror;
+    await done;
+    await mirror;
+  } finally {
+    // Alt-screen is gone now — restore stderr and replay what arrived during the
+    // render, so a forwarded daemon error is visible rather than swallowed.
+    process.stderr.write = realStderrWrite;
+    if (deferredErr.length) realStderrWrite(deferredErr.join(""));
+  }
   if (renderErr) throw renderErr;
 }
