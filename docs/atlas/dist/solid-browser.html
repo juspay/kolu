@@ -1,0 +1,458 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Code tab is a browser → @kolu/solid-browser · the kolu Atlas</title><meta name="description" content="The real electricity hiding in the Code tab isn't a history stack — it's the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver."><meta name="generator" content="Astro v6.4.8"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/solid-browser.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="The Code tab is a browser → @kolu/solid-browser · the kolu Atlas"><meta property="og:description" content="The real electricity hiding in the Code tab isn't a history stack — it's the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/solid-browser.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-10T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="The Code tab is a browser → @kolu/solid-browser · the kolu Atlas"><meta name="twitter:description" content="The real electricity hiding in the Code tab isn't a history stack — it's the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}.backlinks[data-astro-cid-3hqllcy6]{margin:2.5rem 0 0;padding-top:1.25rem;border-top:1px solid var(--rule)}.backlinks-h[data-astro-cid-3hqllcy6]{margin:0 0 .7rem;font-family:var(--sans);font-size:.72rem;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}.backlinks-list[data-astro-cid-3hqllcy6]{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.45rem 1rem}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]{font-size:.92rem;color:var(--ink-dim);text-decoration:none;border-bottom:1px solid var(--rule)}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]:hover{color:var(--amber);border-color:var(--amber)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.d2[data-astro-cid-ildmikun]{margin:1.75rem 0;text-align:center}.d2[data-astro-cid-ildmikun] svg{max-width:100%;height:auto}.d2[data-astro-cid-ildmikun] figcaption[data-astro-cid-ildmikun]{margin-top:.5rem;font-size:.8rem;color:var(--faint, #7a8089);font-family:var(--sans, ui-sans-serif, system-ui)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.cite[data-astro-cid-lwmcem6b]{font-family:var(--mono);font-size:.85em;color:var(--ink);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.04em .35em;text-decoration:none;white-space:nowrap}.cite[data-astro-cid-lwmcem6b]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">The Code tab is a browser → @kolu/solid-browser</h1> <div class="meta-row"> <span>Features</span><span class="meta-sep">·</span> <span>seedling</span> <span class="meta-sep">·</span><span>implemented</span>  <span class="meta-sep">·</span><time datetime="2026-06-10T00:00:00.000Z">JUN 10, 2026</time> </div> <p class="note-sub">The real electricity hiding in the Code tab isn&#39;t a history stack — it&#39;s the browser. Extract the location + history + link-navigation shell that drives @kolu/solid-fileview over a resolver; back/forward falls out for free, and git becomes an injected resolver.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-code-tab-is-already-a-browser" data-astro-cid-lht5lwky>The Code tab is already a browser</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-tell-the-renderers-are-already-extracted-the-shell-isnt" data-astro-cid-lht5lwky>The tell: the renderers are already extracted; the shell isn’t</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#openincodetabrequest-is-already-a-url" data-astro-cid-lht5lwky>OpenInCodeTabRequest is already a URL</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-electricity--kolusolid-browser" data-astro-cid-lht5lwky>The electricity — @kolu/solid-browser</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#does-browser-clear-the-electricity-bar-where-history-didnt" data-astro-cid-lht5lwky>Does “browser” clear the electricity bar where “history” didn’t?</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-design" data-astro-cid-lht5lwky>The design</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-seam--split-assign-from-record" data-astro-cid-lht5lwky>The seam — split assign from record</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-feature-that-rides-out-for-free--unified-backforward" data-astro-cid-lht5lwky>The feature that rides out for free — unified back/forward</a>  </li> </ul> </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#building-it" data-astro-cid-lht5lwky>Building it</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#files-this-touches" data-astro-cid-lht5lwky>Files this touches</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#phasing--extract-first-then-light-the-feature" data-astro-cid-lht5lwky>Phasing — extract first, then light the feature</a>  </li> </ul> </li> </ul></nav> </header> <div class="prose"> <p>Plan of record · branch <code>md-back-link</code> · <strong>phases 1 + 2 shipped</strong> in <a href="https://github.com/juspay/kolu/pull/1191" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1191 </a></p>
+
+<p>The question that started this was small: <em>what does it take to add back/forward
+navigation to the Code tab’s preview?</em> The answer kept wanting to be “a history
+stack.” That answer is wrong — not incorrect, but <strong>mis-scoped</strong>. A history stack
+is a transformer: a working part <em>inside</em> a concept. The concept is the
+<strong>browser</strong>, and it has been hiding in the Code tab the whole time.</p>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>The thesis — the Code tab is a browser wearing git as a costume</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Strip git off the Code tab and what remains is a general capability: <strong>render a
+space of interlinked, typed documents; follow links between them; go back and
+forward.</strong> That is a browser engine. History is one organ of it — alongside the
+location model, the link interceptor, and the resolver; the <em>rendering</em> of any
+one document is already solved by <code>@kolu/solid-fileview</code>, which the browser
+composes. The electricity is not “history”; it is <strong><code>@kolu/solid-browser</code></strong>. git
+becomes an injected resolver, and back/forward falls out for free — a browser has
+history the way a heart has chambers.</p></div> </aside>
+<div style="margin:1.5rem 0;border:1px solid #d9d4c6;border-radius:12px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.07);font-family:ui-sans-serif,system-ui"><div style="display:flex;align-items:center;gap:.55rem;padding:.5rem .8rem;background:#f3f0e7;border-bottom:1px solid #e6e2d6"><span style="display:inline-flex;gap:.3rem"><span style="width:1.6rem;height:1.6rem;display:grid;place-items:center;border-radius:6px;background:#fff;border:1px solid #ddd6c6;color:#3454d1;font:700 .85rem/1 ui-monospace,monospace">◀</span><span style="width:1.6rem;height:1.6rem;display:grid;place-items:center;border-radius:6px;background:#fff;border:1px solid #ece7da;color:#c2bdaf;font:700 .85rem/1 ui-monospace,monospace;opacity:0.4">▶</span></span><code style="flex:1;font-size:.72rem;color:#3a3f47;background:#fff;border:1px solid #e2ddcf;border-radius:7px;padding:.35rem .6rem;word-break:break-all">browse · docs/atlas/src/content/atlas/electricity.mdx<span style="color:#a89f86">#L18</span></code></div><div style="padding:.9rem 1rem;background:#fff;font-size:.78rem;color:#4a4f57;line-height:1.55"><strong style="color:#1b1f24">rendered Markdown</strong> — click a repo-relative link → the browser navigates → ◀ goes back to where you were, scroll and highlight intact. Same engine renders source, HTML, SVG, PDF.<div style="margin-top:.6rem;padding-top:.55rem;border-top:1px dashed #e6e2d6;font-size:.74rem;color:#7a8089">git is not in this picture. The browser resolves <code>location → content</code> through an injected resolver; kolu&#39;s resolver is the only part that knows &quot;repo-relative path + mode.&quot;</div></div></div>
+<h2 id="the-code-tab-is-already-a-browser">The Code tab is already a browser</h2>
+<p>The reframe is one move — name the <em>concept</em>, not a mechanism inside it. Two
+observations make that concrete.</p>
+<h3 id="the-tell-the-renderers-are-already-extracted-the-shell-isnt">The tell: the renderers are already extracted; the <em>shell</em> isn’t</h3>
+<p>kolu already pulled the appliances out into packages — <a href="https://github.com/juspay/kolu/pull/1079" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1079 </a>
+(<code>@kolu/solid-markdown</code>), <a href="https://github.com/juspay/kolu/pull/1082" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1082 </a> (<code>@kolu/solid-fileview</code>),
+<code>@kolu/solid-pierre</code> (source). See <a href="solid-fileview">solid-fileview</a> — “invent the
+grid, slim the house.” What that effort extracted was <strong>how a single document
+renders</strong>. What it left behind, still smeared across the client, is the layer
+<em>above</em> a single document: <strong>how you move between documents.</strong> That layer is the
+browser, and today it is complected across five files:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Smeared across</th><th>Owns (a browser organ)</th></tr></thead><tbody><tr><td><code>right-panel/openInCodeTab.ts</code> <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/openInCodeTab.ts#L78-L85" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/openInCodeTab.ts:78-85</a></td><td>The <strong>address bar</strong> — the single “navigate to this location” front door.</td></tr><tr><td><code>right-panel/CodeTab.tsx</code> <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/CodeTab.tsx#L515-L542" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/CodeTab.tsx:515-542</a></td><td><code>handleSelect</code> — the <strong>navigation controller</strong> (apply a location to the view).</td></tr><tr><td><code>right-panel/markdownImageSrc.ts</code> → now <code>solid-browser/src/relativePath.ts</code> <a href="https://github.com/juspay/kolu/blob/master/packages/solid-browser/src/relativePath.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/solid-browser/src/relativePath.ts</a></td><td><strong>Relative-link resolution</strong> (GitHub rules) — agnostic URI math.</td></tr><tr><td><code>right-panel/iframePreviewNav.ts</code> → now <code>solid-browser/src/previewPath.ts</code> <a href="https://github.com/juspay/kolu/blob/master/packages/solid-browser/src/previewPath.ts" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/solid-browser/src/previewPath.ts</a></td><td><strong>In-frame link interception</strong> — map an iframe <code>pathname</code> back to a location.</td></tr><tr><td><code>right-panel/BrowseIframeRenderer.tsx</code> <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/BrowseIframeRenderer.tsx#L56-L64" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/BrowseIframeRenderer.tsx:56-64</a></td><td><strong>In-iframe link observation</strong> — a navigation edge <em>out</em> of rendered HTML (the iframe <em>drawing</em> is already <code>@kolu/solid-fileview</code>’s).</td></tr></tbody></table>
+<p>None of these is <em>about git</em>, and none is <em>about how a file draws</em> (that’s
+<code>@kolu/solid-fileview</code>). They are about <strong>locations, links, and history</strong> — the
+vocabulary of a browser.</p>
+<h3 id="openincodetabrequest-is-already-a-url"><code>OpenInCodeTabRequest</code> is already a URL</h3>
+<p>Look at the front-door request shape <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/openInCodeTab.ts#L31-L54" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/openInCodeTab.ts:31-54</a>:</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#24292E">{ </span><span style="color:#6F42C1">ref</span><span style="color:#24292E">: { path, startLine, endLine }, repoRoot, cwd, targetMode, allowBasenameFallback }</span></span></code></pre>
+<p>That is a URL. <code>ref</code> is the path + fragment; <code>targetMode</code> is which “site”
+(<code>browse</code>/<code>local</code>/<code>branch</code>); <code>repoRoot</code>/<code>cwd</code> are the base href. And
+<code>openInCodeTab()</code> is already <code>location.assign()</code> — the single producer-side entry
+every navigation routes through, which is <em>why</em> relative Markdown links
+(<a href="md-preview-relative-links">#1161</a>, <a href="https://github.com/juspay/kolu/pull/1190" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1190 </a>) and terminal <code>path:N</code>
+links and the right-click <em>Open path</em> menu all funnel into it. The browser is
+half-built; it is missing only <code>history.back()</code>/<code>forward()</code> and the popstate
+semantics over a stack of these locations.</p>
+<h2 id="the-electricity--kolusolid-browser">The electricity — <code>@kolu/solid-browser</code></h2>
+<p>A standalone package. <strong>As shipped</strong> (phases 1 + 2) it depends on
+<code>@kolu/url-shape</code> + <code>solid-js</code> and nothing kolu — the dependency arrow points
+<strong>out</strong> of the client, never back in. It owns URIs, locations, links, and history
+(<code>createBrowser</code> is the reactive history controller). It knows nothing of git,
+repos, modes, terminals — nor of how any single format renders (that is
+fileview’s). The diagram below draws the <strong>full target</strong> shape, including the
+parts still deferred: a <code>&lt;Browser&gt;</code> component that composes <code>@kolu/solid-fileview</code>
+to draw whatever a location resolves to. Today the host (<code>CodeTab</code>) keeps both
+rendering paths and consumes only the history controller + the path utilities —
+so the package depends on <code>@kolu/solid-fileview</code> only <em>once <code>&lt;Browser&gt;</code> lands</em>,
+not now (see the phase-2 as-built callout for why <code>&lt;Browser&gt;</code> is deferred).</p>
+<figure class="d2" data-astro-cid-ildmikun> <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" data-d2-version="v0.7.1" preserveAspectRatio="xMinYMin meet" viewBox="0 0 1441 961"><svg class="d2-1213733694 d2-svg" width="1441" height="961" viewBox="-7 -37 1441 961"><rect x="-7.000000" y="-37.000000" width="1441.000000" height="961.000000" rx="0.000000" fill="#FFFFFF" class=" fill-N7" stroke-width="0" /><style type="text/css"><![CDATA[
+.d2-1213733694 .text {
+	font-family: "d2-1213733694-font-regular";
+}
+@font-face {
+	font-family: d2-1213733694-font-regular;
+	src: url("data:application/font-woff;base64,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");
+}
+.d2-1213733694 .text-bold {
+	font-family: "d2-1213733694-font-bold";
+}
+@font-face {
+	font-family: d2-1213733694-font-bold;
+	src: url("data:application/font-woff;base64,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");
+}
+.d2-1213733694 .text-italic {
+	font-family: "d2-1213733694-font-italic";
+}
+@font-face {
+	font-family: d2-1213733694-font-italic;
+	src: url("data:application/font-woff;base64,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");
+}]]></style><style type="text/css"><![CDATA[.shape {
+  shape-rendering: geometricPrecision;
+  stroke-linejoin: round;
+}
+.connection {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.blend {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+		.d2-1213733694 .fill-N1{fill:#0A0F25;}
+		.d2-1213733694 .fill-N2{fill:#676C7E;}
+		.d2-1213733694 .fill-N3{fill:#9499AB;}
+		.d2-1213733694 .fill-N4{fill:#CFD2DD;}
+		.d2-1213733694 .fill-N5{fill:#DEE1EB;}
+		.d2-1213733694 .fill-N6{fill:#EEF1F8;}
+		.d2-1213733694 .fill-N7{fill:#FFFFFF;}
+		.d2-1213733694 .fill-B1{fill:#0D32B2;}
+		.d2-1213733694 .fill-B2{fill:#0D32B2;}
+		.d2-1213733694 .fill-B3{fill:#E3E9FD;}
+		.d2-1213733694 .fill-B4{fill:#E3E9FD;}
+		.d2-1213733694 .fill-B5{fill:#EDF0FD;}
+		.d2-1213733694 .fill-B6{fill:#F7F8FE;}
+		.d2-1213733694 .fill-AA2{fill:#4A6FF3;}
+		.d2-1213733694 .fill-AA4{fill:#EDF0FD;}
+		.d2-1213733694 .fill-AA5{fill:#F7F8FE;}
+		.d2-1213733694 .fill-AB4{fill:#EDF0FD;}
+		.d2-1213733694 .fill-AB5{fill:#F7F8FE;}
+		.d2-1213733694 .stroke-N1{stroke:#0A0F25;}
+		.d2-1213733694 .stroke-N2{stroke:#676C7E;}
+		.d2-1213733694 .stroke-N3{stroke:#9499AB;}
+		.d2-1213733694 .stroke-N4{stroke:#CFD2DD;}
+		.d2-1213733694 .stroke-N5{stroke:#DEE1EB;}
+		.d2-1213733694 .stroke-N6{stroke:#EEF1F8;}
+		.d2-1213733694 .stroke-N7{stroke:#FFFFFF;}
+		.d2-1213733694 .stroke-B1{stroke:#0D32B2;}
+		.d2-1213733694 .stroke-B2{stroke:#0D32B2;}
+		.d2-1213733694 .stroke-B3{stroke:#E3E9FD;}
+		.d2-1213733694 .stroke-B4{stroke:#E3E9FD;}
+		.d2-1213733694 .stroke-B5{stroke:#EDF0FD;}
+		.d2-1213733694 .stroke-B6{stroke:#F7F8FE;}
+		.d2-1213733694 .stroke-AA2{stroke:#4A6FF3;}
+		.d2-1213733694 .stroke-AA4{stroke:#EDF0FD;}
+		.d2-1213733694 .stroke-AA5{stroke:#F7F8FE;}
+		.d2-1213733694 .stroke-AB4{stroke:#EDF0FD;}
+		.d2-1213733694 .stroke-AB5{stroke:#F7F8FE;}
+		.d2-1213733694 .background-color-N1{background-color:#0A0F25;}
+		.d2-1213733694 .background-color-N2{background-color:#676C7E;}
+		.d2-1213733694 .background-color-N3{background-color:#9499AB;}
+		.d2-1213733694 .background-color-N4{background-color:#CFD2DD;}
+		.d2-1213733694 .background-color-N5{background-color:#DEE1EB;}
+		.d2-1213733694 .background-color-N6{background-color:#EEF1F8;}
+		.d2-1213733694 .background-color-N7{background-color:#FFFFFF;}
+		.d2-1213733694 .background-color-B1{background-color:#0D32B2;}
+		.d2-1213733694 .background-color-B2{background-color:#0D32B2;}
+		.d2-1213733694 .background-color-B3{background-color:#E3E9FD;}
+		.d2-1213733694 .background-color-B4{background-color:#E3E9FD;}
+		.d2-1213733694 .background-color-B5{background-color:#EDF0FD;}
+		.d2-1213733694 .background-color-B6{background-color:#F7F8FE;}
+		.d2-1213733694 .background-color-AA2{background-color:#4A6FF3;}
+		.d2-1213733694 .background-color-AA4{background-color:#EDF0FD;}
+		.d2-1213733694 .background-color-AA5{background-color:#F7F8FE;}
+		.d2-1213733694 .background-color-AB4{background-color:#EDF0FD;}
+		.d2-1213733694 .background-color-AB5{background-color:#F7F8FE;}
+		.d2-1213733694 .color-N1{color:#0A0F25;}
+		.d2-1213733694 .color-N2{color:#676C7E;}
+		.d2-1213733694 .color-N3{color:#9499AB;}
+		.d2-1213733694 .color-N4{color:#CFD2DD;}
+		.d2-1213733694 .color-N5{color:#DEE1EB;}
+		.d2-1213733694 .color-N6{color:#EEF1F8;}
+		.d2-1213733694 .color-N7{color:#FFFFFF;}
+		.d2-1213733694 .color-B1{color:#0D32B2;}
+		.d2-1213733694 .color-B2{color:#0D32B2;}
+		.d2-1213733694 .color-B3{color:#E3E9FD;}
+		.d2-1213733694 .color-B4{color:#E3E9FD;}
+		.d2-1213733694 .color-B5{color:#EDF0FD;}
+		.d2-1213733694 .color-B6{color:#F7F8FE;}
+		.d2-1213733694 .color-AA2{color:#4A6FF3;}
+		.d2-1213733694 .color-AA4{color:#EDF0FD;}
+		.d2-1213733694 .color-AA5{color:#F7F8FE;}
+		.d2-1213733694 .color-AB4{color:#EDF0FD;}
+		.d2-1213733694 .color-AB5{color:#F7F8FE;}.appendix text.text{fill:#0A0F25}.md{--color-fg-default:#0A0F25;--color-fg-muted:#676C7E;--color-fg-subtle:#9499AB;--color-canvas-default:#FFFFFF;--color-canvas-subtle:#EEF1F8;--color-border-default:#0D32B2;--color-border-muted:#0D32B2;--color-neutral-muted:#EEF1F8;--color-accent-fg:#0D32B2;--color-accent-emphasis:#0D32B2;--color-attention-subtle:#676C7E;--color-danger-fg:red;}.sketch-overlay-B1{fill:url(#streaks-darker-d2-1213733694);mix-blend-mode:lighten}.sketch-overlay-B2{fill:url(#streaks-darker-d2-1213733694);mix-blend-mode:lighten}.sketch-overlay-B3{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-B4{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-B5{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-B6{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-AA2{fill:url(#streaks-dark-d2-1213733694);mix-blend-mode:overlay}.sketch-overlay-AA4{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-AA5{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-AB4{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-AB5{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-N1{fill:url(#streaks-darker-d2-1213733694);mix-blend-mode:lighten}.sketch-overlay-N2{fill:url(#streaks-dark-d2-1213733694);mix-blend-mode:overlay}.sketch-overlay-N3{fill:url(#streaks-normal-d2-1213733694);mix-blend-mode:color-burn}.sketch-overlay-N4{fill:url(#streaks-normal-d2-1213733694);mix-blend-mode:color-burn}.sketch-overlay-N5{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-N6{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.sketch-overlay-N7{fill:url(#streaks-bright-d2-1213733694);mix-blend-mode:darken}.light-code{display: block}.dark-code{display: none}]]></style><g class="a29sdQ=="><g class="shape" ><rect x="381.000000" y="20.000000" width="1036.000000" height="126.000000" stroke="#0D32B2" fill="#E3E9FD" class=" stroke-B1 fill-B4" style="stroke-width:2;" /></g><text x="899.000000" y="7.000000" fill="#0A0F25" class="text fill-N1" style="text-anchor:middle;font-size:28px">kolu app — the consumer</text></g><g class="YnJvd3Nlcg=="><g class="shape" ><rect x="10.000000" y="307.000000" width="1201.000000" height="126.000000" stroke="#0D32B2" fill="#E3E9FD" class=" stroke-B1 fill-B4" style="stroke-width:2;" /></g><text x="610.500000" y="294.000000" fill="#0A0F25" class="text fill-N1" style="text-anchor:middle;font-size:28px">@kolu/solid-browser — the electricity</text></g><g class="ZmlsZXZpZXc="><g class="shape" ><rect x="850.000000" y="574.000000" width="462.000000" height="66.000000" stroke="#0D32B2" fill="#F7F8FE" class=" stroke-B1 fill-B6" style="stroke-width:2;" /></g><text x="1081.000000" y="612.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">@kolu/solid-fileview — the viewport (one FileData + toggle)</text></g><g class="YXBwbGlhbmNlcw=="><g class="shape" ><rect x="817.000000" y="781.000000" width="512.000000" height="126.000000" stroke="#0D32B2" fill="#E3E9FD" class=" stroke-B1 fill-B4" style="stroke-width:2;" /></g><text x="1073.000000" y="768.000000" fill="#0A0F25" class="text fill-N1" style="text-anchor:middle;font-size:28px">appliances</text></g><g class="a29sdS5Db2RlVGFi"><g class="shape" ><rect x="411.000000" y="50.000000" width="218.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="520.000000" y="88.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">right-panel/CodeTab.tsx</text></g><g class="a29sdS5naXRSZXNvbHZlcg=="><g class="shape" ><rect x="1074.000000" y="50.000000" width="313.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="1230.500000" y="88.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">gitResolver.ts (git domain) — deferred</text></g><g class="YnJvd3Nlci5sb2NhdGlvbg=="><g class="shape" ><rect x="40.000000" y="337.000000" width="102.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="91.000000" y="375.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">location</text></g><g class="YnJvd3Nlci5oaXN0b3J5"><g class="shape" ><rect x="202.000000" y="337.000000" width="340.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="372.000000" y="375.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">createBrowser (back / forward) — shipped</text></g><g class="YnJvd3Nlci5saW5rTmF2"><g class="shape" ><rect x="602.000000" y="337.000000" width="319.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="761.500000" y="375.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">linkNav (resolve + intercept) — shipped</text></g><g class="YnJvd3Nlci5icm93c2VyQ29tcA=="><g class="shape" ><rect x="981.000000" y="337.000000" width="200.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="1081.000000" y="375.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">&lt;Browser&gt; — deferred</text></g><g class="YXBwbGlhbmNlcy5tZA=="><g class="shape" ><rect x="847.000000" y="811.000000" width="213.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="953.500000" y="849.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">@kolu/solid-markdown</text></g><g class="YXBwbGlhbmNlcy5waWVycmU="><g class="shape" ><rect x="1120.000000" y="811.000000" width="179.000000" height="66.000000" stroke="#0D32B2" fill="#EDF0FD" class=" stroke-B1 fill-B5" style="stroke-width:2;" /></g><text x="1209.500000" y="849.500000" fill="#0A0F25" class="text-bold fill-N1" style="text-anchor:middle;font-size:16px">@kolu/solid-pierre</text></g><g class="KGtvbHUuQ29kZVRhYiAtJmd0OyBicm93c2VyLmhpc3RvcnkpWzBd"><marker id="mk-d2-1213733694-3488378134" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B1" stroke-width="2" /> </marker><path d="M 459.256326 116.979592 C 389.799988 156.000000 372.000000 178.100006 372.000000 196.250000 C 372.000000 214.399994 372.000000 297.000000 372.000000 333.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1213733694-3488378134)" mask="url(#d2-1213733694)" /><text x="372.500000" y="208.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">records / replays navigation (shipped)</text></g><g class="KGtvbHUuQ29kZVRhYiAtJmd0OyBicm93c2VyLmJyb3dzZXJDb21wKVswXQ=="><marker id="mk-d2-1213733694-2177206569" markerWidth="10.000000" markerHeight="12.000000" refX="7.000000" refY="6.000000" viewBox="0.000000 0.000000 10.000000 12.000000" orient="auto" markerUnits="userSpaceOnUse"> <polygon points="0.000000,0.000000 10.000000,6.000000 0.000000,12.000000" fill="#0D32B2" class="connection fill-B2" stroke-width="2" /> </marker><path d="M 631.197337 108.975935 C 825.650024 154.503998 874.750000 178.100006 874.750000 196.250000 C 874.750000 214.399994 899.549988 297.000000 995.040234 335.504127" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:8.000000,7.892511;" marker-end="url(#mk-d2-1213733694-2177206569)" mask="url(#d2-1213733694)" /><text x="863.000000" y="178.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">mounts &lt;Browser&gt;, injects renderers (deferred)</text></g><g class="KGtvbHUuZ2l0UmVzb2x2ZXIgLSZndDsgYnJvd3Nlci5icm93c2VyQ29tcClbMF0="><path d="M 1230.250000 118.000000 C 1230.250000 156.000000 1230.250000 178.100006 1230.250000 196.250000 C 1230.250000 214.399994 1212.250000 297.000000 1143.746629 335.057428" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:8.000000,7.892511;" marker-end="url(#mk-d2-1213733694-2177206569)" mask="url(#d2-1213733694)" /><text x="1222.500000" y="253.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">resolve(location) -&gt; FileData (deferred)</text></g><g class="KGJyb3dzZXIuYnJvd3NlckNvbXAgLSZndDsgZmlsZXZpZXcpWzBd"><path d="M 1081.000000 405.000000 C 1081.000000 443.000000 1081.000000 525.700012 1081.000000 570.500000" stroke="#0D32B2" fill="none" class="connection stroke-B2" style="stroke-width:2;stroke-dasharray:8.000000,7.892511;" marker-end="url(#mk-d2-1213733694-2177206569)" mask="url(#d2-1213733694)" /><text x="1081.500000" y="494.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">composes (deferred)</text></g><g class="KGZpbGV2aWV3IC0mZ3Q7IGFwcGxpYW5jZXMubWQpWzBd"><path d="M 1034.388425 640.684410 C 969.599976 688.299988 953.000000 771.000000 953.000000 807.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1213733694-3488378134)" mask="url(#d2-1213733694)" /><text x="965.500000" y="714.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">draws</text></g><g class="KGZpbGV2aWV3IC0mZ3Q7IGFwcGxpYW5jZXMucGllcnJlKVswXQ=="><path d="M 1127.611575 640.684410 C 1192.400024 688.299988 1209.000000 771.000000 1209.000000 807.000000" stroke="#0D32B2" fill="none" class="connection stroke-B1" style="stroke-width:2;" marker-end="url(#mk-d2-1213733694-3488378134)" mask="url(#d2-1213733694)" /><text x="1196.500000" y="714.000000" fill="#676C7E" class="text-italic fill-N2" style="text-anchor:middle;font-size:16px">draws</text></g><mask id="d2-1213733694" maskUnits="userSpaceOnUse" x="-7" y="-37" width="1441" height="961">
+<rect x="-7" y="-37" width="1441" height="961" fill="white"></rect>
+<rect x="247.000000" y="192.000000" width="251" height="21" fill="black"></rect>
+<rect x="708.000000" y="162.000000" width="310" height="21" fill="black"></rect>
+<rect x="1095.000000" y="237.000000" width="255" height="21" fill="black"></rect>
+<rect x="1013.000000" y="478.000000" width="137" height="21" fill="black"></rect>
+<rect x="943.000000" y="698.000000" width="45" height="21" fill="black"></rect>
+<rect x="1174.000000" y="698.000000" width="45" height="21" fill="black"></rect>
+</mask></svg></svg>
+ <figcaption data-astro-cid-ildmikun>Architectural connections — the target shape. SOLID edges are shipped (CodeTab drives createBrowser; the package depends only on @kolu/url-shape + solid-js). DASHED edges (mounts &lt;Browser&gt;, composes &lt;FileView&gt;, the gitResolver injection) are DEFERRED — see the phase-2 callout. git lives only in the injected resolver.</figcaption> </figure>
+<p>Once <code>&lt;Browser&gt;</code> lands, what the host <strong>injects</strong> is exactly the volatility kolu
+owns:</p>
+<ul>
+<li><strong><code>resolve(location) → FileData</code></strong> — the only part that knows “repo-relative
+path + git mode → file bytes,” producing the <code>{ path, source?, url? }</code>
+<code>FileData</code> that <code>@kolu/solid-fileview</code> draws. Swap it and the same browser
+reads HTTP, ssh, an artifact store.</li>
+<li><strong>The renderers <code>FileView</code> draws with</strong> — <code>@kolu/solid-markdown</code> / <code>-pierre</code>
+and the iframe/image appliances, forwarded straight through to <code>&lt;FileView&gt;</code>.
+The browser owns <em>no</em> renderer and <em>no</em> render dispatch (<code>match(path)</code> is
+fileview’s); it decides only <em>which location</em> to show.</li>
+<li><strong>Chrome via slots</strong> — the file tree and <code>browse/local/branch</code> mode chips.</li>
+</ul>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Layered on @kolu/solid-fileview — the viewport vs. the browser</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The split is clean and one-directional. <strong><code>@kolu/solid-fileview</code> is the
+viewport</strong>: hand it one <code>FileData</code> (path + optional <code>source</code> text + optional
+rendered <code>url</code>) and a renderer list, and it draws <em>that one document</em> with the
+Source⇄Rendered toggle, picking a renderer by <code>match(path)</code>. It knows nothing of
+navigation. <strong><code>@kolu/solid-browser</code> is the browser around it</strong>: it owns <em>which</em>
+document (a location), <em>where content comes from</em> (<code>resolve(location) → FileData</code>), <em>history</em>, and <em>links to other documents</em> — then hands the resolved
+<code>FileData</code> down to a <code>&lt;FileView&gt;</code>. Dependency arrow: <code>solid-browser → solid-fileview → solid-markdown</code>/<code>-pierre</code>, acyclic; the viewport never learns
+there’s a back button. Two volatilities stacked: fileview encapsulates <em>how one
+file is viewed</em>; the browser encapsulates <em>how you move through a space of
+files</em>. fileview’s own <code>types.ts</code> already calls <code>FileView</code> “the outlet the
+<strong>Code-browser</strong> preview plan describes” — this is that browser.</p></div> </aside>
+<h3 id="does-browser-clear-the-electricity-bar-where-history-didnt">Does “browser” clear the electricity bar where “history” didn’t?</h3>
+<p>Against <a href="electricity">electricity</a>’s own three tests:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Test</th><th>”history” stack</th><th><code>@kolu/solid-browser</code></th></tr></thead><tbody><tr><td>① <strong>domain-agnostic</strong></td><td>✓ (but <code>T</code> carried no meaning)</td><td>✓ — URIs/locations/links/history; git is injected, rendering is fileview’s</td></tr><tr><td>② <strong>hides a <em>hard</em> volatility</strong></td><td><span class="pill" style="color:#a02a2a;background:#fbe9e9;border:1px solid #f0c9c9" data-astro-cid-2qeywk4b>no</span> back/forward is a bounded algorithm — <code>nonempty</code>-tier leaf</td><td><span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>yes</span> resource resolution (transport) + <strong>navigation across heterogeneous rendered content</strong> (DOM-anchor, in-iframe, tree → one location model) + GitHub-relative path semantics + history/popstate + the production-build effect-elision invariant the front door was <em>built</em> to dodge <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/openInCodeTab.ts#L9-L19" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/openInCodeTab.ts:9-19</a></td></tr><tr><td>③ <strong>graduates — proof is real</strong></td><td>meaningless standalone</td><td>a docs/wiki viewer, a <a href="https://github.com/srid/drishti">drishti</a>-style host inspector (logs + configs over ssh, links between them), an artifact viewer — each injects its own <code>resolve</code> and reuses the published renderers</td></tr></tbody></table>
+<aside class="callout callout-good" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Why &#39;browser&#39;, not &#39;history&#39;</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>“History” is self-undescribing — history <em>of what?</em> “Browser” tells you what it
+is and what you’d reuse it for without being told. A standalone history stack is
+<code>nonempty</code>/<code>html-escape</code>-tier: a clean leaf, but the <a href="electricity">electricity</a>
+tracker lists those as <strong>leaves, not electricities</strong> precisely because they hide
+no <em>hard</em> volatility. The browser does — it is the same class of receptacle as
+<code>@kolu/surface</code> (transport) or <code>@kolu/solid-xterm</code> (WebGL lifecycle).</p></div> </aside>
+<aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>③ is proof-pending, and the note says so</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>By the tracker’s own standard, a single consumer is “a nicely-factored package,
+not yet proven electricity” — drishti is cited there as the <em>proof</em> <code>@kolu/surface</code>
+was real, not its point. Until a second app actually plugs a different <code>resolve</code>
+into <code>@kolu/solid-browser</code>, this is an <strong>extraction with a credible graduation
+path</strong>, not a closed case. The honest framing is “the Code tab is a browser; here
+is the seam that lets it leave.” <strong>Update (phase 2):</strong> <a href="https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite"><code>example/docsite</code></a>
+is now a standalone second host reusing <code>createBrowser</code> — in-repo proof of reuse,
+exactly the bar <code>@kolu/surface</code>’s own examples clear. A different <em>application</em>
+injecting its own <code>resolve</code> remains the closing argument.</p></div> </aside>
+<h2 id="the-design">The design</h2>
+<p>Two mechanisms carry the feature — one for <em>moving</em> (the seam), one for
+<em>remembering where you were</em> (history). Both live in the engine, never in
+<code>CodeTab</code>.</p>
+<h3 id="the-seam--split-assign-from-record">The seam — split <code>assign</code> from <code>record</code></h3>
+<p>Back/forward hinges on one split the front door doesn’t yet make — separating
+<code>applyLocation</code> (assign) from <code>navigate</code> (assign <em>and</em> record):</p>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>applyLocation(loc)            // the existing batch(openCodeAt + reveal + setPending) — &quot;assign&quot;</span></span>
+<span class="line"><span>navigate(loc)  = applyLocation(loc) + history.push(loc)   // address-bar navigation</span></span>
+<span class="line"><span>back()         = applyLocation(history.back())            // traverse — NO push</span></span>
+<span class="line"><span>forward()      = applyLocation(history.forward())         // traverse — NO push</span></span></code></pre>
+<p>This split is mandatory, not cosmetic: if <code>back</code>/<code>forward</code> went through the
+recording path you’d get the classic <em>“going back creates new history”</em> bug.
+Traversal must apply-without-recording — which is why the split is a <strong>phase-2
+(history) concern</strong>, not what makes the engine extractable. The <em>extraction</em>
+(phase 1) leans on a different property of the same <code>applyLocation</code>: it’s the
+one organ that knows about modes and the pending-highlight signal, so it stays
+kolu-side while the rest of the engine graduates.</p>
+<h3 id="the-feature-that-rides-out-for-free--unified-backforward">The feature that rides out for free — unified back/forward</h3>
+<p>Back/forward rides the extraction — the engine has history because a browser
+does, so phase 2 is mostly <em>exposure</em>, not invention. Settled design (from the
+originating discussion):</p>
+<ul>
+<li><strong>Unified history, one stack.</strong> Because <code>targetMode</code> lives <em>inside</em> the
+location, back/forward cross <code>browse</code>/<code>local</code>/<code>branch</code> naturally — exactly
+browser behavior. The per-mode <code>selectedFileByMode</code>
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/useRightPanel.ts#L326-L344" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/useRightPanel.ts:326-344</a>
+becomes a <em>derived view</em> of “current location filtered to this mode,” not the
+source of truth.</li>
+<li><strong>Tree clicks count as navigation.</strong> <code>handleSelect</code>
+<a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/CodeTab.tsx#L515-L542" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/CodeTab.tsx:515-542</a>
+routes through <code>navigate()</code>, so back returns to the previously-viewed file no
+matter how you reached the current one.</li>
+<li><strong>Restore where you <em>were</em>, not just what.</strong> A faithful entry is
+<code>{ location, scroll }</code>, where <code>scroll</code> is captured on the way <em>out</em>
+(<code>history.replaceTop</code> before pushing the next) — browsers restore the scroll
+you left, not the line you arrived at. Cheap v1: entry = inbound <code>ref</code> only,
+back re-fires the highlight (the <code>equals:false</code> pending signal already
+re-paints <a href="https://github.com/juspay/kolu/blob/master/packages/client/src/right-panel/openInCodeTab.ts#L62-L69" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/right-panel/openInCodeTab.ts:62-69</a>); faithful v2 reads live scroll from the renderer.</li>
+<li><strong>Keybinds</strong> — <code>codeTabBack</code>/<code>codeTabForward</code> in <code>input/actions.ts</code>
+(browser-like <code>Cmd/Ctrl+[</code> / <code>]</code>), guarded to Code-tab focus; check
+<code>input/prohibitedKeybinds.ts</code> and add the <code>keyboard.test.ts</code> collision case.</li>
+</ul>
+<h2 id="building-it">Building it</h2>
+<h3 id="files-this-touches">Files this touches</h3>
+<p><strong>The electricity — a new isolated package:</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Package</th><th>Contents</th></tr></thead><tbody><tr><td><code>packages/solid-browser</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>phases 1 + 2</span></td><td>Shipped: <code>relativePath.ts</code> + <code>previewPath.ts</code> (phase 1) and <code>createBrowser.ts</code> — the generic reactive <strong>history</strong> controller (phase 2) — with 42 unit tests + a standalone <a href="https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite"><code>example/docsite</code></a> second host. deps: <code>@kolu/url-shape</code> (the DOM-free <code>hasOwnScheme</code> leaf) + <code>solid-js</code> (<code>createBrowser</code>’s reactive stack). <code>&lt;Browser&gt;</code> composing <code>&lt;FileView&gt;</code> stays <strong>deferred</strong> (see the phase-2 as-built callout). Zero kolu imports; builds + tests standalone.</td></tr></tbody></table>
+<p><strong>kolu — the consumer, now just git + chrome:</strong></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>right-panel/useRightPanel.ts</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>phase 2</span></td><td>Hosts a per-terminal <code>Browser&lt;BrowserLocation&gt;</code> (in-memory; seeded on restore, dropped on teardown) and exposes <code>recordNavigation</code>/<code>navigateBack</code>/<code>navigateForward</code>/<code>canNavigateBack</code>/<code>canNavigateForward</code>. <code>selectedFileByMode</code> <strong>stays</strong> the render + restore truth; history is <em>additive</em> over it.</td></tr><tr><td><code>right-panel/CodeTab.tsx</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>phase 2</span></td><td>Records every selection (tree click, in-iframe link, resolved front-door open) into history; ◀ ▶ toolbar buttons + a scoped <code>Alt+←/→</code> listener re-apply earlier locations. Cheap-v1 re-highlight rides the existing front-door pipeline.</td></tr><tr><td><code>gitResolver.ts</code> · <code>&lt;Browser&gt;</code> · unified <code>navigate</code> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-2qeywk4b>deferred</span></td><td>The <code>resolve(location)→FileData</code> injection, the <code>&lt;Browser&gt;</code> component, and folding the two nav paths into one <code>navigate</code> wait on a uniform viewport — diffs don’t fit <code>FileData</code>, so a <code>&lt;Browser&gt;</code> would wrap only browse mode (hollow). See the phase-2 as-built callout.</td></tr><tr><td><code>right-panel/markdownImageSrc.ts</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>phase 1</span></td><td>Delegates resolution to the package; keeps only the file-route URL build (real composition, not a pass-through).</td></tr><tr><td><code>right-panel/iframePreviewNav.ts</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>deleted (phase 1)</span></td><td>The agnostic inversion moved to the package; the kolu codec is bound <em>inline</em> at <code>BrowseIframeRenderer</code>’s call site — no thin wrapper (<code>.agency/code-police.md</code> → <code>no-thin-wrapper-functions</code>).</td></tr><tr><td><code>settings/tips.ts</code> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>+nav</span></td><td>A discoverability tip for back/forward. (No <code>input/actions.ts</code> entry: the keybind is a Code-tab-scoped listener, not a global action — a global <code>mod+[</code> would shadow the terminal’s ESC byte on Linux.)</td></tr></tbody></table>
+<h3 id="phasing--extract-first-then-light-the-feature">Phasing — extract first, then light the feature</h3>
+<p>Extraction comes <strong>before</strong> the feature, deliberately. Phase 1 is a <em>pure,
+behavior-preserving lift</em> — the <code>solid-fileview</code> pattern (extract with kolu
+working throughout, <a href="https://github.com/juspay/kolu/pull/1082" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1082 </a>; let features ride the extraction
+after). The subtle point: what gets extracted in phase 1 is <strong>today’s
+navigation, which is already proven code</strong> — the safest possible thing to move.
+The <em>new</em> behavior (history) is then added to the clean package, never bolted
+onto the client that’s about to be gutted. There is no forced dependency either
+way; this ordering is chosen for risk isolation and single-purpose diffs (a
+pure-move PR, then a pure-addition PR).</p>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>As-built: the phase boundary moved (discovered while building phase 1)</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Reading the code revised where phase 1 stops. The two link paths navigate
+<strong>differently</strong> today — a Markdown link goes through the <code>openInCodeTab</code> front
+door (<code>allowBasenameFallback: false</code>); an in-iframe link goes straight to
+<code>onNavigate</code>→<code>handleSelect</code>. <strong>Unifying them behind one <code>navigate()</code> is a
+behavior change</strong>, and a <code>&lt;Browser&gt;</code> that merely forwards to <code>&lt;FileView&gt;</code> is a
+hollow wrapper until it owns a history stack. So phase 1 shipped the honest,
+behavior-preserving slice — the <strong>agnostic link-nav primitives</strong> (relative-path</p><ul>
+<li>preview-path resolution), extracted and re-consumed — and the <code>BrowserLocation</code>
+model / <code>createBrowser</code> / <code>&lt;Browser&gt;</code> / the <code>CodeTab</code> rewire / unified <code>navigate</code>
+moved into <strong>phase 2</strong>, <em>with</em> history, where they have substance. The
+lens-defensible decomposition, not the checklist one. <em>(The review gauntlet then
+pruned even further — see the lens-debate: it dropped a speculative <code>location.ts</code>
+I’d shipped early and extracted <code>@kolu/url-shape</code> so this package never depends on
+a rendering one.)</em></li>
+</ul></div> </aside>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Phase</th><th>Ships</th><th>Risk</th></tr></thead><tbody><tr><td><strong>1 · Extract the primitives</strong> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>shipped</span> <a href="https://github.com/juspay/kolu/pull/1191" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1191 </a></td><td><code>@kolu/solid-browser</code> = <code>relativePath</code> + <code>previewPath</code> over the <code>@kolu/url-shape</code> leaf. kolu re-consumes: <code>markdownImageSrc</code> delegates resolution, <code>BrowseIframeRenderer</code> binds the <code>previewPathCodec</code>, <code>BrowseFileDispatcher</code> imports <code>resolveLinkHref</code>. <strong>Behavior-preserving</strong> — the two nav paths stay distinct.</td><td>Low — pure-move + delegation, unit- + e2e-covered.</td></tr><tr><td><strong>2 · The browser proper + back/forward</strong> <span class="pill" style="color:#1b7a3a;background:#e6f4ea;border:1px solid #bce3c8" data-astro-cid-2qeywk4b>shipped</span> <a href="https://github.com/juspay/kolu/pull/1191" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1191 </a></td><td><code>createBrowser&lt;L&gt;()</code> — the generic reactive <strong>history</strong> controller (<code>navigate</code>/<code>back</code>/<code>forward</code>/<code>current</code>/<code>canBack</code>/<code>canForward</code>; forward-truncation; idempotent on same entry). kolu wires it into <code>useRightPanel</code>/<code>CodeTab</code>: every selection is <strong>recorded</strong>, ◀ ▶ buttons + scoped <code>Alt+←/→</code> re-apply, cheap-v1 re-highlight rides the front door. <strong>As-built deltas</strong> (callout below): history is <em>additive</em> over <code>selectedFileByMode</code> (still the render truth), mode-chips don’t record, <code>&lt;Browser&gt;</code>/<code>gitResolver</code>/unified <code>navigate</code> deferred.</td><td>Medium — live-surface refactor; the audit + the #818 regression suite guard the selection invariants.</td></tr><tr><td><strong>3 · Prove ③</strong> <span class="pill" style="color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab" data-astro-cid-2qeywk4b>in-repo demo landed</span></td><td><a href="https://github.com/juspay/kolu/tree/master/packages/solid-browser/example/docsite"><code>example/docsite</code></a> — a standalone doc browser over its own <code>{ slug }</code> location — reuses <code>createBrowser</code> unchanged (built + tested in CI). In-repo proof of reuse, exactly the bar <code>@kolu/surface</code>’s examples clear; a <em>different application</em> injecting its own <code>resolve</code> (drishti, an artifact viewer) is still the closing argument.</td><td>Low — pure-logic reuse.</td></tr></tbody></table>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>As-built: phase 2 — the substance is the history controller, not a &lt;Browser&gt; shell</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The adversarial audit (run before writing a line) reshaped phase 2 around what the
+<em>real</em> Code tab is. Three load-bearing corrections:</p><ul>
+<li><strong><code>createBrowser</code> is the seam, not <code>&lt;Browser&gt;</code>.</strong> Diffs (Local/Branch) render
+through <code>BrowseDiffView</code>, <strong>not</strong> <code>&lt;FileView&gt;</code> — they don’t fit <code>FileData</code> — so a
+<code>&lt;Browser&gt;</code> that “composes <code>&lt;FileView&gt;</code>” could only ever host <em>browse</em> mode. The
+mode-agnostic thing worth extracting is the <strong>history controller</strong>; it lives
+<em>above</em> both rendering paths, in <code>useRightPanel</code>. <code>&lt;Browser&gt;</code> stays deferred (the
+same hollow-wrapper logic phase 1 used to defer it).</li>
+<li><strong>History records; <code>selectedFileByMode</code> still renders.</strong> The persisted per-mode
+selection stays the single render + restore truth; the stack is <em>additive</em>,
+recording the sequence so back/forward can re-apply it. <code>navigate</code> is
+<strong>idempotent on <code>mode+path</code></strong>, which dissolves the re-entrancy hazards (Pierre’s
+echoed <code>onSelect</code>, the front-door resolution effect re-firing) into harmless
+in-place refreshes — the one property that must hold is “recorded at least once
+per real destination,” which rides the e2e-covered <code>setSelectedFile</code>.</li>
+<li><strong>Cheap-v1 re-highlight reuses the front door.</strong> The line highlight is driven by
+the <code>handled()</code> resolution record, not a side signal — so back-to-a-line
+re-issues through the same <code>openInCodeTab</code> pipeline rather than a parallel paint
+path. Mode-chip toggles don’t record (per-mode memory already restores the file);
+only file views are history steps. The keybind is a Code-tab-scoped <code>Alt+←/→</code>
+listener (a global <code>mod+[</code> would shadow the terminal’s ESC byte on Linux). The
+mouse’s dedicated back/forward (X1/X2) buttons drive it too — <code>button</code> 3/4,
+pointer-scoped to the preview in kolu and app-wide in the docsite. Over a
+<em>sandboxed HTML preview</em> the opaque-origin iframe traps the event, so the
+in-iframe artifact-sdk forwards it to the parent (the same postMessage bridge
+that already follows in-frame link navigation); SVG/PDF previews carry no SDK,
+so the buttons are a no-op there. The native history navigation is suppressed
+either way so the buttons reach <code>createBrowser</code>
+(<a href="https://github.com/juspay/kolu/issues/1192">#1192</a>).</li>
+</ul></div> </aside>
+<hr/>
+<p><em>Bottom line: don’t extract a history stack — that’s a transformer. Extract the
+<strong>browser</strong> the Code tab already is. The renderers are packaged
+(<code>@kolu/solid-fileview</code>, which it composes); what’s left smeared across the
+client is the location + history + link-nav shell. Pull it into
+<code>@kolu/solid-browser</code>, inject git as a resolver, and back/forward arrives for
+free. It clears <a href="electricity">electricity</a>’s hard-volatility bar where “history”
+didn’t. Phase 2 shipped the history controller + the back/forward feature, and
+<code>example/docsite</code> is a real in-repo second consumer of it — a different
+<em>application</em> injecting its own <code>resolve</code> is the closing argument.</em></p> </div>  <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>
