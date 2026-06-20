@@ -171,7 +171,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 ### Clipboard
 
 - <kbd>Ctrl+V</kbd> pastes images into any agent that accepts paste-as-file-path (Claude Code, codex, …) — the server saves the browser's clipboard image and bracketed-pastes its path into the PTY
-- **Drag-and-drop files** onto a terminal — the file uploads to the server (10 MB cap, curated extension allowlist covering text, code, structured data, common docs, and images) and its path is bracketed-pasted into the PTY just like a clipboard image, so agents that accept paste-as-file-path pick it up automatically. Disallowed types and oversize drops are rejected client-side with a toast and never hit the wire
+- **Drag-and-drop files** onto a terminal — the file uploads to the server (10 MB cap, curated extension allowlist covering text, code, structured data, common docs, images, and video) and its path is bracketed-pasted into the PTY just like a clipboard image, so agents that accept paste-as-file-path pick it up automatically. Disallowed types and oversize drops are rejected client-side with a toast and never hit the wire
 
 ### Screen recording
 
