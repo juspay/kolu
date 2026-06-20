@@ -181,6 +181,8 @@ P2 made **one** remote host's awareness reachable. P3's end state is the user's 
 
 The first run at P3a ([#1453](https://github.com/juspay/kolu/pull/1453), **closed**) crammed the *whole* live dashboard into the foundation slice and then burned days on a bug that mostly wasn't there. It is re-cut into two clean PRs — **PR1 = Bun only** (the runtime swap, behaviour-preserving), **PR2 = the rest** (OpenTUI + the live dashboard) — carrying the hard-won learnings so they aren't re-discovered.
 
+**How this maps to P3a/P3b.** The original slicing (the table above + the sections below) was a **render-first** cut: *P3a = re-platform to Bun + OpenTUI*, then *P3b = fleet*. PR1/PR2 are a **runtime-first** cut of the *same* work, so they don't line up 1:1 — **PR1 is the Bun half of P3a**, and **PR2 is the OpenTUI half of P3a *plus* all of P3b**. P3a/P3b stay below as design detail; **PR1/PR2 are the shipping units.**
+
 <Callout kind="warn" title="Learnings from #1453 — do not repeat">
 
 - **OpenTUI repaints only the CHANGED CELL** (a cursor move + one character), never the whole string. Verify "is it live?" with **raw-PTY capture** (or a `testRender` assertion that frame N+1 ≠ frame N) — **never** `kaval-tui snapshot | grep` or a glance, which miss the one ticking character and read a live UI as "frozen". This single measurement artifact drove most of the thrash.
