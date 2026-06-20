@@ -1305,18 +1305,24 @@ async function setupCodeTabFixture(
     // that lost both cucumber attempts on the slower darwin runner.
     //
     // Fix: establish the base ref ATOMICALLY with the `origin` remote so no read
-    // can ever observe that in-between state. Seed the bare origin from a
-    // throwaway repo, then `git clone` it into `work`: clone creates `origin`,
-    // `origin/master` and `origin/HEAD` in one operation, so the instant the
-    // terminal cd's into `work` every gitStatus read resolves a valid base.
-    // The marker is split across a shell string-concat (`SET""TLED`) so the
-    // search text matches only the command's OUTPUT, never the typed echo.
+    // can ever observe that in-between state. Populate the bare origin from a
+    // throwaway seed repo INSIDE A SUBSHELL — so the terminal's cwd never enters
+    // the seed; a passive read there (origin configured at `remote add` but its
+    // push not yet landed) would hit the very same BASE_BRANCH_NOT_FOUND, just
+    // moved to the seed. Then `git clone` it into `work`: clone creates
+    // `origin`, `origin/master` and `origin/HEAD` in one operation, so the
+    // instant the terminal cd's into `work` (the only repo it ever enters) every
+    // gitStatus read resolves a valid base. The marker is split across a shell
+    // string-concat (`SET""TLED`) so the search text matches only the command's
+    // OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
     await runShell(world, `git init --bare -b master ${origin}`);
-    await runShell(world, `git init -b master ${seed} && cd ${seed}`);
-    await runShell(world, `git remote add origin ${origin}`);
-    await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(world, `git push -u origin master`);
+    await runShell(
+      world,
+      `(git init -b master ${seed} && cd ${seed} && ` +
+        `git remote add origin ${origin} && ` +
+        `git commit --allow-empty -m init && git push -u origin master)`,
+    );
     await runShell(world, `git clone ${origin} ${work} && cd ${work}`);
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
