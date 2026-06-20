@@ -21,7 +21,6 @@
 
 import {
   type Browser,
-  type BrowserSnapshot,
   createBrowser,
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
@@ -117,13 +116,6 @@ const [drawerOpen, setDrawerOpen] = createSignal(false);
 type TerminalHistory = {
   browser: Browser<BrowserLocation>;
   lastRepo: string | null | undefined;
-  /** Per-repo parked back/forward stacks for this terminal. A terminal's
-   *  `repoPath()` can transiently flip to a sibling terminal's repo on a switch
-   *  (a server-side git re-resolve under load) and revert; we PARK the current
-   *  stack under the old repo and swap in the new repo's stack rather than
-   *  destroying it, so the flicker can't wipe history. A genuine `cd` lands on
-   *  an absent (empty) stash → back disabled, exactly as before. */
-  stash: Map<string, BrowserSnapshot<BrowserLocation>>;
 };
 const history = new Map<TerminalId, TerminalHistory>();
 
@@ -151,7 +143,7 @@ function newBrowserFor(): Browser<BrowserLocation> {
 function historyFor(id: TerminalId): TerminalHistory {
   let h = history.get(id);
   if (!h) {
-    h = { browser: newBrowserFor(), lastRepo: undefined, stash: new Map() };
+    h = { browser: newBrowserFor(), lastRepo: undefined };
     history.set(id, h);
   }
   return h;
@@ -412,37 +404,19 @@ export function useRightPanel() {
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
     syncRepo: (id: TerminalId, repo: string | null) => {
-      // A `null` repo means the terminal's git metadata is absent or transiently
-      // re-resolving — an OSC-7 prompt redraw on a terminal switch briefly drops
-      // `meta.git.repoRoot` to null before it settles back to the SAME root.
-      // Treat null as "no new information": don't reset and don't move the
-      // baseline, so a transient repoA → null → repoA flicker can't wipe the
-      // terminal's back/forward stack (it did on slower runners, where the null
-      // tick is observed as its own effect run). A genuine repo move is always
-      // seen as a non-null change to a *different* root (handled below); leaving
-      // a repo entirely just defers the reset until the next real repo is adopted.
-      if (repo === null) return;
       // `historyFor` resolves (creating if absent) the terminal's record, so a
-      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker.
+      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
+      // distinct from `null` ("recorded, terminal is in no repo").
       const h = historyFor(id);
       const prevRepo = h.lastRepo;
-      // First sight (prevRepo undefined): adopt the baseline, leaving any seeded
-      // stack intact. On a genuine repo move, PARK the old repo's stack under it
-      // and swap in the new repo's stack (empty on first visit) — never destroy
-      // it. A terminal's repoPath() can transiently report a sibling terminal's
-      // repo on a switch (a darwin git re-resolve under load) and revert; a
-      // destructive reset would permanently wipe back/forward history on that
-      // flicker. Stash-and-restore makes a flicker lossless, while a genuine
-      // `cd` still lands on an empty stack (back disabled) — see the unit tests.
-      if (prevRepo !== undefined && prevRepo !== null && repo !== prevRepo) {
-        // TEMP DIAGNOSTIC (flake-1) — record the repo change; pushed after the
-        // decision so it can't change behavior (no masking).
-        const dbg = window as unknown as { __resets?: unknown[] };
-        (dbg.__resets ??= []).push({ id, repo, prev: prevRepo });
-        h.stash.set(prevRepo, h.browser.snapshot());
-        h.browser.restore(h.stash.get(repo) ?? { entries: [], cursor: -1 });
-      }
       h.lastRepo = repo;
+      // First sight of this terminal (fresh mount or session restore): adopt
+      // its repo as the baseline, leaving any seeded stack intact. A genuine
+      // repo move on a terminal we've already seen drops the now-stale stack —
+      // cleared in place so the toolbar stays subscribed to the live instance.
+      if (prevRepo !== undefined && repo !== prevRepo) {
+        h.browser.reset();
+      }
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────

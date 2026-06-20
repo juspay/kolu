@@ -2015,37 +2015,6 @@ Then(
     // true), proving the reactive enablement tracks the stack in both
     // directions.
     const btn = this.page.locator(`[data-testid="${id}"]:enabled`);
-    try {
-      await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
-    } catch (e) {
-      // TEMP DIAGNOSTIC (flake-1): capture assertion-moment state.
-      const snap = await this.page
-        .evaluate((bid) => {
-          const w = window as unknown as {
-            __dbgStore?: {
-              activeId?: () => string | null;
-              getMetadata?: (
-                id: string,
-              ) => { git?: { repoRoot?: string } } | undefined;
-            };
-          };
-          const s = w.__dbgStore;
-          const active = s?.activeId?.() ?? null;
-          const el = document.querySelector(`[data-testid="${bid}"]`);
-          return {
-            active,
-            activeRepo: active
-              ? (s?.getMetadata?.(active)?.git?.repoRoot ?? null)
-              : null,
-            btnExists: !!el,
-            disabled: el ? (el as HTMLButtonElement).disabled : null,
-            noRepo: !!document.querySelector('[data-testid="diff-no-repo"]'),
-            diffTab: !!document.querySelector('[data-testid="diff-tab"]'),
-          };
-        }, id)
-        .catch(() => ({}));
-      process.stdout.write(`[BTN] ${dir} :: ${JSON.stringify(snap)}\n`);
-      throw e;
-    }
+    await btn.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
