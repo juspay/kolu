@@ -13,7 +13,20 @@
  *  `IDLE_AFTER_MS` pass with no further output — each chunk resets that timer.
  *  The flag is an explicit boolean rather than a `now - lastOutputAt`
  *  comparison so reactivity needs no global ticking clock: the per-terminal
- *  debounce timer is what flips it back to static. */
+ *  debounce timer is what flips it back to static.
+ *
+ *  Not to be merged with `renderRecovery.ts`, which is also a per-terminal
+ *  output-debounce primitive fed from the adjacent line of the same attach
+ *  sink. They look mergeable but key off different events: this tracker keys to
+ *  stream RECEIPT (`noteOutput` fires the instant a chunk arrives), while
+ *  `renderRecovery.noteData` keys to xterm PARSE (it runs as `term.write`'s
+ *  completion callback, after the chunk has actually landed in the buffer — see
+ *  the comment at the `scrollLock.writeData` call in `Terminal.tsx`). That
+ *  receipt-vs-parse distinction is load-bearing — a shared "output pulse"
+ *  primitive would have to fire on one or the other and be wrong for the other
+ *  consumer — and the two also differ in cadence (1000ms idle vs a 250ms
+ *  render-stall watchdog), action (flip live=false vs force a repaint), and
+ *  lifecycle (an app singleton vs a per-terminal owner-scoped instance). */
 
 import type { TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
