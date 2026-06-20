@@ -400,10 +400,12 @@ let
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
   # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
-  # remote. Both kaval-tui and arivu-tui are this exact shape, differing only in
-  # name, entrypoint, and the per-system `{ system → agent .drv }` map env var —
-  # so the makeWrapper invocation lives here once instead of being copy-pasted per
-  # CLI. The map is baked with `--set` (NOT `--set-default`): it is a baked build
+  # remote. kaval-tui is the sole consumer today — arivu-tui re-platformed to Bun
+  # in arivu P3 PR1 (its own wrapper below) and no longer shares this shape. The
+  # factory still earns its keep as kaval-tui's home and the template a future
+  # tsx-based `--host` CLI would reuse: name, entrypoint, and the per-system
+  # `{ system → agent .drv }` map env var are the only volatile axes. The map is
+  # baked with `--set` (NOT `--set-default`): it is a baked build
   # fact — the exact derivations this wrapper ships and realises on the remote —
   # not a tunable. `--set-default` would let an ambient/stale
   # `*_AGENT_DRVS_JSON` inherited from the caller's env silently override the
@@ -466,22 +468,49 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # arivu-tui (arivu plan P1c + P2): the terminal-side viewer that dials a
-  # running arivu's awareness socket and lists/watches what each terminal IS IN
-  # (branch · PR · agent · foreground). Runs from the SAME built workspace closure
-  # as `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no
-  # state dir.
+  # arivu-tui (arivu plan P1c + P2; re-platformed to Bun in P3 PR1): the
+  # terminal-side viewer that dials a running arivu's awareness socket and
+  # lists/watches what each terminal IS IN (branch · PR · agent · foreground).
+  # A pure surface CLIENT, so it needs no git/gh and no state dir.
   #
-  # P2's `--host <ssh>` rides this wrapper (the same shape as kaval-tui's, via
-  # mkAgentTuiWrapper): ARIVU_AGENT_DRVS_JSON carries the per-system `{ system →
-  # arivu .drv }` map so the viewer can ship the target-arch arivu DAEMON
-  # derivation to a remote.
-  arivu-tui = mkAgentTuiWrapper {
-    name = "arivu-tui";
-    entry = "packages/arivu-tui/src/bin.ts";
-    envVar = "ARIVU_AGENT_DRVS_JSON";
-    agentDrvsJson = arivuAgentDrvsJson;
-  };
+  # Unlike kaval-tui (still tsx, via mkAgentTuiWrapper above), the viewer runs
+  # under **Bun** — the contained, deliberate runtime split arivu P3 needs: PR2
+  # renders the dashboard with OpenTUI, whose native Zig core loads via
+  # Bun.dlopen. PR1 is the behaviour-preserving runtime swap ALONE — today's
+  # columnify text output, now executed by Bun from the `arivuTuiBuilt` tree
+  # (bun.nix dep cache + hydrated @kolu/*). The Bun-ness is one wrapper, one
+  # binary: the daemon (`arivu`, below) and the rest of kolu stay Node, so the
+  # Bun runtime never crosses ssh. See nix/packages/arivu-tui for the build.
+  #
+  # P2's `--host <ssh>` still rides this wrapper: ARIVU_AGENT_DRVS_JSON carries
+  # the per-system `{ system → arivu .drv }` map so the viewer can ship the
+  # target-arch arivu DAEMON derivation to a remote (the daemon stays Node).
+  # openssh + nix are on PATH for that provision (the same `nix copy` /
+  # `nix-store` path mkAgentTuiWrapper documents); nodejs is NOT — Bun replaces
+  # it, and the viewer spawns no node locally.
+  arivu-tui =
+    let
+      # bun2nix via npins (NOT a flake input) — see nix/bun2nix.nix. Forced only
+      # here (the daemon-drvPath import in flake.nix and a bare `nix-build
+      # default.nix` never touch this attr), so `nix develop` cold eval and the
+      # Node build paths never realise bun2nix's transitive nodes.
+      b2n = import ./nix/bun2nix.nix { inherit pkgs; };
+      arivuTuiBuilt = pkgs.callPackage ./nix/packages/arivu-tui {
+        bun2nix = b2n;
+        koluSrc = src;
+      };
+    in
+    pkgs.runCommand "arivu-tui"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        meta.mainProgram = "arivu-tui";
+      } ''
+      mkdir -p $out/bin
+      makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
+        --add-flags "${arivuTuiBuilt.entryPath}" \
+        --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]}
+    '';
 
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`

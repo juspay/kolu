@@ -9,6 +9,11 @@
 #
 # DO NOT add flake inputs (nixpkgs, flake-parts, git-hooks, etc.).
 # Instead, use fetchTarball or callPackage in nix/ files.
+#
+# bun2nix (the bun-built `arivu-tui` viewer's fetchBunDeps/hook) is pinned with
+# npins and imported in nix/bun2nix.nix — the same zero-input path `odu` takes,
+# NOT a flake input. See that file for how its own flake.lock is resolved
+# without a node on kolu's (which stays nonexistent).
 {
   nixConfig = {
     extra-substituters = "https://cache.nixos.asia/oss";
@@ -51,6 +56,10 @@
       arivuAgentDrvsJson = builtins.toJSON arivuDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
+      # bun2nix (for the arivu-tui viewer) is pinned via npins and resolved
+      # INSIDE default.nix (nix/bun2nix.nix), not threaded from here — it is
+      # forced only when the `arivu-tui` attr is built, so it stays out of this
+      # pure-eval path and out of the dev shell.
       koluBySystem = eachSystem (pkgs:
         import ./default.nix {
           inherit pkgs commitHash kavalAgentDrvsJson arivuAgentDrvsJson;
@@ -78,6 +87,10 @@
         removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
+          # The bun2nix CLI — `nix run .#bun2nix -- -l <dir>/bun.lock -o
+          # <dir>/bun.nix` regenerates the committed dep cache after a bun.lock
+          # change (the arivu-tui viewer's deps). Pinned via npins (nix/bun2nix.nix).
+          bun2nix = (import ./nix/bun2nix.nix { inherit pkgs; }).bun2nix;
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,

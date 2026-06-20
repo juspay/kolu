@@ -29,6 +29,18 @@ agents were live* — the pile-up drove the **OOM-killer to `SIGKILL` production
 off production's *RAM*. The user's standing rule after that: **"always run on pu,
 nothing locally."**
 
+A third incident proved the threat isn't just `just dev`/`dev-auto`: an agent
+reached for `just build` (`nix build`) to test the **production binary**
+"deterministically," reasoning it was *safer* than the flaky dev server. But the
+built `result/bin/kolu` **ignores `KOLU_STATE_DIR`** and binds the **production
+state dir** `~/.config/kolu` + the production kaval socket ([#1414](https://github.com/juspay/kolu/issues/1414)) —
+a worse collision than ports/RAM, sharing *state* with live `kolu.service`. It
+left a stray instance alive on production's socket. So: **the built binary
+(`just build` → `result/bin/kolu`) is a forbidden local route too** — never run a
+production build locally beside a live kolu; it goes on a pu box like everything
+else. "Production-faithful" is not "production-safe"; faithfulness is exactly why
+it collides.
+
 So before launching anything, decide where it runs:
 
 - **Run on a `pu` box (the default for `/be`-style runs)** whenever production
@@ -36,7 +48,9 @@ So before launching anything, decide where it runs:
   is `active`. Builds, the dev server, and evidence capture all go on a fresh pu
   box (see the **pu** and **evidence** skills): the box has its own RAM and
   loopback, so a local OOM can't reach production. **Never** loop `just dev-auto`
-  + nix builds locally next to a live production kolu.
+  + nix builds locally next to a live production kolu — and **never run the built
+  `result/bin/kolu` locally** either (it grabs the production state dir + kaval
+  socket; isolating ports is not enough).
 - **Run locally only** when production is **not** running here (`is-active` →
   `inactive`/`failed`), or the user has explicitly OK'd local execution this
   session. Then the rest of this skill (random ports, scoped teardown) applies.
@@ -118,8 +132,12 @@ done
 rm -f .dev-server/ports.json
 ```
 
-**Never** `pkill -f kolu` / `vite` / `tsx` — those broad patterns can hit
-production or unrelated processes. Match the remembered ports only.
+**Never** `pkill -f <substring>` at all — not `kolu` / `vite` / `tsx`, and not a
+"more specific" source path like `packages/server/src/index.ts` either. Production
+runs that exact source from the nix store, so a path substring is *not* safer than
+a name — it matched and killed production `kolu.service` once. A bracket trick
+(`[v]ite`) only dodges self-match, not the production process. Match the
+remembered ports only; if you can't resolve a PID by port, leave the process.
 
 ## Acceptance (verify before declaring the app launched / torn down)
 
