@@ -4,9 +4,10 @@
  *  pill, split toggle, search, screenshot.
  *
  *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
- *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
- *  search singletons — per `no-preference-prop-drilling`. The only prop is the
- *  tile `id`. Extracted from App.tsx per kolu#626. */
+ *  right panel, tips, plus the command palette, terminal CRUD, session-restore
+ *  (sleep/wake), and per-terminal search singletons — per
+ *  `no-preference-prop-drilling`. The only prop is the tile `id`. Extracted from
+ *  App.tsx per kolu#626. */
 
 import { activeArm, isSleeping, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -15,6 +16,7 @@ import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
+import { useSessionRestore } from "../terminal/useSessionRestore";
 import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalSearch } from "../terminal/useTerminalSearch";
@@ -31,16 +33,10 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
-  /** Wake this (sleeping) tile — bound by App to the restore-one handler.
-   *  Sleep needs no prop (it reads `useTerminalCrud()` directly, like every
-   *  other tile action here); wake stays a prop only because its handler lives
-   *  in `useSessionRestore`, which is NOT yet a `createSharedRoot` singleton —
-   *  singleton-izing it (so this component could call `session.handleWake`
-   *  directly) is a separate refactor that touches the hook's DI test seam. */
-  onWake: () => void;
 }> = (props) => {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
+  const session = useSessionRestore();
   const search = useTerminalSearch();
   const commandPalette = useCommandPalette();
   const rightPanel = useRightPanel();
@@ -194,7 +190,7 @@ const TileTitleActions: Component<{
             class={`${TILE_BUTTON_CLASS} px-2 text-xs`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onTile(e, () => props.onWake())}
+            onClick={(e) => onTile(e, () => void session.handleWake(props.id))}
             aria-label="Wake terminal"
           >
             Wake

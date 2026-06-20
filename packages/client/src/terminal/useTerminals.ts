@@ -90,11 +90,10 @@ export function useTerminals() {
   );
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
-  const session = useSessionRestore({
-    store,
-    handleCreate: crud.handleCreate,
-    handleCreateSubTerminal: crud.handleCreateSubTerminal,
-  });
+  // Singleton (reads `useTerminalStore`/`useTerminalCrud` internally), so it no
+  // longer takes a DI bag — and `TileTitleActions`/`DormantTileBody` can call
+  // `useSessionRestore().handleWake(id)` directly instead of an App-drilled prop.
+  const session = useSessionRestore();
 
   const worktree = useWorktreeOps({
     store,

@@ -238,9 +238,7 @@ const App: Component = () => {
     if (tileStore.contentOf(id)?.kind !== "sleeping") return null;
     const meta = sleepingArm(store.getMetadata(id));
     if (!meta) return null;
-    return (
-      <DormantTileBody meta={meta} onWake={() => void session.handleWake(id)} />
-    );
+    return <DormantTileBody id={id} meta={meta} />;
   }
 
   /** Canvas tile body — every live tile stays mounted (`visible={true}`) so
@@ -368,7 +366,10 @@ const App: Component = () => {
           // record (the same confirm, reworded). Routes to discardSleeping, not
           // a kill.
           if (isSleeping(target.meta)) {
-            void session.handleDiscardSleeping(target.id);
+            // Fire-and-forget: `handleDiscardSleeping` already toasts on
+            // failure, so swallow the rejection it rethrows (the rethrow exists
+            // for the worktree-removal gate, not this standalone discard).
+            void session.handleDiscardSleeping(target.id).catch(() => {});
           } else {
             void crud.handleKillWithSubs(target.id);
           }
@@ -581,10 +582,7 @@ const App: Component = () => {
                         />
                       )}
                       renderTileTitleActions={(id) => (
-                        <TileTitleActions
-                          id={id}
-                          onWake={() => void session.handleWake(id)}
-                        />
+                        <TileTitleActions id={id} />
                       )}
                       renderTileBody={renderCanvasTileBody}
                     />

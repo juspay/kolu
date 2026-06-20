@@ -735,7 +735,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `saveSession` → `writeSession` is a sync `store.set`, so the record is on
     // disk before the await below can be interrupted by a crash. Goes through
     // `session.ts` (not a direct `snapshotSession` import) to stay out of the
-    // `terminals.ts ↔ local.ts` import cycle.
+    // `terminals.ts ↔ local.ts` import cycle. THROWS if the durable write cannot
+    // happen (provider unwired) — the PTY release below stays behind a confirmed
+    // write, so a failed flush aborts the sleep instead of killing into the void.
     flushSessionNow();
     const meta = sleepingMeta(record.id);
     if (meta) surfaceCtx.collections.terminalMetadata.upsert(record.id, meta);

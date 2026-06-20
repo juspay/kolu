@@ -2,7 +2,6 @@
 
 import { resumeAgentCommand } from "anyagent/cli";
 import {
-  type InitialTerminalMetadata,
   type PersistedTerminalFields,
   type SavedSession,
   sleepingArm,
@@ -12,6 +11,7 @@ import {
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
@@ -20,25 +20,28 @@ import {
   savedSession as serverSavedSession,
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
-import type { TerminalStore } from "./useTerminalStore";
+import { useTerminalCrud } from "./useTerminalCrud";
+import { useTerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the `terminalMetadata` collection
  *  having yielded for every entry, so `m` is always defined. */
 type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
 
-export function useSessionRestore(deps: {
-  store: TerminalStore;
-  handleCreate: (
-    cwd?: string,
-    initial?: InitialTerminalMetadata,
-  ) => Promise<TerminalId>;
-  handleCreateSubTerminal: (
-    parentId: TerminalId,
-    cwd?: string,
-  ) => Promise<void>;
-}) {
-  const { store } = deps;
+/** Session restore — singleton via `createSharedRoot`, mirroring `useTerminalCrud`.
+ *
+ *  Reads its collaborators (`store`, `handleCreate`, `handleCreateSubTerminal`)
+ *  off the `useTerminalStore` / `useTerminalCrud` singletons internally instead
+ *  of receiving them as DI args (the old `{ store, handleCreate, … }` bag was the
+ *  same unenforceable "deps never change identity" convention `useTerminalCrud`
+ *  shed). This is what lets `TileTitleActions` / `DormantTileBody` call
+ *  `useSessionRestore().handleWake(id)` DIRECTLY (F10) — no per-tile `onWake`
+ *  prop drilled through App, keeping App.tsx a thin layout shell. The hydration
+ *  `createEffect`s run once inside the shared root's app-lifetime owner, so a
+ *  consumer's disposal can't freeze them for everyone else. */
+export const useSessionRestore = createSharedRoot(() => {
+  const store = useTerminalStore();
+  const { handleCreate, handleCreateSubTerminal } = useTerminalCrud();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
@@ -176,7 +179,7 @@ export function useSessionRestore(deps: {
     // client-owned `InitialTerminalMetadata`, and the endpoint owns location —
     // so each terminal re-spawns at `LOCAL_LOCATION`. Correct while every
     // terminal is local; P3 replaces this with dial+adopt.
-    const newId = await deps.handleCreate(t.cwd, {
+    const newId = await handleCreate(t.cwd, {
       themeName: t.themeName,
       canvasLayout: t.canvasLayout,
       subPanel: t.subPanel,
@@ -245,13 +248,19 @@ export function useSessionRestore(deps: {
   }
 
   /** Discard a sleeping record outright — the close-as-discard path (no PTY to
-   *  kill). Routed here so the close-confirm calls one verb. */
+   *  kill). Routed here so the close-confirm calls one verb.
+   *
+   *  Toasts AND RETHROWS on failure (F5): the worktree-removal path
+   *  (`handleKillWorktree`) gates `worktreeRemove` on this resolving, so a
+   *  swallowed failure would let the worktree be deleted while the dormant
+   *  record (or its reload twin) still points at the now-gone path. Propagating
+   *  lets that caller abort. The standalone close-confirm caller fires this
+   *  with `void` + `.catch`, since the toast here already told the user. */
   async function handleDiscardSleeping(id: TerminalId): Promise<void> {
-    await client.terminal
-      .discardSleeping({ id })
-      .catch((err: Error) =>
-        toast.error(`Failed to discard sleeping terminal: ${err.message}`),
-      );
+    await client.terminal.discardSleeping({ id }).catch((err: Error) => {
+      toast.error(`Failed to discard sleeping terminal: ${err.message}`);
+      throw err;
+    });
   }
 
   async function handleRestoreSession(
@@ -376,7 +385,7 @@ export function useSessionRestore(deps: {
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId);
-        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+        if (newParentId) await handleCreateSubTerminal(newParentId, t.cwd);
       }
       // Step 3: post-loop reassert (see protocol block above).
       if (restoredActiveId !== null) {
@@ -430,4 +439,4 @@ export function useSessionRestore(deps: {
     handleWake,
     handleDiscardSleeping,
   };
-}
+});

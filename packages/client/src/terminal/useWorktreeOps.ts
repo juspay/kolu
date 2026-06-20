@@ -11,7 +11,8 @@ export function useWorktreeOps(deps: {
   handleKill: (id: TerminalId) => Promise<void>;
   /** Drop a sleeping record (no PTY to kill). A sleeping tile on a worktree can
    *  still reach "remove worktree" in the close confirm, so the release step
-   *  must route to discard, not kill (F5). */
+   *  must route to discard, not kill (F5). REJECTS on a failed discard so the
+   *  worktree removal below stays gated on a confirmed release. */
   handleDiscardSleeping: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
@@ -65,7 +66,13 @@ export function useWorktreeOps(deps: {
    *  DISCARDED instead. Without this branch a sleeping id fell through to
    *  `handleKill` → `terminal.kill`, which the server reports NOT_FOUND and the
    *  client swallows — leaving the dormant tile (or its reload-rehydrated twin)
-   *  pointing at a now-deleted worktree path. */
+   *  pointing at a now-deleted worktree path.
+   *
+   *  Release MUST succeed before the worktree is removed: `handleDiscardSleeping`
+   *  rethrows on a failed discard, so an `await` here propagates and we never
+   *  reach `worktreeRemove` with a stale sleeping record still in place (F5).
+   *  `handleKill`'s own failure is swallowed, but a live kill that fails still
+   *  leaves the PTY tracked and recoverable — unlike a deleted worktree path. */
   async function handleKillWorktree(targetId?: TerminalId) {
     const id = targetId ?? store.activeId();
     if (!id) return;

@@ -41,29 +41,36 @@ vi.mock("solid-sonner", () => ({
 }));
 vi.mock("anyagent/cli", () => ({ resumeAgentCommand: () => null }));
 
-import { useSessionRestore } from "./useSessionRestore";
-import type { TerminalStore } from "./useTerminalStore";
-
 /** A `TerminalStore` whose `listSub`/`terminalIds` read the hoisted bag, so a
- *  test can flip a flag and call `isLoading()` to observe the gate directly. */
-function makeStore(): TerminalStore {
-  const listSub = Object.assign(() => h.list, { pending: () => h.listPending });
-  return {
-    listSub,
-    terminalIds: () => h.terminalIds,
-    getMetadata: () => undefined,
-    setActiveSilently: () => {},
-    activeId: () => null,
-    setMruOrder: () => {},
-  } as unknown as TerminalStore;
-}
-
-const mount = () =>
-  useSessionRestore({
-    store: makeStore(),
+ *  test can flip a flag and call `isLoading()` to observe the gate directly.
+ *  `useSessionRestore` is now a `createSharedRoot` singleton that reads its
+ *  collaborators off `useTerminalStore`/`useTerminalCrud`, so we mock those
+ *  modules (below) to hand back this fake instead of passing a DI bag. */
+vi.mock("./useTerminalStore", () => ({
+  useTerminalStore: () => {
+    const listSub = Object.assign(() => h.list, {
+      pending: () => h.listPending,
+    });
+    return {
+      listSub,
+      terminalIds: () => h.terminalIds,
+      getMetadata: () => undefined,
+      setActiveSilently: () => {},
+      activeId: () => null,
+      setMruOrder: () => {},
+    };
+  },
+}));
+vi.mock("./useTerminalCrud", () => ({
+  useTerminalCrud: () => ({
     handleCreate: vi.fn(),
     handleCreateSubTerminal: vi.fn(),
-  });
+  }),
+}));
+
+import { useSessionRestore } from "./useSessionRestore";
+
+const mount = () => useSessionRestore();
 
 describe("useSessionRestore — isLoading gate (cold-launch restore race)", () => {
   it("keeps loading on an empty list until the saved-session cell reports", () => {

@@ -152,15 +152,19 @@ let snapshotProvider: (() => SessionSnapshot) | null = null;
  *  `sleepTerminal` stages a sleeping record then calls this BEFORE killing the
  *  PTY, so a crash in the kill window cannot lose both the live terminal and the
  *  sleeping record. Reuses the registered `snapshotSession` provider so there is
- *  one definition of what a session snapshot contains. No-op (with a loud log) if
- *  called before `initSessionAutoSave` has wired the provider — which only
- *  happens if boot order regresses, a fail-loud condition, not a silent skip. */
+ *  one definition of what a session snapshot contains.
+ *
+ *  THROWS if called before `initSessionAutoSave` has wired the provider (F1). A
+ *  missing provider means the durable write cannot happen, and the PTY release in
+ *  `sleepTerminal` MUST stay behind a confirmed durable write — logging and
+ *  returning would let the caller kill the live terminal with nothing on disk,
+ *  recreating the exact data-loss path this seam exists to close. This is a
+ *  boot-order regression (fail-loud), never a silent skip. */
 export function flushSessionNow(): void {
   if (!snapshotProvider) {
-    log.error(
+    throw new Error(
       "flushSessionNow called before initSessionAutoSave wired the snapshot provider",
     );
-    return;
   }
   saveSession(snapshotProvider());
 }

@@ -204,20 +204,34 @@ export const useTerminalCrud = createSharedRoot(() => {
    *
    *  A sleeping record is a SINGLE terminal — "any splits are closed, not frozen"
    *  (the Phase-2 non-negotiable). So before sleeping the top terminal we close
-   *  its sub-terminals through the same per-split eviction `handleKill` runs (F2):
-   *  killing them on the server AND tearing down their client-side panel/search
-   *  state. Without this the split PTYs keep running, hidden, once their parent
-   *  leaves the live list.
+   *  its sub-terminals server-side, awaiting each kill so an unexpected failure
+   *  PROPAGATES and ABORTS the sleep (F2). We deliberately do NOT route this
+   *  through `handleKill`, whose bare `catch {}` swallows every kill error and
+   *  evicts local state anyway — that would let a still-live split PTY linger
+   *  hidden after the parent leaves the live list while sleep proceeds as if it
+   *  worked. The server's `kill` returns (no throw) for an already-gone terminal,
+   *  so any throw here is a genuine failure worth aborting on. Only after every
+   *  split is confirmed killed do we evict their client-side panel/search state.
    *
    *  Sleep mints a new id, so the old active id is retired by the kill — switch
    *  the active tile to the returned sleeping record (F4) so the dormant tile is
    *  selected/panned-to, not a removed id. (A sleeping tile is a valid active
    *  tile — focus-frozen, never woken by selection.) */
   async function handleSleep(id: TerminalId) {
-    // Close splits first (server kill + client eviction), mirroring
-    // `handleKillWithSubs` — a sleeping record holds only the top terminal.
+    // Close splits first. Kill each on the server and let failures throw — a
+    // hidden live PTY is worse than a failed sleep, so we abort rather than
+    // proceed. (Mirrors a sleeping record holding only the top terminal.)
     const subs = store.getSubTerminalIds(id);
-    for (const subId of subs) await handleKill(subId);
+    for (const subId of subs) {
+      try {
+        await client.terminal.kill({ id: subId });
+      } catch (err) {
+        toast.error(`Failed to close split: ${(err as Error).message}`);
+        throw err;
+      }
+      // Kill confirmed — now tear down this split's client-side state.
+      removeAndAutoSwitch(subId);
+    }
     const record = await client.terminal.sleep({ id }).catch((err: Error) => {
       toast.error(`Failed to sleep terminal: ${err.message}`);
       throw err;
