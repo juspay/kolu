@@ -35,6 +35,7 @@ import {
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
 
@@ -174,6 +175,7 @@ function reportToServer(id: TerminalId): void {
 
 export function useRightPanel() {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const rp = () => preferences().rightPanel;
 
   /** Whether there's anything for the panel to show — at least one terminal
@@ -182,7 +184,7 @@ export function useRightPanel() {
    *  panel as absent regardless of the persisted `collapsed` preference —
    *  otherwise the ChromeBar reserves panel-width it never fills (a "ghost"
    *  gap) and the toggle reads as open with nothing behind it. */
-  const hasTerminals = () => store.terminalIds().length > 0;
+  const hasTerminals = () => tileStore.tileCount() > 0;
 
   /** Read the per-terminal record for the active terminal, falling back
    *  to defaults when no terminal is active or the terminal has no record

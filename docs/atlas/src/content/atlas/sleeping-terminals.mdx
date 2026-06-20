@@ -164,11 +164,11 @@ the one source of truth for what the canvas, dock, and selection read:
 | a `TileContent` discriminated union | repo/branch identity, agent state, the live body |
 
 `TileContent` is `{ kind: "terminal", terminalId }` — and that is the **only**
-variant in PR 1. The canvas renders **one** `<For>` over `tileStore.tiles()`
-dispatching on `kind`; `activeId` becomes a `TileId`; `focusedId` narrows
-`TileId → TerminalId` only when `kind === "terminal"`; `mode()` keys off
-`tiles.length`. The reconciler disappears. **Zero behavior change** — Terminal is
-the only tile there is.
+variant in PR 1. The canvas renders **one** `<For>` over `tileStore.tileIds()`,
+dispatching on `tileStore.contentOf(id).kind`; `activeId` becomes a `TileId`;
+`focusedId` narrows `TileId → TerminalId` only when `kind === "terminal"`;
+`mode()` keys off `tileStore.tileCount()`. The reconciler disappears. **Zero
+behavior change** — Terminal is the only tile there is.
 
 <Callout kind="accent" title="Why this is the load-bearing PR">
 This is the whole point of the re-plan: once a tile is a real thing with its own
@@ -244,7 +244,7 @@ Each phase is one reviewable PR; each leaves `master` shippable.
 
 | Phase | PR | What lands | Why separable |
 |---|---|---|---|
-| **1 — Tile** | refactor | `useTileStore` + `TileContent` union (terminal-only), unified canvas `<For>`, `TileId` selection, `mode()` on `tiles.length`, collapse `SleepingCanvasTile` into `CanvasTile` | Pure decomplect, **zero behavior change** — reviewable on its own, de-risks everything after |
+| **1 — Tile** | <PrLink pr={1435} /> | `useTileStore` + `TileContent` union (terminal-only), one canvas `<For>` over `tileIds()` dispatching on `contentOf(id).kind`, `TileId` selection, `mode()` on `tileCount()`, layout read/write through the registry | Pure decomplect, **zero behavior change** — reviewable on its own, de-risks everything after |
 | **2 — Sleeping state** | feature | `{kind:"sleeping"}` variant + sleep/wake RPCs + the persisted store + restore-as-sleeping; dock row + canvas tile via the shared paths | The user-facing core; no silo, no new dock section |
 | **3 — Frozen screenshot** | feature | capture-on-sleep, served image route from the state dir, frozen body | Cohesive, isolated surface (a route + a capture) |
 | **4 — Louder alerts & parity** | feature | the *awaiting/alert* signals get louder everywhere (an escape hatch earns it), switcher parity, the 48h idle-nudge | Polish; keeps PR 2 tight |
