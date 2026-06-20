@@ -13,11 +13,7 @@
  *  `TerminalMetaCompact`. */
 
 import { prValue } from "anyforge/schemas";
-import {
-  activeArm,
-  prUnavailableSource,
-  type TerminalId,
-} from "kolu-common/surface";
+import { activeArm, prUnavailableSource } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import { agentBucket } from "../canvas/dockModel";
@@ -27,14 +23,11 @@ import { agentWorkflow } from "../ui/agentDisplay";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
-import LiveActivityDot from "./LiveActivityDot";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import { useTerminalActivity } from "./useTerminalActivity";
 
 const TerminalMeta: Component<{
-  id: TerminalId;
   info: TerminalDisplayInfo | undefined;
   /** True when this terminal has unseen agent activity. Drives the
    *  leading state pip's attention escalation exactly as the dock row
@@ -46,7 +39,6 @@ const TerminalMeta: Component<{
   onOpenIntent: () => void;
 }> = (props) => {
   const i = () => props.info;
-  const activity = useTerminalActivity();
   return (
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
@@ -60,16 +52,7 @@ const TerminalMeta: Component<{
            *  separate agent row here. CWD is implicit (tooltip on the
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
-          <div class="relative flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            {/* Live-output dot — an absolute overlay sitting in the title
-             *  bar's left gutter, so it never pushes the name: appearing or
-             *  disappearing leaves the title text exactly where it was. The
-             *  live/static gate lives here (the dot itself is presentational). */}
-            <Show when={activity.isLive(props.id)}>
-              <span class="pointer-events-none absolute -left-2.5 top-1/2 -translate-y-1/2">
-                <LiveActivityDot />
-              </span>
-            </Show>
+          <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (

@@ -537,7 +537,6 @@ const App: Component = () => {
                       {...dockPalette}
                       renderTileTitle={(id) => (
                         <TerminalMeta
-                          id={id}
                           info={store.getDisplayInfo(id)}
                           unread={store.isUnread(id)}
                           onOpenIntent={() => intentEditor.openTerminal(id)}

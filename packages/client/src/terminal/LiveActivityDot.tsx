@@ -9,7 +9,7 @@
  *  accent=blue), so the two axes never blur into one. Mirrors
  *  `ChecksIndicator`'s dot geometry so it reads as one visual family. */
 
-import { type Component } from "solid-js";
+import type { Component } from "solid-js";
 
 /** Pure visual leaf: it encapsulates only the dot's geometry and always renders.
  *  The live/static GATE lives once per call site (each surface owns when to mount
