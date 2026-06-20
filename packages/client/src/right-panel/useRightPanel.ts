@@ -424,6 +424,10 @@ export function useRightPanel() {
       // repo move on a terminal we've already seen drops the now-stale stack —
       // cleared in place so the toolbar stays subscribed to the live instance.
       if (prevRepo !== undefined && repo !== prevRepo) {
+        // TEMP DIAGNOSTIC (flake-1): capture the spurious reset. Pushed AFTER
+        // the decision so it can't change whether the reset fires (no masking).
+        const dbg = window as unknown as { __resets?: unknown[] };
+        (dbg.__resets ??= []).push({ id, repo, prev: prevRepo });
         h.browser.reset();
       }
     },

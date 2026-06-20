@@ -9,6 +9,7 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 interface RenderProbeWindow {
   __paintCount: number;
   __syncRefreshes: number;
+  __stalled: boolean;
 }
 
 When(
@@ -19,7 +20,6 @@ When(
       const term = (
         el as unknown as {
           __xterm?: {
-            rows: number;
             onRender(cb: () => void): { dispose(): void };
             _core?: {
               _renderService?: {
@@ -36,6 +36,10 @@ When(
       const w = window as unknown as RenderProbeWindow;
       w.__paintCount = 0;
       w.__syncRefreshes = 0;
+      // PHASE flag: while stalled, swallow EVERY refresh so the screen cannot
+      // repaint — `the window regains focus` flips it false so only the fix's
+      // forced repaint after focus is allowed through and counted.
+      w.__stalled = true;
       // NOTE on the `__name`-avoidance shapes below: esbuild's keep-names
       // transform decorates any NAME-INFERRED function (an arrow assigned to a
       // variable/property, or an object-literal value) with a `__name(...)`
@@ -66,19 +70,18 @@ When(
       // — what the fix calls on window focus — through, and count it. The
       // wrapper lives as an array element so esbuild leaves it anonymous.
       const orig = rs.refreshRows.bind(rs);
-      // Swallow EVERY refresh while stalled — including incidental SYNC paints
-      // from cursor blink / selection rendering that focusing + typing the
-      // generate-output command triggers (narrow-range refreshRows(cursorRow,
-      // cursorRow, true)). Those are unrelated to the occlusion repaint and, if
-      // let through, fire onRender and bump __paintCount before the "not
-      // repainted yet" assertion — flaking it on slower darwin runners. Only the
-      // fix's FORCED repaint — recover() -> refreshRows(0, rows - 1, true), a
-      // full-range sync call — is the signal this scenario verifies, so only
-      // that one passes through and counts. Lives as an array element so
-      // esbuild's keep-names leaves it anonymous (see the __name note above).
+      // While stalled, drop ALL refreshes — including the incidental FULL-RANGE
+      // sync repaint that generating output triggers (refreshRows(0, rows-1,
+      // true) on scroll). Range alone can't tell that apart from the fix's
+      // forced repaint, which is exactly why a range filter still flaked. The
+      // data still lands in xterm's buffer (refreshRows only paints), so the
+      // buffer assertion holds while __paintCount stays 0. Once focus is regained
+      // (__stalled=false), recover()'s forced sync repaint passes through and is
+      // the only counted paint. Array element so esbuild leaves it anonymous.
       const swallow = [
         (s: number, e: number, sync?: boolean) => {
-          if (sync && s === 0 && e >= term.rows - 1) {
+          if (w.__stalled) return;
+          if (sync) {
             w.__syncRefreshes++;
             orig(s, e, true);
           }
@@ -112,6 +115,9 @@ When("the window regains focus", async function (this: KoluWorld) {
   // Restore real focus reporting first (the stall step forced hasFocus()=false
   // to model occlusion), then dispatch the focus event the listener keys off.
   await this.page.evaluate(() => {
+    // Leave the stall phase BEFORE dispatching focus so recover()'s forced
+    // repaint is allowed through the swallow (and counted).
+    (window as unknown as RenderProbeWindow).__stalled = false;
     delete (document as unknown as { hasFocus?: unknown }).hasFocus;
     window.dispatchEvent(new FocusEvent("focus"));
   });
