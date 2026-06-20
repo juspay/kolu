@@ -439,11 +439,16 @@ export const SavedActiveTerminalSchema = PersistedTerminalFieldsSchema.merge(
   ActiveDiscriminantSchema,
 ).merge(SavedTerminalIdSchema);
 
+/** The sleeping arm of the on-disk record (persisted base + `sleptAt` + id, no
+ *  live overlay) — the shape a slept terminal persists. Named symmetrically with
+ *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms. */
+export const SavedSleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
+  SleepingDiscriminantSchema,
+).merge(SavedTerminalIdSchema);
+
 export const SavedTerminalSchema = z.discriminatedUnion("state", [
   SavedActiveTerminalSchema,
-  PersistedTerminalFieldsSchema.merge(SleepingDiscriminantSchema).merge(
-    SavedTerminalIdSchema,
-  ),
+  SavedSleepingTerminalSchema,
 ]);
 
 export const SavedSessionSchema = z.object({
