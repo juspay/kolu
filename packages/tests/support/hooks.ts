@@ -904,15 +904,6 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
           err,
         );
       });
-    // TEMP DIAGNOSTIC (flake-1) — dump captured spurious history resets.
-    const resets = await this.page
-      .evaluate(
-        () => (window as unknown as { __resets?: unknown }).__resets ?? [],
-      )
-      .catch(() => []);
-    process.stdout.write(
-      `[RESETS] ${scenario.pickle.name} :: ${JSON.stringify(resets)}\n`,
-    );
   }
   // PR-evidence video (KOLU_EVIDENCE): grab the page's video handle BEFORE
   // closing the context — the .webm is only finalized on close — then save it

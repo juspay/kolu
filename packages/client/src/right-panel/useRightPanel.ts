@@ -21,6 +21,7 @@
 
 import {
   type Browser,
+  type BrowserSnapshot,
   createBrowser,
   DEFAULT_MAX_ENTRIES,
 } from "@kolu/solid-browser";
@@ -116,6 +117,13 @@ const [drawerOpen, setDrawerOpen] = createSignal(false);
 type TerminalHistory = {
   browser: Browser<BrowserLocation>;
   lastRepo: string | null | undefined;
+  /** Per-repo parked back/forward stacks for this terminal. A terminal's
+   *  `repoPath()` can transiently flip to a sibling terminal's repo on a switch
+   *  (a server-side git re-resolve under load) and revert; we PARK the current
+   *  stack under the old repo and swap in the new repo's stack rather than
+   *  destroying it, so the flicker can't wipe history. A genuine `cd` lands on
+   *  an absent (empty) stash → back disabled, exactly as before. */
+  stash: Map<string, BrowserSnapshot<BrowserLocation>>;
 };
 const history = new Map<TerminalId, TerminalHistory>();
 
@@ -143,7 +151,7 @@ function newBrowserFor(): Browser<BrowserLocation> {
 function historyFor(id: TerminalId): TerminalHistory {
   let h = history.get(id);
   if (!h) {
-    h = { browser: newBrowserFor(), lastRepo: undefined };
+    h = { browser: newBrowserFor(), lastRepo: undefined, stash: new Map() };
     history.set(id, h);
   }
   return h;
@@ -418,18 +426,19 @@ export function useRightPanel() {
       // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker.
       const h = historyFor(id);
       const prevRepo = h.lastRepo;
-      h.lastRepo = repo;
-      // First sight of this terminal (fresh mount or session restore): adopt
-      // its repo as the baseline, leaving any seeded stack intact. A genuine
-      // repo move on a terminal we've already seen drops the now-stale stack —
-      // cleared in place so the toolbar stays subscribed to the live instance.
-      if (prevRepo !== undefined && repo !== prevRepo) {
-        // TEMP DIAGNOSTIC (flake-1): capture the spurious reset. Pushed AFTER
-        // the decision so it can't change whether the reset fires (no masking).
-        const dbg = window as unknown as { __resets?: unknown[] };
-        (dbg.__resets ??= []).push({ id, repo, prev: prevRepo });
-        h.browser.reset();
+      // First sight (prevRepo undefined): adopt the baseline, leaving any seeded
+      // stack intact. On a genuine repo move, PARK the old repo's stack under it
+      // and swap in the new repo's stack (empty on first visit) — never destroy
+      // it. A terminal's repoPath() can transiently report a sibling terminal's
+      // repo on a switch (a darwin git re-resolve under load) and revert; a
+      // destructive reset would permanently wipe back/forward history on that
+      // flicker. Stash-and-restore makes a flicker lossless, while a genuine
+      // `cd` still lands on an empty stack (back disabled) — see the unit tests.
+      if (prevRepo !== undefined && prevRepo !== null && repo !== prevRepo) {
+        h.stash.set(prevRepo, h.browser.snapshot());
+        h.browser.restore(h.stash.get(repo) ?? { entries: [], cursor: -1 });
       }
+      h.lastRepo = repo;
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────

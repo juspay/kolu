@@ -19,6 +19,12 @@
 
 import { createSignal } from "solid-js";
 
+/** A point-in-time copy of a browser's stack + cursor, for stash/restore. A
+ *  host scoping history by an external key (e.g. per repo) parks the current
+ *  stack and swaps another in without destroying either — so a transient key
+ *  flip and back doesn't lose history. */
+export type BrowserSnapshot<L> = { entries: readonly L[]; cursor: number };
+
 export type Browser<L> = {
   /** The location at the cursor, or `null` when no location has been visited. */
   current: () => L | null;
@@ -49,6 +55,13 @@ export type Browser<L> = {
    *  Discarding the instance and building a fresh one instead would strand
    *  those subscriptions on the dead object — the ◀/▶ enablement would freeze. */
   reset: (initial?: L) => void;
+  /** Copy the current stack + cursor for a later {@link restore} — a non-
+   *  destructive alternative to {@link reset} for a host that swaps history per
+   *  external key (e.g. parking a repo's stack while another repo is shown). */
+  snapshot: () => BrowserSnapshot<L>;
+  /** Replace the stack + cursor from a {@link snapshot}, **in place** (like
+   *  {@link reset}, so the host's reactive reads stay subscribed). */
+  restore: (snap: BrowserSnapshot<L>) => void;
 };
 
 export type CreateBrowserOptions<L> = {
@@ -139,5 +152,10 @@ export function createBrowser<L>(
     forward,
     length: () => entries().length,
     reset,
+    snapshot: () => ({ entries: [...entries()], cursor: cursor() }),
+    restore: (snap) => {
+      setEntries([...snap.entries]);
+      setCursor(snap.cursor);
+    },
   };
 }

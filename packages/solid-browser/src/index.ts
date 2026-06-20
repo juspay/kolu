@@ -4,6 +4,7 @@ export {
 } from "./backForwardInput";
 export {
   type Browser,
+  type BrowserSnapshot,
   createBrowser,
   type CreateBrowserOptions,
   DEFAULT_MAX_ENTRIES,
