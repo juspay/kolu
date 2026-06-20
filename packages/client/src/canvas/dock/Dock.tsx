@@ -83,6 +83,8 @@ import {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
+  DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GRID_DESKTOP,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -374,7 +376,7 @@ const RepoSection: Component<{
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid grid-cols-[12px_16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID_DESKTOP} gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
     {/* Header is a sticky band tinted with the repo colour (see
      *  `.dock-cards-section-header`), riding above the repo-colour
@@ -518,9 +520,10 @@ const DockRow: Component<{
            *  column's left, so PR icons align across every section)
            *  followed by the subline text (agent summary / state, or
            *  foreground process title, or an invisible placeholder
-           *  keeping the row two-line tall). Col 3 is the branch column
-           *  now that the leading ActivityPip occupies col 1. */}
-          <div class="col-start-3 col-end-[-1] flex items-center gap-1.5 min-w-0">
+           *  keeping the row two-line tall). */}
+          <div
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+          >
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}

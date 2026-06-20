@@ -21,7 +21,11 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
-import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
+import {
+  DOCK_CARDS_SUBGRID_LEFT_RESTORE,
+  DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GRID_TOUCH,
+} from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
@@ -89,7 +93,7 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class="dock-cards-section grid grid-cols-[12px_20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
+      class={`dock-cards-section grid ${DOCK_ROW_GRID_TOUCH} gap-x-3 pl-6 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
@@ -195,9 +199,10 @@ function DockListRow(props: {
           {/* Second line — flex row spanning the branch column → end.
            *  PR pip on the left (anchored to the branch column's left
            *  edge so it aligns across every section), subline text
-           *  following. Col 3 is the branch column now that the leading
-           *  ActivityPip occupies col 1. */}
-          <div class="col-start-3 col-end-[-1] flex items-center gap-1.5 min-w-0">
+           *  following. */}
+          <div
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+          >
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}
