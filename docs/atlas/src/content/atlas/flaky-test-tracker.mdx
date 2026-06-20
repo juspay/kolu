@@ -1,0 +1,66 @@
+---
+title: Flaky Test Tracker
+description: A backlog of flaky tests — e2e (Cucumber + Playwright) and unit (vitest). Drop a row when you hit one; an agent clears the queue from time to time.
+parents: [reference]
+maturity: seedling
+updated: 2026-06-19
+---
+
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+A fix-queue for tests that go red on one CI run and green on the next with no
+code change. See a flake → **add a row**. An agent works the backlog over time.
+
+## Flake vs. break
+
+A **flake** fails nondeterministically — timing, ordering, or environment — and
+would pass on a same-SHA rerun; a **break** fails the same way every run and is a
+real defect, so file a [bug](./bug.html) instead. A one-off rerun via the **odu
+MCP** is fine to *triage* which it is — but a rerun is never how a flake gets
+*fixed* (see the routine below).
+
+## Backlog
+
+Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> → <Pill variant="ok">fixed</Pill> (then strike the row).
+
+| Test | Lane | Symptom | Repro'd in | Status | Fix |
+| --- | --- | --- | --- | --- | --- |
+| Code tab history survives switching between terminals in different repos (`code-tab.feature:714`) | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
+| Clicking a folder ref reveals and expands the directory in the tree (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — `waitFor` 60s timeout | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
+| Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
+| Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
+
+## Logging a flake
+
+When a lane goes red and a single-node rerun comes back green, **add a row**: test
+name, `recipe@platform` lane, the assertion/timeout, the PR it reproduced in
+(`<PrLink pr={…} />`), <Pill variant="new">open</Pill>. No investigation needed to log it.
+
+## Fixing routine
+
+An agent clears the backlog by driving CI to **N consecutive green runs** (N = 5
+by default, or as given) through the **odu MCP** (`run` the test lanes →
+`wait_for_settle`, repeated). The green streak **verifies** that a fix is real —
+it is never a way to wash a flake out.
+
+Non-negotiable rules:
+
+- **A single failure is a fix, not a re-run.** One red lane → stop and fix the
+  root cause. Re-running to hope for green is forbidden, and any failure resets
+  the streak to 0.
+- **Fix the test, not the app.** A flake is a defect in the *test*; change only
+  `packages/tests`, never application code — unless a fix is provably impossible
+  without it.
+- **Kill the timing dependence, don't pad it.** A "timing issue" is fixed by
+  waiting on a deterministic signal (a real DOM/aria state, an app event, an
+  awaited promise, correct setup ordering) — *never* by bumping a timeout or
+  adding a sleep.
+- **Reuse past de-flake PRs.** Read how this suite was de-flaked before and apply
+  the established deterministic-wait patterns instead of inventing one.
+
+The loop: **fail** → streak resets to 0, root-cause and fix the test
+(<Pill variant="run">fixing</Pill> → <Pill variant="ok">fixed</Pill>, link the PR
+with `<PrLink pr={…} />`); while there, drop any <Pill variant="new">open</Pill>
+row that no longer reproduces. **Pass** → streak +1. **Done = N green runs
+back-to-back with the backlog cleared.**
