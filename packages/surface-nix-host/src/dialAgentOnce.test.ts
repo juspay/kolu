@@ -168,7 +168,7 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     await expect(resolveDrvPath()).resolves.toBe("/nix/store/aaa-agent.drv");
   });
 
-  it("threads extraRemoteArgs to the session's extraArgs (the --kaval passthrough)", async () => {
+  it("threads extraArgs to the session (the --kaval passthrough)", async () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
@@ -177,14 +177,14 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
       agentDrvsJson: VALID_MAP,
       drvNoun: "arivu",
       probe: async () => undefined,
-      extraRemoteArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
+      extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
     expect(h.HostSession.mock.calls[0]?.[0]).toMatchObject({
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
   });
 
-  it("leaves extraArgs undefined when no extraRemoteArgs given (discover-by-default)", async () => {
+  it("leaves extraArgs undefined when none given (discover-by-default)", async () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",

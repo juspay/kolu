@@ -71,7 +71,9 @@ export function connectArivuViaHost(
     drvNoun: "arivu",
     // Only pin the remote kaval when the user asked (--kaval); otherwise let the
     // remote arivu discover it, so a single remote kolu is found with no flag.
-    extraRemoteArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
+    // `extraArgs` is `dialAgentOnce`'s generic spawn-arg passthrough — this is
+    // the one site that knows the args ARE `--kaval <socket>`.
+    extraArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
     // arivu has no `system.heartbeat`, so read the first frame of the `version`
     // cell as the connectivity probe. A `version` cell ALWAYS opens with a
     // snapshot frame, so an empty stream is a protocol/link failure, not a

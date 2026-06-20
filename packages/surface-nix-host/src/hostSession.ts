@@ -114,10 +114,9 @@ export interface HostSessionOptions {
    *  `process-monitor-agent`, `kolu-terminal-agent`). The full spawn
    *  path is `${agentPath}/bin/${binary}`. */
   binary: string;
-  /** Extra args appended after `--stdio` on the agent command line (e.g.
-   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
-   *  kaval). POSIX-quoted for a real remote; verbatim for localhost. See
-   *  `buildAgentCommand`. */
+  /** Extra args appended after `--stdio` on the agent command line — a generic
+   *  spawn-arg carrier; what the args mean is the caller's concern. POSIX-quoted
+   *  for a real remote; verbatim for localhost. See `buildAgentCommand`. */
   extraArgs?: readonly string[];
   /** How long between disconnect and reconnect attempts. Default 2s. */
   reconnectDelayMs?: number;

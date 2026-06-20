@@ -117,11 +117,11 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  frame of its `version` cell. The result is discarded; a rejection fails the
    *  dial (and destroys the session). */
   probe: (client: AgentClient<C>) => Promise<unknown>;
-  /** Extra args appended after `--stdio` on the remote agent command — e.g.
-   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
-   *  kaval when several are running. Omit to let the agent's own default (its
-   *  discovery) apply. */
-  extraRemoteArgs?: readonly string[];
+  /** Extra args appended after `--stdio` on the remote agent command. Omit to let
+   *  the agent's own default apply. The same generic spawn-arg carrier as
+   *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
+   *  the caller's concern (see the arivu-tui `--kaval` call site). */
+  extraArgs?: readonly string[];
 }
 
 /** Dial an agent on `host` over ssh, one-shot. Provisions the daemon's closure,
@@ -152,7 +152,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   const session = new HostSession<C>({
     host: opts.host,
     binary: opts.binary,
-    extraArgs: opts.extraRemoteArgs,
+    extraArgs: opts.extraArgs,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
   });
   // Capture the agent's OWN fatal reason as the session streams it. When the

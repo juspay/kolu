@@ -76,11 +76,11 @@ describe("connectArivuViaHost", () => {
     const rows = await snapshotAwareness(conn.client);
     expect(Array.isArray(rows)).toBe(true);
 
-    // No --kaval → no extraRemoteArgs, so the remote arivu discovers its kaval.
-    expect(opts?.extraRemoteArgs).toBeUndefined();
+    // No --kaval → no extraArgs, so the remote arivu discovers its kaval.
+    expect(opts?.extraArgs).toBeUndefined();
   });
 
-  it("forwards --kaval as extraRemoteArgs to the remote arivu", async () => {
+  it("forwards --kaval as extraArgs to the remote arivu", async () => {
     h.dialAgentOnce.mockResolvedValue({
       client: makeInProcessArivuClient(),
       dispose: () => {},
@@ -90,7 +90,7 @@ describe("connectArivuViaHost", () => {
       "/run/user/1000/kaval-7692/pty-host.sock",
     );
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
-    expect(opts?.extraRemoteArgs).toEqual([
+    expect(opts?.extraArgs).toEqual([
       "--kaval",
       "/run/user/1000/kaval-7692/pty-host.sock",
     ]);

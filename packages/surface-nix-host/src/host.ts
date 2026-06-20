@@ -160,11 +160,11 @@ export function buildAgentCommand(opts: {
   host: string;
   agentPath: string;
   binary: string;
-  /** Extra args appended after `--stdio` on the agent command line — e.g.
-   *  `["--kaval", "<socket>"]` to point a remote `arivu --stdio` at a specific
-   *  kaval. Empty by default. For a real remote these are POSIX-quoted (ssh
-   *  re-splits the command through the remote login shell); localhost runs the
-   *  binary directly via `spawn`, so they pass through verbatim. */
+  /** Extra args appended after `--stdio` on the agent command line — a generic
+   *  spawn-arg carrier; what the args mean is the caller's concern. Empty by
+   *  default. For a real remote these are POSIX-quoted (ssh re-splits the command
+   *  through the remote login shell); localhost runs the binary directly via
+   *  `spawn`, so they pass through verbatim. */
   extraArgs?: readonly string[];
 }): { command: string; args: string[] } {
   const exe = `${opts.agentPath}/bin/${opts.binary}`;
