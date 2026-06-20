@@ -82,13 +82,28 @@ export function inventoryAdoptions(
   ev: PtyHostInventoryEvent,
   isTracked: (id: string) => boolean,
 ): PtyHostListEntry[] {
-  const entries =
-    ev.kind === "snapshot"
-      ? ev.entries
-      : ev.kind === "created"
-        ? [ev.entry]
-        : [];
-  return entries.filter((entry) => !isTracked(entry.id));
+  switch (ev.kind) {
+    case "snapshot":
+      return ev.entries.filter((entry) => !isTracked(entry.id));
+    case "created":
+      return [ev.entry].filter((entry) => !isTracked(entry.id));
+    case "exited":
+      // `exited`'s payload is an id, not an entry — there is nothing to adopt.
+      // A stated case, not a fall-through: the per-id `exit` tap is the single
+      // authority for a tracked PTY's teardown (module doc).
+      return [];
+    default:
+      // Exhaustiveness: a fourth `PtyHostInventoryEvent` variant becomes a
+      // COMPILE error here rather than silently routing to an empty default.
+      return assertNever(ev);
+  }
+}
+
+/** Compile-time exhaustiveness guard: reachable only if a discriminated-union
+ *  case was missed, which TypeScript catches by failing to narrow `x` to
+ *  `never`. Throws if ever reached at runtime (a malformed wire frame). */
+function assertNever(x: never): never {
+  throw new Error(`unexpected inventory event: ${JSON.stringify(x)}`);
 }
 
 /** Apply one inventory frame: adopt every untracked PTY it contributes. The
