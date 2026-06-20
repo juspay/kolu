@@ -404,9 +404,18 @@ export function useRightPanel() {
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
     syncRepo: (id: TerminalId, repo: string | null) => {
+      // A `null` repo means the terminal's git metadata is absent or transiently
+      // re-resolving — an OSC-7 prompt redraw on a terminal switch briefly drops
+      // `meta.git.repoRoot` to null before it settles back to the SAME root.
+      // Treat null as "no new information": don't reset and don't move the
+      // baseline, so a transient repoA → null → repoA flicker can't wipe the
+      // terminal's back/forward stack (it did on slower runners, where the null
+      // tick is observed as its own effect run). A genuine repo move is always
+      // seen as a non-null change to a *different* root (handled below); leaving
+      // a repo entirely just defers the reset until the next real repo is adopted.
+      if (repo === null) return;
       // `historyFor` resolves (creating if absent) the terminal's record, so a
-      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker —
-      // distinct from `null` ("recorded, terminal is in no repo").
+      // `lastRepo` of `undefined` is the sole "no repo recorded yet" marker.
       const h = historyFor(id);
       const prevRepo = h.lastRepo;
       h.lastRepo = repo;

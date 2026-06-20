@@ -19,6 +19,7 @@ When(
       const term = (
         el as unknown as {
           __xterm?: {
+            rows: number;
             onRender(cb: () => void): { dispose(): void };
             _core?: {
               _renderService?: {
@@ -65,9 +66,19 @@ When(
       // — what the fix calls on window focus — through, and count it. The
       // wrapper lives as an array element so esbuild leaves it anonymous.
       const orig = rs.refreshRows.bind(rs);
+      // Swallow EVERY refresh while stalled — including incidental SYNC paints
+      // from cursor blink / selection rendering that focusing + typing the
+      // generate-output command triggers (narrow-range refreshRows(cursorRow,
+      // cursorRow, true)). Those are unrelated to the occlusion repaint and, if
+      // let through, fire onRender and bump __paintCount before the "not
+      // repainted yet" assertion — flaking it on slower darwin runners. Only the
+      // fix's FORCED repaint — recover() -> refreshRows(0, rows - 1, true), a
+      // full-range sync call — is the signal this scenario verifies, so only
+      // that one passes through and counts. Lives as an array element so
+      // esbuild's keep-names leaves it anonymous (see the __name note above).
       const swallow = [
         (s: number, e: number, sync?: boolean) => {
-          if (sync) {
+          if (sync && s === 0 && e >= term.rows - 1) {
             w.__syncRefreshes++;
             orig(s, e, true);
           }

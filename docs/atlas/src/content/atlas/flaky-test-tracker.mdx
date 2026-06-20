@@ -26,10 +26,10 @@ Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> �
 
 | Test | Lane | Symptom | Repro'd in | Status | Fix |
 | --- | --- | --- | --- | --- | --- |
-| Code tab history survives switching between terminals in different repos (`code-tab.feature:714`) | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
-| Clicking a folder ref reveals and expands the directory in the tree (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — `waitFor` 60s timeout | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
-| Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
-| Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="new">open</Pill> | — |
+| Code tab history survives switching between terminals in different repos (`code-tab.feature:714`) | `e2e@aarch64-darwin` | `back` button never enabled — `waitFor` 20s timeout | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Clicking a folder ref reveals and expands the directory in the tree (`file-ref-link.feature:69`) | `e2e@aarch64-darwin` | `app/core` never expands — `waitFor` 60s timeout | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 
 ## Logging a flake
 

@@ -161,4 +161,21 @@ describe("useRightPanel — syncRepo scopes history per repo, per terminal", () 
     rp.syncRepo(a, "/repo/A2");
     expect(rp.canNavigateBack()).toBe(false);
   });
+
+  it("a transient null repo (git re-resolving on a switch) keeps history", () => {
+    // Regression: an OSC-7 prompt redraw on a terminal switch briefly drops
+    // `meta.git.repoRoot` to null before it settles back to the SAME repo, so
+    // `repoPath()` flickers repoA → null → repoA. The null tick must NOT read
+    // as a repo change — otherwise it resets the stack and the Code tab's back
+    // button never re-enables (the darwin-only flake this guards).
+    const a = "f6-flicker-A" as TerminalId;
+    recordAt(a, "one.txt", "two.txt");
+    const rp = useRightPanel();
+    h.activeId = a;
+    rp.syncRepo(a, "/repo/A"); // baseline
+    expect(rp.canNavigateBack()).toBe(true);
+    rp.syncRepo(a, null); // transient re-resolve — must not wipe the stack
+    rp.syncRepo(a, "/repo/A"); // settles back to the same repo
+    expect(rp.canNavigateBack()).toBe(true);
+  });
 });

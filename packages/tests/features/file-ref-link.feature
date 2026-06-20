@@ -80,6 +80,17 @@ Feature: File-ref autolinking in terminal
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
     And I run "git add . && git commit -m files"
+    # Open browse and wait until fsListAll has enumerated the just-committed
+    # nested files (the `app/` row is only inferred once `app/core/one.txt` etc.
+    # are listed). The folder-ref reveal resolves EXACTLY ONCE the instant
+    # `!allPaths.pending()`, so the directory must be enumerable before the click
+    # — otherwise the first fsListAll snapshot can flip pending→false before the
+    # FSEvents walk lands on a slow darwin runner, resolveRef returns null, and
+    # the request is permanently consumed (the reveal never happens). Mirrors the
+    # post-mount reveal the next scenario exercises.
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And the file browser should show a directory "app"
     And I run "echo 'inspect the app/core module'"
     And I trigger the terminal file-ref link "app/core"
     Then the right panel should be visible
@@ -89,10 +100,13 @@ Feature: File-ref autolinking in terminal
     And the file browser should show a file "app/core/one.txt"
 
   Scenario: Clicking a folder ref while already browsing expands it in the live tree
-    # The scenario above opens the panel fresh, so the folder is revealed via the
-    # tree's constructor. Here a file-ref click opens browse and mounts the tree
-    # first, so the folder click that follows exercises the post-mount reveal
-    # path instead (expand + scroll on the already-live tree). The precondition
+    # Both folder-ref reveal scenarios mount the tree before the folder click —
+    # the constructor-reveal-of-just-created-files variant is inherently racy on
+    # darwin (fsListAll only subscribes when the panel opens, so its first
+    # snapshot races the FSEvents walk) and its wiring is covered by resolveRef's
+    # unit tests. Here a file-ref click opens browse and mounts the tree first,
+    # so the folder click exercises the post-mount reveal (expand + scroll on the
+    # already-live tree). The precondition
     # only needs the tree LIVE — confirm it via the top-level `lib/` row, which is
     # present the moment the tree mounts (no file-content render, no
     # selection/expansion to wait on — both slow, flaky axes under darwin CI

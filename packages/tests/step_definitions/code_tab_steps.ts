@@ -1295,35 +1295,29 @@ async function setupCodeTabFixture(
     // staged (`git add`) and `origin/<default>` must resolve. The server
     // detects `<default>` via `git symbolic-ref refs/remotes/origin/HEAD`
     // (then falls back to origin/main, origin/master). If none resolves it
-    // returns BASE_BRANCH_NOT_FOUND and the tree stays empty — and because
-    // the gitStatus stream dedups identical error snapshots, a later re-read
-    // that ALSO errors doesn't re-emit, so the tree never recovers until the
-    // base actually exists. This was the residual branch-mode flake that lost
-    // both cucumber attempts (the push occasionally not having produced a
-    // resolvable `origin/master` by the time the subscription's first read
-    // ran). Make the base deterministic and verified, not raced:
-    //   - `git init -b master` pins the default branch name (host default is
-    //     not guaranteed to be master), so the bare repo + push + detection
-    //     all agree on `master`.
-    //   - `git remote set-head origin master` sets `origin/HEAD` so the
-    //     server's FIRST detection branch (symbolic-ref) resolves immediately,
-    //     never falling through to the origin/main/master guesses.
-    //   - retry the push once, then gate the SETTLED barrier on
-    //     `origin/master` actually being verifiable — so the subscription that
-    //     `activateCodeTabMode` opens next can never read before the base ref
-    //     exists. `waitForCodeTabReady`'s per-tick work-tree nudge remains as
-    //     a belt-and-suspenders re-read trigger.
+    // returns BASE_BRANCH_NOT_FOUND, which on the FIRST read of the passive
+    // branchStatus subscription throws and tears the stream down for good (only
+    // *later* reads are swallowed) — so a work-tree nudge can never revive it
+    // and the tree stays empty. The previous order (`git init work && cd work`
+    // -> remote add -> push) flipped repoRoot at the `cd`, opening that
+    // subscription whose first read could race the push and observe "origin
+    // exists but origin/master does not yet" — the residual branch-mode flake
+    // that lost both cucumber attempts on the slower darwin runner.
+    //
+    // Fix: establish the base ref ATOMICALLY with the `origin` remote so no read
+    // can ever observe that in-between state. Seed the bare origin from a
+    // throwaway repo, then `git clone` it into `work`: clone creates `origin`,
+    // `origin/master` and `origin/HEAD` in one operation, so the instant the
+    // terminal cd's into `work` every gitStatus read resolves a valid base.
     // The marker is split across a shell string-concat (`SET""TLED`) so the
     // search text matches only the command's OUTPUT, never the typed echo.
+    const seed = `${origin}-seed`;
     await runShell(world, `git init --bare -b master ${origin}`);
-    await runShell(world, `git init -b master ${work} && cd ${work}`);
+    await runShell(world, `git init -b master ${seed} && cd ${seed}`);
     await runShell(world, `git remote add origin ${origin}`);
     await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(
-      world,
-      `git push -u origin master || git push -u origin master`,
-    );
-    await runShell(world, `git remote set-head origin master`);
+    await runShell(world, `git push -u origin master`);
+    await runShell(world, `git clone ${origin} ${work} && cd ${work}`);
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
     await runShell(world, `git add .`);
