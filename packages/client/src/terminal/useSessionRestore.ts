@@ -234,13 +234,24 @@ export const useSessionRestore = createSharedRoot(() => {
     try {
       await client.terminal.discardSleeping({ id: sleepingId });
     } catch (err) {
-      await client.terminal.kill({ id: newId }).catch(() => {
-        // Best-effort rollback; if the kill itself fails the create toast/list
-        // already reflects the live terminal, and the error below tells the user
-        // the wake did not complete.
+      // Roll back the just-created terminal so a failed discard doesn't leave
+      // BOTH a wakeable sleeping record AND a live duplicate. If the rollback
+      // kill ALSO fails, the client can't reach a clean state — log it loud and
+      // tell the user the workspace is inconsistent rather than imply a clean
+      // retry (which would spawn yet another duplicate off the same record).
+      let rolledBack = true;
+      await client.terminal.kill({ id: newId }).catch((killErr: Error) => {
+        rolledBack = false;
+        console.error("wake rollback kill failed", {
+          sleepingId,
+          newId,
+          killErr,
+        });
       });
       toast.error(
-        `Failed to wake terminal: ${(err as Error).message}. The terminal was not woken — try again.`,
+        rolledBack
+          ? `Failed to wake terminal: ${(err as Error).message}. The terminal was not woken — try again.`
+          : `Failed to wake terminal: ${(err as Error).message}. Cleanup also failed — restart kolu to recover.`,
       );
       return;
     }
