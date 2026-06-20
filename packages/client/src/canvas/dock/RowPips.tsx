@@ -51,8 +51,10 @@ import {
 import type { PrInfo } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
+import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PrStateIcon } from "../../ui/Icons";
 import type { DockRowBucket } from "./dockRowRanking";
@@ -75,6 +77,25 @@ export function createDockRowData(
     return { info, meta };
   });
 }
+
+/** Leading activity cell — first grid column, left of the `StatePip`.
+ *  Holds the `LiveActivityDot` while the terminal is streaming output and
+ *  an empty (width-reserved) cell otherwise, so the StatePip column to its
+ *  right stays aligned across rows whether or not a given row is live. The
+ *  `isLive` gate is consulted here, once per call site, exactly as the
+ *  title bar and rail overlays consult it at theirs. Distinct axis from the
+ *  StatePip: this is "moving bytes right now" (a compile, a `tail -f`, any
+ *  shell), not the agent's working/awaiting state. */
+export const ActivityPip: Component<{ id: TerminalId }> = (props) => {
+  const activity = useTerminalActivity();
+  return (
+    <span class="flex items-center justify-center">
+      <Show when={activity.isLive(props.id)}>
+        <LiveActivityDot />
+      </Show>
+    </span>
+  );
+};
 
 /** Inline PR pip — leading glyph on row line 2. Caller controls
  *  layout (typically a flex container alongside the subline text).
