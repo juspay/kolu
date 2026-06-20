@@ -26,7 +26,7 @@ import { useTileStore } from "../tile/useTileStore";
 import { useWakingTiles } from "../tile/wakingTiles";
 import { client } from "../wire";
 import { useSessionRestore } from "./useSessionRestore";
-import { useTerminalCrud } from "./useTerminalCrud";
+import { PartialKillError, useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalStore } from "./useTerminalStore";
 
 export const useSleepActions = createSharedRoot(() => {
@@ -45,17 +45,29 @@ export const useSleepActions = createSharedRoot(() => {
       await client.terminal.sleep({ id });
       // Strict kill: a real teardown failure here would otherwise be swallowed,
       // leaving the PTY/agent live while the record (written just above) claims
-      // the tile is asleep. On failure we roll the record back so the user keeps
-      // an accurate LIVE tile rather than a phantom sleeping one. (A NOT_FOUND —
-      // the terminal was already gone — counts as success and does not throw.)
+      // the tile is asleep. (A NOT_FOUND — the terminal was already gone —
+      // counts as success and does not throw.)
       try {
         await crud.handleKillWithSubsStrict(id);
       } catch (killErr) {
-        // Roll back the just-written record so state matches reality (terminal
-        // still live). `dropSleeping` is idempotent; if IT fails too, the live
-        // tile still wins in `useTileStore` (live suppresses the sleeping id),
-        // so the worst case is a stale record, not a lost or duplicated tile.
-        await client.terminal.dropSleeping({ id }).catch(() => {});
+        // Roll back the just-written record ONLY when nothing was destroyed —
+        // a plain failure means the FIRST kill failed, so the tree is intact
+        // and live; dropping the record leaves the user an accurate live tile.
+        // A `PartialKillError` means an earlier kill already tore part of the
+        // tree down, so this record is the ONLY durable copy of those killed
+        // pieces — KEEP it (the user can wake it back) and surface the
+        // incomplete sleep loudly rather than silently deleting recovery state.
+        if (killErr instanceof PartialKillError) throw killErr;
+        // Surface a rollback failure too: a still-present record is benign
+        // (live suppresses the sleeping id in `useTileStore`), but the user
+        // should know cleanup didn't fully land rather than have it swallowed.
+        try {
+          await client.terminal.dropSleeping({ id });
+        } catch (dropErr) {
+          toast.error(
+            `Couldn't undo the sleep snapshot: ${(dropErr as Error).message}`,
+          );
+        }
         throw killErr;
       }
       // The live kill routes through `removeAndAutoSwitch`, which (for the

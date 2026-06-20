@@ -9,15 +9,32 @@ import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
+import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
+
+/** Raised by `handleKillWithSubsStrict` when a kill fails AFTER an earlier kill
+ *  in the same tree already succeeded — i.e. the tree is partially torn down.
+ *  Signals to the sleep path that the durable sleeping snapshot must be KEPT
+ *  (it is the only remaining copy of the already-killed pieces), unlike a
+ *  failure on the first kill (nothing destroyed), which is safe to roll back. */
+export class PartialKillError extends Error {
+  constructor(
+    readonly failedId: TerminalId,
+    readonly cause: unknown,
+  ) {
+    super(
+      `Terminal teardown failed partway through (at ${failedId}): ${(cause as Error)?.message ?? cause}`,
+    );
+    this.name = "PartialKillError";
+  }
+}
 
 /** Terminal CRUD — singleton via `createSharedRoot`. Reads `useTerminalStore`
  *  internally (no `deps` argument), so consumers that already touch the store
@@ -214,11 +231,28 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** `handleKillWithSubs`, but propagating a real teardown failure (see
    *  `handleKillStrict`). Used by sleep so a failed kill rolls the sleep back
-   *  rather than leaving a live PTY behind an "asleep" record. */
+   *  rather than leaving a live PTY behind an "asleep" record.
+   *
+   *  Kills run one at a time (subs first, then the parent), so a failure can
+   *  land AFTER an earlier kill already tore a terminal down. The caller's
+   *  rollback (drop the just-written sleeping snapshot) is only safe when
+   *  NOTHING was destroyed — once any terminal is gone, that snapshot is the
+   *  only durable copy of the killed pieces and must survive. So a mid-tree
+   *  failure is rethrown as a `PartialKillError`: the caller keeps the record
+   *  and surfaces an incomplete-sleep error, while a failure on the very first
+   *  kill (nothing torn down yet) rethrows plain and is safe to roll back. */
   async function handleKillWithSubsStrict(id: TerminalId) {
-    const subs = store.getSubTerminalIds(id);
-    for (const subId of subs) await handleKillStrict(subId);
-    await handleKillStrict(id);
+    const order = [...store.getSubTerminalIds(id), id];
+    let killedAny = false;
+    for (const target of order) {
+      try {
+        await handleKillStrict(target);
+      } catch (err) {
+        if (killedAny) throw new PartialKillError(target, err);
+        throw err;
+      }
+      killedAny = true;
+    }
   }
 
   async function handleCopyTerminalText() {
