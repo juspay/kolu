@@ -21,8 +21,8 @@ const SleepingTileBody: Component<{
   onWake: () => void;
 }> = (props) => {
   const top = () => topTerminal(props.record);
-  const intent = () => top()?.intent?.trim();
-  const cwd = () => top()?.cwd ?? "";
+  const intent = () => top().intent?.trim();
+  const cwd = () => top().cwd;
 
   return (
     <div class="flex-1 min-h-0 flex flex-col gap-1.5 px-3 py-2.5 overflow-hidden">

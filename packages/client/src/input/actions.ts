@@ -230,9 +230,12 @@ const _ACTIONS = {
   toggleSubPanel: {
     label: "Toggle terminal split",
     keybind: { key: "`", code: "Backquote", ctrl: true },
+    // Split verbs need a LIVE active terminal. `activeMeta()` is the live-
+    // metadata accessor (null when the active tile is sleeping — no PTY), so
+    // gating on it keeps these chords from targeting a dormant tile id.
     handler: (ctx) => {
       const id = ctx.activeId();
-      if (id) ctx.toggleSubPanel(id);
+      if (id && ctx.activeMeta()) ctx.toggleSubPanel(id);
     },
   },
   createSubTerminal: {
@@ -240,8 +243,8 @@ const _ACTIONS = {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     handler: (ctx) => {
       const id = ctx.activeId();
-      if (id)
-        ctx.handleCreateSubTerminal(id, ctx.activeMeta()?.cwd ?? undefined);
+      const meta = ctx.activeMeta();
+      if (id && meta) ctx.handleCreateSubTerminal(id, meta.cwd ?? undefined);
     },
   },
   nextSubTab: {
@@ -249,7 +252,7 @@ const _ACTIONS = {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
     handler: (ctx) => {
       const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, 1);
+      if (id && ctx.activeMeta()) ctx.cycleSubTab(id, 1);
     },
   },
   prevSubTab: {
@@ -257,7 +260,7 @@ const _ACTIONS = {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     handler: (ctx) => {
       const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, -1);
+      if (id && ctx.activeMeta()) ctx.cycleSubTab(id, -1);
     },
   },
   shuffleTheme: {

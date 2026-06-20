@@ -69,7 +69,10 @@ export function useActionContext(): ActionContext {
     handleShuffleTheme,
     handleScreenshotTerminal: () => {
       const id = store.activeId();
-      if (id !== null) void screenshotTerminal(id, store.getMetadata(id));
+      // Only a LIVE tile has a rendered terminal to screenshot; a sleeping
+      // active tile has no live metadata, so gate on it being present.
+      const meta = id !== null ? store.getMetadata(id) : undefined;
+      if (id !== null && meta) void screenshotTerminal(id, meta);
     },
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,

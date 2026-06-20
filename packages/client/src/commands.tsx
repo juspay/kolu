@@ -30,6 +30,7 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
+import { useSleepActions } from "./terminal/useSleepActions";
 import { useTileStore } from "./tile/useTileStore";
 import { recentAgents, recentRepos } from "./wire";
 
@@ -170,327 +171,374 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   // the toggle with a guard or telemetry.
   const posture = useViewPosture();
   const tileStore = useTileStore();
+  const sleepActions = useSleepActions();
 
-  return createMemo((): PaletteCommand[] => [
-    // --- Workspaces ---
-    ...(tileStore.tileCount() > 0
-      ? [
-          {
-            kind: "body-group" as const,
-            name: "Search workspaces",
-            description: "Switch to a live terminal",
-            section: "workspaces" as const,
-            keybind: ACTIONS.openWorkspaceSwitcher.keybind,
-            body: workspacesBody,
-            bodyHint: "Pick a workspace to switch",
-          },
-        ]
-      : []),
-    {
-      kind: "group",
-      name: "New terminal",
-      section: "workspaces",
-      children: (): PaletteItem[] => {
-        const repos = recentRepos();
-        return [
+  return createMemo((): PaletteCommand[] => {
+    // The active tile's content kind drives which command sections apply: a live
+    // terminal gets the full active-terminal section; a sleeping tile gets only
+    // Wake/Discard. Computed once per memo run so both gates read one value.
+    const activeId = deps.activeId();
+    const activeContent =
+      activeId !== null ? tileStore.contentOf(activeId) : undefined;
+    return [
+      // --- Workspaces ---
+      ...(tileStore.tileCount() > 0
+        ? [
+            {
+              kind: "body-group" as const,
+              name: "Search workspaces",
+              description: "Switch to a live terminal",
+              section: "workspaces" as const,
+              keybind: ACTIONS.openWorkspaceSwitcher.keybind,
+              body: workspacesBody,
+              bodyHint: "Pick a workspace to switch",
+            },
+          ]
+        : []),
+      {
+        kind: "group",
+        name: "New terminal",
+        section: "workspaces",
+        children: (): PaletteItem[] => {
+          const repos = recentRepos();
+          return [
+            {
+              kind: "action",
+              name: "In current directory",
+              onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
+            },
+            ...repos.map(
+              (r): PaletteValueInput => ({
+                kind: "value",
+                name: r.repoName,
+                description: `New worktree in ${r.repoRoot}`,
+                prefill: randomName,
+                placeholder: "Worktree name",
+                validate: validateWorktreeName,
+                onSubmit: (name, selected) => {
+                  const agentCmd =
+                    typeof selected.data === "string"
+                      ? selected.data
+                      : undefined;
+                  deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
+                },
+                children: (): (PaletteLabel | PaletteHint)[] =>
+                  worktreeAgentOptions(recentAgents()),
+              }),
+            ),
+            ...(repos.length === 0
+              ? [
+                  {
+                    kind: "hint" as const,
+                    text: "Repos you cd into will appear here",
+                  },
+                ]
+              : []),
+          ];
+        },
+      },
+
+      // --- Active Terminal (conditional on a LIVE active terminal) ---
+      //
+      // Gated on the active tile holding a LIVE terminal, not merely on
+      // `activeId() !== null`. The active tile can be a SLEEPING tile (sleeping is
+      // a first-class tile that can hold focus); offering live-only verbs — split,
+      // copy, screenshot, export, theme, Sleep itself — against a dormant id would
+      // dispatch no-ops or terminal-not-found RPCs. A sleeping active tile gets its
+      // own Wake/Discard section below instead.
+      ...(activeContent?.kind === "terminal"
+        ? [
+            {
+              kind: "action" as const,
+              name: "Close terminal",
+              section: "active-terminal" as const,
+              onSelect: () => deps.handleClose(),
+            },
+            {
+              kind: "action" as const,
+              name: "Sleep terminal",
+              section: "active-terminal" as const,
+              onSelect: () => deps.handleSleep(),
+            },
+            actionPaletteCommand("toggleSubPanel", deps, {
+              section: "active-terminal",
+            }),
+            actionPaletteCommand("createSubTerminal", deps, {
+              section: "active-terminal",
+            }),
+            {
+              kind: "action" as const,
+              name: "Copy terminal text",
+              section: "active-terminal" as const,
+              onSelect: () => deps.handleCopyTerminalText(),
+            },
+            {
+              kind: "action" as const,
+              name: "Export scrollback as PDF",
+              section: "active-terminal" as const,
+              onSelect: () => deps.handleExportScrollbackAsPdf(),
+            },
+            ...(deps.activeMeta()?.agent
+              ? [
+                  {
+                    kind: "action" as const,
+                    name: "Export agent session as HTML",
+                    section: "active-terminal" as const,
+                    description:
+                      "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
+                    onSelect: () => deps.handleExportSessionAsHtml(),
+                  },
+                ]
+              : []),
+            actionPaletteCommand("screenshotTerminal", deps, {
+              section: "active-terminal",
+            }),
+            // "Recent agents" — surfaces agent CLIs the user has previously run
+            // in any kolu terminal, auto-detected via the preexec OSC 633;E
+            // command mark. Promoted to a root-level drill-in under the
+            // Active Terminal section now that the section framework exists.
+            // Visible when at least one agent has been seen AND there is an
+            // active terminal to prefill it into.
+            ...(recentAgents().length > 0
+              ? [
+                  {
+                    kind: "group" as const,
+                    name: "Recent agents",
+                    section: "active-terminal" as const,
+                    description:
+                      "Prefill an agent CLI into the active terminal",
+                    children: (): PaletteItem[] =>
+                      agentItems(
+                        recentAgents(),
+                        deps.handleRunInActiveTerminal,
+                      ),
+                  },
+                ]
+              : []),
+            // Theme is a per-active-terminal property (`client.terminal.setTheme`
+            // takes a terminal id), so both the drill-in chooser and the
+            // shuffle action live alongside the other active-terminal
+            // commands rather than in a global "Appearance" bucket.
+            {
+              kind: "group" as const,
+              name: "Set theme",
+              section: "active-terminal" as const,
+              onCancel: () => deps.setPreviewThemeName(undefined),
+              children: () =>
+                availableThemes
+                  .filter((t) => t.name !== deps.committedThemeName())
+                  .map(
+                    (t): PaletteAction => ({
+                      kind: "action",
+                      name: t.name,
+                      onHighlight: () => deps.setPreviewThemeName(t.name),
+                      onSelect: () =>
+                        batch(() => {
+                          deps.setPreviewThemeName(undefined);
+                          deps.handleSetTheme(t.name);
+                        }),
+                    }),
+                  ),
+            },
+            actionPaletteCommand("shuffleTheme", deps, {
+              section: "active-terminal",
+              description:
+                "Pick a theme whose background is perceptually distinct from every live terminal",
+            }),
+            // Intent — the single picker (kolu#178). One palette entry,
+            // one editor; click → curated-emoji quick-row + markdown
+            // textarea + live preview. The chip in the title bar, the
+            // top-border pill, the dock-awaiting card, and the workspace
+            // switcher card all surface what's edited here.
+            {
+              kind: "action" as const,
+              name: "Edit intent",
+              section: "active-terminal" as const,
+              description: "Attach a freeform markdown note to this terminal",
+              onSelect: () => deps.handleEditActiveIntent(),
+            },
+          ]
+        : []),
+
+      // --- Active Sleeping Tile (the sleeping twin of the section above) ---
+      // When the active tile is dormant the live-terminal verbs don't apply; the
+      // two that DO are Wake (respawn the tree) and Discard (drop it). Surfacing
+      // them here keeps the command palette a complete control surface for the
+      // active tile regardless of its content kind.
+      ...(activeContent?.kind === "sleeping"
+        ? [
+            {
+              kind: "action" as const,
+              name: "Wake terminal",
+              section: "active-terminal" as const,
+              description:
+                "Respawn this sleeping terminal and resume its agent",
+              onSelect: () => void sleepActions.wake(activeContent.record),
+            },
+            {
+              kind: "action" as const,
+              name: "Discard sleeping terminal",
+              section: "active-terminal" as const,
+              description: "Drop this sleeping record without respawning it",
+              onSelect: () => void sleepActions.discard(activeContent.record),
+            },
+          ]
+        : []),
+
+      // --- Canvas (desktop only — spatial tile actions) ---
+      ...(supportsSpatialCanvas()
+        ? [
+            // Maximize / restore — gated on a tile existing (posture's own
+            // `canMaximize`, matching the ChromeBar button being disabled at
+            // zero terminals). The label describes the action a select
+            // performs, so when already maximized it reads "Restore canvas",
+            // never "Maximize terminal" — same wording as the ChromeBar
+            // affordance. Carries the keybind chip so the palette advertises
+            // the Mod+Shift+M shortcut from one source of truth.
+            ...(posture.canMaximize()
+              ? [
+                  actionPaletteCommand("toggleCanvasPosture", deps, {
+                    section: "canvas",
+                    name: posturedActionLabel(posture.mode()),
+                  }),
+                ]
+              : []),
+            {
+              kind: "action" as const,
+              name: "Center on active tile",
+              section: "canvas" as const,
+              onSelect: () => deps.canvasCenterActive(),
+            },
+            // Hide arrange when only one tile exists — a single-tile arrange
+            // is a visual no-op, and offering a command that does nothing
+            // surfaces as broken.
+            ...(tileStore.tileCount() > 1
+              ? [
+                  {
+                    kind: "action" as const,
+                    name: "Arrange canvas by repo",
+                    section: "canvas" as const,
+                    onSelect: () => deps.canvasAutoArrange(),
+                  },
+                ]
+              : []),
+          ]
+        : []),
+
+      // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
+      // Hide "Toggle right panel" on an empty workspace: with no terminals the
+      // panel host is unmounted (App's `showEmpty`) and `togglePanel()`
+      // early-returns, so the command would close the palette and do nothing —
+      // exactly the "offering a command that does nothing surfaces as broken"
+      // case the canvas-arrange gate above avoids. The header button is disabled
+      // for the same reason.
+      ...(tileStore.tileCount() > 0
+        ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
+        : []),
+      actionPaletteCommand("toggleDock", deps, { section: "ui" }),
+
+      // --- Help (reference + advanced) ---
+      actionPaletteCommand("shortcutsHelp", deps, {
+        name: "Keyboard shortcuts",
+        section: "help",
+      }),
+      // Tutorial re-summons the welcome — gated to surfaces that have one. Mobile
+      // has no welcome by design (`showsWelcome()` false), so the command is
+      // omitted there rather than opening a desktop-oriented dialog in the
+      // compact layout.
+      ...(showsWelcome()
+        ? [
+            {
+              kind: "action" as const,
+              name: "Tutorial",
+              description: "Show the welcome screen",
+              section: "help" as const,
+              onSelect: () => welcomeDialog.openDialog(),
+            },
+          ]
+        : []),
+      {
+        kind: "action",
+        name: "About kolu",
+        section: "help",
+        onSelect: () => aboutDialog.openDialog(),
+      },
+      // "Debug" — drill-in group under Help. The handful of internal
+      // hatches don't warrant their own top-level section; nesting under
+      // Help signals "advanced reference / introspection."
+      {
+        kind: "group",
+        name: "Debug",
+        section: "help",
+        description: "Internal diagnostics and scaffolding",
+        children: (): PaletteItem[] => [
           {
             kind: "action",
-            name: "In current directory",
-            onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
+            name: "Diagnostic info",
+            description: "Runtime state — renderer, WS, terminals",
+            onSelect: () => diagnosticDialog.openDialog(),
           },
-          ...repos.map(
-            (r): PaletteValueInput => ({
-              kind: "value",
-              name: r.repoName,
-              description: `New worktree in ${r.repoRoot}`,
-              prefill: randomName,
-              placeholder: "Worktree name",
-              validate: validateWorktreeName,
-              onSubmit: (name, selected) => {
-                const agentCmd =
-                  typeof selected.data === "string" ? selected.data : undefined;
-                deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
-              },
-              children: (): (PaletteLabel | PaletteHint)[] =>
-                worktreeAgentOptions(recentAgents()),
-            }),
-          ),
-          ...(repos.length === 0
-            ? [
-                {
-                  kind: "hint" as const,
-                  text: "Repos you cd into will appear here",
-                },
-              ]
-            : []),
-        ];
-      },
-    },
-
-    // --- Active Terminal (conditional on focus) ---
-    ...(deps.activeId() !== null
-      ? [
-          {
-            kind: "action" as const,
-            name: "Close terminal",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleClose(),
-          },
-          {
-            kind: "action" as const,
-            name: "Sleep terminal",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleSleep(),
-          },
-          actionPaletteCommand("toggleSubPanel", deps, {
-            section: "active-terminal",
-          }),
-          actionPaletteCommand("createSubTerminal", deps, {
-            section: "active-terminal",
-          }),
-          {
-            kind: "action" as const,
-            name: "Copy terminal text",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleCopyTerminalText(),
-          },
-          {
-            kind: "action" as const,
-            name: "Export scrollback as PDF",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleExportScrollbackAsPdf(),
-          },
-          ...(deps.activeMeta()?.agent
+          // Restart kaval — recycle the terminal daemon, capturing the session
+          // first and offering it for restore on the fresh daemon (B3.2). The
+          // kaval rail dialog and the degraded canvas are the primary,
+          // state-contextual surfaces; this is the keyboard/search path (the
+          // palette flattens leaves, so typing "restart"/"kaval" finds it).
+          // Hidden while the daemon is already warming (a restart in flight or
+          // booting) so the palette never offers what would be a no-op.
+          // Intentionally gates on the weaker `daemonWarming()` — not the button's
+          // `restartInFlight()`, which also folds in the local-click signal the
+          // palette has no access to. So in the click-but-not-yet-warming window a
+          // palette-then-button double-fire isn't caught here; the server's
+          // restart coalescer is the backstop for that race.
+          ...(!daemonWarming()
             ? [
                 {
                   kind: "action" as const,
-                  name: "Export agent session as HTML",
-                  section: "active-terminal" as const,
+                  name: "Restart kaval",
                   description:
-                    "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
-                  onSelect: () => deps.handleExportSessionAsHtml(),
+                    "Recycle the terminal daemon and restore your session",
+                  onSelect: () => void restartDaemon(),
                 },
               ]
             : []),
-          actionPaletteCommand("screenshotTerminal", deps, {
-            section: "active-terminal",
-          }),
-          // "Recent agents" — surfaces agent CLIs the user has previously run
-          // in any kolu terminal, auto-detected via the preexec OSC 633;E
-          // command mark. Promoted to a root-level drill-in under the
-          // Active Terminal section now that the section framework exists.
-          // Visible when at least one agent has been seen AND there is an
-          // active terminal to prefill it into.
-          ...(recentAgents().length > 0
-            ? [
-                {
-                  kind: "group" as const,
-                  name: "Recent agents",
-                  section: "active-terminal" as const,
-                  description: "Prefill an agent CLI into the active terminal",
-                  children: (): PaletteItem[] =>
-                    agentItems(recentAgents(), deps.handleRunInActiveTerminal),
-                },
-              ]
-            : []),
-          // Theme is a per-active-terminal property (`client.terminal.setTheme`
-          // takes a terminal id), so both the drill-in chooser and the
-          // shuffle action live alongside the other active-terminal
-          // commands rather than in a global "Appearance" bucket.
           {
-            kind: "group" as const,
-            name: "Set theme",
-            section: "active-terminal" as const,
-            onCancel: () => deps.setPreviewThemeName(undefined),
-            children: () =>
-              availableThemes
-                .filter((t) => t.name !== deps.committedThemeName())
-                .map(
-                  (t): PaletteAction => ({
-                    kind: "action",
-                    name: t.name,
-                    onHighlight: () => deps.setPreviewThemeName(t.name),
-                    onSelect: () =>
-                      batch(() => {
-                        deps.setPreviewThemeName(undefined);
-                        deps.handleSetTheme(t.name);
-                      }),
-                  }),
-                ),
+            kind: "action",
+            name: "Simulate activity alert",
+            onSelect: () => deps.simulateAlert(),
           },
-          actionPaletteCommand("shuffleTheme", deps, {
-            section: "active-terminal",
-            description:
-              "Pick a theme whose background is perceptually distinct from every live terminal",
-          }),
-          // Intent — the single picker (kolu#178). One palette entry,
-          // one editor; click → curated-emoji quick-row + markdown
-          // textarea + live preview. The chip in the title bar, the
-          // top-border pill, the dock-awaiting card, and the workspace
-          // switcher card all surface what's edited here.
-          {
-            kind: "action" as const,
-            name: "Edit intent",
-            section: "active-terminal" as const,
-            description: "Attach a freeform markdown note to this terminal",
-            onSelect: () => deps.handleEditActiveIntent(),
-          },
-        ]
-      : []),
-
-    // --- Canvas (desktop only — spatial tile actions) ---
-    ...(supportsSpatialCanvas()
-      ? [
-          // Maximize / restore — gated on a tile existing (posture's own
-          // `canMaximize`, matching the ChromeBar button being disabled at
-          // zero terminals). The label describes the action a select
-          // performs, so when already maximized it reads "Restore canvas",
-          // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. Carries the keybind chip so the palette advertises
-          // the Mod+Shift+M shortcut from one source of truth.
-          ...(posture.canMaximize()
-            ? [
-                actionPaletteCommand("toggleCanvasPosture", deps, {
-                  section: "canvas",
-                  name: posturedActionLabel(posture.mode()),
-                }),
-              ]
-            : []),
-          {
-            kind: "action" as const,
-            name: "Center on active tile",
-            section: "canvas" as const,
-            onSelect: () => deps.canvasCenterActive(),
-          },
-          // Hide arrange when only one tile exists — a single-tile arrange
-          // is a visual no-op, and offering a command that does nothing
-          // surfaces as broken.
-          ...(tileStore.tileCount() > 1
+          // Spatial-canvas action — hidden off the canvas (mobile / narrow),
+          // where the handler would no-op and the command would surface as
+          // broken (same gate as the Canvas section's spatial actions above).
+          ...(supportsSpatialCanvas()
             ? [
                 {
                   kind: "action" as const,
-                  name: "Arrange canvas by repo",
-                  section: "canvas" as const,
-                  onSelect: () => deps.canvasAutoArrange(),
+                  name: "Reset terminal size",
+                  description:
+                    "Restore the active terminal to its default size, centered",
+                  onSelect: () => deps.handleResetActiveTileSize(),
                 },
               ]
             : []),
-        ]
-      : []),
-
-    // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
-    // Hide "Toggle right panel" on an empty workspace: with no terminals the
-    // panel host is unmounted (App's `showEmpty`) and `togglePanel()`
-    // early-returns, so the command would close the palette and do nothing —
-    // exactly the "offering a command that does nothing surfaces as broken"
-    // case the canvas-arrange gate above avoids. The header button is disabled
-    // for the same reason.
-    ...(tileStore.tileCount() > 0
-      ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
-      : []),
-    actionPaletteCommand("toggleDock", deps, { section: "ui" }),
-
-    // --- Help (reference + advanced) ---
-    actionPaletteCommand("shortcutsHelp", deps, {
-      name: "Keyboard shortcuts",
-      section: "help",
-    }),
-    // Tutorial re-summons the welcome — gated to surfaces that have one. Mobile
-    // has no welcome by design (`showsWelcome()` false), so the command is
-    // omitted there rather than opening a desktop-oriented dialog in the
-    // compact layout.
-    ...(showsWelcome()
-      ? [
           {
-            kind: "action" as const,
-            name: "Tutorial",
-            description: "Show the welcome screen",
-            section: "help" as const,
-            onSelect: () => welcomeDialog.openDialog(),
+            kind: "action",
+            name: "Clear localStorage",
+            onSelect: () => deps.handleClearLocalStorage(),
           },
-        ]
-      : []),
-    {
-      kind: "action",
-      name: "About kolu",
-      section: "help",
-      onSelect: () => aboutDialog.openDialog(),
-    },
-    // "Debug" — drill-in group under Help. The handful of internal
-    // hatches don't warrant their own top-level section; nesting under
-    // Help signals "advanced reference / introspection."
-    {
-      kind: "group",
-      name: "Debug",
-      section: "help",
-      description: "Internal diagnostics and scaffolding",
-      children: (): PaletteItem[] => [
-        {
-          kind: "action",
-          name: "Diagnostic info",
-          description: "Runtime state — renderer, WS, terminals",
-          onSelect: () => diagnosticDialog.openDialog(),
-        },
-        // Restart kaval — recycle the terminal daemon, capturing the session
-        // first and offering it for restore on the fresh daemon (B3.2). The
-        // kaval rail dialog and the degraded canvas are the primary,
-        // state-contextual surfaces; this is the keyboard/search path (the
-        // palette flattens leaves, so typing "restart"/"kaval" finds it).
-        // Hidden while the daemon is already warming (a restart in flight or
-        // booting) so the palette never offers what would be a no-op.
-        // Intentionally gates on the weaker `daemonWarming()` — not the button's
-        // `restartInFlight()`, which also folds in the local-click signal the
-        // palette has no access to. So in the click-but-not-yet-warming window a
-        // palette-then-button double-fire isn't caught here; the server's
-        // restart coalescer is the backstop for that race.
-        ...(!daemonWarming()
-          ? [
-              {
-                kind: "action" as const,
-                name: "Restart kaval",
-                description:
-                  "Recycle the terminal daemon and restore your session",
-                onSelect: () => void restartDaemon(),
-              },
-            ]
-          : []),
-        {
-          kind: "action",
-          name: "Simulate activity alert",
-          onSelect: () => deps.simulateAlert(),
-        },
-        // Spatial-canvas action — hidden off the canvas (mobile / narrow),
-        // where the handler would no-op and the command would surface as
-        // broken (same gate as the Canvas section's spatial actions above).
-        ...(supportsSpatialCanvas()
-          ? [
-              {
-                kind: "action" as const,
-                name: "Reset terminal size",
-                description:
-                  "Restore the active terminal to its default size, centered",
-                onSelect: () => deps.handleResetActiveTileSize(),
-              },
-            ]
-          : []),
-        {
-          kind: "action",
-          name: "Clear localStorage",
-          onSelect: () => deps.handleClearLocalStorage(),
-        },
-        {
-          kind: "action",
-          name: "Export session",
-          description: "Download terminal session state as JSON",
-          onSelect: () => deps.handleExportSession(),
-        },
-        {
-          kind: "action",
-          name: "Import session",
-          description: "Restore terminals from a session JSON file",
-          onSelect: () => deps.handleImportSession(),
-        },
-      ],
-    },
-  ]);
+          {
+            kind: "action",
+            name: "Export session",
+            description: "Download terminal session state as JSON",
+            onSelect: () => deps.handleExportSession(),
+          },
+          {
+            kind: "action",
+            name: "Import session",
+            description: "Restore terminals from a session JSON file",
+            onSelect: () => deps.handleImportSession(),
+          },
+        ],
+      },
+    ];
+  });
 }

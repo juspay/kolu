@@ -13,12 +13,14 @@ const h = vi.hoisted(() => ({
   terminalIds: [] as TerminalId[],
   sessionPending: true,
   savedSession: null as unknown,
+  sleepingPending: true,
 }));
 
 vi.mock("../wire", () => ({
   client: {},
   savedSessionSub: { pending: () => h.sessionPending },
   savedSession: () => h.savedSession,
+  sleepingTerminalsSub: { pending: () => h.sleepingPending },
 }));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
@@ -77,6 +79,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
       h.list = undefined;
       h.terminalIds = [];
       h.sessionPending = true;
+      h.sleepingPending = false;
       const session = mount();
 
       // Terminal list still pending → loading.
@@ -105,8 +108,31 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
       h.list = [{ id: "t1" } as TerminalInfo];
       h.terminalIds = ["t1" as TerminalId];
       h.sessionPending = true; // still in flight — must not delay the canvas
+      h.sleepingPending = true; // ditto — irrelevant once a terminal exists
       const session = mount();
 
+      expect(session.isLoading()).toBe(false);
+
+      dispose();
+    });
+  });
+
+  it("keeps loading on an empty list until the sleeping cell reports", () => {
+    createRoot((dispose) => {
+      // A sleeping-only workspace: no live terminals, no saved session, but a
+      // sleeping snapshot still in flight. Resolving as "empty" here would flash
+      // the EmptyState over a workspace that has dormant tiles (F7).
+      h.listPending = false;
+      h.list = [];
+      h.terminalIds = [];
+      h.sessionPending = false; // session cell already reported "nothing saved"
+      h.sleepingPending = true; // sleeping snapshot NOT yet arrived
+      const session = mount();
+
+      expect(session.isLoading()).toBe(true);
+
+      // Sleeping cell reports → the canvas/empty decision can be made honestly.
+      h.sleepingPending = false;
       expect(session.isLoading()).toBe(false);
 
       dispose();

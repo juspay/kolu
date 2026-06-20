@@ -185,11 +185,40 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeAndAutoSwitch(id);
   }
 
+  /** Kill, but PROPAGATE a real teardown failure instead of swallowing it.
+   *  `handleKill` treats every kill error as "already gone" — fine for an
+   *  interactive close, but wrong for sleep, where a silent failure leaves the
+   *  PTY/agent live while the UI claims the tile is asleep. A `NOT_FOUND`
+   *  (terminal already gone) is still success — the end state is what we wanted;
+   *  any other error rethrows so the caller can keep the record and surface it.
+   *  Local cleanup still runs (the tile is gone or going either way). */
+  async function handleKillStrict(id: TerminalId) {
+    try {
+      await client.terminal.kill({ id });
+    } catch (err) {
+      // oRPC tags the not-found fault `NOT_FOUND` (see `terminalNotFound`).
+      // Anything else is a genuine teardown failure — rethrow.
+      if ((err as { code?: string })?.code !== "NOT_FOUND") {
+        throw err;
+      }
+    }
+    removeAndAutoSwitch(id);
+  }
+
   /** Kill a terminal and all its sub-terminals (instead of promoting them). */
   async function handleKillWithSubs(id: TerminalId) {
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
     await handleKill(id);
+  }
+
+  /** `handleKillWithSubs`, but propagating a real teardown failure (see
+   *  `handleKillStrict`). Used by sleep so a failed kill rolls the sleep back
+   *  rather than leaving a live PTY behind an "asleep" record. */
+  async function handleKillWithSubsStrict(id: TerminalId) {
+    const subs = store.getSubTerminalIds(id);
+    for (const subId of subs) await handleKillStrict(subId);
+    await handleKillStrict(id);
   }
 
   async function handleCopyTerminalText() {
@@ -263,6 +292,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
+    handleKillWithSubsStrict,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,

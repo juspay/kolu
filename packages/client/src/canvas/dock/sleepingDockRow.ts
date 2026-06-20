@@ -47,9 +47,7 @@ export const RESTING_LIVE_FIELDS = {
 export function sleepingDockRowData(
   record: SleepingTerminal,
 ): DockRowData | undefined {
-  const top = topTerminal(record);
-  if (!top) return undefined;
-  const { id: _id, ...persisted } = top;
+  const { id: _id, ...persisted } = topTerminal(record);
   const meta: TerminalMetadata = {
     ...persisted,
     ...RESTING_LIVE_FIELDS,

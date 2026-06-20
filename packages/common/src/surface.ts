@@ -397,18 +397,32 @@ export const SavedSessionSchema = z.object({
  *  live-session autosave never clobbers it and a restart rehydrates it AS
  *  sleeping (never auto-woken). Reuses `SavedTerminalSchema` verbatim — a future
  *  persisted terminal field rides through with no change here. */
-export const SleepingTerminalSchema = z.object({
-  /** Record id === the ORIGINAL top-level terminal id (a `SavedTerminal.id`),
-   *  NOT a synthetic UUID. The first-class Tile contract keys a sleeping tile by
-   *  the id of the terminal it was, so canvas position, MRU rank, dock-row
-   *  identity, and active-selection carry over the moment it sleeps (no id to
-   *  invent — see `tile/tileContent.ts`). Wake re-mints fresh terminal ids when
-   *  it respawns the tree; this record id is the stable handle until then. */
-  id: z.string(),
-  terminals: z.array(SavedTerminalSchema),
-  /** When the terminal was put to sleep. Drives the "asleep Nd" recency label. */
-  sleptAt: z.number(),
-});
+export const SleepingTerminalSchema = z
+  .object({
+    /** Record id === the ORIGINAL top-level terminal id (a `SavedTerminal.id`),
+     *  NOT a synthetic UUID. The first-class Tile contract keys a sleeping tile
+     *  by the id of the terminal it was, so canvas position, MRU rank, dock-row
+     *  identity, and active-selection carry over the moment it sleeps (no id to
+     *  invent — see `tile/tileContent.ts`). Wake re-mints fresh terminal ids
+     *  when it respawns the tree; this record id is the stable handle until
+     *  then. Typed `TerminalIdSchema` (not a bare string) so it shares the
+     *  terminal-id branding the rest of the surface enforces. */
+    id: TerminalIdSchema,
+    // A record always carries at least its root terminal — an empty tree is a
+    // corrupt record, not an empty workspace. Fail at the schema boundary
+    // rather than letting `topTerminal` paper over it downstream.
+    terminals: z.array(SavedTerminalSchema).min(1),
+    /** When the terminal was put to sleep. Drives the "asleep Nd" recency label. */
+    sleptAt: z.number(),
+  })
+  // The root terminal — the entry whose id IS the record id — must exist.
+  // Every reader (canvas tile, dock row, layout write, label) anchors on
+  // `record.id` to find the root; a record that doesn't contain it is corrupt.
+  // Refine here so a malformed persisted record is rejected loudly at parse
+  // time instead of silently resolving to the wrong entry via a fallback.
+  .refine((r) => r.terminals.some((t) => t.id === r.id), {
+    message: "sleeping record has no terminal matching its root id",
+  });
 
 // ── User preferences (server-side, shared with client) ────────────────
 
@@ -848,20 +862,30 @@ export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
  *  every reader (canvas tile, dock row, layout) routes through here so a future
  *  parent-identification change (e.g. an explicit `topId`) touches one site, and
  *  the record-id anchor means server and client share one root-identification
- *  policy. Falls back to the first entry for a malformed record (missing root).
- *  `undefined` only for an empty `terminals` list. */
-export function topTerminal(
-  record: SleepingTerminal,
-): SavedTerminal | undefined {
-  return (
-    record.terminals.find((t) => t.id === record.id) ?? record.terminals[0]
-  );
+ *  policy.
+ *
+ *  No fallback: `SleepingTerminalSchema` already refines that a terminal with
+ *  `id === record.id` exists, so a parsed record ALWAYS has a root. Returning a
+ *  guaranteed `SavedTerminal` (not `T | undefined`) drops the optional dance at
+ *  every call site. If the invariant is somehow violated (an unvalidated record
+ *  constructed in-process), throw loudly rather than masking it with the first
+ *  entry — a corrupt record must surface, not silently resolve to the wrong
+ *  terminal. */
+export function topTerminal(record: SleepingTerminal): SavedTerminal {
+  const root = record.terminals.find((t) => t.id === record.id);
+  if (!root) {
+    throw new Error(
+      `sleeping record ${record.id} has no root terminal — schema invariant violated`,
+    );
+  }
+  return root;
 }
 
 /** What string represents a dormant tile — its top terminal's intent, else the
- *  cwd basename, else `"asleep"`. The single home of the label rule so the
- *  canvas title and the tile body can never disagree. */
+ *  cwd basename. The single home of the label rule so the canvas title and the
+ *  tile body can never disagree. (The schema guarantees a root terminal, so
+ *  there is no "asleep" empty-record fallback to reach.) */
 export function sleepingTileLabel(record: SleepingTerminal): string {
   const top = topTerminal(record);
-  return top?.intent?.trim() || (top ? basename(top.cwd) : "asleep");
+  return top.intent?.trim() || basename(top.cwd);
 }

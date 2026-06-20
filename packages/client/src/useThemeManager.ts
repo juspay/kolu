@@ -67,7 +67,10 @@ function init() {
    *  see {@link pickTheme} for the rationale. */
   function handleShuffleTheme() {
     const id = store.activeId();
-    if (id === null) return;
+    // Theme is a LIVE-terminal property (`client.terminal.setTheme` takes a
+    // terminal id). A sleeping active tile has no live metadata — bail so the
+    // chord doesn't fire a terminal-not-found RPC against a dormant id.
+    if (id === null || !store.getMetadata(id)) return;
     const current = getThemeName(id);
     const candidates = nonEmpty(
       availableThemes.filter((t) => t.name !== current),

@@ -26,9 +26,11 @@
 
 import { topTerminal } from "kolu-common/surface";
 import { createMemo } from "solid-js";
+import { sleepingDockRowData } from "../canvas/dock/sleepingDockRow";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { sameTerminalIdOrder } from "../terminal/terminalIdOrder";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { sleepingTerminals } from "../wire";
@@ -101,7 +103,24 @@ export const useTileStore = createSharedRoot(() => {
       return store.getMetadata(content.terminalId)?.canvasLayout;
     }
     if (content?.kind === "sleeping") {
-      return topTerminal(content.record)?.canvasLayout;
+      return topTerminal(content.record).canvasLayout;
+    }
+    return undefined;
+  };
+
+  /** A tile's display info — the `{ key, meta, repoColor, … }` row shape the
+   *  switcher / workspace grid render. The registry HIDES where it comes from: a
+   *  live terminal reads `store.getDisplayInfo`; a sleeping tile gets the SAME
+   *  shape synthesized from its record (the dock's projection, `sleepingDockRowData`).
+   *  This is the one reason the workspace switcher can list a sleeping-only
+   *  workspace — `store.getDisplayInfo` alone knows only live terminals, so an
+   *  entry built off it would be silently dropped for every dormant tile. */
+  const getDisplayInfo = (id: TileId): TerminalDisplayInfo | undefined => {
+    const live = store.getDisplayInfo(id);
+    if (live) return live;
+    const content = contentOf(id);
+    if (content?.kind === "sleeping") {
+      return sleepingDockRowData(content.record)?.info;
     }
     return undefined;
   };
@@ -135,6 +154,9 @@ export const useTileStore = createSharedRoot(() => {
     // Layout — the registry hides the storage home (terminal metadata today).
     getLayout,
     setLayout,
+    // Display info — live for terminal tiles, synthesized for sleeping ones, so
+    // the workspace switcher can list a sleeping-only workspace (F9).
+    getDisplayInfo,
     // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that
     // needs the active TERMINAL keeps reading `store.activeId()` (identical

@@ -63,8 +63,13 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSleepActions } from "./terminal/useSleepActions";
 import { useTerminals } from "./terminal/useTerminals";
-import type { TileId } from "./tile/tileContent";
+import {
+  sleepingContent,
+  terminalContent,
+  type TileId,
+} from "./tile/tileContent";
 import { useTileStore } from "./tile/useTileStore";
+import SleepingTileBody from "./canvas/SleepingTileBody";
 import { refocusTerminal } from "./ui/ModalDialog";
 import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
@@ -115,7 +120,11 @@ const App: Component = () => {
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       tileStore.tileIds(),
-      store.getDisplayInfo,
+      // Tile-aware display info: live for terminal tiles, synthesized for
+      // sleeping ones. `store.getDisplayInfo` knows only LIVE terminals, so a
+      // sleeping-only workspace would build zero entries and open an empty
+      // "Search workspaces" view even though the dock shows the sleeping rows (F9).
+      tileStore.getDisplayInfo,
       tileStore.getLayout,
     ),
   );
@@ -262,16 +271,42 @@ const App: Component = () => {
   }
 
   /** Mobile body — only the active terminal is visible (others hide via
-   *  the parent's classList) so xterm doesn't try to size a 0×0 element. */
+   *  the parent's classList) so xterm doesn't try to size a 0×0 element.
+   *
+   *  Dispatches on tile CONTENT, mirroring `TerminalCanvas`'s `TileContent`
+   *  <Switch>: `orderedIds` is the merged tile set (live + sleeping), so a
+   *  sleeping id must render `SleepingTileBody` (the dormant placeholder + Wake
+   *  verb), NOT `TerminalContent`. Rendering `TerminalContent` for a sleeping id
+   *  would mount `Terminal` and attach/resize/send-input against a non-live
+   *  terminal id. The dispatch keys off a STABLE boolean (`kind`) via the
+   *  `terminalContent`/`sleepingContent` narrowers, the same discipline the
+   *  canvas uses, so no remount-on-tick (#989). */
   function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
+    const content = () => tileStore.contentOf(id);
     return (
-      <TerminalContent
-        terminalId={id}
-        visible={visible()}
-        focused={visible()}
-        theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
-      />
+      <Show when={content()}>
+        {(c) => (
+          <Switch>
+            <Match when={terminalContent(c())}>
+              <TerminalContent
+                terminalId={id}
+                visible={visible()}
+                focused={visible()}
+                theme={getTerminalTheme(id)}
+                onCloseTerminal={closeTerminal}
+              />
+            </Match>
+            <Match when={sleepingContent(c())}>
+              {(sleeping) => (
+                <SleepingTileBody
+                  record={sleeping().record}
+                  onWake={() => void sleepActions.wake(sleeping().record)}
+                />
+              )}
+            </Match>
+          </Switch>
+        )}
+      </Show>
     );
   }
 

@@ -16,6 +16,7 @@ import {
   client,
   savedSessionSub,
   savedSession as serverSavedSession,
+  sleepingTerminalsSub,
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalCrud } from "./useTerminalCrud";
@@ -154,7 +155,14 @@ export const useSessionRestore = createSharedRoot(() => {
       label?: { loading: string; success: (resumed: number) => string };
     } = {},
   ) {
-    if (isRestoring()) return;
+    // A concurrent restore is in flight. Throw rather than silently return:
+    // `wake` (useSleepActions) treats a clean return as "respawn succeeded" and
+    // would then `dropSleeping` the durable record even though no terminal was
+    // created — deleting the only handle to that tree. Surfacing the busy state
+    // lets every caller (restore card, wake) abort without data loss. The
+    // restore card's own `isRestoring()` gate already disables its button, so in
+    // practice only the wake path can reach this with a restore already running.
+    if (isRestoring()) throw new Error("restore already in progress");
     const session = options.session ?? savedSession();
     if (!session) return;
     // Keep the restore card mounted until terminal creation actually
@@ -328,9 +336,15 @@ export const useSessionRestore = createSharedRoot(() => {
     // restore" while the saved-session snapshot is still in flight, so the
     // restore card only appears after a full reload re-subs.
     // When `terminalIds()` is empty we therefore also wait on `savedSessionSub`
-    // so the decision is made with the session snapshot in hand. When at least
+    // AND `sleepingTerminalsSub` so the decision is made with both snapshots in
+    // hand. A SLEEPING tile is a tile (it counts toward `tileCount()` and keeps
+    // the canvas mounted); on a cold reload of a sleeping-only workspace the
+    // live list yields `[]` and the session cell may report "no saved session"
+    // before the sleeping cell's first yield — without waiting on it the gate
+    // would flash the EmptyState (restore/create affordances) over a workspace
+    // that actually has dormant tiles, then snap to the canvas. When at least
     // one terminal's metadata has arrived (`terminalIds().length > 0`), the
-    // canvas renders immediately — the session cell is irrelevant.
+    // canvas renders immediately — neither cell is relevant.
     // Note: `terminalIds()` excludes terminals whose per-terminal metadata
     // hasn't arrived yet, so there is a brief window after `listSub` resolves
     // where all metadata is still in-flight and the gate also holds loading.
@@ -340,7 +354,8 @@ export const useSessionRestore = createSharedRoot(() => {
     // "empty" means.
     isLoading: () =>
       store.listSub.pending() ||
-      (store.terminalIds().length === 0 && savedSessionSub.pending()),
+      (store.terminalIds().length === 0 &&
+        (savedSessionSub.pending() || sleepingTerminalsSub.pending())),
     savedSession,
     isRestoring,
     handleRestoreSession,

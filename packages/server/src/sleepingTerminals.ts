@@ -51,7 +51,19 @@ export function sleepTerminal(id: TerminalId): void {
     terminals,
     sleptAt: Date.now(),
   };
-  write([...getSleepingTerminals(), record]);
+  // Idempotent by id: a double-click (or a repeated `terminal.sleep` before the
+  // client's live kill lands) must not append a SECOND record with the same id.
+  // Two records of one id map to duplicate `tileIds` on the client while
+  // `contentOf` only finds the first — a state/layout split. Replace in place
+  // (re-capturing the latest live metadata) instead of growing the list. The
+  // record id IS the original terminal id, so this is a stable key.
+  const existing = getSleepingTerminals();
+  const idx = existing.findIndex((r) => r.id === id);
+  if (idx === -1) {
+    write([...existing, record]);
+    return;
+  }
+  write(existing.map((r, i) => (i === idx ? record : r)));
 }
 
 /** Remove a sleeping record by its id — called once the client has respawned it
