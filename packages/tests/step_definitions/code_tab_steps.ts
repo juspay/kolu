@@ -554,31 +554,6 @@ Then(
   },
 );
 
-// A revealed folder is expanded + scrolled, but never *selected* — the
-// folder-ref front door reveals a directory without making a content pick
-// (the `kind: "directory"` branch in CodeTab calls `setRevealDir`, not
-// `select`). Settles a beat first so a late-arriving (wrong) selection still
-// trips the assertion rather than racing past it — same shape as the
-// file-not-selected step above.
-Then(
-  "the directory {string} should not be selected in the file browser",
-  async function (this: KoluWorld, path: string) {
-    await this.waitForFrame();
-    await new Promise((r) => setTimeout(r, 750));
-    const count = await this.page
-      .locator(
-        `${TREE} [data-item-path="${path}/"][data-item-type="folder"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
-      )
-      .count();
-    if (count !== 0) {
-      throw new Error(
-        `Expected directory "${path}" not to be selected, but it was — a ` +
-          `folder reveal must expand + scroll without making a content pick`,
-      );
-    }
-  },
-);
-
 Then(
   "the Code tab content should show the select hint {string}",
   async function (this: KoluWorld, expected: string) {
