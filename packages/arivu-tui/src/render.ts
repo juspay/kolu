@@ -240,6 +240,48 @@ export function recordHeader(
   };
 }
 
+// ── Compact dashboard row (the live TUI table) ────────────────────────
+//
+// `arivu-tui` (no args) is a live, one-row-per-terminal table. The full vertical
+// record has too many fields for a table, so the dashboard projects each
+// terminal to a handful of columns; the agent state + PR checks carry their
+// tone, the rest are plain. Pure data (Node/vitest-tested) — tui.tsx only paints.
+
+/** A dashboard cell that carries a semantic tone for colouring. */
+export interface DashCell {
+  text: string;
+  tone: FieldTone;
+}
+
+/** One terminal as a compact dashboard row. */
+export interface DashRow {
+  id: string;
+  repoBranch: string;
+  pr: DashCell;
+  agent: DashCell;
+  foreground: string;
+  active: string;
+}
+
+/** Project a terminal to its dashboard columns: short id, repo·branch, PR
+ *  (toned by checks), agent · state (toned), foreground, and recency. */
+export function dashRow(
+  id: TerminalId,
+  v: AwarenessValue,
+  now: number,
+): DashRow {
+  return {
+    id: shortId(id),
+    repoBranch: v.git
+      ? `${v.git.repoName ?? "?"}·${v.git.branch ?? "?"}`
+      : DASH,
+    pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
+    agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
+    foreground: orDash(v.foreground?.name),
+    active: relativeTime(v.lastActivityAt, now),
+  };
+}
+
 /** Per-row render options threaded from the CLI. */
 export interface RenderOptions {
   /** The home dir to collapse to `~` in the cwd. */

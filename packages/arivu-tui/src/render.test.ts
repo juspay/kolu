@@ -4,6 +4,7 @@ import {
   agentShortName,
   agentStatusLabel,
   agentTone,
+  dashRow,
   fieldRows,
   formatAwarenessJson,
   formatAwarenessList,
@@ -264,6 +265,40 @@ describe("fieldRows", () => {
     expect(agent?.value).toBe("claude · awaiting");
     expect(pr?.tone).toBe("fail");
     expect(pr?.value).toContain("#12");
+  });
+});
+
+describe("dashRow", () => {
+  it("projects the compact columns with toned agent + pr", () => {
+    const r = dashRow(
+      id("a3f10000-x"),
+      val({
+        git: { repoName: "kolu", branch: "feat/x" } as AwarenessValue["git"],
+        agent: {
+          kind: "claude-code",
+          state: "awaiting_user",
+        } as AwarenessValue["agent"],
+        pr: {
+          kind: "ok",
+          value: { number: 12, state: "open", checks: "pass" },
+        } as AwarenessValue["pr"],
+        foreground: { name: "nvim", title: null },
+        lastActivityAt: NOW - 3000,
+      }),
+      NOW,
+    );
+    expect(r.id).toBe("a3f10000");
+    expect(r.repoBranch).toBe("kolu·feat/x");
+    expect(r.agent).toEqual({ text: "claude · awaiting", tone: "awaiting" });
+    expect(r.pr.tone).toBe("pass");
+    expect(r.pr.text).toContain("#12");
+    expect(r.foreground).toBe("nvim");
+    expect(r.active).toBe("3s");
+  });
+  it("dashes a git-less, agentless terminal", () => {
+    const r = dashRow(id("b"), val({}), NOW);
+    expect(r.repoBranch).toBe("—");
+    expect(r.agent.tone).toBe("muted");
   });
 });
 

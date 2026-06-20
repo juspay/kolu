@@ -1,46 +1,34 @@
 /**
- * The OpenTUI/Solid view layer for arivu-tui — the P3a re-platform of the
- * terminal-side viewer onto Bun + OpenTUI. It paints the SAME awareness a
- * terminal `is in` that the plain `render.ts` text path does (agent · PR ·
- * branch · foreground · recency), only as a live, truecolour record instead of
- * a one-shot columnify dump.
+ * The OpenTUI/Solid view for arivu-tui — the P3a re-platform onto Bun + OpenTUI.
  *
- * The split is deliberate: every DECISION about the data — which fields, their
- * formatted values, and the semantic `tone` each should take — lives in the pure
- * `render.ts` (`fieldRows`/`recordHeader`/`agentTone`/`prTone`), unit-tested
- * under Node. This module only maps a `tone` to a concrete colour and arranges
- * the cells. So the Bun-only renderer never holds any logic the Node test lane
- * can't reach.
+ * `arivu-tui` (no args) is a LIVE dashboard: one row per terminal, in a compact
+ * truecolour table, updating in place as awareness changes, until you quit
+ * (Ctrl-C or `q`). It is a live app, not a one-shot — which is OpenTUI's native
+ * shape: the render loop runs until the user exits (OpenTUI's OWN teardown, not
+ * a manual destroy), and a static one-shot's self-termination problems simply
+ * don't arise. P3b enriches this (needs-you-first sort, multi-host).
  *
- * Two entry shapes over ONE record component:
- *   - `renderListTui` — a one-shot snapshot: paint every terminal's record once
- *     in main-screen mode (rows stay in scrollback like the old output), then
- *     destroy after the first frame so the process exits.
- *   - `runWatchTui` — a live view: one terminal's record in alternate-screen
- *     mode, repainting as the awareness stream pushes updates, until the stream
- *     ends, the terminal departs (the caller's AbortSignal), or Ctrl-C.
- *
- * This file is `.tsx` and only ever loaded under Bun (the Nix wrapper runs it
- * with @opentui/solid's preload registering the Solid JSX transform); `bin.ts`
- * imports it dynamically and ONLY when stdout is a TTY, so a piped `--json` /
- * non-TTY invocation never drags the native renderer in.
+ * The split stays clean: every DECISION about the data — which columns, their
+ * formatted values, the semantic `tone` each takes — lives in the pure
+ * `render.ts` (`dashRow`), unit-tested under Node. This module only maps a tone
+ * to a colour and lays the cells out; it holds no logic the Node lane can't
+ * reach. It is `.tsx` and only ever loaded under Bun (the daemon + the rest of
+ * kolu stay Node), imported dynamically by `bin.ts` ONLY when stdout is a TTY,
+ * so a piped `--json` run never drags the native renderer in.
  */
 
 import type { CliRenderer } from "@opentui/core";
-import { render, useRenderer } from "@opentui/solid";
+import { render, useKeyboard, useRenderer } from "@opentui/solid";
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
-import { For, onMount, Show } from "solid-js";
-import { createStore } from "solid-js/store";
-import {
-  type FieldTone,
-  fieldRows,
-  LABEL_WIDTH,
-  recordHeader,
-} from "./render.ts";
+import { mirrorRemoteCollection } from "@kolu/surface-nix-host";
+import { createMemo, For } from "solid-js";
+import { createStore, produce, reconcile } from "solid-js/store";
+import type { ArivuClient } from "./connect.ts";
+import { type DashRow, dashRow, type FieldTone } from "./render.ts";
 
 /** The palette — the one place a semantic `tone` becomes a concrete colour. The
- *  awaiting (blocked-on-you) amber and the working cyan are the two the eye
- *  should catch; everything else stays calm. */
+ *  awaiting (blocked-on-you) amber and working cyan are the two the eye should
+ *  catch; everything else stays calm. */
 const TONE_COLOR: Record<FieldTone, string> = {
   working: "#56b6c2",
   awaiting: "#e6a23c",
@@ -52,167 +40,156 @@ const TONE_COLOR: Record<FieldTone, string> = {
   plain: "#c8d0de",
 };
 
-const HEADER_ID = "#aeb7c7";
-const HEADER_CWD = "#5b6678";
-const LABEL = "#8b94a6";
+const TITLE = "#7c8696";
+const HEADER = "#8b94a6";
+const ID_FG = "#aeb7c7";
+const PLAIN = "#c8d0de";
+const MUTED = "#5b6678";
 
-/** One terminal's awareness as a vertical record: a `<id>  <cwd>` header then an
- *  aligned `label  value` row per field, the value coloured by its tone. The
- *  same field set + order as the text `record()`, so the two views align.
- *  Exported for the headless Bun render test (`tui.bun-test.tsx`). */
-export function AwarenessRecord(props: {
-  id: TerminalId;
-  v: AwarenessValue;
-  home: string | undefined;
-  now: number;
+// Column widths (chars). Sized for an ~80-col terminal; long values ellipsize.
+const W_ID = 10;
+const W_WHERE = 26;
+const W_PR = 12;
+const W_AGENT = 20;
+const W_FG = 10;
+
+/** Pad to width, or truncate with an ellipsis when too long. */
+function cell(s: string, w: number): string {
+  return s.length > w ? `${s.slice(0, w - 1)}…` : s.padEnd(w);
+}
+
+/** The live table: a title, a header row, and one row per terminal — the agent
+ *  state + PR coloured by tone, the rest calm. Exported for the headless Bun
+ *  render test (`tui.bun-test.tsx`). */
+export function AwarenessTable(props: {
+  rows: () => DashRow[];
+  count: () => number;
 }) {
-  const head = (): { id: string; cwd: string } =>
-    recordHeader(props.id, props.v, props.home);
-  const rows = (): ReturnType<typeof fieldRows> =>
-    fieldRows(props.v, props.now);
   return (
-    <box flexDirection="column" marginBottom={1}>
-      <box flexDirection="row">
-        <text fg={HEADER_ID}>{head().id}</text>
-        <text fg={HEADER_CWD}>{`  ${head().cwd}`}</text>
+    <box flexDirection="column" padding={1}>
+      <text
+        fg={TITLE}
+      >{`arivu  ·  ${props.count()} terminal${props.count() === 1 ? "" : "s"}  ·  q to quit`}</text>
+      <box flexDirection="row" marginTop={1}>
+        <text fg={HEADER}>{cell("ID", W_ID)}</text>
+        <text fg={HEADER}>{cell("REPO·BRANCH", W_WHERE)}</text>
+        <text fg={HEADER}>{cell("PR", W_PR)}</text>
+        <text fg={HEADER}>{cell("AGENT", W_AGENT)}</text>
+        <text fg={HEADER}>{cell("FG", W_FG)}</text>
+        <text fg={HEADER}>ACTIVE</text>
       </box>
-      <For each={rows()}>
-        {(row) => (
-          <box flexDirection="row">
-            <text fg={LABEL}>{`  ${row.label.padEnd(LABEL_WIDTH)}`}</text>
-            <text fg={TONE_COLOR[row.tone]}>{row.value}</text>
-          </box>
-        )}
-      </For>
+      {props.count() === 0 ? (
+        <text fg={MUTED}>
+          no terminals — is kaval running, with arivu watching it?
+        </text>
+      ) : (
+        <For each={props.rows()}>
+          {(r) => (
+            <box flexDirection="row">
+              <text fg={ID_FG}>{cell(r.id, W_ID)}</text>
+              <text fg={PLAIN}>{cell(r.repoBranch, W_WHERE)}</text>
+              <text fg={TONE_COLOR[r.pr.tone]}>{cell(r.pr.text, W_PR)}</text>
+              <text fg={TONE_COLOR[r.agent.tone]}>
+                {cell(r.agent.text, W_AGENT)}
+              </text>
+              <text fg={PLAIN}>{cell(r.foreground, W_FG)}</text>
+              <text fg={MUTED}>{r.active}</text>
+            </box>
+          )}
+        </For>
+      )}
     </box>
   );
 }
 
-/** Options shared by both entry shapes. */
-export interface TuiOptions {
+/** Run the live dashboard: mirror the awareness collection into a Solid store,
+ *  render the table, and repaint as terminals come/go/change — until Ctrl-C or
+ *  `q`. `stop` disposes the connection (which ends the mirror's streams). A
+ *  mirror failure that is NOT the dispose-driven teardown is surfaced via `log`
+ *  so the link error is visible rather than collapsing to a frozen table. */
+export async function runDashboardTui(args: {
+  client: ArivuClient;
   home: string | undefined;
-  /** "Now" for the relative `active` field (defaults to wall-clock). */
-  now?: number;
-}
-
-/** One-shot: paint every terminal's record once, then exit. main-screen mode
- *  leaves the rows in the scrollback (like the old text `list`); the renderer is
- *  destroyed after the first frame paints so the process can exit. */
-export async function renderListTui(
-  entries: Array<[TerminalId, AwarenessValue]>,
-  opts: TuiOptions,
-): Promise<void> {
-  const now = opts.now ?? Date.now();
-  function App() {
-    const renderer = useRenderer();
-    onMount(() => {
-      // Exit once the first frame has actually painted. Destroying inside the
-      // frame callback is unsafe, so defer to a microtask.
-      let painted = false;
-      renderer.setFrameCallback(async () => {
-        if (painted) return;
-        painted = true;
-        queueMicrotask(() => renderer.destroy());
-      });
-      renderer.requestRender();
-    });
-    return (
-      <box flexDirection="column">
-        <For each={entries}>
-          {([id, v]) => (
-            <AwarenessRecord id={id} v={v} home={opts.home} now={now} />
-          )}
-        </For>
-      </box>
-    );
-  }
-  await render(() => <App />, {
-    screenMode: "main-screen",
-    exitOnCtrlC: true,
-    // Keep the painted rows on screen after we exit — this is `list`, not a
-    // live view to restore away.
-    clearOnShutdown: false,
-  });
-}
-
-/** Live: follow ONE terminal's awareness, repainting on every stream push, until
- *  the stream ends, `until` aborts (the terminal departed), or Ctrl-C. `stop`
- *  aborts the underlying stream — it is what Ctrl-C/exit calls so the follow
- *  loop unwinds. A stream failure that is NOT an abort is re-thrown so the caller
- *  surfaces the link error rather than collapsing to a silent exit (the
- *  caught-error-must-not-collapse-to-empty rule). */
-export async function runWatchTui(args: {
-  id: TerminalId;
-  home: string | undefined;
-  values: AsyncIterable<AwarenessValue>;
-  until: AbortSignal;
   stop: () => void;
 }): Promise<void> {
-  const [store, setStore] = createStore<{ v?: AwarenessValue }>({});
+  const [store, setStore] = createStore<Record<string, AwarenessValue>>({});
+
   let renderer: CliRenderer | undefined;
-  let streamErr: unknown;
+  let quitting = false;
   let resolveDone!: () => void;
   const done = new Promise<void>((res) => {
     resolveDone = res;
   });
-
-  const teardown = (): void => {
+  const quit = (): void => {
+    if (quitting) return;
+    quitting = true;
     try {
       renderer?.destroy();
     } catch {
-      // destroy() is idempotent in intent; ignore a double-teardown race.
+      // best-effort — we're exiting anyway.
     }
+    args.stop();
+    resolveDone();
   };
-  // The terminal departed (caller aborted `until`) → bring the renderer down.
-  args.until.addEventListener("abort", teardown, { once: true });
 
-  const pump = (async () => {
-    try {
-      for await (const v of args.values) {
-        if (args.until.aborted) break;
-        setStore("v", v);
-      }
-    } catch (err) {
-      // An abort (Ctrl-C → stop() → the stream's signal, or a departure) lands
-      // here too; only a pre-abort failure is a real fault to surface.
-      if (!args.until.aborted) streamErr = err;
-    } finally {
-      // Stream ended (naturally or by abort) → exit the renderer.
-      teardown();
-    }
-  })();
+  // Mirror the remote awareness collection into the store, live. Resolves when
+  // the streams end (the dispose on quit) — a post-dispose error is the normal
+  // teardown, not a fault.
+  const mirror = mirrorRemoteCollection<TerminalId, AwarenessValue>({
+    label: "awareness",
+    log: (line) => {
+      if (!quitting) process.stderr.write(`arivu-tui: ${line}\n`);
+    },
+    keys: args.client.surface.awareness.keys({}),
+    get: (key, signal) =>
+      args.client.surface.awareness.get({ key }, { signal }),
+    onUpsert: (key, value) => setStore(key, reconcile(value)),
+    onRemove: (key) =>
+      setStore(
+        produce((s) => {
+          delete s[key];
+        }),
+      ),
+  }).catch((err) => {
+    if (!quitting)
+      process.stderr.write(`arivu-tui: ${(err as Error).message}\n`);
+  });
 
   function App() {
     renderer = useRenderer();
+    useKeyboard((key) => {
+      if (key.name === "q") quit();
+    });
+    const rows = createMemo(() => {
+      const now = Date.now();
+      return Object.entries(store)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([id, v]) => dashRow(id as TerminalId, v, now));
+    });
     return (
-      <box flexDirection="column">
-        <Show when={store.v}>
-          {(v) => (
-            <AwarenessRecord
-              id={args.id}
-              v={v()}
-              home={args.home}
-              now={Date.now()}
-            />
-          )}
-        </Show>
-      </box>
+      <AwarenessTable rows={rows} count={() => Object.keys(store).length} />
     );
   }
 
-  await render(() => <App />, {
+  let renderErr: unknown;
+  render(() => <App />, {
     screenMode: "alternate-screen",
     exitOnCtrlC: true,
     exitSignals: ["SIGINT", "SIGTERM"],
     clearOnShutdown: true,
-    // Ctrl-C / a kill signal tears the renderer down here — abort the stream so
-    // the pump unwinds, then release the awaiter.
-    onDestroy: () => {
-      args.stop();
-      resolveDone();
-    },
+    // Read-only viewer — no pointer/keyboard input modes to leave on at exit.
+    useMouse: false,
+    enableMouseMovement: false,
+    useKittyKeyboard: null,
+    // Ctrl-C / a kill signal tear the renderer down through OpenTUI's own exit
+    // path — finish the same teardown (dispose the link, release the awaiter).
+    onDestroy: () => quit(),
+  }).catch((err) => {
+    renderErr = err;
+    quit();
   });
+
   await done;
-  await pump;
-  if (streamErr) throw streamErr;
+  await mirror;
+  if (renderErr) throw renderErr;
 }
