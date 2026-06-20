@@ -15,10 +15,11 @@
  *  assignment (canvas + dock) untouched, rather than widening it to tiles and
  *  shifting every live hue whenever something sleeps. */
 
-import type {
-  SleepingTerminal,
-  TerminalId,
-  TerminalMetadata,
+import {
+  type SleepingTerminal,
+  type TerminalId,
+  type TerminalMetadata,
+  topTerminal,
 } from "kolu-common/surface";
 import {
   buildTerminalDisplayInfos,
@@ -46,7 +47,7 @@ export const RESTING_LIVE_FIELDS = {
 export function sleepingDockRowData(
   record: SleepingTerminal,
 ): DockRowData | undefined {
-  const top = record.terminals.find((t) => !t.parentId) ?? record.terminals[0];
+  const top = topTerminal(record);
   if (!top) return undefined;
   const { id: _id, ...persisted } = top;
   const meta: TerminalMetadata = {

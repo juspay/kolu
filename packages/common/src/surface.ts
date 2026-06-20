@@ -841,3 +841,18 @@ export type TerminalMetadata =
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
+
+/** The record's top (root) terminal — the one whose id IS the record id (see
+ *  `SleepingTerminalSchema.id`). The single home of "which entry is the root":
+ *  every reader (canvas tile, dock row, layout) routes through here so a future
+ *  parent-identification change (e.g. an explicit `topId`) touches one site, and
+ *  the record-id anchor means server and client share one root-identification
+ *  policy. Falls back to the first entry for a malformed record (missing root).
+ *  `undefined` only for an empty `terminals` list. */
+export function topTerminal(
+  record: SleepingTerminal,
+): SavedTerminal | undefined {
+  return (
+    record.terminals.find((t) => t.id === record.id) ?? record.terminals[0]
+  );
+}

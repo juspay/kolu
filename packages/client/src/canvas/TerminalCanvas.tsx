@@ -19,7 +19,11 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { SleepingTerminal, TerminalId } from "kolu-common/surface";
+import {
+  type SleepingTerminal,
+  type TerminalId,
+  topTerminal,
+} from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -433,8 +437,7 @@ const TerminalCanvas: Component<{
     const mode = (): CanvasTileMode =>
       posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
     const label = () => {
-      const top =
-        record.terminals.find((t) => !t.parentId) ?? record.terminals[0];
+      const top = topTerminal(record);
       return (
         top?.intent?.trim() ||
         (top ? (top.cwd.split("/").filter(Boolean).pop() ?? top.cwd) : "asleep")

@@ -69,8 +69,12 @@ export function setSleepingLayout(id: TerminalId, layout: CanvasLayout): void {
       r.id === id
         ? {
             ...r,
+            // The top terminal is the one whose id IS the record id — the same
+            // root-identification rule the client's `topTerminal` accessor uses,
+            // anchored on record.id (not parentId-absence) so server and client
+            // can never disagree on which entry the layout writes onto.
             terminals: r.terminals.map((t) =>
-              t.parentId ? t : { ...t, canvasLayout: layout },
+              t.id === r.id ? { ...t, canvasLayout: layout } : t,
             ),
           }
         : r,

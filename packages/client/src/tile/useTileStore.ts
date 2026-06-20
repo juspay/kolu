@@ -24,6 +24,7 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
+import { topTerminal } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
@@ -100,7 +101,7 @@ export const useTileStore = createSharedRoot(() => {
       return store.getMetadata(content.terminalId)?.canvasLayout;
     }
     if (content?.kind === "sleeping") {
-      return content.record.terminals.find((t) => !t.parentId)?.canvasLayout;
+      return topTerminal(content.record)?.canvasLayout;
     }
     return undefined;
   };

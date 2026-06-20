@@ -4,7 +4,7 @@
  *  for the frozen screenshot; the shell (drag, resize, chrome, maximize) is
  *  `CanvasTile` either way, so only this body changes. */
 
-import type { SleepingTerminal } from "kolu-common/surface";
+import { type SleepingTerminal, topTerminal } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { formatTimeAgo } from "../terminal/staleness";
 import { MOON } from "./sleepingTilePalette";
@@ -15,9 +15,7 @@ const SleepingTileBody: Component<{
   record: SleepingTerminal;
   onWake: () => void;
 }> = (props) => {
-  const top = () =>
-    props.record.terminals.find((t) => !t.parentId) ??
-    props.record.terminals[0];
+  const top = () => topTerminal(props.record);
   const intent = () => top()?.intent?.trim();
   const cwd = () => top()?.cwd ?? "";
 
