@@ -114,6 +114,10 @@ const Terminal: Component<{
   visible: boolean;
   /** When true, this terminal should grab keyboard focus. */
   focused?: boolean;
+  /** Bumped by the host to force a focus re-assert when the reactive `focused`
+   *  state can't (e.g. after a sibling sub-tab close steals focus to its close
+   *  button without changing this terminal's focus target). */
+  refocusNonce?: number;
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
@@ -306,6 +310,21 @@ const Terminal: Component<{
         if (focused && props.visible && terminal) {
           focusOnSelection();
         }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Re-grab focus when the host bumps `refocusNonce`. The edge-triggered effect
+  // above only fires on a `focused` transition, so it can't restore focus after
+  // a sibling sub-tab close moves it to the (about-to-be-removed) close button
+  // while this terminal's `focused` state is unchanged — and the browser's
+  // focus-after-removal is non-deterministic (the linux flake this fixes).
+  createEffect(
+    on(
+      () => props.refocusNonce,
+      () => {
+        if (props.focused && props.visible && terminal) focusOnSelection();
       },
       { defer: true },
     ),

@@ -56,6 +56,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         if (panel.activeSubTab === id) {
           subPanel.setActiveSubTab(parentId, subs[0] ?? null);
         }
+        // Re-grab focus for the remaining active sub-terminal: closing a tab via
+        // its close button moves focus to that button, and the reactive focus
+        // state is otherwise unchanged, so the edge-triggered focus effect can't
+        // restore it (and browser focus-after-removal is non-deterministic).
+        subPanel.requestRefocus(parentId);
       }
       return;
     }

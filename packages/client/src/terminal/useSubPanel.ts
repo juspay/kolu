@@ -13,6 +13,11 @@ interface SubPanelState {
   activeSubTab: TerminalId | null;
   /** Which panel last had focus — restored when switching back to this terminal. */
   focusTarget: "main" | "sub";
+  /** Bumped to force the focus-target terminal to re-grab keyboard focus when
+   *  the reactive `focused` state can't (it didn't change). Closing a sub-tab
+   *  via its close button moves focus to that button; after the tab is removed
+   *  the browser's focus-after-removal is non-deterministic, so we re-assert. */
+  refocusNonce: number;
 }
 
 const DEFAULT_PANEL_SIZE = 0.3;
@@ -27,6 +32,7 @@ function ensureState(parentId: TerminalId): SubPanelState {
     panelSize: DEFAULT_PANEL_SIZE,
     activeSubTab: null,
     focusTarget: "sub",
+    refocusNonce: 0,
   };
   setState(parentId, seeded);
   return seeded;
@@ -97,6 +103,15 @@ export function useSubPanel() {
       setState(parentId, "focusTarget", target);
     },
 
+    /** Ask the current focus-target terminal to re-grab keyboard focus. Used
+     *  after closing a sub-tab, where focus lands on the (about-to-be-removed)
+     *  close button and the reactive `focused` state is unchanged, so the
+     *  edge-triggered focus effect can't restore it on its own. */
+    requestRefocus(parentId: TerminalId) {
+      ensureState(parentId);
+      setState(parentId, "refocusNonce", (n) => n + 1);
+    },
+
     /** Seed sub-panel state from server data — no report-back to server. */
     seedPanel(
       parentId: TerminalId,
@@ -107,6 +122,7 @@ export function useSubPanel() {
         panelSize: opts.panelSize,
         activeSubTab: state[parentId]?.activeSubTab ?? null,
         focusTarget: opts.collapsed ? "main" : "sub",
+        refocusNonce: state[parentId]?.refocusNonce ?? 0,
       });
     },
 

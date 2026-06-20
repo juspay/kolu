@@ -96,6 +96,7 @@ const TerminalContent: Component<{
           searchOpen={props.focused && search.isOpen(props.terminalId)}
           onSearchOpenChange={(open) => search.setOpen(props.terminalId, open)}
           onFocus={handleMainFocus}
+          refocusNonce={panelState().refocusNonce}
         />
       </Resizable.Panel>
 
@@ -162,6 +163,7 @@ const TerminalContent: Component<{
                 searchOpen={false}
                 onSearchOpenChange={() => {}}
                 onFocus={handleSubFocus}
+                refocusNonce={panelState().refocusNonce}
                 isSub
               />
             )}
