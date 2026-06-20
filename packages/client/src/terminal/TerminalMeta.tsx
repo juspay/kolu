@@ -54,8 +54,13 @@ const TerminalMeta: Component<{
            *  separate agent row here. CWD is implicit (tooltip on the
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
-          <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            <LiveActivityDot id={props.id} />
+          <div class="relative flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            {/* Live-output dot — an absolute overlay sitting in the title
+             *  bar's left gutter, so it never pushes the name: appearing or
+             *  disappearing leaves the title text exactly where it was. */}
+            <span class="pointer-events-none absolute -left-2.5 top-1/2 -translate-y-1/2">
+              <LiveActivityDot id={props.id} />
+            </span>
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (

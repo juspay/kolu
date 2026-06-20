@@ -72,6 +72,7 @@ import { annotationLine } from "../../intent/text";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -435,6 +436,7 @@ const DockRow: Component<{
   // the terminal store.
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const activity = useTerminalActivity();
   const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
@@ -482,18 +484,18 @@ const DockRow: Component<{
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — "5s ago" is the hours-scale staleness clock; the
-           *  live dot leading it is the sub-second "actually streaming right
-           *  now" axis, so a glance down the dock separates the sessions doing
-           *  work from the ones merely touched recently. The dot is pinned to
-           *  the column's left edge while the timestamp keeps its right edge
-           *  (`flex-1 text-right`), so a changing label ("just now" → "5s")
-           *  reflows the gap between them, never the dot's aligned column. */}
-          <span class="flex items-center gap-1 font-mono text-[0.6rem] tabular-nums text-fg-3">
-            <LiveActivityDot id={props.id} />
-            <span class="flex-1 text-right">
-              {formatTimeAgo(c().meta.lastActivityAt)}
-            </span>
+          {/* Recency cell. While output is streaming, "live now" supersedes
+           *  "Xs ago" (the relative time is moot when it's happening this
+           *  second), so the cell swaps the timestamp for the pulsing dot in
+           *  place — right-aligned in the same slot, so it lands in one column
+           *  across rows and never reflows the grid. */}
+          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
+            <Show
+              when={activity.isLive(props.id)}
+              fallback={formatTimeAgo(c().meta.lastActivityAt)}
+            >
+              <LiveActivityDot id={props.id} />
+            </Show>
           </span>
           <Show when={showShortcutHint()}>
             <span
