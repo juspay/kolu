@@ -904,6 +904,27 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
           err,
         );
       });
+    // TEMP DIAGNOSTIC (flake-1) — dump repo-change resets + per-terminal git.
+    const dbg = await this.page
+      .evaluate(() => {
+        const w = window as unknown as {
+          __resets?: unknown;
+          __dbgStore?: {
+            terminalIds?: () => string[];
+            activeId?: () => string | null;
+            getMetadata?: (id: string) => { git?: { repoRoot?: string } } | undefined;
+          };
+        };
+        const s = w.__dbgStore;
+        const metas =
+          s?.terminalIds?.().map((id) => ({
+            id,
+            repo: s.getMetadata?.(id)?.git?.repoRoot ?? null,
+          })) ?? [];
+        return { resets: w.__resets ?? [], active: s?.activeId?.() ?? null, metas };
+      })
+      .catch(() => ({}));
+    process.stdout.write(`[DBG] ${scenario.pickle.name} :: ${JSON.stringify(dbg)}\n`);
   }
   // PR-evidence video (KOLU_EVIDENCE): grab the page's video handle BEFORE
   // closing the context — the .webm is only finalized on close — then save it

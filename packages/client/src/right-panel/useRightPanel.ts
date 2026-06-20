@@ -435,6 +435,10 @@ export function useRightPanel() {
       // flicker. Stash-and-restore makes a flicker lossless, while a genuine
       // `cd` still lands on an empty stack (back disabled) — see the unit tests.
       if (prevRepo !== undefined && prevRepo !== null && repo !== prevRepo) {
+        // TEMP DIAGNOSTIC (flake-1) — record the repo change; pushed after the
+        // decision so it can't change behavior (no masking).
+        const dbg = window as unknown as { __resets?: unknown[] };
+        (dbg.__resets ??= []).push({ id, repo, prev: prevRepo });
         h.stash.set(prevRepo, h.browser.snapshot());
         h.browser.restore(h.stash.get(repo) ?? { entries: [], cursor: -1 });
       }

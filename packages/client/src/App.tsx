@@ -94,6 +94,9 @@ const App: Component = () => {
   } = useThemeManager();
 
   const rightPanel = useRightPanel();
+  // TEMP DIAGNOSTIC (flake-1) — expose the store so the failure hook can dump
+  // per-terminal metadata.
+  (window as unknown as { __dbgStore?: unknown }).__dbgStore = store;
   const { colorScheme } = useColorScheme();
   const { appTitle, themeColor } = useServerIdentity();
   const commandPalette = useCommandPalette();
