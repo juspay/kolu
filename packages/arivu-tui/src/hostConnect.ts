@@ -25,18 +25,18 @@
  * This is the ONLY place arivu-tui imports `@kolu/surface-nix-host` — it must
  * never leak into the arivu daemon closure (the staleKey allow-list).
  *
- * NOTE: this branch ADDS public API to `@kolu/surface-nix-host` (the
- * `dialAgentOnce` one-shot dialer + its types, exported from that package's
- * `index.ts`), so per `packages/AGENTS.md` / `.claude/rules/surface.md` it
- * REQUIRES a corresponding drishti PR that updates drishti for the new surface
+ * NOTE: this branch ADDS public API to the drishti-shared `@kolu/surface*`
+ * packages — `@kolu/surface-nix-host` gains `dialAgentOnce` + its types + an
+ * optional `extraArgs`/`remoteProgressLines`, and `@kolu/surface` gains the
+ * `./first-frame` helper — so per `packages/AGENTS.md` / `.claude/rules/surface.md`
+ * it REQUIRES a corresponding drishti PR that updates drishti for the new surface
  * API and passes full CI, linked from the kolu PR before merge. (Earlier text
- * here claimed "no drishti mirror PR needed" — that was true only while the dep
- * was consumed read-only and unchanged; adding a new exported symbol to
- * `index.ts` is an observable module-API delta (the rule names "exported types"
- * explicitly), so it no longer holds. Mechanically the mirror is an npins
- * `kolu` pin bump in drishti once this lands on `juspay/kolu` master, kept green
- * by CI — drishti imports none of the symbols this branch touched, so it needs
- * zero source changes; see the kolu PR body's merge-gate bullet.)
+ * here claimed "no drishti mirror PR needed" — true only while the dep was
+ * consumed read-only and unchanged.) Mechanically the mirror is an npins `kolu`
+ * pin bump in drishti once this lands on `juspay/kolu` master, kept green by CI:
+ * drishti's source imports NONE of the new symbols (zero `.ts` change), and the
+ * only build-config delta is hydrating the new zero-dep leaf `@kolu/shell-quote`
+ * that `surface-nix-host` now imports. See the kolu PR body's merge-gate bullet.
  */
 import type { arivuSurface } from "@kolu/arivu-contract";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
