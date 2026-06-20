@@ -73,23 +73,31 @@ const RightPanel: Component<{
   const showKind = (kind: RightPanelTabKind) =>
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
 
-  // Defer the lazy CodeTab past the first synchronous render: `mounted` flips
-  // only after `onMount`, so the initial paint never renders (and so never
-  // suspends on) the lazy chunk — the terminal and chrome paint first, then the
-  // Code tab streams in. Latch: true once the Code tab has actually been shown
-  // (mounted AND panel visible AND the active tab is "code"). A one-way memo, so
-  // the chunk mounts on first view and is then kept mounted — the same
-  // lazy-keep-alive shape as FileView's toggle: the inactive tab's local state
-  // (selected file, Pierre tree expansion, scroll) survives a tab switch exactly
-  // as the eagerly-mounted form did (#818). Until then the chunk stays off the
-  // network: a closed mobile drawer or collapsed desktop panel (`!visible`)
-  // never loads it.
+  // "The given tab is the active tab" — the single per-kind active predicate,
+  // read by the tab bar, the slot display-gate, and the Code load-gate below.
+  const isActiveKind = (kind: RightPanelTabKind) =>
+    rightPanel.activeTab().kind === kind;
+
+  // The Code tab is live right now: the panel is visible AND it's the selected
+  // tab. The reusable visibility+selection predicate — anything that needs "is
+  // the code tab on screen" reads this.
+  const codeShownNow = () => props.visible && isActiveKind("code");
+
+  // `mounted` is the isolated deferral knob: it flips only after `onMount`, so
+  // the initial synchronous paint never renders (and so never suspends on) the
+  // lazy chunk — the terminal and chrome paint first, then the Code tab streams
+  // in. The latch (`was ||`) is the lone first-load/keep-alive concern: true
+  // once the Code tab has actually been shown, then never false again, so the
+  // chunk mounts on first view and stays mounted. The kept-alive hidden sibling
+  // (the `display:none` slot below) is what preserves the inactive tab's local
+  // state (selected file, Pierre tree expansion, scroll) across a tab switch
+  // exactly as the eagerly-mounted form did (#818). Until first view the chunk
+  // stays off the network: a closed mobile drawer or collapsed desktop panel
+  // (`!props.visible`) never loads it.
   const [mounted, setMounted] = createSignal(false);
   onMount(() => setMounted(true));
   const codeEverShown = createMemo(
-    (was: boolean) =>
-      was ||
-      (mounted() && props.visible && rightPanel.activeTab().kind === "code"),
+    (was: boolean) => was || (mounted() && codeShownNow()),
     false,
   );
 
