@@ -463,8 +463,8 @@ const App: Component = () => {
                 };
                 return (
                   <RightPanelDrawer
-                    terminalId={store.activePanel().id}
-                    meta={store.activePanel().meta}
+                    terminalId={store.active().id}
+                    meta={store.active().meta}
                     themeName={activeThemeName()}
                     onThemeClick={() => commandPalette.openGroup("Set theme")}
                     contentClass={m === "phone" ? "flex-col" : undefined}
@@ -576,8 +576,8 @@ const App: Component = () => {
                     minSize={0.1}
                   >
                     <RightPanel
-                      terminalId={store.activePanel().id}
-                      meta={store.activePanel().meta}
+                      terminalId={store.active().id}
+                      meta={store.active().meta}
                       onToggle={rightPanel.togglePanel}
                       themeName={activeThemeName()}
                       onThemeClick={() => commandPalette.openGroup("Set theme")}

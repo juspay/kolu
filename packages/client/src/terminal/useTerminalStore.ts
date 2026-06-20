@@ -99,7 +99,7 @@ export const useTerminalStore = createSharedRoot(() => {
   // change reset wipe the new terminal's Code-tab history (a darwin-only flake;
   // see the Flaky Test Tracker). Reading getMetadata(id) for the bundled id is
   // glitch-free.
-  const activePanel = createMemo(() => {
+  const active = createMemo(() => {
     const id = view.activeId();
     return {
       id,
@@ -110,17 +110,17 @@ export const useTerminalStore = createSharedRoot(() => {
   // The loose meta-only accessor is a thin view over the bundled pair — the one
   // computation of "meta for the active terminal". An imperative reader (command
   // palette, keyboard handler, tip gating) that needs only the cwd/agent reads
-  // this; a reactive consumer that pairs it with the id MUST read `activePanel`
-  // so the pair stays glitch-free. Defining it off `activePanel` rather than as a
-  // second `activeId -> meta` memo guarantees there is no separate tear-prone
-  // derivation to fall into.
-  const activeMeta = () => activePanel().meta;
+  // this; a reactive consumer that pairs it with the id MUST read `active` so the
+  // pair stays glitch-free. Defining it off `active` rather than as a second
+  // `activeId -> meta` memo guarantees there is no separate tear-prone derivation
+  // to fall into.
+  const activeMeta = () => active().meta;
 
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
     listSub: terminalListSub,
     // The active terminal id bundled with its own metadata (a consistent pair).
-    activePanel,
+    active,
     // Meta-only view over the pair, for imperative readers that need just the
     // cwd/agent (one derivation — no second tear-prone activeId -> meta path).
     activeMeta,
