@@ -9,13 +9,25 @@
 #
 # DO NOT add flake inputs (nixpkgs, flake-parts, git-hooks, etc.).
 # Instead, use fetchTarball or callPackage in nix/ files.
+#
+# THE ONE SANCTIONED EXCEPTION: `bun2nix`. There is no fetchBunDeps /
+# buildBunPackage in nixpkgs, and bun2nix's nix layer is flake-parts-shaped, so
+# it cannot be cleanly imported via fetchTarball the way nixpkgs is. Its
+# `rawflake` branch exposes `lib.mkBun2nix { pkgs }`, fed OUR npins-pinned pkgs
+# so no transitive nixpkgs is evaluated. It is realized only when the bun-built
+# `arivu-tui` viewer (the sole Bun consumer, arivu P3 PR1) is accessed — the
+# daemon and the rest of kolu stay Node, and `nix develop` cold eval is
+# untouched (the input is not forced by the dev shell). This mirrors drishti's
+# own Bun-on-Nix recipe, which kolu's @kolu/surface packages already feed.
 {
+  inputs.bun2nix.url = "github:juspay/bun2nix/rawflake";
+
   nixConfig = {
     extra-substituters = "https://cache.nixos.asia/oss";
     extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";
   };
 
-  outputs = { self, ... }:
+  outputs = { self, bun2nix, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
       eachSystem = f: builtins.listToAttrs (map
@@ -49,11 +61,19 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).arivu.drvPath);
       arivuAgentDrvsJson = builtins.toJSON arivuDrvBySystem;
+      # The bun2nix helper set (fetchBunDeps / hook / the bun2nix CLI), per
+      # system, fed our npins-pinned pkgs. Threaded into default.nix so the
+      # bun-built arivu-tui viewer (arivu P3 PR1) can realise its dep cache from
+      # the committed bun.nix. Lazy: only forced when the arivu-tui attr is
+      # accessed — the arivuDrvBySystem import above (the Node daemon's drvPath)
+      # never touches it, so it stays out of that pure-eval path.
+      b2nBySystem = eachSystem (pkgs: bun2nix.lib.mkBun2nix { inherit pkgs; });
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs:
         import ./default.nix {
           inherit pkgs commitHash kavalAgentDrvsJson arivuAgentDrvsJson;
+          b2n = b2nBySystem.${pkgs.stdenv.hostPlatform.system};
         });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
@@ -78,6 +98,10 @@
         removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
+          # The bun2nix CLI — `nix run .#bun2nix -- -l <dir>/bun.lock -o
+          # <dir>/bun.nix` regenerates the committed dep cache after a bun.lock
+          # change (the arivu-tui viewer's deps).
+          bun2nix = b2nBySystem.${system}.bun2nix;
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,

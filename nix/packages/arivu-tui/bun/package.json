@@ -1,0 +1,21 @@
+{
+  "name": "arivu-tui-bun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "//": "Bun-facing manifest for the arivu-tui VIEWER, kept OUT of the pnpm workspace (pnpm-workspace.yaml is packages/**) so the two package managers never fight over one package.json. The viewer's own pnpm manifest stays at packages/arivu-tui/package.json (typecheck + vitest, unchanged). @kolu/* are NOT deps here — they are hydrated from the Nix store at build time (see ../default.nix), exactly as drishti hydrates @kolu/surface. The dependencies below are the FLAT npm closure those hydrated sources resolve from the hoisted root node_modules: @orpc/* + zod (@kolu/surface{,/server,/define,/links/*} + surface-nix-host + arivu-contract), solid-js + @solid-primitives/scheduled (@kolu/surface), and cleye + columnify (arivu-tui itself). Versions track the workspace so the hydrated sources resolve one matching copy.",
+  "dependencies": {
+    "@orpc/client": "^1.13.13",
+    "@orpc/contract": "^1.13.13",
+    "@orpc/server": "^1.13.13",
+    "@orpc/standard-server": "^1.13.13",
+    "@orpc/standard-server-peer": "^1.13.13",
+    "@solid-primitives/scheduled": "^1.5.3",
+    "cleye": "^2.3.0",
+    "columnify": "^1.6.0",
+    "solid-js": "^1.9.0",
+    "string-argv": "^0.3.2",
+    "ts-pattern": "^5.9.0",
+    "zod": "^4.3.6"
+  }
+}

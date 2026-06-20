@@ -1,0 +1,8 @@
+# Hoist all deps to the root node_modules. The @kolu/* sources hydrated into
+# node_modules/@kolu/<name> (cp'd from the Nix store by ../default.nix) carry no
+# node_modules of their own, so they must resolve @orpc/*, zod, solid-js, etc.
+# from ONE hoisted root tree. bun's default isolated linker would scatter each
+# dep into its own node_modules and the hydrated sources would resolve nothing.
+# Matches drishti's bunfig.toml exactly (same hydration strategy).
+[install]
+linker = "hoisted"
