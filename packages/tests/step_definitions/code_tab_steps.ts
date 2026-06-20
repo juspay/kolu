@@ -1323,7 +1323,20 @@ async function setupCodeTabFixture(
         `git remote add origin ${origin} && ` +
         `git commit --allow-empty -m init && git push -u origin master)`,
     );
-    await runShell(world, `git clone ${origin} ${work} && cd ${work}`);
+    // Set origin/HEAD and verify origin/master BEFORE the `cd` — the passive
+    // branchStatus subscription opens the instant the terminal's cwd becomes
+    // `work`, and its FIRST read tears the stream down for good on a transient
+    // BASE_BRANCH_NOT_FOUND (only later reads are swallowed). `clone` usually
+    // writes origin/HEAD, but not always reliably/visibly on darwin, so make it
+    // explicit and confirm the base resolves while still outside the repo; the
+    // `&& cd` only runs once both are in place, so the first read can't race.
+    await runShell(
+      world,
+      `git clone ${origin} ${work} && ` +
+        `git -C ${work} remote set-head origin master && ` +
+        `git -C ${work} rev-parse --verify origin/master >/dev/null && ` +
+        `cd ${work}`,
+    );
     await runShell(world, `git checkout -b feature`);
     await runShell(world, writeFiles);
     await runShell(world, `git add .`);
