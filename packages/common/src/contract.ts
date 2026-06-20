@@ -24,6 +24,7 @@ import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
   RightPanelPerTerminalStateSchema,
+  SavedSleepingTerminalSchema,
   surfaces,
   TerminalAttachInputSchema,
   TerminalIdSchema,
@@ -171,6 +172,15 @@ export const contract = oc.router({
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    /** Put a terminal to sleep — release its PTY/xterm/agent, keep its
+     *  persisted base as a sleeping record. Returns the minted record so the
+     *  client renders the dormant tile without waiting for a metadata resnapshot. */
+    sleep: oc
+      .input(TerminalAttachInputSchema)
+      .output(SavedSleepingTerminalSchema),
+    /** Drop a sleeping record — wake-cleanup (after the replacement active
+     *  terminal spawns) or close-as-discard (no PTY to kill). */
+    discardSleeping: oc.input(TerminalAttachInputSchema).output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

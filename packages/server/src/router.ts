@@ -38,6 +38,7 @@ import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
   createTerminal,
+  discardSleeping,
   killAllTerminals,
   killTerminal,
   setActiveTerminalId,
@@ -47,6 +48,7 @@ import {
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
+  sleepTerminal,
 } from "./terminals.ts";
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
@@ -198,6 +200,16 @@ export const appRouter = t.router({
       const info = await killTerminal(input.id);
       if (!info) throw terminalNotFound(input.id);
       return info;
+    }),
+
+    sleep: t.terminal.sleep.handler(async ({ input }) => {
+      const record = await sleepTerminal(input.id);
+      if (!record) throw terminalNotFound(input.id);
+      return record;
+    }),
+
+    discardSleeping: t.terminal.discardSleeping.handler(async ({ input }) => {
+      if (!discardSleeping(input.id)) throw terminalNotFound(input.id);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

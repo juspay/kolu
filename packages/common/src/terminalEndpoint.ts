@@ -50,6 +50,7 @@ import type {
 } from "kolu-git/schemas";
 import type {
   InitialTerminalMetadata,
+  SavedSleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "./surface.ts";
@@ -159,6 +160,18 @@ export interface TerminalEndpoint {
    *  reattach-time reconciliation against `terminal.list` to reap any surviving
    *  orphan — so unregistering is not a promise that the child is gone. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
+
+  /** Put a terminal to sleep — mint an immutable sleeping record from its
+   *  persisted base and persist it BEFORE releasing the PTY/xterm/agent
+   *  (persist-before-kill). Returns the minted record, or undefined if the id
+   *  isn't a live active terminal. The new id retires the active predecessor —
+   *  records are immutable, so sleep/wake mint a successor and retire the prior. */
+  sleepTerminal(id: TerminalId): Promise<SavedSleepingTerminal | undefined>;
+
+  /** Drop a sleeping record — wake-cleanup (after the replacement active
+   *  terminal has spawned) or close-as-discard (no PTY to kill). Returns true
+   *  if the record was present. */
+  discardSleeping(id: TerminalId): boolean;
 
   /** Drain and dispose every terminal owned by this endpoint. Used by
    *  the e2e harness between scenarios. */

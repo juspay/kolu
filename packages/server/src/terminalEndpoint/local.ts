@@ -23,10 +23,11 @@
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
-import { LOCAL_LOCATION } from "kolu-common/surface";
+import { LOCAL_LOCATION, toSavedSleeping } from "kolu-common/surface";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
+  SavedSleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
@@ -64,6 +65,12 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
+import {
+  deleteSleeping,
+  mergedTerminalList,
+  putSleeping,
+  sleepingMeta,
+} from "../sleeping-store.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
 import {
@@ -91,7 +98,7 @@ function emitTerminalsDirty(): void {
  *  create / kill; client metadata setters publish via the metadata
  *  collection instead. */
 function emitTerminalListChanged(): void {
-  surfaceCtx.cells.terminalList.set(listTerminals());
+  surfaceCtx.cells.terminalList.set(mergedTerminalList());
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
@@ -697,6 +704,35 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     emitTerminalsDirty();
     emitTerminalListChanged();
     return entry.info;
+  }
+
+  /** Put a terminal to sleep — mint an immutable sleeping record from its
+   *  persisted base, persist it, THEN release the live side (persist-before-kill,
+   *  so a crash mid-transition leaves a recoverable record, never a lost
+   *  terminal). The new id retires the active predecessor; `killTerminal`
+   *  re-emits the merged list, so the client swaps the live tile for the
+   *  sleeping one in a single update and never renders both. */
+  async sleepTerminal(
+    id: TerminalId,
+  ): Promise<SavedSleepingTerminal | undefined> {
+    const entry = getTerminal(id);
+    if (!entry) return undefined;
+    const record = toSavedSleeping(entry.meta, crypto.randomUUID(), Date.now());
+    putSleeping(record); // PERSIST first — synchronous, before any await
+    const meta = sleepingMeta(record.id as TerminalId);
+    if (meta) surfaceCtx.collections.terminalMetadata.upsert(record.id, meta);
+    await this.killTerminal(id); // then RELEASE PTY/xterm/agent
+    return record;
+  }
+
+  /** Drop a sleeping record — shared by wake-cleanup (after the replacement
+   *  active terminal has spawned) and close-as-discard (no PTY to kill). The id
+   *  leaves the merged list, so the client drops the dormant tile. */
+  discardSleeping(id: TerminalId): boolean {
+    if (!deleteSleeping(id)) return false;
+    emitTerminalsDirty();
+    emitTerminalListChanged();
+    return true;
   }
 
   async killAllTerminals(): Promise<void> {

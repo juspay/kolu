@@ -556,6 +556,10 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
  *  only on-disk arm Phase 1 writes. The whole-record adoption path is typed to
  *  this (a sleeping record has no live PTY to adopt). */
 export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
+/** The sleeping arm of `SavedTerminal` — persisted base + `sleptAt` + id. What
+ *  the sleep transition mints and the sleeping-record store / session-save
+ *  persist. Named symmetrically with `SavedActiveTerminal`. */
+export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
@@ -922,6 +926,21 @@ export function activeArm(
   return m?.state === "active" ? m : undefined;
 }
 
+/** The sleeping arm's sibling projection of {@link activeArm} — the sleeping-
+ *  specific narrow a ☾ badge / dormant body / `sleptAt` line reads, so the
+ *  `state === "sleeping"` check lives in ONE place instead of re-scattering. */
+export function sleepingArm(
+  m: TerminalMetadata | null | undefined,
+): SleepingTerminal | undefined {
+  return m?.state === "sleeping" ? m : undefined;
+}
+
+/** Whether a terminal is sleeping — the one-token presence check surfaces consume
+ *  (dock bucket, minimap marker, canvas dimming) where the arm value isn't needed. */
+export function isSleeping(m: TerminalMetadata | null | undefined): boolean {
+  return m?.state === "sleeping";
+}
+
 /** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,
  *  else `null`. The single accessor for 'is it active and does it have a resolved
  *  PR' — the active narrow (`activeArm`) and the `ok`-arm projection (`prValue`)
@@ -935,6 +954,39 @@ export function activePr(
 ): PrInfo | null {
   const arm = activeArm(m);
   return arm ? prValue(arm.pr) : null;
+}
+
+// ── Sleeping-arm construction & read boundary ─────────────────────────
+
+/** Mint the on-disk sleeping record from a live active terminal. Schema-driven:
+ *  parsing through `SavedSleepingTerminalSchema` strips the live overlay
+ *  (agent/foreground/pr) and flips the discriminant to `"sleeping"` structurally,
+ *  so the persisted base is the single source of which fields cross. The caller
+ *  supplies a freshly-minted `id` (sleep retires the active predecessor — records
+ *  are immutable) and stamps `sleptAt` (an arg so the helper stays pure). */
+export function toSavedSleeping(
+  active: ActiveTerminal,
+  id: string,
+  sleptAt: number,
+): SavedSleepingTerminal {
+  return SavedSleepingTerminalSchema.parse({
+    ...active,
+    id,
+    state: "sleeping",
+    sleptAt,
+  });
+}
+
+/** Read-boundary tolerance for ONE persisted sleeping record: `safeParse` and
+ *  drop (return `undefined`) on failure rather than a fatal validator over the
+ *  whole collection — a single malformed record must never poison the set
+ *  (`persisted-schema-stays-tolerant`). The caller filters `undefined` and logs
+ *  the drop (common stays logger-free). */
+export function tolerateSleepingRecord(
+  raw: unknown,
+): SavedSleepingTerminal | undefined {
+  const parsed = SavedSleepingTerminalSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 // ── Saved-terminal backfills (legacy → current shape) ─────────────────

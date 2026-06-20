@@ -47,6 +47,7 @@ import type {
   KoluBuildInfo,
   Preferences,
   SavedSession,
+  TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
 import { type koluSurface, surfaces } from "kolu-common/surface";
@@ -70,6 +71,11 @@ import {
   listTerminals,
   terminalNotFound,
 } from "./terminal-registry.ts";
+import {
+  listSleepingIds,
+  mergedTerminalList,
+  sleepingMeta,
+} from "./sleeping-store.ts";
 import {
   readDaemonStatus,
   readDaemonStatuses,
@@ -166,7 +172,7 @@ const koluDeps: Omit<
     },
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
-      store: { get: () => listTerminals(), set: () => {} },
+      store: { get: () => mergedTerminalList(), set: () => {} },
     },
   },
 
@@ -178,11 +184,17 @@ const koluDeps: Omit<
           const term = getTerminal(info.id);
           if (term) map.set(info.id, term.meta);
         }
+        // Sleeping records live in the sibling store, not the registry — merge
+        // them in so a reconnect's snapshot carries every sleeping terminal.
+        for (const id of listSleepingIds()) {
+          const meta = sleepingMeta(id);
+          if (meta) map.set(id, meta);
+        }
         return map;
       },
       readOne: (key) => {
         const term = getTerminal(key as string);
-        return term ? term.meta : undefined;
+        return term ? term.meta : sleepingMeta(key as TerminalId);
       },
       // Server-internal collection: clients can't write. The `upsert`/
       // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`

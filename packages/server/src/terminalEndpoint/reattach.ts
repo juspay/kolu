@@ -40,6 +40,7 @@ import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
+import { putSleeping } from "../sleeping-store.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import {
   adoptLocalOrphan,
@@ -96,6 +97,13 @@ export async function adoptSurvivingSession(): Promise<void> {
     }
     adoptLocalOrphan(parsed.data, orphan);
     orphansAdopted += 1;
+  }
+
+  // Seed sleeping records AS sleeping — they have no live PTY (reconcile pairs
+  // only active records), so the adopt path never sees them. Without this, a
+  // slept terminal would evaporate on a kolu restart.
+  for (const record of saved?.terminals ?? []) {
+    if (record.state === "sleeping") putSleeping(record);
   }
 
   const adoptedCount = adopt.length + orphansAdopted;

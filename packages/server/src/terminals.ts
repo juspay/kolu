@@ -19,10 +19,12 @@ import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
   SavedActiveTerminalSchema,
+  type SavedSleepingTerminal,
   type SavedTerminal,
   type TerminalId,
   type TerminalInfo,
 } from "kolu-common/surface";
+import { listSleepingRecords } from "./sleeping-store.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
 // converge with `localTerminalEndpoint` already initialized by the time
@@ -66,11 +68,14 @@ export {
  *  Order is `Map` insertion order — terminals appear in the sequence they were
  *  created. */
 export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()].map(
+  const active = [...terminalEntries()].map(
     ([id, entry]): SavedTerminal =>
       SavedActiveTerminalSchema.parse({ ...entry.meta, id }),
   );
-  return { terminals: snappedTerminals, activeTerminalId };
+  // Merge the sleeping records (already in SavedSleepingTerminal shape — no live
+  // overlay to strip) so a sleeping-only workspace persists a non-empty list:
+  // sleeping the LAST terminal must not let saveSession clear the session.
+  return { terminals: [...active, ...listSleepingRecords()], activeTerminalId };
 }
 
 /** Create a new terminal. The endpoint owns PTY spawn, provider
@@ -102,6 +107,20 @@ export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
   return localEndpoint.killTerminal(id);
+}
+
+/** Put a terminal to sleep (persist-before-kill, mint-not-mutate). Returns the
+ *  minted sleeping record, or undefined if the id isn't a live active terminal. */
+export function sleepTerminal(
+  id: TerminalId,
+): Promise<SavedSleepingTerminal | undefined> {
+  return localEndpoint.sleepTerminal(id);
+}
+
+/** Drop a sleeping record (wake-cleanup or close-as-discard). Returns true if
+ *  the record was present. */
+export function discardSleeping(id: TerminalId): boolean {
+  return localEndpoint.discardSleeping(id);
 }
 
 /** Set or clear a terminal's parent relationship. */
