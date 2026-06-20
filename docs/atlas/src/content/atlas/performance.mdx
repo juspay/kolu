@@ -4,7 +4,7 @@ description: A living tuning map of the Kolu monorepo. Built from a 77-agent sur
 parents: [analysis]
 status: proposed
 maturity: seedling
-updated: 2026-06-19
+updated: 2026-06-20
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -131,7 +131,7 @@ reactivity cluster.
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
 | 5 | Lazy-mount CodeTab + Pierre/Shiki | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | `Show`-gate the Code tab so terminal-only users don't parse the diff/highlight tree. |
 | 6 | One-shot Nix `pnpmDeps` hash check | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
-| 7 | Stabilize the markdown image resolver | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Memoize `resolveImageSrc` upstream so `sanitizeHtml` stops re-running per render. |
+| 7 | Avoid the Markdown Source⇄Rendered toggle re-sanitize | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | The toggle **remounts + re-sanitizes the whole doc** each flip; keep both modes mounted (the #818 pattern) **or** cache `sanitizeHtml` by content. Replaces the refuted *"stabilize the resolver reference"* claim — a [measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md). |
 
 <Callout kind="warn" title="Read this before picking one up">
 Almost every item is **bounded at today's scale** (3–20 terminals, small/medium
@@ -215,15 +215,24 @@ off the table.)
 
 ### Markdown & code-tab rendering
 
-<Finding sev="medium" title="Stabilize the markdown image resolver reference">
-The image loop re-processes every image (basename extraction, `resolveImageSrc`,
-fallback span) on each `sanitizeHtml` run (`sanitize.ts:387-401`). The root cause
-is **upstream**: `BrowseFileDispatcher` passes `resolveImageSrc` as an inline
-arrow (`BrowseFileDispatcher.tsx:374-376`), a new reference per render, so
-`Markdown`'s memo re-runs unnecessarily. **Fix:** memoize the resolver at the
-parent; as defense-in-depth, mark already-processed images with a data attribute.
-**Measure:** open/close a 50-image file view 3× and count `createElement` calls +
-sanitize memo runs before/after.
+<Finding sev="medium" title="Markdown preview render cost — the resolver 'fix' was a no-op; the toggle remount is real">
+The original claim — *`BrowseFileDispatcher` passes `resolveImageSrc` as an inline
+arrow (`BrowseFileDispatcher.tsx:374-376`), so `Markdown`'s memo re-runs* — is a
+**measured no-op**. Stabilizing the reference eliminates **zero** `sanitizeHtml`
+runs, confirmed three ways: a faithful jsdom reproduction on the repo's real Solid
+build (fresh arrow vs stable callback ⇒ byte-identical memo counts), `FileView`'s
+own design (`FileView.tsx:91-98` — the appliance is re-rendered on every `props.file`
+snapshot, a *remount*), and the Solid compiler (the inline-arrow prop is **static**,
+never a reactive dependency). The defense-in-depth marker is inert too — sanitize
+re-parses from raw markdown each run, so a marker never survives to the next.
+**The real cost the reproduction surfaced:** `active()` returns only the active
+branch, so a Source⇄Rendered **toggle remounts and re-sanitizes the whole doc**
+(50-image doc: ~50 image-resolutions + a full parse/sanitize/highlight/DOM-reparse
+*per toggle*). **Fix (gated on a trace, two options weighed):** keep both modes
+mounted (the #818 `RightPanel` pattern — validated to drop the toggle re-sanitize
+to zero) **or** a content-keyed `sanitizeHtml` cache (no FileView API change).
+Both bounded at today's scale. Full write-up + reproduction:
+[markdown-image-resolver-and-toggle](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
 </Finding>
 
 - **`sanitizeHtml` does 6 sequential full-tree walks per parse** (`sanitize.ts:359-410`) — memo-gated on content, so it only bites very large documents; collapse into a single walk if/when that surfaces. <Pill variant="lo">low</Pill>
@@ -335,7 +344,7 @@ snapshot is likely ~4 KB) precisely because nobody had a number. The next round
 moves from reading to **measuring** — these are the gaps this map does *not* yet
 rest on:
 
-- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog items #2 and #7 (#1 shipped, proven by a deterministic re-run-count test rather than a trace).
+- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog item #2 (#1 shipped, proven by a deterministic re-run-count test rather than a trace; #7's *resolver-reference* claim was **refuted** by deterministic reproduction — no trace needed — and the Markdown toggle re-sanitize it surfaced instead gates on its own heavy-doc Source⇄Rendered toggle trace).
 - **The #1420 OOM root cause is still unidentified.** The Channel-queue RCA ruled itself out; a dedicated kaval heap snapshot needs to find the real scrollback/snapshot retention path.
 - **Mobile rests on mechanism, not on-device traces.** Battery wake-ups, GPU memory across swipes, and keystroke-to-paint on low-end Android are all unmeasured.
 - **Wire payloads are uncounted.** No captured byte sizes for full-key-set / full-object publishes or base64 framing across representative repos.
