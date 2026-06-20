@@ -140,11 +140,26 @@ function connectHost(
 
 async function cmdList(conn: Connection, json: boolean): Promise<void> {
   const entries = await snapshotAwareness(conn.client);
-  process.stdout.write(
-    json
-      ? `${formatAwarenessJson(entries)}\n`
-      : `${formatAwarenessList(entries, { home: homedir() })}\n`,
-  );
+  // `--json` and a non-TTY stdout (a pipe / file) get plain serialization: the
+  // OpenTUI renderer takes raw-mode ownership of the terminal and would corrupt
+  // a piped stream, so this is choosing the right output for the medium — NOT a
+  // graceful-degradation fallback. An empty set is likewise plain (a live
+  // dashboard of zero rows is just the honest one-liner).
+  if (json) {
+    process.stdout.write(`${formatAwarenessJson(entries)}\n`);
+    return;
+  }
+  if (entries.length === 0 || !process.stdout.isTTY) {
+    process.stdout.write(
+      `${formatAwarenessList(entries, { home: homedir() })}\n`,
+    );
+    return;
+  }
+  // Interactive terminal: paint the truecolour OpenTUI record once and exit.
+  // Imported dynamically + behind the TTY gate so a piped/JSON run never loads
+  // the Bun-only native renderer.
+  const { renderListTui } = await import("./tui.tsx");
+  await renderListTui(entries, { home: homedir() });
 }
 
 async function cmdWatch(conn: Connection, query: string): Promise<void> {
@@ -170,9 +185,6 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
   const id: TerminalId = result.id;
 
   const abort = new AbortController();
-  const stop = (): void => abort.abort();
-  process.on("SIGINT", stop);
-  process.stderr.write(`— watching ${shortId(id)} · Ctrl-C to stop\n`);
 
   // End the follow when the terminal departs (its key leaves the set) — the
   // per-key value stream does not self-end on removal, so the keys stream is
@@ -200,23 +212,43 @@ async function cmdWatch(conn: Connection, query: string): Promise<void> {
     }
   })();
 
-  try {
-    for await (const value of await conn.client.surface.awareness.get(
-      { key: id },
-      { signal: abort.signal },
-    )) {
-      // Home + clear, then repaint the single row — a live-updating view.
-      process.stdout.write("\x1b[H\x1b[2J");
-      process.stdout.write(
-        `${formatAwarenessRow(id, value, { home: homedir() })}\n`,
-      );
+  const values = await conn.client.surface.awareness.get(
+    { key: id },
+    { signal: abort.signal },
+  );
+
+  // Non-TTY (piped) watch: stream the plain text record per update — the live
+  // OpenTUI renderer can't drive a pipe. Choosing the right output for the
+  // medium, not a fallback.
+  if (!process.stdout.isTTY) {
+    process.stderr.write(`— watching ${shortId(id)} · Ctrl-C to stop\n`);
+    try {
+      for await (const value of values) {
+        process.stdout.write(
+          `${formatAwarenessRow(id, value, { home: homedir() })}\n`,
+        );
+      }
+    } catch (err) {
+      if (!abort.signal.aborted) fail((err as Error).message);
     }
-  } catch (err) {
-    if (!abort.signal.aborted) fail((err as Error).message);
-  } finally {
-    process.off("SIGINT", stop);
+    return;
   }
-  process.stderr.write(`— ${shortId(id)} is no longer watched\n`);
+
+  // Interactive terminal: the live truecolour OpenTUI record, repainting on
+  // every push until the terminal departs (abort) or Ctrl-C (OpenTUI's own
+  // exit handling, which calls `stop` to unwind the follow stream).
+  const { runWatchTui } = await import("./tui.tsx");
+  try {
+    await runWatchTui({
+      id,
+      home: homedir(),
+      values,
+      until: abort.signal,
+      stop: () => abort.abort(),
+    });
+  } catch (err) {
+    fail((err as Error).message);
+  }
 }
 
 async function main(): Promise<void> {

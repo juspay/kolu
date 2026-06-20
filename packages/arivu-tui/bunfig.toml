@@ -1,0 +1,7 @@
+# arivu-tui runs under Bun (not tsx) because its OpenTUI renderer loads a native
+# Zig core via Bun's FFI. @opentui/solid's preload registers the babel-preset-solid
+# JSX transform so `<box>`/`<text>` compile to Solid's fine-grained reactive output
+# when Bun executes src/bin.ts directly. The Nix wrapper passes the same preload by
+# absolute path (bunfig.toml is only found relative to cwd, which the wrapper can't
+# assume) — see the arivu-tui derivation in default.nix.
+preload = ["@opentui/solid/preload"]

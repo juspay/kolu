@@ -29,6 +29,11 @@ pkgs.mkShell {
     nodejs
     pnpm
     tsx
+    # `bun` runs the arivu-tui viewer (`bun run src/bin.ts`) in local dev —
+    # the viewer is re-platformed from tsx to Bun so @opentui/core's native
+    # renderer (Bun.dlopen) loads. Everything else (kolu server, kaval, the
+    # arivu daemon, kaval-tui) stays on tsx/node.
+    bun
     nixpkgs-fmt
     # Biome from nixpkgs — single toolchain source, avoids per-platform Rust
     # binary fetches via pnpm postinstall. Version drift between this and

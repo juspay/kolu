@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   agentShortName,
   agentStatusLabel,
+  agentTone,
+  fieldRows,
   formatAwarenessJson,
   formatAwarenessList,
+  prTone,
+  recordHeader,
   relativeTime,
   resolveTerminalId,
   shortId,
@@ -204,5 +208,73 @@ describe("resolveTerminalId", () => {
   });
   it("shortId takes the first 8 chars", () => {
     expect(shortId("a3f10000-1111")).toBe("a3f10000");
+  });
+});
+
+describe("agentTone", () => {
+  it("maps the bucketed agent state to a semantic tone", () => {
+    expect(agentTone({ state: "thinking" } as AwarenessValue["agent"])).toBe(
+      "working",
+    );
+    expect(
+      agentTone({ state: "awaiting_user" } as AwarenessValue["agent"]),
+    ).toBe("awaiting");
+    expect(agentTone({ state: "waiting" } as AwarenessValue["agent"])).toBe(
+      "idle",
+    );
+  });
+  it("is muted when there is no agent", () => {
+    expect(agentTone(null)).toBe("muted");
+  });
+});
+
+describe("prTone", () => {
+  it("colours by checks when the PR resolved", () => {
+    const ok = (checks: string): AwarenessValue["pr"] =>
+      ({ kind: "ok", value: { number: 1, state: "open", checks } }) as never;
+    expect(prTone(ok("pass"))).toBe("pass");
+    expect(prTone(ok("fail"))).toBe("fail");
+    expect(prTone(ok("pending"))).toBe("pending");
+  });
+  it("is muted for any unresolved PR arm", () => {
+    expect(prTone({ kind: "pending" })).toBe("muted");
+    expect(prTone({ kind: "absent" } as AwarenessValue["pr"])).toBe("muted");
+  });
+});
+
+describe("fieldRows", () => {
+  it("projects every field, in the same order as the text record", () => {
+    const rows = fieldRows(val({}), NOW);
+    expect(rows.map((r) => r.label)).toEqual(ALL_LABELS);
+  });
+  it("carries a live tone on agent + pr, and the value text matches the record", () => {
+    const rows = fieldRows(
+      val({
+        agent: { kind: "claude-code", state: "awaiting_user" } as never,
+        pr: {
+          kind: "ok",
+          value: { number: 12, state: "open", checks: "fail" },
+        } as never,
+      }),
+      NOW,
+    );
+    const agent = rows.find((r) => r.label === "agent");
+    const pr = rows.find((r) => r.label === "pr");
+    expect(agent?.tone).toBe("awaiting");
+    expect(agent?.value).toBe("claude · awaiting");
+    expect(pr?.tone).toBe("fail");
+    expect(pr?.value).toContain("#12");
+  });
+});
+
+describe("recordHeader", () => {
+  it("is the short id and the tildeified cwd", () => {
+    const head = recordHeader(
+      id("a3f10000-xyz"),
+      val({ cwd: "/home/u/p" }),
+      "/home/u",
+    );
+    expect(head.id).toBe("a3f10000");
+    expect(head.cwd).toBe("~/p");
   });
 });

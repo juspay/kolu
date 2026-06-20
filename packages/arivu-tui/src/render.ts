@@ -142,6 +142,98 @@ function fields(v: AwarenessValue, now: number): Array<[string, string]> {
 
 const LABEL_WIDTH = 11;
 
+// ── Structured projection for the OpenTUI view ────────────────────────
+//
+// `bin.ts`'s OpenTUI/Solid components paint a terminal's awareness, but the
+// PROJECTION — which fields, their formatted values, and the *semantic* colour
+// each should take — stays here as pure data so it is unit-tested under Node
+// (vitest) and never depends on the Bun renderer. The component only maps a
+// `tone` to a concrete colour; it decides nothing about the data.
+
+/** Semantic colour hint for a field value — the component owns the palette, this
+ *  owns which bucket a value falls in. */
+export type FieldTone =
+  | "working"
+  | "awaiting"
+  | "idle"
+  | "pass"
+  | "fail"
+  | "pending"
+  | "muted"
+  | "plain";
+
+/** The agent state's tone: actively computing → working, blocked on you →
+ *  awaiting, idle → idle, no agent → muted. Mirrors `agentStatusLabel`. */
+export function agentTone(agent: AwarenessValue["agent"]): FieldTone {
+  if (!agent) return "muted";
+  switch (agentStatusLabel(agent.state)) {
+    case "working":
+      return "working";
+    case "awaiting":
+      return "awaiting";
+    case "waiting":
+      return "idle";
+    default:
+      return "plain";
+  }
+}
+
+/** The PR's tone, keyed on its checks when resolved: pass → green, fail → red,
+ *  pending → amber; anything unresolved (pending/absent/unavailable) → muted. */
+export function prTone(pr: AwarenessValue["pr"]): FieldTone {
+  if (pr.kind !== "ok") return "muted";
+  return pr.value.checks === "pass"
+    ? "pass"
+    : pr.value.checks === "fail"
+      ? "fail"
+      : "pending";
+}
+
+/** One projected field: its label, formatted value, and semantic tone. */
+export interface FieldRow {
+  label: string;
+  value: string;
+  tone: FieldTone;
+}
+
+/** Every awareness field as a toned `{ label, value, tone }` row — the same set
+ *  and order the plain `record()` renders, so the OpenTUI view and the text view
+ *  never drift. Only `agent` and `pr` carry a live tone; the rest are plain or
+ *  muted (a dash). */
+export function fieldRows(v: AwarenessValue, now: number): FieldRow[] {
+  return [
+    { label: "agent", value: agentValue(v.agent), tone: agentTone(v.agent) },
+    { label: "pr", value: prValueText(v.pr), tone: prTone(v.pr) },
+    { label: "branch", value: orDash(v.git?.branch), tone: "plain" },
+    { label: "repo", value: orDash(v.git?.repoName), tone: "muted" },
+    { label: "remote", value: orDash(v.git?.remoteUrl), tone: "muted" },
+    { label: "foreground", value: orDash(v.foreground?.name), tone: "plain" },
+    { label: "title", value: orDash(v.foreground?.title), tone: "muted" },
+    { label: "agent cmd", value: orDash(v.lastAgentCommand), tone: "muted" },
+    {
+      label: "active",
+      value: relativeTime(v.lastActivityAt, now),
+      tone: "muted",
+    },
+  ];
+}
+
+/** A terminal's header line for the record: the short id + its tildeified cwd. */
+export function recordHeader(
+  id: TerminalId,
+  v: AwarenessValue,
+  home: string | undefined,
+): { id: string; cwd: string } {
+  return {
+    id: shortId(id),
+    cwd: sanitize(tildeify(v.cwd, home)) || DASH,
+  };
+}
+
+/** The fixed label column width the OpenTUI record pads to (matches the text
+ *  record's `LABEL_WIDTH`, so both views align identically). */
+export const FIELD_LABEL_WIDTH = LABEL_WIDTH;
+
 /** Per-row render options threaded from the CLI. */
 export interface RenderOptions {
   /** The home dir to collapse to `~` in the cwd. */

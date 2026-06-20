@@ -239,11 +239,19 @@ let
       # module bundles the in-iframe SDK script at runtime via esbuild. The
       # cost is ~15MB in the production NAR for one platform-specific binary;
       # the simplicity win is no separate build-step coordination with Nix.
+      #
+      # NOTE: @babel* / babel-plugin-* are kept too (~17MB) — babel is build-only
+      # for the client bundle but RUNTIME for arivu-tui: its @opentui/solid
+      # preload compiles the viewer's Solid JSX with babel-preset-solid on every
+      # launch (P3a runs the viewer from source under bun, not a prebuilt bundle).
+      # Pruning them broke the bun viewer with `ENOENT … @babel/core`. The slim
+      # alternative — bun-bundling arivu-tui at build time so the runtime needs no
+      # babel — is a deliberate follow-up, kept out of P3a to preserve the
+      # run-from-source model the rest of the workspace uses.
       rm -rf typescript@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
-             @babel* babel-plugin-* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
              @types+node@* @types+ws@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
@@ -411,17 +419,40 @@ let
   # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
   # + nix are on PATH for the provision (resolveSystem's ssh arch-probe +
   # provisionAgent's `nix copy` / `nix-store`).
-  mkAgentTuiWrapper = { name, entry, envVar, agentDrvsJson }:
+  #
+  # `interpreter` defaults to pkgs.tsx so the kaval-tui call (which passes no
+  # interpreter) is byte-identical to before: tsx is invoked as `tsx <file>`,
+  # with the entry on `--add-flags`. arivu-tui passes `interpreter = pkgs.bun`
+  # / `interpreterBin = ".../bin/bun"`, which runs a .ts file directly
+  # (`bun <file>`, no subcommand) and is self-contained — so its caller also
+  # drops nodejs from `extraPath` (bun does not shell out to node) and adds
+  # LD_LIBRARY_PATH (via `extraWrapperArgs`) for @opentui/core's native
+  # renderer. These three args keep both shapes in one place without an
+  # override knob: they are baked build facts, not tunables.
+  mkAgentTuiWrapper =
+    { name
+    , entry
+    , envVar
+    , agentDrvsJson
+    , interpreter ? pkgs.tsx
+    , interpreterBin ? "${interpreter}/bin/tsx"
+    , extraPath ? [ pkgs.nodejs ]
+    , extraWrapperArgs ? ""
+      # Flags injected BEFORE the entry file (e.g. bun's `--preload`, which must
+      # precede the script). Empty for tsx, so kaval-tui is byte-identical.
+    , preEntryFlags ? ""
+    }:
     pkgs.runCommand name
       {
         nativeBuildInputs = [ pkgs.makeWrapper ];
         meta.mainProgram = name;
       } ''
       mkdir -p $out/bin
-      makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/${name} \
+      makeWrapper ${interpreterBin} $out/bin/${name} \
+        ${preEntryFlags} \
         --add-flags "${kolu}/${entry}" \
-        --set ${envVar} '${agentDrvsJson}' \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
+        --set ${envVar} '${agentDrvsJson}' ${extraWrapperArgs} \
+        --prefix PATH : ${pkgs.lib.makeBinPath (extraPath ++ [ pkgs.openssh pkgs.nix ])}
     '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's
@@ -466,11 +497,27 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # arivu-tui (arivu plan P1c + P2): the terminal-side viewer that dials a
+  # arivu-tui (arivu plan P1c + P2 + P3a): the terminal-side viewer that dials a
   # running arivu's awareness socket and lists/watches what each terminal IS IN
   # (branch · PR · agent · foreground). Runs from the SAME built workspace closure
-  # as `kolu` under tsx — a pure surface CLIENT, so it needs no git/gh and no
-  # state dir.
+  # as `kolu` — a pure surface CLIENT, so it needs no git/gh and no state dir.
+  #
+  # P3a re-platforms ONLY this viewer from tsx to Bun (everything else — kolu
+  # server, kaval, the arivu DAEMON, kaval-tui — stays on tsx/node): the viewer's
+  # new @opentui/core renderer is a per-arch native prebuild (libopentui.so) that
+  # Bun.dlopen loads at runtime, so the viewer must run under bun, not tsx. bun is
+  # self-contained, so nodejs is dropped from PATH (the viewer never shells out to
+  # node); openssh + nix stay on PATH for `--host` provisioning, and
+  # ARIVU_AGENT_DRVS_JSON is set verbatim (interpreter-independent — it still
+  # ships the target-arch arivu DAEMON drv to remotes). LD_LIBRARY_PATH carries
+  # libstdc++ so the native renderer's dlopen can't fail with ERR_DLOPEN_FAILED
+  # (a defensive prefix — the full runtime can't be exercised in this build).
+  #
+  # The @opentui/core native prebuild survives the build closure: the kolu
+  # installPhase prune (default.nix:~242) is node-pty-specific — its broad rm -rf
+  # list does NOT match the `@opentui+core-linux-x64@<v>` pnpm dir, and the
+  # node-pty stanza only touches `node-pty@*`. So libopentui.so ships intact (no
+  # node-gyp rebuild is needed — OpenTUI ships PREBUILT, unlike node-pty).
   #
   # P2's `--host <ssh>` rides this wrapper (the same shape as kaval-tui's, via
   # mkAgentTuiWrapper): ARIVU_AGENT_DRVS_JSON carries the per-system `{ system →
@@ -481,6 +528,19 @@ let
     entry = "packages/arivu-tui/src/bin.ts";
     envVar = "ARIVU_AGENT_DRVS_JSON";
     agentDrvsJson = arivuAgentDrvsJson;
+    interpreter = pkgs.bun;
+    interpreterBin = "${pkgs.bun}/bin/bun";
+    # bun is self-contained — the viewer never shells out to node, so nodejs is
+    # NOT on PATH (openssh + nix are appended by mkAgentTuiWrapper for --host).
+    extraPath = [ ];
+    # @opentui/solid's preload registers the babel-preset-solid JSX transform so
+    # `<box>`/`<text>` in tui.tsx compile to Solid's reactive output. It must run
+    # BEFORE bin.ts, hence preEntryFlags. By ABSOLUTE store path because bun finds
+    # bunfig.toml only relative to cwd (which the viewer can't assume) — the
+    # committed packages/arivu-tui/bunfig.toml covers `pnpm start` in dev instead.
+    preEntryFlags = ''--add-flags "--preload" --add-flags "${kolu}/packages/arivu-tui/node_modules/@opentui/solid/scripts/preload.js"'';
+    # libstdc++ for @opentui/core's native renderer (Bun.dlopen libopentui.so).
+    extraWrapperArgs = "--prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib";
   };
 
   # @kolu/surface example demos — derivations live next to each demo's
