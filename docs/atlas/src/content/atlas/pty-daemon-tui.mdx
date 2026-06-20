@@ -1,6 +1,6 @@
 ---
 title: kaval-tui — a CLI terminal client for kolu-server
-description: A terminal-side client of kolu-server's in-process pty-host — list / attach / spawn from the shell over a unix socket, no browser and no daemon. The CLI face of kolu and the seed of a tmux replacement, shipped in beta phases.
+description: A terminal-side client of kolu-server's in-process pty-host — list / create / attach / kill from the shell over a unix socket, no browser and no daemon. The CLI face of kolu and the seed of a tmux replacement, shipped in beta phases.
 parents: [pty-daemon, feature]
 status: accepted
 maturity: budding
@@ -14,7 +14,7 @@ import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 
-**A terminal-side client of kolu-server's pty-host.** kolu-server owns its PTYs _in-process_ today; `kaval-tui` connects to that same in-process pty-host over a local unix socket (speaking `ptyHostSurface`) and gives you `list` / `attach` / `spawn` from the terminal — no browser, **no daemon**. It is the CLI face of kolu and the seed of a `tmux`/`zmx` replacement (<Issue n={671} />), shipped in phases as a beta.
+**A terminal-side client of kolu-server's pty-host.** kolu-server owns its PTYs _in-process_ today; `kaval-tui` connects to that same in-process pty-host over a local unix socket (speaking `ptyHostSurface`) and gives you `list` / `create` / `attach` / `kill` from the terminal — no browser, **no daemon**. It is the CLI face of kolu and the seed of a `tmux`/`zmx` replacement (<Issue n={671} />), shipped in phases as a beta.
 
 _Scoped to kaval-tui-on-the-in-process-server. The parent plan's Phase B — moving the pty-host into a surviving daemon — is a separate plan this later dovetails with (see [Later](#later)). Ancestry: child of the [pty-daemon](pty-daemon.html) plan, sibling of the [chrome-bar rail](pty-daemon-chrome-bar.html); cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html)._
 
@@ -69,17 +69,17 @@ A small node CLI in its own package, `packages/kaval-tui`, that dials the unix s
 | --- | --- | --- |
 | `kaval-tui list` | `terminal.list()` | One-shot — print each live PTY's id · pid · idle · cmd · cwd (`cmd` = the OSC title or the foreground command), with the full entry under `--json`. The pty-host's inventory. _Shipped: the entry was enriched with `title` + `foregroundProcess` (contract 2.1) so this is one round-trip, not per-row tap fetches._ |
 | `kaval-tui attach <id>` | `terminalAttach.get({id})` (stream) + `terminal.write` / `terminal.resize` + `exit.get({id})` | Put the local tty in raw mode. First yield is the **scrollback snapshot** → paint to stdout; deltas stream after. Forward stdin via `write`; `SIGWINCH` → `resize({id, cols, rows})`. A line-start `~.` escape detaches — the CLI exits, kolu-server keeps the PTY. When the deltas end, the `exit` stream discriminates "PTY died" (report the real code, quit with it) from "stream dropped" (re-attach; the fresh snapshot repaints). _The full client-side loop — reply filter, deterministic restore, sizing — shipped with Phase 2 below._ |
-| `kaval-tui spawn [-- cmd]` | `terminal.spawn({id: uuid, …})` then attach | Mint a UUID client-side, spawn, immediately attach. `--print-id` prints the id and does _not_ attach (for scripting). |
+| `kaval-tui create [-- cmd]` | `terminal.spawn({id, argv, cwd, env, initFiles})` | Mint a UUID client-side and spawn a plain `$SHELL` (or the given `[-- cmd]`), then print its id and exit — it does _not_ auto-attach. The whole spawn input is composed client-side (the host derives nothing of its own from B0); `--json` emits the full result for scripting. |
 | `kaval-tui snapshot <id>` | `terminal.getScreenText({id})` | One-shot, non-interactive: dump the current scrollback as **plain rendered text** (not the `terminalAttach` first frame — that's serialized VT screen state for late attach, which would replay control sequences and defeat `grep`) + a trailer line to stderr, then exit. The scriptable primitive the [headless test](#headless-test) asserts on. |
 | `kaval-tui kill <id>` | `terminal.kill({id})` | Out-of-band termination — exercises the order-safe kill path (abort the exit tap _then_ kill) from a non-browser client. |
 
 Of the taps, attach consumes `exit` — stream-end discrimination plus the real exit code, which tombstones server-side so it's retrievable even after the deltas end. The metadata taps (`cwd` / `title` / `foreground`) feed **no persistent status line**: that early sketch contradicted the raw-passthrough decision and was dropped (see the Phase 2 decisions below); they stay on the contract for a later richer UX. `--json` makes `list` machine-readable; `--socket <path>` points at a non-default server.
 
 <Callout kind="note" title="Contract reality check">
-The subcommand → surface mapping is shorthand; these are the exact shapes the _current_ `ptyHostSurface` exposes (verified against `@kolu/pty-host` after A1 <PrLink pr={1055} /> and the link-family unification <PrLink pr={1059} />). **Phase 1 (<PrLink pr={1084} />) resolved the socket and list-metadata items**; the spawn-command item remains for Phase 3.
+The subcommand → surface mapping is shorthand; these are the exact shapes the _current_ `ptyHostSurface` exposes (verified against `@kolu/pty-host` after A1 <PrLink pr={1055} /> and the link-family unification <PrLink pr={1059} />). **All three phases have now landed** — the socket + list-metadata items in Phase 1 (<PrLink pr={1084} />), and the spawn-command item in Phase 3 (the B0 client-composed spawn, <PrLink pr={1370} />).
 
 - **`terminal.list` now carries the metadata — resolved in <PrLink pr={1084} />.** The entry was `{ id, pid, cwd, lastActivity }` with no title; Phase 1 enriched it with `title` + `foregroundProcess` (contract 2.1, additive · optional), so a one-shot `list` shows a `cmd` column without per-row tap subscriptions. `list --json` emits a top-level array (`jq '.[]'`-friendly).
-- **`terminal.spawn` has no command field — it always spawns `$SHELL`.** The input is `{ id?, cwd?, cols?, rows?, scrollback? }`; no `command`/`argv`. So Phase 3's `spawn [-- cmd]` needs a deliberate decision: add a `command` field (a `PTY_HOST_CONTRACT_VERSION` bump) or write the command into the spawned shell. This is the one real contract gap behind the flow examples.
+- **`terminal.spawn` now carries the command via `argv` — resolved by B0 (<PrLink pr={1370} />).** The input is `{ id?, argv, cwd, env, initFiles, cols?, rows?, scrollback? }`: `argv` is the fully resolved program + args (`argv[0]` is the shell, or the `[-- cmd]` passed verbatim), and the host neither chooses the shell nor appends flags — the client composes the whole input (`buildCreateInput`) and the host derives nothing of its own. So `create [-- cmd]` needed no extra field: a passed command becomes `argv`, an absent one defaults to `[$SHELL]`. The earlier "no command field" gap is closed.
 - **The taps are host-method names; on the wire they're streams.** `subscribeCwd`/`subscribeTitle`/`subscribeForeground`/`exitPromise` are `PtyHost` methods below the seam — a CLI client consumes the surface _streams_ `surface.cwd.get({id})` / `surface.title.get({id})` / `surface.foreground.get({id})` / `surface.exit.get({id})`. `exit` crosses as a one-shot _stream_ (yields `{ exitCode }` once, then ends), not a `Promise`.
 - **The socket exists at a stable path — resolved in <PrLink pr={1084} />.** `servePtyHostOverUnixSocket` chose `$XDG_RUNTIME_DIR/kolu/pty-host.sock` (distinct from the per-process `kolu-<serverProcessId>/` scratch dir), with a fixed, `$TMPDIR`-independent `/tmp/kolu-$UID/pty-host.sock` fallback off systemd — deliberately NOT `os.tmpdir()`, which differs by launch context so server and CLI would miss each other — and a `--socket` override (the same flag name on server and CLI). `getPtyHostSocketPath` is the one resolver both share; a live-vs-stale probe stops a second server hijacking a live socket.
 </Callout>
@@ -90,7 +90,7 @@ The subcommand → surface mapping is shorthand; these are the exact shapes the 
 | --- | --- | --- |
 | **Home** | a tiny separate `packages/kaval-tui` | An independent CLI package, not a `bin` folded into `kaval` — keeps the kaval daemon package focused on the contract + primitive, and keeps the CLI's own deps (raw-tty handling, arg parsing) out of the closure the A2 staleKey hashes. |
 | **Render fidelity** | raw VT passthrough | Write the pty-host's bytes straight to stdout; do _not_ re-render through a second `@xterm/headless` mirror. Simplest and truest, and it avoids a second rendering path drifting from the server's. _Recorded as a design-decision comment at the passthrough site._ |
-| **Detach / escape** | ssh-style line-start `~` escape — **never `Ctrl+B`** | A passthrough multiplexer must not steal any control char the inner tools need — `Ctrl+B` and `Ctrl+J` are reserved by Claude Code (`input/prohibitedKeybinds.ts`). The escape is the unambiguous ssh model: `~` recognised _only_ immediately after a newline. `~.` detach · `~~` literal tilde · `~?` help; configurable via `--escape` (a single character). `~k` kill ships with Phase 3's `kill`, not Phase 2. A literal `~` mid-line passes through untouched, so _every_ inner-app chord reaches the program unmodified. |
+| **Detach / escape** | ssh-style line-start `~` escape — **never `Ctrl+B`** | A passthrough multiplexer must not steal any control char the inner tools need — `Ctrl+B` and `Ctrl+J` are reserved by Claude Code (`input/prohibitedKeybinds.ts`). The escape is the unambiguous ssh model: `~` recognised _only_ immediately after a newline. `~.` detach · `~~` literal tilde · `~?` help; configurable via `--escape` (a single character). The `kill` *subcommand* shipped (Phase 3, <PrLink pr={1462} />), but the in-attach `~k` escape is still later — killing is a standalone `kaval-tui kill <id>` today, not a keystroke from inside attach. A literal `~` mid-line passes through untouched, so _every_ inner-app chord reaches the program unmodified. |
 
 ## Phasing — three beta increments, all in-process
 
@@ -101,7 +101,7 @@ Phases 1–3 build kaval-tui on the in-process server — each leaves Kolu worki
 | **0 · surface example** <Pill variant="ok">shipped</Pill> <PrLink pr={1073} /> | A minimal CI-runner TUI over oRPC stdio in `@kolu/surface`'s examples — the 3rd example, after the worker demo + the remote-process-monitor (→ [drishti](https://github.com/srid/drishti)). | None — separate from kolu-server. | A standalone example; proves the pattern and becomes kaval-tui's reference skeleton. |
 | **1 · `list`** <Pill variant="ok">shipped</Pill> <PrLink pr={1084} /> | kolu-server serves its in-process pty-host router over a unix socket (`@kolu/surface`'s `serveOverUnixSocket`); new `@kolu/pty-tui` with `list` + read-only `snapshot`. `list` carries full metadata from the enriched `terminal.list` (contract 2.1). | +1 local socket listener on the existing router (`servePtyHostOverUnixSocket`). Web path byte-identical. | A beta CLI that _lists_ and _snapshots_ your live terminals — `nix run …#kaval-tui`. |
 | **2 · `attach`** <Pill variant="ok">shipped</Pill> <PrLink pr={1255} /> | Raw-tty passthrough, snapshot-then-delta, stdin→`write`, `SIGWINCH`→`resize`, the `~`-escape detach — plus the device-query reply filter and the deterministic terminal restore the loop needs (specced below). | None beyond Phase 1, except one nicety, shipped: `terminalAttach` on a bad id is a clean `NOT_FOUND` (one composed `requirePty` guard; error shape only, no contract bump). | Drive a terminal from the CLI; detach and re-attach while the server runs. |
-| **3 · `create` / `--host` / `kill`** | `create` (a plain `$SHELL` or a given command, `--json`) <Pill variant="ok">shipped</Pill> <PrLink pr={1370} />; remote `--host` (reach + provision over ssh) <Pill variant="ok">shipped</Pill> <PrLink pr={1373} />; `kill` <Pill variant="todo">later</Pill>. | None for `create`; `--host` adds a `kaval --stdio` front that relays the ssh link to the durable daemon's socket. | Create PTYs from the CLI, reach a remote kaval over ssh (a created terminal survives the link — create on prod, attach later), and — later — `kill` them: a usable raw multiplexer (beta). The remote phasing lives in [kaval-sessions](kaval-sessions.html). |
+| **3 · `create` / `--host` / `kill`** | `create` (a plain `$SHELL` or a given command, `--json`) <Pill variant="ok">shipped</Pill> <PrLink pr={1370} />; remote `--host` (reach + provision over ssh) <Pill variant="ok">shipped</Pill> <PrLink pr={1373} />; `kill <id>` (resolve a short id, `terminal.kill`) <Pill variant="ok">shipped</Pill> <PrLink pr={1462} />. | None for `create`/`kill` (the kill RPC already existed); `--host` adds a `kaval --stdio` front that relays the ssh link to the durable daemon's socket. | Create PTYs from the CLI, reach a remote kaval over ssh (a created terminal survives the link — create on prod, attach later), and `kill` them: a usable raw multiplexer (beta). The remote phasing lives in [kaval-sessions](kaval-sessions.html). |
 
 Phase 1 alone is the smallest honest first ship of _kaval-tui_ — a one-shot RPC, no raw-tty mode, the "hello world" that proves `serveOverUnixSocket` + `unixSocketLink` + the contract round-trip, at near-zero risk.
 
@@ -192,7 +192,7 @@ kaval-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED
   "● 3 live PTYs (in kolu-server, in-process) · pty-host pid 9981",
 ]} />
 
-**Birth → work → detach → re-attach** (Phase 2). `spawn` mints a PTY and attaches; everything passes through raw — the CLI owns no pixels while attached; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot, serialized at the local tty's dimensions thanks to resize-then-attach.
+**Birth → work → detach → re-attach** (Phase 2/3). `create` mints a PTY and prints its id; `attach <id>` takes it over — everything passes through raw, the CLI owns no pixels while attached; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot, serialized at the local tty's dimensions thanks to resize-then-attach.
 
 <Terminal title="kaval-tui · re-attached 3f9a…c21 · claude: implement pty-tui" lines={[
   "↻ snapshot restored — 1,284 lines · PTY pid 12843 unchanged",
@@ -212,8 +212,8 @@ The detach/reattach loop scripted: it asserts that the CLI client can die and a 
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1 · spawn a PTY with a unique marker in its scrollback (no attach)
-id=$(kaval-tui spawn --print-id -- bash -c 'echo "MARK-$$"; exec sleep 1d')
+# 1 · create a PTY with a unique marker in its scrollback (create never attaches)
+id=$(kaval-tui create --json -- bash -c 'echo "MARK-$$"; exec sleep 1d' | jq -r .id)
 pid_before=$(kaval-tui list --json | jq -r ".[] | select(.id==\"$id\").pid")
 
 # 2 · (no kaval-tui process is attached — simulating client death)

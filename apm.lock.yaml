@@ -318,9 +318,9 @@ local_deployed_files:
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
-  .agents/skills/atlas/SKILL.md: sha256:55abc9a2ebf81716a2250f578903e9e24307d700fba5c9694708d7dabf6457e8
+  .agents/skills/atlas/SKILL.md: sha256:dbb0719ff579299fff9942fb974ba84601a3931aede8d135f3287659540a4df8
   .agents/skills/be-review/SKILL.md: sha256:bb2b6f0d452f91311d622cf58803ec737555c853764555911fd5dc465e3abd9f
-  .agents/skills/be/SKILL.md: sha256:c965a65761581559977e3773bd4017b531f61d6ead613822d4f4cc7115daab69
+  .agents/skills/be/SKILL.md: sha256:85ebb42ca032748432cb7faffe9a79073e205bc98389633dc47020f2844cfaf7
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
@@ -353,9 +353,9 @@ local_deployed_file_hashes:
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/skills/atlas/SKILL.md: sha256:55abc9a2ebf81716a2250f578903e9e24307d700fba5c9694708d7dabf6457e8
+  .claude/skills/atlas/SKILL.md: sha256:dbb0719ff579299fff9942fb974ba84601a3931aede8d135f3287659540a4df8
   .claude/skills/be-review/SKILL.md: sha256:bb2b6f0d452f91311d622cf58803ec737555c853764555911fd5dc465e3abd9f
-  .claude/skills/be/SKILL.md: sha256:c965a65761581559977e3773bd4017b531f61d6ead613822d4f4cc7115daab69
+  .claude/skills/be/SKILL.md: sha256:85ebb42ca032748432cb7faffe9a79073e205bc98389633dc47020f2844cfaf7
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
