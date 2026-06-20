@@ -482,15 +482,20 @@ const CodeTab: Component<{
           hasLine: req.ref.startLine !== null,
         });
         if (resolved === null) {
-          // The path isn't in THIS snapshot. Don't consume — the first
-          // fsListAll snapshot after the panel opens / repo switches can lag a
-          // fresh-open request (the just-created path not yet enumerated on a
-          // slow darwin runner). Leaving the request pending lets a later,
-          // fuller snapshot re-run this effect and resolve it; consuming here
-          // (the old behavior) dropped the reveal permanently against a stale
-          // first read — the darwin folder-ref flake. A genuinely-absent path
-          // is a no-match, not an error: it simply never reveals once the list
-          // settles.
+          // The path isn't in THIS snapshot. The first fsListAll snapshot after
+          // the panel opens / repo switches (and any brief `[]` during a stream
+          // resubscribe) can lag a fresh-open request — the just-created path
+          // not yet enumerated on a slow darwin runner. While the list is still
+          // EMPTY, don't consume or toast: leave the request pending so a later,
+          // fuller snapshot re-runs this effect and resolves it. (Consuming here
+          // against that stale first read was the darwin folder-ref flake.)
+          if (paths.length === 0) return;
+          // The list is non-empty — `git ls-files` is atomic, so a populated
+          // snapshot is the COMPLETE index for this repo. A still-missing path
+          // is therefore a genuine not-found: surface it loudly and consume.
+          toast.error(`File reference not found: ${req.ref.path}`);
+          consumedRequest = req;
+          setHandled({ request: req, resolvedPath: null });
           return;
         }
         // Resolved — consume now, before the side effects, so a re-run (terminal
