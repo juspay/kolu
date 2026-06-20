@@ -327,6 +327,31 @@ Good:
 
 _Rationale_: a migration that writes orphans assuming a downstream migration will clean them up couples migrations to each other — one can't be removed without breaking the next, and a fresh-install ladder accumulates write-then-strip cycles. The shape guard makes each migration idempotent on shapes it doesn't recognize. Caught when 1.13.0 destructured `codeMode` (a real new-schema field) alongside a `tab` orphan that 1.8.0 had spuriously written for fresh installs.
 
+### persisted-schema-stays-tolerant
+
+TIGHTENING the validation of a PERSISTED schema (a `Conf` key / surface cell the client reads back) — adding a `.refine`, a newly-required field, a stricter type, a `.min()` — is a backward-INCOMPATIBLE change to data that may already sit on disk. It needs a backward-compat path, or it silently rejects existing data. The sharp edge: when the cell value is an ARRAY, a per-record invariant the array parse treats as fatal makes ONE bad record fail the WHOLE cell — the client falls back to the default (empty) and the feature breaks for **everything**, not just the corrupt record.
+
+Pick the path by whether the OLD format was ever RELEASED:
+
+- **Released** → a `state.ts` migration that transforms/drops the incompatible data, plus a `SCHEMA_VERSION` bump.
+- **Never released (still in-flight on this branch)** → NO migration — there is no production data to migrate; a migration here is dead code that migrates phantom data. Instead read GRACEFULLY: validate SHAPE in the schema, but enforce cross-field INVARIANTS by filtering at the read boundary, never by a fatal array rejection. Tolerance is the durable fix and guards against future corruption too.
+
+Bad:
+```ts
+// backs a persisted cell `z.array(FooSchema)`
+export const FooSchema = z.object({ id, items })
+  .refine((r) => r.items.some((i) => i.id === r.id)); // one orphan ⇒ whole array rejected ⇒ cell empties
+```
+
+Good:
+```ts
+export const FooSchema = z.object({ id, items });            // SHAPE only
+export const isWellFormedFoo = (r) => r.items.some((i) => i.id === r.id);
+export const getFoos = () => store.get("foos").filter(isWellFormedFoo); // drop the bad one, keep the rest
+```
+
+_Rationale_: caught when the sleeping-terminals cell shipped a strict `.refine` (a record's root id must match one of its terminals) with no tolerance. A single legacy record (keyed by a UUID from an earlier cut of the same unmerged PR) failed the whole cell's validation, the client received an empty cell, and EVERY sleep silently lost its terminal. Because the format was never released, a migration would only have tidied a dev disk — reading tolerantly is what un-breaks the feature and survives any future corrupt record. The earlier gauntlet's `code-police` pass even ran `migration-shape-guard` and marked it "N/A — no migration added", never asking whether the schema tightening NEEDED a backward-compat path.
+
 ### icons-in-registry
 
 All SVG icons must be defined as named exports in `packages/client/src/ui/Icons.tsx`. Never inline SVG markup in component files.
