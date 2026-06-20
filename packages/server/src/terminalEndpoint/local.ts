@@ -219,8 +219,13 @@ class PtyHostTerminalProxy implements TerminalHandle {
  *  (kill / exit). The contract stream call resolves to the async iterable (a
  *  `ClientPromiseResult`), so the source is awaited first. An aborted stream
  *  surfaces as a thrown error, so an aborted signal is treated as expected
- *  teardown, not a failure. */
-function bridgeStream<T>(
+ *  teardown, not a failure.
+ *
+ *  Returns a Promise that resolves when the stream ends or aborts (it never
+ *  rejects — failures are logged / routed to `onError`). The per-terminal taps
+ *  ignore it (fire-and-forget); the inventory reconciler awaits it to know when
+ *  to re-subscribe across a daemon recycle. */
+export function bridgeStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
@@ -230,8 +235,8 @@ function bridgeStream<T>(
   // updating that field, logged generically. The exit tap supplies one because
   // a dropped *exit* stream is a lifecycle problem, not a missing field.
   onError?: (err: unknown) => void,
-): void {
-  void (async () => {
+): Promise<void> {
+  return (async () => {
     try {
       const iter = await source;
       for await (const value of iter) {

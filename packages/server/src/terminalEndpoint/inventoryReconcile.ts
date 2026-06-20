@@ -34,7 +34,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import { adoptLocalOrphan } from "./local.ts";
+import { adoptLocalOrphan, bridgeStream } from "./local.ts";
 
 /** Delay before re-subscribing after the inventory stream ends (daemon recycle
  *  / reconnect). Long enough not to hot-loop while the daemon is down — its
@@ -51,19 +51,20 @@ export function startInventoryReconciler(signal: AbortSignal): void {
 }
 
 async function runReconciler(signal: AbortSignal): Promise<void> {
+  // The ONLY new mechanism here is the re-subscribe loop across daemon recycles
+  // (a B3.2 restart, a supervisor reconnect): per-PTY taps die with their PTY
+  // and never re-subscribe, so this loop is genuinely new. The inner consume —
+  // await the stream, fence each event, treat an abort as expected teardown —
+  // is the SAME contract the per-terminal taps carry, so it plugs into
+  // `bridgeStream` (the one receptacle for that volatility) rather than being
+  // re-derived here. `bridgeStream` resolves (never rejects) when the stream
+  // ends or aborts; a non-abort end is a daemon drop, so we delay and re-subscribe.
   while (!signal.aborted) {
-    try {
-      const stream = await ptyHostClient.surface.inventory.get({}, { signal });
-      for await (const ev of stream) applyEvent(ev);
-      // The stream ended without an abort — the daemon connection dropped (a
-      // recycle / reconnect). Fall through to the delay, then re-subscribe.
-    } catch (err) {
-      if (signal.aborted) return;
-      // A drop is EXPECTED on every daemon recycle, and the down state is
-      // surfaced elsewhere (endpoint status), so this is debug — not a
-      // cry-wolf error that fires on routine restarts.
-      log.debug({ err }, "kaval inventory stream dropped; will re-subscribe");
-    }
+    await bridgeStream(
+      ptyHostClient.surface.inventory.get({}, { signal }),
+      signal,
+      applyEvent,
+    );
     if (signal.aborted) return;
     await delay(RESUBSCRIBE_DELAY_MS, signal);
   }
@@ -90,23 +91,17 @@ export function inventoryAdoptions(
   return entries.filter((entry) => !isTracked(entry.id));
 }
 
-/** Apply one inventory frame. Per-event fenced: a single failed adoption must
- *  not end the subscription (and silence discovery for every later PTY) — it is
- *  logged and the loop continues, the same fence the per-terminal taps carry. */
+/** Apply one inventory frame: adopt every untracked PTY it contributes. The
+ *  per-event fence (a single failed adoption must not end the subscription and
+ *  silence discovery for every later PTY) lives in `bridgeStream`, the same
+ *  receptacle the per-terminal taps plug into — not re-derived here. */
 function applyEvent(ev: PtyHostInventoryEvent): void {
-  try {
-    for (const entry of inventoryAdoptions(ev, isTrackedById)) {
-      log.info(
-        { terminal: entry.id, pid: entry.pid },
-        "adopting out-of-band PTY from kaval inventory",
-      );
-      adoptLocalOrphan(entry);
-    }
-  } catch (err) {
-    log.error(
-      { err, kind: ev.kind },
-      "kaval inventory handler threw (subscription kept alive)",
+  for (const entry of inventoryAdoptions(ev, isTrackedById)) {
+    log.info(
+      { terminal: entry.id, pid: entry.pid },
+      "adopting out-of-band PTY from kaval inventory",
     );
+    adoptLocalOrphan(entry);
   }
 }
 
