@@ -142,9 +142,16 @@ export const appRouter = t.router({
     /**
      * Attach to a terminal's output stream.
      *
-     * Yields serialized screen state first (for late-joining clients),
-     * then streams live output. Subscribe-before-serialize ordering
-     * guarantees no output is lost between snapshot and live stream.
+     * Yields the serialized screen state ALWAYS as the first frame (for
+     * late-joining clients) — including the empty string when the PTY hasn't
+     * produced output yet — then streams live output. The unconditional first
+     * frame is a wire contract: it is the snapshot/delta boundary the client
+     * relies on (`createSnapshotBoundary`) to tell a replayed snapshot from a
+     * genuine live delta. Dropping an empty snapshot would make a blank
+     * terminal's first real byte look like the snapshot and misclassify it.
+     * Subscribe-before-serialize ordering guarantees no output is lost between
+     * snapshot and live stream. (Yielding `""` is schema-valid — the contract
+     * output is `z.string()` — and a no-op `term.write("")` for xterm.)
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
@@ -152,7 +159,7 @@ export const appRouter = t.router({
         input.id,
         signal,
       );
-      if (snapshot) yield snapshot;
+      yield snapshot;
       for await (const data of deltas) yield data;
     }),
 

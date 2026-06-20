@@ -34,6 +34,11 @@ const commands = [
     flags: "--escape <char>",
     what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
   },
+  {
+    cmd: "kaval-tui kill <id>",
+    flags: "",
+    what: "End a terminal the daemon owns — the PTY is torn down, so it drops out of list and any attached client sees the shell exit. <id> is the short id or any unique prefix, like snapshot/attach; an id that matches nothing fails loud rather than silently doing nothing. Exits 0 on success.",
+  },
 ];
 
 const escapes = [
@@ -45,7 +50,7 @@ const escapes = [
 
 <BaseLayout
   title="kaval"
-  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, snapshot, and attach to your terminals from the shell."
+  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, and kill your terminals from the shell."
 >
   <meta name="robots" content="noindex" slot="head" />
 
@@ -102,7 +107,8 @@ const escapes = [
       clients that come and go.{" "}
       <code class="mono text-ink">kaval-tui</code> is its terminal client: list
       your shells, <span class="text-ink">create</span> new ones, dump their
-      scrollback, or attach and type — locally, or on a remote machine over ssh
+      scrollback, attach and type, or <span class="text-ink">kill</span> them —
+      locally, or on a remote machine over ssh
       (<code class="mono text-ink">--host</code>). Run the pair on a box where
       kolu has never been installed — a tmux/zellij-shaped duo, minus the
       multiplexer's session model.
@@ -260,6 +266,9 @@ const escapes = [
             <span class="cmd">nix run github:juspay/kolu#kaval-tui -- list</span>
             <span class="cmd"
               >nix run github:juspay/kolu#kaval-tui -- attach &lt;id&gt;</span
+            >
+            <span class="cmd"
+              >nix run github:juspay/kolu#kaval-tui -- kill &lt;id&gt;</span
             >
           </div>
         </div>
@@ -513,10 +522,10 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
         An unreachable daemon is a one-line error, never a hang.
       </li>
       <li>
-        <code class="mono text-ink">create</code> and remote{" "}
-        <code class="mono text-ink">--host</code> have shipped; next up is{" "}
+        <code class="mono text-ink">create</code>, remote{" "}
+        <code class="mono text-ink">--host</code>, and{" "}
         <code class="mono text-ink">kill</code> — ending a terminal from the
-        shell.
+        shell — have all shipped: a usable raw multiplexer (beta).
       </li>
       <li>
         The full design — architecture, phasing, and the decisions behind the

@@ -19,13 +19,13 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
+import RecencyCell from "./RecencyCell";
 import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -176,9 +176,13 @@ function DockListRow(props: {
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 text-right">
-            {formatTimeAgo(c().meta.lastActivityAt)}
-          </span>
+          {/* Recency cell — same dot/timestamp swap and no-reflow width as the
+           *  desktop dock, shared via RecencyCell. */}
+          <RecencyCell
+            id={props.id}
+            lastActivityAt={c().meta.lastActivityAt}
+            textSize="text-[0.65rem]"
+          />
           {/* Second line — flex row spanning col 2 → end. PR pip on
            *  the left (anchored to col 2 left edge so it aligns
            *  across every section), subline text following. */}

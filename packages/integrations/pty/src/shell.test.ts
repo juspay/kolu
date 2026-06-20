@@ -15,8 +15,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  cleanEnv,
   koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
@@ -70,6 +71,69 @@ describe("koluIdentityEnv", () => {
     const layered: Record<string, string> = { VTE_VERSION: "9999" };
     Object.assign(layered, koluIdentityEnv("9.9.9"));
     expect(layered.VTE_VERSION).toBe("7603");
+  });
+});
+
+describe("cleanEnv — kolu's own internal env never reaches a hosted shell", () => {
+  // Regression: a production kolu bakes its internal env (KOLU_KAVAL_BIN et al.,
+  // plus the kaval identity vars KAVAL_BUILD_ID / KAVAL_COMMIT_HASH) into its own
+  // process via the nix wrapper (default.nix). cleanEnv()'s production
+  // passthrough would forward those into every PTY it spawns — so a nested
+  // `just dev` (from source, run inside a kolu terminal) inherited a STALE
+  // KOLU_KAVAL_BIN and spawned a contract-skewed kaval, AND inherited the OUTER
+  // kaval identity so its staleness readout reported the wrong build. cleanEnv
+  // must strip both. Default module state (no configureNixShellEnv call) is
+  // passthrough mode — the exact production path that leaked.
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const k of Object.keys(process.env)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
+
+  it("strips KOLU_* (incl. the spawn-deciding KOLU_KAVAL_* vars), keeps the user's env", () => {
+    process.env.KOLU_KAVAL_BIN = "/nix/store/stale-kaval/bin/kaval";
+    process.env.KOLU_KAVAL_SOCKET = "/run/stale/pty-host.sock";
+    process.env.KOLU_KAVAL_SPAWN = "detached";
+    process.env.KOLU_STATE_DIR = "/home/x/.config/kolu";
+    process.env.PTY_TEST_USER_VAR = "keep-me";
+
+    const env = cleanEnv();
+
+    // kolu's namespace is gone — nothing ancestral can ride it into the shell.
+    expect(env.KOLU_KAVAL_BIN).toBeUndefined();
+    expect(env.KOLU_KAVAL_SOCKET).toBeUndefined();
+    expect(env.KOLU_KAVAL_SPAWN).toBeUndefined();
+    expect(env.KOLU_STATE_DIR).toBeUndefined();
+    expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
+
+    // the user's real environment is untouched.
+    expect(env.PTY_TEST_USER_VAR).toBe("keep-me");
+    expect(env.PATH).toBe(process.env.PATH);
+  });
+
+  it("strips the wrapper-baked kaval identity vars (KAVAL_BUILD_ID / KAVAL_COMMIT_HASH)", () => {
+    // These are --set onto the kolu wrapper (default.nix:336-337) because kaval
+    // runs in-process there; buildId.ts reads them to derive the staleKey /
+    // "update pending" signal. A from-source kolu nested inside a production
+    // kolu terminal must NOT inherit the outer production identity, or its
+    // staleness readout reports the wrong build and masks the stale-daemon nudge.
+    process.env.KAVAL_BUILD_ID = "outer-production-build";
+    process.env.KAVAL_COMMIT_HASH = "deadbeef";
+    // A user's own KAVAL_* env is NOT internal — only the two baked identity
+    // vars are. KAVAL_AGENT_DRVS_JSON (kaval-tui's drv map) and an arbitrary
+    // user KAVAL_* must still reach the shell.
+    process.env.KAVAL_AGENT_DRVS_JSON = '{"x86_64-linux":"/nix/store/x.drv"}';
+    process.env.KAVAL_MY_OWN_VAR = "keep-me";
+
+    const env = cleanEnv();
+
+    expect(env.KAVAL_BUILD_ID).toBeUndefined();
+    expect(env.KAVAL_COMMIT_HASH).toBeUndefined();
+    // not a blanket KAVAL_* strip — unrelated KAVAL_* survives.
+    expect(env.KAVAL_AGENT_DRVS_JSON).toBe(
+      '{"x86_64-linux":"/nix/store/x.drv"}',
+    );
+    expect(env.KAVAL_MY_OWN_VAR).toBe("keep-me");
   });
 });
 

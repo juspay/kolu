@@ -34,7 +34,7 @@ Add a question only when something material is genuinely unclear — don't pad. 
 - **Feature / new behavior:** write the covering test (e2e/integration/unit as fits) before or alongside the change.
 - **Refactor/chore:** no test-first requirement; rely on existing coverage.
 
-**Sync the docs.** Read `.agency/do.md` for its **`## Documentation`** section — the list of files to keep in lockstep with code (README and the like). Compare each against this change and update any that the diff makes stale, so the docs commit rides the same review gauntlet as the code. Skip only when that section is absent or the change is genuinely doc-neutral.
+**Sync the docs.** Read `.agency/do.md` for its **`## Documentation`** section — a *principle* (discover the stale docs, don't recall a checklist), **not** a fixed file list. Updating the README + Atlas and stopping there is the exact pattern-match-a-couple-and-skip-the-rest trap it warns against. So **grep every doc surface for the term you touched** — the command, flag, type, or word — across `README.md`, every `packages/*/README.md`, **`website/`** (the kolu.dev marketing pages, e.g. `src/pages/*.astro`, which hand-list commands and carry "next up is X" prose that goes false), and `docs/atlas/`. For **each** hit, either edit it or record why it's still accurate — "I updated the README" is not a doc-sync until the changed package's README and every user-facing marketing surface were each *grepped and resolved*. The docs commit rides the same review gauntlet as the code. Skip only when the change is genuinely doc-neutral.
 
 **Add a changelog entry.** For any **user-facing** change, append one line to `website/src/content/changelog/unreleased.mdx` under the right `###` heading — `Added` / `Fixed` / `Changed` / `Heads-up` (the editorial home for disruptive changes: a removed feature, a changed default, a migration). Create the heading if a freshly-reset section doesn't have it yet. Write it as prose a *user* reads, not a commit subject — no PR link yet (the PR doesn't exist until §3; you backfill the link there). Skip only when the change has no user-visible effect (pure refactor/chore/internal). The file is `merge=union`, so a plain append (or a new heading) never conflicts.
 
@@ -81,6 +81,15 @@ new one, update that note via `/atlas` so the map stays current — measured, no
 guessed (a faithfully-reproduced negative counts too).
 
 ## 5. Ship — CI and evidence in parallel
+
+**Heavy work runs on a pu box, never locally — production kolu lives on this
+machine.** Builds, the dev server, and evidence capture all go on an ephemeral pu
+box whenever `systemctl --user is-active kolu` is `active` (the normal case). A
+prior run piled local `just dev-auto` + nix builds beside a live production kolu
+and the **OOM-killer `SIGKILL`ed production**; random ports dodged its *ports* but
+not its *RAM*. Load **`/dev-server`** §0 for the local-vs-pu venue gate before
+launching the app for *any* reason — including an interactive "let me SEE it"
+check during §2. `/ci` and `/evidence` already run on pu; keep it that way.
 
 `/ci` and `/evidence` are independent — one exercises the build/test pipeline, the
 other captures on-screen behavior — so **run them concurrently**; don't wait for

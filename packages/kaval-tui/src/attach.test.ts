@@ -26,6 +26,8 @@ import {
   type PtyTuiClient,
 } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
+import { runKill } from "./kill.ts";
+import { resolveTerminalId, shortId } from "./render.ts";
 
 const silentLog = {
   debug: () => {},
@@ -295,5 +297,52 @@ describe("runAttach — over a real unix socket", () => {
       id,
     });
     expect(text).not.toContain("kaval-tui escapes");
+  });
+});
+
+describe("runKill — over the same real unix socket", () => {
+  it("resolves a short id, kills via the real command body, confirms, and the terminal leaves the list", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kill-"));
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+
+    // Live and listable first.
+    const { entries } = await conn.client.surface.terminal.list({});
+    expect(entries.some((e) => e.id === id)).toBe(true);
+
+    // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
+    // full id before killing — the same `resolveTerminalId` step the dispatch
+    // runs via `resolveOne`. Resolve from the short form so the resolve is
+    // load-bearing, then feed THAT id into `runKill` — the SAME command body
+    // `main.ts`'s `kill` branch invokes (not the bare RPC), so this exercises the
+    // confirmation line and the kill RPC the shipped command runs.
+    const resolved = resolveTerminalId(
+      shortId(id),
+      entries.map((e) => e.id),
+    );
+    expect(resolved).toEqual({ kind: "found", id });
+    if (resolved.kind !== "found") throw new Error("unreachable");
+
+    // Drive the real command body; capture its stderr confirmation through the
+    // injected sink instead of the process's stderr.
+    let confirmed = "";
+    await runKill(conn, resolved.id, (line) => {
+      confirmed += line;
+    });
+    // The one-line confirmation names the short id, like `attach`'s trailers.
+    expect(confirmed).toBe(`— killed ${shortId(id)}\n`);
+
+    // And the daemon really tore the PTY down: it drops out of the inventory.
+    let gone = false;
+    await until(
+      () => gone,
+      "the killed terminal to leave the list",
+      async () => {
+        gone = !(await conn.client.surface.terminal.list({})).entries.some(
+          (e) => e.id === id,
+        );
+      },
+    );
   });
 });
