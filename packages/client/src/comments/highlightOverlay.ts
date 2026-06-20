@@ -11,6 +11,7 @@
 
 import {
   applyHighlights,
+  COMMENT_HIGHLIGHT_NAME_PREFIX,
   COMMENT_HIGHLIGHT_STYLE_THEMED,
   findQuote,
   type QuoteRoot,
@@ -67,7 +68,7 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
   // just don't lay out, and the browser repaints them when it's shown again —
   // no re-apply on toggle needed.
   highlightSeq += 1;
-  const name = `kolu-comment-${highlightSeq}`;
+  const name = `${COMMENT_HIGHLIGHT_NAME_PREFIX}-${highlightSeq}`;
   const styleEl = document.createElement("style");
   styleEl.textContent = `::highlight(${name}) { ${COMMENT_HIGHLIGHT_STYLE_THEMED} }`;
   document.head.appendChild(styleEl);

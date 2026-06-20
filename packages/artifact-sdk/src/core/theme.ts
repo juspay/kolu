@@ -30,3 +30,12 @@ export const COMMENT_HIGHLIGHT_STYLE = `background-color: ${COMMENT_HIGHLIGHT_BA
  *  `packages/client/src/index.css`. */
 export const COMMENT_HIGHLIGHT_STYLE_THEMED =
   "background-color: color-mix(in srgb, var(--color-warning) 36%, transparent); text-decoration-line: underline; text-decoration-color: color-mix(in srgb, var(--color-busy) 85%, transparent); text-decoration-thickness: 1px;";
+
+/** Prefix for each parent-side overlay's per-instance CSS Custom Highlight
+ *  name (`useHighlightOverlay` appends a unique suffix). The one source of
+ *  truth for the naming convention: the overlay mints names with it, and the
+ *  e2e step that sums "my" highlight ranges matches on it (see the in-sync
+ *  comment in `packages/tests/step_definitions/code_tab_steps.ts`). The
+ *  iframe SDK uses its own fixed `HIGHLIGHT_NAME` instead (opaque-origin
+ *  document, separate registry). */
+export const COMMENT_HIGHLIGHT_NAME_PREFIX = "kolu-comment";

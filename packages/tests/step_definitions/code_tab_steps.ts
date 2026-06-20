@@ -1860,6 +1860,11 @@ Then(
 // doesn't silently vanish. Polled because Shiki warms a frame or two after the
 // preview mounts. (String-eval'd so the loose HighlightRegistry type doesn't
 // need a DOM-lib import here.)
+// keep in sync with COMMENT_HIGHLIGHT_NAME_PREFIX in
+// packages/artifact-sdk/src/core/theme.ts — the overlay mints its per-instance
+// names with this prefix. (This step string-eval's its check in the page, so it
+// can't import the client constant directly; this is the one named site.)
+const HIGHLIGHT_PREFIX = "kolu-comment";
 Then(
   "the comment highlight should be present",
   async function (this: KoluWorld) {
@@ -1872,7 +1877,7 @@ Then(
               if (!reg) return 0;
               let total = 0;
               for (const e of reg) {
-                if (String(e[0]).startsWith('kolu-comment')) total += e[1].size;
+                if (String(e[0]).startsWith(${JSON.stringify(HIGHLIGHT_PREFIX)})) total += e[1].size;
               }
               return total;
             })()`,

@@ -19,7 +19,10 @@ export {
   type QuoteMatch,
   rangeFromOffsets,
 } from "../core/findQuote";
-export { COMMENT_HIGHLIGHT_STYLE_THEMED } from "../core/theme";
+export {
+  COMMENT_HIGHLIGHT_NAME_PREFIX,
+  COMMENT_HIGHLIGHT_STYLE_THEMED,
+} from "../core/theme";
 export type {
   IframeToParent,
   Locator,
