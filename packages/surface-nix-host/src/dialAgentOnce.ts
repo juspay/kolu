@@ -165,8 +165,8 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     extraArgs: opts.extraArgs,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
   });
-  // Capture the agent's OWN fatal reason as the session streams it. When the
-  // agent exits before serving — a bad `--kaval` pick, a startup crash — the
+  // The agent's OWN fatal reason, read off the session AFTER a failed dial. When
+  // the agent exits before serving — a bad `--kaval` pick, a startup crash — the
   // `probe` below rejects with the transport's opaque "stream closed" error, but
   // the agent's last stderr (on the session's `remoteProgressLines`) is the real
   // reason. The agent writes its fatal as `<fatalPrefix> <message>` to its own
@@ -178,16 +178,16 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // agent's own `<fatalPrefix>` fatal shape (caller-supplied — it is NOT always
   // `${drvNoun}:`; kaval's `--stdio` front writes `kaval --stdio:`).
   //
-  // The fatal is the LAST thing the agent writes, so it captures the whole tail
-  // FROM the last prefixed line THROUGH the end — not just that one line. arivu's
-  // ambiguity error is multi-line (the "more than one kaval" header plus each
-  // `--kaval <socket>` candidate the user needs to recover): `forEachLine` splits
-  // it into separate `remoteProgressLines` entries where only the first carries
-  // the prefix, so matching a single prefixed line would drop the candidates. The
-  // prefix is only ever written on a fatal, so its presence IS the failure
-  // reason. Capturing it the instant it streams avoids depending on the
-  // child-`exit` event having landed `failureCause` yet, which races the probe's
-  // stream-closed rejection.
+  // The fatal is the LAST thing the agent writes, so it is the TAIL of
+  // `remoteProgressLines` (never evicted by the `MAX_PROGRESS_LINES` cap, which
+  // drops the oldest) — captured FROM the last prefixed line THROUGH the end, not
+  // just that one line. arivu's ambiguity error is multi-line (the "more than one
+  // kaval" header plus each `--kaval <socket>` candidate the user needs to
+  // recover): `forEachLine` splits it into separate `remoteProgressLines` entries
+  // where only the first carries the prefix, so matching a single prefixed line
+  // would drop the candidates. We read the WHOLE current tail once, on the catch
+  // path — no `onState` accumulator (a cached partial block could otherwise
+  // short-circuit a later full read under stderr fragmentation).
   const agentFatal = (remoteLines: readonly string[]): string | undefined => {
     const prefix = opts.fatalPrefix;
     // Walk back to the last line that opens the fatal block.
@@ -207,10 +207,6 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     ].join("\n");
     return block.trim() || undefined;
   };
-  let agentReason: string | undefined;
-  const offState = session.onState((s) => {
-    agentReason = agentFatal(s.remoteProgressLines) ?? agentReason;
-  });
   // Until a `Connection` (whose `dispose` owns teardown) is handed back, a
   // failure anywhere in pin/probe must destroy the session itself — otherwise
   // its ref-counted reconnect loop/watchdog timer leaks for any caller that
@@ -227,19 +223,16 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // any real command.
     await opts.probe(client);
     session.markConnected();
-    offState();
     return {
       client,
       dispose: () => session.destroy(),
     };
   } catch (err) {
     // The probe's stream-closed rejection can win the race with the child's
-    // `exit` event, so yield once to let that handler land the agent's reason on
-    // the session state before we read it.
+    // `exit` event, so yield once to let that handler land the agent's stderr on
+    // the session state before we read the whole current tail.
     await new Promise((resolve) => setImmediate(resolve));
-    offState();
-    const reason =
-      agentReason ?? agentFatal(session.current().remoteProgressLines);
+    const reason = agentFatal(session.current().remoteProgressLines);
     // Best-effort teardown — a throw from `destroy()` (it kills the ssh child
     // and clears timers) must NOT replace the failure the caller needs to see.
     try {
