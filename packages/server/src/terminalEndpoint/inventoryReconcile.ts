@@ -34,7 +34,11 @@ import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import { adoptLocalOrphan, bridgeStream } from "./local.ts";
+import {
+  adoptLocalInventoryOrphan,
+  bridgeStream,
+  reapUnrepresentablePty,
+} from "./local.ts";
 
 /** Delay before re-subscribing after the inventory stream ends (daemon recycle
  *  / reconnect). Long enough not to hot-loop while the daemon is down — its
@@ -97,7 +101,8 @@ export interface InventoryAdoption {
  *  the daemon. This is the boundary the contract doc names: a raw inventory id is
  *  validated against `TerminalIdSchema` here, so `isTracked` / `adoptLocalOrphan`
  *  downstream receive an already-branded `TerminalId` rather than re-casting a
- *  raw string. A malformed out-of-band id is dropped (logged), never adopted.
+ *  raw string. A malformed (non-UUID) out-of-band id is routed to `onInvalid`
+ *  (which fails closed — kills the unrepresentable PTY — F1), never adopted.
  *  `snapshot`/`created` adopt the UNKNOWN entries; a tracked id is kolu's own
  *  spawn echoing back (or one already adopted), so it is skipped — no
  *  double-register, no double-wire. `exited` is never an adoption (empty): every
@@ -126,8 +131,9 @@ export function inventoryAdoptions(
 }
 
 /** Validate each entry's wire id against `TerminalIdSchema` (the inventory
- *  boundary the contract doc assigns to kolu-server), drop the unparseable ones,
- *  and keep the untracked rest paired with their branded id. */
+ *  boundary the contract doc assigns to kolu-server), route the unparseable ones
+ *  to `onInvalid` (which fails closed — F1), and keep the untracked rest paired
+ *  with their branded id. */
 function adoptableEntries(
   entries: PtyHostListEntry[],
   isTracked: (id: TerminalId) => boolean,
@@ -154,44 +160,70 @@ function assertNever(x: never): never {
   throw new Error(`unexpected inventory event: ${JSON.stringify(x)}`);
 }
 
-/** Apply one inventory frame: adopt every untracked PTY it contributes. The
- *  per-event fence (a single failed adoption must not end the subscription and
- *  silence discovery for every later PTY) lives in `bridgeStream`, the same
- *  receptacle the per-terminal taps plug into — not re-derived here. */
+/** Apply one inventory frame against the LIVE wiring: adopt every untracked PTY
+ *  it contributes through the persisting `adoptLocalInventoryOrphan`. The actual
+ *  routing is `dispatchInventoryFrame` (pure in its dependencies, so the
+ *  "every adoption persists" guarantee is unit-testable with a spy and no
+ *  daemon); this binds it to the registry + adoption + drop wiring. The per-event
+ *  fence (a single failed adoption must not end the subscription and silence
+ *  discovery for every later PTY) lives in `bridgeStream`, the same receptacle
+ *  the per-terminal taps plug into — not re-derived here. */
 function applyEvent(ev: PtyHostInventoryEvent): void {
-  for (const { id, entry } of inventoryAdoptions(
+  dispatchInventoryFrame(
     ev,
     isTrackedById,
     onInvalidId,
-  )) {
+    adoptLocalInventoryOrphan,
+  );
+}
+
+/** Route one inventory frame to its adoptions — pure in its dependencies (the
+ *  registry lookup, the drop policy, and the adoption fn are all injected), so a
+ *  test can assert the routing deterministically: every `created`/`snapshot`
+ *  untracked entry reaches `adopt` exactly once, malformed ids reach `onInvalid`,
+ *  and `exited` adopts nothing. The production `adopt` is
+ *  `adoptLocalInventoryOrphan` — which adopts AND arms the session autosave (F2):
+ *  unlike the boot path (which converges + `saveSession`s explicitly after
+ *  adopting every survivor), a single tile appearing mid-session has no explicit
+ *  save, so the adopt fn must schedule the debounced snapshot itself. This is the
+ *  seam that pins it: a regression that swapped back to the non-persisting
+ *  `adoptLocalOrphan` would still call `adopt`, so the autosave-arming is asserted
+ *  on `adoptLocalInventoryOrphan` directly in `local.ts`'s tests; here we pin that
+ *  exactly the untracked entries are dispatched.
+ *
+ *  A live out-of-band adoption deliberately does NOT call `setAdoptedCount` (the
+ *  boot path does — reattach.ts): the "N reattached" toast is a one-shot RESTART
+ *  summary keyed on the once-per-process `adoptedAt` stamp (daemonStatus.ts:78-82,
+ *  deduped client-side at useDaemonStatus.ts:222-256). A single PTY found live
+ *  mid-session is an ordinary tile appearing, not a restart event — firing the
+ *  count per live adoption would break that identity. It is the rule, not an
+ *  unstated convention. */
+export function dispatchInventoryFrame(
+  ev: PtyHostInventoryEvent,
+  isTracked: (id: TerminalId) => boolean,
+  onInvalid: (rawId: string) => void,
+  adopt: (id: TerminalId, entry: PtyHostListEntry) => void,
+): void {
+  for (const { id, entry } of inventoryAdoptions(ev, isTracked, onInvalid)) {
     log.info(
       { terminal: id, pid: entry.pid },
       "adopting out-of-band PTY from kaval inventory",
     );
-    // A live out-of-band adoption deliberately does NOT call `setAdoptedCount`
-    // (the boot path does — reattach.ts:84-85). The "N reattached" confirmation
-    // is a one-shot RESTART summary the boot path owns: it stamps `adoptedAt`
-    // once per server process (daemonStatus.ts:78-82) and the client dedupes the
-    // toast on that timestamp (useDaemonStatus.ts:222-256). A single PTY found
-    // live mid-session is an ordinary tile appearing, not a restart event, so it
-    // materializes WITHOUT the reattach card by design — and firing the count
-    // per live adoption would break the once-per-process `adoptedAt` identity the
-    // toast dedupe depends on. Not an unstated convention: it's the rule.
-    adoptLocalOrphan(id, entry);
+    adopt(id, entry);
   }
 }
 
 const isTrackedById = (id: TerminalId): boolean =>
   getTerminal(id) !== undefined;
 
-/** A malformed out-of-band id never reaches the registry or `adoptLocalOrphan`:
- *  the inventory boundary drops it (logged) rather than branding an unvalidated
- *  string, honouring the contract doc's "consumer validates at its boundary". */
-const onInvalidId = (rawId: string): void =>
-  log.warn(
-    { rawId },
-    "kaval inventory id failed TerminalIdSchema — dropping frame entry",
-  );
+/** A malformed (non-UUID) out-of-band id never reaches the registry or
+ *  `adoptLocalOrphan`: the inventory boundary validates against `TerminalIdSchema`
+ *  rather than branding an unvalidated string (the contract doc's "consumer
+ *  validates at its boundary"). But it does NOT merely log-and-drop (F1) — a
+ *  dropped id is a live PTY kolu can neither show nor kill, a hidden process. So
+ *  it FAILS CLOSED through the shared policy: kill the unrepresentable PTY, the
+ *  same kolu's-domain-cannot-hold-this answer the boot reconcile gives. */
+const onInvalidId = (rawId: string): void => reapUnrepresentablePty(rawId);
 
 /** Resolve after `ms`, or early if `signal` aborts — so a shutdown during the
  *  re-subscribe gap ends the loop promptly instead of after the full delay. */

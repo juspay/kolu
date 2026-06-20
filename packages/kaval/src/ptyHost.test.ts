@@ -444,16 +444,20 @@ describe("createPtyHost", () => {
 
   it("announces a teardown on the inventory feed as `exited`", async () => {
     host = createPtyHost({ log: silentLog });
+    // Subscribe BEFORE spawning so neither delta can race the subscription:
+    // a `/bin/sh -c 'exit 0'` would otherwise be free to exit (and publish its
+    // `exited` to an empty channel — dropped, no replay) before a post-spawn
+    // subscribe registers. Spawn a long-lived shell, consume its `created`,
+    // then KILL it to make the `exited` deterministic.
+    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
     const { id } = host.spawn({
       shell: "/bin/sh",
-      args: ["-c", "exit 0"],
+      args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Subscribe after the spawn but before exit — the `created` for this PTY was
-    // published before we subscribed (dropped on the floor, no subscriber yet),
-    // so the first event this subscriber sees is the `exited`.
-    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
+    expect(await nextFrame(inv, 3000)).toMatchObject({ kind: "created" });
+    host.kill(id);
     await host.exitPromise(id);
     expect(await nextFrame(inv, 3000)).toEqual({ kind: "exited", id });
   });

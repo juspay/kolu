@@ -1,7 +1,10 @@
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import type { TerminalId } from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
-import { inventoryAdoptions } from "./inventoryReconcile.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  dispatchInventoryFrame,
+  inventoryAdoptions,
+} from "./inventoryReconcile.ts";
 
 // Ids are validated against `TerminalIdSchema` (z.string().uuid()) at the
 // inventory boundary, so the fixtures must be real RFC-4122 UUIDs (zod 4 checks
@@ -61,10 +64,13 @@ describe("inventoryAdoptions — what a live inventory frame tells kolu to adopt
     expect(inventoryAdoptions(ev, tracked(GONE), noInvalid)).toEqual([]);
   });
 
-  it("drops a frame entry whose id fails TerminalIdSchema — never adopted", () => {
-    // A malformed out-of-band id is reported to `onInvalid` and excluded from the
-    // adoptions, so it never reaches `adoptLocalOrphan` as a branded id. A
-    // non-UUID string is not a valid TerminalId.
+  it("routes a frame entry whose id fails TerminalIdSchema to onInvalid — never adopted (F1)", () => {
+    // A malformed (non-UUID) out-of-band id is reported to `onInvalid` and
+    // excluded from the adoptions, so it never reaches `adoptLocalInventoryOrphan`
+    // as a branded id. The production `onInvalid` FAILS CLOSED — it kills the
+    // unrepresentable PTY (`reapUnrepresentablePty`) rather than leaving a live
+    // process kolu can neither show nor kill — but at this pure boundary the
+    // contract is just "invalid id → onInvalid, excluded from adoptions."
     const ev: PtyHostInventoryEvent = {
       kind: "snapshot",
       entries: [entry("not-a-uuid"), entry(A)],
@@ -75,5 +81,61 @@ describe("inventoryAdoptions — what a live inventory frame tells kolu to adopt
     );
     expect(adoptions.map((a) => a.id)).toEqual([A]);
     expect(invalid).toEqual(["not-a-uuid"]);
+  });
+});
+
+describe("dispatchInventoryFrame — every adopted PTY reaches the adopt fn once (F2)", () => {
+  it("dispatches each untracked `created` entry to adopt (the persisting path)", () => {
+    // The production adopt fn is `adoptLocalInventoryOrphan`, which adopts AND
+    // arms the session autosave (F2 — a mid-session tile has no explicit boot
+    // save). This pins the routing so a regression that adopted without
+    // persisting (the silent-drop-from-saved-session bug) would still have to go
+    // through `adopt` — here a spy — for every untracked entry.
+    const adopt = vi.fn();
+    const onInvalid = vi.fn();
+    dispatchInventoryFrame(
+      { kind: "created", entry: entry(X) },
+      tracked(),
+      onInvalid,
+      adopt,
+    );
+    expect(adopt).toHaveBeenCalledTimes(1);
+    expect(adopt).toHaveBeenCalledWith(X, expect.objectContaining({ id: X }));
+    expect(onInvalid).not.toHaveBeenCalled();
+  });
+
+  it("dispatches only the UNTRACKED entries of a snapshot (skips kolu's own)", () => {
+    const adopt = vi.fn();
+    dispatchInventoryFrame(
+      { kind: "snapshot", entries: [entry(A), entry(B), entry(C)] },
+      tracked(A), // `A` is kolu's own spawn echoing back
+      vi.fn(),
+      adopt,
+    );
+    expect(adopt.mock.calls.map((c) => c[0])).toEqual([B, C]);
+  });
+
+  it("does not adopt on `exited` — the per-id exit tap is the authority", () => {
+    const adopt = vi.fn();
+    dispatchInventoryFrame(
+      { kind: "exited", id: GONE },
+      tracked(GONE),
+      vi.fn(),
+      adopt,
+    );
+    expect(adopt).not.toHaveBeenCalled();
+  });
+
+  it("routes a malformed id to onInvalid, never to adopt (F1)", () => {
+    const adopt = vi.fn();
+    const onInvalid = vi.fn();
+    dispatchInventoryFrame(
+      { kind: "snapshot", entries: [entry("not-a-uuid"), entry(A)] },
+      tracked(),
+      onInvalid,
+      adopt,
+    );
+    expect(onInvalid).toHaveBeenCalledWith("not-a-uuid");
+    expect(adopt.mock.calls.map((c) => c[0])).toEqual([A]);
   });
 });

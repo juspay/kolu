@@ -787,3 +787,50 @@ export function adoptLocalOrphan(
 ): void {
   localEndpointImpl.adoptTerminal(id, orphanMeta(liveEntry), liveEntry);
 }
+
+/** Adopt a PTY discovered LIVE on the inventory feed (B3.5) — a `kaval-tui create`
+ *  against the daemon kolu is already a client of. Same orphan adoption as
+ *  `adoptLocalOrphan`, but it ALSO arms the session autosave (F2): the boot path
+ *  converges + persists the session EXPLICITLY after adopting all survivors, so
+ *  `adoptTerminal` is deliberately silent there — but a single tile appearing
+ *  mid-session has no such explicit save, so without arming the autosave the
+ *  out-of-band terminal would render yet never enter the saved session until some
+ *  LATER dirtying event (a metadata change, an exit) happened to fire. A
+ *  kolu-server restart in that window would lose it. Emitting `terminalsDirty`
+ *  here schedules the same debounced `saveSession(snapshot())` a fresh spawn does,
+ *  so the adopted tile is persisted on the next 500ms tick. */
+export function adoptLocalInventoryOrphan(
+  id: TerminalId,
+  liveEntry: PtyHostListEntry,
+): void {
+  localEndpointImpl.adoptTerminal(id, orphanMeta(liveEntry), liveEntry);
+  emitTerminalsDirty();
+}
+
+/** Fail CLOSED on a live PTY whose wire id kolu cannot represent (F1) — a
+ *  non-UUID id (kolu's registry is keyed on `TerminalId` = `z.string().uuid()`).
+ *  Every real client mints a UUID (`crypto.randomUUID()`: kolu-server, kaval-tui),
+ *  so this is an anomaly outside kolu's domain rather than valid state to keep:
+ *  it cannot be registered (no tile, no exit tap, no way to surface or kill it
+ *  through kolu), and leaving it alive is a hidden live process — the same
+ *  fail-open the boot recycle guards against. So KILL it rather than log-and-drop;
+ *  the contract's `kill` RPC takes the opaque wire string. A kill failure is
+ *  logged, not thrown — there is nothing else kolu can do, and a throw here would
+ *  end the inventory subscription / abort the boot adoption for every later PTY.
+ *  Shared by the boot reconcile (`reattach.ts`) and the live inventory boundary
+ *  (`inventoryReconcile.ts`) so the "unrepresentable id" policy lives in one
+ *  place. */
+export function reapUnrepresentablePty(rawId: string): void {
+  log.warn(
+    { rawId },
+    "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
+  );
+  void ptyHostClient.surface.terminal
+    .kill({ id: rawId })
+    .catch((err) =>
+      log.error(
+        { err, rawId },
+        "kill of unrepresentable PTY failed; it remains live on the daemon",
+      ),
+    );
+}

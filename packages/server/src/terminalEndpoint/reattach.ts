@@ -10,12 +10,16 @@
  *      saved session. A failure to list is a FAILED adoption, not a quiet skip
  *      (F3): it throws, and the boot recycles the daemon so it never leaves a
  *      connected survivor holding PTYs kolu has no registry entry for.
- *   2. **Adopt every live PTY**, both kinds (never reap — F1):
+ *   2. **Adopt every representable live PTY**, both kinds (never reap a
+ *      survivor just because the debounced autosave lagged the daemon — F1):
  *        - survivors WITH a saved record → whole-record (`adoptLocalTerminal`),
  *          live `cwd`/`foreground` from the daemon snapshot (F2);
  *        - survivors with NO saved record (a create that never reached the
  *          debounced autosave) → live-snapshot defaults (`adoptLocalOrphan`).
- *      Either way the provider DAG re-runs against the surviving taps.
+ *      Either way the provider DAG re-runs against the surviving taps. The ONE
+ *      survivor kolu does NOT adopt is one whose wire id is not a UUID — kolu's
+ *      registry cannot represent it, so it is killed (`reapUnrepresentablePty`)
+ *      rather than left running hidden; fail-closed, not fail-open.
  *   3. **Converge** the saved session to exactly the adopted set: exited shells
  *      (saved but no longer live) drop out so no stale restore card lingers, and
  *      the active marker is preserved iff its terminal survived. An all-exited
@@ -37,7 +41,11 @@ import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
-import { adoptLocalOrphan, adoptLocalTerminal } from "./local.ts";
+import {
+  adoptLocalOrphan,
+  adoptLocalTerminal,
+  reapUnrepresentablePty,
+} from "./local.ts";
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
  *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
@@ -69,15 +77,21 @@ export async function adoptSurvivingSession(): Promise<void> {
   // Validate each orphan's wire id against `TerminalIdSchema` at this boundary
   // (the contract doc assigns id validation to kolu-server — ptyHostSurface.ts:36)
   // so `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw
-  // string. A malformed id is dropped (logged), never adopted.
+  // string. A malformed (non-UUID) id is FAIL-CLOSED — the live PTY is killed
+  // (`reapUnrepresentablePty`), never left running hidden (F1).
   let orphansAdopted = 0;
   for (const orphan of adoptOrphans) {
     const parsed = TerminalIdSchema.safeParse(orphan.id);
     if (!parsed.success) {
-      log.warn(
-        { rawId: orphan.id },
-        "surviving orphan id failed TerminalIdSchema — dropping",
-      );
+      // Fail CLOSED on an id kolu cannot represent (F1): every real client
+      // mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike),
+      // so a non-UUID PTY is an anomaly outside kolu's domain. We cannot register
+      // it (the registry is keyed on `TerminalId`), and leaving it alive would be
+      // a hidden live process behind a stale restore card — exactly the fail-open
+      // the boot recycle (index.ts) guards against. So KILL it rather than drop
+      // and forget: kolu's domain genuinely cannot hold it, and the contract's
+      // kill RPC takes the opaque wire string.
+      reapUnrepresentablePty(orphan.id);
       continue;
     }
     adoptLocalOrphan(parsed.data, orphan);
