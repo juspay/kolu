@@ -17,6 +17,7 @@
 
 import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import { getClockNow } from "../time/clock";
 import { compactDelta } from "../time/duration";
 import {
   activityWindowThresholdMs,
@@ -89,8 +90,8 @@ export function useIdleClassifier(): (
 
 /** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
  *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
- *  ladder. The 60s tick that drives the live "Running for" readout means
- *  sub-minute precision wouldn't refresh anyway. */
+ *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
+ *  tier counts up; the coarser tiers change at most once a minute. */
 export function formatDuration(ms: number): string {
   const { value, unit } = compactDelta(ms);
   return `${value}${unit}`;
@@ -98,11 +99,14 @@ export function formatDuration(ms: number): string {
 
 /** Reactive elapsed-since formatter. Returns a function consumers call with a
  *  start timestamp — invoking it inside a tracking context (JSX, `createMemo`)
- *  subscribes to the shared 60s tick, so a "Running for" readout advances on
- *  its own. Mirrors `useStaleCheck`'s shape and reuses the one app-wide
- *  ticker. */
+ *  subscribes to the shared **1s** clock, so a "Running for" readout counts up
+ *  live (`1s → 2s → …`) through its sub-minute window. The 1s cadence (not
+ *  staleness's 60s `getNowTicker`) is what `formatDuration`'s seconds tier
+ *  needs; past a minute the per-second recompute yields the same string, a
+ *  no-op SolidJS skips, and the clock is the one the chrome-bar uptime already
+ *  runs — no new timer. */
 export function useDuration(): (startedAtMs: number) => string {
-  const tick = getNowTicker();
+  const tick = getClockNow();
   return (startedAtMs) => formatDuration(tick() - startedAtMs);
 }
 
