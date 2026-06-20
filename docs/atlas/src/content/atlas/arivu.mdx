@@ -179,7 +179,7 @@ P2 made **one** remote host's awareness reachable. P3's end state is the user's 
 
 ### Re-plan: two PRs + learnings (after #1453, closed)
 
-The first run at P3a ([#1453](https://github.com/juspay/kolu/pull/1453), **closed**) crammed the *whole* live dashboard into the foundation slice and then burned days on a bug that mostly wasn't there. It is re-cut into two clean PRs — **PR1 = P3a (foundation)**, **PR2 = P3b (fleet)** — carrying the hard-won learnings so they aren't re-discovered.
+The first run at P3a ([#1453](https://github.com/juspay/kolu/pull/1453), **closed**) crammed the *whole* live dashboard into the foundation slice and then burned days on a bug that mostly wasn't there. It is re-cut into two clean PRs — **PR1 = Bun only** (the runtime swap, behaviour-preserving), **PR2 = the rest** (OpenTUI + the live dashboard) — carrying the hard-won learnings so they aren't re-discovered.
 
 <Callout kind="warn" title="Learnings from #1453 — do not repeat">
 
@@ -191,9 +191,9 @@ The first run at P3a ([#1453](https://github.com/juspay/kolu/pull/1453), **close
 
 </Callout>
 
-**PR1 — Bun + OpenTUI foundation** *(this branch, `feat/arivu-tui-foundation`)*. The toolchain, proven **minimal**: the Nix `arivu-tui` wrapper runs the Bun bundle (`build.ts`, outdir cleaned), `bunfig.toml` + the `@opentui/solid` preload for dev, `solid-js` pinned, and a **genuinely-live** single-host OpenTUI view — one row per terminal plus a 1-second clock as the live-proof, **verified live by raw PTY**. Recreate the **bun-vs-nodejs** decision note (why Bun is required for OpenTUI's Solid reactivity) and apply the daemon-quiet `--stdio` fix. *Salvage from the closed branch `feat/arivu-tui-bun-opentui`:* `render.ts` (the pure `dashRow` / field projection + tone), the data layer (`connect.ts` · `read.ts` · `hostConnect.ts` · `snapshotAwareness`), `bin.ts`'s output-mode dispatch, and the deps + lockfile edges. *Drop:* the hack-laden `tui.tsx`, the fps / `requestRender` / stderr-capture / external-timer code, and the one-shot-vs-live hang saga.
+**PR1 — Bun only** *(this branch, `feat/arivu-tui-foundation`)*. The pure runtime swap and **nothing else**: point the Nix `arivu-tui` wrapper at **Bun** instead of `tsx` / `node --import`, and run the **existing** `list` / `watch` (today's `columnify` text output) unchanged under Bun — behaviour-preserving, **no OpenTUI, no Solid, no new deps**. The smallest reviewable step; it establishes Bun as arivu-tui's runtime and proves nothing controversial. *Proof bar:* `arivu-tui list` / `watch` (local *and* `--host`) emit the same output they do today, now under Bun.
 
-**PR2 — the fleet dashboard** *(= P3b)*. On the proven foundation: the full compact live table (columns, recency, **every `awaiting_user` agent floated to the top**), live refresh, and the multi-host fan-out (`--host` × N, host-keyed aggregate) — SolidJS-canonical throughout. The single-host rich table is just the degenerate (one-host) case of the same board.
+**PR2 — the rest (OpenTUI + the live dashboard)**. On the Bun runtime: add `@opentui/*` + `solid-js`, the `bunfig.toml` preload + the `build.ts` bundle (**outdir cleaned**), the **bun-vs-nodejs** decision note, and the daemon-quiet `--stdio` fix — then replace the text output with the **SolidJS-canonical live dashboard**: the compact table (columns, recency, **every `awaiting_user` agent floated to the top**), live refresh, `--host`, and the multi-host fleet board (P3a's render swap + P3b's fan-out, landed together once Bun is proven on its own). **Verified live by raw PTY.** *Salvage from the closed branch `feat/arivu-tui-bun-opentui`:* `render.ts`'s `dashRow` projection + tones, the data-read helpers (`snapshotAwareness` et al.), `bin.ts`'s output-mode dispatch. *Drop:* the hack-laden `tui.tsx` and the fps / `requestRender` / stderr-capture / external-timer code.
 
 ### P3a — Bun + OpenTUI, scoped to the viewer alone
 
