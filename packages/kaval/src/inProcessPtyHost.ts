@@ -36,12 +36,29 @@ import { implement, ORPCError, type Router } from "@orpc/server";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
 import type { Logger } from "@kolu/surface-daemon";
-import { createPtyHost, type PtyId } from "./ptyHost.ts";
+import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostListEntry,
   ptyHostSurface,
 } from "./ptyHostSurface.ts";
+
+/** Map a host {@link PtyListEntry} to the wire {@link PtyHostListEntry} — the one
+ *  place the two shapes are bridged, annotated to the inferred wire type so a
+ *  host/schema drift is a compile error here, not a silent zod field-strip
+ *  (adding a field to `TerminalListEntrySchema` without populating it, or
+ *  dropping one from `PtyListEntry`, fails to type-check). Both `list` and the
+ *  `inventory` snapshot/created frames funnel through it. */
+function toWireEntry(e: PtyListEntry): PtyHostListEntry {
+  return {
+    id: e.id,
+    pid: e.pid,
+    cwd: e.cwd,
+    lastActivity: e.lastActivity,
+    title: e.title,
+    foregroundProcess: e.foregroundProcess,
+  };
+}
 
 /** The typed client for talking to a pty-host. In-process today (this module);
  *  the identical type backs a socket-served daemon later — so the consumer is
@@ -178,6 +195,27 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
         },
       },
+      // Host-global membership feed — a snapshot of every live PTY first
+      // (snapshot-then-deltas, streaming.md §2), then created/exited deltas as
+      // other clients spawn or end PTYs. SUBSCRIBE before the snapshot (the
+      // Channel's eager-subscribe): a spawn racing the pair is then delivered as
+      // a delta rather than dropped. A create caught in BOTH the snapshot and a
+      // delta is harmless — the consumer's adoption is idempotent (its registry
+      // guard). Takes no id, so it is deliberately not `requirePty`-guarded.
+      inventory: {
+        source: async function* (_input, signal) {
+          const deltas = host.subscribeInventory(signal);
+          yield {
+            kind: "snapshot" as const,
+            entries: host.list().map(toWireEntry),
+          };
+          for await (const ev of deltas) {
+            yield ev.kind === "created"
+              ? { kind: "created" as const, entry: toWireEntry(ev.entry) }
+              : ev; // exited — { kind, id } is already the wire shape
+          }
+        },
+      },
     },
     procedures: {
       terminal: {
@@ -242,22 +280,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           host.resize(input.id, input.cols, input.rows);
           return { ok: true };
         },
-        // Map each host entry into the wire shape explicitly (annotated to the
-        // inferred type) so a host/schema drift is a compile error here rather
-        // than a silent zod field-strip: adding a field to TerminalListEntrySchema
-        // without populating it, or dropping one from PtyListEntry, fails to type-check.
-        list: async () => ({
-          entries: host.list().map(
-            (e): PtyHostListEntry => ({
-              id: e.id,
-              pid: e.pid,
-              cwd: e.cwd,
-              lastActivity: e.lastActivity,
-              title: e.title,
-              foregroundProcess: e.foregroundProcess,
-            }),
-          ),
-        }),
+        // Each host entry mapped into the wire shape via `toWireEntry` — the
+        // shared bridge (see its doc) that makes a host/schema drift a compile
+        // error rather than a silent zod field-strip. The `inventory` stream's
+        // snapshot/created frames go through the same map.
+        list: async () => ({ entries: host.list().map(toWireEntry) }),
         getScreenState: async ({ input }) => {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so

@@ -123,6 +123,13 @@ async function firstEvent(
   ms = 3000,
 ): Promise<string> {
   const it = iter[Symbol.asyncIterator]();
+  return raceNext(it, ms);
+}
+
+/** Pull the next value from an already-opened async iterator, failing the test
+ *  on a timeout or a stream that ends before yielding. The generic sibling of
+ *  `firstEvent` for iterators of any shape (e.g. the inventory feed). */
+async function raceNext<T>(it: AsyncIterator<T>, ms = 3000): Promise<T> {
   const result = await Promise.race([
     it.next(),
     new Promise<never>((_, reject) =>
@@ -423,6 +430,59 @@ describe("createPtyHost", () => {
     expect(handle.pid).toBe(pid);
     expect(handle.cwd).toBe("/tmp");
     expect(typeof handle.process).toBe("string");
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("announces a spawn on the inventory feed as `created`", async () => {
+    host = createPtyHost({ log: silentLog });
+    // Subscribe BEFORE spawning — the eager-subscribe contract means a spawn on
+    // the very next line is captured, not raced away. This is the property a
+    // consumer (kolu-server) leans on to never miss an out-of-band create.
+    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
+    const { id, pid } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    const ev = await raceNext(inv);
+    expect(ev).toEqual({
+      kind: "created",
+      entry: expect.objectContaining({ id, pid, cwd: "/tmp" }),
+    });
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
+  it("announces a teardown on the inventory feed as `exited`", async () => {
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "exit 0"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // Subscribe after the spawn but before exit — the `created` for this PTY was
+    // published before we subscribed (dropped on the floor, no subscriber yet),
+    // so the first event this subscriber sees is the `exited`.
+    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
+    await host.exitPromise(id);
+    expect(await raceNext(inv)).toEqual({ kind: "exited", id });
+  });
+
+  it("fans the inventory feed out to multiple independent subscribers", async () => {
+    host = createPtyHost({ log: silentLog });
+    const a = host.subscribeInventory()[Symbol.asyncIterator]();
+    const b = host.subscribeInventory()[Symbol.asyncIterator]();
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    expect(await raceNext(a)).toMatchObject({ kind: "created" });
+    expect(await raceNext(b)).toMatchObject({ kind: "created" });
     host.kill(id);
     await host.exitPromise(id);
   });
