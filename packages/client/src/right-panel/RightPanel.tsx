@@ -17,13 +17,31 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { type Component, For } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onMount,
+  Show,
+  Suspense,
+} from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
-import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
+
+// The Code tab pulls a heavy main-thread chunk — the Pierre `FileTree`, the
+// `@kolu/solid-markdown` renderer (marked + DOMPurify), the diff/source view
+// wrappers, and the comment system — ~171 kB gzip that a static import would
+// weld onto the eager initial bundle for every session. Lazy-load it so that
+// weight leaves the first-paint critical path: the chunk is fetched only once
+// the Code tab is actually shown (see `codeEverShown`), and kept mounted after
+// (so #818 state preservation across tab switches is unchanged). On a closed
+// mobile drawer or a collapsed desktop panel it never loads at all.
+const CodeTab = lazy(() => import("./CodeTab"));
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -54,6 +72,26 @@ const RightPanel: Component<{
 
   const showKind = (kind: RightPanelTabKind) =>
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
+
+  // Defer the lazy CodeTab past the first synchronous render: `mounted` flips
+  // only after `onMount`, so the initial paint never renders (and so never
+  // suspends on) the lazy chunk — the terminal and chrome paint first, then the
+  // Code tab streams in. Latch: true once the Code tab has actually been shown
+  // (mounted AND panel visible AND the active tab is "code"). A one-way memo, so
+  // the chunk mounts on first view and is then kept mounted — the same
+  // lazy-keep-alive shape as FileView's toggle: the inactive tab's local state
+  // (selected file, Pierre tree expansion, scroll) survives a tab switch exactly
+  // as the eagerly-mounted form did (#818). Until then the chunk stays off the
+  // network: a closed mobile drawer or collapsed desktop panel (`!visible`)
+  // never loads it.
+  const [mounted, setMounted] = createSignal(false);
+  onMount(() => setMounted(true));
+  const codeEverShown = createMemo(
+    (was: boolean) =>
+      was ||
+      (mounted() && props.visible && rightPanel.activeTab().kind === "code"),
+    false,
+  );
 
   return (
     <div
@@ -111,10 +149,12 @@ const RightPanel: Component<{
           </button>
         </div>
       </div>
-      {/* Both tabs are always rendered; the inactive one is display:none.
-       *  Mounting both keeps each tab's local state (CodeTab's selected file,
-       *  Pierre's tree expansion, scroll position) alive across tab switches
-       *  — wrapping a single `match(...).exhaustive()` over `activeTab()`
+      {/* Both tab slots render side by side; the inactive one is display:none.
+       *  The Inspector mounts eagerly; the Code tab mounts lazily on first view
+       *  (`codeEverShown`) and is then KEPT mounted — so once opened, each tab's
+       *  local state (CodeTab's selected file, Pierre's tree expansion, scroll
+       *  position) survives a tab switch exactly as the always-mounted form did
+       *  (#818). Wrapping a single `match(...).exhaustive()` over `activeTab()`
        *  would unmount the inactive sibling and discard that state. The
        *  shape below iterates `TAB_KINDS` (already compile-exhaustive over
        *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
@@ -139,7 +179,20 @@ const RightPanel: Component<{
                     />
                   ))
                   .with("code", () => (
-                    <CodeTab terminalId={props.terminalId} meta={props.meta} />
+                    <Show when={codeEverShown()}>
+                      <Suspense
+                        fallback={
+                          <div class="flex h-full items-center justify-center text-xs text-fg-3/50">
+                            Loading…
+                          </div>
+                        }
+                      >
+                        <CodeTab
+                          terminalId={props.terminalId}
+                          meta={props.meta}
+                        />
+                      </Suspense>
+                    </Show>
                   ))
                   .exhaustive()}
               </div>
