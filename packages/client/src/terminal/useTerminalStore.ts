@@ -121,8 +121,7 @@ export const useTerminalStore = createSharedRoot(() => {
     listSub: terminalListSub,
     // The active terminal id bundled with its own metadata (a consistent pair).
     active,
-    // Meta-only view over the pair, for imperative readers that need just the
-    // cwd/agent (one derivation — no second tear-prone activeId -> meta path).
+    // Meta-only view over the pair (imperative readers needing just cwd/agent).
     activeMeta,
     // View state
     ...view,
