@@ -21,6 +21,7 @@ import type {
   SavedTerminal,
   TerminalId,
   TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common/surface";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -51,31 +52,39 @@ export {
   terminalCount,
 } from "./terminal-registry.ts";
 
+/** Strip a terminal's live fields (`pr` · `agent` · `foreground`) and add its
+ *  id — the single forward projection of "live metadata → persisted record".
+ *  The persisted fields live on `TerminalMetadata` in the exact shape
+ *  `SavedTerminal` needs, so adding a future persisted field to
+ *  `PersistedTerminalFieldsSchema` flows through this one site with no change.
+ *  The inverse (resting "nothing live" values) lives behind
+ *  `sleepingDockRow.ts`'s `RESTING_LIVE_FIELDS`. */
+function toSavedTerminal(
+  id: TerminalId,
+  meta: TerminalMetadata,
+): SavedTerminal {
+  const {
+    pr: _pr,
+    agent: _agent,
+    foreground: _foreground,
+    ...persisted
+  } = meta;
+  return { id, ...persisted };
+}
+
 /** Build a session snapshot from current terminal state.
  *
- *  The persisted fields live on `TerminalMetadata` in the exact shape
- *  `SavedTerminal` needs — so a snapshot is "strip the live fields,
- *  add id". Adding a future persisted field to
- *  `PersistedTerminalFieldsSchema` flows through here with no change.
  *  Order is `Map` insertion order — terminals appear in the sequence
  *  they were created. */
 export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()].map(
-    ([id, entry]): SavedTerminal => {
-      const {
-        pr: _pr,
-        agent: _agent,
-        foreground: _foreground,
-        ...persisted
-      } = entry.meta;
-      return { id, ...persisted };
-    },
+  const snappedTerminals = [...terminalEntries()].map(([id, entry]) =>
+    toSavedTerminal(id, entry.meta),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
 /** Snapshot ONE terminal and its split sub-terminals as `SavedTerminal[]`,
- *  reusing the exact strip-live-fields-add-id projection of `snapshotSession`.
+ *  reusing the exact `toSavedTerminal` projection of `snapshotSession`.
  *  Parent first, then its `parentId`-children — so a wake replays
  *  parent-before-child. Empty when `id` isn't a live terminal. This is the
  *  single capture op behind `terminal.sleep`. */
@@ -86,15 +95,7 @@ export function snapshotTerminal(id: TerminalId): SavedTerminal[] {
   // Parent first, then its splits (parentId === id; a parent never has
   // parentId === its own id, so no duplication).
   const tree = [parent, ...entries.filter(([, e]) => e.meta.parentId === id)];
-  return tree.map(([tid, entry]): SavedTerminal => {
-    const {
-      pr: _pr,
-      agent: _agent,
-      foreground: _foreground,
-      ...persisted
-    } = entry.meta;
-    return { id: tid, ...persisted };
-  });
+  return tree.map(([tid, entry]) => toSavedTerminal(tid, entry.meta));
 }
 
 /** Create a new terminal. The endpoint owns PTY spawn, provider

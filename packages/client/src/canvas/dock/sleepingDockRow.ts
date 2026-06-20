@@ -30,6 +30,19 @@ export type DockRowData = {
   info: TerminalDisplayInfo;
 };
 
+/** The resting "nothing live" values a slept terminal's three live fields
+ *  (`pr` · `agent` · `foreground`) take — a sleeping tile has no PTY, so no
+ *  resolved PR, agent, or foreground process. `prValue({kind:"pending"})` is
+ *  null, so the PR pip renders nothing; the agent/foreground sublines stay
+ *  empty. The inverse forward strip lives behind `terminals.ts`'s
+ *  `toSavedTerminal`; this is the single home for "what nothing-live looks
+ *  like", so the live/persisted split round-trips through two named sites. */
+export const RESTING_LIVE_FIELDS = {
+  pr: { kind: "pending" as const },
+  agent: null,
+  foreground: null,
+} satisfies Pick<TerminalMetadata, "pr" | "agent" | "foreground">;
+
 export function sleepingDockRowData(
   record: SleepingTerminal,
 ): DockRowData | undefined {
@@ -38,12 +51,7 @@ export function sleepingDockRowData(
   const { id: _id, ...persisted } = top;
   const meta: TerminalMetadata = {
     ...persisted,
-    // Resting "nothing live" values — a sleeping tile has no PTY, so no resolved
-    // PR, agent, or foreground process. `prValue({kind:"pending"})` is null, so
-    // the PR pip renders nothing; the agent/foreground sublines stay empty.
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
+    ...RESTING_LIVE_FIELDS,
   };
   const tileId = record.id as TerminalId;
   const subIds = record.terminals
