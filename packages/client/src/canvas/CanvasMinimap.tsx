@@ -8,14 +8,13 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { activeArm } from "kolu-common/surface";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { agentBucket, bucketDescriptor } from "./dockModel";
+import { bucketDescriptor, metaBucket } from "./dockModel";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -329,7 +328,7 @@ const CanvasMinimap: Component<{
               const i = info();
               if (!i) return { bucket: "none" as const, parked: false };
               return {
-                bucket: agentBucket(activeArm(i.meta)?.agent),
+                bucket: metaBucket(i.meta),
                 parked: isParked(i.meta.lastActivityAt),
               };
             });

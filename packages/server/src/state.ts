@@ -132,6 +132,25 @@ if (!stateDir) {
 
 log.info({ path: stateDir }, "state directory");
 
+/** Apply a per-terminal record transform across the saved session's terminals —
+ *  the shape every terminal-touching migration step shares. No-op when no
+ *  session is saved. The `as unknown as` casts are the conf-ladder idiom for
+ *  walking a raw on-disk blob whose shape predates the current schema. */
+function mapSessionTerminals(
+  store: Conf<PersistedState>,
+  fn: (t: Record<string, unknown>) => Record<string, unknown>,
+): void {
+  const session = store.get("session");
+  if (!session) return;
+  const terminals = (
+    session.terminals as unknown as Record<string, unknown>[]
+  ).map(fn);
+  store.set("session", {
+    ...session,
+    terminals: terminals as typeof session.terminals,
+  });
+}
+
 export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
@@ -358,17 +377,8 @@ export const store = new Conf<PersistedState>({
     // (see `migrateLegacyTerminal_1_18_0`) so the restore card keeps
     // showing repo names instead of full cwd paths — the original
     // 1.18.0 release stamped `git: null` and lost that context (#714).
-    "1.18.0": (store: Conf<PersistedState>) => {
-      const session = store.get("session");
-      if (!session) return;
-      const terminals = (
-        session.terminals as unknown as Record<string, unknown>[]
-      ).map(migrateLegacyTerminal_1_18_0);
-      store.set("session", {
-        ...session,
-        terminals: terminals as typeof session.terminals,
-      });
-    },
+    "1.18.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, migrateLegacyTerminal_1_18_0),
     // recentRepos + recentAgents — two top-level keys carrying one logical
     // ActivityFeed cell — collapse into a single `activityFeed` key. The
     // framework's `cellHandlers` treats activityFeed as one atomic value;
@@ -418,16 +428,8 @@ export const store = new Conf<PersistedState>({
     // SavedTerminal.lastActivityAt added (#830). Seed legacy terminals to 0
     // so they fall back to canvas-position ordering until an agent
     // semantic-key transition stamps a real timestamp.
-    "1.21.0": (store: Conf<PersistedState>) => {
-      const session = store.get("session");
-      if (!session) return;
-      const legacy = session.terminals as unknown as Record<string, unknown>[];
-      const terminals = legacy.map((t) => ({
-        lastActivityAt: 0,
-        ...t,
-      })) as typeof session.terminals;
-      store.set("session", { ...session, terminals });
-    },
+    "1.21.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, (t) => ({ lastActivityAt: 0, ...t })),
     // SavedTerminal.intent added — optional multiline-markdown annotation.
     // No backfill: the field is optional, so absent values continue to
     // read as "unset" through the tightened Zod schema (`.min(1).optional()`).
@@ -477,17 +479,8 @@ export const store = new Conf<PersistedState>({
     // `remoteUrl`, which the now-required field rejects. Backfill null on every
     // restored terminal's `git` (see `backfillRemoteUrl`); the live git
     // watcher re-resolves the real value on first restore.
-    "1.25.0": (store: Conf<PersistedState>) => {
-      const session = store.get("session");
-      if (!session) return;
-      const terminals = (
-        session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillRemoteUrl);
-      store.set("session", {
-        ...session,
-        terminals: terminals as typeof session.terminals,
-      });
-    },
+    "1.25.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, backfillRemoteUrl),
     // `SavedTerminal.location` added and made required — a terminal's host is
     // now a first-class, non-optional `HostLocation` sum (`{ kind: "local" }`
     // for an in-process PTY), not the absence of a host id, so a restore can
@@ -495,33 +488,15 @@ export const store = new Conf<PersistedState>({
     // predates remote terminals, so backfill the local variant on each restored
     // terminal (see `backfillLocation`); without it the now-required
     // field rejects the whole session at startup.
-    "1.26.0": (store: Conf<PersistedState>) => {
-      const session = store.get("session");
-      if (!session) return;
-      const terminals = (
-        session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillLocation);
-      store.set("session", {
-        ...session,
-        terminals: terminals as typeof session.terminals,
-      });
-    },
+    "1.26.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, backfillLocation),
     // `SavedTerminal` became a `discriminatedUnion` on a new `state` field
     // (`Terminal = active | sleeping`, sleeping-terminals Phase 1). Every
     // pre-1.27 terminal was an attached live PTY, so backfill the active arm on
     // each restored terminal (see `backfillTerminalState`); without it the
     // now-required discriminant rejects the whole session at startup.
-    "1.27.0": (store: Conf<PersistedState>) => {
-      const session = store.get("session");
-      if (!session) return;
-      const terminals = (
-        session.terminals as unknown as Record<string, unknown>[]
-      ).map(backfillTerminalState);
-      store.set("session", {
-        ...session,
-        terminals: terminals as typeof session.terminals,
-      });
-    },
+    "1.27.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, backfillTerminalState),
   },
 });
 

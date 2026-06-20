@@ -7,10 +7,10 @@
  *  `bucketDescriptor` (and its own `isParked` staleness). No new state, no new
  *  clock — just a fold of the three existing inputs into `tileAura`. */
 
-import { activeArm, type TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { agentBucket } from "./dockModel";
+import { metaBucket } from "./dockModel";
 import { type TileAura, tileAura } from "./tileAura";
 
 export function useTileAura(): (id: TerminalId) => TileAura {
@@ -20,7 +20,7 @@ export function useTileAura(): (id: TerminalId) => TileAura {
     const meta = store.getMetadata(id);
     if (!meta) return "none";
     return tileAura(
-      agentBucket(activeArm(meta)?.agent),
+      metaBucket(meta),
       store.isUnread(id),
       isStale(meta.lastActivityAt),
     );

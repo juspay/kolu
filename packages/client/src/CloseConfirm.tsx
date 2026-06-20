@@ -4,11 +4,10 @@
 
 import Dialog from "@corvu/dialog";
 import {
-  activeArm,
+  activePr,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
-import { prValue } from "anyforge/schemas";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";
@@ -136,30 +135,23 @@ const CloseConfirm: Component<{
             )}
           </Show>
 
-          <Show when={activeArm(props.target?.meta)}>
-            {(arm) => (
-              <Show when={prValue(arm().pr)}>
-                {(pr) => (
-                  <a
-                    href={pr().url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="flex items-center gap-1.5 text-xs bg-surface-2 rounded-lg px-2.5 py-2 hover:bg-surface-3 transition-colors"
-                    data-testid="close-confirm-pr"
-                    title={prTooltip(pr())}
-                  >
-                    <PrStateIcon
-                      state={pr().state}
-                      class="w-3.5 h-3.5 shrink-0"
-                    />
-                    <Show when={pr().checks}>
-                      {(checks) => <ChecksIndicator status={checks()} />}
-                    </Show>
-                    <span class="text-fg-2 font-medium">#{pr().number}</span>
-                    <span class="text-fg-3 truncate">{pr().title}</span>
-                  </a>
-                )}
-              </Show>
+          <Show when={activePr(props.target?.meta)}>
+            {(pr) => (
+              <a
+                href={pr().url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="flex items-center gap-1.5 text-xs bg-surface-2 rounded-lg px-2.5 py-2 hover:bg-surface-3 transition-colors"
+                data-testid="close-confirm-pr"
+                title={prTooltip(pr())}
+              >
+                <PrStateIcon state={pr().state} class="w-3.5 h-3.5 shrink-0" />
+                <Show when={pr().checks}>
+                  {(checks) => <ChecksIndicator status={checks()} />}
+                </Show>
+                <span class="text-fg-2 font-medium">#{pr().number}</span>
+                <span class="text-fg-3 truncate">{pr().title}</span>
+              </a>
             )}
           </Show>
         </div>

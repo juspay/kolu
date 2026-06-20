@@ -90,9 +90,9 @@ export function useTerminalAlerts(deps: {
   createEffect(
     on(
       () =>
-        deps.terminalIds().map((id) => {
-          return activeArm(deps.getMetadata(id))?.agent?.state;
-        }),
+        deps
+          .terminalIds()
+          .map((id) => activeArm(deps.getMetadata(id))?.agent?.state),
       (states, prevStates) => {
         const ids = deps.terminalIds();
         if (!prevStates) return;
