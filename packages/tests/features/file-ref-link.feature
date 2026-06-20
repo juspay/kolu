@@ -66,11 +66,13 @@ Feature: File-ref autolinking in terminal
     And the selected file should show content "beta"
     And line 2 should be selected in the file content
 
-  Scenario: Clicking a folder ref reveals and expands the directory in the tree
+  Scenario: Clicking a folder ref reveals and expands the directory from a cold panel
     # A folder path in terminal output (no filename, no `:line`) used to toast
     # "File reference not found". It now reveals the directory in the Code tab's
     # All-files tree: switch to browse, expand the folder + its ancestors, and
-    # scroll it into view — no file is selected.
+    # scroll it into view — no file is selected. This is the COLD-PANEL path: the
+    # Code tab is closed, the folder click opens it, and the reveal runs through
+    # the FileTree constructor against the first `fsListAll` snapshot.
     When I run "git init /tmp/kolu-file-ref-folder && cd /tmp/kolu-file-ref-folder"
     And I run "git commit --allow-empty -m init"
     # Build the nested dir inside a subshell so `app/core` only ever appears
@@ -80,37 +82,24 @@ Feature: File-ref autolinking in terminal
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
     And I run "git add . && git commit -m files"
-    # Mount the tree BEFORE the folder-ref click. The reveal is a one-shot
-    # resolve: it runs EXACTLY ONCE, the instant `!allPaths.pending()` (the first
-    # `fsListAll` snapshot for the repo), and a null match is not retried —
-    # `fsListAll` only re-yields on a git/worktree change. This is SOUND for real
-    # users: terminal output is read (and its files long since committed) before
-    # the ref is clicked, so the subscribe-time `git ls-files` snapshot is
-    # authoritative and the folder is present on that first frame. The lossy
-    # window is narrow and artificial — committing files and clicking the ref in
-    # the SAME breath, exactly what this test does — where, under darwin-CI load,
-    # the panel-open/subscribe interleaving can surface a first frame taken before
-    # the just-committed walk has propagated; resolveRef then returns null, the
-    # request is consumed, and nothing is revealed. That timing flake (NOT a
-    # production folder-reveal regression — the wiring is identical) is the very
-    # thing this branch de-flakes, tracked in the Flaky Test Tracker Atlas note
-    # against `file-ref-link.feature:69`.
-    #
-    # Mounting the tree first sidesteps that subscribe-timing window: enumeration
-    # is proven complete before the folder click, so the SAME consume-once +
-    # directory-reveal wiring (the `pendingOpen` gate and the `kind: "directory"`
-    # branch in CodeTab) runs deterministically. The pure resolution semantics
-    # are additionally covered by the `resolveRef` unit tests in
-    # `ui/lineRef.test.ts`.
-    #
-    # So: a prior file-ref click to the sibling `app/main.txt` (NOT under
-    # `app/core`, so it can't mask the folder ref's hit-test) opens browse and
-    # mounts the tree; waiting for the `app` row proves `fsListAll` has
-    # enumerated. Same post-mount reveal path as the next scenario.
-    And I run "echo 'open app/main.txt first'"
-    And I trigger the terminal file-ref link "app/main.txt"
-    And the file browser should show a directory "app"
-    And the file "app/main.txt" should be selected in the file browser
+    # Deterministic setup barrier. The reveal is a one-shot resolve: it runs
+    # EXACTLY ONCE, the instant `!allPaths.pending()` (the first `fsListAll`
+    # snapshot the panel takes when the folder click flips it to browse), and a
+    # null match is not retried — `fsListAll` only re-yields on a git/worktree
+    # change. `KoluWorld.terminalRun` only types the command and presses Enter, so
+    # without a barrier the folder click can fire before `git add … && git commit`
+    # has durably landed; the panel-open `git ls-files` then reads a tree that
+    # lacks `app/`, resolveRef returns null, the request is consumed, and nothing
+    # is revealed (the darwin-CI flake this branch removes). `git ls-files` reads
+    # the on-disk index synchronously — there is no propagation lag once the
+    # commit completes — so waiting for a post-commit marker fully closes the
+    # window. Emit a unique marker only after the commit; the `'READ'Y` quote
+    # split keeps the assembled `KOLU_FILEREF_READY` out of the typed echo, so the
+    # buffer match fires on the command OUTPUT, not the keystrokes. Then block on
+    # it before the cold folder click. Same barrier idiom as the branch-mode
+    # Code-tab fixtures (`code_tab_steps.ts`).
+    And I run "echo KOLU_FILEREF_'READ'Y"
+    And the active terminal should show "KOLU_FILEREF_READY"
     And I run "echo 'inspect the app/core module'"
     And I trigger the terminal file-ref link "app/core"
     Then the right panel should be visible
@@ -118,21 +107,19 @@ Feature: File-ref autolinking in terminal
     And the Code tab mode should be "browse"
     And the directory "app/core" should be expanded in the file browser
     And the file browser should show a file "app/core/one.txt"
-    # The folder reveal expands + scrolls the directory but selects no file:
-    # the prior `app/main.txt` selection stays put. This is the "reveals a
-    # directory WITHOUT selecting a file" guarantee from the scenario header,
-    # re-asserted deterministically on the proven mount-first path (a fresh
-    # `the file ... should not be selected` would race the reveal's own scroll).
-    And the file "app/main.txt" should be selected in the file browser
+    # The folder reveal expands + scrolls the directory but selects no file —
+    # the "reveals a directory WITHOUT selecting a file" guarantee from the
+    # scenario header. The cold panel had no prior selection, so assert the
+    # directory's own row is NOT selected (a folder row is never a file pick).
+    And the directory "app/core" should not be selected in the file browser
 
   Scenario: Clicking a folder ref while already browsing expands it in the live tree
-    # Both folder-ref reveal scenarios mount the tree before the folder click —
-    # the alternative (clicking the ref the instant the files are committed, with
-    # the panel still cold) is the artificial subscribe-timing flake the previous
-    # scenario explains, not a path real users hit. Here a file-ref click opens
-    # browse and mounts the tree first, so the folder click exercises the
-    # post-mount reveal (expand + scroll on the already-live tree). The
-    # precondition
+    # The previous scenario covers the COLD-PANEL reveal (FileTree constructor,
+    # first `fsListAll` snapshot). Here a file-ref click opens browse and mounts
+    # the tree first, so the folder click exercises the POST-MOUNT reveal path
+    # instead (the `pendingOpen` effect's `kind: "directory"` branch: expand +
+    # scroll on the already-live tree). Together the two scenarios cover both
+    # reveal entry points end-to-end. The precondition
     # only needs the tree LIVE — confirm it via the top-level `lib/` row, which is
     # present the moment the tree mounts (no file-content render, no
     # selection/expansion to wait on — both slow, flaky axes under darwin CI
