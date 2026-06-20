@@ -148,3 +148,72 @@ function isSocketInode(path: string): boolean {
     return false;
   }
 }
+
+/** A human label for a discovered kaval socket: a kolu-server (its kaval dir is
+ *  port-namespaced `kaval-<port>/`) vs a standalone daemon (a bare `kaval/`, or
+ *  `kaval-<uid>/` on the `/tmp` fallback). A bare-with-one-number dir is
+ *  genuinely ambiguous (port vs uid), so it's reported as "kolu-server or
+ *  standalone" rather than guessing. This is the INVERSE of `kavalNamespace`: the
+ *  grammar it decodes (`KAVAL_NS_PREFIX` bare, `-<port>`, the `-$UID` `/tmp`
+ *  decoration, and the combined `-<port>-<uid>` form) is constructed in this same
+ *  module, so construction and decoding move together. */
+function labelKavalSocket(socketPath: string): string {
+  // …/<dir>/pty-host.sock — the dir basename carries the namespace.
+  const dir = basename(dirname(socketPath));
+  const m = dir.match(
+    new RegExp(`^${KAVAL_NS_PREFIX}(?:-(\\d+))?(?:-(\\d+))?$`),
+  );
+  if (m === null) return KAVAL_NS_PREFIX;
+  const [, a, b] = m;
+  if (b !== undefined) return `kolu-server on port ${a}`; // kaval-<port>-<uid>
+  if (a !== undefined) return `kolu-server on port ${a}, or a standalone kaval`;
+  return "standalone kaval"; // bare kaval/
+}
+
+/** A labeled candidate kaval socket — the pasteable path plus a human label that
+ *  tells a kolu-server (port-namespaced) apart from a standalone daemon. */
+export interface KavalSocketCandidate {
+  socket: string;
+  label: string;
+}
+
+/** The outcome of resolving which running kaval to dial — the selection policy
+ *  ("explicit wins; else discover; one→use it; many→ambiguous; none→default")
+ *  lives here, beside the namespace construction it inverts, so a consumer only
+ *  renders the `many`/`none` cases in its own error surface. */
+export type KavalSocketResolution =
+  | { kind: "explicit" | "one" | "none"; socket: string }
+  | { kind: "many"; candidates: KavalSocketCandidate[] };
+
+/** Resolve which running kaval to dial. An explicit path wins (verbatim — it's a
+ *  user-supplied `--socket`/`--kaval` flag). Otherwise discover the running
+ *  daemon: kolu-server namespaces its daemon by listen port (`kaval-<port>/`), so
+ *  there is no single fixed path to assume. Exactly one found → `one`. More than
+ *  one → `many`, with each candidate LABELED (the caller renders a pick-one
+ *  error). None → `none` with the bare `kaval` default, so a connect error names
+ *  a sensible path. */
+export function resolveRunningKavalSocket(
+  explicit?: string,
+): KavalSocketResolution {
+  if (explicit !== undefined && explicit !== "") {
+    return { kind: "explicit", socket: explicit };
+  }
+  const found = discoverPtyHostSockets();
+  const [first, ...rest] = found;
+  if (first !== undefined && rest.length === 0) {
+    return { kind: "one", socket: first };
+  }
+  if (rest.length > 0) {
+    return {
+      kind: "many",
+      candidates: found.map((socket) => ({
+        socket,
+        label: labelKavalSocket(socket),
+      })),
+    };
+  }
+  return {
+    kind: "none",
+    socket: getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX),
+  };
+}

@@ -17,6 +17,7 @@ import {
   KAVAL_NS_PREFIX,
   kavalNamespace,
   PTY_HOST_SOCK_FILE,
+  resolveRunningKavalSocket,
 } from "./socketPath.ts";
 
 /** Bind a real `net.Server` at `path`, leaving a genuine socket inode behind —
@@ -189,5 +190,75 @@ describe("discoverPtyHostSockets", () => {
         `/tmp/${KAVAL_NS_PREFIX}-7681-${FAKE_UID}/${PTY_HOST_SOCK_FILE}`,
       );
     });
+  });
+});
+
+// The selection policy (explicit wins; else discover; one→use it;
+// many→ambiguous-with-labels; none→bare default) plus the candidate labels — the
+// inverse of `kavalNamespace` — live here, beside the construction they decode,
+// so both consumers (arivu's daemon, kaval-tui) only render their own
+// many/none error surface. Discovery is exercised for real over seeded sockets,
+// so the policy is pinned end-to-end.
+describe("resolveRunningKavalSocket", () => {
+  const savedXdg = process.env.XDG_RUNTIME_DIR;
+  const servers: Server[] = [];
+  afterEach(async () => {
+    if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = savedXdg;
+    await Promise.all(servers.splice(0).map((s) => closeServer(s)));
+  });
+
+  async function seed(namespaces: string[]): Promise<string> {
+    const runtime = mkdtempSync(join(tmpdir(), "kresolve-"));
+    for (const ns of namespaces) {
+      mkdirSync(join(runtime, ns), { recursive: true, mode: 0o700 });
+      servers.push(await listenSocket(join(runtime, ns, PTY_HOST_SOCK_FILE)));
+    }
+    return runtime;
+  }
+
+  it("returns an explicit socket verbatim, without discovery", () => {
+    // No XDG root seeded — discovery would find nothing — yet the explicit path
+    // is returned as-is, proving it short-circuits discovery.
+    process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kresolve-none-xyz");
+    expect(resolveRunningKavalSocket("/x/kaval.sock")).toEqual({
+      kind: "explicit",
+      socket: "/x/kaval.sock",
+    });
+  });
+
+  it("discovers a single running kaval → one", async () => {
+    const runtime = await seed(["kaval-7692"]);
+    process.env.XDG_RUNTIME_DIR = runtime;
+    expect(resolveRunningKavalSocket(undefined)).toEqual({
+      kind: "one",
+      socket: join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE),
+    });
+  });
+
+  it("falls back to the bare default → none when nothing is running", () => {
+    process.env.XDG_RUNTIME_DIR = join(tmpdir(), "kresolve-empty-xyz");
+    expect(resolveRunningKavalSocket(undefined)).toEqual({
+      kind: "none",
+      socket: getPtyHostSocketPath(undefined, KAVAL_NS_PREFIX),
+    });
+  });
+
+  it("reports every candidate with a namespace label → many", async () => {
+    const runtime = await seed(["kaval", "kaval-7692"]);
+    process.env.XDG_RUNTIME_DIR = runtime;
+    const resolved = resolveRunningKavalSocket(undefined);
+    expect(resolved.kind).toBe("many");
+    if (resolved.kind !== "many") throw new Error("unreachable");
+    const byLabel = new Map(
+      resolved.candidates.map((c) => [c.socket, c.label] as const),
+    );
+    // The bare dir is a standalone daemon; the port dir is a kolu-server.
+    expect(byLabel.get(join(runtime, "kaval", PTY_HOST_SOCK_FILE))).toBe(
+      "standalone kaval",
+    );
+    expect(byLabel.get(join(runtime, "kaval-7692", PTY_HOST_SOCK_FILE))).toBe(
+      "kolu-server on port 7692, or a standalone kaval",
+    );
   });
 });
