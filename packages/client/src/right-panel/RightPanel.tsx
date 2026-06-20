@@ -70,26 +70,22 @@ const RightPanel: Component<{
   const isActiveKind = (kind: RightPanelTabKind) =>
     rightPanel.activeTab().kind === kind;
 
-  // The Code tab is live right now: the panel is visible AND it's the selected
-  // tab. The reusable visibility+selection predicate — anything that needs "is
-  // the code tab on screen" reads this.
-  const codeShownNow = () => props.visible && isActiveKind("code");
-
   // `mounted` is the isolated deferral knob: it flips only after `onMount`, so
   // the initial synchronous paint never renders (and so never suspends on) the
   // lazy chunk — the terminal and chrome paint first, then the Code tab streams
   // in. The latch (`was ||`) is the lone first-load/keep-alive concern: true
-  // once the Code tab has actually been shown, then never false again, so the
-  // chunk mounts on first view and stays mounted. The kept-alive hidden sibling
-  // (the `display:none` slot below) is what preserves the inactive tab's local
-  // state (selected file, Pierre tree expansion, scroll) across a tab switch
-  // exactly as the eagerly-mounted form did (#818). Until first view the chunk
-  // stays off the network: a closed mobile drawer or collapsed desktop panel
-  // (`!props.visible`) never loads it.
+  // once the Code tab has actually been shown (panel visible AND it's the
+  // selected tab), then never false again, so the chunk mounts on first view and
+  // stays mounted. The kept-alive hidden sibling (the `display:none` slot below)
+  // is what preserves the inactive tab's local state (selected file, Pierre tree
+  // expansion, scroll) across a tab switch exactly as the eagerly-mounted form
+  // did (#818). Until first view the chunk stays off the network: a closed mobile
+  // drawer or collapsed desktop panel (`!props.visible`) never loads it.
   const [mounted, setMounted] = createSignal(false);
   onMount(() => setMounted(true));
   const codeEverShown = createMemo(
-    (was: boolean) => was || (mounted() && codeShownNow()),
+    (was: boolean) =>
+      was || (mounted() && props.visible && isActiveKind("code")),
     false,
   );
 
