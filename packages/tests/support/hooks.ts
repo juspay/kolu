@@ -856,6 +856,12 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
+  // TEMP DIAGNOSTIC (flake-1 root-cause) — forward [SYNCREPO] browser logs to
+  // the worker stdout (which lands in the odu e2e log). Remove before merge.
+  this.page.on("console", (m) => {
+    const t = m.text();
+    if (t.includes("[SYNCREPO]")) process.stdout.write(`${t}\n`);
+  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is

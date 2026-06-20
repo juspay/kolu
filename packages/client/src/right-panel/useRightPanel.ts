@@ -404,6 +404,10 @@ export function useRightPanel() {
      *  its repo without resetting, so a session-restored (seeded) stack
      *  survives the initial mount. */
     syncRepo: (id: TerminalId, repo: string | null) => {
+      // TEMP DIAGNOSTIC (flake-1 root-cause) — remove before merge.
+      console.log(
+        `[SYNCREPO] id=${id} repo=${repo} prev=${history.get(id)?.lastRepo}`,
+      );
       // A `null` repo means the terminal's git metadata is absent or transiently
       // re-resolving — an OSC-7 prompt redraw on a terminal switch briefly drops
       // `meta.git.repoRoot` to null before it settles back to the SAME root.

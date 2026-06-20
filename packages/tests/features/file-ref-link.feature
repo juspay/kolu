@@ -80,16 +80,16 @@ Feature: File-ref autolinking in terminal
     # rows (not flattened into one), exercising the ancestor-expand path.
     And I run "mkdir -p app && (cd app && mkdir -p core && printf 'alpha\n' > core/one.txt && printf 'beta\n' > core/two.txt && printf 'x\n' > main.txt)"
     And I run "git add . && git commit -m files"
-    # Open browse and wait until fsListAll has enumerated the just-committed
-    # nested files (the `app/` row is only inferred once `app/core/one.txt` etc.
-    # are listed). The folder-ref reveal resolves EXACTLY ONCE the instant
-    # `!allPaths.pending()`, so the directory must be enumerable before the click
-    # — otherwise the first fsListAll snapshot can flip pending→false before the
-    # FSEvents walk lands on a slow darwin runner, resolveRef returns null, and
-    # the request is permanently consumed (the reveal never happens). Mirrors the
-    # post-mount reveal the next scenario exercises.
-    And I click the Code tab
-    And I click the Code tab mode "browse"
+    # Mount the tree before the folder-ref click. The fresh-open reveal resolves
+    # EXACTLY ONCE the instant `!allPaths.pending()`, which can flip true before
+    # the FSEvents walk enumerates the just-committed files on a slow darwin
+    # runner — resolveRef then returns null and the request is permanently
+    # consumed (the reveal never happens). A prior file-ref click to the sibling
+    # `app/main.txt` (NOT under `app/core`, so it can't mask the folder ref's
+    # hit-test) opens browse and mounts the tree; waiting for the `app` row
+    # proves fsListAll has enumerated. Same post-mount path as the next scenario.
+    And I run "echo 'open app/main.txt first'"
+    And I trigger the terminal file-ref link "app/main.txt"
     And the file browser should show a directory "app"
     And I run "echo 'inspect the app/core module'"
     And I trigger the terminal file-ref link "app/core"
