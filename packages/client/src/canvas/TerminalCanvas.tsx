@@ -21,8 +21,8 @@ import {
 } from "@thisbeyond/solid-dnd";
 import {
   type SleepingTerminal,
+  sleepingTileLabel,
   type TerminalId,
-  topTerminal,
 } from "kolu-common/surface";
 import {
   type Component,
@@ -436,13 +436,7 @@ const TerminalCanvas: Component<{
     const active = () => tileStore.activeId() === tileId;
     const mode = (): CanvasTileMode =>
       posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
-    const label = () => {
-      const top = topTerminal(record);
-      return (
-        top?.intent?.trim() ||
-        (top ? (top.cwd.split("/").filter(Boolean).pop() ?? top.cwd) : "asleep")
-      );
-    };
+    const label = () => sleepingTileLabel(record);
     return (
       <CanvasTile
         id={tileId}

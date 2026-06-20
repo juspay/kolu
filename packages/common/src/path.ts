@@ -14,3 +14,11 @@ export function cwdBasename(cwd: string): string {
   const short = shortenCwd(cwd);
   return short.split("/").pop() || "~";
 }
+
+/** Last real path segment — `filter(Boolean)` so a trailing slash still yields
+ *  the last segment, falling back to the input when there is none. The single
+ *  home of "path tail" for sleeping-tile labels (canvas title + body) and the
+ *  `sleepingTileLabel` helper. */
+export function basename(p: string): string {
+  return p.split("/").filter(Boolean).pop() ?? p;
+}

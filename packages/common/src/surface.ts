@@ -52,6 +52,7 @@ import {
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
 import { z } from "zod";
+import { basename } from "./path";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-awareness (P1a) ──
 //
@@ -855,4 +856,12 @@ export function topTerminal(
   return (
     record.terminals.find((t) => t.id === record.id) ?? record.terminals[0]
   );
+}
+
+/** What string represents a dormant tile — its top terminal's intent, else the
+ *  cwd basename, else `"asleep"`. The single home of the label rule so the
+ *  canvas title and the tile body can never disagree. */
+export function sleepingTileLabel(record: SleepingTerminal): string {
+  const top = topTerminal(record);
+  return top?.intent?.trim() || (top ? basename(top.cwd) : "asleep");
 }
