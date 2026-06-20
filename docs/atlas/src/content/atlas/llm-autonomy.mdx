@@ -9,7 +9,8 @@ updated: 2026-06-19
 
 import Callout from "../../components/Callout.astro";
 import Pill from "../../components/Pill.astro";
-import D2 from "../../components/D2.astro";
+import Svg from "../../components/Svg.astro";
+import enforcement from "../../diagrams/llm-autonomy-enforcement.svg?raw";
 import Roadmap from "../../components/Roadmap.astro";
 import Milestone from "../../components/Milestone.astro";
 import Cite from "../../components/Cite.astro";
@@ -78,25 +79,9 @@ end-to-end unattended. Autonomy is not a model-capability problem; it is an
 deterministic (exit codes, not prose) and to give every run the ground truth the
 clean runs happened to have.
 
-<D2
+<Svg
+  svg={enforcement}
   caption="The proposed enforcement backbone. Today the green spine and the guard boxes do not exist for /be — its stages are connected by prose only, so the run yields the turn and the human (dashed) re-drives it. The fix: /be writes a run-state spine at every stage boundary, and the existing Stop hook (extended) plus new PreToolUse hooks read it to block turn-end and dangerous actions — converting 'continue', 'run ci', 'don't kill prod', 'post evidence' from human nudges into automatic resume/refusal."
-  code={`direction: down
-prompt: "User: /be <task>"
-interview: "§0 Interview — the ONE sanctioned question"
-state: "run-state spine (.do-results.json)\\nstage · pr · ci · evidence · verified\\n— /be does NOT write this today" { style.bold: true; style.fill: "#e6f4ea" }
-stages: "§1–§5 stages\\nsetup · implement · PR · gauntlet · ci+evidence"
-guards: "Guards — exit codes, not prose" {
-  stop: "Stop hook (extend)\\nblock turn-end while active=working\\n+ Done post-conditions: ci-green · evidence · gauntlet-comments · repro-green"
-  pre: "PreToolUse hooks (new)\\nblock prod-kolu kill / prod-port bind\\nblock AskUserQuestion after §0"
-}
-human: "Human (today: the gate)\\n'continue' · 'run ci' · 'DONT KILL PROD' · 'post evidence'" { style.stroke-dash: 4 }
-done: "Done — only when every guard passes"
-prompt -> interview -> stages
-stages -> state: "write at each boundary"
-state -> guards: "read"
-guards -> stages: "block & auto-resume"
-human -> stages: "today: manual re-drive" { style.stroke-dash: 4 }
-stages -> done`}
 />
 
 The spine is one artifact with four jobs: **(1)** Stop-guard self-resume,
