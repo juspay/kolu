@@ -62,11 +62,13 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
 /**
  * Sanitize the parent env that will reach the PTY shell.
  *
- * Without a whitelist (production): pass process.env straight through, minus
- * kolu's own KOLU_* namespace (server-internal config that must never reach a
- * user shell — see the inline note in the passthrough branch).
+ * Without a whitelist (production): pass process.env straight through.
  * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
  * and override SHELL with the user's login shell from /etc/passwd.
+ *
+ * Either way, a single shared post-step strips kolu's own KOLU_* namespace
+ * (server-internal config that must never reach a user shell — see the inline
+ * note above the strip) so the invariant holds independent of how env was built.
  *
  * Scope note: this layer only filters what the parent process exposes.
  * Restoring user env that the parent doesn't carry (e.g. PATH from
@@ -88,21 +90,23 @@ export function cleanEnv(): Record<string, string> {
     env.SHELL = loginShell;
   } else {
     env = { ...process.env } as Record<string, string>;
-    // Don't forward kolu's own KOLU_* namespace into the user's shell. These
-    // are the server's internal config (e.g. the wrapper-baked KOLU_KAVAL_BIN
-    // that tells the server which kaval to spawn) — baked into the server's env,
-    // never meant for a hosted terminal. Forwarded, they leak into every PTY
-    // child: a nested from-source kolu (`just dev` run inside a kolu terminal)
-    // inherits a STALE KOLU_KAVAL_BIN and spawns a contract-skewed daemon. kolu
-    // owns this prefix, so stripping it here — at the leak boundary — can't drop
-    // a var a user shell legitimately needs (and a user-defined KOLU_* set in
-    // their own dotfiles is re-applied by the rcfile replay, see prepareShellInit).
-    for (const key of Object.keys(env)) {
-      if (key.startsWith("KOLU_")) delete env[key];
-    }
     // Ensure SHELL is set — systemd user services may not have it.
     env.SHELL ??= loginShell;
   }
+  // Don't forward kolu's own KOLU_* namespace into the user's shell. These
+  // are the server's internal config (e.g. the wrapper-baked KOLU_KAVAL_BIN
+  // that tells the server which kaval to spawn) — baked into the server's env,
+  // never meant for a hosted terminal. Forwarded, they leak into every PTY
+  // child: a nested from-source kolu (`just dev` run inside a kolu terminal)
+  // inherits a STALE KOLU_KAVAL_BIN and spawns a contract-skewed daemon. kolu
+  // owns this prefix, so stripping it here — at the leak boundary — can't drop
+  // a var a user shell legitimately needs (and a user-defined KOLU_* set in
+  // their own dotfiles is re-applied by the rcfile replay, see prepareShellInit).
+  // One shared strip for both branches: the invariant is a property of cleanEnv,
+  // not of one branch (and independent of NIX_ENV_WHITELIST's future contents).
+  env = Object.fromEntries(
+    Object.entries(env).filter(([k]) => !k.startsWith("KOLU_")),
+  );
   return env;
 }
 
