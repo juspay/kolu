@@ -17,6 +17,7 @@
 
 import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import { compactDelta } from "../time/duration";
 import {
   activityWindowThresholdMs,
   type IdleBucketKey,
@@ -83,35 +84,6 @@ export function useIdleClassifier(): (
     const now = tick();
     if (!isStale(lastActivityAt, now, activityWindowThresholdMs())) return null;
     return idleBucketFor(now - lastActivityAt);
-  };
-}
-
-/** The one coarse-magnitude bucketing rule, shared by every compact-duration
- *  formatter in the app (`formatDuration`, `formatTimeAgo`, and `formatUptime`
- *  in `useDaemonStatus.ts`). Returns the dominant `{value, unit}` and — for the
- *  hour/day tiers — the next-finer `sub` unit, so a caller can render either a
- *  single unit (`2h`) or two (`2h 20m`) without re-walking the ladder. The
- *  sec<60 / min<60 / hr<24 / else thresholds and the negative-clamp (clock skew
- *  between the agent host and the client must never render a negative age) live
- *  here and nowhere else. */
-type DeltaUnit = "s" | "m" | "h" | "d";
-export function compactDelta(ms: number): {
-  value: number;
-  unit: DeltaUnit;
-  sub?: { value: number; unit: DeltaUnit };
-} {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 60) return { value: sec, unit: "s" };
-  const min = Math.floor(sec / 60);
-  if (min < 60) return { value: min, unit: "m" };
-  const hr = Math.floor(min / 60);
-  if (hr < 24) {
-    return { value: hr, unit: "h", sub: { value: min % 60, unit: "m" } };
-  }
-  return {
-    value: Math.floor(hr / 24),
-    unit: "d",
-    sub: { value: hr % 24, unit: "h" },
   };
 }
 

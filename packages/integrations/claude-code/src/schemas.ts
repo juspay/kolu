@@ -93,10 +93,11 @@ export const ClaudeCodeInfoSchema = z.object({
    *  (e.g. synthetic entries from /compact). Window size is not encoded —
    *  consumers render the raw count compact ("47k"). */
   contextTokens: z.number().nullable(),
-  /** Epoch-ms the session began — the claude process's `startedAt` from its
-   *  session file (process start, or a fresh stamp on a `claude -c` resume).
-   *  Null on older session files that omit it. Drives the inspector's
-   *  "Running for" elapsed display. */
+  /** Epoch-ms the conversation began — the transcript's first entry
+   *  `timestamp`. Deliberately the conversation's age (survives a `claude -c`
+   *  resume), NOT the session file's process `startedAt` (which resets on
+   *  resume); matches codex/opencode's "Running for" semantics. Null until the
+   *  first message lands. Drives the inspector's "Running for" elapsed display. */
   startedAt: z.number().nullable(),
 });
 

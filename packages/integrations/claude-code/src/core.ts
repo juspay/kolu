@@ -187,6 +187,54 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
   return readTailLines({ path: filePath, size, maxBytes: bytes }) ?? [];
 }
 
+/** Head window for `firstTranscriptTimestampMs` — a transcript's leading
+ *  records (the session-meta line and first user/assistant entry) are tiny, so
+ *  a few KB always covers the first entry that carries a `timestamp`. */
+const HEAD_BYTES = 16_384;
+
+/**
+ * Epoch-ms of the transcript's FIRST `timestamp` — when the conversation began,
+ * the same "session age" anchor Codex (uuidv7 thread id) and OpenCode (earliest
+ * message) expose. This is deliberately NOT the session file's `startedAt`,
+ * which is the *process* start and resets on a `claude -c` resume; the inspector
+ * wants the age of the conversation, which survives resume, so it reads the
+ * transcript head instead.
+ *
+ * Reads only a bounded prefix (`HEAD_BYTES`) by clamping `readTailLines`'s
+ * window to byte 0, then returns the first parseable `timestamp`. Null when the
+ * file is absent/empty or no leading entry carries one (a brand-new transcript
+ * before the first message lands) — the caller retries on the next watch fire,
+ * then caches, since the first entry is immutable once written.
+ */
+export function firstTranscriptTimestampMs(filePath: string): number | null {
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return null;
+  }
+  // Clamp `size` to the head window so `readTailLines`' `start` lands at 0 —
+  // it then keeps the first (complete) record instead of dropping a partial.
+  const head = readTailLines({
+    path: filePath,
+    size: Math.min(size, HEAD_BYTES),
+    maxBytes: HEAD_BYTES,
+  });
+  if (!head) return null;
+  for (const raw of head) {
+    let ts: string | undefined;
+    try {
+      ts = (JSON.parse(raw) as { timestamp?: string }).timestamp;
+    } catch {
+      continue;
+    }
+    if (typeof ts !== "string") continue;
+    const ms = parseIsoTimestamp(ts);
+    if (ms !== null) return ms;
+  }
+  return null;
+}
+
 // --- Wire-shape helpers (shared) ---
 //
 // Primitives that read the raw JSONL `message.content` block shapes. Shared by

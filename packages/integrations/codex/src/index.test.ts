@@ -401,4 +401,18 @@ describe("uuidV7TimestampMs", () => {
     expect(uuidV7TimestampMs("not-a-uuid")).toBeNull();
     expect(uuidV7TimestampMs("")).toBeNull();
   });
+
+  it("returns null for a truncated id whose 13th char happens to be 7", () => {
+    // Bare 13 hex chars with `7` at index 12 used to slip through a version-
+    // nibble-only check and decode to a bogus timestamp; the full-shape check
+    // rejects it (no dashes, wrong length, no variant nibble).
+    expect(uuidV7TimestampMs("019db60512347")).toBeNull();
+  });
+
+  it("returns null for a v7-looking id with an invalid variant nibble", () => {
+    // Variant nibble must be 8/9/a/b; `0` here is out of spec.
+    expect(
+      uuidV7TimestampMs("019db605-1234-7abc-0123-0123456789ab"),
+    ).toBeNull();
+  });
 });

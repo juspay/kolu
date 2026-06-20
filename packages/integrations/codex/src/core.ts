@@ -73,17 +73,22 @@ export interface CodexSession {
   startedAt: number | null;
 }
 
+/** Canonical UUIDv7: 8-4-4-4-12 hex, version nibble `7`, RFC-4122 variant
+ *  nibble (`8`/`9`/`a`/`b`). Validating the WHOLE shape — not just the version
+ *  nibble — is what stops a truncated/garbage id (e.g. `019db60512347`) from
+ *  decoding to a bogus timestamp; this parses external DB data that drives UI. */
+const UUID_V7_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** Decode the unix-ms creation time embedded in a uuidv7's leading 48 bits.
  *  Codex stamps thread ids as uuidv7, whose first 12 hex digits ARE the
  *  millisecond timestamp — so the thread's start time is already in hand, no
- *  file read. Returns null unless the value is a real uuidv7 (version nibble
- *  `7`); never guess a timestamp from a non-v7 id. */
+ *  file read. Returns null unless the value is a real, well-formed uuidv7;
+ *  never guess a timestamp from a non-v7 / malformed id. */
 export function uuidV7TimestampMs(id: string): number | null {
-  // uuidv7 layout: the first 12 hex digits (48 bits) are the unix-ms
-  // timestamp; the 13th hex digit is the version nibble, `7` for v7.
-  const hex = id.replace(/-/g, "");
-  if (hex[12] !== "7" || !/^[0-9a-f]{12}/i.test(hex)) return null;
-  const ms = Number.parseInt(hex.slice(0, 12), 16);
+  if (!UUID_V7_RE.test(id)) return null;
+  // The first 12 hex digits (48 bits) are the unix-ms timestamp.
+  const ms = Number.parseInt(id.replace(/-/g, "").slice(0, 12), 16);
   return Number.isFinite(ms) ? ms : null;
 }
 

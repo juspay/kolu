@@ -13,7 +13,7 @@ import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import type { WsStatus } from "../rpc/rpc";
-import { compactDelta } from "../terminal/staleness";
+import { compactDelta } from "../time/duration";
 import { app } from "../wire";
 import { announceReattach } from "./reattachAnnounce";
 

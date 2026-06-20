@@ -12,9 +12,9 @@
  *
  * Info equality is deliberately NOT part of this interface — it's a property
  * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
- * below. All concrete AgentInfo variants share the same 5-field shape today
- * (state, sessionId, model, summary, taskProgress), so one equality function
- * suffices for every adapter.
+ * below. All concrete AgentInfo variants share the fields modeled by
+ * `AgentInfoShape` (state, model, summary, contextTokens, startedAt,
+ * taskProgress), so one equality function suffices for every adapter.
  */
 
 import type { Logger } from "kolu-shared";
@@ -69,9 +69,10 @@ export interface AgentInfoShape {
    *  `message.usage`; OpenCode reads `tokens.total` from the latest
    *  assistant message. Both collapse to the same scalar meaning. */
   contextTokens: number | null;
-  /** Epoch-ms the session began — its first message, give or take. Source
-   *  is per-integration but the meaning is shared: Claude Code's session-file
-   *  `startedAt` (process start / `claude -c` resume); Codex's uuidv7 thread-id
+  /** Epoch-ms the conversation began — one shared meaning across integrations:
+   *  the age of the conversation/thread, which SURVIVES a resume (it is not the
+   *  current process's uptime). Each reads it from its own on-disk anchor:
+   *  Claude Code's transcript first-entry `timestamp`; Codex's uuidv7 thread-id
    *  timestamp (thread creation); OpenCode's earliest message `time_created`.
    *  Null until resolvable — no message yet, or an id we can't decode. Immutable
    *  once set; drives the inspector's "Running for" elapsed display. Compared in
