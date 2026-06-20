@@ -15,6 +15,7 @@ kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd �
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
+kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```
 
 ## Creating a terminal
@@ -141,8 +142,22 @@ pass straight through.
 `~` clashing (nested ssh?) → rebind it: `kaval-tui attach <id> --escape %`.
 
 When the program inside exits, kaval-tui exits with the same code. An
-unreachable daemon is a one-line error, never a hang. `create` (above) makes a
-terminal; `kill` — ending one from the shell — is a later phase.
+unreachable daemon is a one-line error, never a hang.
+
+## Killing a terminal
+
+`create` makes a terminal; `kill` ends one. The daemon tears the PTY down, so it
+drops out of `list` and any client still attached watches the shell exit:
+
+```sh
+kaval-tui kill a1b2c3d4        # end it; `list` no longer shows it
+```
+
+`<id>` is the short id or any unique prefix — the same form `snapshot` and
+`attach` take. `kill` prints a one-line confirmation to stderr and exits 0; an id
+that matches no live terminal fails loud (it never silently no-ops). This is the
+inverse of `create`, and like every subcommand it takes `--socket` / `--host` to
+target a running kolu or a remote daemon.
 
 The full design lives in the
 [kaval atlas note](https://kolu.dev/atlas/pty-daemon.html).

@@ -9,6 +9,7 @@
  *   kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
  *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
+ *   kaval-tui kill <id>         end a terminal the daemon owns (id or prefix)
  *
  * `list` prints a short id (the leading chars of the full uuid); `<id>` in
  * `snapshot`/`attach` is that short form or any unique prefix of the full id —
@@ -25,8 +26,8 @@
  *                   A remote PTY survives the link: `create` on prod, then a
  *                   later `attach` finds it.
  *
- * `kill` is a later phase. The CLI comes and goes; the daemon keeps owning the
- * PTYs — `create` mints one, the daemon holds it until something kills it.
+ * The CLI comes and goes; the daemon keeps owning the PTYs — `create` mints one,
+ * the daemon holds it until `kill` (or another client) ends it.
  */
 import { writeSync } from "node:fs";
 import { homedir } from "node:os";
@@ -110,7 +111,7 @@ const argv = cli({
   version: PTY_HOST_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals, or `--host <ssh>` to provision and dial a kaval on a remote machine. `kill` lands later.",
+      "A terminal-side client for the kaval PTY daemon (beta). Connects to a running kaval over a local unix socket — start it with `kaval`; the socket appears once it boots. Use `--socket` to reach a kolu-server's in-process terminals, or `--host <ssh>` to provision and dial a kaval on a remote machine.",
   },
   commands: [
     command({
@@ -166,6 +167,15 @@ const argv = cli({
           default: "~",
         },
       },
+    }),
+    command({
+      name: "kill",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "End a terminal the daemon owns — the PTY is torn down and leaves `list`. <id> is the short id from `list` or any unique prefix.",
+      },
+      flags: { ...endpointFlags },
     }),
   ],
 });
@@ -413,6 +423,19 @@ async function cmdAttach(
   process.exit(1);
 }
 
+/** End a terminal the daemon owns. `resolveOne` already proved `id` is live
+ *  (failing loud on no-match/ambiguity), so reaching here means a real PTY is
+ *  being torn down — the daemon's kill is idempotent and acks `{ ok }`. A non-ok
+ *  ack is surfaced loud rather than swallowed (fail-fast: a refused kill must not
+ *  read as success). The confirmation goes to stderr like `attach`'s trailers, so
+ *  stdout stays empty: `kill` yields no scriptable payload, only an exit code
+ *  (0 on success, the catch-all 1 on an RPC error). */
+async function cmdKill(conn: Connection, id: string): Promise<void> {
+  const { ok } = await conn.client.surface.terminal.kill({ id });
+  if (!ok) fail(`the daemon refused to kill ${shortId(id)}`);
+  process.stderr.write(`— killed ${shortId(id)}\n`);
+}
+
 /** Confirm the running daemon speaks a wire-compatible pty-host contract before
  *  we invoke any command — a newer kaval-tui against an older/different daemon
  *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
@@ -506,9 +529,9 @@ async function main(): Promise<void> {
   try {
     await assertCompatible(conn);
     // Closed dispatch: every command is named, and the final else fails loud
-    // — so a future addition (`kill`) that forgets a branch here cannot
-    // silently fall through into another command's handler. (cleye already
-    // exits on commands not in its registry; this guards OUR omissions.)
+    // — so a future addition that forgets a branch here cannot silently fall
+    // through into another command's handler. (cleye already exits on commands
+    // not in its registry; this guards OUR omissions.)
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
       await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
@@ -520,6 +543,8 @@ async function main(): Promise<void> {
         await resolveOne(conn, argv._.id),
         argv.flags.escape,
       );
+    else if (argv.command === "kill")
+      await cmdKill(conn, await resolveOne(conn, argv._.id));
     else fail("unhandled command — add a dispatch branch for it");
   } finally {
     conn.dispose();

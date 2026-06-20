@@ -26,6 +26,7 @@ import {
   type PtyTuiClient,
 } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
+import { resolveTerminalId, shortId } from "./render.ts";
 
 const silentLog = {
   debug: () => {},
@@ -295,5 +296,41 @@ describe("runAttach — over a real unix socket", () => {
       id,
     });
     expect(text).not.toContain("kaval-tui escapes");
+  });
+});
+
+describe("kill — over the same real unix socket", () => {
+  it("kills a terminal by its resolved short id; it leaves the list", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kill-"));
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+
+    // Live and listable first.
+    const { entries } = await conn.client.surface.terminal.list({});
+    expect(entries.some((e) => e.id === id)).toBe(true);
+
+    // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
+    // full id before killing — the same `resolveTerminalId` step the dispatch
+    // runs via `resolveOne`. Prove the short form lands on this exact terminal.
+    expect(
+      resolveTerminalId(
+        shortId(id),
+        entries.map((e) => e.id),
+      ),
+    ).toEqual({ kind: "found", id });
+
+    // Kill it; the daemon tears the PTY down and it drops out of the inventory.
+    await conn.client.surface.terminal.kill({ id });
+    let gone = false;
+    await until(
+      () => gone,
+      "the killed terminal to leave the list",
+      async () => {
+        gone = !(await conn.client.surface.terminal.list({})).entries.some(
+          (e) => e.id === id,
+        );
+      },
+    );
   });
 });
