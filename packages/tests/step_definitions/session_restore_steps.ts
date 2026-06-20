@@ -41,15 +41,21 @@ async function postSavedSessionPayload(
     savedAt: number;
     activeTerminalId?: string;
   } = {
-    // Stamp the now-required `location` (local) here so the call sites stay
-    // focused on what they test (cwd/themeName/lastAgentCommand) and never
-    // re-spell it. Unlike `lastActivityAt` — which the server backfills from
-    // its Zod `.default(0)` when it validates this payload — `location` has no
-    // default (a required host has no honest one), so the helper must supply
-    // it; this package is transpiled-not-typechecked, so this runtime stamp,
-    // not the compiler, is what enforces it. A terminal that sets its own
-    // `location` (a future remote case) wins via the spread.
-    terminals: terminals.map((t) => ({ location: LOCAL_LOCATION, ...t })),
+    // Stamp the now-required `location` (local) and `state` (active) discriminant
+    // here so the call sites stay focused on what they test
+    // (cwd/themeName/lastAgentCommand) and never re-spell them. Unlike
+    // `lastActivityAt` — which the server backfills from its Zod `.default(0)`
+    // when it validates this payload — neither `location` nor the `state`
+    // discriminant has a schema default (a required host / a discriminant has no
+    // honest one), so the helper must supply them; this package is
+    // transpiled-not-typechecked, so this runtime stamp, not the compiler, is
+    // what enforces it. A terminal that sets its own `location`/`state` (a future
+    // remote or sleeping case) wins via the spread.
+    terminals: terminals.map((t) => ({
+      location: LOCAL_LOCATION,
+      state: "active",
+      ...t,
+    })),
     savedAt: world.savedSessionSavedAt,
   };
   if (activeTerminalId !== undefined)

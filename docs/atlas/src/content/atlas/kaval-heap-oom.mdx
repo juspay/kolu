@@ -16,38 +16,54 @@ import Issue from "../../components/Issue.astro";
 *Production postmortem — `pureintent`, the always-on `kolu.service`. Latest crash 2026-06-19 14:26; the **fifth** with an identical signature since 2026-05-27. Surfaced by a "why did kolu restart?" investigation.*
 
 <figure style="margin:1.75rem 0;text-align:center">
-<svg viewBox="0 0 600 384" width="100%" role="img" aria-label="kolu's diagnostics reaches only the server; localDriver strips the heap-snapshot flag before kaval, the process that OOMs" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
+<svg viewBox="0 0 600 384" width="100%" role="img" aria-label="kolu's diagnostics reaches only the server; localDriver strips the heap-snapshot flag one hop above kaval, the process that OOMs blind" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
   <defs>
-    <marker id="kavArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <marker id="khoLeakArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
     </marker>
+    <marker id="khoLeakDiag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--good-stroke,#15803D)" />
+    </marker>
+    <filter id="khoLeakGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
   </defs>
 
-  <rect x="70" y="12" width="420" height="58" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
-  <text x="280" y="37" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">home-manager · services.kolu</text>
-  <text x="280" y="56" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">diagnostics.dir → KOLU_DIAG_DIR (server only)</text>
+  <text x="34" y="200" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--good-text,#166534)" transform="rotate(-90 34 200)" font-family="ui-monospace,'SF Mono',Menlo,monospace">KOLU_DIAG_DIR — diagnostics reach</text>
+  <path d="M52 36 L52 156" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <path d="M52 156 L46 144 M52 156 L58 144" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
 
-  <rect x="70" y="108" width="420" height="76" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
-  <text x="280" y="131" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">kolu server — Node 22.22.1</text>
-  <text x="280" y="150" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">diagnostics.ts → heap snapshots (server heap)</text>
-  <text x="280" y="170" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">localDriver scrubNodeOptions() strips --heapsnapshot</text>
+  <rect x="84" y="12" width="412" height="58" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="1.5" />
+  <text x="290" y="37" text-anchor="middle" font-weight="700" fill="var(--ink,#1a1d21)">home-manager · services.kolu</text>
+  <text x="290" y="56" text-anchor="middle" font-size="11.5" fill="var(--good-text,#166534)" font-family="ui-monospace,'SF Mono',Menlo,monospace">diagnostics.dir → KOLU_DIAG_DIR (server only)</text>
 
-  <rect x="70" y="220" width="420" height="48" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
-  <text x="280" y="249" text-anchor="middle" font-size="12.5" fill="var(--ink,#1a1d21)">@kolu/surface-daemon-supervisor → systemd-run --user</text>
+  <rect x="84" y="100" width="412" height="84" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="1.5" />
+  <text x="290" y="123" text-anchor="middle" font-weight="700" fill="var(--ink,#1a1d21)">kolu server — Node 22.22.1</text>
+  <text x="290" y="142" text-anchor="middle" font-size="11.5" fill="var(--good-text,#166534)">diagnostics.ts → heap snapshots (server heap) ✓</text>
+  <text x="290" y="172" text-anchor="middle" font-size="11.5" fill="var(--hot-text,#b1241a)" font-family="ui-monospace,'SF Mono',Menlo,monospace">localDriver scrubNodeOptions() ✂ strips --heapsnapshot</text>
 
-  <rect x="70" y="304" width="420" height="66" rx="8" fill="#fcf0ef" stroke="#d98b86" />
-  <text x="280" y="329" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">kaval — PTY host · Node 24.13.0</text>
-  <text x="280" y="349" text-anchor="middle" font-size="11.5" fill="#b1241a">OOM SITE — no heap limit, no diagnostics</text>
+  <rect x="84" y="222" width="412" height="48" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="290" y="251" text-anchor="middle" font-size="12.5" fill="var(--ink,#11203a)" font-family="ui-monospace,'SF Mono',Menlo,monospace">@kolu/surface-daemon-supervisor → systemd-run --user</text>
 
-  <path d="M280 70 L280 108" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
-  <text x="292" y="93" font-size="10.5" fill="var(--ink-muted,#8a8f98)">ExecStart + env</text>
-  <path d="M280 184 L280 220" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
-  <text x="292" y="206" font-size="10.5" fill="var(--ink-muted,#8a8f98)">spawn (diag flags already stripped)</text>
-  <path d="M280 268 L280 304" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
-  <text x="292" y="290" font-size="10.5" fill="var(--ink-muted,#8a8f98)">spawn (transient unit)</text>
+  <rect x="76" y="300" width="428" height="74" rx="9" fill="none" stroke="var(--hot-stroke,#c0392b)" stroke-width="1" opacity="0.4" filter="url(#khoLeakGlow)" />
+  <rect x="84" y="304" width="412" height="66" rx="8" fill="var(--hot-fill,#fbeee7)" stroke="var(--hot-stroke,#b3471f)" stroke-width="2.5" />
+  <text x="290" y="329" text-anchor="middle" font-weight="700" fill="var(--hot-text,#b91c1c)">kaval — PTY host · Node 24.13.0</text>
+  <text x="290" y="350" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--hot-text,#b1241a)">OOM SITE — runs BLIND: no heap limit, no diagnostics</text>
 
-  <path d="M490 337 L548 337 L548 146 L490 146" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kavArrow)" />
-  <text x="560" y="242" text-anchor="middle" font-size="10.5" fill="var(--ink-muted,#8a8f98)" transform="rotate(-90 560 242)">pty-host.sock</text>
+  <path d="M290 70 L290 100" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#khoLeakDiag)" />
+  <text x="302" y="89" font-size="10.5" fill="var(--good-text,#166534)">ExecStart + env</text>
+
+  <line x1="120" y1="186" x2="460" y2="206" stroke="var(--hot-stroke,#b3471f)" stroke-width="2" stroke-dasharray="2 4" />
+  <path d="M290 184 L290 192" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <path d="M290 200 L290 222" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#khoLeakArrow)" />
+  <text x="302" y="217" font-size="10.5" font-style="italic" fill="var(--hot-text,#b1241a)">spawn — diag flags severed here</text>
+
+  <path d="M290 270 L290 300" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#khoLeakArrow)" />
+  <text x="302" y="291" font-size="10.5" fill="var(--ink-muted,#8a8f98)">spawn (transient unit)</text>
+
+  <path d="M504 337 L556 337 L556 142 L496 142" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#khoLeakArrow)" />
+  <text x="572" y="240" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)" transform="rotate(-90 572 240)" font-family="ui-monospace,'SF Mono',Menlo,monospace">pty-host.sock</text>
 </svg>
 <figcaption style="margin-top:.5rem;font-size:.8rem;color:var(--faint,#7a8089);font-family:ui-sans-serif,system-ui,sans-serif">Where the leak lives, and why kaval ran blind: the home-manager diagnostics option reaches the <em>server</em> only; localDriver strips the heap-snapshot flag from NODE_OPTIONS before kaval — the one process that actually OOMs.</figcaption>
 </figure>
@@ -142,39 +158,51 @@ The 50 K was never for scrolling. <PrLink pr={416} /> bumped it from 10 K **for 
 The plan of record — which is also just what the field does (small hot buffer + deep history off the hot path + lazy backfill):
 
 <figure style="margin:1.75rem 0;text-align:center">
-<svg viewBox="0 0 600 360" width="100%" role="img" aria-label="Target: each PTY byte feeds a small in-RAM mirror and an on-disk transcript log; clients attach against the mirror and lazily backfill deep history from the log" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
+<svg viewBox="0 0 600 360" width="100%" role="img" aria-label="Target: each PTY byte feeds a small in-RAM mirror (hot path) and an on-disk transcript-log cylinder (cold store); clients attach against the small mirror and lazily backfill deep history from the log" style="max-width:600px;font:13px ui-sans-serif,system-ui,sans-serif">
   <defs>
-    <marker id="tgtArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    <marker id="khoTgtHot" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--good-stroke,#15803D)" />
+    </marker>
+    <marker id="khoTgtCold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--struct-stroke,#0D32B2)" />
     </marker>
   </defs>
 
-  <rect x="190" y="10" width="220" height="46" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
-  <text x="300" y="38" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">PTY child (node-pty) — raw bytes</text>
+  <rect x="190" y="10" width="220" height="46" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="300" y="32" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">PTY child (node-pty)</text>
+  <text x="300" y="48" text-anchor="middle" font-size="11" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">raw bytes</text>
 
-  <rect x="22" y="132" width="266" height="80" rx="8" fill="#eff6f0" stroke="#bce3c8" />
-  <text x="155" y="158" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">in-RAM mirror — SMALL</text>
-  <text x="155" y="177" text-anchor="middle" font-size="11.5" fill="#5b6b60">capped by bytes, not 50 K lines</text>
-  <text x="155" y="195" text-anchor="middle" font-size="11.5" fill="#5b6b60">viewport · metadata · scrape · repaint</text>
+  <text x="170" y="118" text-anchor="middle" font-size="11" font-weight="700" fill="var(--good-text,#166534)">HOT PATH · in RAM</text>
+  <rect x="70" y="148" width="200" height="56" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <text x="170" y="169" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#1a1d21)">mirror — SMALL</text>
+  <text x="170" y="186" text-anchor="middle" font-size="10.5" fill="var(--good-text,#166534)" font-family="ui-monospace,'SF Mono',Menlo,monospace">byte-capped, not 50 K</text>
+  <text x="170" y="199" text-anchor="middle" font-size="8" fill="var(--good-text,#166534)">viewport · metadata · scrape · repaint</text>
 
-  <rect x="312" y="132" width="266" height="80" rx="8" fill="#eff6f0" stroke="#bce3c8" />
-  <text x="445" y="158" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">transcript log on disk (#417)</text>
-  <text x="445" y="177" text-anchor="middle" font-size="11.5" fill="#5b6b60">raw PTY bytes · append-only</text>
-  <text x="445" y="195" text-anchor="middle" font-size="11.5" fill="#5b6b60">retention-capped (disk, not RAM)</text>
+  <text x="472" y="92" text-anchor="middle" font-size="11" font-weight="700" fill="var(--struct-stroke,#0D32B2)">COLD STORE · on disk</text>
+  <g>
+    <path d="M372 116 a100 13 0 0 0 200 0 v92 a100 13 0 0 1 -200 0 z" fill="var(--surface,#EDF0FD)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+    <ellipse cx="472" cy="116" rx="100" ry="13" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+    <text x="472" y="150" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">transcript log (#417)</text>
+    <text x="472" y="170" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">raw PTY bytes · append-only</text>
+    <text x="472" y="188" text-anchor="middle" font-size="9" fill="var(--struct-sub,#4A5072)">retention-capped (disk, deep store)</text>
+  </g>
 
-  <rect x="120" y="296" width="360" height="52" rx="8" fill="var(--surface,#fbfbfa)" stroke="var(--rule,#d9dce1)" />
-  <text x="300" y="319" text-anchor="middle" font-weight="600" fill="var(--ink,#1a1d21)">browser xterm</text>
-  <text x="300" y="337" text-anchor="middle" font-size="11.5" fill="var(--ink-muted,#8a8f98)">keeps its own visible scrollback</text>
+  <rect x="130" y="298" width="340" height="50" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="300" y="320" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">browser xterm</text>
+  <text x="300" y="337" text-anchor="middle" font-size="11" fill="var(--struct-sub,#4A5072)">keeps its own visible scrollback</text>
 
-  <path d="M268 56 L175 132" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
-  <text x="188" y="100" text-anchor="end" font-size="10.5" fill="var(--ink-muted,#8a8f98)">parse (live)</text>
-  <path d="M332 56 L425 132" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
-  <text x="412" y="100" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">append every byte</text>
-  <path d="M165 212 L255 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
-  <text x="150" y="262" text-anchor="end" font-size="10.5" fill="var(--ink-muted,#8a8f98)">attach: viewport + deltas</text>
-  <path d="M435 212 L345 296" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#tgtArrow)" />
-  <text x="440" y="250" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">lazy backfill</text>
-  <text x="440" y="264" text-anchor="start" font-size="10.5" fill="var(--ink-muted,#8a8f98)">(scroll · PDF · search)</text>
+  <path d="M268 56 L195 148" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#khoTgtHot)" />
+  <text x="200" y="104" text-anchor="end" font-size="10.5" font-style="italic" fill="var(--good-text,#166534)">parse (live)</text>
+  <path d="M340 56 L445 104" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#khoTgtCold)" />
+  <text x="400" y="88" text-anchor="end" font-size="10.5" font-style="italic" fill="var(--struct-sub,#4A5072)">append every byte</text>
+
+  <path d="M180 204 L255 298" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#khoTgtHot)" />
+  <text x="168" y="258" text-anchor="end" font-size="10.5" font-style="italic" fill="var(--good-text,#166534)">attach: viewport + deltas</text>
+  <text x="168" y="271" text-anchor="end" font-size="9.5" fill="var(--good-text,#166534)">(hot path)</text>
+
+  <path d="M468 234 L352 298" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#khoTgtCold)" />
+  <text x="436" y="256" text-anchor="end" font-size="10.5" font-style="italic" fill="var(--struct-sub,#4A5072)">lazy backfill</text>
+  <text x="436" y="269" text-anchor="end" font-size="9.5" fill="var(--struct-sub,#4A5072)">(cold: scroll · PDF · search)</text>
 </svg>
 <figcaption style="margin-top:.5rem;font-size:.8rem;color:var(--faint,#7a8089);font-family:ui-sans-serif,system-ui,sans-serif">Target shape. Every PTY byte feeds a <em>small</em> live mirror (viewport + just enough for metadata, scrape, cold repaint — capped by bytes) and appends to an on-disk transcript log (#417). Clients attach against the small mirror; deep scroll-back, PDF export, and search lazily backfill from the log — no live 50 K cell-grid retained per terminal, anywhere.</figcaption>
 </figure>

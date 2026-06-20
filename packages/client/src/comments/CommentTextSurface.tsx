@@ -56,8 +56,18 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
   // `createMemo` re-derives the store when `props.terminalId` changes,
   // so switching terminals re-reads the per-terminal queue.
   const comments = createMemo(() => useComments(props.terminalId));
+  // Filter to THIS surface's comments. Markdown's Source ⇄ Rendered toggle now
+  // keeps both surfaces mounted at once, so a path-only filter would feed each
+  // overlay the other surface's comments too — a prose quote ("Hello Doc")
+  // highlighted on the source view ("# Hello Doc") if it happened to match, and
+  // both surfaces racing to handle the same comment. A comment's `surface` is
+  // recorded only for multi-surface files (Markdown); single-surface views
+  // (plain source, diff) leave it and `props.surface` undefined, so the exact
+  // match still admits every comment there.
   const commentsForFile = createMemo(() =>
-    comments().commentsForPath(props.path),
+    comments()
+      .commentsForPath(props.path)
+      .filter((c) => c.surface === props.surface),
   );
   useHighlightOverlay({
     host,
@@ -68,6 +78,7 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
     // subtree mutation. Source / diff (line-anchored) ride contentTick alone —
     // their virtualized subtree churns on scroll and must not drive re-applies.
     observeMutations: !props.lineAnchored,
+    surface: () => props.surface,
   });
 
   return (

@@ -6,75 +6,114 @@
 <p>The strongest evidence isn’t speculative — <strong>it already exists, built by hand.</strong> odu’s <code>odu mcp</code> face (<a href="https://github.com/juspay/odu/pull/3" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
 #3 </a>, consumed in kolu <a href="https://github.com/juspay/kolu/pull/1258" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
 #1258 </a>) is exactly this adapter: it re-exposes the <code>oduSurface</code> to Claude Code / Codex / opencode / Gemini CLI as MCP tools and resources. So the core correspondence is <strong>validated, not hoped for</strong> — and shipping it taught us which 20% is the framework and which 80% is the consumer’s. This note is that lesson, turned into a scope.</p>
-<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 740" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="A @kolu/surface feeds the @kolu/surface-mcp adapter (generic spine + consumer gate), which serves an MCP host.">
+<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 740" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="A @kolu/surface (two shapes: fresh spec+handlers or a live odu socket) feeds the @kolu/surface-mcp adapter. The adapter splits into a framework-owned generic spine and a consumer-curated default-deny gate that fronts the MCP host.">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="mseam-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#0D32B2"/>
     </marker>
+    <marker id="mseam-arrow-gate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    </marker>
+    <filter id="mseam-gateglow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#B45309" flood-opacity="0.30"/>
+    </filter>
     <style>
-      .container { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
-      .mid       { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
+      .source    { fill:#E3E9FD; stroke:#0D32B2; stroke-width:1.5; }
+      .adapter   { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1.5; }
+      .spine     { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.5; }
       .leaf      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1; }
-      .host      { fill:#F7F8FE; stroke:#0D32B2; stroke-width:1.5; }
+      .gate      { fill:#FBF1DC; stroke:#B45309; stroke-width:2.5; }
+      .gateleaf  { fill:#FFFBF1; stroke:#B45309; stroke-width:1.25; }
+      .host      { fill:#E6F4EA; stroke:#15803D; stroke-width:1.5; }
       .title     { fill:#0D32B2; font-weight:700; font-size:14px; }
-      .grouptitle{ fill:#0D32B2; font-weight:600; font-size:13px; }
+      .titleamber{ fill:#92400E; font-weight:700; font-size:14px; }
+      .titlegreen{ fill:#14532d; font-weight:700; font-size:14px; }
+      .grouptitle{ fill:#0D32B2; font-weight:700; font-size:13px; }
+      .gtamber   { fill:#92400E; font-weight:700; font-size:13px; }
       .leaftext  { fill:#11203a; font-size:12px; }
+      .gateleaftext { fill:#7a4f00; font-size:12px; }
+      .mono      { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .sub       { fill:#4A5072; font-size:10.5px; }
+      .gatesub   { fill:#92400E; font-size:10.5px; font-weight:700; }
       .edge      { stroke:#0D32B2; stroke-width:2; fill:none; }
+      .edgegate  { stroke:#B45309; stroke-width:2.5; fill:none; }
       .edgelabel { fill:#0D32B2; font-size:11px; font-style:italic; }
+      .edgelabelg{ fill:#92400E; font-size:11px; font-style:italic; }
+      .ownbadge  { font-size:10px; font-weight:700; }
     </style>
   </defs>
 
-  <!-- TIER 1: source surface — two shapes -->
+  <!-- TIER 1: source surface — two shapes (bridge primary) -->
   <g>
-    <rect class="container" x="160" y="20" width="320" height="120" rx="8"/>
+    <rect class="source" x="160" y="20" width="320" height="124" rx="8"/>
     <text class="title" x="320" y="42" text-anchor="middle">a @kolu/surface — two shapes</text>
-    <rect class="leaf" x="180" y="56" width="280" height="34" rx="5"/>
-    <text class="leaftext" x="320" y="78" text-anchor="middle">fresh spec + handlers</text>
-    <rect class="leaf" x="180" y="98" width="280" height="34" rx="5"/>
-    <text class="leaftext" x="320" y="120" text-anchor="middle">live surface — odu's .ci/odu.sock</text>
+    <!-- bridge: primary shape (live socket) -->
+    <rect class="leaf" x="180" y="56" width="280" height="38" rx="5"/>
+    <text class="leaftext" x="320" y="74" text-anchor="middle">bridge a live surface <tspan class="sub">— primary</tspan></text>
+    <text class="leaftext mono" x="320" y="89" text-anchor="middle" font-size="11px">odu's .ci/odu.sock</text>
+    <!-- serve: thin composition -->
+    <rect class="leaf" x="180" y="100" width="280" height="34" rx="5"/>
+    <text class="leaftext" x="320" y="122" text-anchor="middle">serve a spec fresh — spec + handlers</text>
   </g>
 
   <!-- edge: source -> adapter -->
-  <path class="edge" d="M320 140 L320 178" marker-end="url(#arrow)"/>
-  <text class="edgelabel" x="330" y="163" text-anchor="start">serve fresh  OR  bridge live</text>
+  <path class="edge" d="M320 144 L320 180" marker-end="url(#mseam-arrow)"/>
+  <text class="edgelabel" x="330" y="166" text-anchor="start">bridge live  OR  serve fresh</text>
 
   <!-- TIER 2: adapter = generic spine (framework) + consumer gate -->
   <g>
-    <rect class="container" x="40" y="180" width="560" height="420" rx="8"/>
-    <text class="title" x="320" y="204" text-anchor="middle">@kolu/surface-mcp — shipped (#1270)</text>
+    <rect class="adapter" x="36" y="182" width="568" height="420" rx="10"/>
+    <text class="title" x="320" y="206" text-anchor="middle">@kolu/surface-mcp — shipped (#1270)</text>
 
-    <!-- spine: framework-owned, 4 leaves folded 2x2 (was a tall D2 column) -->
-    <rect class="mid" x="60" y="220" width="520" height="190" rx="6"/>
-    <text class="grouptitle" x="320" y="241" text-anchor="middle">generic spine — framework-owned</text>
-    <rect class="leaf" x="78"  y="254" width="244" height="62" rx="5"/>
-    <text class="leaftext" x="200" y="290" text-anchor="middle">primitive → resource / tool</text>
-    <rect class="leaf" x="328" y="254" width="244" height="62" rx="5"/>
-    <text class="leaftext" x="450" y="290" text-anchor="middle">subscribe/teardown lifecycle</text>
-    <rect class="leaf" x="78"  y="328" width="244" height="62" rx="5"/>
-    <text class="leaftext" x="200" y="364" text-anchor="middle">zod → JSON-Schema</text>
-    <rect class="leaf" x="328" y="328" width="244" height="62" rx="5"/>
-    <text class="leaftext" x="450" y="356" text-anchor="middle">stdout-is-the-protocol</text>
-    <text class="leaftext" x="450" y="372" text-anchor="middle">discipline</text>
+    <!-- SPINE: framework-owned, generic (brand blue) -->
+    <rect class="spine" x="56" y="218" width="528" height="184" rx="6"/>
+    <rect x="56" y="218" width="6" height="184" fill="#0D32B2"/>
+    <text class="grouptitle" x="76" y="240" text-anchor="start">generic spine</text>
+    <text class="ownbadge" x="568" y="240" text-anchor="end" fill="#0D32B2">FRAMEWORK-OWNED</text>
+    <rect class="leaf" x="74"  y="250" width="244" height="64" rx="5"/>
+    <text class="leaftext" x="196" y="278" text-anchor="middle">primitive → resource / tool</text>
+    <text class="sub" x="196" y="296" text-anchor="middle">the 1:1 map (the demo)</text>
+    <rect class="leaf" x="322" y="250" width="244" height="64" rx="5"/>
+    <text class="leaftext" x="444" y="278" text-anchor="middle">subscribe / teardown lifecycle</text>
+    <text class="sub" x="444" y="296" text-anchor="middle">ResourcePusher — the month</text>
+    <rect class="leaf" x="74"  y="322" width="244" height="64" rx="5"/>
+    <text class="leaftext mono" x="196" y="350" text-anchor="middle" font-size="11.5px">zod → JSON-Schema</text>
+    <text class="sub" x="196" y="368" text-anchor="middle">z.toJSONSchema() · 2020-12</text>
+    <rect class="leaf" x="322" y="322" width="244" height="64" rx="5"/>
+    <text class="leaftext" x="444" y="350" text-anchor="middle">stdout-is-the-protocol</text>
+    <text class="sub" x="444" y="368" text-anchor="middle">via serveOverStdio discipline</text>
 
-    <!-- gate: consumer curation, default-deny -->
-    <rect class="mid" x="60" y="424" width="520" height="158" rx="6"/>
-    <text class="grouptitle" x="320" y="445" text-anchor="middle">consumer curation — default-deny</text>
-    <rect class="leaf" x="78"  y="460" width="244" height="104" rx="5"/>
-    <text class="leaftext" x="200" y="506" text-anchor="middle">expose · project</text>
-    <text class="leaftext" x="200" y="522" text-anchor="middle">bespoke tools</text>
-    <rect class="leaf" x="328" y="460" width="244" height="104" rx="5"/>
-    <text class="leaftext" x="450" y="506" text-anchor="middle">guards ·</text>
-    <text class="leaftext" x="450" y="522" text-anchor="middle">observer/mutator authz</text>
+    <!-- GATE: consumer-curated, default-deny (amber, gate shape, emphasis) -->
+    <!-- notched/gate shape: rounded rect with a top center notch + halo glow -->
+    <g filter="url(#mseam-gateglow)">
+      <path class="gate" d="M66 432 L294 432 L308 420 L322 432 L574 432
+                            a8 8 0 0 1 8 8 L582 580 a8 8 0 0 1 -8 8
+                            L74 588 a8 8 0 0 1 -8 -8 L66 440 a8 8 0 0 1 0 -8 Z"/>
+    </g>
+    <text class="gtamber" x="84" y="456" text-anchor="start">consumer gate</text>
+    <text class="gatesub" x="84" y="472" text-anchor="start">DEFAULT-DENY — nothing reaches the agent unopted</text>
+    <text class="ownbadge" x="566" y="456" text-anchor="end" fill="#92400E">CONSUMER-CURATED · not free</text>
+
+    <rect class="gateleaf" x="80"  y="484" width="234" height="92" rx="5"/>
+    <text class="gateleaftext" x="197" y="512" text-anchor="middle">expose · project</text>
+    <text class="gateleaftext" x="197" y="530" text-anchor="middle">bespoke tools</text>
+    <text class="gatesub" x="197" y="556" text-anchor="middle" font-weight="400" font-size="10.5px">surface the four good tools</text>
+    <rect class="gateleaf" x="326" y="484" width="234" height="92" rx="5"/>
+    <text class="gateleaftext" x="443" y="512" text-anchor="middle">guards ·</text>
+    <text class="gateleaftext" x="443" y="530" text-anchor="middle">observer / mutator authz</text>
+    <text class="gatesub" x="443" y="556" text-anchor="middle" font-weight="400" font-size="10.5px">keep the dangerous verb off the wire</text>
   </g>
 
-  <!-- edge: adapter -> host -->
-  <path class="edge" d="M320 600 L320 658" marker-end="url(#arrow)"/>
-  <text class="edgelabel" x="330" y="635" text-anchor="start">tools · resources · notifications/*</text>
+  <!-- edge: gate -> host (amber: the gate decides what crosses) -->
+  <path class="edgegate" d="M320 602 L320 658" marker-end="url(#mseam-arrow-gate)"/>
+  <text class="edgelabelg" x="330" y="626" text-anchor="start">tools · resources · notifications/*</text>
+  <text class="edgelabelg" x="330" y="642" text-anchor="start" font-size="10.5px">— only what the gate allows onto the wire</text>
 
   <!-- TIER 3: MCP host -->
   <g>
-    <rect class="host" x="120" y="660" width="400" height="56" rx="8"/>
-    <text class="title" x="320" y="694" text-anchor="middle">MCP host — Claude · Codex · opencode · Gemini</text>
+    <rect class="host" x="118" y="660" width="404" height="58" rx="8"/>
+    <text class="titlegreen" x="320" y="685" text-anchor="middle">MCP host</text>
+    <text class="leaftext" x="320" y="704" text-anchor="middle" fill="#166534">Claude · Codex · opencode · Gemini</text>
   </g>
 </svg>
  <figcaption data-astro-cid-rhux3v4s>Where the seam falls, read top to bottom. A surface (in either of two shapes) feeds the generic spine — mapping + subscribe/teardown lifecycle + zod→JSON-Schema + stdout discipline — the framework primitive worth extracting. Downstream of it, fronting the host, sits the selection/authz gate: NOT free, per-surface curation the consumer must write, and exactly what keeps the dangerous procedure off the wire.</figcaption> </figure>
@@ -230,57 +269,64 @@
 <p><code>oduAgentSurface</code> is a surface that is itself a <strong>client of <code>oduSurface</code></strong> — and odu’s coordinator already <em>is</em> a server-that’s-a-client, so this is in-grain — served as a <strong>sibling</strong> of <code>oduSurface</code> over the same transport.</p>
 <figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 648" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="oduSurface (A, live) feeds the NEW projectSurface primitive, which serves the curated observer-safe oduAgentSurface (B); every face maps B one-to-one.">
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#64748b"/>
+    <marker id="mproj-arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0D32B2"/>
+    </marker>
+    <marker id="mproj-arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    </marker>
+    <marker id="mproj-arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
     </marker>
     <style>
       .leaftext  { font-size:12px; }
       .grouptitle{ font-weight:700; font-size:14px; }
-      .edge      { stroke:#94a3b8; stroke-width:2; fill:none; }
-      .edgelabel { fill:#475569; font-size:11px; font-style:italic; }
+      .edgelabel { fill:#3f444b; font-size:11px; font-style:italic; }
+      .mono      { font-family:ui-monospace,"SF Mono",Menlo,monospace; }
     </style>
   </defs>
 
-  <!-- A: live coordinator (neutral blue) -->
+  <!-- A: live coordinator (neutral blue — today's spine) -->
   <g>
     <rect x="120" y="20" width="400" height="106" rx="8" fill="#E3E9FD" stroke="#0D32B2" stroke-width="1.5"/>
     <text class="grouptitle" x="320" y="46" text-anchor="middle" fill="#0D32B2">oduSurface (A) — live coordinator</text>
     <rect x="140" y="60" width="360" height="48" rx="5" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1"/>
-    <text class="leaftext" x="320" y="89" text-anchor="middle" fill="#11203a">nodes cell · nodeLog stream · node.rerun</text>
+    <text class="leaftext mono" x="320" y="89" text-anchor="middle" fill="#11203a">nodes cell · nodeLog stream · node.rerun</text>
   </g>
-  <path class="edge" d="M320 126 L320 162" marker-end="url(#arrow)"/>
+  <path d="M320 126 L320 162" fill="none" stroke="#0D32B2" stroke-width="2" marker-end="url(#mproj-arrow-blue)"/>
   <text class="edgelabel" x="330" y="148" text-anchor="start">client of A</text>
 
-  <!-- projectSurface: the NEW primitive (amber accent — the thing this PR adds) -->
+  <!-- projectSurface: THE SUBJECT — the NEW primitive (amber, halo + heavy stroke) -->
   <g>
-    <rect x="60" y="164" width="520" height="178" rx="8" fill="#FBF1DC" stroke="#B45309" stroke-width="1.75"/>
-    <text class="grouptitle" x="320" y="190" text-anchor="middle" fill="#92400E">projectSurface(A, …) — NEW in @kolu/surface</text>
-    <rect x="80" y="204" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
-    <text class="leaftext" x="320" y="228" text-anchor="middle" fill="#5b3608">surfaceClientRef — B reads a live A client</text>
-    <rect x="80" y="250" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
-    <text class="leaftext" x="320" y="274" text-anchor="middle" fill="#5b3608">derive — settled · red · bounded/guarded log</text>
-    <rect x="80" y="296" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#E0B463" stroke-width="1"/>
-    <text class="leaftext" x="320" y="320" text-anchor="middle" fill="#5b3608">stream teardown — shared with the spine</text>
+    <rect x="56" y="160" width="528" height="186" rx="11" fill="none" stroke="#B45309" stroke-width="1" opacity="0.28"/>
+    <rect x="60" y="164" width="520" height="178" rx="8" fill="#FBF1DC" stroke="#B45309" stroke-width="2.5"/>
+    <text class="grouptitle" x="320" y="190" text-anchor="middle" fill="#92400E"><tspan font-size="15">projectSurface(A, …)</tspan> — NEW in @kolu/surface</text>
+    <rect x="80" y="204" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#B45309" stroke-width="1"/>
+    <text class="leaftext" x="320" y="228" text-anchor="middle" fill="#7a4f00"><tspan class="mono">surfaceClientRef</tspan> — B reads a live A client</text>
+    <rect x="80" y="250" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#B45309" stroke-width="1"/>
+    <text class="leaftext" x="320" y="274" text-anchor="middle" fill="#7a4f00"><tspan class="mono">derive</tspan> — settled · red · bounded/guarded log</text>
+    <rect x="80" y="296" width="480" height="38" rx="5" fill="#FFFBF1" stroke="#B45309" stroke-width="1"/>
+    <text class="leaftext" x="320" y="320" text-anchor="middle" fill="#7a4f00">stream teardown — shared with the spine</text>
   </g>
-  <path class="edge" d="M320 342 L320 378" marker-end="url(#arrow)"/>
-  <text class="edgelabel" x="330" y="364" text-anchor="start">serves B, a sibling of A</text>
+  <path d="M320 346 L320 378" fill="none" stroke="#B45309" stroke-width="2.5" marker-end="url(#mproj-arrow-amber)"/>
+  <text class="edgelabel" x="330" y="365" text-anchor="start">serves B, a sibling of A</text>
 
-  <!-- B: curated, observer-safe projection (green — the safety property) -->
+  <!-- B: curated, observer-safe projection (green — the safety guarantee) -->
   <g>
-    <rect x="120" y="380" width="400" height="106" rx="8" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5"/>
+    <rect x="120" y="380" width="400" height="106" rx="8" fill="#E6F4EA" stroke="#15803D" stroke-width="2"/>
     <text class="grouptitle" x="320" y="406" text-anchor="middle" fill="#15803D">oduAgentSurface (B) — curated, observer-safe</text>
-    <rect x="140" y="420" width="360" height="48" rx="5" fill="#F4FBF6" stroke="#9BD3AC" stroke-width="1"/>
-    <text class="leaftext" x="320" y="449" text-anchor="middle" fill="#14532d">nodes(+red) · log · settled · node.rerun</text>
+    <rect x="140" y="420" width="360" height="48" rx="5" fill="#EAF6EC" stroke="#15803D" stroke-width="1"/>
+    <text class="leaftext mono" x="320" y="449" text-anchor="middle" fill="#14532d">nodes(+red) · log · settled · node.rerun</text>
   </g>
-  <path class="edge" d="M320 486 L320 522" marker-end="url(#arrow)"/>
+  <path d="M320 486 L320 522" fill="none" stroke="#15803D" stroke-width="2" marker-end="url(#mproj-arrow-green)"/>
   <text class="edgelabel" x="330" y="508" text-anchor="start">1:1</text>
 
-  <!-- faces: every face maps B 1:1 (neutral blue) -->
+  <!-- faces: every face maps B 1:1 (neutral blue — structure) -->
   <g>
     <rect x="120" y="524" width="400" height="100" rx="8" fill="#E3E9FD" stroke="#0D32B2" stroke-width="1.5"/>
     <text class="grouptitle" x="320" y="550" text-anchor="middle" fill="#0D32B2">every face maps B 1:1</text>
     <rect x="140" y="564" width="360" height="44" rx="5" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1"/>
-    <text class="leaftext" x="320" y="591" text-anchor="middle" fill="#11203a">TUI · web · @kolu/surface-mcp (+ bespoke run)</text>
+    <text class="leaftext mono" x="320" y="591" text-anchor="middle" fill="#11203a">TUI · web · @kolu/surface-mcp (+ bespoke run)</text>
   </g>
 </svg>
  <figcaption data-astro-cid-rhux3v4s>projectSurface, in one PR. oduAgentSurface (B, green = observer-safe) is a curated projection of the live oduSurface (A), served as a sibling of the NEW projectSurface primitive (amber). Every face — TUI, web, and @kolu/surface-mcp — maps B 1:1; a projected stream&#39;s teardown is the same lifecycle the adapter spine builds, so it&#39;s solved once. Genuinely call-shaped bits (run) ride the adapter as bespoke tools, not forced through surface.</figcaption> </figure>

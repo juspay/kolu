@@ -13,6 +13,7 @@ const valid: SavedSession = {
   terminals: [
     {
       id: "t1",
+      state: "active",
       cwd: "/home/user",
       git: null,
       location: LOCAL_LOCATION,
@@ -48,5 +49,30 @@ describe("parseSavedSession", () => {
     expect(() => parseSavedSession(JSON.stringify(bad))).toThrow(
       /valid kolu session export/,
     );
+  });
+
+  it("backfills a legacy export missing state/location so the recovery hatch works", () => {
+    // A `kolu-session.json` exported before the schema gained the now-required
+    // `state` discriminant (and `location`). The export pre-dates the migration
+    // ladder, so without the import-side backfill the discriminated schema
+    // rejects it and the recovery hatch can't recover the very backup it exists
+    // for. `lastActivityAt` rides through verbatim — it predates these bumps.
+    const legacy = {
+      terminals: [
+        { id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 },
+      ],
+      activeTerminalId: "t1",
+      savedAt: 1_700_000_000_000,
+    };
+    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+      ...legacy,
+      terminals: [
+        {
+          ...legacy.terminals[0],
+          state: "active",
+          location: LOCAL_LOCATION,
+        },
+      ],
+    });
   });
 });

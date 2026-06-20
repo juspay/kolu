@@ -4,7 +4,8 @@
  *  alert text actually tells the user which terminal needs attention.
  *  PR info, when resolved, rides as a description sub-line. */
 
-import { prLabel, prValue } from "anyforge/schemas";
+import { prLabel } from "anyforge/schemas";
+import { activePr } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 export type TerminalSubject = { title: string; description?: string };
@@ -18,7 +19,7 @@ export function terminalSubject(
   const title = meta.git
     ? `${key.group}/${key.label}${key.suffix ?? ""}`
     : key.label;
-  const pr = prValue(meta.pr);
+  const pr = activePr(meta);
   if (pr) return { title, description: prLabel(pr) };
   return { title };
 }

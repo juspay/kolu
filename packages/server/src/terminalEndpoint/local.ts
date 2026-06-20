@@ -25,10 +25,10 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import { LOCAL_LOCATION } from "kolu-common/surface";
 import type {
-  SavedTerminal,
+  ActiveTerminal,
+  SavedActiveTerminal,
   TerminalId,
   TerminalInfo,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -305,14 +305,14 @@ interface TerminalLifecycle {
  *  so it stays null until the title tap fires. */
 function liveForeground(
   liveEntry: PtyHostListEntry,
-): TerminalMetadata["foreground"] {
+): ActiveTerminal["foreground"] {
   return liveEntry.foregroundProcess
     ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
     : null;
 }
 
-/** The whole-record adoption mapping (B3.3): a `SavedTerminal`'s persisted fields
- *  become a live `TerminalMetadata` as a UNIT — `createMetadata` seeds the
+/** The whole-record adoption mapping (B3.3): a `SavedActiveTerminal`'s persisted
+ *  fields become a live `ActiveTerminal` as a UNIT — `createMetadata` seeds the
  *  live-field defaults (pr/agent re-derived by the sensors against the
  *  surviving taps), then the persisted record is spread on **whole**, never
  *  reconstructed field-by-field (the #1275 lossy-adoption class that dropped
@@ -330,9 +330,9 @@ function liveForeground(
  *  live truth. The survivor's listed `cwd` wins; the git sensor re-resolves
  *  against it on start. */
 export function adoptedMeta(
-  record: SavedTerminal,
+  record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): TerminalMetadata {
+): ActiveTerminal {
   const { id: _id, ...persisted } = record;
   return {
     ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
@@ -350,7 +350,7 @@ export function adoptedMeta(
  *  never made it to disk is gone, but the live shell and its scrollback survive,
  *  which is the headline guarantee; the sensors re-derive git/agent/pr from the
  *  surviving taps. */
-export function orphanMeta(liveEntry: PtyHostListEntry): TerminalMetadata {
+export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
   return {
     ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
     foreground: liveForeground(liveEntry),
@@ -384,7 +384,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    const meta: TerminalMetadata = { ...createMetadata(cwd, LOCAL_LOCATION) };
+    const meta: ActiveTerminal = { ...createMetadata(cwd, LOCAL_LOCATION) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
@@ -420,7 +420,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
   adoptTerminal(
     id: TerminalId,
-    meta: TerminalMetadata,
+    meta: ActiveTerminal,
     liveEntry: PtyHostListEntry,
   ): void {
     const tlog = log.child({ terminal: id });
@@ -764,7 +764,7 @@ export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
  *  is local-only today — P3's remote-host adoption is an additive sibling, not
  *  a retrofit of the shared interface. */
 export function adoptLocalTerminal(
-  record: SavedTerminal,
+  record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
 ): void {
   localEndpointImpl.adoptTerminal(

@@ -8,7 +8,7 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
@@ -59,7 +59,7 @@ const TileTitleActions: Component<{
 
   return (
     <>
-      <Show when={meta()?.agent}>
+      <Show when={activeArm(meta())?.agent}>
         {(agent) => (
           <button
             type="button"

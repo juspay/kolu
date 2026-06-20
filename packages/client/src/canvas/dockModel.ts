@@ -1,4 +1,10 @@
-import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import {
+  activeArm,
+  type AgentInfo,
+  type PrResult,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { matchesAllTokens, tokenize } from "../search";
 import {
   IDLE_BUCKETS,
@@ -207,6 +213,16 @@ export function agentBucket(
   return "none";
 }
 
+/** Bucket a terminal by its live agent — `agentBucket` over the active arm. A
+ *  sleeping/absent terminal has no live agent, so it folds to the idle/"none"
+ *  bucket. The single fold so presence surfaces (dock rows, minimap badge,
+ *  canvas aura) don't re-spell the active-narrow + bucket at every call site. */
+export function metaBucket(
+  meta: TerminalMetadata,
+): Exclude<AgentBucketKind, "idle"> {
+  return agentBucket(activeArm(meta)?.agent);
+}
+
 /** Classify a terminal into a switcher column. Parked terminals (last
  *  agent transition older than the activity-window threshold, surfaced via
  *  the idle classifier as a non-null sub-bucket key) route to "idle"
@@ -222,7 +238,7 @@ export function entryBucket(
   idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
 ): AgentBucketKind {
   if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
-  return agentBucket(info.meta.agent);
+  return metaBucket(info.meta);
 }
 
 const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
@@ -247,8 +263,8 @@ function add(values: string[], value: unknown): void {
   values.push(String(value));
 }
 
-function prSearchFields(info: TerminalDisplayInfo): string[] {
-  const pr = info.meta.pr;
+function prSearchFields(pr: PrResult | undefined): string[] {
+  if (!pr) return []; // sleeping/absent: no live PR
   switch (pr.kind) {
     case "ok":
       return [
@@ -275,12 +291,14 @@ function searchTextFor(entry: {
 }): string {
   const { info } = entry;
   const git = info.meta.git;
-  const fg = info.meta.foreground;
-  const agent = info.meta.agent;
+  // sleeping/absent terminal has no live overlay (arm undefined → fields undefined)
+  const arm = activeArm(info.meta);
+  const fg = arm?.foreground;
+  const agent = arm?.agent;
   const values: string[] = [
     entry.repoName,
     entry.label,
-    ...prSearchFields(info),
+    ...prSearchFields(arm?.pr),
   ];
 
   add(values, entry.suffix);
@@ -349,7 +367,7 @@ export function buildDockModel(
     return {
       ...baseFields,
       searchText,
-      bucket: agentBucket(source.info.meta.agent),
+      bucket: metaBucket(source.info.meta),
     };
   });
 
