@@ -31,6 +31,7 @@ Status: <Pill variant="new">open</Pill> → <Pill variant="run">fixing</Pill> �
 | Selected file survives switching to another terminal and back [branch] (`code-tab.feature:148`) | `e2e@aarch64-darwin` | tree never hydrated — branch-mode gitStatus stuck on `BASE_BRANCH_NOT_FOUND` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Regaining window focus repaints a render-stalled terminal (`render_recovery.feature:16`) | `e2e@aarch64-darwin` | `AssertionError` — screen not repainted on focus regain | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 | Close sub-terminal via tab close button (`sub-terminal.feature:107`) | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close; recovered on retry) | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
+| Scroll on terminal does not pan the canvas (`canvas.feature:161`) | `e2e@aarch64-darwin` | tile-centering pan raced the recorded baseline → `canvas transform changed unexpectedly` | <PrLink pr={1440} /> | <Pill variant="run">fixing</Pill> | <PrLink pr={1440} /> |
 
 ## Logging a flake
 

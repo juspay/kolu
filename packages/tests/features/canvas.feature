@@ -159,12 +159,19 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
 
   Scenario: Scroll on terminal does not pan the canvas
+    # Settle the freshly-created tile's centering animation before recording the
+    # baseline — otherwise the centering pan races the assert and the transform
+    # "changes" on its own (the darwin flake: a ~488px horizontal centering pan).
+    Given the active canvas tile should be centered in the viewport
     When I record the canvas transform
     And I scroll the wheel over the terminal tile
     Then the canvas transform should not have changed
     And there should be no page errors
 
   Scenario: Scroll on canvas background pans the canvas
+    # Same centering settle as above so the recorded baseline is stable and the
+    # asserted change comes from the wheel pan, not a mid-flight centering.
+    Given the active canvas tile should be centered in the viewport
     When I record the canvas transform
     And I scroll the wheel over the canvas background
     Then the canvas transform should have changed
