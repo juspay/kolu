@@ -80,8 +80,10 @@ export function rankDockRows(
   isStale: (lastActivityAt: number) => boolean,
   /** A sleeping (frozen, PTY-released) tile — its `meta` is synthesized from the
    *  record, so liveness can't be read off the agent. The registry decides it.
-   *  Defaults to "never sleeping" for callers that only have live terminals. */
-  isSleeping: (id: TerminalId) => boolean = () => false,
+   *  Required (no "never sleeping" default): "is this row sleeping" is an
+   *  intrinsic ranking input, so every caller declares its policy explicitly — a
+   *  test with no sleeping tiles passes `() => false` visibly, not by omission. */
+  isSleeping: (id: TerminalId) => boolean,
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {

@@ -39,6 +39,7 @@ function bucket(meta: TerminalMetadata, stale: boolean): DockRowBucket {
     ["t1"] as TerminalId[],
     () => meta,
     () => stale,
+    () => false, // no sleeping tiles in these bucket-precedence cases
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
@@ -94,6 +95,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       ["t1"] as TerminalId[],
       () => meta,
       () => true,
+      () => false, // no sleeping tiles — this case asserts agent identity preservation
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
