@@ -1751,6 +1751,38 @@ Feature: Code tab (review + browse)
     Then the file view should be showing "rendered"
     And the markdown preview should be visible
 
+  # Regression (keep-alive): both Source ⇄ Rendered surfaces are now mounted at
+  # once, so a path-only comment filter would let the WRONG surface consume the
+  # tray-jump scroll request. The quote here ("# Heading Src") exists only in the
+  # source view — the rendered preview drops the `#` ("Heading Src") — so a prose
+  # overlay handling it would find nothing and clear the request before the
+  # source overlay scrolls. Surface-keyed comments + scroll gating route the jump
+  # to Source: the toggle flips back and the source quote highlights. (Mirror of
+  # the prose-jump scenario above, in the opposite direction.)
+  Scenario: Tray jump returns to the Source Markdown surface
+    When I run "rm -rf /tmp/kolu-comments-md-src-jump && git init /tmp/kolu-comments-md-src-jump && cd /tmp/kolu-comments-md-src-jump"
+    And I run "printf '# Heading Src\n\nbody text\n' > README.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    When I switch the file view to "source"
+    Then the file view should be showing "source"
+    And the file content should contain "# Heading Src"
+    When I select text "# Heading Src" in the file content
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "source-only comment" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "source-only comment"
+    # Move to Rendered (no remount — the file stays open), so the jump must flip
+    # the toggle back to Source where the `#`-prefixed quote lives.
+    When I switch the file view to "rendered"
+    Then the file view should be showing "rendered"
+    When I click the tray comment "source-only comment"
+    Then the file view should be showing "source"
+    And the comment highlight should be present
+
   # Regression: a tray jump to a comment with NO source lineRange (a
   # rendered-Markdown / prose comment) used to bypass the history front door —
   # it set the browse view + selection directly without recording. Back/forward

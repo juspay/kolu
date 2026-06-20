@@ -103,13 +103,16 @@ Scaling the reproduction's image count to the map's "50-image file view":
 |---|---|---|
 | one Source⇄Rendered round-trip | 1 remount + 1 sanitize (**50** image-resolutions) | **0** — a CSS `display` flip |
 | three round-trips | **150** image-resolutions + 3× re-parse/sanitize/highlight/DOM-reparse | **0** |
-| content save | remount + re-sanitize | **in-place** memo re-run (no remount) + re-sanitize |
+| content save (visible mode) | re-sanitize | re-sanitize (still rebuilds the *shown* appliance under the snapshot contract) |
+| content save (hidden mode) | re-sanitize | **deferred** — no re-render until that mode is next shown |
 
-A keep-alive prototype (render both modes once, thread `file` reactively, toggle
-visibility) **eliminates the toggle re-sanitize entirely** and — because
-`markdown` is already a reactive getter — converts a content save from a *remount*
-into a cheaper *in-place* memo re-run, while still re-rendering correctly. The core
-mechanism is validated.
+A keep-alive prototype (render both modes once, hide the inactive one) **eliminates
+the toggle re-sanitize entirely**: a Source⇄Rendered round-trip with no intervening
+edit is a pure `display` flip — **zero** marked → DOMPurify → image-resolve → Shiki
+runs. The win is the toggle, not the edit: under the kept `render(file)` snapshot
+contract a content save still rebuilds the *visible* appliance (reload-on-edit
+intact), but an edit to the *hidden* mode is deferred until it's shown, so a save
+never re-renders both modes at once. The core mechanism is validated.
 
 ### The fix: keep both toggle modes alive
 

@@ -57,6 +57,16 @@ export interface OverlayOptions {
    *  scroll, and a MutationObserver there would thrash — those re-finds ride
    *  `contentTick` + the scroll-request rAF instead. */
   observeMutations?: boolean;
+  /** Which browse surface this overlay belongs to, when the file is
+   *  multi-surface (Markdown's Source ⇄ Rendered). Since the keep-alive toggle
+   *  now mounts BOTH surfaces at once, the overlay only owns the scroll request
+   *  whose `surface` matches — otherwise the hidden/wrong surface, whose effect
+   *  re-runs independently (its own `domTick`), could consume-and-clear a
+   *  request meant for the other surface (a prose-only quote that doesn't exist
+   *  in source, or vice versa), so the intended surface never scrolls. Undefined
+   *  for single-surface views (plain source, diff) — those match a request with
+   *  no surface. */
+  surface?: Accessor<"source" | "prose" | undefined>;
 }
 
 export function useHighlightOverlay(opts: OverlayOptions): void {
@@ -126,6 +136,13 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     // renders — the DOM may have been replaced).
     const req = scroll.request();
     if (!req) return;
+    // Only the overlay whose surface matches the request owns it. Both
+    // Source ⇄ Rendered surfaces are kept alive now, so without this gate the
+    // wrong surface could find-or-fail and `scroll.clear()` the request before
+    // the intended surface — re-running on its own `domTick` (lazy Shiki/
+    // markdown swap) — gets to scroll. `undefined === undefined` matches the
+    // single-surface views (plain source, diff) against a surface-less request.
+    if (req.surface !== opts.surface?.()) return;
     const target = comments.find((c) => c.id === req.commentId);
     if (!target) return;
     const text = rootTextContent(root);
