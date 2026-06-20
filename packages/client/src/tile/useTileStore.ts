@@ -24,6 +24,7 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
+import { isSleeping } from "kolu-common/surface";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
@@ -55,7 +56,7 @@ export const useTileStore = createSharedRoot(() => {
   const contentOf = (id: TileId): TileContent | undefined => {
     const meta = store.getMetadata(id);
     if (!meta) return undefined;
-    return meta.state === "sleeping"
+    return isSleeping(meta)
       ? { kind: "sleeping", terminalId: id }
       : { kind: "terminal", terminalId: id };
   };

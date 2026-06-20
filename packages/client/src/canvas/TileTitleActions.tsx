@@ -8,7 +8,7 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
-import { activeArm, type TerminalId } from "kolu-common/surface";
+import { activeArm, isSleeping, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
@@ -49,7 +49,7 @@ const TileTitleActions: Component<{
   // A sleeping tile has no live PTY, so its terminal-scoped affordances
   // (find / screenshot / split / theme) are suppressed; the ☾ Sleep button
   // swaps to Wake.
-  const sleeping = () => meta()?.state === "sleeping";
+  const sleeping = () => isSleeping(meta());
   const themeName = () =>
     store.activeId() === props.id ? activeThemeName() : meta()?.themeName;
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;

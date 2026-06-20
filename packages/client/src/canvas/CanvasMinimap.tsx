@@ -1,5 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
+import { isSleeping } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
@@ -336,7 +337,7 @@ const CanvasMinimap: Component<{
               // is NEVER morphed to the parked ghost regardless of age (sleep is
               // not staleness). Suppress `parked` when sleeping so the ghost
               // branch can't fire.
-              const sleeping = i.meta.state === "sleeping";
+              const sleeping = isSleeping(i.meta);
               return {
                 bucket: metaBucket(i.meta),
                 parked: !sleeping && isParked(i.meta.lastActivityAt),

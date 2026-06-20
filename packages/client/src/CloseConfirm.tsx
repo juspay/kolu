@@ -5,6 +5,7 @@
 import Dialog from "@corvu/dialog";
 import {
   activePr,
+  isSleeping,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
@@ -64,7 +65,7 @@ const CloseConfirm: Component<{
   // A sleeping tile has no PTY — closing it DISCARDS the frozen record. Same
   // dialog (still driven off the persisted git/worktree info), reworded so the
   // user reads "discard", not "kill".
-  const sleeping = () => props.target?.meta.state === "sleeping";
+  const sleeping = () => isSleeping(props.target?.meta);
   const closeLabel = () =>
     sleeping()
       ? "Discard sleeping terminal"

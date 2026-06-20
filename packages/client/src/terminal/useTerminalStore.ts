@@ -9,7 +9,7 @@
  *  store, so derivations like `getDisplayInfo` and `getMetadata` flow
  *  without prop-drilling lookup functions through layout components. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { activeArm, sleepingArm, type TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { useViewState } from "../useViewState";
@@ -45,7 +45,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // focuses, never wakes) but has no PTY to route input to — so there is no
     // focused TERMINAL. Input-routing callers (copy-pane-text,
     // run-in-active-terminal, the mobile key bar) already null-check this.
-    if (metadata.getMetadata(parentId)?.state === "sleeping") return null;
+    if (sleepingArm(metadata.getMetadata(parentId))) return null;
     const panel = subPanel.getSubPanel(parentId);
     return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
       ? panel.activeSubTab
@@ -67,7 +67,7 @@ export const useTerminalStore = createSharedRoot(() => {
     const live = new Set(
       metadata
         .terminalIds()
-        .filter((id) => metadata.getMetadata(id)?.state === "active"),
+        .filter((id) => activeArm(metadata.getMetadata(id))),
     );
     const ordered = view.mruOrder().filter((id) => live.has(id));
     // `tileWebglCost` is the one home for a tile's context cost (main pane + an

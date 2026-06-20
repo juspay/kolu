@@ -7,7 +7,7 @@
  *  `bucketDescriptor` (and its own `isParked` staleness). No new state, no new
  *  clock — just a fold of the three existing inputs into `tileAura`. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { isSleeping, type TerminalId } from "kolu-common/surface";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { metaBucket } from "./dockModel";
@@ -22,7 +22,7 @@ export function useTileAura(): (id: TerminalId) => TileAura {
     // The single decoupling point: a sleeping tile's moonlit ring is keyed
     // PURELY on state, before the live fold — never on staleness or bucket
     // (a long-slept tile must read dormant, not "parked to none").
-    if (meta.state === "sleeping") return "sleeping";
+    if (isSleeping(meta)) return "sleeping";
     return tileAura(
       metaBucket(meta),
       store.isUnread(id),

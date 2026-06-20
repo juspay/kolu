@@ -4,7 +4,7 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
-import type { TerminalId } from "kolu-common/surface";
+import { isSleeping, type TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -58,7 +58,7 @@ function init() {
     // A sleeping terminal's theme is frozen on its immutable record — there is
     // no live terminal to re-theme, and the server has no setTheme path for a
     // sleeping id. Guard so the active-but-sleeping tile is a no-op.
-    if (store.getMetadata(id)?.state === "sleeping") return;
+    if (isSleeping(store.getMetadata(id))) return;
     setThemeName(id, themeName);
   }
 

@@ -14,7 +14,7 @@
 
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
-import { sleepingArm, type TerminalId } from "kolu-common/surface";
+import { isSleeping, sleepingArm, type TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
@@ -367,7 +367,7 @@ const App: Component = () => {
           // A sleeping tile has no PTY to kill — closing it DISCARDS the frozen
           // record (the same confirm, reworded). Routes to discardSleeping, not
           // a kill.
-          if (target.meta.state === "sleeping") {
+          if (isSleeping(target.meta)) {
             void session.handleDiscardSleeping(target.id);
           } else {
             void crud.handleKillWithSubs(target.id);
