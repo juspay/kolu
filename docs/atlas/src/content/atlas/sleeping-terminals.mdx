@@ -125,9 +125,10 @@ You asked for **Sleep**: leave a Claude Code terminal blocked for days, sleep it
 and **wake** it later in place with the agent resumed.
 
 The model is one move: make the terminal a sum — **`Terminal = active | sleeping`**.
-A dormant terminal is a *state* on the same record, so it inherits focus, drag,
-dock ordering, and persistence for free — it *is* the terminal the canvas already
-renders, just without a PTY. Four phased PRs; the first is a zero-behavior-change
+A dormant terminal carries the same persisted base — cwd, git, intent, its
+`canvasLayout` slot — so it keeps the canvas position, dock order, and persistence
+the live terminal had: it lives in the *one* terminal list the canvas already
+iterates, just without a PTY. Four phased PRs; the first is a zero-behavior-change
 foundation.
 
 ## A terminal is active or sleeping
@@ -177,8 +178,8 @@ Sleeping is one record whose `state` flag says whether its PTY is currently spaw
 
 Putting the discriminant on the terminal buys two structural properties:
 
-- **Type-safe presence vs liveness.** A consumer that reads `agent`/`foreground`/`pr`/PTY/xterm must first narrow `state === "active"`; the compiler refuses a live field on the bare union. There is no live-only list to read from by mistake — so a presence surface (canvas, dock, minimap, arrange, cycle, switcher) physically *cannot* omit or mis-render a sleeping terminal. Input routing resolves inside the active narrow, so a sleeping terminal can be the active/selected/panned-to tile yet is never an input target. `holdsWebgl`/`webglTileBudget` filter on the `active` set, so a sleeping terminal holds no WebGL context by construction.
-- **One persistence channel.** `SavedTerminal` is already `PersistedTerminalFields + id` — the sleeping arm's exact payload minus `sleptAt`. A restored terminal and a slept terminal are the *same on-disk record*, distinguished only by `state`. Session save emits one list; sleeping terminals join it; restore is bulk-wake, wake is restore-one, sleep is the inverse.
+- **Type-safe presence vs liveness.** A consumer that reads `agent`/`foreground`/`pr`/PTY/xterm must first narrow `state === "active"`; the compiler refuses a live field on the bare union. There is no live-only list to read from by mistake — so once a sleeping terminal *reaches* a presence surface (canvas, dock, minimap, arrange, cycle, switcher) it cannot be mis-rendered. **Reaching it is a *runtime* fact, not a type one:** a sleeping record only appears if it rides the merged id list the client subscribes to (Phase 2's load-bearing seam) — the union stops mis-rendering, it does not by itself deliver presence. Input routing resolves inside the active narrow, so a sleeping terminal can be the active/selected/panned-to tile yet is never an input target. The WebGL budget must key on the `active` arm, so a sleeping terminal holds no WebGL context.
+- **One persistence channel.** `SavedTerminal` is already `PersistedTerminalFields + id` — the sleeping arm's exact payload minus `sleptAt`. A restored terminal and a slept terminal are the *same on-disk shape*, distinguished only by `state`. Session save emits *one* merged list — active entries and sleeping records together — so **wake is restore-one and sleep is its inverse**: each mints a fresh record from the base and retires the predecessor, reusing the proven restore path that already re-spawns from a saved base and resumes the agent.
 
 ## The phases
 
@@ -187,81 +188,106 @@ Each is one reviewable PR; each leaves `master` shippable.
 | Phase | What lands | Why separable |
 |---|---|---|
 | **1 — Seat the sum** | Add `state`; flip `TerminalMetadataSchema` to a `discriminatedUnion`; presence surfaces read the `Terminal` union off the terminal store; ship with only the `active` arm constructed | **Zero behavior change** — a pure structural move that makes the narrowing seam exist before any sleep logic depends on it |
-| **2 — Sleep / Wake** | Populate the `sleeping` arm: sleep snapshots the base + releases PTY/xterm/agent; wake respawns from the base; sleeping terminals join the canvas/dock as ordinary cards and rows | The user-facing core; no new component, no second loop |
+| **2 — Sleep / Wake** | Populate the `sleeping` arm: sleep writes a sleeping record from the base + releases PTY/xterm/agent; wake = restore-one (a fresh active record from the base); the merged id list carries both onto every presence surface | The user-facing core; no new component, no second loop |
 | **3 — Frozen screenshot body** | Capture just before sleep, write under `KOLU_STATE_DIR`, serve through a small static image route; the reference rides the record | Isolated surface — one capture + one route |
 | **4 — Unify with session-restore** | Collapse boot-restore and wake onto one seam (rehydrate a persisted terminal from its base); the session snapshot and sleeping records become one ordered set | Behavior-preserving consolidation, landed last |
 
-### Phase 1 — seat the sum (zero behavior change)
+### Phase 1 — seat the sum (zero behavior change) · shipped
 
-**Shipped — <PrLink pr={1449} />.** The server registry holds only the `active`
-arm (`TerminalProcess.meta: ActiveTerminal`); the union flows on the client,
-where presence surfaces narrow `state === "active"` through one `activeArm` seam.
-
-Add the `state` discriminant to the terminal and flip `TerminalMetadataSchema`
-from a flat `.merge` to `z.discriminatedUnion("state", …)`, but **construct only
-the `active` arm**. Every terminal is `active`, so the UX is pixel-identical; what
-the phase delivers is the `state === "active"` seam, compiling and in place. Presence
-surfaces — the canvas `<For>`, dock ranking, the minimap, arrange-by-repo, the
-`nextTerminal`/`prevTerminal` cycle, view-posture's count gate, the right-panel
-`hasTerminals` check — read the `Terminal` union directly off the terminal store,
-with no registry between them. The canvas card shell, the layout writer, and
-arrange's clustering algorithm are untouched; only their data source changes.
-
-Two things land here because the schema flip forces them:
-
-- **The migration.** `SavedTerminal` is persisted, so the `discriminatedUnion`
-  rejects a legacy record with no `state` key. A `state.ts` migration stamps
-  `state: "active"` on every legacy terminal and bumps `SCHEMA_VERSION` — the *one*
-  sanctioned place to supply the default. Read sites narrow; they never coalesce
-  (a read-time `?? "active"` is a defect — fail fast).
-- **The liveness-reader sweep.** Every reader that touches `agent`/`foreground`/`pr`/PTY/xterm
-  (the agent indicator, the PR popover, the xterm pane, the WebGL budget, input
-  routing, `activeMeta`) either stays in the presence subset or adds a
-  `state === "active"` narrow. That sweep is the bulk of the diff — and it *is* the
-  win: afterward a live field on a bare terminal won't compile.
-
-Acceptance: `master` is shippable, the UX is identical, and the seam every later
-phase leans on is in place.
+**<PrLink pr={1449} />.** `TerminalMetadataSchema` flipped from a flat `.merge` to
+`z.discriminatedUnion("state", …)` with only the `active` arm constructed — the UX
+stayed pixel-identical while the `state === "active"` seam every later phase leans
+on came into being. The server registry holds only the active arm
+(`TerminalProcess.meta: ActiveTerminal`); the union flows on the client, where
+every liveness reader narrows through one `activeArm` seam, so a live field on a
+bare terminal no longer compiles. A `state.ts` migration stamps `state: "active"`
+on legacy records and bumps `SCHEMA_VERSION` — the one sanctioned place the default
+is supplied; read sites narrow, never coalesce.
 
 ### Phase 2 — Sleep / Wake
 
-Populate the `sleeping` arm. **Sleep** snapshots the persisted base, then releases
-the PTY/xterm/agent — *persist before kill*, never kill-then-pray, so a crash
-mid-sleep loses nothing. **Wake** respawns from the base and resumes the agent. A
-terminal transitions `active → sleeping` atomically on one record, so there is no
-"live wins" dedup window and no cross-arm transition to reconcile. Sleeping
-terminals join the one set the canvas and dock already iterate, so they are
-focusable/draggable/resizable cards and selectable dock rows with **no new
-component and no second loop** — only a dormant placeholder body (Phase 3 swaps in
-the frozen frame) and one new verb, Wake. On boot they rehydrate *as sleeping*,
-never auto-woken, and count toward `tileCount` so a sleeping-only workspace stays
-on the canvas.
+Populate the `sleeping` arm. The lifecycle is **immutable records, not an in-place
+flip**. **Sleep** writes a fresh sleeping record from the active terminal's
+persisted base, then releases the PTY/xterm/agent — *persist before kill*, never
+kill-then-pray, so a crash mid-sleep loses nothing. **Wake** is **restore-one** — it
+replays the saved base through the *existing* restore path, which already spawns a
+fresh active terminal and resumes the agent; sleep is its exact inverse. Each
+transition **mints a new id and retires the predecessor**, so a record is immutable
+from birth and nothing ever rewrites a live field onto a sleeping one. The server
+runs each transition as a single op and re-emits the **merged id list once**, so the
+client never renders both records — continuity rides the base: the new record
+carries the same `canvasLayout`, so the tile keeps its slot and dock order across
+the swap, and the active selection follows to the successor.
+
+**The seam that makes a sleeping terminal real is the wire, not the type.** The
+client subscribes to terminal metadata keyed off the server's id list, which is
+active-only today; Phase 2's load-bearing change is to make that the **merged
+active + sleeping** list. The union guarantees a sleeping record *can't be
+mis-rendered* once it arrives — but only the merged list gets it there. Downstream,
+sleeping terminals are then ordinary cards and rows on the one set the canvas and
+dock already iterate — focusable/draggable/resizable, selectable, counted toward
+`tileCount` so a sleeping-only workspace stays on the canvas — with **no new
+component and no second loop**, only a dormant placeholder body (Phase 3 swaps in
+the frozen frame).
+
+**Sleep is manual, Wake is explicit, navigation never wakes.** A ☾ Sleep button on
+the tile title bar, a Sleep/Wake palette command, and a discoverability tip are the
+only triggers — no global keybind, no auto-sleep. Landing on a sleeping tile (cycle,
+MRU, dock click, switcher, mobile swipe) **focuses it frozen**: it becomes the
+active/selected tile showing its dormant body and an explicit **Wake**, never an
+auto-respawn — so the right panel, inspector, and theme for an active-but-sleeping
+tile fall back to the frozen, no-live-content view plus a Wake call-to-action, not a
+live attach. Closing a sleeping tile routes through the **same close-confirm
+dialog**, reworded to *discard sleeping terminal* and driven off the still-persisted
+git/worktree info — it deletes the record (no PTY to kill) and still offers worktree
+removal. On boot, sleeping records rehydrate *as sleeping* — the restore card spawns
+**active** terminals only and must never wake one.
 
 <Callout kind="warn" title="Non-negotiables for Phase 2">
 These are requirements, not nice-to-haves — each closes a failure mode that is
 easy to ship without noticing.
 
-- **Snapshot the top terminal only.** A sleeping record is a single terminal —
-  splits are released, not frozen. The record is rooted by construction (its id is
-  the terminal it was), so no orphan record can arise.
-- **Tolerate a malformed record; never let one poison the set.** Validate *shape*
-  in the schema and enforce the cross-field invariant (the base is well-formed) by
-  **dropping** a bad record at the read boundary — never a fatal validator on the
-  persisted collection. The stakes are high because sleeping records share the
-  terminal list: one corrupt record must not break the whole list. (See the
-  `persisted-schema-stays-tolerant` code-police rule.)
+- **Snapshot the top terminal only.** A sleeping record is a single terminal — any
+  splits are closed, not frozen. It is rooted by construction — one top-terminal
+  record carrying that terminal's base — so no orphan or dangling-child record can
+  arise.
+- **Tolerate a corrupt persisted record; never let one poison the set.** A
+  *malformed* record is a saved sleeping entry that no longer validates — its base
+  truncated by a crash mid-write, hand-edited, or left by an older build (a missing
+  field, a non-numeric `sleptAt`, an incomplete base). Validate *shape* in the
+  schema, then **drop** a record that fails the cross-field invariant at the read
+  boundary — never a fatal validator on the persisted collection. Sleeping records
+  share the one terminal list, so a single bad entry must not break the load for
+  every other terminal. (See the `persisted-schema-stays-tolerant` code-police
+  rule.)
 - **First-class *and visually distinct* in every presence surface.** A sleeping
   terminal renders — moonlit, ☾, dimmed — in the canvas, dock, minimap, switcher,
-  and mobile; arrange clusters it with its repo; the cycle traverses it. The sum
-  makes omission unrepresentable, but verify it on each surface.
+  and mobile; arrange clusters it with its repo; the cycle traverses it. The
+  distinction must key on `state === "sleeping"`, **decoupled from the existing
+  staleness / “parked” vocabulary** — else a freshly-slept tile looks like a merely
+  idle one, and the dock's parked filter (which *drops* stale rows) silently removes
+  a long-slept terminal from the list. Watch the spots that fold a sleeping terminal
+  into a live default: the dock/switcher agent bucket (it must not land in the
+  *No-agent* column), the canvas aura, and the minimap marker. And remember omission
+  is a *wire* fact — verify presence on each surface, don't assume the sum delivers
+  it.
 - **A sleeping tile can be the active tile.** Click/select focuses it; input
   routing narrows to `active`, so it is never an input target — a type fact, not a
-  runtime guard.
+  runtime guard. Its content panels (right panel, inspector, theme) show the frozen
+  view + Wake, never a live attach.
+- **The “by-construction” guards become real edits once sleeping shares the id
+  list.** None hold automatically — each is a place the active-only assumption
+  leaks: the WebGL budget must filter the `active` arm (never grab a context for a
+  frozen tile); session-save must *merge* active + sleeping (sleeping the **last**
+  terminal must not clear the session); the boot/restore path must seed sleeping
+  records *as sleeping* (the restore card spawns active terminals only).
 - **An e2e that drives the real failure modes.** Seed a *malformed* record (it must
-  not poison the set), sleep a terminal (it must not vanish), wake it (it must be
-  usable), and assert sleeping appears on each presence surface — driven like a
-  user, not asserted on counts. A green count-only test over a fresh state proves
-  nothing here.
+  not poison the set), sleep a terminal (it must not vanish — including the **last**
+  one, which must not clear the session), wake it (it must land a usable live
+  terminal), close a sleeping tile (it must discard through the confirm), and assert
+  a *long*-slept terminal still shows on each presence surface (not dropped as
+  *parked*) — driven like a user, not asserted on counts. A green count-only test
+  over a fresh state proves nothing here.
 </Callout>
 
 <Callout kind="good" title="Why the order is the point">
@@ -279,9 +305,13 @@ thing.
 - **A wide type-level ripple is the diff.** Flipping `TerminalMetadataSchema` to a
   `discriminatedUnion` forces every liveness reader to either stay in the presence
   subset or add a narrow. That sweep *is* the win, but it is the bulk of the work.
-- **`state` must be lifecycle-owned.** Only the sleep/wake transitions write
-  `state`; a metadata provider must never resurrect a live field on a sleeping
-  record (the overlay isn't on that arm — a type error, which is the point).
+- **Records are immutable; transitions mint, never mutate.** `state` is fixed at a
+  record's birth — sleep and wake *create* a new record and retire the old, so no
+  provider ever rewrites a live field onto a sleeping one (the overlay isn't on that
+  arm — a type error, which is the point). Re-minting on both transitions buys the
+  win — wake is just restore-one — at the cost of a brief two-record swap the server
+  must sequence (retire, *then* emit the merged list) so the client never renders
+  both.
 
 <Callout kind="accent" title="When we'd revisit">
 If a genuine *non-terminal* canvas kind ever lands — a sticky note, a web embed —
