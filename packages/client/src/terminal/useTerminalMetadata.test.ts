@@ -111,7 +111,6 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       const { terminalIds } = useTerminalMetadata({
         list: () => keys().map((id) => ({ id }) as TerminalInfo),
-        activeId: () => null,
       });
 
       let downstreamRuns = 0;
@@ -146,7 +145,6 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       const { terminalIds } = useTerminalMetadata({
         list: () => keys().map((id) => ({ id }) as TerminalInfo),
-        activeId: () => null,
       });
 
       let downstreamRuns = 0;
@@ -188,7 +186,6 @@ describe("terminalIds reference stability (the #1422 reactivity keystone)", () =
 
       const { terminalIds } = useTerminalMetadata({
         list: () => keys().map((id) => ({ id }) as TerminalInfo),
-        activeId: () => null,
       });
 
       let downstreamRuns = 0;

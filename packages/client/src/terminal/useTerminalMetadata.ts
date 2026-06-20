@@ -50,7 +50,6 @@ export function sameTerminalIdOrder(
 
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
-  activeId: Accessor<TerminalId | null>;
 }) {
   const meta = app.collections.terminalMetadata.use({
     keys: () => deps.list()?.map((t) => t.id) ?? [],
@@ -108,11 +107,6 @@ export function useTerminalMetadata(deps: {
 
   // --- Derived accessors ---
 
-  const activeMeta = createMemo((): TerminalMetadata | null => {
-    const id = deps.activeId();
-    return id !== null ? (getMetadata(id) ?? null) : null;
-  });
-
   const displayInfos = createMemo(() =>
     buildTerminalDisplayInfos(terminalIds(), getMetadata, getSubTerminalIds),
   );
@@ -132,7 +126,6 @@ export function useTerminalMetadata(deps: {
     terminalIds,
     getSubTerminalIds,
     isWorktreeShared,
-    activeMeta,
     getDisplayInfo,
     terminalLabel,
   };
