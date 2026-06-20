@@ -329,11 +329,20 @@ const SleepingDiscriminantSchema = z.object({
   sleptAt: z.number(),
 });
 
+/** The active arm's persisted core — `persisted base + state: "active"`, the one
+ *  composition both the live and saved active arms build on. The live arm adds
+ *  the overlay; the saved arm adds the id. Spelling it once keeps "active =
+ *  persisted + discriminant" in a single place so the live/saved divergence is
+ *  the only thing each arm restates. */
+const ActivePersistedCoreSchema = PersistedTerminalFieldsSchema.merge(
+  ActiveDiscriminantSchema,
+);
+
 /** An active terminal — persisted base + live overlay + `state: "active"`. The
  *  only arm Phase 1 ever constructs. */
-export const ActiveTerminalSchema = PersistedTerminalFieldsSchema.merge(
+export const ActiveTerminalSchema = ActivePersistedCoreSchema.merge(
   LiveTerminalFieldsSchema,
-).merge(ActiveDiscriminantSchema);
+);
 
 /** A sleeping terminal — persisted base + `sleptAt`, no live overlay (its
  *  PTY/xterm/agent are released). */
@@ -436,9 +445,9 @@ const SavedTerminalIdSchema = z.object({
 /** The active arm of the on-disk record (persisted base + id, no live overlay)
  *  — the shape restore/adoption produce. Exported so the adoption round-trip
  *  test can assert it carries every persisted key. */
-export const SavedActiveTerminalSchema = PersistedTerminalFieldsSchema.merge(
-  ActiveDiscriminantSchema,
-).merge(SavedTerminalIdSchema);
+export const SavedActiveTerminalSchema = ActivePersistedCoreSchema.merge(
+  SavedTerminalIdSchema,
+);
 
 /** The sleeping arm of the on-disk record (persisted base + `sleptAt` + id, no
  *  live overlay) — the shape a slept terminal persists. Named symmetrically with
