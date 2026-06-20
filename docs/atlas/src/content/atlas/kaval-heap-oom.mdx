@@ -1,10 +1,9 @@
 ---
 title: Kaval PTY-host heap OOM
 description: A recurring production crash — kaval's per-PTY 50 K-line scrollback mirror × an unbounded, never-reaped live-terminal population grows the V8 heap to its ~4 GB ceiling; it self-aborts (SIGABRT) and takes the kolu server down via fail-fast. Reproduced in-process. RCA + prior art (tmux/zellij/ghostty/kitty/mosh) + plan of record — a small hot mirror over an on-disk transcript log (#417).
-kind: analysis
+parents: [pty-daemon, analysis]
 status: implemented
 maturity: budding
-parents: [pty-daemon]
 updated: 2026-06-19
 ---
 

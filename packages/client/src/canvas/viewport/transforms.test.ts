@@ -16,9 +16,11 @@ import { describe, expect, it } from "vitest";
 import {
   accumulateZoom,
   applyGestureBatch,
+  computeCenterPan,
   type GestureBatch,
   MAX_ZOOM,
   MIN_ZOOM,
+  viewportCenter,
   zoomTowardPoint,
 } from "./transforms";
 
@@ -107,6 +109,30 @@ describe("applyGestureBatch", () => {
     // delta divides by the NEW zoom (2), not the old (1): 20 / 2 = 10.
     close(r.panX, 10);
     expect(r.zoom).toBe(2);
+  });
+});
+
+/** `viewportCenter` is the forward projection used to drop a tile under the
+ *  camera (default-placement effect + the "Reset terminal size" command). It is
+ *  the inverse of `computeCenterPan`, so these pin the round-trip: panning so a
+ *  point sits at the viewport center, then asking for the center, returns that
+ *  point — regardless of zoom or viewport size. */
+describe("viewportCenter", () => {
+  it("is the inverse of computeCenterPan (round-trips a desired center)", () => {
+    const cases: { cx: number; cy: number; w: number; h: number; z: number }[] =
+      [
+        { cx: 400, cy: 270, w: 1280, h: 720, z: 1 },
+        { cx: -150, cy: 90, w: 800, h: 600, z: 2 },
+        { cx: 33.5, cy: -12.25, w: 1024, h: 768, z: 0.5 },
+      ];
+    for (const { cx, cy, w, h, z } of cases) {
+      // Pan so (cx, cy) lands at the viewport center...
+      const { panX, panY } = computeCenterPan(cx, cy, cx, cy, w, h, z);
+      // ...then asking for the center recovers exactly that point.
+      const got = viewportCenter(panX, panY, w, h, z);
+      close(got.x, cx);
+      close(got.y, cy);
+    }
   });
 });
 

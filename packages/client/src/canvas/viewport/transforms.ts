@@ -44,6 +44,22 @@ export function computeCenterPan(
   };
 }
 
+/** Canvas-space point at the viewport center — the forward projection that is
+ *  the inverse of `computeCenterPan` (which solves the opposite direction:
+ *  given a desired center, what pan lands it there). */
+export function viewportCenter(
+  panX: number,
+  panY: number,
+  viewportW: number,
+  viewportH: number,
+  zoom: number,
+): { x: number; y: number } {
+  return {
+    x: panX + viewportW / (2 * zoom),
+    y: panY + viewportH / (2 * zoom),
+  };
+}
+
 /** Compute new pan+zoom after zooming by a factor toward a point.
  *  The point (in screen-space relative to container) stays fixed. */
 export function zoomTowardPoint(

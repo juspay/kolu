@@ -1,7 +1,7 @@
 ---
 title: Remote terminals over SSH
 description: The phased master plan for kolu#951 — remote terminals over SSH. The foundation is shipped — the TerminalEndpoint seam (R-1), the @kolu/surface framework + @kolu/surface-nix-host (R-1.5), the shared provider engine (R-1.6), and local PTY daemonization (R-4, the kaval daemon — terminals survive a deploy). What remains is the ssh transport + ChromeBar host switcher (R-2) then network-blip resilience (R-3). The end state is multi-host — 1 local + N ssh-remote kaval daemons, all surviving and reattachable, switchable from the ChromeBar.
-kind: feature
+parents: [feature]
 status: accepted
 maturity: budding
 updated: 2026-06-19

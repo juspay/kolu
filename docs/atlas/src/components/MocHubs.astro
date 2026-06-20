@@ -1,0 +1,211 @@
+---
+// "Maps of Content" — the single entry index, every hub a card:
+//   - INDEX notes (`moc: true`) first, each listing every note filed under it —
+//     so the index cards together name every note, and the page is fully
+//     navigable with no JS;
+//   - TOPICAL hubs (electricity, solid-fileview, …) after, each listing the notes
+//     that reference it — the cross-cutting entry points the link graph surfaces.
+// Both are real notes: the card title links to the note's own page. `data-hub`
+// lights up the note + its neighborhood in the graph on hover.
+import type { HubCard } from "../lib/graphView";
+
+interface Props {
+  hubs: HubCard[];
+}
+const { hubs } = Astro.props as Props;
+---
+
+<section class="moc-hubs" aria-label="Maps of Content">
+  <div class="moc-grid">
+    {
+      hubs.map((h) => (
+        <article
+          class={`hub-card cc-${h.color}${h.isMoc ? " is-moc" : ""}`}
+          data-hub={h.id}
+        >
+          <header class="hub-head">
+            <span class="hub-bar" />
+            <a class="hub-title" href={h.href}>
+              {h.label}
+            </a>
+            <span class="hub-count">
+              {h.count} {h.countLabel}
+            </span>
+          </header>
+          <p class="hub-desc">{h.description}</p>
+          <ul class="cluster">
+            {h.cluster.map((c) => (
+              <li>
+                <a class="cluster-row" href={`./${c.id}.html`}>
+                  <span class={`cluster-dot m-${c.maturity}`} />
+                  <span class="cluster-t">{c.title}</span>
+                  {h.isMoc && <span class="cluster-d">{c.description}</span>}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .moc-hubs {
+    margin: 2rem 0 0;
+  }
+  .moc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    align-items: start;
+    gap: 1rem;
+  }
+  .hub-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--cat-color, var(--ink-muted));
+    border-radius: 12px;
+    padding: 1rem 1.1rem 1.1rem;
+    transition: box-shadow 0.15s ease;
+  }
+  .hub-card:hover {
+    box-shadow:
+      0 1px 0 var(--rule),
+      0 6px 20px -14px rgba(26, 28, 32, 0.4);
+  }
+  /* index cards are the full listing — span two columns so they breathe */
+  .hub-card.is-moc {
+    grid-column: span 2;
+  }
+  @media (max-width: 660px) {
+    .hub-card.is-moc {
+      grid-column: span 1;
+    }
+  }
+
+  /* accent token → the card's --cat-color (open set; mirrors the graph's `.c-*`) */
+  .cc-red {
+    --cat-color: var(--alert);
+  }
+  .cc-teal {
+    --cat-color: var(--teal);
+  }
+  .cc-gold {
+    --cat-color: var(--gold);
+  }
+  .cc-grey {
+    --cat-color: var(--ink-muted);
+  }
+  .cc-green {
+    --cat-color: var(--green);
+  }
+  .cc-blue {
+    --cat-color: #1f6feb;
+  }
+  .cc-purple {
+    --cat-color: #7c3aed;
+  }
+
+  .hub-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .hub-bar {
+    align-self: center;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    background: var(--cat-color);
+  }
+  .hub-title {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .hub-title:hover {
+    color: var(--amber);
+  }
+  .hub-count {
+    margin-left: auto;
+    flex: none;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .hub-desc {
+    margin: 0.5rem 0 0.7rem;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--ink-muted);
+  }
+
+  .cluster {
+    list-style: none;
+    margin: 0;
+    padding: 0.7rem 0 0;
+    border-top: 1px solid var(--rule-soft);
+    display: grid;
+    gap: 0.05rem;
+  }
+  /* index cards (the full listing) flow their long lists into columns */
+  .is-moc .cluster {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.05rem 1.4rem;
+  }
+  .cluster-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.3rem;
+    border-radius: 6px;
+    text-decoration: none;
+    min-width: 0;
+  }
+  .cluster-row:hover {
+    background: var(--paper);
+  }
+  .cluster-row:hover .cluster-t {
+    color: var(--amber);
+  }
+  .cluster-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .cluster-dot.m-seedling {
+    background: var(--gold);
+  }
+  .cluster-dot.m-budding {
+    background: var(--teal);
+  }
+  .cluster-dot.m-evergreen {
+    background: var(--green);
+  }
+  .cluster-t {
+    flex: none;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--ink-dim);
+  }
+  .cluster-d {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.78rem;
+    color: var(--ink-faint);
+  }
+</style>

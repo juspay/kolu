@@ -16,10 +16,13 @@ import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { getBucketFor } from "./placementPolicy";
 import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import {
+  DEFAULT_TILE_H,
+  DEFAULT_TILE_W,
+  findFreeTilePosition,
+} from "./tilePlacement";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
-import { snapToGrid } from "./viewport/transforms";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 export function useCanvasArrange() {
@@ -92,15 +95,16 @@ export function useCanvasArrange() {
     if (!supportsSpatialCanvas()) return;
     const id = tileStore.activeId();
     if (!id) return;
-    // Canvas-space coordinate at the viewport center — same math the
-    // default-placement effect uses to drop a freshly created tile.
-    const { width, height } = viewport.viewportSize();
-    const zoom = viewport.zoom();
-    const cx = viewport.panX() + width / (2 * zoom);
-    const cy = viewport.panY() + height / (2 * zoom);
+    // Canvas-space coordinate at the viewport center — same accessor the
+    // default-placement effect uses to drop a freshly created tile. Reuse that
+    // effect's placement helper too, with no existing tiles, so reset lands the
+    // tile at the bare center (the empty list skips the cascade — recovery
+    // wants the known center, not collision avoidance) through the one home of
+    // the center→top-left + grid-snap math.
+    const center = viewport.viewportCenter();
+    if (!center) return;
     const layout: TileLayout = {
-      x: snapToGrid(cx - DEFAULT_TILE_W / 2),
-      y: snapToGrid(cy - DEFAULT_TILE_H / 2),
+      ...findFreeTilePosition(center.x, center.y, []),
       w: DEFAULT_TILE_W,
       h: DEFAULT_TILE_H,
     };

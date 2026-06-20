@@ -1,10 +1,9 @@
 ---
 title: ChromeBar identity rail (srv · client · kaval)
 description: The consolidated connection + build/commit readout in the ChromeBar. A2 shipped it as two coinciding columns (srv = server, pty = the in-process pty-host); B2 overtook that shape — renaming pty → kaval as a separate spawned daemon and adding a client-bundle column — so the live rail is three columns (srv · client · kaval). This note keeps A2's original design rationale, annotated where B2 took over.
-kind: feature
+parents: [pty-daemon, feature]
 status: implemented
 maturity: budding
-parents: [pty-daemon]
 updated: 2026-06-14
 ---
 

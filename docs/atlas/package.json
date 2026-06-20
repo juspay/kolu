@@ -13,10 +13,12 @@
   "dependencies": {
     "@astrojs/mdx": "^5.0.3",
     "astro": "^6.4.6",
+    "d3-force": "^3.0.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.8",
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.3"
   },
