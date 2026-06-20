@@ -131,7 +131,7 @@ reactivity cluster.
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
 | 5 | Lazy-mount CodeTab + Pierre/Shiki | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | `Show`-gate the Code tab so terminal-only users don't parse the diff/highlight tree. |
 | 6 | One-shot Nix `pnpmDeps` hash check | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
-| 7 | Avoid the Markdown Source⇄Rendered toggle re-sanitize | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | The toggle **remounts + re-sanitizes the whole doc** each flip; keep both modes mounted (the #818 pattern) **or** cache `sanitizeHtml` by content. Replaces the refuted *"stabilize the resolver reference"* claim — a [measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md). |
+| 7 | **Avoid the Markdown Source⇄Rendered toggle re-sanitize** <Pill variant="done">shipped</Pill> | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1446} /> — `FileView` keeps both toggle modes alive (the #818 pattern), so a flip is a visibility change, not a remount: the full marked→DOMPurify→Shiki→`innerHTML` pipeline runs **0× per toggle** (was 1×). Replaces the refuted *"stabilize the resolver reference"* claim — a [measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md). |
 
 <Callout kind="warn" title="Read this before picking one up">
 Almost every item is **bounded at today's scale** (3–20 terminals, small/medium
@@ -154,6 +154,7 @@ their themes as *"remaining within …"*.
 - **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
 - **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
 - **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
+- **Markdown toggle keep-alive** <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize of the doc (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×); a per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change, and each comment overlay took a per-instance CSS-highlight name so the two kept-alive surfaces don't contend. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
 - **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
 
 ## Frontend hot paths
@@ -225,13 +226,17 @@ own design (`FileView.tsx:91-98` — the appliance is re-rendered on every `prop
 snapshot, a *remount*), and the Solid compiler (the inline-arrow prop is **static**,
 never a reactive dependency). The defense-in-depth marker is inert too — sanitize
 re-parses from raw markdown each run, so a marker never survives to the next.
-**The real cost the reproduction surfaced:** `active()` returns only the active
-branch, so a Source⇄Rendered **toggle remounts and re-sanitizes the whole doc**
-(50-image doc: ~50 image-resolutions + a full parse/sanitize/highlight/DOM-reparse
-*per toggle*). **Fix (gated on a trace, two options weighed):** keep both modes
-mounted (the #818 `RightPanel` pattern — validated to drop the toggle re-sanitize
-to zero) **or** a content-keyed `sanitizeHtml` cache (no FileView API change).
-Both bounded at today's scale. Full write-up + reproduction:
+**The real cost the reproduction surfaced — now fixed:** `active()` returned only
+the active branch, so a Source⇄Rendered **toggle remounted and re-sanitized the
+whole doc** (50-image doc: ~50 image-resolutions + a full
+parse/sanitize/highlight/DOM-reparse *per toggle*). **Fixed** <PrLink pr={1446} /> —
+`FileView` now keeps both toggle modes alive (the #818 `RightPanel` pattern), so a
+flip is a visibility change, not a remount; the pipeline runs **0× per toggle**.
+A per-slot `heldFile` snapshot defers a hidden mode's refresh (no double-render on
+edit, no `render(file)` API change), and each comment overlay took a per-instance
+CSS-highlight name so the two kept-alive surfaces don't contend. Proven by an e2e
+(the rendered preview element survives the round-trip). The content-keyed sanitize
+cache alternative was dropped as accidental complexity. Full write-up + reproduction:
 [markdown-image-resolver-and-toggle](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
 </Finding>
 
@@ -344,7 +349,7 @@ snapshot is likely ~4 KB) precisely because nobody had a number. The next round
 moves from reading to **measuring** — these are the gaps this map does *not* yet
 rest on:
 
-- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog item #2 (#1 shipped, proven by a deterministic re-run-count test rather than a trace; #7's *resolver-reference* claim was **refuted** by deterministic reproduction — no trace needed — and the Markdown toggle re-sanitize it surfaced instead gates on its own heavy-doc Source⇄Rendered toggle trace).
+- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog item #2 (#1 shipped, proven by a deterministic re-run-count test rather than a trace; #7's *resolver-reference* claim was **refuted** by deterministic reproduction — no trace needed — and the Markdown toggle re-sanitize it surfaced instead **shipped**, proven by an e2e rather than a trace).
 - **The #1420 OOM root cause is still unidentified.** The Channel-queue RCA ruled itself out; a dedicated kaval heap snapshot needs to find the real scrollback/snapshot retention path.
 - **Mobile rests on mechanism, not on-device traces.** Battery wake-ups, GPU memory across swipes, and keystroke-to-paint on low-end Android are all unmeasured.
 - **Wire payloads are uncounted.** No captured byte sizes for full-key-set / full-object publishes or base64 framing across representative repos.

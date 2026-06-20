@@ -15,7 +15,7 @@ every Source⇄Rendered toggle. This note records both, because a
 faithfully-reproduced negative is as load-bearing as a fix (the lesson of
 [dock-and-eventloop-1308](./dock-and-eventloop-1308.md) and
 [memory-learnings](./memory-learnings.md)): it's why we ship no resolver-memoization
-patch, and why the follow-up targets the remount instead.
+patch, and why the fix here targets the remount instead.
 
 ---
 
@@ -111,37 +111,45 @@ visibility) **eliminates the toggle re-sanitize entirely** and — because
 into a cheaper *in-place* memo re-run, while still re-rendering correctly. The core
 mechanism is validated.
 
-### Why this is *scoped*, not shipped here
+### The fix: keep both toggle modes alive
 
-This is the same state-preservation pattern `RightPanel` already uses (#818: render
-both tabs, hide the inactive one). But applying it to `FileView` is a change to a
-**generic** `@kolu/solid-fileview` boundary, with real risk that demands a trace
-and careful design before code:
+Shipped — the same state-preservation pattern `RightPanel` already uses (#818:
+render both forms, hide the inactive one), applied to `FileView`. Each mode is
+mounted lazily on first view and then kept alive across toggles, hidden with
+`display:none` rather than unmounted, so flipping back is a pure visibility flip:
+the whole marked → DOMPurify → tree-walks → image-resolve → Shiki → `innerHTML`
+pipeline runs **zero** times per toggle instead of once. Each feared risk
+resolved more cleanly than the scoping expected:
 
-- **API change.** `render(file: FileData)` hands appliances a *snapshot*. Keep-alive
-  needs them to read `file` *reactively* (e.g. `render(file: () => FileData)`),
-  rippling to all five renderers and their kolu call sites.
-- **Reload-on-edit must survive.** The image/iframe appliances capture their `url`
-  once and **must** get a fresh element on edit — the exact semantics
-  `FileView.tsx:91-98` was built to fix (an earlier `untrack` form broke it). A
-  keep-alive refactor must preserve per-appliance reload, not regress it. These are
-  single-mode (no toggle), so a `both()`-gated keep-alive leaves them untouched —
-  but that gating is the design that needs proving.
-- **Comment-surface duality.** Source ("text") and Rendered ("prose") each wrap in
-  `CommentTextSurface`; keeping both mounted means both anchor live at once.
-- **Memory.** Both appliances resident per open file (Pierre source + Markdown).
+- **No API change.** The `render(file: FileData)` snapshot contract stays. A
+  per-slot `heldFile` memo *freezes* the snapshot while a mode is hidden and
+  adopts the latest the instant it's shown — so a toggle with no intervening edit
+  reuses the same snapshot (no re-render at all), an edit to the *visible* mode
+  still re-renders it (reload-on-edit intact), and an edit to a *hidden* mode is
+  deferred until it's next shown (never re-rendering both modes at once). No
+  reactive-`file` refactor, no ripple to the five renderers.
+- **Single-mode appliances untouched.** The keep-alive is `both()`-gated, so
+  images / video / iframes (one form, no toggle) stay on the existing `active()`
+  path with their reload-on-edit semantics exactly as before.
+- **Comment surfaces decoupled, not coupled.** Keeping both `CommentTextSurface`s
+  mounted would have made them contend for the single global `kolu-comment` CSS
+  Custom Highlight (`applyHighlights` *replaces* the named highlight each call).
+  The fix gives each overlay instance its **own** highlight name + style element,
+  so a hidden surface's ranges simply don't lay out and repaint automatically when
+  shown — no visibility-threading, and a latent single-surface fragility removed.
+- **Memory** is one extra resident appliance per *open* file once both modes have
+  been visited — bounded (one file open in the panel at a time).
 
-**A lower-risk alternative to weigh first:** a content-keyed sanitize cache (a
-small module-level LRU keyed by `markdown`+variant+policy) lets a remount reuse a
-recent sanitize result — killing the toggle re-sanitize **without** the FileView
-API change, at the cost of cache-invalidation and the `resolveImageSrc`/`highlightCode`
-closures in the key. Cheaper to land, narrower blast radius.
+**Proven in the real app** by an e2e (`code-tab.feature` — "Toggling Source and
+Rendered keeps the rendered preview alive"): a marker stamped on the rendered
+preview survives a Source ⇄ Rendered round-trip, which a remount would erase. The
+existing comment-highlight survival e2e still passes against the per-instance names.
 
-**Both are bounded at today's scale** (the cost only bites on large docs with
-frequent toggling), so the gate is a real trace — open a heavy README, toggle
-Source⇄Rendered, and measure the sanitize/highlight wall-clock — *then* choose
-between the two fixes. The map carries this as a measurement-gated item, not a
-speculative rewrite.
+**The win, measured.** Per toggle-back on the 50-image reproduction, the old code
+ran one full pipeline (1 marked parse + 1 DOMPurify sanitize + 6 tree-walks + 50
+image-resolutions + per-fence Shiki tokenization + 1 full `innerHTML` DOM reparse);
+keep-alive runs none. Over three round-trips: **150 image-resolutions + 3 full
+pipelines → 0** (`mdMounts +0` on each toggle, vs `+1` per toggle before).
 
 ---
 

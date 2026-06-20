@@ -932,6 +932,26 @@ Feature: Code tab (review + browse)
     Then the file content should contain "# Heading One"
     And the markdown preview should not be visible
 
+  # Keep-alive: the rendered Markdown is mounted ONCE and hidden (not unmounted)
+  # while the Source view shows, so toggling back is a pure visibility flip — no
+  # re-parse / re-sanitize / re-tokenize of the whole doc. Proven structurally: a
+  # marker set on the rendered preview survives the Source ⇄ Rendered round-trip
+  # (a remount would mint a fresh, unmarked element).
+  Scenario: Toggling Source and Rendered keeps the rendered preview alive
+    When I run "rm -rf /tmp/kolu-md-keepalive && git init /tmp/kolu-md-keepalive && cd /tmp/kolu-md-keepalive"
+    And I run "printf '# Keep Alive\n\nbody text\n' > notes.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "notes.md" in the file browser
+    Then the markdown preview should be visible
+    When I mark the rendered markdown preview
+    And I switch the file view to "source"
+    Then the markdown preview should not be visible
+    When I switch the file view to "rendered"
+    Then the markdown preview should be visible
+    And the rendered markdown preview should be the kept-alive element
+
   # ── Rendered Markdown: GFM + inline HTML + sanitization ──
   # The rendered view is a marked(GFM) → DOMPurify pipeline
   # (@kolu/solid-markdown), so it must produce real GitHub-Flavored structure —

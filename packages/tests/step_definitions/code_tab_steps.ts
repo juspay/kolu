@@ -1027,12 +1027,34 @@ When(
 Then(
   "the markdown preview should not be visible",
   async function (this: KoluWorld) {
-    // Toggling to source unmounts the rendered appliance (FileView swaps the
-    // active branch), so assert count, mirroring the iframe absence check.
+    // The rendered appliance is now kept ALIVE across the toggle (mounted but
+    // `display:none`) so flipping back doesn't re-sanitize — assert it's hidden,
+    // not removed. Playwright's "hidden" state covers a display:none element
+    // (and a detached one, so this assertion holds either way).
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await md.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
+
+// Keep-alive proof: a marker stamped on the rendered preview before a Source ⇄
+// Rendered round-trip must survive on the SAME element — a remount would mint a
+// fresh, unmarked one.
+When("I mark the rendered markdown preview", async function (this: KoluWorld) {
+  await this.page
+    .locator('[data-testid="browse-preview-markdown"]')
+    .evaluate((el) => el.setAttribute("data-keepalive-probe", "1"));
+});
+
+Then(
+  "the rendered markdown preview should be the kept-alive element",
+  async function (this: KoluWorld) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await md.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       () =>
-        document.querySelectorAll('[data-testid="browse-preview-markdown"]')
-          .length === 0,
+        document
+          .querySelector('[data-testid="browse-preview-markdown"]')
+          ?.getAttribute("data-keepalive-probe") === "1",
       undefined,
       { timeout: POLL_TIMEOUT },
     );
@@ -1827,20 +1849,34 @@ Then(
   },
 );
 
-// The in-place comment highlight rides the CSS Custom Highlight API: the
-// overlay registers ranges under the "kolu-comment" highlight name. A non-zero
-// range count proves the overlay re-anchored against the live DOM — the
-// regression this guards is the rendered Markdown preview swapping its subtree
-// after mount (lazy Shiki re-render), which detaches any earlier ranges; the
-// overlay's MutationObserver must re-apply so the highlight doesn't silently
-// vanish. Polled because Shiki warms a frame or two after the preview mounts.
+// The in-place comment highlight rides the CSS Custom Highlight API: each
+// overlay registers ranges under its OWN per-instance name (`kolu-comment-<N>`)
+// — one global name per surface would clobber when the Source ⇄ Rendered toggle
+// keeps both alive (see highlightOverlay.ts). A non-zero total range count
+// across the `kolu-comment*` names proves the overlay re-anchored against the
+// live DOM — the regression this guards is the rendered Markdown preview
+// swapping its subtree after mount (lazy Shiki re-render), which detaches any
+// earlier ranges; the overlay's MutationObserver must re-apply so the highlight
+// doesn't silently vanish. Polled because Shiki warms a frame or two after the
+// preview mounts. (String-eval'd so the loose HighlightRegistry type doesn't
+// need a DOM-lib import here.)
 Then(
   "the comment highlight should be present",
   async function (this: KoluWorld) {
     await pollFor({
       observe: () =>
         this.page
-          .evaluate("window.CSS?.highlights?.get('kolu-comment')?.size ?? 0")
+          .evaluate(
+            `(() => {
+              const reg = window.CSS && window.CSS.highlights;
+              if (!reg) return 0;
+              let total = 0;
+              for (const e of reg) {
+                if (String(e[0]).startsWith('kolu-comment')) total += e[1].size;
+              }
+              return total;
+            })()`,
+          )
           .catch(() => 0),
       isDone: (size) => typeof size === "number" && size > 0,
       onTimeout: (last) =>
