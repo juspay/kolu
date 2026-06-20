@@ -18,11 +18,13 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTerminalSearch } from "./terminal/useTerminalSearch";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import { useTileStore } from "./tile/useTileStore";
 import { useCommandPalette } from "./useCommandPalette";
 import { useThemeManager } from "./useThemeManager";
 
 export function useActionContext(): ActionContext {
   const store = useTerminalStore();
+  const tileStore = useTileStore();
   const crud = useTerminalCrud();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
@@ -33,7 +35,12 @@ export function useActionContext(): ActionContext {
   const dockTree = useDockOrder();
 
   return {
-    terminalIds: store.terminalIds,
+    // The TILE union (live + sleeping), not the live-only list: positional
+    // cycling (nextTerminal/prevTerminal) must traverse every tile the canvas
+    // renders — including sleeping ones — and treat a sleeping ACTIVE tile as a
+    // valid cycle origin (a live-only list returns indexOf === -1 for it,
+    // breaking the cycle). `TileId === TerminalId`, so the signature is unchanged.
+    terminalIds: tileStore.tileIds,
     dockOrderedIds: () => dockTree().flatRows.map((r) => r.id),
     activeId: store.activeId,
     activate: store.activate,

@@ -29,7 +29,7 @@ import { DockList } from "./canvas/dock/DockList";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
-import { useTerminalStore } from "./terminal/useTerminalStore";
+import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
@@ -70,7 +70,12 @@ const MobileTileView: Component<{
    *  sheet and swipe-to-cycle stay; only the dock drawer is dropped. */
   hideDockDrawer?: boolean;
 }> = (props) => {
-  const store = useTerminalStore();
+  // The TILE registry, not the terminal store: this surface reads tile presence
+  // and per-tile identity (active id, the titlebar's display info), which must
+  // resolve a SLEEPING active tile too — `getDisplayInfo` synthesizes its row
+  // data instead of returning undefined (which fell through to the bare "kolu"
+  // titlebar). `activeId`/`setActiveSilently` are the same signals, re-exposed.
+  const store = useTileStore();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
     y: number;
