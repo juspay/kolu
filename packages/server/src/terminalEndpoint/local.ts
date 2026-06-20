@@ -803,7 +803,9 @@ export function adoptLocalInventoryOrphan(
   id: TerminalId,
   liveEntry: PtyHostListEntry,
 ): void {
-  localEndpointImpl.adoptTerminal(id, orphanMeta(liveEntry), liveEntry);
+  // Identical orphan adoption to the boot path, plus the autosave arming — so it
+  // composes `adoptLocalOrphan` rather than repeating `adoptTerminal(orphanMeta…)`.
+  adoptLocalOrphan(id, liveEntry);
   emitTerminalsDirty();
 }
 
