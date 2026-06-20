@@ -64,6 +64,16 @@ already ran `git fetch origin` and resolved the base, so pass `MB` straight into
 each step and **skip the per-skill step-1 fetch / base resolution** — don't redo
 it once per step.
 
+**How to "wait for the Workflow" — let its own settle notification resume you.**
+The debate skills run as a backgrounded `Workflow` ("launched in background; Task
+ID: …"); a debate can legitimately take 20–30 min. When it settles it fires its
+own task-notification that resumes this run automatically — that is the wait. So
+after dispatching a step, go to rest and let that notification wake you; **do not
+schedule redundant `ScheduleWakeup` polls** and there is nothing to babysit. (A
+prior run scheduled 4-min wakeups *and* the user wired a 5-min `/loop` to nudge a
+gauntlet that was simply mid-debate — both were unnecessary churn.) Only act when
+the workflow's notification arrives or it has provably errored.
+
 1. **lens** — follow `/lens-debate` (Skill tool). `repoPath` = the live worktree,
    `base` = `MB`, **apply mode** (the default — do *not* pass `--no-apply`),
    **`--no-comment`** (so it doesn't advertise its local-only commits before

@@ -82,6 +82,15 @@ guessed (a faithfully-reproduced negative counts too).
 
 ## 5. Ship — CI and evidence in parallel
 
+**Heavy work runs on a pu box, never locally — production kolu lives on this
+machine.** Builds, the dev server, and evidence capture all go on an ephemeral pu
+box whenever `systemctl --user is-active kolu` is `active` (the normal case). A
+prior run piled local `just dev-auto` + nix builds beside a live production kolu
+and the **OOM-killer `SIGKILL`ed production**; random ports dodged its *ports* but
+not its *RAM*. Load **`/dev-server`** §0 for the local-vs-pu venue gate before
+launching the app for *any* reason — including an interactive "let me SEE it"
+check during §2. `/ci` and `/evidence` already run on pu; keep it that way.
+
 `/ci` and `/evidence` are independent — one exercises the build/test pipeline, the
 other captures on-screen behavior — so **run them concurrently**; don't wait for
 green before capturing.
