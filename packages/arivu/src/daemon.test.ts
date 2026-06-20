@@ -78,10 +78,17 @@ async function snapshot(
     const keys =
       (await firstValue(await client.surface.awareness.keys({}))) ?? [];
     for (const key of keys) {
-      const v = await firstValue(
-        await client.surface.awareness.get({ key }, { signal: abort.signal }),
-      );
-      if (v) out.set(key, v);
+      // A live, reconciling collection: a key listed by `keys()` can be removed
+      // (its terminal reconciled out) before its `get()` resolves, surfacing as
+      // an oRPC stream error. Skip such a key rather than failing the snapshot.
+      try {
+        const v = await firstValue(
+          await client.surface.awareness.get({ key }, { signal: abort.signal }),
+        );
+        if (v) out.set(key, v);
+      } catch {
+        // key vanished between keys() and get() — omit it
+      }
     }
   } finally {
     abort.abort();
@@ -94,10 +101,21 @@ async function waitFor<T>(
   ms = 10000,
 ): Promise<T> {
   const deadline = Date.now() + ms;
+  let lastErr: unknown;
   for (;;) {
-    const r = await fn();
-    if (r !== undefined) return r;
-    if (Date.now() >= deadline) throw new Error("condition not met in time");
+    try {
+      const r = await fn();
+      if (r !== undefined) return r;
+    } catch (e) {
+      // Transient while the live collection settles (e.g. an oRPC stream error
+      // as a sensor starts up or a key reconciles out mid-read) — retry until
+      // the deadline rather than failing the test on a benign race.
+      lastErr = e;
+    }
+    if (Date.now() >= deadline)
+      throw new Error(
+        `condition not met in time${lastErr ? `: ${String(lastErr)}` : ""}`,
+      );
     await sleep(75);
   }
 }
