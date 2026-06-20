@@ -21,11 +21,21 @@
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 
+/** The minimal tile-data surface placement needs — `getDisplayInfo` (bucket
+ *  group) and `getMetadata` (cwd / git roots). Satisfied by BOTH the terminal
+ *  store and the TILE registry, so arrange can run over the tile union: a
+ *  SLEEPING tile resolves its bucket from synthesized data and clusters with its
+ *  repo like a live tile, instead of arranging to an undefined bucket. */
+export type PlacementStore = Pick<
+  TerminalStore,
+  "getDisplayInfo" | "getMetadata"
+>;
+
 /** Bucket key for a terminal — `key.group` from `terminalKey(meta)`.
  *  Single grep-able home so a future rule change (sub-terminals share
  *  parent's bucket; namespaced groups; …) updates one site. */
 export function getBucketFor(
-  store: TerminalStore,
+  store: PlacementStore,
   id: TerminalId,
 ): string | undefined {
   return store.getDisplayInfo(id)?.key.group;
@@ -40,7 +50,7 @@ export function getBucketFor(
  *  `cwd` set but `git` still null, so its basename-derived `key.group`
  *  doesn't match a sibling whose git is fully resolved. */
 export function resolvePlacementBucket(
-  store: TerminalStore,
+  store: PlacementStore,
   id: TerminalId,
   candidateIds: TerminalId[],
 ): string | undefined {
@@ -75,7 +85,7 @@ export function resolvePlacementBucket(
  *  worktrees, …) breaks the path-length proxy, this is the site to
  *  split the comparator. */
 function resolveByContainment(
-  store: TerminalStore,
+  store: PlacementStore,
   cwd: string,
   candidateIds: TerminalId[],
 ): string | undefined {

@@ -286,7 +286,7 @@ const WorkspaceGrid: Component<{
         </div>
         <Show when={model().visibleEntries.length === 0}>
           <div class="mt-4 font-mono text-[0.75rem] text-fg-3/80 text-center tracking-wide">
-            ── no live terminals match ──
+            ── no terminals match ──
           </div>
         </Show>
       </section>

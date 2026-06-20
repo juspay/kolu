@@ -11,7 +11,6 @@
  *  existing tile moves. */
 
 import { supportsSpatialCanvas } from "../capabilities";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { getBucketFor } from "./placementPolicy";
@@ -26,7 +25,6 @@ import { usePendingLayouts } from "./usePendingLayouts";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 export function useCanvasArrange() {
-  const store = useTerminalStore();
   const tileStore = useTileStore();
   const pendingLayouts = usePendingLayouts();
   const viewport = useCanvasViewport();
@@ -35,7 +33,9 @@ export function useCanvasArrange() {
     id: TileId,
     layout: TileLayout,
   ): RepoIslandTile | undefined {
-    const bucket = getBucketFor(store, id);
+    // Bucket through the TILE registry so a SLEEPING tile clusters with its repo
+    // like a live one (arrange runs over the live+sleeping union).
+    const bucket = getBucketFor(tileStore, id);
     return bucket ? { id, bucket, layout } : undefined;
   }
 
