@@ -312,16 +312,17 @@ describe("kill — over the same real unix socket", () => {
 
     // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
     // full id before killing — the same `resolveTerminalId` step the dispatch
-    // runs via `resolveOne`. Prove the short form lands on this exact terminal.
-    expect(
-      resolveTerminalId(
-        shortId(id),
-        entries.map((e) => e.id),
-      ),
-    ).toEqual({ kind: "found", id });
+    // runs via `resolveOne`. Resolve from the short form, then feed THAT id into
+    // the kill so the resolve step is load-bearing, not a standalone assertion.
+    const resolved = resolveTerminalId(
+      shortId(id),
+      entries.map((e) => e.id),
+    );
+    expect(resolved).toEqual({ kind: "found", id });
+    if (resolved.kind !== "found") throw new Error("unreachable");
 
     // Kill it; the daemon tears the PTY down and it drops out of the inventory.
-    await conn.client.surface.terminal.kill({ id });
+    await conn.client.surface.terminal.kill({ id: resolved.id });
     let gone = false;
     await until(
       () => gone,
