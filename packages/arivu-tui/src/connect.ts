@@ -3,7 +3,7 @@
  * client for the awareness surface. The transport is `unixSocketLink` — the
  * local-IPC member of `@kolu/surface`'s link family, the same one kaval-tui
  * uses for the pty-host. The `--host <ssh>` path swaps only the link
- * (`getHostSession` → stdio over `arivu --stdio`, see `hostConnect.ts`) and
+ * (`dialAgentOnce` → stdio over `arivu --stdio`, see `hostConnect.ts`) and
  * returns this SAME `Connection`; every command is written against it, so it
  * stays transport-blind.
  */
