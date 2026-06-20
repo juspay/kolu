@@ -122,7 +122,10 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 >   envVar: "MY_AGENT_DRVS_JSON",
 >   agentDrvsJson: process.env.MY_AGENT_DRVS_JSON,
 >   drvNoun: "my-agent",
->   probe: (c) => c.system.heartbeat({}), // one cheap RPC proves the link
+>   // one cheap RPC proves the link; the surface client is namespaced under
+>   // `surface` (e.g. kaval-tui: `c.surface.system.heartbeat({})`, arivu-tui:
+>   // the first frame of `c.surface.version.get({})`).
+>   probe: (c) => c.surface.system.heartbeat({}),
 > });
 > ```
 >
