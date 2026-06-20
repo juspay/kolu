@@ -1943,7 +1943,14 @@ Feature: Code tab (review + browse)
     And I click the file "notes.md" in the file browser
     Then the markdown preview should be visible
     When I switch the file view to "source"
-    And I select text "md-source-comment-marker" in the file content
+    # Wait for the source Pierre view to be the shown surface and to have rendered
+    # the line before selecting — with the keep-alive toggle the source view is
+    # mounted lazily on first switch, so a select fired the same tick lands before
+    # its shadow DOM is selection-ready (the rendered-mode marker text isn't a
+    # source line, so this also pins the drag to the source surface).
+    Then the file view should be showing "source"
+    And the file content should contain "md-source-comment-marker"
+    When I select text "md-source-comment-marker" in the file content
     Then the comment pill should be visible
 
   # Regression for #1026: Pierre's virtualizer defaults its row-height metric
