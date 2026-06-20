@@ -60,11 +60,23 @@ async function runReconciler(signal: AbortSignal): Promise<void> {
   // re-derived here. `bridgeStream` resolves (never rejects) when the stream
   // ends or aborts; a non-abort end is a daemon drop, so we delay and re-subscribe.
   while (!signal.aborted) {
-    await bridgeStream(
-      ptyHostClient.surface.inventory.get({}, { signal }),
-      signal,
-      applyEvent,
-    );
+    try {
+      // The forwarding facade calls `liveClient()` EAGERLY, so `inventory.get`
+      // THROWS synchronously when the daemon isn't connected (a dead-on-boot or
+      // mid-recycle endpoint) — before `bridgeStream` ever runs, so its internal
+      // fence can't catch it. This try owns exactly that pre-subscribe throw (a
+      // distinct failure from the stream draining, which `bridgeStream` resolves
+      // and never rejects); without it the throw escapes to `unhandledRejection`
+      // and exits the server on the honest dead-daemon path. Treat it as a drop.
+      await bridgeStream(
+        ptyHostClient.surface.inventory.get({}, { signal }),
+        signal,
+        applyEvent,
+      );
+    } catch (err) {
+      if (signal.aborted) return;
+      log.debug({ err }, "kaval inventory subscribe failed; will re-subscribe");
+    }
     if (signal.aborted) return;
     await delay(RESUBSCRIBE_DELAY_MS, signal);
   }

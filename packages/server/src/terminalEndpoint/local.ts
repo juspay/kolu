@@ -590,7 +590,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Bridge the raw VT taps onto the awareness signals. cwd also lands on
     // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
     // `signals.cwd` to re-resolve git).
-    bridgeStream(
+    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
+    // is intentionally not awaited (only the inventory reconciler awaits it).
+    void bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
       (msg) => {
@@ -600,17 +602,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         signals.cwd.publish(msg.cwd);
       },
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.title.get({ id }, { signal }),
       signal,
       (msg) => signals.title.publish(msg.title),
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
       (msg) => signals.commandRun.publish(msg.command),
     );
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
@@ -624,7 +626,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
     // ever fires for a genuine exit.
-    bridgeStream(
+    void bridgeStream(
       ptyHostClient.surface.exit.get({ id }, { signal }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
