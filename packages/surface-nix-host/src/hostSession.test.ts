@@ -109,6 +109,40 @@ describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)",
     stderr.mockRestore();
     session.destroy();
   });
+
+  it("contains a throwing onLog sink so it can't break the session lifecycle", async () => {
+    // `emit` is the single funnel for the caller-supplied `onLog`, and it runs
+    // from `updateState` BEFORE `stateCell.set`. A throwing sink that escaped
+    // would skip the state write / reconnect scheduling and freeze the session.
+    // Guarded at the funnel, the throw is swallowed (surfaced on stderr) and the
+    // lifecycle proceeds: the failing-provision drive still reaches `failed`.
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const session = new HostSession({
+      host: "throwsink",
+      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      binary: "agent",
+      reconnectDelayMs: 1000,
+      onLog: () => {
+        throw new Error("sink boom");
+      },
+    });
+
+    session.pin().catch(() => {});
+    // Drive all five provision failures to the terminal state. If a throwing
+    // sink had escaped `emit` (called from every transition), the state machine
+    // would have wedged before reaching `failed`.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(session.current().connection).toBe("failed");
+
+    // The sink failure isn't swallowed silently — it's reported on stderr.
+    const toTty = stderr.mock.calls.map((c) => String(c[0]));
+    expect(toTty.some((l) => l.includes("onLog sink threw: sink boom"))).toBe(
+      true,
+    );
+
+    stderr.mockRestore();
+    session.destroy();
+  });
 });
 
 describe("HostSession reconnect after give-up", () => {

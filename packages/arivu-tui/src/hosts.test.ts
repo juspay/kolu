@@ -71,6 +71,33 @@ describe("resolveFleetHosts", () => {
     expect(hosts.map((h) => h.label)).toEqual(["zest", "pu1", "new"]);
   });
 
+  it("disambiguates an ssh target named `local` from the socket endpoint", () => {
+    // Both the socket and an ssh host literally named `local` belong in the
+    // fleet, but the label is the routing key (the store seeds + the sink route
+    // by it), so they must NOT collide — the ssh one gets a distinct label.
+    const hosts = resolveFleetHosts({
+      explicit: ["local"],
+      fromSshConfig: [],
+      includeLocal: true,
+    });
+    expect(hosts).toEqual([
+      { label: LOCAL_LABEL, ssh: null },
+      { label: "local (ssh)", ssh: "local" },
+    ]);
+    // The two endpoints keep distinct labels — no overwrite in a label-keyed store.
+    expect(new Set(hosts.map((h) => h.label)).size).toBe(2);
+  });
+
+  it("leaves an ssh target named `local` untouched when the socket is excluded", () => {
+    // No socket in the fleet ⇒ no collision ⇒ the ssh `local` keeps its name.
+    const hosts = resolveFleetHosts({
+      explicit: ["local"],
+      fromSshConfig: [],
+      includeLocal: false,
+    });
+    expect(hosts).toEqual([{ label: "local", ssh: "local" }]);
+  });
+
   it("yields an empty list when nothing is asked for (caller fails loud)", () => {
     expect(
       resolveFleetHosts({

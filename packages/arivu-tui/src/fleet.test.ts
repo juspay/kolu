@@ -82,6 +82,34 @@ function fakeConn(opts: {
   };
 }
 
+/** A fake whose dial SUCCEEDS but whose post-connect `version.get` rejects —
+ *  models a link that came up then dropped before the first probe roundtripped.
+ *  The orchestrator must turn this into a per-host `unreachable`, not let the
+ *  rejection escape `runHost` (a stranded `connecting` + unhandled rejection) or
+ *  sink `snapshotFleet`'s `Promise.all`. */
+function fakeConnVersionRejects(): Connection {
+  const client = {
+    surface: {
+      version: {
+        get: async () => {
+          throw new Error("link dropped mid-probe");
+        },
+      },
+      awareness: {
+        keys: async () =>
+          (async function* () {
+            yield [] as TerminalId[];
+          })(),
+        get: async () => once(undefined as unknown as AwarenessValue),
+      },
+    },
+  };
+  return {
+    client: client as unknown as Connection["client"],
+    dispose: () => {},
+  };
+}
+
 function recordingSink(): {
   sink: FleetSink;
   statuses: Array<[string, FleetHostStatus]>;
@@ -182,6 +210,32 @@ describe("startFleet", () => {
     handle.dispose();
   });
 
+  it("isolates a post-dial probe failure as unreachable, never sinking the fleet", async () => {
+    // The dial succeeds but the version probe rejects. The bad host must surface
+    // as `unreachable` (not stranded at `connecting` with an escaped rejection),
+    // and the good host keeps mirroring.
+    const good = fakeConn({
+      terminals: { [id("t")]: val({ agent: agentVal("thinking") }) },
+    });
+    const { sink, statuses, upserts } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("bad", "good"),
+      connect: async (h) =>
+        h.label === "bad" ? fakeConnVersionRejects() : good.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(20);
+
+    expect(statuses).toContainEqual([
+      "bad",
+      { kind: "unreachable", reason: "link dropped mid-probe" },
+    ]);
+    expect(statuses).toContainEqual(["good", { kind: "connected" }]);
+    expect(upserts).toContainEqual(["good", "t", expect.anything()]);
+    handle.dispose();
+  });
+
   it("flips a host to unreachable when its link drops after connecting", async () => {
     const f = fakeConn({ terminals: {} });
     const { sink, statuses } = recordingSink();
@@ -219,6 +273,22 @@ describe("snapshotFleet", () => {
       label: "dead",
       kind: "unreachable",
       reason: "boom",
+    });
+  });
+
+  it("turns a post-dial probe failure into an unreachable snapshot, not a sunk Promise.all", async () => {
+    // One host's `version.get` rejects after a good dial; the rest of `--json`
+    // must still dump, with the bad host shown as unreachable.
+    const a = fakeConn({ terminals: { [id("t1")]: val({ cwd: "/x" }) } });
+    const snaps = await snapshotFleet(hostsOf("a", "bad"), async (h) =>
+      h.label === "bad" ? fakeConnVersionRejects() : a.conn,
+    );
+    expect(snaps).toHaveLength(2);
+    expect(snaps.find((s) => s.label === "a")?.kind).toBe("ok");
+    expect(snaps.find((s) => s.label === "bad")).toEqual({
+      label: "bad",
+      kind: "unreachable",
+      reason: "link dropped mid-probe",
     });
   });
 

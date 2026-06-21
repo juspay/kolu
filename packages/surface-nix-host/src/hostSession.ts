@@ -360,10 +360,29 @@ export class HostSession<C extends AnyContractRouter> {
 
   /** Route one diagnostic line to the configured sink (default: `process.stderr`,
    *  newline-terminated). The single choke-point for every line the session
-   *  emits, so an alt-screen consumer diverts them all by passing one `onLog`. */
+   *  emits, so an alt-screen consumer diverts them all by passing one `onLog`.
+   *
+   *  `onLog` is caller-supplied and `emit` is the one funnel every diagnostic
+   *  path runs through (state transitions, progress updates, child-stderr
+   *  handlers). A throwing sink must NOT escape: `emit` runs from `updateState`
+   *  BEFORE `stateCell.set`, so an uncaught throw here would skip the state
+   *  write, the reconnect scheduling, or break out of an event callback —
+   *  freezing the session. Guard at this funnel (the project's
+   *  `callback-fanout-guarded-at-funnel` rule), and surface the sink's own
+   *  failure on stderr so it isn't swallowed silently. */
   private emit(line: string): void {
-    if (this.opts.onLog) this.opts.onLog(line);
-    else process.stderr.write(`${line}\n`);
+    if (this.opts.onLog) {
+      try {
+        this.opts.onLog(line);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `[host:${this.opts.host}] onLog sink threw: ${reason}\n`,
+        );
+      }
+    } else {
+      process.stderr.write(`${line}\n`);
+    }
   }
 
   /** Parent-side lifecycle event (nix copy progress, ssh spawn errors,

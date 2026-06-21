@@ -56,7 +56,12 @@ export function parseSshConfigHosts(content: string): string[] {
  * (unless `includeLocal` is false), then every explicit `--host` in order, then
  * the ssh-config aliases — de-duplicated by ssh target so a host named on both
  * the command line and in the config is dialed once. `local` is purely the
- * socket endpoint; an ssh target literally named `local` still dials over ssh.
+ * socket endpoint; an ssh target literally named `local` still dials over ssh —
+ * and gets a DISTINCT label (`local (ssh)`) so it can't collide with the socket
+ * endpoint's `local`. The label is both the group header AND the routing key
+ * (`fleet.tsx` seeds a `Record` by it, the sink routes by it), so two endpoints
+ * sharing a label would silently overwrite each other in the store — the bug
+ * this disambiguation prevents.
  */
 export function resolveFleetHosts(opts: {
   explicit: string[];
@@ -64,14 +69,24 @@ export function resolveFleetHosts(opts: {
   includeLocal: boolean;
 }): FleetHost[] {
   const hosts: FleetHost[] = [];
+  // Labels already taken — seeded with the socket's reserved `local` when it's
+  // in the fleet, so an ssh target named `local` is forced to disambiguate
+  // rather than overwrite the socket endpoint.
+  const labels = new Set<string>();
   if (opts.includeLocal) {
     hosts.push({ label: LOCAL_LABEL, ssh: null });
+    labels.add(LOCAL_LABEL);
   }
-  const seen = new Set<string>();
+  const seenSsh = new Set<string>();
   for (const ssh of [...opts.explicit, ...opts.fromSshConfig]) {
-    if (ssh === "" || seen.has(ssh)) continue;
-    seen.add(ssh);
-    hosts.push({ label: ssh, ssh });
+    if (ssh === "" || seenSsh.has(ssh)) continue;
+    seenSsh.add(ssh);
+    // Disambiguate a display/routing label that the socket endpoint (or, in
+    // theory, a prior collision) already claimed — the ssh target is unchanged.
+    let label = ssh;
+    if (labels.has(label)) label = `${ssh} (ssh)`;
+    labels.add(label);
+    hosts.push({ label, ssh });
   }
   return hosts;
 }

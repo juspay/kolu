@@ -104,28 +104,35 @@ async function runHost(
   }
   conns.push(conn);
 
-  // Read the host's declared contract version → connected | skew. The same
-  // `version` cell P2's dial probes; here we keep the value to gate the header.
-  const version = await firstFrameOrUndefined(
-    await conn.client.surface.version.get({}),
-  ).catch(() => undefined);
-  const hostVersion = version?.contractVersion;
-  opts.sink.setStatus(
-    host.label,
-    hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION
-      ? {
-          kind: "skew",
-          localVersion: ARIVU_CONTRACT_VERSION,
-          hostVersion,
-        }
-      : { kind: "connected" },
-  );
-
-  // Live mirror — `mirrorRemoteCollection` holds the keys + per-key streams open
-  // and pumps every delta. It settles when the link closes; if we didn't dispose
-  // on purpose, the box went away, so flip the header to unreachable while the
-  // other hosts keep updating (the negative-proof path).
+  // Everything AFTER the dial is wrapped per host: the dial succeeded, but the
+  // version probe or the mirror's first roundtrip can still reject (a link that
+  // came up then dropped, a half-open socket). A rejection here must NOT escape
+  // `runHost` — `startFleet` fires it with `void`, so an unhandled rejection
+  // would leave the host stranded at `connecting` (and crash the process under
+  // the global handler). The no-fallback rule: it SURFACES as this host's
+  // `unreachable` header while the rest of the fleet keeps updating.
   try {
+    // Read the host's declared contract version → connected | skew. The same
+    // `version` cell P2's dial probes; here we keep the value to gate the header.
+    const version = await firstFrameOrUndefined(
+      await conn.client.surface.version.get({}),
+    );
+    const hostVersion = version?.contractVersion;
+    opts.sink.setStatus(
+      host.label,
+      hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION
+        ? {
+            kind: "skew",
+            localVersion: ARIVU_CONTRACT_VERSION,
+            hostVersion,
+          }
+        : { kind: "connected" },
+    );
+
+    // Live mirror — `mirrorRemoteCollection` holds the keys + per-key streams
+    // open and pumps every delta. It settles when the link closes; if we didn't
+    // dispose on purpose, the box went away, so flip the header to unreachable
+    // while the other hosts keep updating (the negative-proof path).
     await mirrorRemoteCollection<TerminalId, AwarenessValue>({
       label: `awareness@${host.label}`,
       log: opts.log,
@@ -135,11 +142,23 @@ async function runHost(
       onUpsert: (id, value) => opts.sink.upsert(host.label, id, value),
       onRemove: (id) => opts.sink.remove(host.label, id),
     });
-  } finally {
+    // The mirror returned without throwing → the keys stream closed cleanly
+    // (`mirrorRemoteCollection` swallows its own stream errors). The box went
+    // away: flip the header unless we tore it down on purpose.
     if (!isDisposed()) {
       opts.sink.setStatus(host.label, {
         kind: "unreachable",
         reason: "connection closed",
+      });
+    }
+  } catch (err) {
+    // The post-dial path threw — the version probe rejected, or the mirror's
+    // own setup did. Same contract as a failed dial: this host is unreachable,
+    // the others are untouched.
+    if (!isDisposed()) {
+      opts.sink.setStatus(host.label, {
+        kind: "unreachable",
+        reason: (err as Error).message,
       });
     }
   }
@@ -167,14 +186,13 @@ export function snapshotFleet(
       }
       try {
         // Read the host's declared contract version the SAME way `runHost`
-        // gates the live header (fleet.ts:109-111). The `--json` snapshot keeps
-        // a skewed host's rows but tags them with the mismatch, so a scripter
-        // gets the same skew signal the interactive board does — the symmetry
-        // the no-fallback rule demands (a skewed box is visible, not silently
-        // dumped as compatible).
+        // gates the live header. The `--json` snapshot keeps a skewed host's
+        // rows but tags them with the mismatch, so a scripter gets the same skew
+        // signal the interactive board does — the symmetry the no-fallback rule
+        // demands (a skewed box is visible, not silently dumped as compatible).
         const version = await firstFrameOrUndefined(
           await conn.client.surface.version.get({}),
-        ).catch(() => undefined);
+        );
         const hostVersion = version?.contractVersion;
         const entries = await snapshotAwareness(conn.client);
         if (hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION) {
@@ -187,6 +205,17 @@ export function snapshotFleet(
           };
         }
         return { label: host.label, kind: "ok", entries };
+      } catch (err) {
+        // The dial succeeded but the version probe or the snapshot read rejected
+        // (the link dropped mid-read, a half-open socket). One bad host must not
+        // sink the whole `Promise.all` — surface it as this host's `unreachable`
+        // snapshot, the same contract the live board uses, so `fleet --json`
+        // still dumps every other host.
+        return {
+          label: host.label,
+          kind: "unreachable",
+          reason: (err as Error).message,
+        };
       } finally {
         conn.dispose();
       }

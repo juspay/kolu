@@ -169,3 +169,51 @@ test("needs mode flattens across hosts with no per-host headers", async () => {
   expect(frame).toContain("working");
   expect(frame).not.toContain("▌"); // no host group bars in the flat list
 });
+
+test("needs mode names each row's source host (no group header to carry it)", async () => {
+  // Without per-host group headers, the row itself must say WHICH machine each
+  // agent is on — the core fleet promise (who is blocked, and where).
+  const frame = await renderBoard(
+    viewOf(
+      [
+        {
+          label: "zest",
+          status: connected,
+          terminals: { [id("z1")]: val({ agent: agentVal("awaiting_user") }) },
+        },
+        {
+          label: "pluto",
+          status: connected,
+          terminals: { [id("p1")]: val({ agent: agentVal("thinking") }) },
+        },
+      ],
+      "needs",
+    ),
+  );
+  expect(frame).toContain("zest");
+  expect(frame).toContain("pluto");
+});
+
+test("agent mode names each row's source host inside the urgency sections", async () => {
+  const frame = await renderBoard(
+    viewOf(
+      [
+        {
+          label: "zest",
+          status: connected,
+          terminals: { [id("z1")]: val({ agent: agentVal("awaiting_user") }) },
+        },
+        {
+          label: "pluto",
+          status: connected,
+          terminals: { [id("p1")]: val({ agent: agentVal("thinking") }) },
+        },
+      ],
+      "agent",
+    ),
+  );
+  // The section headers are urgency labels, not hosts; the host appears per-row.
+  expect(frame).toContain("awaiting you");
+  expect(frame).toContain("zest");
+  expect(frame).toContain("pluto");
+});

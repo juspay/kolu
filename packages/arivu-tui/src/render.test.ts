@@ -336,6 +336,104 @@ describe("projectFleet — needs & agent modes", () => {
     ]);
     expect(view.groups.every((g) => g.status === undefined)).toBe(true);
   });
+
+  it("needs mode tiebreaks the whole fleet by recency then id, not host order", () => {
+    // Two hosts, two equally-urgent (working) terminals. The fleet-wide order
+    // must put the more-recently-active one first regardless of host iteration
+    // order — the tiebreak the per-host sort defines, kept once the scope is the
+    // whole fleet.
+    const fleet = [
+      host(
+        "alpha",
+        { kind: "connected" },
+        {
+          [id("a-stale")]: val({
+            agent: agentVal("thinking"),
+            lastActivityAt: NOW - 60_000,
+          }),
+        },
+      ),
+      host(
+        "beta",
+        { kind: "connected" },
+        {
+          [id("b-fresh")]: val({
+            agent: agentVal("thinking"),
+            lastActivityAt: NOW - 1_000,
+          }),
+        },
+      ),
+    ];
+    const view = projectFleet(fleet, NOW, "needs");
+    if (view.mode !== "needs") throw new Error("unreachable");
+    // beta's fresher row leads even though alpha is the first host.
+    expect(view.flat.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
+  });
+
+  it("agent mode tiebreaks within a section by recency, not host order", () => {
+    const fleet = [
+      host(
+        "alpha",
+        { kind: "connected" },
+        {
+          [id("a-stale")]: val({
+            agent: agentVal("awaiting_user"),
+            lastActivityAt: NOW - 60_000,
+          }),
+        },
+      ),
+      host(
+        "beta",
+        { kind: "connected" },
+        {
+          [id("b-fresh")]: val({
+            agent: agentVal("awaiting_user"),
+            lastActivityAt: NOW - 1_000,
+          }),
+        },
+      ),
+    ];
+    const view = projectFleet(fleet, NOW, "agent");
+    if (view.mode === "needs") throw new Error("unreachable");
+    const awaiting = view.groups.find((g) => g.label === "awaiting you");
+    expect(awaiting?.rows.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
+  });
+});
+
+describe("projectFleet — terminal-safety", () => {
+  it("strips control bytes from host labels and unreachable reasons", () => {
+    const states = [
+      host("ze\x1bst\n", { kind: "connected" }, {}),
+      host(
+        "ba\x07d",
+        { kind: "unreachable", reason: "ssh: bad\x1b]0;hijack\x07\nstderr" },
+        {},
+      ),
+    ];
+    const view = projectFleet(states, NOW, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
+    // No raw control byte reaches the painted group label or the reason.
+    for (const g of view.groups) {
+      expect(g.label).not.toMatch(/[\x00-\x1f\x7f]/);
+      if (g.status?.kind === "unreachable") {
+        expect(g.status.reason).not.toMatch(/[\x00-\x1f\x7f]/);
+      }
+    }
+    expect(view.alertHosts.join("")).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
+
+  it("strips control bytes from the row host cell in needs mode", () => {
+    const states = [
+      host(
+        "ho\x1bst",
+        { kind: "connected" },
+        { [id("t")]: val({ agent: agentVal("thinking") }) },
+      ),
+    ];
+    const view = projectFleet(states, NOW, "needs");
+    if (view.mode !== "needs") throw new Error("unreachable");
+    expect(view.flat[0]?.host).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
 });
 
 describe("formatFleetJson", () => {
@@ -356,5 +454,47 @@ describe("formatFleetJson", () => {
       terminalId: null,
       unreachable: "timeout",
     });
+  });
+
+  it("tags a skewed host's rows with the version mismatch", () => {
+    const out = formatFleetJson([
+      {
+        label: "old",
+        kind: "skew",
+        localVersion: "0.1",
+        hostVersion: "9.9",
+        entries: [[id("t1"), val({ cwd: "/x" })]],
+      },
+    ]);
+    const parsed = JSON.parse(out);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).toMatchObject({
+      host: "old",
+      terminalId: "t1",
+      skew: { localVersion: "0.1", hostVersion: "9.9" },
+    });
+  });
+
+  it("emits a skew sentinel for a skewed host with no terminals", () => {
+    // A row-less skewed host must still surface its skew — otherwise an empty
+    // skewed box is indistinguishable from an absent one in JSON, even though
+    // the live board shows its skew header.
+    const out = formatFleetJson([
+      {
+        label: "old",
+        kind: "skew",
+        localVersion: "0.1",
+        hostVersion: "9.9",
+        entries: [],
+      },
+    ]);
+    const parsed = JSON.parse(out);
+    expect(parsed).toEqual([
+      {
+        host: "old",
+        terminalId: null,
+        skew: { localVersion: "0.1", hostVersion: "9.9" },
+      },
+    ]);
   });
 });

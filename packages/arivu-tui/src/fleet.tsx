@@ -49,9 +49,14 @@ const NEED_GLYPH = "●";
 const IDLE_GLYPH = "○";
 
 // Column widths (chars), sized to fit an 80-column terminal alongside the 2-char
-// glyph + group indent: 2 + 8 + 22 + 11 + 13 + age(≤4).
+// glyph + group indent: 2 + 8 + 22 + 11 + 13 + age(≤4). In the host-less modes
+// (`needs`/`agent`) a leading host column (`W_HOST`) replaces the per-host group
+// header so each row still names the machine it is on; the `where` column shrinks
+// to keep the row inside 80 cols.
+const W_HOST = 12;
 const W_AGENT = 8;
 const W_WHERE = 22;
+const W_WHERE_WITH_HOST = 14;
 const W_PR = 11;
 const W_STATE = 13;
 
@@ -89,18 +94,35 @@ function hostBadge(status: FleetHostStatus | undefined): {
   }
 }
 
-/** One terminal row: animated glyph, agent, repo·branch, PR, state, recency. */
-function Row(props: { row: FleetRow; frame: () => number }) {
+/** One terminal row: animated glyph, [host,] agent, repo·branch, PR, state,
+ *  recency. `showHost` is set in the host-less `needs`/`agent` modes, where there
+ *  is no per-host group header — so the row itself names the machine the agent is
+ *  on (the core fleet promise: who is blocked, and WHERE). In host mode the host
+ *  is the group header, so the column is dropped as redundant and `where` keeps
+ *  its full width. */
+function Row(props: {
+  row: FleetRow;
+  frame: () => number;
+  showHost?: boolean;
+}) {
   return (
     <box flexDirection="row">
       <text fg={TONE_COLOR[props.row.state.tone]}>
         {cell(rowGlyph(props.row, props.frame()), 2)}
       </text>
+      {props.showHost ? (
+        <text fg={HOST}>{cell(props.row.host, W_HOST)}</text>
+      ) : (
+        <text fg={HOST}>{""}</text>
+      )}
       <text fg={TONE_COLOR[props.row.agent.tone]}>
         {cell(props.row.agent.text, W_AGENT)}
       </text>
       <text fg={TONE_COLOR[props.row.where.tone]}>
-        {cell(props.row.where.text, W_WHERE)}
+        {cell(
+          props.row.where.text,
+          props.showHost ? W_WHERE_WITH_HOST : W_WHERE,
+        )}
       </text>
       <text fg={TONE_COLOR[props.row.pr.tone]}>
         {cell(props.row.pr.text, W_PR)}
@@ -118,8 +140,14 @@ function Row(props: { row: FleetRow; frame: () => number }) {
 /** One group — a host (with its status badge) or an urgency section. The badge
  *  is always a `<text>` (empty content when connected) and the rows are a `<For>`
  *  with an element fallback: OpenTUI rejects a bare/empty string under a `<box>`,
- *  so every child stays a concrete `<text>`/`<box>` element. */
-function Group(props: { group: FleetGroup; frame: () => number }) {
+ *  so every child stays a concrete `<text>`/`<box>` element. `showHost` is set in
+ *  `agent` mode (sections cut across hosts, so each row must name its machine)
+ *  and clear in `host` mode (the group header already IS the host). */
+function Group(props: {
+  group: FleetGroup;
+  frame: () => number;
+  showHost?: boolean;
+}) {
   const badge = hostBadge(props.group.status);
   const count = props.group.rows.length;
   return (
@@ -138,7 +166,9 @@ function Group(props: { group: FleetGroup; frame: () => number }) {
         each={props.group.rows}
         fallback={<text fg={TONE_COLOR.muted}>{"  no terminals"}</text>}
       >
-        {(row) => <Row row={row} frame={props.frame} />}
+        {(row) => (
+          <Row row={row} frame={props.frame} showHost={props.showHost} />
+        )}
       </For>
     </box>
   );
@@ -200,6 +230,10 @@ export function FleetBoard(props: {
     const v = props.view();
     return v.mode === "needs" ? [] : v.groups;
   };
+  // The host-less modes (`needs` flat, `agent` sections) cut across machines, so
+  // a row must carry its own host cell; in `host` mode the group header is the
+  // host and the column would just be redundant.
+  const showHost = () => props.view().mode !== "host";
   return (
     <box flexDirection="column" padding={1}>
       <text fg={TITLE}>
@@ -216,7 +250,7 @@ export function FleetBoard(props: {
               <text fg={TONE_COLOR.muted}>no terminals across the fleet</text>
             }
           >
-            {(row) => <Row row={row} frame={props.frame} />}
+            {(row) => <Row row={row} frame={props.frame} showHost={true} />}
           </For>
         </box>
       ) : (
@@ -224,7 +258,9 @@ export function FleetBoard(props: {
           each={groups()}
           fallback={<text fg={TONE_COLOR.muted}>no hosts</text>}
         >
-          {(group) => <Group group={group} frame={props.frame} />}
+          {(group) => (
+            <Group group={group} frame={props.frame} showHost={showHost()} />
+          )}
         </For>
       )}
       <Summary view={props.view} />

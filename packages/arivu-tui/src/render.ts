@@ -32,8 +32,12 @@ const DASH = "—";
 
 /** Strip terminal-hostile bytes from a value. A shell can set its title /
  *  process name to anything (newlines, raw ESC), so painting them verbatim
- *  could inject control effects. JSON output stays raw; this is human-only. */
-function sanitize(value: string): string {
+ *  could inject control effects. JSON output stays raw; this is human-only.
+ *  Exported so every TUI-bound string the fleet paints — host labels (CLI/ssh
+ *  config), unreachable reasons (ssh/nix/remote stderr) — funnels through the
+ *  same control-byte strip the per-terminal cells already do, never just a
+ *  subset. */
+export function sanitize(value: string): string {
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
 }
 
@@ -329,6 +333,15 @@ export interface FleetRow {
   host: string;
   id: string;
   urgency: FleetUrgency;
+  /** The raw `lastActivityAt` epoch-millis, carried alongside the formatted
+   *  `active` cell so a fleet-wide comparator can tiebreak on recency without
+   *  re-parsing the rendered "3s"/"5m" string. The cell stays for display; this
+   *  is the sort key. */
+  activeAt: number;
+  /** The raw terminal id (full, not the shortened display form), the final
+   *  stable tiebreak so a flat/grouped fleet list orders identically every
+   *  paint regardless of host-iteration order. */
+  sortId: string;
   agent: DashCell;
   where: DashCell;
   pr: DashCell;
@@ -347,6 +360,8 @@ export function fleetRow(
     host,
     id: shortId(id),
     urgency,
+    activeAt: v.lastActivityAt,
+    sortId: id,
     agent: {
       text: v.agent ? agentShortName(v.agent.kind) : DASH,
       tone: "plain",
@@ -379,6 +394,21 @@ function sortedEntries(
       return b.lastActivityAt - a.lastActivityAt;
     return ia.localeCompare(ib);
   });
+}
+
+/** The SAME ordering as `sortedEntries`, but over already-projected `FleetRow`s
+ *  so a fleet-WIDE list (the flat `needs` view, an agent-mode section) keeps the
+ *  full tiebreak — urgency rank, then most-recent activity, then stable id —
+ *  once the scope is the whole fleet rather than one host. Sorting only by
+ *  urgency rank (the old flat path) collapsed the recency/id tiebreak the
+ *  per-host sort defines, so two hosts' rows fell back to host-iteration order;
+ *  this carries the keys (`activeAt`, `sortId`) through and applies them once. */
+function fleetRowOrder(a: FleetRow, b: FleetRow): number {
+  const ra = URGENCY[a.urgency].rank;
+  const rb = URGENCY[b.urgency].rank;
+  if (ra !== rb) return ra - rb;
+  if (a.activeAt !== b.activeAt) return b.activeAt - a.activeAt;
+  return a.sortId.localeCompare(b.sortId);
 }
 
 /** How the board is grouped/sorted. `host` (default) = per-host groups; `needs`
@@ -435,18 +465,39 @@ const AGENT_SECTIONS: ReadonlyArray<{ urgency: FleetUrgency; label: string }> =
     label: URGENCY[urgency].label,
   }));
 
+/** Sanitize a host status for the TUI: an `unreachable` reason is ssh/nix/remote
+ *  stderr, which can carry newlines/control bytes, so strip them before the
+ *  badge paints it. The other arms carry only versions/no free text. JSON keeps
+ *  the raw reason (it's built off the snapshot, not this view). */
+function sanitizeStatus(status: FleetHostStatus): FleetHostStatus {
+  return status.kind === "unreachable"
+    ? { kind: "unreachable", reason: sanitize(status.reason) }
+    : status;
+}
+
 /** Project the live aggregate to the board. Pure: same input, same output, no
- *  clock of its own (`now` is passed so recency is testable). */
+ *  clock of its own (`now` is passed so recency is testable).
+ *
+ *  Every host-derived string the board PAINTS — the group label, the row's host
+ *  cell, the alert-strip names, the unreachable reason — is control-byte
+ *  sanitized here, the projection boundary, so `fleet.tsx` stays a uniform
+ *  tone→colour paint and no CLI/ssh-config label or remote stderr can corrupt
+ *  the alt-screen. (`fleet --json` is built separately off the raw snapshot.) */
 export function projectFleet(
   states: FleetHostState[],
   now: number,
   mode: FleetMode,
 ): FleetView {
-  // Every terminal across the fleet, each tagged with its host — the basis for
-  // the flat (needs/agent) views and the summary counts.
-  const allRows: FleetRow[] = states.flatMap((s) =>
-    sortedEntries(s.terminals).map(([id, v]) => fleetRow(s.label, id, v, now)),
-  );
+  // Every terminal across the fleet, each tagged with its (sanitized) host — the
+  // basis for the flat (needs/agent) views and the summary counts. The
+  // sanitized label is also the partition key below, so a row's host and its
+  // group header stay the same string.
+  const allRows: FleetRow[] = states.flatMap((s) => {
+    const host = sanitize(s.label);
+    return sortedEntries(s.terminals).map(([id, v]) =>
+      fleetRow(host, id, v, now),
+    );
+  });
 
   const summary: FleetSummary = {
     needYou: allRows.filter((r) => r.urgency === "need").length,
@@ -459,25 +510,27 @@ export function projectFleet(
     .filter((s) =>
       Object.values(s.terminals).some((v) => agentUrgency(v.agent) === "need"),
     )
-    .map((s) => s.label);
+    .map((s) => sanitize(s.label));
 
   if (mode === "needs") {
-    const flat = [...allRows].sort(
-      (a, b) => URGENCY[a.urgency].rank - URGENCY[b.urgency].rank,
-    );
+    // One fleet-wide list with the FULL tiebreak (urgency, recency, id), not
+    // just urgency rank — see `fleetRowOrder`.
+    const flat = [...allRows].sort(fleetRowOrder);
     return { mode, flat, summary, alertHosts };
   }
   if (mode === "agent") {
     const groups = AGENT_SECTIONS.map(({ urgency, label }) => ({
       label,
-      rows: allRows.filter((r) => r.urgency === urgency),
+      // Re-sort each section by the shared comparator so rows from different
+      // hosts within one urgency band order by recency/id, not host order.
+      rows: allRows.filter((r) => r.urgency === urgency).sort(fleetRowOrder),
     })).filter((g) => g.rows.length > 0);
     return { mode, groups, summary, alertHosts };
   }
   // host mode (default): one group per host, in dial order, even when empty or
   // down — an unreachable host renders as a distinct header, never vanishes.
-  // Partition the already-projected `allRows` by host rather than re-running the
-  // sort + projection per host (it's the same value computed twice otherwise).
+  // Partition the already-projected `allRows` by (sanitized) host rather than
+  // re-running the sort + projection per host (the same value computed twice).
   const rowsByHost = new Map<string, FleetRow[]>();
   for (const row of allRows) {
     let bucket = rowsByHost.get(row.host);
@@ -487,11 +540,14 @@ export function projectFleet(
     }
     bucket.push(row);
   }
-  const groups = states.map((s) => ({
-    label: s.label,
-    status: s.status,
-    rows: rowsByHost.get(s.label) ?? [],
-  }));
+  const groups = states.map((s) => {
+    const label = sanitize(s.label);
+    return {
+      label,
+      status: sanitizeStatus(s.status),
+      rows: rowsByHost.get(label) ?? [],
+    };
+  });
   return { mode, groups, summary, alertHosts };
 }
 
@@ -501,7 +557,10 @@ export function projectFleet(
  *  so a down box is visible in the output, not silently absent. A contract-
  *  skewed host keeps its rows but tags each with `skew:{localVersion,hostVersion}`
  *  so a scripter sees the same skew signal the live board does, never a silently
- *  compatible-looking dump. */
+ *  compatible-looking dump. A skewed host with NO terminals still emits one
+ *  `{ host, terminalId: null, skew }` sentinel — otherwise the skew signal would
+ *  vanish from JSON for an empty box even though the live board shows its skew
+ *  header (the symmetry the no-fallback rule demands). */
 export function formatFleetJson(snaps: FleetSnapshot[]): string {
   const rows: Array<Record<string, unknown>> = [];
   for (const s of snaps) {
@@ -514,8 +573,14 @@ export function formatFleetJson(snaps: FleetSnapshot[]): string {
         localVersion: s.localVersion,
         hostVersion: s.hostVersion,
       };
-      for (const [id, value] of s.entries) {
-        rows.push({ host: s.label, terminalId: id, skew, ...value });
+      if (s.entries.length === 0) {
+        // No terminals, but the skew must still surface — a row-less skewed
+        // host would otherwise be indistinguishable from an absent one in JSON.
+        rows.push({ host: s.label, terminalId: null, skew });
+      } else {
+        for (const [id, value] of s.entries) {
+          rows.push({ host: s.label, terminalId: id, skew, ...value });
+        }
       }
     } else {
       rows.push({ host: s.label, terminalId: null, unreachable: s.reason });
