@@ -27,6 +27,10 @@ export const CONTEXTUAL_TIPS = {
     id: "theme-switch",
     text: `Tip: ${formatKeybind(ACTIONS.shuffleTheme.keybind)} cycles through terminal themes`,
   },
+  sleepTerminal: {
+    id: "sleep-terminal",
+    text: "Sleep (☾) pauses a terminal — its agent and PTY are released; Wake resumes the conversation right where it left off",
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [

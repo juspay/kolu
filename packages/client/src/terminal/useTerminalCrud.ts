@@ -197,11 +197,32 @@ export const useTerminalCrud = createSharedRoot(() => {
     await handleKill(id);
   }
 
+  /** Request sleep — the shared entry the ☾ tile button and the palette both
+   *  call. Surfaces the one-time discoverability tip, and when the terminal has
+   *  splits, confirms via an action toast before closing them (a sleeping record
+   *  is a single terminal — splits must not vanish silently, the §2
+   *  non-negotiable). No splits → sleep straight away. */
+  function requestSleep(id: TerminalId) {
+    showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
+    const subs = store.getSubTerminalIds(id).length;
+    if (subs > 0) {
+      toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
+        duration: Number.POSITIVE_INFINITY,
+        action: {
+          label: "Sleep & close splits",
+          onClick: () => void handleSleep(id),
+        },
+      });
+      return;
+    }
+    void handleSleep(id);
+  }
+
   /** Sleep a terminal: close its splits first (a sleeping record is a single
    *  terminal — sub-terminals are CLOSED, not frozen), then flip it to the
    *  dormant arm on the server. The tile STAYS (now dormant) — no
    *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
-   *  Wake call-to-action. The caller confirms first when splits exist (App.tsx). */
+   *  Wake call-to-action. Reached through `requestSleep` (which confirms splits). */
   async function handleSleep(id: TerminalId) {
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
@@ -221,6 +242,18 @@ export const useTerminalCrud = createSharedRoot(() => {
     } catch (err) {
       toast.error(`Failed to wake terminal: ${(err as Error).message}`);
     }
+  }
+
+  /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
+   *  released it) and auto-switch away. The close-path twin of `handleKill` for
+   *  the dormant arm; reached from the reworded close-confirm dialog. */
+  async function handleDiscard(id: TerminalId) {
+    try {
+      await client.terminal.discardSleeping({ id });
+    } catch {
+      // Already gone — fall through to the client-side cleanup.
+    }
+    removeAndAutoSwitch(id);
   }
 
   async function handleCopyTerminalText() {
@@ -294,8 +327,10 @@ export const useTerminalCrud = createSharedRoot(() => {
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
+    requestSleep,
     handleSleep,
     handleWake,
+    handleDiscard,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,

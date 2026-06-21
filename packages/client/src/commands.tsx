@@ -3,6 +3,7 @@
 import {
   activeArm,
   type RecentAgent,
+  sleepingArm,
   type TerminalId,
 } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
@@ -34,6 +35,7 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
+import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { recentAgents, recentRepos } from "./wire";
 
@@ -171,6 +173,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   // the toggle with a guard or telemetry.
   const posture = useViewPosture();
   const tileStore = useTileStore();
+  const crud = useTerminalCrud();
 
   return createMemo((): PaletteCommand[] => [
     // --- Workspaces ---
@@ -237,6 +240,26 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             section: "active-terminal" as const,
             onSelect: () => deps.handleClose(),
           },
+          // Sleep / Wake — one or the other by the active tile's lifecycle state.
+          sleepingArm(deps.activeMeta())
+            ? {
+                kind: "action" as const,
+                name: "Wake terminal",
+                section: "active-terminal" as const,
+                onSelect: () => {
+                  const id = deps.activeId();
+                  if (id) void crud.handleWake(id);
+                },
+              }
+            : {
+                kind: "action" as const,
+                name: "Sleep terminal",
+                section: "active-terminal" as const,
+                onSelect: () => {
+                  const id = deps.activeId();
+                  if (id) crud.requestSleep(id);
+                },
+              },
           actionPaletteCommand("toggleSubPanel", deps, {
             section: "active-terminal",
           }),
