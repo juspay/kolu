@@ -221,4 +221,20 @@ describe("snapshotFleet", () => {
       reason: "boom",
     });
   });
+
+  it("flags a contract-skewed host as skew, keeping its rows visible", async () => {
+    const skewed = fakeConn({
+      version: "9.9",
+      terminals: { [id("t1")]: val({ cwd: "/x" }) },
+    });
+    const [snap] = await snapshotFleet(hostsOf("old"), async () => skewed.conn);
+    // The skew signal is carried AND the host's entries are kept — a skewed box
+    // is visible WITH its rows, not dumped as if fully compatible.
+    expect(snap?.kind).toBe("skew");
+    expect(snap?.kind === "skew" && snap.localVersion).toBe(
+      ARIVU_CONTRACT_VERSION,
+    );
+    expect(snap?.kind === "skew" && snap.hostVersion).toBe("9.9");
+    expect(snap?.kind === "skew" && snap.entries[0]?.[0]).toBe("t1");
+  });
 });

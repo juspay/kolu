@@ -486,22 +486,42 @@ export function projectFleet(
   return { mode, groups, flat: [], summary, alertHosts };
 }
 
-/** One host's one-shot snapshot for `fleet --json` — the terminals it served,
- *  or why it couldn't be reached (kept honest, never dropped). */
+/** One host's one-shot snapshot for `fleet --json` — the terminals it served, a
+ *  contract-skewed host (its rows kept, plus the version mismatch so a scripter
+ *  sees the same skew signal the live board does), or why it couldn't be reached
+ *  (kept honest, never dropped). */
 export type FleetSnapshot =
   | { label: string; kind: "ok"; entries: Array<[TerminalId, AwarenessValue]> }
+  | {
+      label: string;
+      kind: "skew";
+      localVersion: string;
+      hostVersion: string;
+      entries: Array<[TerminalId, AwarenessValue]>;
+    }
   | { label: string; kind: "unreachable"; reason: string };
 
 /** `fleet --json` — a flat `[{ host, terminalId, ...AwarenessValue }]` for
  *  scripting (e.g. a notifier that pings when any box has an awaiting agent).
  *  An unreachable host emits one `{ host, terminalId: null, unreachable }` row
- *  so a down box is visible in the output, not silently absent. */
+ *  so a down box is visible in the output, not silently absent. A contract-
+ *  skewed host keeps its rows but tags each with `skew:{localVersion,hostVersion}`
+ *  so a scripter sees the same skew signal the live board does, never a silently
+ *  compatible-looking dump. */
 export function formatFleetJson(snaps: FleetSnapshot[]): string {
   const rows: Array<Record<string, unknown>> = [];
   for (const s of snaps) {
     if (s.kind === "ok") {
       for (const [id, value] of s.entries) {
         rows.push({ host: s.label, terminalId: id, ...value });
+      }
+    } else if (s.kind === "skew") {
+      const skew = {
+        localVersion: s.localVersion,
+        hostVersion: s.hostVersion,
+      };
+      for (const [id, value] of s.entries) {
+        rows.push({ host: s.label, terminalId: id, skew, ...value });
       }
     } else {
       rows.push({ host: s.label, terminalId: null, unreachable: s.reason });

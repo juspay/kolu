@@ -166,7 +166,26 @@ export function snapshotFleet(
         };
       }
       try {
+        // Read the host's declared contract version the SAME way `runHost`
+        // gates the live header (fleet.ts:109-111). The `--json` snapshot keeps
+        // a skewed host's rows but tags them with the mismatch, so a scripter
+        // gets the same skew signal the interactive board does — the symmetry
+        // the no-fallback rule demands (a skewed box is visible, not silently
+        // dumped as compatible).
+        const version = await firstFrameOrUndefined(
+          await conn.client.surface.version.get({}),
+        ).catch(() => undefined);
+        const hostVersion = version?.contractVersion;
         const entries = await snapshotAwareness(conn.client);
+        if (hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION) {
+          return {
+            label: host.label,
+            kind: "skew",
+            localVersion: ARIVU_CONTRACT_VERSION,
+            hostVersion,
+            entries,
+          };
+        }
         return { label: host.label, kind: "ok", entries };
       } finally {
         conn.dispose();
