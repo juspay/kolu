@@ -10,6 +10,7 @@
 
 import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { DEFAULT_THEME_NAME } from "terminal-themes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -42,8 +43,16 @@ const TileTitleActions: Component<{
   const { showTipOnce } = useTips();
 
   const meta = () => store.getMetadata(props.id);
+  // Both branches resolve the tile's *effective* theme name. The focused
+  // branch's activeThemeName() already falls back to DEFAULT_THEME_NAME (via
+  // committedThemeName); the non-focused branch must match, otherwise a tile
+  // left on the default theme (themeName unset) drops its pill the moment it
+  // loses focus — getThemeByName(undefined) renders that tile with exactly the
+  // default theme, so the pill should read its name, not vanish (#1480).
   const themeName = () =>
-    store.activeId() === props.id ? activeThemeName() : meta()?.themeName;
+    store.activeId() === props.id
+      ? activeThemeName()
+      : (meta()?.themeName ?? DEFAULT_THEME_NAME);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
