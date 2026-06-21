@@ -17,12 +17,12 @@ import { AwarenessTable } from "./tui.tsx";
 
 const rows: DashRow[] = [
   {
-    id: "a3f10000",
-    repoBranch: "kolu·feat/x",
+    id: { text: "a3f10000", tone: "plain" },
+    repoBranch: { text: "kolu·feat/x", tone: "plain" },
     pr: { text: "#12 open ✓", tone: "pass" },
     agent: { text: "claude · awaiting", tone: "awaiting" },
-    foreground: "nvim",
-    active: "3s",
+    foreground: { text: "nvim", tone: "plain" },
+    active: { text: "3s", tone: "muted" },
   },
 ];
 

@@ -44,8 +44,6 @@ const TONE_COLOR: Record<FieldTone, string> = {
 
 const TITLE = "#7c8696";
 const HEADER = "#8b94a6";
-const ID_FG = "#aeb7c7";
-const PLAIN = "#c8d0de";
 const MUTED = "#5b6678";
 
 // Column widths (chars). Sized for an ~80-col terminal; long values ellipsize.
@@ -90,14 +88,18 @@ export function AwarenessTable(props: {
         <For each={props.rows}>
           {(r) => (
             <box flexDirection="row">
-              <text fg={ID_FG}>{cell(r.id, W_ID)}</text>
-              <text fg={PLAIN}>{cell(r.repoBranch, W_WHERE)}</text>
+              <text fg={TONE_COLOR[r.id.tone]}>{cell(r.id.text, W_ID)}</text>
+              <text fg={TONE_COLOR[r.repoBranch.tone]}>
+                {cell(r.repoBranch.text, W_WHERE)}
+              </text>
               <text fg={TONE_COLOR[r.pr.tone]}>{cell(r.pr.text, W_PR)}</text>
               <text fg={TONE_COLOR[r.agent.tone]}>
                 {cell(r.agent.text, W_AGENT)}
               </text>
-              <text fg={PLAIN}>{cell(r.foreground, W_FG)}</text>
-              <text fg={MUTED}>{r.active}</text>
+              <text fg={TONE_COLOR[r.foreground.tone]}>
+                {cell(r.foreground.text, W_FG)}
+              </text>
+              <text fg={TONE_COLOR[r.active.tone]}>{r.active.text}</text>
             </box>
           )}
         </For>

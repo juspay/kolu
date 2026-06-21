@@ -177,14 +177,16 @@ export interface DashCell {
   tone: FieldTone;
 }
 
-/** One terminal as a compact dashboard row. */
+/** One terminal as a compact dashboard row. Every column is a `DashCell` so
+ *  render.ts owns 100% of the which-tone decision and `tui.tsx` is a uniform
+ *  tone→colour paint with no per-column colour knowledge. */
 export interface DashRow {
-  id: string;
-  repoBranch: string;
+  id: DashCell;
+  repoBranch: DashCell;
   pr: DashCell;
   agent: DashCell;
-  foreground: string;
-  active: string;
+  foreground: DashCell;
+  active: DashCell;
 }
 
 /** Project a terminal to its dashboard columns: short id, repo·branch, PR
@@ -196,14 +198,15 @@ export function dashRow(
   now: number,
 ): DashRow {
   return {
-    id: shortId(id),
-    repoBranch: v.git
-      ? `${v.git.repoName ?? "?"}·${v.git.branch ?? "?"}`
-      : DASH,
+    id: { text: shortId(id), tone: "plain" },
+    repoBranch: {
+      text: v.git ? `${v.git.repoName ?? "?"}·${v.git.branch ?? "?"}` : DASH,
+      tone: "plain",
+    },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
-    foreground: orDash(v.foreground?.name),
-    active: relativeTime(v.lastActivityAt, now),
+    foreground: { text: orDash(v.foreground?.name), tone: "plain" },
+    active: { text: relativeTime(v.lastActivityAt, now), tone: "muted" },
   };
 }
 

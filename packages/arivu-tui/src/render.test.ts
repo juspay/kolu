@@ -134,17 +134,17 @@ describe("dashRow", () => {
       NOW,
     );
     expect(row).toEqual({
-      id: "a3f1c0de",
-      repoBranch: "kolu·feat/x",
+      id: { text: "a3f1c0de", tone: "plain" },
+      repoBranch: { text: "kolu·feat/x", tone: "plain" },
       pr: { text: "#12 open ✓", tone: "pass" },
       agent: { text: "claude · awaiting", tone: "awaiting" },
-      foreground: "nvim",
-      active: "3s",
+      foreground: { text: "nvim", tone: "plain" },
+      active: { text: "3s", tone: "muted" },
     });
   });
   it("dashes a terminal with no git", () => {
     const row = dashRow(id("b7"), val({ git: null }), NOW);
-    expect(row.repoBranch).toBe("—");
+    expect(row.repoBranch.text).toBe("—");
   });
 });
 
@@ -158,7 +158,7 @@ describe("dashRows", () => {
       ],
       NOW,
     );
-    expect(rows.map((r) => r.id)).toEqual(["a-1", "b-5", "c-9"]);
+    expect(rows.map((r) => r.id.text)).toEqual(["a-1", "b-5", "c-9"]);
   });
 });
 
