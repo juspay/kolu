@@ -285,6 +285,14 @@ async function mirrorCollection<K, V>(opts: {
   onRemove: (key: K) => void;
 }): Promise<void> {
   const open = new Map<K, AbortController>();
+  // Thread the parent signal's reason into every per-key abort (with a fallback
+  // for a mid-stream key departure, when the parent has NOT aborted) so the
+  // per-key publisher rejects its pending pull with *this* reason — and the
+  // whole file decides "is this the expected teardown rejection?" with the one
+  // `isAbortReason` predicate the server layer advertises, instead of a weaker
+  // string-compare that only matched because the reason was never set.
+  const abortReason = (): unknown =>
+    opts.signal?.reason ?? new DOMException("aborted", "AbortError");
   try {
     for await (const keys of iterateUntilAborted(
       await opts.keys,
@@ -303,7 +311,7 @@ async function mirrorCollection<K, V>(opts: {
               opts.onUpsert(key, value);
             }
           } catch (err) {
-            if ((err as Error).name !== "AbortError") {
+            if (!isAbortReason(err, ctl.signal)) {
               opts.log(
                 `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
               );
@@ -313,7 +321,7 @@ async function mirrorCollection<K, V>(opts: {
       }
       for (const [key, ctl] of [...open]) {
         if (next.has(key)) continue;
-        ctl.abort();
+        ctl.abort(abortReason());
         open.delete(key);
         opts.onRemove(key);
       }
@@ -323,6 +331,6 @@ async function mirrorCollection<K, V>(opts: {
       opts.log(`${opts.label}: keys stream error: ${(err as Error).message}`);
     }
   } finally {
-    for (const ctl of open.values()) ctl.abort();
+    for (const ctl of open.values()) ctl.abort(abortReason());
   }
 }
