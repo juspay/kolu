@@ -257,10 +257,13 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   /** User-set freeform notes — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo
-   *  name and painted onto the dock rail swatch); the full body shows
-   *  in the canvas-tile top-border pill, the dock-awaiting card, the
-   *  workspace switcher card, and the Notes tab editor. Empty / undefined
-   *  collapses every render site to its no-notes shape. */
+   *  name and painted onto the dock rail swatch); it also fills the
+   *  line-1 annotation slot on the canvas-tile and the dock-awaiting
+   *  card. The full body box (lines 2+) shows only in the workspace
+   *  switcher card and the Notes tab editor — the canvas-tile instead
+   *  surfaces a note-icon affordance gated on body presence, not the
+   *  box itself. Empty / undefined collapses every render site to its
+   *  no-notes shape. */
   notes: z.string().min(1).optional(),
 });
 
