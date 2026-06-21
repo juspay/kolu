@@ -320,10 +320,13 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
  *  `remove`), as opposed to an upstream stream/iterator error. Tagged so the
  *  top-level fold can tell the two apart: an upstream blip settles (logged), a
  *  sink failure rejects the whole mirror (fail-fast — a broken local fold must
- *  surface, never collapse to a quietly-resolved mirror). */
+ *  surface, never collapse to a quietly-resolved mirror). The original error is
+ *  carried on the standard `Error.cause` (the ES2022 options bag), NOT a
+ *  redeclared field — a redeclared `cause` member would trip `noImplicitOverride`
+ *  in any consumer that typechecks this source under that flag (drishti does). */
 class SinkError extends Error {
-  constructor(readonly cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause));
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "SinkError";
   }
 }
