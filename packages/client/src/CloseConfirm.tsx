@@ -5,6 +5,7 @@
 import Dialog from "@corvu/dialog";
 import {
   activePr,
+  sleepingArm,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
@@ -63,7 +64,8 @@ const CloseConfirm: Component<{
   const splitCount = () => props.target?.splitCount ?? 0;
   // A sleeping terminal has no live PTY — closing it DISCARDS the record (the
   // same dialog reworded, still driven off the persisted git/worktree info).
-  const isDiscard = () => props.target?.meta.state === "sleeping";
+  const isDiscard = () =>
+    props.target ? sleepingArm(props.target.meta) !== undefined : false;
   const closeLabel = () =>
     isDiscard() ? "Discard" : splitCount() > 0 ? "Close all" : "Close terminal";
   const chrome = surface({ portalled: true });

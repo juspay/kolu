@@ -938,9 +938,12 @@ export function activeArm(
  *  SPECIFIC consumer — the ☾ dock bucket, the moonlit minimap/switcher pip, the
  *  DormantTileBody's `sleptAt` — reads THIS rather than re-scattering
  *  `state === "sleeping"` checks, so the one discriminant has exactly one reader
- *  per arm and "is this tile sleeping?" is greppable across every presence
- *  surface. Truthiness alone answers presence; the returned arm exposes `sleptAt`
- *  for the "asleep 3d" label. */
+ *  per arm and "is this tile sleeping?" is greppable across every LIVE-metadata
+ *  presence surface. (Persistence-typed readers that hold a `SavedTerminal`
+ *  rather than `TerminalMetadata` — e.g. session restore — narrow `state`
+ *  directly, since this accessor only accepts the live union.) Truthiness alone
+ *  answers presence; the returned arm exposes `sleptAt` for the "asleep 3d"
+ *  label. */
 export function sleepingArm(
   m: TerminalMetadata | null | undefined,
 ): SleepingTerminal | undefined {

@@ -6,6 +6,7 @@
 
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
+import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { realSizes } from "../ui/corvuResizable";
@@ -47,7 +48,7 @@ const TerminalContent: Component<{
   // onCleanup); on wake it mounts fresh and re-attaches. The discriminant is the
   // single source — no parallel sleeping tile-content kind.
   const isLive = () =>
-    store.getMetadata(props.terminalId)?.state !== "sleeping";
+    sleepingArm(store.getMetadata(props.terminalId)) === undefined;
 
   const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
   const panelState = () => subPanel.getSubPanel(props.terminalId);

@@ -11,6 +11,7 @@
  *  explicit Wake button respawns. This is the canvas/mobile sleeping body; the
  *  swap between this and the live `Terminal` tree lives in `TerminalContent`. */
 
+import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { formatTimeAgo } from "./staleness";
@@ -24,8 +25,8 @@ const DormantTileBody: Component<{
   const store = useTerminalStore();
   const meta = () => store.getMetadata(props.terminalId);
   const sleptAgo = () => {
-    const m = meta();
-    return m?.state === "sleeping" ? formatTimeAgo(m.sleptAt) : "";
+    const arm = sleepingArm(meta());
+    return arm ? formatTimeAgo(arm.sleptAt) : "";
   };
   const lastAgent = () => meta()?.lastAgentCommand ?? null;
 

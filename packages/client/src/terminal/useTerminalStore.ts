@@ -9,6 +9,7 @@
  *  store, so derivations like `getDisplayInfo` and `getMetadata` flow
  *  without prop-drilling lookup functions through layout components. */
 
+import { activeArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
@@ -50,7 +51,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // it is never an input target. Narrow to the active arm so every input-
     // routing site (mobile key bar, copy-pane-text, run-in-active-terminal)
     // falls back to "no target" rather than writing into a released PTY.
-    return metadata.getMetadata(resolved)?.state === "active" ? resolved : null;
+    return activeArm(metadata.getMetadata(resolved)) ? resolved : null;
   }
 
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
@@ -69,7 +70,7 @@ export const useTerminalStore = createSharedRoot(() => {
     const live = new Set(
       metadata
         .terminalIds()
-        .filter((id) => metadata.getMetadata(id)?.state === "active"),
+        .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
     );
     const ordered = view.mruOrder().filter((id) => live.has(id));
     // `tileWebglCost` is the one home for a tile's context cost (main pane + an
