@@ -78,7 +78,17 @@ stdenv.mkDerivation (finalAttrs: {
   # Hoisted linker matches bunfig.toml: the hydrated @kolu/* sources carry no
   # node_modules of their own, so they must resolve @orpc/*, zod and solid-js
   # from one root node_modules.
-  bunInstallFlags = [ "--linker=hoisted" ];
+  #
+  # `--backend=copyfile` forces real writable copies out of the read-only bun.nix
+  # FOD cache. The default backend (macOS: clonefile) the sandbox can't always
+  # take, so bun falls back to symlinking package dirs straight at the read-only
+  # store — then a version-conflicting dep that needs a NESTED `node_modules`
+  # (e.g. `babel-plugin-jsx-dom-expressions/node_modules/@babel/helper-module-imports`)
+  # fails with `AccessDenied: Failed to open node_modules folder` because its
+  # parent is read-only. Copying every package in makes the parent writable so the
+  # nest lands. (Linux hardlinks into the writable build dir, so it never hit this;
+  # copyfile is just slightly slower there — correctness over speed for one build.)
+  bunInstallFlags = [ "--linker=hoisted" "--backend=copyfile" ];
 
   # Pure overhead for a Bun app — no shebangs we care about, no native binaries.
   dontFixup = true;
