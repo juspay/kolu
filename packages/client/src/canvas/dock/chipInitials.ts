@@ -7,14 +7,14 @@
  *  intent is unset. Each half is clamped to a single grapheme so unicode
  *  case-expansion (`ß` → `SS`) can't paint two glyphs on a one-glyph tile.
  *
- *  Cards mode renders the same intent through `IntentMarkdownInline`,
+ *  Cards mode renders the same intent through `NotesMarkdownInline`,
  *  which preserves emoji and symbol prefixes verbatim. The chip's sub
- *  glyph reads through `intentLeadGlyph` so the rail can't disagree
+ *  glyph reads through `notesLeadGlyph` so the rail can't disagree
  *  with the cards header on the same source string — both surfaces
- *  share `packages/client/src/intent/text.ts`. */
+ *  share `packages/client/src/notes/text.ts`. */
 
 import type { TerminalMetadata } from "kolu-common/surface";
-import { intentLeadGlyph, firstGrapheme } from "../../intent/text";
+import { notesLeadGlyph, firstGrapheme } from "../../notes/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 
 // Unicode-aware alphanumeric: any letter or number in any script. A repo
@@ -62,15 +62,15 @@ export function chipInitials(
   const branchTail = info.key.label.split("/").pop() ?? "";
   // Compose to NFC so a decomposed accented lead (`e` + U+0301) classifies as
   // one letter rather than falling through to the glyph branch.
-  const intentGlyph = meta.intent
-    ? intentLeadGlyph(meta.intent).normalize("NFC")
+  const notesGlyph = meta.notes
+    ? notesLeadGlyph(meta.notes).normalize("NFC")
     : "";
-  if (intentGlyph) {
+  if (notesGlyph) {
     // A unicode *letter* lead (`é`, `Ω`) reads as a faded letter, not a glyph;
     // only true symbols/emoji (not `\p{L}`/`\p{N}`) keep the glyph treatment.
-    return ALPHANUM_ANCHORED.test(intentGlyph)
-      ? { repo, sub: caseToOneGlyph(intentGlyph, "lower"), subIsGlyph: false }
-      : { repo, sub: intentGlyph, subIsGlyph: true };
+    return ALPHANUM_ANCHORED.test(notesGlyph)
+      ? { repo, sub: caseToOneGlyph(notesGlyph, "lower"), subIsGlyph: false }
+      : { repo, sub: notesGlyph, subIsGlyph: true };
   }
   const subChar = branchTail.match(ALPHANUM)?.[0] ?? "?";
   const sub = caseToOneGlyph(subChar, "lower");

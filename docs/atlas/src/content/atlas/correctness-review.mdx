@@ -105,7 +105,7 @@ Refs:
 <Finding sev="medium" id="subterminal-restore" title="Sub-terminal restore loses saved metadata and active selection">
 Top-level terminals are restored with saved metadata and the old id mapped to the
 new id. Sub-terminals are recreated with only `cwd` — their saved `themeName`,
-`canvasLayout`, panel state, intent, last activity, and agent command are
+`canvasLayout`, panel state, notes, last activity, and agent command are
 ignored, and their old id is never mapped. A saved active terminal pointing to a
 sub-terminal therefore cannot be restored.
 

@@ -2,7 +2,7 @@
 (its PTY, xterm, WebGL context, and agent all released — gone, like closing it),
 and <strong>wake</strong> it later in place with the agent resumed.</p>
 <p>The model is one move: make the terminal a sum — <strong><code>Terminal = active | sleeping</code></strong>.
-A dormant terminal carries the same persisted base — cwd, git, intent, its
+A dormant terminal carries the same persisted base — cwd, git, notes, its
 <code>canvasLayout</code> slot, the last agent command — so it keeps the canvas position, dock
 order, and persistence the live terminal had: it stays the <em>same record under the
 same id</em> in the <em>one</em> terminal registry the canvas already iterates, just without a
@@ -11,7 +11,7 @@ flips it back and re-spawns through the path a server reboot already uses. Three
 phased PRs; the first is a zero-behavior-change foundation.</p>
 <h2 id="a-terminal-is-active-or-sleeping">A terminal is active or sleeping</h2>
 <p>The fold already lives in the schema. <code>surface.ts</code> splits a terminal’s fields into
-a <strong>persisted base</strong> (cwd · git · intent · theme · <code>canvasLayout</code> · the last agent
+a <strong>persisted base</strong> (cwd · git · notes · theme · <code>canvasLayout</code> · the last agent
 command — survives a restart) and a <strong>live overlay</strong> (agent status · foreground ·
 live-PR · the PTY/xterm/attach handles — “never persisted; a restore must re-derive
 it”). That partition <em>is</em> active-vs-sleeping, so the sum maps onto bases that

@@ -101,7 +101,7 @@ and the abort listener remains attached.</p><p>Refs:</p><ul>
 </ul><p><strong>Risk:</strong> cancelled attach/tap streams can leave dead subscribers behind if cancellation happens while the consumer isn’t actively awaiting.</p><p><strong>Fix:</strong> introduce a single <code>finish()</code> path for abort/close that removes the subscriber and listener immediately, resolves any pending <code>next()</code> as done, and prevents future buffered delivery.</p></div> </article>
 <article class="finding finding-medium" id="subterminal-restore" data-astro-cid-gr76xinx> <h3 class="finding-head" data-astro-cid-gr76xinx><span class="sev sev-medium" data-astro-cid-gr76xinx>Medium</span> Sub-terminal restore loses saved metadata and active selection</h3> <div class="finding-body" data-astro-cid-gr76xinx><p>Top-level terminals are restored with saved metadata and the old id mapped to the
 new id. Sub-terminals are recreated with only <code>cwd</code> — their saved <code>themeName</code>,
-<code>canvasLayout</code>, panel state, intent, last activity, and agent command are
+<code>canvasLayout</code>, panel state, notes, last activity, and agent command are
 ignored, and their old id is never mapped. A saved active terminal pointing to a
 sub-terminal therefore cannot be restored.</p><p>Refs:</p><ul>
 <li><a href="https://github.com/juspay/kolu/blob/master/packages/client/src/terminal/useSessionRestore.ts#L247-L294" rel="noopener" class="cite" data-astro-cid-lwmcem6b>packages/client/src/terminal/useSessionRestore.ts:247-294</a> — top-level pass metadata + populate <code>oldToNew</code>; sub-terminals pass only <code>cwd</code></li>

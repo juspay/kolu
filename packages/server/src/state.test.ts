@@ -3,6 +3,7 @@ import {
   backfillRemoteUrl,
   backfillTerminalState,
   LOCAL_LOCATION,
+  renameIntentToNotes,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { migrateLegacyTerminal_1_18_0 } from "./state.ts";
@@ -226,5 +227,46 @@ describe("backfillTerminalState", () => {
       sleptAt: 1_700_000_000_000,
     };
     expect(backfillTerminalState(record)).toEqual(record);
+  });
+});
+
+describe("renameIntentToNotes", () => {
+  it("moves a set `intent` value onto `notes` and drops the old key (#1499)", () => {
+    const migrated = renameIntentToNotes({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+      intent: "🏠 refactoring auth\n\nstep 1: extract the guard",
+    });
+    expect(migrated).toEqual({
+      id: "term-1",
+      cwd: "/home/alice/app",
+      git: null,
+      notes: "🏠 refactoring auth\n\nstep 1: extract the guard",
+    });
+    expect(migrated).not.toHaveProperty("intent");
+  });
+
+  it("leaves a record with no `intent` untouched (never had one, or already migrated)", () => {
+    const record = { id: "term-2", cwd: "/tmp", git: null };
+    expect(renameIntentToNotes(record)).toEqual(record);
+  });
+
+  it("is idempotent — running twice is the same as running once", () => {
+    const once = renameIntentToNotes({ id: "t", cwd: "/r", intent: "ship it" });
+    expect(renameIntentToNotes(once)).toEqual(once);
+    expect(once).toEqual({ id: "t", cwd: "/r", notes: "ship it" });
+  });
+
+  it("does not clobber an existing `notes` when a stray `intent` is also present", () => {
+    // Defensive: no path writes both, but if one ever did, the new field wins
+    // and the legacy key is dropped rather than overwriting live notes.
+    const migrated = renameIntentToNotes({
+      id: "t",
+      cwd: "/r",
+      intent: "stale",
+      notes: "current",
+    });
+    expect(migrated).toEqual({ id: "t", cwd: "/r", notes: "current" });
   });
 });

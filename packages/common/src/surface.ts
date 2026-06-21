@@ -100,8 +100,13 @@ export const SubPanelStateSchema = z.object({
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 
+/** Sub-view of the Notes tab: edit the raw markdown or preview it rendered.
+ *  Mirrors `CodeTabViewSchema`'s role for the Code tab — the persisted
+ *  per-terminal sub-mode the Edit/Preview switcher toggles between. */
+export const NotesTabViewSchema = z.enum(["edit", "preview"]);
+
 /** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
+export const RightPanelTabKindSchema = z.enum(["inspector", "code", "notes"]);
 
 /** Per-terminal right-panel state — which tab is open, which sub-mode
  *  the Code tab is in, and which file the user last selected in each
@@ -121,6 +126,10 @@ export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
 export const RightPanelPerTerminalStateSchema = z.object({
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
+  /** Notes-tab sub-mode (Edit / Preview). Optional so a `rightPanel` record
+   *  persisted before the Notes tab existed parses cleanly — readers default
+   *  it to `"edit"` (see `rightPanelView` / `useRightPanel.notesMode`). */
+  notesMode: NotesTabViewSchema.optional(),
   /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
    *  key means "no selection" for that mode. */
   selectedFileByMode: z
@@ -246,13 +255,13 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
    *  per-mode file selection). The remaining right-panel fields (collapsed,
    *  size, codeTabTreeSize) stay on preferences as workspace-level chrome. */
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
-  /** User-set freeform annotation — multiline markdown. The first line
+  /** User-set freeform notes — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo
    *  name and painted onto the dock rail swatch); the full body shows
    *  in the canvas-tile top-border pill, the dock-awaiting card, the
-   *  workspace switcher card, and the intent editor. Empty / undefined
-   *  collapses every render site to its no-intent shape. */
-  intent: z.string().min(1).optional(),
+   *  workspace switcher card, and the Notes tab editor. Empty / undefined
+   *  collapses every render site to its no-notes shape. */
+  notes: z.string().min(1).optional(),
 });
 
 /**
@@ -386,7 +395,7 @@ export const InitialTerminalMetadataSchema = z.object({
   subPanel: SubPanelStateSchema.optional(),
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   lastActivityAt: z.number().optional(),
-  intent: z.string().min(1).optional(),
+  notes: z.string().min(1).optional(),
 });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
@@ -571,6 +580,7 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+export type NotesTabView = z.infer<typeof NotesTabViewSchema>;
 
 /** User-facing name of a Code-tab view — the single source for the words the
  *  mode picker renders as a chip label and the file-tree right-click menu
@@ -595,6 +605,23 @@ export function viewLabel(view: CodeTabView): string {
  *  Adding a view is one edit here. */
 export const CODE_TAB_VIEW_ORDER = ["browse", "local", "branch"] as const;
 
+/** User-facing names of the Notes-tab sub-views — the words the Edit/Preview
+ *  switcher renders. One source, mirroring `VIEW_LABELS` for the Code tab. */
+const NOTES_VIEW_LABELS: Record<NotesTabView, string> = {
+  edit: "Edit",
+  preview: "Preview",
+};
+
+/** Display name for a Notes-tab sub-view ("Edit" / "Preview"). */
+export function notesViewLabel(view: NotesTabView): string {
+  return NOTES_VIEW_LABELS[view];
+}
+
+/** Canonical left-to-right order of the Notes-tab sub-views — the single
+ *  source the Edit/Preview switcher orders its segments by. Mirrors
+ *  `CODE_TAB_VIEW_ORDER`. */
+export const NOTES_TAB_VIEW_ORDER = ["edit", "preview"] as const;
+
 export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
 export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema
@@ -606,7 +633,8 @@ export type RightPanelPerTerminalState = z.infer<
  *  matches on `activeTab` and reads `codeMode` separately. */
 export type RightPanelTab =
   | { kind: "inspector" }
-  | { kind: "code"; mode: CodeTabView };
+  | { kind: "code"; mode: CodeTabView }
+  | { kind: "notes"; mode: NotesTabView };
 
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
@@ -634,18 +662,27 @@ export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
 > = {
   activeTab: "code",
   codeMode: "browse",
+  notesMode: "edit",
 };
 
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
  *  Storage stays flat (Solid's setStore shallow-merges correctly); use sites
- *  get the exhaustive-match-friendly DU. */
+ *  get the exhaustive-match-friendly DU. `notesMode` defaults to `"edit"`
+ *  here — the field is optional on the schema so records persisted before the
+ *  Notes tab existed carry no value. */
 export function rightPanelView(p: {
   activeTab: RightPanelTabKind;
   codeMode: CodeTabView;
+  notesMode?: NotesTabView;
 }): RightPanelTab {
-  return p.activeTab === "inspector"
-    ? { kind: "inspector" }
-    : { kind: "code", mode: p.codeMode };
+  switch (p.activeTab) {
+    case "inspector":
+      return { kind: "inspector" };
+    case "code":
+      return { kind: "code", mode: p.codeMode };
+    case "notes":
+      return { kind: "notes", mode: p.notesMode ?? "edit" };
+  }
 }
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -1028,13 +1065,29 @@ export function backfillTerminalState(
   return { ...t, state: "active" };
 }
 
+/** Rename a saved terminal's `intent` field to `notes` (the field was renamed
+ *  with no behaviour change — same multiline-markdown annotation). Without this
+ *  the now-unknown `intent` key is stripped on the next schema parse and the
+ *  value is lost. Idempotent and presence-keyed on `intent`: a record that has
+ *  no `intent` (already migrated, or never set one) passes through untouched,
+ *  and an existing `notes` is never clobbered. */
+export function renameIntentToNotes(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("intent" in t)) return t;
+  const { intent, ...rest } = t;
+  return "notes" in rest ? rest : { ...rest, notes: intent };
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillTerminalState(backfillLocation(backfillRemoteUrl(t)));
+  return renameIntentToNotes(
+    backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+  );
 }
 
 /** Bring a parsed-but-unvalidated saved-session blob up to the current schema

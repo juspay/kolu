@@ -27,6 +27,7 @@ import {
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  type NotesTabView,
   type RightPanelPerTerminalState,
   type RightPanelTab,
   rightPanelView,
@@ -166,6 +167,7 @@ function reportToServer(id: TerminalId): void {
       id,
       activeTab: s.activeTab,
       codeMode: s.codeMode,
+      notesMode: s.notesMode,
       selectedFileByMode: s.selectedFileByMode,
     })
     .catch((err: Error) =>
@@ -326,6 +328,20 @@ export function useRightPanel() {
     },
     /** Change the sub-mode within the Code tab. */
     setCodeMode: (mode: CodeTabView) => mutateActive({ codeMode: mode }),
+
+    /** Persisted Notes-tab sub-mode (Edit / Preview), defaulting to `"edit"`
+     *  for records persisted before the Notes tab existed. Read regardless of
+     *  which tab is active so the switcher restores the user's last sub-view. */
+    notesMode: (): NotesTabView => activeState().notesMode ?? "edit",
+    /** Switch to the Notes tab. When `mode` is omitted the persisted
+     *  `notesMode` is restored; pass `mode` to override. Mirrors `showCode`. */
+    showNotes: (mode?: NotesTabView) =>
+      mutateActive({
+        activeTab: "notes",
+        ...(mode !== undefined && { notesMode: mode }),
+      }),
+    /** Change the sub-mode within the Notes tab. */
+    setNotesMode: (mode: NotesTabView) => mutateActive({ notesMode: mode }),
 
     /** Per-mode file selection — repo-relative path, or null when no file
      *  is selected in this mode. Keyed by `(activeTerminal, mode)` so each

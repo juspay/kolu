@@ -24,9 +24,9 @@ import {
   on,
   Show,
 } from "solid-js";
-import IntentBody from "../../intent/IntentBody";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import NotesBody from "../../notes/NotesBody";
+import { NotesMarkdownInline } from "../../notes/NotesMarkdown";
+import { annotationLine } from "../../notes/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
@@ -566,9 +566,9 @@ const WorkspaceCard: Component<{
           class="text-[0.95rem] font-semibold truncate leading-tight"
           style={{ color: props.entry.info.annotationColor }}
         >
-          <IntentMarkdownInline
+          <NotesMarkdownInline
             markdown={annotationLine(
-              props.entry.info.meta.intent,
+              props.entry.info.meta.notes,
               props.entry.label,
             )}
           />
@@ -631,10 +631,10 @@ const WorkspaceCard: Component<{
       {/* Intent body — lines 2+ of the markdown when the user wrote a
        *  multiline intent. Line 1 already lives in the annotation slot
        *  above; the body renders only when there's prose past line 1.
-       *  Shared <IntentBody> so every dock + switcher render site
+       *  Shared <NotesBody> so every dock + switcher render site
        *  looks the same. */}
-      <IntentBody
-        intent={props.entry.info.meta.intent}
+      <NotesBody
+        notes={props.entry.info.meta.notes}
         testId="workspace-switcher-card-intent"
       />
     </button>

@@ -17,6 +17,7 @@ import { Meta, Title } from "@solidjs/meta";
 import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
+  batch,
   type Component,
   createMemo,
   createSignal,
@@ -45,8 +46,6 @@ import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import CompactTileView from "./CompactTileView";
 import { useShortcuts } from "./input/useShortcuts";
-import IntentEditorDialog from "./intent/IntentEditorDialog";
-import { useIntentEditor } from "./intent/useIntentEditor";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -143,10 +142,16 @@ const App: Component = () => {
   // takes no app-identity overrides.
   const pwaInstall = createPwaInstall();
 
-  // Intent editor singleton — reads store + RPC directly. The dialog
-  // is mounted at the App root; the chip in TerminalMeta and the palette
-  // command both call `intentEditor.openTerminal(id)` to surface it.
-  const intentEditor = useIntentEditor();
+  // Reveal the Notes tab for a terminal — activate it (the right panel is keyed
+  // to the active terminal), switch to the Notes tab in Edit mode, and make the
+  // panel visible. The single path the title-bar chip / note icon and the
+  // "Edit notes" palette command both funnel through.
+  const openNotesFor = (id: TerminalId) =>
+    batch(() => {
+      store.setActiveSilently(id);
+      rightPanel.showNotes("edit");
+      rightPanel.reveal();
+    });
 
   const arrange = useCanvasArrange();
 
@@ -196,7 +201,10 @@ const App: Component = () => {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
-    handleEditActiveIntent: intentEditor.openActive,
+    handleEditActiveNotes: () => {
+      const id = store.activeId();
+      if (id !== null) openNotesFor(id);
+    },
     handleCreateWorktree: (repoPath, name, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
     handleClose: () => {
@@ -543,7 +551,7 @@ const App: Component = () => {
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}
                           unread={store.isUnread(id)}
-                          onOpenIntent={() => intentEditor.openTerminal(id)}
+                          onOpenNotes={() => openNotesFor(id)}
                         />
                       )}
                       renderTileTitleActions={(id) => (
@@ -594,15 +602,6 @@ const App: Component = () => {
           </Match>
         </Switch>
       </div>
-      <IntentEditorDialog
-        open={intentEditor.open()}
-        title={intentEditor.title()}
-        value={intentEditor.value()}
-        allowClear={intentEditor.allowClear()}
-        onOpenChange={intentEditor.onOpenChange}
-        onSave={intentEditor.save}
-        onClear={intentEditor.clear}
-      />
     </div>
   );
 };

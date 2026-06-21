@@ -125,7 +125,7 @@ You asked for **Sleep**: leave a Claude Code terminal blocked for days, sleep it
 and **wake** it later in place with the agent resumed.
 
 The model is one move: make the terminal a sum — **`Terminal = active | sleeping`**.
-A dormant terminal carries the same persisted base — cwd, git, intent, its
+A dormant terminal carries the same persisted base — cwd, git, notes, its
 `canvasLayout` slot, the last agent command — so it keeps the canvas position, dock
 order, and persistence the live terminal had: it stays the *same record under the
 same id* in the *one* terminal registry the canvas already iterates, just without a
@@ -136,7 +136,7 @@ phased PRs; the first is a zero-behavior-change foundation.
 ## A terminal is active or sleeping
 
 The fold already lives in the schema. `surface.ts` splits a terminal's fields into
-a **persisted base** (cwd · git · intent · theme · `canvasLayout` · the last agent
+a **persisted base** (cwd · git · notes · theme · `canvasLayout` · the last agent
 command — survives a restart) and a **live overlay** (agent status · foreground ·
 live-PR · the PTY/xterm/attach handles — "never persisted; a restore must re-derive
 it"). That partition *is* active-vs-sleeping, so the sum maps onto bases that

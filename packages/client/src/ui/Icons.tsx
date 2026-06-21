@@ -498,6 +498,26 @@ export const FileDiffIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Note document with text lines — the title-bar affordance that lights up
+ *  when a terminal's notes carry a body (lines past the chip's first line). */
+export const NoteIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v4h4" />
+    <path d="M9 12h6" />
+    <path d="M9 16h4" />
+  </svg>
+);
+
 /** Git branch icon (filled) — empty-state placeholder for "not a git repo". */
 export const GitBranchIcon: Component<{ class?: string }> = (props) => (
   <svg

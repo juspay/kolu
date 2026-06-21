@@ -172,7 +172,7 @@ apart (Lowy), and neither is *about kolu*:
 
 | Package | Encapsulates | The outlet | What it obviates in kolu |
 | --- | --- | --- | --- |
-| `@kolu/solid-markdown` <Pill variant="todo">new</Pill> | marked + GFM + `safeHref` + md→Solid styling. Volatile: the spec, the sanitizer. | `<Markdown markdown variant="inline"\|"document" />` | The ~250 LOC token-walk core inside `intent/IntentMarkdown.tsx`. |
+| `@kolu/solid-markdown` <Pill variant="todo">new</Pill> | marked + GFM + `safeHref` + md→Solid styling. Volatile: the spec, the sanitizer. | `<Markdown markdown variant="inline"\|"document" />` | The ~250 LOC token-walk core inside `notes/NotesMarkdown.tsx`. |
 | `@kolu/solid-fileview` <Pill variant="todo">new</Pill> | The toggle, mode-availability, renderer-registry pick. Knows nothing of oRPC, git, comments. | `<FileView path source? renderedUrl? source={Renderer} rendered={Renderer[]} />` | The render *mechanics* of `BrowseFileView` + `BrowsePreviewView` + `BrowseFileDispatcher`. |
 | `@kolu/solid-fileview/renderers/{markdown,image,iframe}` | Each strategy as an independent appliance. Generic, kolu-free. | Each is a `RenderedRenderer` value. | The strategy code hand-written in `BrowsePreviewView`. |
 
@@ -204,7 +204,7 @@ working throughout — and kolu's LOC drops at each.
 
 | Phase | Ships | Net kolu LOC | Risk |
 | --- | --- | --- | --- |
-| **1 · Extract `@kolu/solid-markdown`** <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | Lift the token-walk core out of `IntentMarkdown.tsx` (257→30 LOC) into a package with `inline`/`compact`/`document` variants; migrate the intent surface. Behavior-preserving. | ↓ | Low — mechanical, one call-site. |
+| **1 · Extract `@kolu/solid-markdown`** <Pill variant="ok">shipped</Pill> <PrLink pr={1079} /> | Lift the token-walk core out of `NotesMarkdown.tsx` (257→30 LOC) into a package with `inline`/`compact`/`document` variants; migrate the notes surface. Behavior-preserving. | ↓ | Low — mechanical, one call-site. |
 | **2 · Extract `@kolu/solid-fileview`** <Pill variant="ok">shipped</Pill> <PrLink pr={1082} /> | The toggle host + mode logic + registry + `image`/`iframe` renderers. Rewrote `right-panel/` preview as a thin `fsReadFile`→`FileView` adapter. Renders *exactly today's formats*. As-built: `BrowseFileView.tsx` kept (injected as `SourceRenderer`); only `BrowsePreviewView.tsx` went. | ↓↓ (3 presenters → 1 adapter) | Medium — live-surface refactor, e2e-covered. *(One defect caught only by the Nix build: the new package was missing from `default.nix`'s fileset.)* |
 | **3 · Light the Markdown toggle** <Pill variant="ok">shipped</Pill> <PrLink pr={1093} /> | The first user-visible win. The `markdown` renderer landed *in the library* as `@kolu/solid-fileview/renderers/markdown` (wrapping the `document` variant). No new wire `kind`, no `defaultMode` — `FileView` defaults to Rendered + shows the toggle whenever a file has both renderers. Server classification relocated out of `kolu-git/previewable.ts` into node-free `kolu-common/preview.ts`; `kolu-common` gained a `test:unit` runner. A tip + README landed. | flat | Low — the grid did the work. Hickey: 0; Lowy: 2 No-op. |
 | **3a · Comments on rendered Markdown** <Pill variant="ok">shipped</Pill> <PrLink pr={1162} /> | Closed the v1 seam via the shared `TextQuoteSelector` model over a plain DOM `Range` (no iframe/bridge since Markdown renders inline). As-built: subtree-scoped anchoring in `@kolu/artifact-sdk/core` + kolu's `CommentTextSurface`/`useTextSelection` wrapping the rendered view; `@kolu/solid-fileview` gained only a controlled `mode` prop for comment-tray jumps — the planned generic rendered-annotation hook wasn't needed. | flat | Medium — anchoring to a char range in rendered output was the open problem; the selector model was the way through. |
@@ -228,7 +228,7 @@ working throughout — and kolu's LOC drops at each.
 
 | File | Change |
 | --- | --- |
-| `intent/IntentMarkdown.tsx` | <Pill variant="ok">−~250 LOC</Pill> A thin consumer of `@kolu/solid-markdown`. |
+| `notes/NotesMarkdown.tsx` | <Pill variant="ok">−~250 LOC</Pill> A thin consumer of `@kolu/solid-markdown`. |
 | `right-panel/BrowsePreviewView.tsx` | <Pill variant="ok">deleted</Pill> Its img/iframe mechanics moved into the library + renderers. |
 | `right-panel/BrowseFileView.tsx` | <Pill variant="warn">kept</Pill> Not deleted — wrapped as the injected pierre `SourceRenderer` (carries kolu's comment surface). |
 | `right-panel/BrowseIframeRenderer.tsx` | <Pill variant="ok">new</Pill> kolu's iframe appliance: the library `IframeRenderer` + the artifact-sdk comment bridge. Comments are kolu's volatility. |

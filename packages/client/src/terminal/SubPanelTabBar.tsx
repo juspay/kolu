@@ -3,8 +3,8 @@
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
-import { IntentMarkdownInline } from "../intent/IntentMarkdown";
-import { annotationLine } from "../intent/text";
+import { NotesMarkdownInline } from "../notes/NotesMarkdown";
+import { annotationLine } from "../notes/text";
 import LiveActivityDot from "./LiveActivityDot";
 import { useTerminalActivity } from "./useTerminalActivity";
 
@@ -37,7 +37,7 @@ const SubPanelTabBar: Component<{
             const suffixed =
               props.subIds.length <= 1 ? base : `${base} ${index() + 1}`;
             // Supplant rule: intent line-1 takes the label slot when set.
-            return annotationLine(m?.intent, suffixed);
+            return annotationLine(m?.notes, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
           return (
@@ -55,7 +55,7 @@ const SubPanelTabBar: Component<{
                   <LiveActivityDot />
                 </Show>
                 <span class="truncate">
-                  <IntentMarkdownInline markdown={label()} />
+                  <NotesMarkdownInline markdown={label()} />
                 </span>
               </button>
               <button

@@ -10,9 +10,10 @@ import {
   type TerminalMetadata,
 } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { NotesMarkdownBlock } from "./notes/NotesMarkdown";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";
-import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
+import { NoteIcon, PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
@@ -100,6 +101,26 @@ const CloseConfirm: Component<{
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
+          {/* Notes reminder — closing DISCARDS the notes with the terminal, so
+           *  show them one last time, read-only, off the frozen snapshot
+           *  (`props.target.meta` is captured at open time, never live). */}
+          <Show when={props.target?.meta.notes}>
+            {(notes) => (
+              <div
+                data-testid="close-confirm-notes"
+                class="rounded-lg bg-surface-2 px-2.5 py-2"
+              >
+                <div class="flex items-center gap-1.5 text-fg-3 text-[0.65rem] font-medium uppercase tracking-wide mb-1">
+                  <NoteIcon class="w-3 h-3 shrink-0" />
+                  <span>Notes</span>
+                </div>
+                <div class="text-xs text-fg-2 max-h-28 overflow-y-auto">
+                  <NotesMarkdownBlock markdown={notes()} />
+                </div>
+              </div>
+            )}
+          </Show>
+
           <Show when={isWorktree()}>
             <p>This terminal is in a git worktree.</p>
           </Show>

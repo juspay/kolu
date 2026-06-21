@@ -51,7 +51,7 @@ import {
   setCanvasLayout,
   setRightPanelState,
   setSubPanelState,
-  setTerminalIntent,
+  setTerminalNotes,
   setTerminalParent,
   setTerminalTheme,
   sleepTerminal,
@@ -106,7 +106,7 @@ export const appRouter = t.router({
         subPanel: input.subPanel,
         rightPanel: input.rightPanel,
         lastActivityAt: input.lastActivityAt,
-        intent: input.intent,
+        notes: input.notes,
       });
     }),
 
@@ -124,13 +124,13 @@ export const appRouter = t.router({
       setTerminalTheme(input.id, input.themeName);
     }),
 
-    setIntent: t.terminal.setIntent.handler(async ({ input }) => {
+    setNotes: t.terminal.setNotes.handler(async ({ input }) => {
       requireTerminal(input.id);
       log.info(
-        { terminal: input.id, intentLength: input.intent.length },
-        "set intent",
+        { terminal: input.id, notesLength: input.notes.length },
+        "set notes",
       );
-      setTerminalIntent(input.id, input.intent);
+      setTerminalNotes(input.id, input.notes);
     }),
 
     setCanvasLayout: t.terminal.setCanvasLayout.handler(async ({ input }) => {

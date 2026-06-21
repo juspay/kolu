@@ -58,7 +58,7 @@ const sentinel: SavedActiveTerminal = {
     codeMode: "branch",
     selectedFileByMode: { local: "a.ts", branch: "b.ts", browse: "c.ts" },
   },
-  intent: "sentinel intent line\nsecond line",
+  notes: "sentinel notes line\nsecond line",
 };
 
 describe("adoption preserves the whole record — the #1275 lossy-adoption class", () => {

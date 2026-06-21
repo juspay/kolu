@@ -26,6 +26,7 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
+  renameIntentToNotes,
   SavedSessionSchema,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
@@ -113,7 +114,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.28.0";
+const SCHEMA_VERSION = "1.29.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -504,6 +505,15 @@ export const store = new Conf<PersistedState>({
     // backfill, no validation failure. The bump + this entry exist only to honor
     // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
     "1.28.0": () => {},
+    // `SavedTerminal.intent` renamed to `notes` (no behaviour change — the
+    // same multiline-markdown annotation, now surfaced through a dedicated
+    // Notes tab). The field is OPTIONAL, but a rename is NOT a no-op: the
+    // tightened schema no longer knows the `intent` key, so Zod strips it on
+    // parse and the value is lost unless we move it across first. Rename it on
+    // every restored terminal (see `renameIntentToNotes`); idempotent and
+    // presence-keyed, so a session already on `notes` passes through untouched.
+    "1.29.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, renameIntentToNotes),
   },
 });
 

@@ -77,7 +77,7 @@ function activeEntry(): ActiveTerminalProcess {
       // THIS session, not the most-recent one in the cwd.
       agentSession: { kind: "opencode", id: "ses_118316090ffewMmbj6bsfKwj4R" },
       themeName: "rose",
-      intent: "fix the auth race",
+      notes: "fix the auth race",
     },
     // The publish path never reads the handle in these tests.
     handle: {} as ActiveTerminalProcess["handle"],
@@ -112,7 +112,7 @@ describe("beginSleep — flip active → sleeping in place", () => {
     });
     expect(entry.meta.cwd).toBe("/work/repo");
     expect(entry.meta.themeName).toBe("rose");
-    expect(entry.meta.intent).toBe("fix the auth race");
+    expect(entry.meta.notes).toBe("fix the auth race");
     expect(entry.meta.sleptAt).toBeGreaterThan(0);
 
     // Live overlay gone — agent/foreground absent by type AND at runtime. `pr`
@@ -195,7 +195,7 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     lastAgentCommand: "opencode --model sonnet",
     agentSession: { kind: "opencode", id: "ses_118316090ffewMmbj6bsfKwj4R" },
     themeName: "rose",
-    intent: "fix the auth race",
+    notes: "fix the auth race",
     // A frozen PR snapshot on the sleeping arm — wake must DISCARD it (the
     // re-spawned PR sensor re-resolves it live), never ride it onto the active arm.
     pr: {
@@ -223,7 +223,7 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     });
     expect(active.cwd).toBe("/work/repo");
     expect(active.themeName).toBe("rose");
-    expect(active.intent).toBe("fix the auth race");
+    expect(active.notes).toBe("fix the auth race");
     // Live overlay re-seeded to defaults — incl. the frozen `pr` snapshot
     // DISCARDED (reset to `{ kind: "pending" }`, NOT ridden onto the active arm);
     // the re-spawned PTY's sensors re-derive agent/foreground/pr.

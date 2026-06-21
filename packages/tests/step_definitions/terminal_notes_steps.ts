@@ -3,10 +3,10 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SLOT =
   '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';
-const EDITOR = '[data-testid="intent-editor-textarea"]';
-const SAVE = '[data-testid="intent-editor-save"]';
-const CLEAR = '[data-testid="intent-editor-clear"]';
-const QUICK = '[data-testid="intent-editor-quick"]';
+const NOTE_ICON =
+  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-note-icon"]';
+const EDITOR = '[data-testid="notes-editor-textarea"]';
+const QUICK = '[data-testid="notes-editor-quick"]';
 
 When(
   "I click the active terminal annotation slot",
@@ -18,19 +18,19 @@ When(
   },
 );
 
-Then("the intent editor should be visible", async function (this: KoluWorld) {
+Then("the notes editor should be visible", async function (this: KoluWorld) {
   await this.page
     .locator(EDITOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(
-  "the intent editor textarea should be focused",
+  "the notes editor textarea should be focused",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
       () => {
         const el = document.querySelector(
-          '[data-testid="intent-editor-textarea"]',
+          '[data-testid="notes-editor-textarea"]',
         );
         return el !== null && document.activeElement === el;
       },
@@ -41,39 +41,24 @@ Then(
 );
 
 When(
-  "I type {string} into the intent editor",
+  "I type {string} into the notes editor",
   async function (this: KoluWorld, value: string) {
     // Translate literal `\n` in the .feature string into real newlines.
     const text = value.replace(/\\n/g, "\n");
     const ta = this.page.locator(EDITOR);
     await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ta.fill(text);
+    // No Save button — the editor autosaves (debounced). Assertions that
+    // follow (`slot should start with …`) poll until the write propagates.
   },
 );
 
-When("I save the intent", async function (this: KoluWorld) {
-  const btn = this.page.locator(SAVE);
-  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await btn.click({ force: true });
-  // Wait for the editor to close (RPC round-trip + dialog dismiss).
-  await this.page.waitForFunction(
-    () =>
-      document.querySelector('[data-testid="intent-editor-textarea"]') === null,
-    undefined,
-    { timeout: POLL_TIMEOUT },
-  );
-});
-
-When("I clear the intent", async function (this: KoluWorld) {
-  const btn = this.page.locator(CLEAR);
-  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await btn.click({ force: true });
-  await this.page.waitForFunction(
-    () =>
-      document.querySelector('[data-testid="intent-editor-textarea"]') === null,
-    undefined,
-    { timeout: POLL_TIMEOUT },
-  );
+When("I clear the notes", async function (this: KoluWorld) {
+  // Emptying the textarea is the clear gesture — the autosave persists "",
+  // which the server coerces to "no notes".
+  const ta = this.page.locator(EDITOR);
+  await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await ta.fill("");
 });
 
 When(
@@ -85,13 +70,37 @@ When(
   },
 );
 
+When(
+  "I switch the notes view to {string}",
+  async function (this: KoluWorld, view: string) {
+    const btn = this.page.locator(`[data-testid="notes-mode-${view}"]`);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.click({ force: true });
+    await this.waitForFrame();
+  },
+);
+
 Then(
-  "the intent editor textarea should contain {string}",
+  "the notes preview should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (want) => {
+        const el = document.querySelector('[data-testid="notes-preview"]');
+        return (el?.textContent ?? "").includes(want);
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the notes editor textarea should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       (want) => {
         const ta = document.querySelector(
-          '[data-testid="intent-editor-textarea"]',
+          '[data-testid="notes-editor-textarea"]',
         ) as HTMLTextAreaElement | null;
         return ta?.value.includes(want);
       },
@@ -100,6 +109,23 @@ Then(
     );
   },
 );
+
+Then(
+  "the terminal note icon should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(NOTE_ICON)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I click the terminal note icon", async function (this: KoluWorld) {
+  const icon = this.page.locator(NOTE_ICON).first();
+  await icon.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await icon.click({ force: true });
+  await this.waitForFrame();
+});
 
 Then(
   "the active terminal annotation slot should start with {string}",
@@ -119,7 +145,7 @@ Then(
 );
 
 // The annotation slot is the package's links-OFF inline variant: its own click
-// handler (open the intent editor) must win, so a markdown link must degrade to
+// handler (reveal the Notes tab) must win, so a markdown link must degrade to
 // inert text — no `<a>` survives the sanitize pass. The slot's text still shows
 // the link label, asserted alongside this in the scenario.
 Then(
@@ -141,9 +167,9 @@ Then(
 Then(
   "the active terminal annotation slot should show the placeholder",
   async function (this: KoluWorld) {
-    // Placeholder state: no intent, no git → slot shows an em-dash so
-    // it's still visible and clickable (the user can add an intent
-    // even when the terminal isn't in a git repo).
+    // Placeholder state: no notes, no git → slot shows an em-dash so
+    // it's still visible and clickable (the user can add notes even
+    // when the terminal isn't in a git repo).
     await this.page.waitForFunction(
       () => {
         const slot = document.querySelector(

@@ -72,8 +72,8 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import { NotesMarkdownInline } from "../../notes/NotesMarkdown";
+import { annotationLine } from "../../notes/text";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
@@ -495,8 +495,8 @@ const DockRow: Component<{
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
+            <NotesMarkdownInline
+              markdown={annotationLine(c().meta.notes, c().info.key.label)}
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />

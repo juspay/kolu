@@ -137,7 +137,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         subPanel: initial?.subPanel,
         rightPanel: initial?.rightPanel,
         lastActivityAt: initial?.lastActivityAt,
-        intent: initial?.intent,
+        notes: initial?.notes,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);

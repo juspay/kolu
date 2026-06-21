@@ -19,7 +19,7 @@
  *     publishes at ~150ms during streaming, and most of those publishes
  *     touch only live state.
  *   - `updateClientMetadata` — client-persisted fields (themeName,
- *     parentId, canvasLayout, subPanel, rightPanel, intent). Every
+ *     parentId, canvasLayout, subPanel, rightPanel, notes). Every
  *     client field is persisted, so this fires `terminals:dirty`.
  *
  * Used by both `LocalTerminalEndpoint`'s internal providers and by
@@ -157,7 +157,7 @@ export function updateServerLiveMetadata(
 }
 
 /** Atomically mutate client-owned metadata (`themeName`, `parentId`,
- *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) and publish. The
+ *  `canvasLayout`, `subPanel`, `rightPanel`, `notes`) and publish. The
  *  mutator is narrowed to `TerminalClientMetadata` so RPC handlers
  *  cannot accidentally overwrite provider-owned state. Every client
  *  field is persisted, so this always fires `terminals:dirty`. */

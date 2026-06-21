@@ -3,11 +3,13 @@
  *    Row 1: name [suffix] [worktree] [foreground] [agent progress]
  *    Row 2: annotation [PR icon checks #N title]
  *
- *  Row 2 is the *annotation slot* (supplant rule): intent line-1 if
+ *  Row 2 is the *annotation slot* (supplant rule): notes line-1 if
  *  the user set one, else the git branch name, else empty. Clicking
- *  the slot always opens the intent editor — there's no separate
- *  glyph chip, so the slot is the canvas tile's sole intent
- *  affordance.
+ *  the slot always reveals the Notes tab — there's no separate
+ *  glyph chip, so the slot is the canvas tile's sole notes
+ *  affordance. A note icon trails the slot once the notes carry a
+ *  body (lines past the first), signalling there's more than the chip
+ *  shows.
  *
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
@@ -17,10 +19,10 @@ import { activeArm, prUnavailableSource } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
 import { agentBucket } from "../canvas/dockModel";
-import { IntentMarkdownInline } from "../intent/IntentMarkdown";
-import { annotationLine } from "../intent/text";
+import { NotesMarkdownInline } from "../notes/NotesMarkdown";
+import { annotationLine, notesBodyMarkdown } from "../notes/text";
 import { agentWorkflow } from "../ui/agentDisplay";
-import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import { NoteIcon, PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
@@ -34,9 +36,9 @@ const TerminalMeta: Component<{
    *  does, so the title and the dock can't disagree on what's loud.
    *  Sourced from view-state at the call site (`store.isUnread(id)`). */
   unread: boolean;
-  /** Open the intent editor for this terminal. Wired in `App.tsx` to
-   *  `intentEditor.openTerminal(id)`. */
-  onOpenIntent: () => void;
+  /** Reveal the Notes tab for this terminal. Wired in `App.tsx` to
+   *  `openNotesFor(id)` (activate terminal → Notes tab → reveal panel). */
+  onOpenNotes: () => void;
 }> = (props) => {
   const i = () => props.info;
   return (
@@ -100,11 +102,11 @@ const TerminalMeta: Component<{
 
           {/* Annotation row (supplant rule) + PR.
            *
-           *  The slot shows intent line-1 if the user set one, else the
+           *  The slot shows notes line-1 if the user set one, else the
            *  git branch name, else a non-breaking-space placeholder.
-           *  Clicking always opens the intent editor — there is no
+           *  Clicking always reveals the Notes tab — there is no
            *  separate glyph chip, so this slot is the canvas tile's
-           *  sole intent affordance regardless of git state. */}
+           *  sole notes affordance regardless of git state. */}
           <div class="flex items-center gap-1.5 min-w-0 text-xs">
             {/* Agent-state pip leading the branch/intent annotation —
              *  the same shape-distinct StatePip the dock row leads its
@@ -121,32 +123,54 @@ const TerminalMeta: Component<{
                 <StatePip bucket={agentBucket(agent())} unread={props.unread} />
               )}
             </Show>
-            <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
+            <Tip label={info().meta.notes ? "Edit notes" : "Set notes"}>
               <button
                 type="button"
                 data-testid="terminal-meta-branch"
                 aria-label={
-                  info().meta.intent
-                    ? "Edit terminal intent"
-                    : "Set terminal intent"
+                  info().meta.notes
+                    ? "Edit terminal notes"
+                    : "Set terminal notes"
                 }
                 class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                 style={{ color: info().annotationColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  props.onOpenIntent();
+                  props.onOpenNotes();
                 }}
                 onDblClick={(e) => e.stopPropagation()}
               >
-                <IntentMarkdownInline
+                <NotesMarkdownInline
                   markdown={annotationLine(
-                    info().meta.intent,
+                    info().meta.notes,
                     info().meta.git?.branch ?? "—",
                   )}
                 />
               </button>
             </Tip>
+            {/* Note icon — appears only when the notes carry a body past the
+             *  first line (which the chip already shows), so it complements
+             *  the chip instead of duplicating it. Click reveals the Notes
+             *  tab, same as the chip. */}
+            <Show when={notesBodyMarkdown(info().meta.notes)}>
+              <Tip label="Open notes">
+                <button
+                  type="button"
+                  data-testid="terminal-meta-note-icon"
+                  aria-label="Open terminal notes"
+                  class="appearance-none bg-transparent border-0 p-0 shrink-0 text-fg-3 hover:text-fg-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onOpenNotes();
+                  }}
+                  onDblClick={(e) => e.stopPropagation()}
+                >
+                  <NoteIcon class="w-3 h-3" />
+                </button>
+              </Tip>
+            </Show>
             <Show when={activeArm(info().meta)}>
               {(active) => (
                 <>
@@ -208,15 +232,15 @@ export const TerminalMetaCompact: Component<{
           <Show when={info().meta.git?.isWorktree}>
             <WorktreeBadge />
           </Show>
-          <Show when={info().meta.intent ?? info().meta.git?.branch}>
+          <Show when={info().meta.notes ?? info().meta.git?.branch}>
             <span
               data-testid="terminal-meta-branch"
               class="text-xs truncate min-w-0"
               style={{ color: info().annotationColor }}
             >
-              <IntentMarkdownInline
+              <NotesMarkdownInline
                 markdown={annotationLine(
-                  info().meta.intent,
+                  info().meta.notes,
                   info().meta.git?.branch ?? "",
                 )}
               />
