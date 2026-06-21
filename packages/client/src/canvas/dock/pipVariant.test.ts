@@ -10,6 +10,7 @@ const cases: Array<[DockRowBucket, boolean, PipVariant]> = [
   ["idle", true, "attention"],
   ["none", true, "attention"],
   ["parked", true, "attention"],
+  ["sleeping", true, "attention"],
   // !unread: bucket carries the state. awaiting is quiet (already seen);
   // working is the spinning ring; idle is muted; none/parked render empty.
   ["awaiting", false, "awaiting"],
@@ -17,6 +18,8 @@ const cases: Array<[DockRowBucket, boolean, PipVariant]> = [
   ["idle", false, "idle"],
   ["none", false, "empty"],
   ["parked", false, "empty"],
+  // sleeping renders its own moonlit ☾ pip — never folded into idle/empty.
+  ["sleeping", false, "sleeping"],
 ];
 
 describe("pipVariant", () => {

@@ -178,6 +178,11 @@ export const StatePip: Component<{
         <Match when={variant() === "idle"}>
           <span class="w-1.5 h-1.5 rounded-full bg-fg-3/55" />
         </Match>
+        <Match when={variant() === "sleeping"}>
+          {/* Moonlit ☾ — a deliberate dormant state, visually distinct from the
+           *  agent shapes and from the parked-drop. */}
+          <span class="text-[0.7rem] leading-none text-[#8895ad]">☾</span>
+        </Match>
       </Switch>
     </span>
   );
@@ -188,5 +193,6 @@ const PIP_TITLES: Record<PipVariant, string> = {
   awaiting: "Awaiting input",
   working: "Working",
   idle: "Idle",
+  sleeping: "Sleeping",
   empty: "",
 };

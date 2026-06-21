@@ -922,6 +922,20 @@ export function activeArm(
   return m?.state === "active" ? m : undefined;
 }
 
+/** Narrow a terminal to its SLEEPING arm, or `undefined` when it is active /
+ *  absent. The sibling projection `activeArm`'s doc anticipates: a sleeping-
+ *  SPECIFIC consumer — the ☾ dock bucket, the moonlit minimap/switcher pip, the
+ *  DormantTileBody's `sleptAt` — reads THIS rather than re-scattering
+ *  `state === "sleeping"` checks, so the one discriminant has exactly one reader
+ *  per arm and "is this tile sleeping?" is greppable across every presence
+ *  surface. Truthiness alone answers presence; the returned arm exposes `sleptAt`
+ *  for the "asleep 3d" label. */
+export function sleepingArm(
+  m: TerminalMetadata | null | undefined,
+): SleepingTerminal | undefined {
+  return m?.state === "sleeping" ? m : undefined;
+}
+
 /** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,
  *  else `null`. The single accessor for 'is it active and does it have a resolved
  *  PR' — the active narrow (`activeArm`) and the `ok`-arm projection (`prValue`)

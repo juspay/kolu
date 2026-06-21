@@ -17,13 +17,26 @@
  *  its own visual treatment. Co-locating the two enums in one file
  *  would invite label-collision bugs. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  sleepingArm,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { metaBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
  *  idle) because it carries a different visual treatment (faded, tinier
- *  row) and routes through staleness, not the idle-bucket classifier. */
-export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
+ *  row) and routes through staleness, not the idle-bucket classifier.
+ *  `sleeping` is likewise its own bucket — a DELIBERATE dormant state, decoupled
+ *  from staleness: a freshly-slept tile must read "asleep", never "parked", and
+ *  must NOT be dropped by the dock's parked filter. */
+export type DockRowBucket =
+  | "awaiting"
+  | "working"
+  | "idle"
+  | "sleeping"
+  | "parked"
+  | "none";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
  *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
@@ -34,14 +47,19 @@ const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: 0,
   working: 1,
   idle: 2,
-  parked: 3,
-  none: 4,
+  sleeping: 3,
+  parked: 4,
+  none: 5,
 };
 
 function classifyDockRow(
   meta: TerminalMetadata,
   parked: boolean,
 ): DockRowBucket {
+  // Sleeping is checked FIRST, before parked: a sleeping tile is a deliberate
+  // dormant state, never staleness, so it must keep its ☾ row and never fall
+  // into the parked-drop (which `dockTree` hides) however long it has slept.
+  if (sleepingArm(meta)) return "sleeping";
   if (parked) return "parked";
   const agent = metaBucket(meta);
   // A terminal that *has* an agent but no live attention state reads

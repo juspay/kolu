@@ -8,6 +8,7 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import { sleepingArm } from "kolu-common/surface";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -326,10 +327,20 @@ const CanvasMinimap: Component<{
             // because the JSX reads it 7× per tile per tick.
             const state = createMemo(() => {
               const i = info();
-              if (!i) return { bucket: "none" as const, parked: false };
+              if (!i)
+                return {
+                  bucket: "none" as const,
+                  parked: false,
+                  sleeping: false,
+                };
+              const sleeping = sleepingArm(i.meta) !== undefined;
               return {
                 bucket: metaBucket(i.meta),
-                parked: isParked(i.meta.lastActivityAt),
+                // Sleeping is a deliberate dormant state, DECOUPLED from
+                // staleness: a sleeping tile is never parked-ghosted — it renders
+                // full-size and moonlit (see `tileStyle`), however long it slept.
+                parked: !sleeping && isParked(i.meta.lastActivityAt),
+                sleeping,
               };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
@@ -370,6 +381,7 @@ const CanvasMinimap: Component<{
             // parked-ghost; CSS interpolates between them so the tile glides
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
+            const sleeping = () => state().sleeping;
             const isActive = () => tileStore.activeId() === id;
             const hasAgent = () => state().bucket !== "none";
             const badgeVisible = () => hasAgent() && !parked();
@@ -384,6 +396,18 @@ const CanvasMinimap: Component<{
               h: number;
               repoColor: string;
             }): JSX.CSSProperties => {
+              if (sleeping()) {
+                // Moonlit, dimmed, full-size — visually distinct from both an
+                // active repo-color tile and the parked ghost.
+                return {
+                  left: `${t.x}px`,
+                  top: `${t.y}px`,
+                  width: `${t.w}px`,
+                  height: `${t.h}px`,
+                  "background-color": "#1d2230",
+                  border: "1px dashed #8895ad",
+                };
+              }
               if (parked()) {
                 return {
                   left: `${t.x + t.w / 2 - GHOST_PX / 2}px`,
