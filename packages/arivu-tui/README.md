@@ -42,6 +42,8 @@ arivu-tui fleet --host nix@a --host nix@b   # local + a + b, live
 arivu-tui fleet --host nix@prod --no-local  # just the remote(s)
 arivu-tui fleet --ssh-config                # add every Host alias from ~/.ssh/config
 arivu-tui fleet --json                      # [{ host, terminalId, ...awareness }]
+# pin which kaval a host's remote arivu reads (a host running several):
+arivu-tui fleet --host nix@zest --kaval nix@zest=/tmp/kaval-7692-501/pty-host.sock
 ```
 
 `fleet` dials each host once (the same Nix-over-ssh provisioning as `--host`; the
@@ -51,11 +53,17 @@ re-renders on any delta — so a `working → awaiting you` transition repaints
 without a re-dial. Every agent **awaiting you** floats to the top across the whole
 fleet, and a breathing amber strip names which hosts need you. Terminals are
 grouped per host; a host that's unreachable or running a version-skew build gets a
-distinct header rather than silently vanishing.
+distinct header rather than silently vanishing. The board **fills the terminal
+width** — `repo·branch` grows to show long branches in full on a wide screen and
+truncates only when the terminal is genuinely narrow.
 
 - `--by host` (default) — per-host groups, needs-you first within each.
 - `--by needs` — one fleet-wide list, urgency-sorted ("who's waiting, anywhere").
 - `--by agent` — grouped by agent state (awaiting / working / idle) across hosts.
+- `--kaval <host>=<socket>` — pin which kaval a remote host's arivu dials, for a
+  host running several (a standalone kaval + a kolu-server). Repeatable; the
+  `<host>` matches a `--host` value. Omit and each host discovers the one that's
+  up — `arivu-tui fleet` reports a host with several as `unreachable` until pinned.
 
 ## Short ids
 

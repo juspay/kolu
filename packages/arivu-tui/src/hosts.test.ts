@@ -41,7 +41,7 @@ describe("parseSshConfigHosts", () => {
 
 describe("resolveFleetHosts", () => {
   it("puts local first, then explicit hosts, then ssh-config aliases", () => {
-    const hosts = resolveFleetHosts({
+    const { hosts } = resolveFleetHosts({
       explicit: ["nix@a"],
       fromSshConfig: ["b"],
       includeLocal: true,
@@ -54,7 +54,7 @@ describe("resolveFleetHosts", () => {
   });
 
   it("omits local when includeLocal is false", () => {
-    const hosts = resolveFleetHosts({
+    const { hosts } = resolveFleetHosts({
       explicit: ["a"],
       fromSshConfig: [],
       includeLocal: false,
@@ -63,7 +63,7 @@ describe("resolveFleetHosts", () => {
   });
 
   it("de-duplicates a host named on both the command line and the config", () => {
-    const hosts = resolveFleetHosts({
+    const { hosts } = resolveFleetHosts({
       explicit: ["zest", "pu1"],
       fromSshConfig: ["pu1", "zest", "new"],
       includeLocal: false,
@@ -75,7 +75,7 @@ describe("resolveFleetHosts", () => {
     // Both the socket and an ssh host literally named `local` belong in the
     // fleet, but the label is the routing key (the store seeds + the sink route
     // by it), so they must NOT collide — the ssh one gets a distinct label.
-    const hosts = resolveFleetHosts({
+    const { hosts } = resolveFleetHosts({
       explicit: ["local"],
       fromSshConfig: [],
       includeLocal: true,
@@ -90,7 +90,7 @@ describe("resolveFleetHosts", () => {
 
   it("leaves an ssh target named `local` untouched when the socket is excluded", () => {
     // No socket in the fleet ⇒ no collision ⇒ the ssh `local` keeps its name.
-    const hosts = resolveFleetHosts({
+    const { hosts } = resolveFleetHosts({
       explicit: ["local"],
       fromSshConfig: [],
       includeLocal: false,
@@ -104,7 +104,37 @@ describe("resolveFleetHosts", () => {
         explicit: [],
         fromSshConfig: [],
         includeLocal: false,
-      }),
+      }).hosts,
     ).toEqual([]);
+  });
+
+  it("attaches a pinned kaval to its host, keyed by the ssh target", () => {
+    const { hosts, unmatchedKaval } = resolveFleetHosts({
+      explicit: ["nix@zest", "nix@prod"],
+      fromSshConfig: [],
+      includeLocal: false,
+      kavalByHost: { "nix@zest": "/tmp/kaval-7692-501/pty-host.sock" },
+    });
+    expect(hosts).toEqual([
+      {
+        label: "nix@zest",
+        ssh: "nix@zest",
+        kaval: "/tmp/kaval-7692-501/pty-host.sock",
+      },
+      { label: "nix@prod", ssh: "nix@prod" },
+    ]);
+    expect(unmatchedKaval).toEqual([]);
+  });
+
+  it("reports a --kaval whose host isn't dialed (a typo the caller fails on)", () => {
+    const { unmatchedKaval } = resolveFleetHosts({
+      explicit: ["nix@zest"],
+      fromSshConfig: [],
+      includeLocal: true,
+      kavalByHost: { "nix@typo": "/tmp/k.sock", local: "/tmp/x.sock" },
+    });
+    // `local` (the socket endpoint) can't be pinned this way, and `nix@typo`
+    // matches no --host — both surface for a loud failure.
+    expect(unmatchedKaval.sort()).toEqual(["local", "nix@typo"]);
   });
 });

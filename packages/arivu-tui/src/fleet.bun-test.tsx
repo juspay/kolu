@@ -42,8 +42,14 @@ const viewOf = (
   mode: "host" | "needs" | "agent" = "host",
 ): FleetView => projectFleet(states, mode);
 
-/** Render a board to its painted character frame, then tear the renderer down. */
-async function renderBoard(view: FleetView, frame = 0): Promise<string> {
+/** Render a board to its painted character frame, then tear the renderer down.
+ *  `width` drives `useTerminalDimensions()` so the responsive `repo·branch`
+ *  column can be tested at different terminal widths. */
+async function renderBoard(
+  view: FleetView,
+  frame = 0,
+  width = 80,
+): Promise<string> {
   const t = await testRender(
     () => (
       <FleetBoard
@@ -53,7 +59,7 @@ async function renderBoard(view: FleetView, frame = 0): Promise<string> {
         clock={() => "12:00:00"}
       />
     ),
-    { width: 80, height: 18 },
+    { width, height: 18 },
   );
   await t.flush();
   const out = t.captureCharFrame();
@@ -217,4 +223,36 @@ test("agent mode names each row's source host inside the urgency sections", asyn
   expect(frame).toContain("awaiting you");
   expect(frame).toContain("zest");
   expect(frame).toContain("pluto");
+});
+
+test("repo·branch absorbs a wide terminal's slack, truncates a narrow one", async () => {
+  // A long branch that the old fixed 22-col `where` clipped: it must show in
+  // FULL on a wide terminal (no wasted space, no clip) and ONLY truncate when
+  // the terminal is genuinely narrow.
+  const longBranch = "redesign/sleeping-terminals";
+  const states: FleetHostState[] = [
+    {
+      label: "zest",
+      status: connected,
+      terminals: {
+        [id("z1")]: val({
+          git: {
+            repoName: "kolu",
+            branch: longBranch,
+          } as AwarenessValue["git"],
+          agent: agentVal("thinking"),
+        }),
+      },
+    },
+  ];
+
+  const wide = await renderBoard(viewOf(states), 0, 140);
+  expect(wide).toContain(`kolu·${longBranch}`); // full, un-clipped
+  expect(wide).not.toContain("…");
+
+  // A narrower terminal that still fits the row: `where` shrinks and truncates
+  // (with an ellipsis) instead of the full branch overflowing.
+  const narrow = await renderBoard(viewOf(states), 0, 70);
+  expect(narrow).not.toContain(`kolu·${longBranch}`);
+  expect(narrow).toContain("…");
 });

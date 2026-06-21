@@ -97,6 +97,11 @@ const argv = cli({
           description:
             "a remote arivu over ssh, provisioned via Nix — repeatable: --host nix@a --host nix@b. The local arivu is also included unless --no-local.",
         },
+        kaval: {
+          type: [String],
+          description:
+            "pin which kaval a host's remote arivu dials, for a host running several — repeatable, `<host>=<socket>` (the <host> matches a --host value): --kaval nix@zest=/tmp/kaval-7692-501/pty-host.sock. Omit and each host discovers the one that's up.",
+        },
         sshConfig: {
           type: Boolean,
           description:
@@ -169,8 +174,28 @@ function parseFleetMode(by: string): FleetMode {
  *  the bare path's `fail()`-wrapping connector) so the orchestrator can render a
  *  dead host as `unreachable` instead of exiting — one bad box never sinks the
  *  board. */
+/** Parse `--kaval <ssh>=<socket>` entries into a `{ ssh → socket }` map, failing
+ *  loud on a malformed entry (no `=`, or an empty side). Split on the FIRST `=`
+ *  so a socket path can't be mistaken for the separator. */
+function parseKavalMap(entries: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const entry of entries) {
+    const eq = entry.indexOf("=");
+    const ssh = eq < 0 ? "" : entry.slice(0, eq);
+    const socket = eq < 0 ? "" : entry.slice(eq + 1);
+    if (ssh === "" || socket === "") {
+      fail(
+        `--kaval must be <host>=<socket> (got ${JSON.stringify(entry)}) — e.g. --kaval nix@zest=/tmp/kaval-7692-501/pty-host.sock`,
+      );
+    }
+    map[ssh] = socket;
+  }
+  return map;
+}
+
 async function runFleet(opts: {
   hosts: string[];
+  kaval: string[];
   sshConfig: boolean;
   noLocal: boolean;
   by: string;
@@ -200,14 +225,20 @@ async function runFleet(opts: {
     fromSshConfig = parseSshConfigHosts(content);
   }
 
-  const hosts = resolveFleetHosts({
+  const { hosts, unmatchedKaval } = resolveFleetHosts({
     explicit: opts.hosts,
     fromSshConfig,
     includeLocal: !opts.noLocal,
+    kavalByHost: parseKavalMap(opts.kaval),
   });
   if (hosts.length === 0) {
     fail(
       "no hosts to dial — pass --host <ssh>, add --ssh-config, or drop --no-local.",
+    );
+  }
+  if (unmatchedKaval.length > 0) {
+    fail(
+      `--kaval names a host that isn't in the fleet: ${unmatchedKaval.join(", ")} — its <host> must match a --host value (the local socket can't be pinned this way).`,
     );
   }
 
@@ -219,7 +250,7 @@ async function runFleet(opts: {
   const connect: FleetConnector = (host) =>
     host.ssh === null
       ? connectArivu(arivuSocketPath(undefined))
-      : connectArivuViaHost(host.ssh, undefined, swallow);
+      : connectArivuViaHost(host.ssh, host.kaval, swallow);
 
   if (opts.json) {
     // Scriptable one-shot — never touches the renderer.
@@ -243,6 +274,7 @@ async function main(): Promise<void> {
   if (argv.command === "fleet") {
     await runFleet({
       hosts: ([] as string[]).concat(argv.flags.host ?? []),
+      kaval: ([] as string[]).concat(argv.flags.kaval ?? []),
       sshConfig: argv.flags.sshConfig ?? false,
       noLocal: argv.flags.noLocal ?? false,
       by: argv.flags.by ?? "host",

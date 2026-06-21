@@ -15,6 +15,11 @@ export interface FleetHost {
   label: string;
   /** The ssh target for `connectArivuViaHost`, or null for the local socket. */
   ssh: string | null;
+  /** Which kaval the REMOTE arivu should dial (`arivu --stdio --kaval <path>`),
+   *  for a host running several (a standalone kaval + a kolu-server, say) where
+   *  discovery is ambiguous. `undefined` → the remote arivu discovers the one
+   *  that's up. Only meaningful for a remote (`ssh`) host. */
+  kaval?: string;
 }
 
 /** The reserved label for the local arivu (the endpoint `--socket` would dial). */
@@ -62,12 +67,19 @@ export function parseSshConfigHosts(content: string): string[] {
  * (`fleet.tsx` seeds a `Record` by it, the sink routes by it), so two endpoints
  * sharing a label would silently overwrite each other in the store — the bug
  * this disambiguation prevents.
+ *
+ * `kavalByHost` pins which kaval a remote arivu dials, keyed by the ssh target
+ * (the `--host` value, NOT the display label): a host running several kavals is
+ * otherwise an ambiguous-discovery `unreachable`. A key matching no dialed host
+ * is reported in `unmatchedKaval` so the caller can fail loud on the typo.
  */
 export function resolveFleetHosts(opts: {
   explicit: string[];
   fromSshConfig: string[];
   includeLocal: boolean;
-}): FleetHost[] {
+  kavalByHost?: Record<string, string>;
+}): { hosts: FleetHost[]; unmatchedKaval: string[] } {
+  const kavalByHost = opts.kavalByHost ?? {};
   const hosts: FleetHost[] = [];
   // Labels already taken — seeded with the socket's reserved `local` when it's
   // in the fleet, so an ssh target named `local` is forced to disambiguate
@@ -86,7 +98,13 @@ export function resolveFleetHosts(opts: {
     let label = ssh;
     if (labels.has(label)) label = `${ssh} (ssh)`;
     labels.add(label);
-    hosts.push({ label, ssh });
+    hosts.push({ label, ssh, kaval: kavalByHost[ssh] });
   }
-  return hosts;
+  // A `--kaval <ssh>=<sock>` whose <ssh> never appears as a dialed host is a
+  // typo (or a `--no-local`/missing `--host`): surface it rather than silently
+  // ignoring the pin.
+  const unmatchedKaval = Object.keys(kavalByHost).filter(
+    (ssh) => !seenSsh.has(ssh),
+  );
+  return { hosts, unmatchedKaval };
 }

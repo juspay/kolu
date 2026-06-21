@@ -20,6 +20,7 @@
  * interactive `fleet` board (the `--json` path never touches the renderer).
  */
 
+import { useTerminalDimensions } from "@opentui/solid";
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
@@ -50,17 +51,29 @@ const SPINNER = ["◜", "◝", "◞", "◟"] as const;
 const NEED_GLYPH = "●";
 const IDLE_GLYPH = "○";
 
-// Column widths (chars), sized to fit an 80-column terminal alongside the 2-char
-// glyph + group indent: 2 + 8 + 22 + 11 + 13 + age(≤4). In the host-less modes
-// (`needs`/`agent`) a leading host column (`W_HOST`) replaces the per-host group
-// header so each row still names the machine it is on; the `where` column shrinks
-// to keep the row inside 80 cols.
+// Fixed column widths (chars). `repo·branch` is NOT fixed — it absorbs the
+// terminal's remaining width (see `whereWidth`), so a wide terminal shows long
+// branches in full instead of clipping them into an 80-col straitjacket. The
+// host-less modes (`needs`/`agent`) prepend a `W_HOST` column (no per-host group
+// header to name the machine), which `whereWidth` subtracts from the slack.
+const W_GLYPH = 2;
 const W_HOST = 12;
 const W_AGENT = 8;
-const W_WHERE = 22;
-const W_WHERE_WITH_HOST = 14;
-const W_PR = 11;
+const W_PR = 15; // "#12345 merged ✓" — wide enough that the check glyph never clips
 const W_STATE = 13;
+const W_RECENCY = 5; // the trailing "24s"/"3h"/"364d" column, reserved off the slack
+const MIN_WHERE = 12; // floor so a narrow terminal truncates rather than vanishes
+
+/** The `repo·branch` column's width: the terminal's usable width (minus the
+ *  box's padding={1} either side) less every fixed column, so it fills the slack
+ *  a wide terminal offers and only truncates when the terminal is genuinely
+ *  narrow. Shared by every row (a pure function of width + mode) so the columns
+ *  stay aligned. */
+function whereWidth(termWidth: number, showHost: boolean): number {
+  const fixed =
+    W_GLYPH + (showHost ? W_HOST : 0) + W_AGENT + W_PR + W_STATE + W_RECENCY;
+  return Math.max(MIN_WHERE, termWidth - 2 - fixed);
+}
 
 /** The leading glyph for a row, animated for a working agent. */
 function rowGlyph(row: FleetRow, frame: number): string {
@@ -102,12 +115,14 @@ function Row(props: {
   row: FleetRow;
   frame: () => number;
   now: () => number;
+  termWidth: () => number;
   showHost?: boolean;
 }) {
+  const whereW = () => whereWidth(props.termWidth(), props.showHost ?? false);
   return (
     <box flexDirection="row">
       <text fg={TONE_COLOR[props.row.state.tone]}>
-        {cell(rowGlyph(props.row, props.frame()), 2)}
+        {cell(rowGlyph(props.row, props.frame()), W_GLYPH)}
       </text>
       <text fg={HOST}>
         {props.showHost ? cell(props.row.host, W_HOST) : ""}
@@ -116,10 +131,7 @@ function Row(props: {
         {cell(props.row.agent.text, W_AGENT)}
       </text>
       <text fg={TONE_COLOR[props.row.where.tone]}>
-        {cell(
-          props.row.where.text,
-          props.showHost ? W_WHERE_WITH_HOST : W_WHERE,
-        )}
+        {cell(props.row.where.text, whereW())}
       </text>
       <text fg={TONE_COLOR[props.row.pr.tone]}>
         {cell(props.row.pr.text, W_PR)}
@@ -147,6 +159,7 @@ function Group(props: {
   group: FleetGroup;
   frame: () => number;
   now: () => number;
+  termWidth: () => number;
   showHost?: boolean;
 }) {
   const badge = hostBadge(props.group.status);
@@ -172,6 +185,7 @@ function Group(props: {
             row={row}
             frame={props.frame}
             now={props.now}
+            termWidth={props.termWidth}
             showHost={props.showHost}
           />
         )}
@@ -225,6 +239,11 @@ export function FleetBoard(props: {
   now: () => number;
   clock: () => string;
 }) {
+  // Reactive terminal width — re-renders the rows (their `repo·branch` column
+  // absorbs the slack) when the terminal is resized. `testRender({ width })`
+  // drives this directly, so the responsive layout is unit-testable.
+  const dims = useTerminalDimensions();
+  const termWidth = () => dims().width;
   const hostsTotal = () => props.view().summary.hostsTotal;
   // The view is a sum on `mode`: read only the field that exists for the arm.
   // These accessors narrow the discriminant so the empty arm contributes
@@ -262,6 +281,7 @@ export function FleetBoard(props: {
                 row={row}
                 frame={props.frame}
                 now={props.now}
+                termWidth={termWidth}
                 showHost={true}
               />
             )}
@@ -277,6 +297,7 @@ export function FleetBoard(props: {
               group={group}
               frame={props.frame}
               now={props.now}
+              termWidth={termWidth}
               showHost={showHost()}
             />
           )}
