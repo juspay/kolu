@@ -27,6 +27,7 @@
  * mutator type can be narrowed to exactly one half.
  */
 
+import { AgentKindSchema, AgentSessionRefSchema } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -43,7 +44,12 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
+// `AgentKindSchema` + `AgentSessionRefSchema` are OWNED by anyagent/schemas
+// (the lower layer that owns the `AgentKind` vocabulary and the
+// `resumeAgentCommand` receptacle consuming the ref). Re-exported here so the
+// persist path (`agentSession.ts`) and kolu-common/surface keep resolving them
+// from this schema home — one declaration, validated once.
+export { AgentKindSchema, AgentSessionRefSchema };
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
@@ -51,17 +57,9 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   OpenCodeInfoSchema,
 ]);
 
-/** A reference to the EXACT agent conversation that was running on a terminal —
- *  the agent discriminator (`kind`, matching `AgentInfo.kind`) paired with that
- *  agent's native session/conversation `id`. Captured live from `agent.sessionId`
- *  and persisted (unlike the rest of the live `agent` field) so waking a slept
- *  terminal — or restoring after a restart — can resume THAT conversation, not
- *  merely the most-recent one in the cwd (juspay/kolu#1495). The `kind` rides
- *  with the `id` so a consumer can never aim the id at the wrong agent CLI. */
-export const AgentSessionRefSchema = z.object({
-  kind: AgentKindSchema,
-  id: z.string(),
-});
+// `AgentSessionRef` (the persisted conversation-identity ref) is imported by
+// `agentSession.ts` from this module; re-export the inferred type from the
+// anyagent-owned schema so that import keeps resolving.
 export type AgentSessionRef = z.infer<typeof AgentSessionRefSchema>;
 
 // ── PR resolution — closed forge union + wire result ──────────────────

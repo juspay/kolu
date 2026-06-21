@@ -31,6 +31,9 @@
 
 import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
+import type { AgentKind, AgentSessionRef } from "./schemas.ts";
+
+export type { AgentKind, AgentSessionRef };
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
@@ -108,20 +111,6 @@ function basename(s: string): string {
 type ResumableAgent = "claude" | "codex" | "opencode";
 
 /**
- * A reference to the EXACT agent conversation that was running on a terminal —
- * captured live from `AgentInfo.sessionId` and persisted so it survives sleep /
- * restart (juspay/kolu#1495). `kind` is the agent discriminator (matches
- * `AgentInfo.kind`); `id` is that agent's native session/conversation id. The
- * `kind` travels WITH the `id` so the id can never be aimed at the wrong agent:
- * `resumeAgentCommand` only uses it when `kind` names the same agent the command
- * head does.
- */
-export interface AgentSessionRef {
-  kind: AgentKind;
-  id: string;
-}
-
-/**
  * Resume markers spliced in right after the agent binary for agents that
  * support conversation continuity. The `Record` key union is the exact set of
  * resume-capable agents, so adding an agent forces adding BOTH marker forms
@@ -172,15 +161,6 @@ const SESSION_ID_PATTERN: Record<ResumableAgent, RegExp> = {
   codex: UUID_RE,
   opencode: /^ses_[0-9a-zA-Z]{1,64}$/,
 };
-
-/**
- * Discriminator literals used by `AgentInfoSchema` in kolu-common. Lives
- * here (not in kolu-common) because the basename→kind bridge below also
- * lives here — kolu-common depends on anyagent, so anyagent has to own
- * the kind vocabulary that its own helpers return. Structurally identical
- * to `AgentInfo["kind"]`; TypeScript treats them as the same union.
- */
-export type AgentKind = "claude-code" | "codex" | "opencode";
 
 /** Maps the agent binary basename to the discriminator used by
  *  `AgentInfoSchema` in kolu-common. Only the icon-capable agents have
