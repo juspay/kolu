@@ -181,7 +181,7 @@ export const contract = oc.router({
      *  info; throws NOT_FOUND if the id is not a sleeping terminal. */
     wake: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     /** Discard a sleeping terminal's record (no PTY to kill — sleep released it).
-     *  Serves both wake-failed cleanup and the user closing a sleeping tile. */
+     *  Reached when the user closes a sleeping tile via the close-confirm dialog. */
     discardSleeping: oc.input(TerminalAttachInputSchema).output(z.void()),
     /** Seed a SLEEPING terminal into the registry from its saved record — the
      *  dormant analogue of create, used by the cold-boot restore card to bring a

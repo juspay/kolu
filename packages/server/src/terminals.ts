@@ -135,8 +135,8 @@ export function wakeTerminal(id: TerminalId): TerminalInfo | undefined {
   return wakeLocalTerminal(id);
 }
 
-/** Discard a sleeping terminal — remove its record (no PTY to kill). Serves both
- *  the wake-failed cleanup and the user closing a sleeping tile. */
+/** Discard a sleeping terminal — remove its record (no PTY to kill). Reached when
+ *  the user closes a sleeping tile via the close-confirm dialog. */
 export function discardSleeping(id: TerminalId): void {
   discardLocalSleeping(id);
 }
