@@ -434,6 +434,34 @@ describe("projectFleet — terminal-safety", () => {
     if (view.mode !== "needs") throw new Error("unreachable");
     expect(view.flat[0]?.host).not.toMatch(/[\x00-\x1f\x7f]/);
   });
+
+  it("keeps distinct hosts that sanitize to the same display string in separate buckets", () => {
+    // `a\nb` and `a b` both sanitize to `a b`, but they are DISTINCT hosts.
+    // Sanitization is display-only; it must not merge identities, or one host's
+    // terminals would leak into the other's group.
+    const states = [
+      host(
+        "a\nb",
+        { kind: "connected" },
+        { [id("t-newline")]: val({ agent: agentVal("thinking") }) },
+      ),
+      host(
+        "a b",
+        { kind: "connected" },
+        { [id("t-space")]: val({ agent: agentVal("awaiting_user") }) },
+      ),
+    ];
+    const view = projectFleet(states, NOW, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
+    // Two distinct groups, each with ONLY its own terminal — never merged. Use
+    // `sortId` (the full id), since `id` is the shortened display form.
+    expect(view.groups).toHaveLength(2);
+    expect(view.groups[0]?.rows.map((r) => r.sortId)).toEqual(["t-newline"]);
+    expect(view.groups[1]?.rows.map((r) => r.sortId)).toEqual(["t-space"]);
+    // Both paint the same sanitized label, but their rows stayed distinct.
+    expect(view.groups[0]?.label).toBe("a b");
+    expect(view.groups[1]?.label).toBe("a b");
+  });
 });
 
 describe("formatFleetJson", () => {

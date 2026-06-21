@@ -110,6 +110,35 @@ function fakeConnVersionRejects(): Connection {
   };
 }
 
+/** A fake whose dial SUCCEEDS but whose `version.get` stream ends EMPTY (no
+ *  snapshot frame). A `version` cell always opens with a snapshot, so an empty
+ *  stream is a protocol/link failure — the orchestrator must surface it as this
+ *  host's `unreachable`, never collapse it to a silently `connected`/`ok` state. */
+function fakeConnVersionEmpty(): Connection {
+  const client = {
+    surface: {
+      version: {
+        get: async () =>
+          // No yield: the stream ends without ever emitting a snapshot.
+          (async function* (): AsyncGenerator<{
+            contractVersion: string;
+          }> {})(),
+      },
+      awareness: {
+        keys: async () =>
+          (async function* () {
+            yield [] as TerminalId[];
+          })(),
+        get: async () => once(undefined as unknown as AwarenessValue),
+      },
+    },
+  };
+  return {
+    client: client as unknown as Connection["client"],
+    dispose: () => {},
+  };
+}
+
 function recordingSink(): {
   sink: FleetSink;
   statuses: Array<[string, FleetHostStatus]>;
@@ -236,6 +265,28 @@ describe("startFleet", () => {
     handle.dispose();
   });
 
+  it("treats an empty version stream as unreachable, never a silent connected", async () => {
+    // The dial succeeds but the version cell yields no snapshot frame. A version
+    // cell always opens with a snapshot, so an empty stream is a protocol/link
+    // failure — it must surface as `unreachable`, not collapse to `connected`.
+    const { sink, statuses } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("empty"),
+      connect: async () => fakeConnVersionEmpty(),
+      sink,
+      log: () => {},
+    });
+    await delay(20);
+
+    expect(statuses).not.toContainEqual(["empty", { kind: "connected" }]);
+    const last = statuses.filter(([l]) => l === "empty").at(-1);
+    expect(last?.[1].kind).toBe("unreachable");
+    expect(last?.[1].kind === "unreachable" && last[1].reason).toContain(
+      "no snapshot frame",
+    );
+    handle.dispose();
+  });
+
   it("flips a host to unreachable when its link drops after connecting", async () => {
     const f = fakeConn({ terminals: {} });
     const { sink, statuses } = recordingSink();
@@ -290,6 +341,23 @@ describe("snapshotFleet", () => {
       kind: "unreachable",
       reason: "link dropped mid-probe",
     });
+  });
+
+  it("turns an empty version stream into an unreachable snapshot, not a silent ok", async () => {
+    // The dial succeeds but `version.get` ends empty (no snapshot frame). The
+    // `--json` snapshot must report this host as unreachable, never dump it as a
+    // compatible-looking `ok` that hides the broken link.
+    const a = fakeConn({ terminals: { [id("t1")]: val({ cwd: "/x" }) } });
+    const snaps = await snapshotFleet(hostsOf("a", "empty"), async (h) =>
+      h.label === "empty" ? fakeConnVersionEmpty() : a.conn,
+    );
+    expect(snaps).toHaveLength(2);
+    expect(snaps.find((s) => s.label === "a")?.kind).toBe("ok");
+    const empty = snaps.find((s) => s.label === "empty");
+    expect(empty?.kind).toBe("unreachable");
+    expect(empty?.kind === "unreachable" && empty.reason).toContain(
+      "no snapshot frame",
+    );
   });
 
   it("flags a contract-skewed host as skew, keeping its rows visible", async () => {

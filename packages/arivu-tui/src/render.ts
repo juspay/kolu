@@ -488,21 +488,25 @@ export function projectFleet(
   now: number,
   mode: FleetMode,
 ): FleetView {
-  // Every terminal across the fleet, each tagged with its (sanitized) host — the
-  // basis for the flat (needs/agent) views and the summary counts. The
-  // sanitized label is also the partition key below, so a row's host and its
-  // group header stay the same string.
-  const allRows: FleetRow[] = states.flatMap((s) => {
+  // Every terminal across the fleet, each tagged with its (sanitized) host
+  // DISPLAY cell plus the RAW label as its partition key — the basis for the
+  // flat (needs/agent) views and the summary counts. Identity (the key) is the
+  // raw label; sanitization is display-only, so two distinct hosts that sanitize
+  // to the same string (e.g. `a\nb` and `a b`) stay separate buckets and never
+  // merge — sanitizing must change what is PAINTED, never who a row belongs to.
+  const allRows: Array<{ key: string; row: FleetRow }> = states.flatMap((s) => {
     const host = sanitize(s.label);
-    return sortedEntries(s.terminals).map(([id, v]) =>
-      fleetRow(host, id, v, now),
-    );
+    return sortedEntries(s.terminals).map(([id, v]) => ({
+      key: s.label,
+      row: fleetRow(host, id, v, now),
+    }));
   });
 
+  const rows = allRows.map((r) => r.row);
   const summary: FleetSummary = {
-    needYou: allRows.filter((r) => r.urgency === "need").length,
-    working: allRows.filter((r) => r.urgency === "work").length,
-    idle: allRows.filter((r) => r.urgency === "idle").length,
+    needYou: rows.filter((r) => r.urgency === "need").length,
+    working: rows.filter((r) => r.urgency === "work").length,
+    idle: rows.filter((r) => r.urgency === "idle").length,
     hostsDown: states.filter((s) => s.status.kind === "unreachable").length,
     hostsTotal: states.length,
   };
@@ -515,7 +519,7 @@ export function projectFleet(
   if (mode === "needs") {
     // One fleet-wide list with the FULL tiebreak (urgency, recency, id), not
     // just urgency rank — see `fleetRowOrder`.
-    const flat = [...allRows].sort(fleetRowOrder);
+    const flat = [...rows].sort(fleetRowOrder);
     return { mode, flat, summary, alertHosts };
   }
   if (mode === "agent") {
@@ -523,31 +527,29 @@ export function projectFleet(
       label,
       // Re-sort each section by the shared comparator so rows from different
       // hosts within one urgency band order by recency/id, not host order.
-      rows: allRows.filter((r) => r.urgency === urgency).sort(fleetRowOrder),
+      rows: rows.filter((r) => r.urgency === urgency).sort(fleetRowOrder),
     })).filter((g) => g.rows.length > 0);
     return { mode, groups, summary, alertHosts };
   }
   // host mode (default): one group per host, in dial order, even when empty or
   // down — an unreachable host renders as a distinct header, never vanishes.
-  // Partition the already-projected `allRows` by (sanitized) host rather than
-  // re-running the sort + projection per host (the same value computed twice).
+  // Partition the already-projected rows by the RAW label (identity), not the
+  // sanitized display string — two hosts that sanitize to the same text must NOT
+  // merge into one bucket.
   const rowsByHost = new Map<string, FleetRow[]>();
-  for (const row of allRows) {
-    let bucket = rowsByHost.get(row.host);
+  for (const { key, row } of allRows) {
+    let bucket = rowsByHost.get(key);
     if (!bucket) {
       bucket = [];
-      rowsByHost.set(row.host, bucket);
+      rowsByHost.set(key, bucket);
     }
     bucket.push(row);
   }
-  const groups = states.map((s) => {
-    const label = sanitize(s.label);
-    return {
-      label,
-      status: sanitizeStatus(s.status),
-      rows: rowsByHost.get(label) ?? [],
-    };
-  });
+  const groups = states.map((s) => ({
+    label: sanitize(s.label),
+    status: sanitizeStatus(s.status),
+    rows: rowsByHost.get(s.label) ?? [],
+  }));
   return { mode, groups, summary, alertHosts };
 }
 

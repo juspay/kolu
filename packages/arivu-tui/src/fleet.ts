@@ -19,7 +19,7 @@ import {
   type AwarenessValue,
   type TerminalId,
 } from "@kolu/arivu-contract";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteCollection } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 import type { FleetHost } from "./hosts.ts";
@@ -113,14 +113,21 @@ async function runHost(
   // `unreachable` header while the rest of the fleet keeps updating.
   try {
     // Read the host's declared contract version → connected | skew. The same
-    // `version` cell P2's dial probes; here we keep the value to gate the header.
-    const version = await firstFrameOrUndefined(
+    // `version` cell the ssh dial probes (`hostConnect.ts`), read the SAME way:
+    // a `version` cell ALWAYS opens with a snapshot frame, so an EMPTY stream is
+    // a protocol/link failure, not a "no value yet". `firstFrameOrThrow` makes
+    // that empty stream throw into the catch below → this host's `unreachable`
+    // header (not a silent collapse to `connected` — the very skew/protocol
+    // signal this probe exists to surface). See `.agency/code-police.md` →
+    // caught-error-must-not-collapse-to-empty.
+    const version = await firstFrameOrThrow(
       await conn.client.surface.version.get({}),
+      "arivu version cell yielded no snapshot frame — the host surface stream ended empty (link or protocol failure)",
     );
-    const hostVersion = version?.contractVersion;
+    const hostVersion = version.contractVersion;
     opts.sink.setStatus(
       host.label,
-      hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION
+      hostVersion !== ARIVU_CONTRACT_VERSION
         ? {
             kind: "skew",
             localVersion: ARIVU_CONTRACT_VERSION,
@@ -186,16 +193,20 @@ export function snapshotFleet(
       }
       try {
         // Read the host's declared contract version the SAME way `runHost`
-        // gates the live header. The `--json` snapshot keeps a skewed host's
-        // rows but tags them with the mismatch, so a scripter gets the same skew
-        // signal the interactive board does — the symmetry the no-fallback rule
-        // demands (a skewed box is visible, not silently dumped as compatible).
-        const version = await firstFrameOrUndefined(
+        // gates the live header — `firstFrameOrThrow`, because an empty version
+        // stream is a protocol/link failure, not a benign absence (the cell
+        // always opens with a snapshot). An empty stream throws into the catch
+        // below → this host's `unreachable` snapshot, never a silently
+        // compatible-looking `ok` dump. The `--json` snapshot keeps a skewed
+        // host's rows but tags them with the mismatch, so a scripter gets the
+        // same skew signal the interactive board does.
+        const version = await firstFrameOrThrow(
           await conn.client.surface.version.get({}),
+          "arivu version cell yielded no snapshot frame — the host surface stream ended empty (link or protocol failure)",
         );
-        const hostVersion = version?.contractVersion;
+        const hostVersion = version.contractVersion;
         const entries = await snapshotAwareness(conn.client);
-        if (hostVersion && hostVersion !== ARIVU_CONTRACT_VERSION) {
+        if (hostVersion !== ARIVU_CONTRACT_VERSION) {
           return {
             label: host.label,
             kind: "skew",
