@@ -105,6 +105,34 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
+/** Detect a `nix run <flake-ref>#<agent> [...]` wrapper that launches a KNOWN
+ *  agent. kolu documents `nix run github:juspay/AI#opencode`, and on a host
+ *  without the agent on `PATH` that wrapper is the only way to run it — so a
+ *  resume must re-run the WRAPPER, not the bare agent (which isn't on `PATH`,
+ *  and so errors `command not found`). Returns the wrapped agent basename (the
+ *  flake ref's `#fragment`, e.g. `opencode`), or null when it isn't a known-agent
+ *  `nix run` wrapper. The resume marker is passed THROUGH the wrapper after a
+ *  `--` so it reaches the agent rather than `nix run` itself. */
+export function nixRunWrappedAgent(command: string): string | null {
+  const argv = parseArgsStringToArgv(command.trim());
+  if (argv[0] !== "nix" || argv[1] !== "run") return null;
+  const ref = argv[2];
+  if (ref === undefined) return null;
+  const hash = ref.lastIndexOf("#");
+  if (hash === -1) return null;
+  const agent = basename(ref.slice(hash + 1));
+  return STABLE_FLAGS.has(agent) ? agent : null;
+}
+
+/** The bare, re-runnable `nix run <ref>#<agent>` for a wrapper launch — trailing
+ *  agent args dropped (resume continues the session, which already carries them).
+ *  Null when `command` is not a known-agent `nix run` wrapper. */
+function nixRunBase(command: string): string | null {
+  if (nixRunWrappedAgent(command) === null) return null;
+  const argv = parseArgsStringToArgv(command.trim());
+  return `${argv[0]} ${argv[1]} ${argv[2]}`;
+}
+
 /**
  * Resume markers spliced in right after the agent binary for agents that
  * support conversation continuity. The `Record` key union is the exact set of
@@ -182,6 +210,8 @@ export function agentCommandForKind(kind: AgentKind): string {
  * unrecognized commands and for detection-only agents.
  */
 export function agentKindFromCommand(command: string): AgentKind | null {
+  const wrapped = nixRunWrappedAgent(command);
+  if (wrapped !== null) return BASENAME_TO_KIND[wrapped] ?? null;
   const head = command.trim().split(/\s+/, 1)[0] ?? "";
   return BASENAME_TO_KIND[basename(head)] ?? null;
 }
@@ -196,6 +226,8 @@ export function agentKindFromCommand(command: string): AgentKind | null {
  * being quoted. Returns `null` for an empty command.
  */
 export function agentNameFromCommand(command: string): string | null {
+  const wrapped = nixRunWrappedAgent(command);
+  if (wrapped !== null) return wrapped;
   const head = shellSplit(command.trim())[0];
   return head === undefined ? null : basename(head);
 }
@@ -211,7 +243,9 @@ export function parseAgentCommand(raw: string): string | null {
 
   const agent = basename(head);
   const allowed = STABLE_FLAGS.get(agent);
-  if (allowed === undefined) return null;
+  // Not a direct agent invocation — but a `nix run <ref>#<agent>` wrapper for a
+  // known agent IS a launch we can resume; capture it as the bare wrapper.
+  if (allowed === undefined) return nixRunBase(raw);
 
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
@@ -259,6 +293,14 @@ export function parseAgentCommand(raw: string): string | null {
  */
 export function resumeAgentCommand(normalized: string): string | null {
   const trimmed = normalized.trim();
+  // A `nix run <ref>#<agent>` wrapper resumes by passing the marker THROUGH to
+  // the agent after a `--`, so `nix run` itself doesn't eat it:
+  // `nix run github:juspay/AI#opencode -- --continue`. Re-running the bare agent
+  // would error `command not found` when it lives only inside the wrapper.
+  const wrapped = nixRunWrappedAgent(trimmed);
+  if (wrapped !== null && wrapped in AGENT_RESUME) {
+    return `${trimmed} -- ${AGENT_RESUME[wrapped as ResumableAgent]}`;
+  }
   // The agent basename is always a safe bare word, so `shellSplit` reads the
   // head reliably. We only need it to look up the agent — we do NOT re-render
   // the tail. Splicing the resume marker as a STRING between head and tail

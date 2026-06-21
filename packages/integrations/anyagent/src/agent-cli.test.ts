@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   agentCommandForKind,
   agentKindFromCommand,
+  agentNameFromCommand,
+  nixRunWrappedAgent,
   parseAgentCommand,
   resumeAgentCommand,
 } from "./agent-cli.ts";
@@ -345,6 +347,39 @@ describe("resumeAgentCommand", () => {
     expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
       `claude -c --add-dir ~/projects/foo`,
     );
+  });
+});
+
+describe("nix run wrapper — resume re-runs the wrapper, not the bare agent", () => {
+  // `nix run github:juspay/AI#opencode` runs opencode WITHOUT it on PATH; resume
+  // must go back through the wrapper (`-- --continue`), or it errors
+  // `command not found`. The wrapped agent is the flake ref's `#fragment`.
+  const WRAP = "nix run github:juspay/AI#opencode";
+
+  it("recognizes the wrapped agent", () => {
+    expect(nixRunWrappedAgent(WRAP)).toBe("opencode");
+    expect(nixRunWrappedAgent(`${WRAP} --model glm`)).toBe("opencode");
+    expect(nixRunWrappedAgent("nix run nixpkgs#vim")).toBeNull(); // not an agent
+    expect(nixRunWrappedAgent("nix build .#foo")).toBeNull(); // not `run`
+    expect(nixRunWrappedAgent("opencode")).toBeNull(); // direct, not a wrapper
+  });
+
+  it("captures the wrapper as the bare re-runnable launch (drops trailing args)", () => {
+    expect(parseAgentCommand(WRAP)).toBe(WRAP);
+    expect(parseAgentCommand(`${WRAP} --model glm "do a thing"`)).toBe(WRAP);
+    expect(parseAgentCommand("nix run nixpkgs#vim")).toBeNull();
+  });
+
+  it("resumes THROUGH the wrapper with `-- <marker>`", () => {
+    expect(resumeAgentCommand(WRAP)).toBe(`${WRAP} -- --continue`);
+    expect(resumeAgentCommand("nix run github:juspay/AI#codex")).toBe(
+      "nix run github:juspay/AI#codex -- resume --last",
+    );
+  });
+
+  it("identifies the agent kind + name through the wrapper", () => {
+    expect(agentKindFromCommand(WRAP)).toBe("opencode");
+    expect(agentNameFromCommand(WRAP)).toBe("opencode");
   });
 });
 
