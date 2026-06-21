@@ -42,9 +42,15 @@ export const useTerminalStore = createSharedRoot(() => {
     const parentId = view.activeId();
     if (parentId === null) return null;
     const panel = subPanel.getSubPanel(parentId);
-    return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
-      ? panel.activeSubTab
-      : parentId;
+    const resolved =
+      !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
+        ? panel.activeSubTab
+        : parentId;
+    // A sleeping tile can be the active/selected tile, but it has no live PTY —
+    // it is never an input target. Narrow to the active arm so every input-
+    // routing site (mobile key bar, copy-pane-text, run-in-active-terminal)
+    // falls back to "no target" rather than writing into a released PTY.
+    return metadata.getMetadata(resolved)?.state === "active" ? resolved : null;
   }
 
   /** The tiles entitled to a WebGL context: the most-recently-active *live*
@@ -55,7 +61,16 @@ export const useTerminalStore = createSharedRoot(() => {
    *  cross the cap boundary; when the whole working set fits, focus switches
    *  churn nothing (the #1399 fix). */
   const webglTileBudget = createMemo(() => {
-    const live = new Set(metadata.terminalIds());
+    // `terminalIds()` includes sleeping tiles (they are full canvas citizens —
+    // they render, drag, and sit in the MRU), but a sleeping terminal holds NO
+    // live resource, so it must never claim a WebGL context. Narrowing the budget
+    // input to the active arm is the single gate that keeps the budget on the
+    // active arm; `holdsWebgl` inherits it via `budget.includes`.
+    const live = new Set(
+      metadata
+        .terminalIds()
+        .filter((id) => metadata.getMetadata(id)?.state === "active"),
+    );
     const ordered = view.mruOrder().filter((id) => live.has(id));
     // `tileWebglCost` is the one home for a tile's context cost (main pane + an
     // expanded, active split), so the running count is the true number of live

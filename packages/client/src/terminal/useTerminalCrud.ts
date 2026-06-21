@@ -197,6 +197,32 @@ export const useTerminalCrud = createSharedRoot(() => {
     await handleKill(id);
   }
 
+  /** Sleep a terminal: close its splits first (a sleeping record is a single
+   *  terminal — sub-terminals are CLOSED, not frozen), then flip it to the
+   *  dormant arm on the server. The tile STAYS (now dormant) — no
+   *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
+   *  Wake call-to-action. The caller confirms first when splits exist (App.tsx). */
+  async function handleSleep(id: TerminalId) {
+    const subs = store.getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    try {
+      await client.terminal.sleep({ id });
+    } catch (err) {
+      toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
+    }
+  }
+
+  /** Wake a sleeping terminal: the server re-spawns its PTY on the same id and
+   *  resumes its agent (session-restore-of-one). The metadata subscription flips
+   *  it back to active and the tile re-renders live — so the client just asks. */
+  async function handleWake(id: TerminalId) {
+    try {
+      await client.terminal.wake({ id });
+    } catch (err) {
+      toast.error(`Failed to wake terminal: ${(err as Error).message}`);
+    }
+  }
+
   async function handleCopyTerminalText() {
     const id = store.focusedId();
     if (id === null) return;
@@ -268,6 +294,8 @@ export const useTerminalCrud = createSharedRoot(() => {
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
+    handleSleep,
+    handleWake,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,
