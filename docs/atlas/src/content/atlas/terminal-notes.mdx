@@ -2,12 +2,13 @@
 title: Terminal Notes
 description: Every terminal gets a Markdown notes scratchpad — a right-panel tab, a close-dialog reminder, a title-bar icon. It reuses kolu's existing `intent` field, renamed `notes` — a rename plus migration and three client surfaces, not a feature from scratch.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-21
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import reuseDiagram from "../../diagrams/terminal-notes-reuse.svg?raw";
 
@@ -98,6 +99,8 @@ export const CloseDialog = () => (
 Every terminal — active or sleeping — gets a Markdown notes scratchpad. The catch:
 the field **already exists** as `intent` (`surface.ts:255`), fully wired. So this
 is a **rename + three surfaces**, not a new feature.
+
+Shipped in <PrLink pr={1501} />.
 
 <Svg svg={reuseDiagram} caption="The field already ships (left, green). Rename intent→notes — a one-time state.ts migration, title still shows the first line — and add three client surfaces (right, amber)." />
 
