@@ -476,12 +476,21 @@ export function projectFleet(
   }
   // host mode (default): one group per host, in dial order, even when empty or
   // down — an unreachable host renders as a distinct header, never vanishes.
+  // Partition the already-projected `allRows` by host rather than re-running the
+  // sort + projection per host (it's the same value computed twice otherwise).
+  const rowsByHost = new Map<string, FleetRow[]>();
+  for (const row of allRows) {
+    let bucket = rowsByHost.get(row.host);
+    if (!bucket) {
+      bucket = [];
+      rowsByHost.set(row.host, bucket);
+    }
+    bucket.push(row);
+  }
   const groups = states.map((s) => ({
     label: s.label,
     status: s.status,
-    rows: sortedEntries(s.terminals).map(([id, v]) =>
-      fleetRow(s.label, id, v, now),
-    ),
+    rows: rowsByHost.get(s.label) ?? [],
   }));
   return { mode, groups, summary, alertHosts };
 }
