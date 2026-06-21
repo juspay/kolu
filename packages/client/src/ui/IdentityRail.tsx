@@ -64,7 +64,7 @@ const Divider: Component = () => (
  *  no kaval daemon, or a non-Chromium browser with no `performance.memory`). The
  *  `data-testid` lets the e2e assert each source's reading independently. */
 const MemReadout: Component<{
-  bytes: number | null | undefined;
+  bytes: number | null;
   testid: string;
   tip: string;
 }> = (props) => (

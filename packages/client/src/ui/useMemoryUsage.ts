@@ -20,18 +20,19 @@ const sub = app.cells.processMemory.use({
   onError: (err) => toast.error(`Memory readout error: ${err.message}`),
 });
 
-/** The kolu-server process's RSS in bytes, or undefined before the first server
+/** The kolu-server process's RSS in bytes, or `null` before the first server
  *  yield (it's always a real number once a sample lands — the server measures
- *  itself). */
-export function serverRssBytes(): number | undefined {
-  return sub.value()?.serverRssBytes;
+ *  itself). One absent-encoding across all three accessors: the rail treats
+ *  "no figure yet" the same however it arose. */
+export function serverRssBytes(): number | null {
+  return sub.value()?.serverRssBytes ?? null;
 }
 
 /** The kaval daemon's RSS in bytes; `null` when there's no live daemon to
- *  measure (down / degraded / pre-first-poll), or undefined before the first
- *  server yield. */
-export function kavalRssBytes(): number | null | undefined {
-  return sub.value()?.kavalRssBytes;
+ *  measure (down / degraded / pre-first-poll) or before the first server yield —
+ *  the rail treats both identically as "no figure". */
+export function kavalRssBytes(): number | null {
+  return sub.value()?.kavalRssBytes ?? null;
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared
