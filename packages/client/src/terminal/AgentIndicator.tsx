@@ -57,7 +57,7 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const runningFor = useDuration();
   return (
     <span
-      class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
+      class={`inline-flex items-center gap-1 text-xs min-w-0 ${cfg().color}`}
       data-testid="agent-indicator"
       data-agent-kind={props.agent.kind}
       data-agent-state={props.agent.state}
@@ -66,7 +66,10 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
       <span class={`shrink-0 ${cfg().animation}`}>
         <Dynamic component={Icon()} class="w-3 h-3" />
       </span>
-      <span class="hidden sm:inline">{label()}</span>
+      {/* Truncates so the indicator can't grow unbounded and shove the
+       *  title-bar action buttons (theme pill, split, find…) past the tile's
+       *  clipped right edge. The icon + colour already carry the state. */}
+      <span class="hidden sm:inline truncate max-w-[11ch]">{label()}</span>
       {/* Wrap the value in an object so `<Show>`'s truthy check fires
        *  even when `contextTokens` is `0` — a legitimate value for a
        *  synthetic assistant entry with a zeroed usage block. Show's
@@ -91,17 +94,16 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
       </Show>
       {/* Running-for badge, beside the token count. Hidden until `startedAt`
        *  resolves (epoch-ms is always truthy, so the bare value gates Show).
-       *  Fixed-width, right-aligned box: the value reflows once a second and
-       *  the title bar centers its content, so a width-changing badge would
-       *  jitter the whole row every tick (the UI font doesn't honor
-       *  tabular-nums, so "33s" and "35s" differ in width). A constant box
-       *  pins the layout. The tooltip keys on `startedAt` alone (not the live
-       *  duration) so it isn't recomputed each tick. */}
+       *  `font-mono` (not the UI font's no-op `tabular-nums`) makes every glyph
+       *  equal-width, so the value's box stays constant as it ticks — no
+       *  per-second reflow, and no width padding that would crowd the title
+       *  bar. The tooltip keys on `startedAt` alone so it isn't rebuilt each
+       *  tick. */}
       <Show when={props.agent.startedAt}>
         {(startedAt) => (
           <span
             data-testid="agent-running-for"
-            class="inline-block min-w-[2.5em] text-right tabular-nums text-fg-3"
+            class="shrink-0 font-mono text-fg-3"
             title={`Started ${new Date(startedAt()).toLocaleString()}`}
           >
             {runningFor(startedAt())}
