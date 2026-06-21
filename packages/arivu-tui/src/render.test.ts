@@ -91,6 +91,14 @@ describe("prTone", () => {
     expect(prTone(ok("fail"))).toBe("fail");
     expect(prTone(ok("pending"))).toBe("pending");
   });
+  it("folds null checks (no checks configured) to pending", () => {
+    expect(
+      prTone({
+        kind: "ok",
+        value: { number: 1, state: "open", checks: null },
+      } as AwarenessValue["pr"]),
+    ).toBe("pending");
+  });
   it("mutes anything unresolved", () => {
     expect(prTone({ kind: "pending" } as AwarenessValue["pr"])).toBe("muted");
     expect(prTone({ kind: "absent" } as AwarenessValue["pr"])).toBe("muted");

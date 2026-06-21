@@ -83,12 +83,32 @@ function agentValue(agent: AwarenessValue["agent"]): string {
   return `${agentShortName(agent.kind)} · ${agentStatusLabel(agent.state)}`;
 }
 
+/** The single discriminator for a PR's check status — `none` when the PR isn't
+ *  resolved (`kind !== "ok"`), else the resolved checks with `null` (no checks
+ *  configured) folded to `pending`. Both the glyph (`prValueText`) and the tone
+ *  (`prTone`) switch exhaustively over this one closed union, so a new checks
+ *  state forces a decision in both and the glyph and colour can never disagree. */
+function prChecks(
+  pr: AwarenessValue["pr"],
+): "pass" | "fail" | "pending" | "none" {
+  if (pr.kind !== "ok") return "none";
+  switch (pr.value.checks) {
+    case "pass":
+      return "pass";
+    case "fail":
+      return "fail";
+    default:
+      return "pending"; // "pending" or null (no checks configured)
+  }
+}
+
 /** The PR resolution, every arm: `#<n> <state> <✓/✗/·>` when resolved, the
  *  pending/absent/unavailable kind (with the failure code) otherwise. */
 function prValueText(pr: AwarenessValue["pr"]): string {
   switch (pr.kind) {
     case "ok": {
-      const { number, state, checks } = pr.value;
+      const { number, state } = pr.value;
+      const checks = prChecks(pr);
       const glyph = checks === "pass" ? "✓" : checks === "fail" ? "✗" : "·";
       return `#${number} ${state} ${glyph}`;
     }
@@ -135,15 +155,20 @@ export function agentTone(agent: AwarenessValue["agent"]): FieldTone {
   }
 }
 
-/** The PR's tone, keyed on its checks when resolved: pass → green, fail → red,
- *  pending → amber; anything unresolved (pending/absent/unavailable) → muted. */
+/** The PR's tone, keyed on the same `prChecks` discriminator as the glyph: pass →
+ *  green, fail → red, pending → amber; anything unresolved (`none`) → muted. The
+ *  shared discriminator means the glyph and the colour can never disagree. */
 export function prTone(pr: AwarenessValue["pr"]): FieldTone {
-  if (pr.kind !== "ok") return "muted";
-  return pr.value.checks === "pass"
-    ? "pass"
-    : pr.value.checks === "fail"
-      ? "fail"
-      : "pending";
+  switch (prChecks(pr)) {
+    case "pass":
+      return "pass";
+    case "fail":
+      return "fail";
+    case "pending":
+      return "pending";
+    case "none":
+      return "muted";
+  }
 }
 
 /** A dashboard cell that carries a semantic tone for colouring. */
