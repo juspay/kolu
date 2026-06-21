@@ -27,9 +27,11 @@ const rows: DashRow[] = [
 ];
 
 test("AwarenessTable paints the header and a terminal row", async () => {
+  // Width 80 — the table is sized to fit a standard 80-column terminal, so the
+  // header and rows must render without clipping at exactly that width.
   const t = await testRender(
     () => <AwarenessTable rows={rows} clock={() => "12:00:00"} />,
-    { width: 90, height: 12 },
+    { width: 80, height: 12 },
   );
   await t.renderOnce();
   const frame = t.captureCharFrame();

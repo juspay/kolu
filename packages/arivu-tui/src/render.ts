@@ -92,13 +92,22 @@ function prChecks(
   pr: AwarenessValue["pr"],
 ): "pass" | "fail" | "pending" | "none" {
   if (pr.kind !== "ok") return "none";
-  switch (pr.value.checks) {
+  const checks = pr.value.checks;
+  switch (checks) {
     case "pass":
       return "pass";
     case "fail":
       return "fail";
-    default:
-      return "pending"; // "pending" or null (no checks configured)
+    case "pending":
+    case null: // null = no checks configured; reads the same as pending here
+      return "pending";
+    default: {
+      // Exhaustive over `CheckStatus | null`. If the forge schema grows a new
+      // check state, this stops compiling — forcing a glyph/tone decision here
+      // rather than silently mislabelling the new state as pending.
+      const _exhaustive: never = checks;
+      return _exhaustive;
+    }
   }
 }
 
@@ -200,7 +209,11 @@ export function dashRow(
   return {
     id: { text: shortId(id), tone: "plain" },
     repoBranch: {
-      text: v.git ? `${v.git.repoName}·${v.git.branch}` : DASH,
+      // Repo names come from filesystem paths and the branch from git, so both
+      // can carry newlines/escape bytes — sanitize each before joining (the
+      // same defence `orDash` gives the foreground name) so a hostile name can't
+      // corrupt the table or inject control effects.
+      text: v.git ? `${orDash(v.git.repoName)}·${orDash(v.git.branch)}` : DASH,
       tone: "plain",
     },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },

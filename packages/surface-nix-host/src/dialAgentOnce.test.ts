@@ -300,7 +300,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         "arivu: more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
         "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
-        "(e.g. arivu-tui list --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+        "(e.g. arivu-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ],
       lastError: "agent exited (code=1, signal=null)",
       // null on purpose: the child-`exit` event that sets `failureCause` races
@@ -330,7 +330,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         "more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
         "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
-        "(e.g. arivu-tui list --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+        "(e.g. arivu-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ].join("\n"),
     );
     expect(msg).toContain("--kaval /run/user/1000/kaval-7692/pty-host.sock");

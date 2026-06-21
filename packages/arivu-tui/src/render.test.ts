@@ -146,6 +146,22 @@ describe("dashRow", () => {
     const row = dashRow(id("b7"), val({ git: null }), NOW);
     expect(row.repoBranch.text).toBe("—");
   });
+  it("sanitizes control bytes in repoName/branch (path-derived, can be hostile)", () => {
+    const row = dashRow(
+      id("c8"),
+      val({
+        git: {
+          repoName: "ko\x1blu\n",
+          branch: "fe\x00at\x07/x",
+        } as AwarenessValue["git"],
+      }),
+      NOW,
+    );
+    // ESC/NUL/BEL/newline collapse to a space and the value is trimmed, so no
+    // raw control byte reaches the painted cell.
+    expect(row.repoBranch.text).toBe("ko lu·fe at /x");
+    expect(row.repoBranch.text).not.toMatch(/[\x00-\x1f\x7f]/);
+  });
 });
 
 describe("dashRows", () => {

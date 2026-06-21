@@ -51,7 +51,7 @@ process is exactly what this daemon retires.
 ```sh
 nix run github:juspay/kolu#kaval                  # the PTY daemon
 nix run github:juspay/kolu#arivu                  # awareness over it
-nix run github:juspay/kolu#arivu-tui -- list      # the dashboard
+nix run github:juspay/kolu#arivu-tui              # the dashboard
 ```
 
 The runtime is just `node · git · gh` — no kolu-server, no browser. For _remote_

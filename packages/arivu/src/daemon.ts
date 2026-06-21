@@ -100,7 +100,7 @@ export function resolveKavalSocket(explicit: string | undefined): string {
     throw new Error(
       `more than one kaval is running on this host — say which to read by re-running with --kaval:\n${options.join(
         "\n",
-      )}\n(e.g. arivu-tui list --host <ssh> --kaval ${candidates[0]?.socket})`,
+      )}\n(e.g. arivu-tui --host <ssh> --kaval ${candidates[0]?.socket})`,
     );
   }
   return resolved.socket;

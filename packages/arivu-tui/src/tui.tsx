@@ -22,7 +22,6 @@
  * when stdout is a TTY.
  */
 
-import type { CliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
@@ -48,12 +47,15 @@ const TONE_COLOR: Record<FieldTone, string> = {
 const TITLE = "#7c8696";
 const HEADER = "#8b94a6";
 
-// Column widths (chars). Sized for an ~80-col terminal; long values ellipsize.
-const W_ID = 10;
-const W_WHERE = 26;
+// Column widths (chars). Sized so the whole table fits an 80-column terminal:
+// 9 + 24 + 12 + 18 + 8 + "ACTIVE"(6) = 77 columns, + the box's padding={1}
+// (1 left + 1 right) = 79 ≤ 80. Long values ellipsize. A render test at width 80
+// pins this (tui.bun-test.tsx).
+const W_ID = 9;
+const W_WHERE = 24;
 const W_PR = 12;
-const W_AGENT = 20;
-const W_FG = 10;
+const W_AGENT = 18;
+const W_FG = 8;
 
 /** Pad to width, or truncate with an ellipsis when too long. */
 function cell(s: string, w: number): string {
@@ -121,20 +123,18 @@ export async function runDashboardTui(args: {
   // does not auto-update; PR2b mirrors the collection for live rows).
   const rows = dashRows(args.entries, Date.now());
 
-  let renderer: CliRenderer | undefined;
   let quitting = false;
   let resolveDone!: () => void;
   const done = new Promise<void>((res) => {
     resolveDone = res;
   });
+  // OpenTUI owns the renderer and its teardown: `render()` returns Promise<void>
+  // (no handle to destroy), and the alt-screen is torn down by exitOnCtrlC /
+  // exitSignals / onDestroy below. So `quit()` only releases the awaiter — there
+  // is nothing for us to destroy here.
   const quit = (): void => {
     if (quitting) return;
     quitting = true;
-    try {
-      renderer?.destroy();
-    } catch {
-      // best-effort — we're exiting anyway.
-    }
     resolveDone();
   };
 

@@ -12,7 +12,7 @@
  *   arivu --stdio [--kaval P]  serve over stdin/stdout (what an ssh dial speaks
  *                              to; not for interactive use)
  *
- * Run it on a box where kaval is running and drive it with `arivu-tui list`.
+ * Run it on a box where kaval is running and view it with `arivu-tui`.
  * This file is the executable — it runs the daemon on load, never an import
  * target. stdout is the wire in `--stdio` mode, so ALL logging goes to stderr.
  */
@@ -38,7 +38,7 @@ Options:
                   an ssh dial speaks to. Not for interactive use.
   -h, --help      show this help
 
-Drive a running arivu with \`arivu-tui list\` / \`arivu-tui watch <id>\`.`;
+View a running arivu with \`arivu-tui\` (the dashboard) or \`arivu-tui --json\`.`;
 
 const { values } = parseArgs({
   options: {

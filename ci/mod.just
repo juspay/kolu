@@ -55,7 +55,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix flake-check home-manager e2e smoke fmt biome unit surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
+default: nix flake-check home-manager e2e smoke fmt biome unit render surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -141,6 +141,15 @@ e2e: install
 # Run vitest unit tests (server + client).
 unit: install
     {{ nix_shell }} pnpm test:unit
+
+# arivu-tui's OpenTUI render smoke under Bun. The Node/vitest `unit` lane only
+# covers the PURE projection (render.ts); this runs the headless `testRender`
+# (tui.bun-test.tsx) so the native @opentui/core load, the babel-preset-solid
+# JSX transform, and the actual paint of the dashboard table get exercised in
+# CI — the layer the vitest lane structurally can't reach. `bun` is in the dev
+# shell; the @opentui/* + solid-js deps come from the pnpm `install` above.
+render: install
+    {{ nix_shell }} pnpm --filter arivu-tui test:render
 
 # Build the @kolu/surface framework's example app (vite client + tsc on
 # server). Catches example-only regressions that the workspace-wide
