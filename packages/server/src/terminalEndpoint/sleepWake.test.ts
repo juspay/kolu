@@ -236,7 +236,9 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     const entry = getTerminal(WAKE_ID);
     expect(entry).toBeDefined();
     if (entry?.meta.state !== "sleeping")
-      throw new Error("expected the sleeping record to be RESTORED, not dropped");
+      throw new Error(
+        "expected the sleeping record to be RESTORED, not dropped",
+      );
     // The whole persisted base + sleeping discriminant rode back through.
     expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
     expect(entry.meta.resumeCommand).toBe("claude --model sonnet");

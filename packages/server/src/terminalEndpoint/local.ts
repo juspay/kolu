@@ -784,7 +784,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
-    const entry = getTerminal(id);
+    // Kill requires an ACTIVE terminal — the symmetric mirror of `discardSleeping`
+    // (which requires sleeping). A sleeping id is "not found" here so a raw `kill`
+    // RPC or a multi-client race can't run a dead-PTY kill against a record sleep
+    // already released; sleeping terminals exit via `discardSleeping`. The clients
+    // already route sleeping → discard, so this only fences off misuse.
+    const entry = getActiveTerminal(id);
     if (!entry) return undefined;
     const tlog = log.child({ terminal: id });
     tlog.info({ pid: entry.info.pid }, "killing");

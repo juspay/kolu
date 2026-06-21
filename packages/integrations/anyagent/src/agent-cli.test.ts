@@ -380,7 +380,9 @@ describe("nix run wrapper — resume re-runs the wrapper, not the bare agent", (
     expect(parseAgentCommand(`${WRAP} -- --version`)).toBeNull();
     expect(parseAgentCommand(`${WRAP} -- -h`)).toBeNull();
     expect(parseAgentCommand(`${WRAP} --help`)).toBeNull();
-    expect(parseAgentCommand("nix run github:juspay/AI#codex -- -V")).toBeNull();
+    expect(
+      parseAgentCommand("nix run github:juspay/AI#codex -- -V"),
+    ).toBeNull();
     // A normal flag after `--` still captures the bare re-runnable wrapper.
     expect(parseAgentCommand(`${WRAP} -- --model glm`)).toBe(WRAP);
   });

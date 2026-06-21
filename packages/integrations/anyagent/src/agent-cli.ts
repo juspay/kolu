@@ -193,18 +193,19 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
 };
 
 /** The inverse bridge — an `AgentKind` back to the resumable binary basename
- *  (`claude-code → claude`, the one place the two axes differ). Every `AgentKind`
- *  is resume-capable (all three are in `AGENT_RESUME`), so the result always feeds
- *  `resumeAgentCommand` to a real resume form. Used when an agent was DETECTED
- *  (the file-watcher path that lights the dock) but its launch command was never
- *  captured by the OSC 633;E sensor — e.g. `opencode` launched via `nix run`,
- *  whose head token is `nix`, or any shell where the command tap didn't fire: the
- *  detected kind still names a cwd-most-recent resume. */
-const KIND_TO_COMMAND: Record<AgentKind, string> = {
-  "claude-code": "claude",
-  codex: "codex",
-  opencode: "opencode",
-};
+ *  (`claude-code → claude`, the one place the two axes differ). DERIVED from the
+ *  single `BASENAME_TO_KIND` source so the bijection has ONE home, not two parallel
+ *  tables that could drift: a new agent registered in `BASENAME_TO_KIND` rides
+ *  through here automatically. Every `AgentKind` is resume-capable (all three are in
+ *  `AGENT_RESUME`), so the result always feeds `resumeAgentCommand` to a real resume
+ *  form. Used when an agent was DETECTED (the file-watcher path that lights the dock)
+ *  but its launch command was never captured by the OSC 633;E sensor — e.g.
+ *  `opencode` launched via `nix run`, whose head token is `nix`, or any shell where
+ *  the command tap didn't fire: the detected kind still names a cwd-most-recent
+ *  resume. */
+const KIND_TO_COMMAND = Object.fromEntries(
+  Object.entries(BASENAME_TO_KIND).map(([command, kind]) => [kind, command]),
+) as Record<AgentKind, string>;
 
 /** The bare resumable command for a detected `AgentKind` (e.g. `opencode`),
  *  ready for `resumeAgentCommand`. */
