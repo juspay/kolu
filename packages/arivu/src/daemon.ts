@@ -28,6 +28,7 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   implementSurface,
@@ -46,7 +47,7 @@ import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostListEntry,
-  type ptyHostSurface,
+  ptyHostSurface,
   resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
@@ -230,23 +231,27 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     // Tap raw output to drive the live-activity set (the green dot). We want only
     // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
     // (the existing screen, not motion) and treat each delta as one pulse. Held
-    // for the terminal's lifetime; `abort` tears it down on departure.
-    void (async () => {
-      try {
-        const stream = await kaval.client.surface.terminalAttach.get(
-          { id },
-          { signal: abort.signal },
-        );
-        for await (const msg of stream) {
-          if (abort.signal.aborted) break;
-          if (msg.kind === "delta") activity.noteOutput(id);
-        }
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") {
-          log.debug({ err, terminal: id }, "arivu: activity tap ended");
-        }
-      }
-    })();
+    // for the terminal's lifetime; `abort` tears it down on departure. Drive it
+    // through the same receptacle the consume side uses, so the subscribe/abort/
+    // swallow-AbortError teardown lives in exactly one place.
+    void mirrorRemoteSurface(
+      ptyHostSurface,
+      kaval.client,
+      {
+        streams: {
+          terminalAttach: {
+            input: { id },
+            onFrame: (msg) => {
+              if (msg.kind === "delta") activity.noteOutput(id);
+            },
+          },
+        },
+      },
+      {
+        signal: abort.signal,
+        log: (line) => log.debug({ terminal: id }, line),
+      },
+    );
 
     return () => {
       abort.abort();
