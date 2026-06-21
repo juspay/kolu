@@ -4,8 +4,8 @@
  *
  * Every tick it reads its OWN resident-set size (`process.memoryUsage().rss`,
  * always available — it's measuring itself) and the kaval daemon's RSS (a
- * SEPARATE process, polled over `system.heartbeat`, which carries `rss` as of
- * pty-host contract 3.2). The kaval figure is `null` whenever there's no live
+ * SEPARATE process, polled over `system.processMemory`, its own atomic verb as
+ * of pty-host contract 3.2). The kaval figure is `null` whenever there's no live
  * daemon to measure — the honest "no value", never a misleading `0` or a stale
  * carry-over. The client adds its own JS-heap figure locally (off
  * `performance.memory`), so it never rides this cell.
@@ -59,8 +59,8 @@ export interface MemorySamplerDeps {
   /** Is the kaval daemon connected right now? Read off the daemon-status store
    *  so a down/degraded daemon yields a `null` reading rather than a thrown poll. */
   daemonConnected: () => boolean;
-  /** Poll the connected daemon's RSS (its `system.heartbeat`). Only called when
-   *  {@link daemonConnected} is true; rejects if the heartbeat is unreachable. */
+  /** Poll the connected daemon's RSS (its `system.processMemory`). Only called
+   *  when {@link daemonConnected} is true; rejects if the daemon is unreachable. */
   pollKavalRss: () => Promise<number>;
   /** Publish a fresh readout — `surfaceCtx.cells.processMemory.set`. */
   publish: (m: ProcessMemory) => void;
@@ -106,9 +106,9 @@ export function startMemorySampler(deps: MemorySamplerDeps): void {
 
 /** Build the production deps from the live kaval client + a daemon-state reader.
  *  Kept here (beside the sampler) so `index.ts`'s wiring is one call. A
- *  connected, contract-3.2 daemon always reports `rss`; a missing one is an
- *  anomaly worth surfacing (the version gate recycles any pre-3.2 survivor, so
- *  it can't be a benign old daemon). */
+ *  connected, contract-3.2 daemon always answers `system.processMemory`; a
+ *  failed poll is an anomaly worth surfacing (the version gate recycles any
+ *  pre-3.2 survivor, so it can't be a benign old daemon). */
 export function liveSamplerDeps(opts: {
   client: PtyHostClient;
   daemonState: () => DaemonState | undefined;
@@ -119,10 +119,7 @@ export function liveSamplerDeps(opts: {
     serverRss: () => process.memoryUsage().rss,
     daemonConnected: () => opts.daemonState() === "connected",
     pollKavalRss: async () => {
-      const { rss } = await opts.client.surface.system.heartbeat({});
-      if (rss === undefined) {
-        throw new Error("kaval heartbeat returned no rss (pre-3.2 daemon?)");
-      }
+      const { rss } = await opts.client.surface.system.processMemory({});
       return rss;
     },
     publish: opts.publish,

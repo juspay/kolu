@@ -752,7 +752,7 @@ export type DaemonState = DaemonStatus["state"];
  *
  *  `serverRssBytes` is the kolu-server process (always present — it's measuring
  *  itself). `kavalRssBytes` is the kaval pty-host daemon, a SEPARATE process the
- *  server polls over the daemon's `system.heartbeat`; it is `null` whenever there
+ *  server polls over the daemon's `system.processMemory`; it is `null` whenever there
  *  is no live daemon to measure (down / degraded / pre-first-poll) — the honest
  *  "no value", never a misleading `0`. A continuously-changing metric, kept off
  *  the lifecycle-transition `daemonStatus` collection so the two different change

@@ -51,7 +51,7 @@ describe("sampleMemoryOnce", () => {
     expect(warned).toHaveLength(0);
   });
 
-  it("surfaces the error and reports null when a connected daemon's heartbeat fails", async () => {
+  it("surfaces the error and reports null when a connected daemon's processMemory poll fails", async () => {
     const boom = new Error("socket closed");
     const { d, published, warned } = deps({
       pollKavalRss: async () => {
