@@ -127,6 +127,14 @@ function prValueText(pr: AwarenessValue["pr"]): string {
       return DASH;
     case "unavailable":
       return `unavailable: ${pr.source.code}`;
+    default: {
+      // Exhaustive over the `pr` schema's `kind` union. If the awareness schema
+      // grows a new PR kind, this stops compiling — forcing a text decision here
+      // rather than silently returning `undefined` (rendered as "undefined").
+      // Mirrors the `never` guard in `prChecks` above.
+      const _exhaustive: never = pr;
+      return _exhaustive;
+    }
   }
 }
 
