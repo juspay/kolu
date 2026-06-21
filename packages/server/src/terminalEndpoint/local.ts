@@ -358,7 +358,7 @@ export function adoptedMeta(
  *  NO saved record (F1). A create that never reached the 500ms-debounced autosave
  *  before the restart is the common case — exactly the redeploy window this
  *  feature protects — so the PTY is ADOPTED (never reaped), seeded entirely from
- *  the live daemon snapshot. Client-persisted chrome (theme/layout/intent) that
+ *  the live daemon snapshot. Client-persisted chrome (theme/layout/notes) that
  *  never made it to disk is gone, but the live shell and its scrollback survive,
  *  which is the headline guarantee; the sensors re-derive git/agent/pr from the
  *  surviving taps. */
@@ -373,7 +373,7 @@ export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
  *  persisted base becomes a fresh live `ActiveTerminal`. `createMetadata` seeds
  *  the live-field defaults (pr/agent/foreground re-derived by the sensors on the
  *  re-spawned PTY), then the persisted base is spread WHOLE — theme, layout,
- *  intent, git, and crucially `lastAgentCommand` all ride through, never
+ *  notes, git, and crucially `lastAgentCommand` all ride through, never
  *  reconstructed field-by-field (the #1275 lossy class, and the BUG-B class that
  *  stripped the agent on the discarded first cut) — and `state` flips to active.
  *  Pure + exported so a schema-key round-trip test pins that no persisted key is
@@ -424,7 +424,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
     if (initial?.subPanel) meta.subPanel = initial.subPanel;
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-    if (initial?.intent) meta.intent = initial.intent;
+    if (initial?.notes) meta.notes = initial.notes;
     if (initial?.lastActivityAt !== undefined)
       meta.lastActivityAt = initial.lastActivityAt;
 
@@ -822,7 +822,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!entry) return false;
     this.teardownSensors(id);
     // Flip the active entry to the sleeping arm IN PLACE. The persisted base
-    // (cwd / git / lastAgentCommand / theme / intent / …) rides the `...entry.meta`
+    // (cwd / git / lastAgentCommand / theme / notes / …) rides the `...entry.meta`
     // spread, and the live `pr` overlay is FROZEN onto the sleeping arm because
     // `SleepingTerminalSchema` declares `pr` (see `SleepingDiscriminantSchema`),
     // so the parse KEEPS it — while the rest of the live overlay (`agent` /
@@ -870,7 +870,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  the persisted `lastAgentCommand` (via `resumeAgentCommand`, or null for a
    *  never-observed / non-resumable agent) so the conversation comes back —
    *  session-restore-of-one. The persisted base rides through WHOLE
-   *  (theme/layout/intent/git/lastAgentCommand); only the live overlay is
+   *  (theme/layout/notes/git/lastAgentCommand); only the live overlay is
    *  re-derived by the sensors. Returns the active info, or undefined when `id`
    *  is not a sleeping terminal. */
   wake(id: TerminalId): TerminalInfo | undefined {

@@ -4,7 +4,7 @@
 /* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
  * package ships the structural + scale rules; we inline them here — rather
  * than via a component-level CSS import the package's `sideEffects:false`
- * could tree-shake — so the rendered preview, intent body, and dock all pick
+ * could tree-shake — so the rendered preview, notes body, and dock all pick
  * them up. Theme palette stays here (the sheet reads `--color-accent`). */
 @import "@kolu/solid-markdown/markdown.css";
 
@@ -509,7 +509,7 @@ body {
 
 /* ── Rail-mode chip ────────────────────────────────────────────
  * Rail mode renders one 32 px chip per terminal showing two-letter
- * initials (repo letter + branch/intent letter). Repo colour tints
+ * initials (repo letter + branch/notes letter). Repo colour tints
  * the chip's bg and ring; bucket state animates the ring (breath for
  * awaiting, spin-glow for working, flat otherwise); active wears an
  * accent halo; unread shows an alert badge top-right. Five signals
@@ -563,7 +563,7 @@ body {
   margin-left: 1px;
 }
 /* Emoji / symbol sub-glyph — drop the fade and the monospace weight so
-   the icon reads at the same visual weight as the cards-mode intent
+   the icon reads at the same visual weight as the cards-mode notes
    line that the user actually typed. */
 .dock-rail-chip-sub[data-glyph] {
   opacity: 1;

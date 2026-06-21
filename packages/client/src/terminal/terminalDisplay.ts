@@ -20,7 +20,7 @@ export type TerminalDisplayInfo = {
   branchColor: string;
   /** Color for the supplant-rule annotation slot — currently mirrors
    *  `branchColor`, but lives behind its own name so a future tint
-   *  policy (theme-aware, intent-vs-branch distinction, …) lands in
+   *  policy (theme-aware, notes-vs-branch distinction, …) lands in
    *  one place instead of touching every render site. */
   annotationColor: string;
   meta: TerminalMetadata;

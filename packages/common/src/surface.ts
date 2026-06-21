@@ -101,7 +101,7 @@ export const SubPanelStateSchema = z.object({
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 
 /** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
+export const RightPanelTabKindSchema = z.enum(["inspector", "code", "notes"]);
 
 /** Per-terminal right-panel state — which tab is open, which sub-mode
  *  the Code tab is in, and which file the user last selected in each
@@ -246,13 +246,13 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
    *  per-mode file selection). The remaining right-panel fields (collapsed,
    *  size, codeTabTreeSize) stay on preferences as workspace-level chrome. */
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
-  /** User-set freeform annotation — multiline markdown. The first line
+  /** User-set freeform notes — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo
    *  name and painted onto the dock rail swatch); the full body shows
    *  in the canvas-tile top-border pill, the dock-awaiting card, the
-   *  workspace switcher card, and the intent editor. Empty / undefined
-   *  collapses every render site to its no-intent shape. */
-  intent: z.string().min(1).optional(),
+   *  workspace switcher card, and the Notes tab. Empty / undefined
+   *  collapses every render site to its no-notes shape. */
+  notes: z.string().min(1).optional(),
 });
 
 /**
@@ -386,7 +386,7 @@ export const InitialTerminalMetadataSchema = z.object({
   subPanel: SubPanelStateSchema.optional(),
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   lastActivityAt: z.number().optional(),
-  intent: z.string().min(1).optional(),
+  notes: z.string().min(1).optional(),
 });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
@@ -606,7 +606,8 @@ export type RightPanelPerTerminalState = z.infer<
  *  matches on `activeTab` and reads `codeMode` separately. */
 export type RightPanelTab =
   | { kind: "inspector" }
-  | { kind: "code"; mode: CodeTabView };
+  | { kind: "code"; mode: CodeTabView }
+  | { kind: "notes" };
 
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
@@ -643,9 +644,9 @@ export function rightPanelView(p: {
   activeTab: RightPanelTabKind;
   codeMode: CodeTabView;
 }): RightPanelTab {
-  return p.activeTab === "inspector"
-    ? { kind: "inspector" }
-    : { kind: "code", mode: p.codeMode };
+  if (p.activeTab === "inspector") return { kind: "inspector" };
+  if (p.activeTab === "notes") return { kind: "notes" };
+  return { kind: "code", mode: p.codeMode };
 }
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
@@ -1028,13 +1029,35 @@ export function backfillTerminalState(
   return { ...t, state: "active" };
 }
 
+/** Rename a saved terminal's legacy `intent` key to `notes`. The freeform
+ *  markdown annotation was renamed when it became a right-panel Notes
+ *  scratchpad (edited in a tab instead of a modal). Zod's default
+ *  unknown-key drop would silently strip the old `intent` on parse — losing
+ *  a user's notes on first launch — so the rename must run BEFORE schema
+ *  validation. Idempotent: a record already carrying `notes` (or lacking
+ *  the old `intent` key) is untouched. An empty-string `intent` is dropped
+ *  rather than carried as an invalid empty `notes` (the schema is
+ *  `.min(1).optional()`). */
+export function migrateIntentToNotes(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const { intent, ...rest } = t;
+  // `rest` carries `notes` already iff the record was post-rename. In that
+  // case the stale `intent` is dropped and `notes` kept authoritative; a
+  // corrupt record carrying BOTH keys resolves to `notes`, never both.
+  if ("notes" in rest) return rest;
+  return intent ? { ...rest, notes: intent } : rest;
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillTerminalState(backfillLocation(backfillRemoteUrl(t)));
+  return migrateIntentToNotes(
+    backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+  );
 }
 
 /** Bring a parsed-but-unvalidated saved-session blob up to the current schema

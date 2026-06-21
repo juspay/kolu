@@ -3,6 +3,7 @@ import {
   backfillRemoteUrl,
   backfillTerminalState,
   LOCAL_LOCATION,
+  migrateIntentToNotes,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { migrateLegacyTerminal_1_18_0 } from "./state.ts";
@@ -226,5 +227,65 @@ describe("backfillTerminalState", () => {
       sleptAt: 1_700_000_000_000,
     };
     expect(backfillTerminalState(record)).toEqual(record);
+  });
+});
+
+describe("migrateIntentToNotes", () => {
+  // The headline guarantee: a pre-rename session's `intent` must surface as
+  // `notes` instead of being silently stripped by Zod's unknown-key drop on
+  // first launch. Pinned against a pre-rename fixture so a regression here
+  // fails the suite, not a user's notes.
+  it("renames a legacy `intent` key to `notes` (notes survive the rename)", () => {
+    const migrated = migrateIntentToNotes({
+      id: "term-1",
+      cwd: "/app",
+      state: "active",
+      location: LOCAL_LOCATION,
+      intent: "## TODO\n- [ ] fix auth",
+    });
+    expect(migrated).toEqual({
+      id: "term-1",
+      cwd: "/app",
+      state: "active",
+      location: LOCAL_LOCATION,
+      notes: "## TODO\n- [ ] fix auth",
+    });
+    expect(migrated).not.toHaveProperty("intent");
+  });
+
+  it("is idempotent — a record already carrying `notes` passes through untouched", () => {
+    const record = {
+      id: "t",
+      cwd: "/r",
+      notes: "already notes",
+    };
+    expect(migrateIntentToNotes(record)).toEqual(record);
+    // A record with BOTH keys (corrupt half-migrated state) keeps `notes` —
+    // the new key is authoritative, the stale `intent` is dropped.
+    const both = { id: "t", cwd: "/r", intent: "stale", notes: "current" };
+    expect(migrateIntentToNotes(both)).toEqual({
+      id: "t",
+      cwd: "/r",
+      notes: "current",
+    });
+  });
+
+  it("leaves a record without either key untouched (no-notes terminals stay no-notes)", () => {
+    const record = { id: "t", cwd: "/r", state: "active" };
+    expect(migrateIntentToNotes(record)).toEqual(record);
+  });
+
+  it("drops an empty-string `intent` rather than carrying an invalid empty `notes`", () => {
+    // The schema is `.min(1).optional()` — an empty `notes` would fail
+    // validation. The setter never wrote `""`, but a corrupt legacy record
+    // shouldn't take the whole session down on restore.
+    const migrated = migrateIntentToNotes({
+      id: "t",
+      cwd: "/r",
+      intent: "",
+    });
+    expect(migrated).toEqual({ id: "t", cwd: "/r" });
+    expect(migrated).not.toHaveProperty("intent");
+    expect(migrated).not.toHaveProperty("notes");
   });
 });

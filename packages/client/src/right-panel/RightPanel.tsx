@@ -24,6 +24,7 @@ import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
+import NotesPanel from "./NotesPanel";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -33,11 +34,16 @@ import { useRightPanel } from "./useRightPanel";
  *  via `match(kind).exhaustive()`, which also fails-compile on a missing
  *  variant — so adding a new kind is a three-place change that the
  *  compiler enforces end-to-end. */
-const TAB_KINDS: readonly RightPanelTabKind[] = ["code", "inspector"] as const;
+const TAB_KINDS: readonly RightPanelTabKind[] = [
+  "code",
+  "inspector",
+  "notes",
+] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
   inspector: "Inspector",
   code: "Code",
+  notes: "Notes",
 };
 
 const RightPanel: Component<{
@@ -53,7 +59,11 @@ const RightPanel: Component<{
   const rightPanel = useRightPanel();
 
   const showKind = (kind: RightPanelTabKind) =>
-    kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
+    kind === "inspector"
+      ? rightPanel.showInspector()
+      : kind === "notes"
+        ? rightPanel.showNotes()
+        : rightPanel.showCode();
 
   return (
     <div
@@ -140,6 +150,13 @@ const RightPanel: Component<{
                   ))
                   .with("code", () => (
                     <CodeTab terminalId={props.terminalId} meta={props.meta} />
+                  ))
+                  .with("notes", () => (
+                    <NotesPanel
+                      terminalId={props.terminalId}
+                      meta={props.meta}
+                      active={isActive}
+                    />
                   ))
                   .exhaustive()}
               </div>

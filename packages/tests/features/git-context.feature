@@ -75,11 +75,11 @@ Feature: Git context in header and workspace switcher
     And the workspace switcher should show a branch name
     And there should be no page errors
 
-  Scenario: Clicking the title annotation slot opens the intent editor
+  Scenario: Clicking the title annotation slot opens the Notes tab
     When I run "rm -rf /tmp/kolu-title-click && git init /tmp/kolu-title-click && cd /tmp/kolu-title-click && git checkout -b annot-branch"
     Then the workspace switcher branch should contain "annot-branch"
     When I click the terminal title branch
-    Then the intent editor should be visible
+    Then the notes editor should be visible
     When I double-click the terminal title branch
     Then no canvas tile should be maximized
     And there should be no page errors

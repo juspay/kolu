@@ -42,7 +42,7 @@ const CompactTileView: Component<{
       {/* Persistent dock rail — the always-visible terminal navigator. Kept
        *  deliberately narrow: a roomy touch device (Z Fold 6 unfolded) wants its
        *  width spent on the terminal, so the rail takes the minimum that keeps a
-       *  row's agent pip + a useful slice of its branch/intent label legible and
+       *  row's agent pip + a useful slice of its branch/notes label legible and
        *  the terminal pane (`flex-1` inside MobileTileView) takes the rest.
        *  `shrink-0` keeps the rail from collapsing under a busy tile. */}
       <aside

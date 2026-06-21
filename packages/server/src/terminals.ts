@@ -6,7 +6,7 @@
  *
  * Client-facing per-terminal metadata setters (`setTerminalParent`,
  * `setCanvasLayout`, `setSubPanelState`, `setRightPanelState`,
- * `setTerminalTheme`, `setTerminalIntent`) live here because they're
+ * `setTerminalTheme`, `setTerminalNotes`) live here because they're
  * endpoint-agnostic — they mutate the in-registry entry through the
  * narrowed `updateClientMetadata` helper, which publishes through the
  * same metadata channel regardless of which endpoint owns the terminal.
@@ -255,13 +255,13 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
   }
 }
 
-/** Set or clear a terminal's freeform intent annotation. Empty string clears. */
-export function setTerminalIntent(id: TerminalId, intent: string): void {
+/** Set or clear a terminal's freeform notes. Empty string clears. */
+export function setTerminalNotes(id: TerminalId, notes: string): void {
   const entry = getTerminal(id);
   if (!entry) return;
-  const next = intent.length > 0 ? intent : undefined;
+  const next = notes.length > 0 ? notes : undefined;
   updateClientMetadata(entry, id, (m) => {
-    m.intent = next;
+    m.notes = next;
   });
 }
 

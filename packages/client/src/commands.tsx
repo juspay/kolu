@@ -125,8 +125,8 @@ export interface CommandDeps extends ActionContext {
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
-  // Intent — opens the editor for the active terminal.
-  handleEditActiveIntent: () => void;
+  // Notes — opens the Notes tab for the active terminal.
+  handleEditActiveNotes: () => void;
   // Canvas — desktop only. The canvas isn't mounted on mobile, so these
   // commands are hidden there via `supportsSpatialCanvas`.
   canvasCenterActive: () => void;
@@ -265,7 +265,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // merely `activeId() !== null`, which is also true for a SLEEPING tile
           // (F3). A sleeping parent would otherwise sprout an active sub-terminal
           // `TerminalContent` hides behind the dormant body, and copy/screenshot
-          // would hit a PTY-less tile. Sleep/Wake/Close/theme/intent above stay on
+          // would hit a PTY-less tile. Sleep/Wake/Close/theme/notes above stay on
           // both arms (they touch persisted fields, not a live PTY).
           ...(activeArm(deps.activeMeta())
             ? [
@@ -354,17 +354,18 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             description:
               "Pick a theme whose background is perceptually distinct from every live terminal",
           }),
-          // Intent — the single picker (kolu#178). One palette entry,
-          // one editor; click → curated-emoji quick-row + markdown
-          // textarea + live preview. The chip in the title bar, the
+          // Notes — opens the Notes tab for the active terminal. One
+          // palette entry; click → the right-panel Notes tab with a
+          // curated-emoji quick-row + markdown textarea + live preview
+          // + debounced autosave. The chip in the title bar, the
           // top-border pill, the dock-awaiting card, and the workspace
           // switcher card all surface what's edited here.
           {
             kind: "action" as const,
-            name: "Edit intent",
+            name: "Edit notes",
             section: "active-terminal" as const,
             description: "Attach a freeform markdown note to this terminal",
-            onSelect: () => deps.handleEditActiveIntent(),
+            onSelect: () => deps.handleEditActiveNotes(),
           },
         ]
       : []),

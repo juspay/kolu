@@ -78,8 +78,8 @@ const ModalDialog: Component<{
   /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
   trapFocus?: boolean;
   /** Refocus the active terminal when the dialog closes. Off by default — the
-   *  command palette runs its own guarded refocus, and CloseConfirm / the
-   *  intent editor manage focus themselves. The simple dialogs (About, Welcome,
+   *  command palette runs its own guarded refocus, and CloseConfirm manages
+   *  focus itself. The simple dialogs (About, Welcome,
    *  Shortcuts help, Diagnostic info) opt in so the close-refocus policy lives
    *  in one place instead of being hand-duplicated at each call site. */
   refocusOnClose?: boolean;
@@ -114,7 +114,7 @@ const ModalDialog: Component<{
     <Dialog
       open={props.open}
       // withKeyboardDismiss: on close, blur any dialog-hosted input (palette
-      // query, intent editor, …) so closing the dialog on touch leaves the soft
+      // query, find bar, …) so closing the dialog on touch leaves the soft
       // keyboard down — the same overlay-close policy the mobile drawers carry.
       // restoreFocus={false} + refocusTerminal's touch no-op keep it from coming
       // back. No-op on desktop.

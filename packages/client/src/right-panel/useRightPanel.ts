@@ -307,6 +307,10 @@ export function useRightPanel() {
         activeTab: "code",
         ...(mode !== undefined && { codeMode: mode }),
       }),
+    /** Switch to the Notes tab. The tab shows the active terminal's notes;
+     *  callers that open it for a specific tile select that tile first
+     *  (the panel follows `store.active()`). */
+    showNotes: () => mutateActive({ activeTab: "notes" }),
     /** Atomic "set the Code tab at `mode`" — switch to Code, set the
      *  requested sub-mode. Does NOT touch visibility (collapsed pref or
      *  drawer-open signal); the host (`RightPanelDrawer`) watches the

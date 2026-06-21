@@ -17,8 +17,8 @@
 
 import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import { NotesMarkdownInline } from "../../notes/NotesMarkdown";
+import { annotationLine } from "../../notes/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -184,8 +184,8 @@ function DockListRow(props: {
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
+            <NotesMarkdownInline
+              markdown={annotationLine(c().meta.notes, c().info.key.label)}
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />

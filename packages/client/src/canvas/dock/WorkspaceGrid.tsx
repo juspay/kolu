@@ -24,9 +24,9 @@ import {
   on,
   Show,
 } from "solid-js";
-import IntentBody from "../../intent/IntentBody";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import NotesBody from "../../notes/NotesBody";
+import { NotesMarkdownInline } from "../../notes/NotesMarkdown";
+import { annotationLine } from "../../notes/text";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
@@ -529,8 +529,8 @@ const WorkspaceCard: Component<{
       {/* Eyebrow: repo identity + (right) PR badge if resolved.
        *  The merge-state icon + CI dot mirror the terminal title bar
        *  and dock row, so the workspace switcher card speaks the same
-       *  PR vocabulary at a glance. The intent glyph is NOT rendered
-       *  here — line 1 of intent (or the branch fallback) lives in the
+       *  PR vocabulary at a glance. The notes glyph is NOT rendered
+       *  here — line 1 of notes (or the branch fallback) lives in the
        *  headline below; rendering the glyph again as a separate chip
        *  would duplicate it. */}
       <div class="flex items-center justify-between gap-2 min-w-0">
@@ -557,7 +557,7 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* Headline: annotation slot — intent line-1 if the user set
+      {/* Headline: annotation slot — notes line-1 if the user set
        *  one, otherwise the branch label (the human-readable anchor
        *  of the card). DM Sans semibold either way. */}
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
@@ -566,9 +566,9 @@ const WorkspaceCard: Component<{
           class="text-[0.95rem] font-semibold truncate leading-tight"
           style={{ color: props.entry.info.annotationColor }}
         >
-          <IntentMarkdownInline
+          <NotesMarkdownInline
             markdown={annotationLine(
-              props.entry.info.meta.intent,
+              props.entry.info.meta.notes,
               props.entry.label,
             )}
           />
@@ -628,14 +628,14 @@ const WorkspaceCard: Component<{
         )}
       </Show>
 
-      {/* Intent body — lines 2+ of the markdown when the user wrote a
-       *  multiline intent. Line 1 already lives in the annotation slot
+      {/* Notes body — lines 2+ of the markdown when the user wrote a
+       *  multiline note. Line 1 already lives in the annotation slot
        *  above; the body renders only when there's prose past line 1.
-       *  Shared <IntentBody> so every dock + switcher render site
+       *  Shared <NotesBody> so every dock + switcher render site
        *  looks the same. */}
-      <IntentBody
-        intent={props.entry.info.meta.intent}
-        testId="workspace-switcher-card-intent"
+      <NotesBody
+        notes={props.entry.info.meta.notes}
+        testId="workspace-switcher-card-notes"
       />
     </button>
   );

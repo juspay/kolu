@@ -5,7 +5,7 @@
  *  rail while a 27" desktop sits on cards.
  *
  *  1. **rail** — narrow strip of two-glyph chips, one per live
- *     terminal. Each chip carries first letter of the repo + the intent's
+ *     terminal. Each chip carries first letter of the repo + the notes'
  *     lead grapheme (emoji when the user leads with one, otherwise first
  *     alphanumeric of the branch tail) so two terminals in the same repo
  *     stay distinguishable. Repo color tints the chip; bucket state
@@ -72,8 +72,8 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { isPlatformModifier } from "../../input/keyboard";
-import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import { NotesMarkdownInline } from "../../notes/NotesMarkdown";
+import { annotationLine } from "../../notes/text";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
@@ -495,8 +495,8 @@ const DockRow: Component<{
               color: c().info.annotationColor,
             }}
           >
-            <IntentMarkdownInline
-              markdown={annotationLine(c().meta.intent, c().info.key.label)}
+            <NotesMarkdownInline
+              markdown={annotationLine(c().meta.notes, c().info.key.label)}
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
@@ -574,7 +574,7 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
 );
 
 /** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
- *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the
+ *  letter + notes lead grapheme or branch letter). Repo color tints the bg and the
  *  ring; bucket state animates the ring (breath for `awaiting`,
  *  spin-glow for `working`, flat for `idle`/`none`); active wears an
  *  accent halo; unread shows an alert badge top-right. The bucket

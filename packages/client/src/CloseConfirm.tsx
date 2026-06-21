@@ -12,6 +12,8 @@ import {
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { prTooltip } from "./terminal/prTooltip";
+import { NotesMarkdownBlock } from "./notes/NotesMarkdown";
+import { NoteIcon } from "./ui/Icons";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
@@ -100,6 +102,27 @@ const CloseConfirm: Component<{
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
+          {/* Notes reminder — closing deletes the notes, so show them one
+           *  last time, read-only, from the frozen `target.meta` snapshot
+           *  (never a live read: the dialog is an imperative confirmation
+           *  and must not shift under the user while they decide). */}
+          <Show when={props.target?.meta.notes}>
+            {(notes) => (
+              <div
+                data-testid="close-confirm-notes"
+                class="rounded-lg border border-edge bg-surface-2 px-2.5 py-2"
+              >
+                <div class="mb-1 flex items-center gap-1 text-[0.6rem] font-semibold uppercase tracking-wider text-fg-3">
+                  <NoteIcon class="h-3 w-3" />
+                  Notes
+                </div>
+                <div class="text-[0.72rem] leading-snug text-fg-2">
+                  <NotesMarkdownBlock markdown={notes()} />
+                </div>
+              </div>
+            )}
+          </Show>
+
           <Show when={isWorktree()}>
             <p>This terminal is in a git worktree.</p>
           </Show>

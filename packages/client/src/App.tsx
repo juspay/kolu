@@ -45,8 +45,6 @@ import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import CompactTileView from "./CompactTileView";
 import { useShortcuts } from "./input/useShortcuts";
-import IntentEditorDialog from "./intent/IntentEditorDialog";
-import { useIntentEditor } from "./intent/useIntentEditor";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -143,10 +141,14 @@ const App: Component = () => {
   // takes no app-identity overrides.
   const pwaInstall = createPwaInstall();
 
-  // Intent editor singleton — reads store + RPC directly. The dialog
-  // is mounted at the App root; the chip in TerminalMeta and the palette
-  // command both call `intentEditor.openTerminal(id)` to surface it.
-  const intentEditor = useIntentEditor();
+  // Notes — opening the Notes tab for a terminal selects that tile (the
+  // panel follows `store.active()`) and reveals the panel. The annotation
+  // slot in TerminalMeta and the palette command both route here.
+  const openNotes = (id: TerminalId) => {
+    store.setActiveSilently(id);
+    rightPanel.showNotes();
+    rightPanel.reveal();
+  };
 
   const arrange = useCanvasArrange();
 
@@ -196,7 +198,10 @@ const App: Component = () => {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
-    handleEditActiveIntent: intentEditor.openActive,
+    handleEditActiveNotes: () => {
+      const id = store.activeId();
+      if (id) openNotes(id);
+    },
     handleCreateWorktree: (repoPath, name, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
     handleClose: () => {
@@ -543,7 +548,7 @@ const App: Component = () => {
                         <TerminalMeta
                           info={store.getDisplayInfo(id)}
                           unread={store.isUnread(id)}
-                          onOpenIntent={() => intentEditor.openTerminal(id)}
+                          onOpenNotes={() => openNotes(id)}
                         />
                       )}
                       renderTileTitleActions={(id) => (
@@ -594,15 +599,6 @@ const App: Component = () => {
           </Match>
         </Switch>
       </div>
-      <IntentEditorDialog
-        open={intentEditor.open()}
-        title={intentEditor.title()}
-        value={intentEditor.value()}
-        allowClear={intentEditor.allowClear()}
-        onOpenChange={intentEditor.onOpenChange}
-        onSave={intentEditor.save}
-        onClear={intentEditor.clear}
-      />
     </div>
   );
 };

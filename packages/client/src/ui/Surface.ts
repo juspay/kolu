@@ -8,7 +8,7 @@
  *
  *  Variants:
  *    - `radius`: `"2xl"` (default) for modal dialogs and primary popovers,
- *      `"xl"` for compact dialogs (intent editor, find bar), `"lg"`/`"md"`
+ *      `"xl"` for compact dialogs (find bar), `"lg"`/`"md"`
  *      for menu surfaces (anchored option lists, context menus).
  *    - `shadow`: `"default"` (`shadow-black/50`, modal weight),
  *      `"soft"` (`shadow-black/40`, popover/floating weight),

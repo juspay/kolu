@@ -23,7 +23,7 @@ function info(group: string, label: string): TerminalDisplayInfo {
   };
 }
 
-function meta(intent?: string): TerminalMetadata {
+function meta(notes?: string): TerminalMetadata {
   return {
     state: "active",
     cwd: "/tmp",
@@ -33,12 +33,12 @@ function meta(intent?: string): TerminalMetadata {
     agent: null,
     foreground: null,
     lastActivityAt: 0,
-    intent,
+    notes,
   };
 }
 
 describe("chipInitials", () => {
-  it("uppercase first letter of repo, lowercase first letter of branch when no intent", () => {
+  it("uppercase first letter of repo, lowercase first letter of branch when no notes", () => {
     expect(chipInitials(meta(), info("kolu", "main"))).toEqual({
       repo: "K",
       sub: "m",
@@ -54,7 +54,7 @@ describe("chipInitials", () => {
     });
   });
 
-  it("prefers intent line-1 over branch when set", () => {
+  it("prefers notes line-1 over branch when set", () => {
     expect(chipInitials(meta("refactor pass"), info("kolu", "main"))).toEqual({
       repo: "K",
       sub: "r",
@@ -115,13 +115,13 @@ describe("chipInitials", () => {
     });
   });
 
-  it("uses only line 1 of a multi-line intent", () => {
+  it("uses only line 1 of a multi-line note", () => {
     expect(
       chipInitials(meta("🛟 lifeline\n\nlonger body"), info("kolu", "main")),
     ).toEqual({ repo: "K", sub: "🛟", subIsGlyph: true });
   });
 
-  it("falls back to branch when intent is markdown-chrome only", () => {
+  it("falls back to branch when notes are markdown-chrome only", () => {
     expect(chipInitials(meta("***"), info("kolu", "feat/dock-bare"))).toEqual({
       repo: "K",
       sub: "d",
@@ -129,7 +129,7 @@ describe("chipInitials", () => {
     });
   });
 
-  it("strips intent leading whitespace before extracting", () => {
+  it("strips notes leading whitespace before extracting", () => {
     expect(chipInitials(meta("   spaced"), info("kolu", "main"))).toEqual({
       repo: "K",
       sub: "s",
@@ -168,7 +168,7 @@ describe("chipInitials", () => {
     });
   });
 
-  it("treats a unicode-letter intent lead as a faded letter, not a glyph", () => {
+  it("treats a unicode-letter notes lead as a faded letter, not a glyph", () => {
     // `é` is `\p{L}` → lowercased letter (subIsGlyph false), unlike an emoji.
     expect(chipInitials(meta("Émile review"), info("kolu", "main"))).toEqual({
       repo: "K",
@@ -177,8 +177,8 @@ describe("chipInitials", () => {
     });
   });
 
-  it("treats a decomposed (NFD) intent lead as a letter, not a glyph", () => {
-    // The intent lead is `E` + U+0301 (combining acute). The grapheme is two
+  it("treats a decomposed (NFD) notes lead as a letter, not a glyph", () => {
+    // The notes lead is `E` + U+0301 (combining acute). The grapheme is two
     // code points, so a single-code-point anchor would misfire it into the
     // glyph branch; NFC-composing first keeps it a faded letter.
     const nfd = "Émile review".normalize("NFD");

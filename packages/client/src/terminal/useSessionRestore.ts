@@ -270,7 +270,7 @@ export function useSessionRestore(deps: {
           subPanel: t.subPanel,
           rightPanel: t.rightPanel,
           lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
+          notes: t.notes,
         });
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the

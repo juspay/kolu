@@ -60,10 +60,10 @@ export const TerminalSetThemeInputSchema = z.object({
   themeName: z.string().min(1),
 });
 
-export const TerminalSetIntentInputSchema = z.object({
+export const TerminalSetNotesInputSchema = z.object({
   id: TerminalIdSchema,
-  /** Empty string clears the intent; any non-empty string sets it. */
-  intent: z.string(),
+  /** Empty string clears the notes; any non-empty string sets it. */
+  notes: z.string(),
 });
 
 export const TerminalSetCanvasLayoutInputSchema = z.object({
@@ -154,7 +154,7 @@ export const contract = oc.router({
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
-    setIntent: oc.input(TerminalSetIntentInputSchema).output(z.void()),
+    setNotes: oc.input(TerminalSetNotesInputSchema).output(z.void()),
     setCanvasLayout: oc
       .input(TerminalSetCanvasLayoutInputSchema)
       .output(z.void()),

@@ -10,6 +10,7 @@
 
 import { activeArm, sleepingArm, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { notesBodyMarkdown } from "../notes/text";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -22,6 +23,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useCommandPalette } from "../useCommandPalette";
 import {
   MoonIcon,
+  NoteIcon,
   ScreenshotIcon,
   SearchIcon,
   SplitToggleIcon,
@@ -113,6 +115,30 @@ const TileTitleActions: Component<{
             </button>
           </Tip>
         )}
+      </Show>
+      {/* Notes icon — gated on a non-empty body (lines 2+) so it
+       *  complements the title chip (which already shows line 1) rather
+       *  than duplicating it. Click → Notes tab. Shown on both arms:
+       *  notes persist across sleep/wake. */}
+      <Show when={notesBodyMarkdown(meta()?.notes)}>
+        <Tip label="Open notes">
+          <button
+            type="button"
+            data-testid="tile-notes"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              onTile(e, () => {
+                rightPanel.showNotes();
+                rightPanel.reveal();
+              })
+            }
+            aria-label="Open notes"
+          >
+            <NoteIcon />
+          </button>
+        </Tip>
       </Show>
       <Show when={live()}>
         <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>

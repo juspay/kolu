@@ -12,7 +12,7 @@
  *  sits in the list. This keeps the order's mental model consistent
  *  with how the user thinks about it: "what did I just touch?"
  *
- *  Inside a section, rows are **clustered by branch/intent label** so
+ *  Inside a section, rows are **clustered by branch/notes label** so
  *  two terminals on the same branch stay adjacent even when an
  *  unrelated row sits between them in pure-recency time. The cluster
  *  is the grouping primitive; the sort key inside and outside the

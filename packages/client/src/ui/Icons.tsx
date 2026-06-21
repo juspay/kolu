@@ -373,6 +373,24 @@ export const ScreenshotIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+export const NoteIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v4h4" />
+    <path d="M9 12h6" />
+    <path d="M9 16h4" />
+  </svg>
+);
+
 export const ScrollDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-5 h-5"}

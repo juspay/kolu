@@ -23,6 +23,7 @@ import {
   backfillLocation,
   backfillRemoteUrl,
   backfillTerminalState,
+  migrateIntentToNotes,
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
@@ -113,7 +114,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.28.0";
+const SCHEMA_VERSION = "1.29.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -504,6 +505,15 @@ export const store = new Conf<PersistedState>({
     // backfill, no validation failure. The bump + this entry exist only to honor
     // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
     "1.28.0": () => {},
+    // `SavedTerminal.intent` renamed to `.notes` — the freeform markdown
+    // annotation became a terminal notes scratchpad (edited in the right-panel
+    // Notes tab instead of a modal). Rename the persisted key on every saved
+    // terminal so existing notes survive the rename instead of being silently
+    // stripped by Zod's default unknown-key drop. The transform itself lives
+    // in `kolu-common/surface` (`migrateIntentToNotes`) so the client's
+    // session-import hatch composes the same rename — one source of truth.
+    "1.29.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, migrateIntentToNotes),
   },
 });
 

@@ -23,7 +23,7 @@ import { useTerminalStore } from "./useTerminalStore";
  *  internally (no `deps` argument), so consumers that already touch the store
  *  — `TileTitleActions`, `TerminalContent` — can call `useTerminalCrud()`
  *  directly instead of receiving crud-derived closures drilled from App.tsx.
- *  Mirrors the `useIntentEditor` de-deps: the old `{ store }` argument was an
+ *  Mirrors the editor de-deps: the old `{ store }` argument was an
  *  unenforceable "deps never change identity" convention held by a comment. */
 export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
@@ -137,7 +137,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         subPanel: initial?.subPanel,
         rightPanel: initial?.rightPanel,
         lastActivityAt: initial?.lastActivityAt,
-        intent: initial?.intent,
+        notes: initial?.notes,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
