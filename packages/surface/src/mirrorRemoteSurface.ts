@@ -21,9 +21,10 @@
  * The sink does NOT have to re-serve the surface (that is `projectSurface`'s job —
  * "a server that's a client"). A sink can fold the frames anywhere: the
  * `arivu-tui` fleet board keys every host's terminals into one `(host, id)` Solid
- * store; kolu's R-2 fold merges each awareness upsert into its own co-owned
- * `terminalMetadata`. So the sink is per-primitive *callbacks*, never a fixed
- * local ctx — interception is the common case, not the exception.
+ * store; kolu's R-2 fold is intended to merge each awareness upsert into its own
+ * co-owned `terminalMetadata` (a planned/drishti consumer, not yet wired in this
+ * repo). So the sink is per-primitive *callbacks*, never a fixed local ctx —
+ * interception is the common case, not the exception.
  *
  * Teardown is the load-bearing detail, shared with `projectSurface`: every
  * subscription threads the caller's `signal` into its client call and wraps the
@@ -43,8 +44,9 @@ import { isAbortReason, iterateUntilAborted } from "./server";
 /** Per-primitive consumers for `mirrorRemoteSurface`, typed off the source
  *  surface's spec `S`. Every entry is optional: a primitive is subscribed iff a
  *  sink is supplied, so a consumer that only wants the `awareness` collection (the
- *  R-2 fold) provides just that, and one that wants the whole surface (the fleet
- *  board) provides all of them. Omission is deliberate non-interest, not a
+ *  R-2 fold is intended to) provides just that, and one that wants the whole
+ *  surface (the fleet board, today) provides all of them. Omission is deliberate
+ *  non-interest, not a
  *  silent fallback — the surface still serves the primitive, this consumer just
  *  doesn't read it.
  *
