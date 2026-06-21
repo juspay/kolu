@@ -15,12 +15,24 @@ import type { TerminalId } from "kolu-common/surface";
  *  budget *smaller than the working set* destroys+recreates a WebGL context on
  *  every focus switch across more terminals, and on Chrome+AMD a torn-down
  *  context's VRAM is reclaimed only at JS GC — so sustained focus-churn outruns
- *  GC, VRAM climbs to exhaustion, and the GPU faults (#1399). The fix is to admit
- *  the whole working set churn-free, capped (with margin) below the measured 16 —
- *  the "real cap management" #1404 noted a larger budget would need. Live
- *  contexts don't leak over time (measured flat under sustained focus cycling),
- *  so a higher cap only raises a bounded steady-state baseline, not a leak. */
-export const WEBGL_CONTEXT_CAP = 12;
+ *  GC, VRAM climbs to exhaustion, and the GPU faults (#1399). So the cap must sit
+ *  in a band: at least the realistic working set (admit it churn-free — the
+ *  #1399 floor), yet far enough below Chrome's measured 16/tab ceiling (#575)
+ *  that the live count never reaches it.
+ *
+ *  #1399 first set this to 12, leaving only 4 of headroom. On a long-lived
+ *  session that margin proved too thin: a torn-down context lingers until JS GC
+ *  (same as its VRAM, measured above), so transient pre-GC contexts drift the
+ *  live count toward 16, Chrome force-evicts the oldest *live* context, and xterm
+ *  parks the evicted tile on a blank frame for ~3s — its WebglRenderer
+ *  `preventDefault`s `webglcontextlost` and waits 3000ms for a
+ *  `webglcontextrestored` before falling back to the DOM renderer. With up to 12
+ *  tiles on WebGL several sit in that blank window at once: the rendering
+ *  corruption a full page refresh cleared. 8 doubles the headroom (margin 8)
+ *  while still holding a realistic 5–8 terminal working set churn-free — so it
+ *  neither reintroduces the #1399 churn-leak nor approaches the eviction ceiling.
+ *  Holding fewer live contexts also lowers the steady-state GPU/VRAM baseline. */
+export const WEBGL_CONTEXT_CAP = 8;
 
 /** The minimal slice of a tile's sub-panel state that determines its WebGL
  *  footprint — pure booleans/ids, no SolidJS store, so the cost model is
