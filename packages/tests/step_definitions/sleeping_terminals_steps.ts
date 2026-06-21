@@ -26,6 +26,7 @@
 
 import * as assert from "node:assert";
 import * as os from "node:os";
+import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import {
   LOCAL_LOCATION,
@@ -34,6 +35,7 @@ import {
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { codexMockCwd } from "./codex_steps.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
@@ -349,26 +351,38 @@ Then(
 Then(
   "the woken terminal should resume in the same working directory",
   async function (this: KoluWorld) {
-    // The resumed agent re-spawns in the SAVED cwd — so the Codex mock's
-    // cwd-keyed provider re-resolves and the codex dock state returns. A
-    // resume into the WRONG (or a default) cwd would never re-light the codex
-    // indicator. Assert the codex indicator comes back on the now-live tile.
-    await pollFor({
-      observe: () =>
-        this.page.evaluate(() => {
-          const el = document.querySelector(
-            '[data-testid="canvas-tile"] [data-testid="agent-indicator"]',
-          );
-          return el?.getAttribute("data-agent-kind") ?? null;
-        }),
-      isDone: (kind) => kind === "codex",
-      onTimeout: (last, ms) =>
-        new Error(
-          `Woken terminal never re-resolved the codex agent in its saved cwd ` +
-            `(kind="${last}") within ${ms}ms — resume landed in the wrong cwd`,
-        ),
-      timeoutMs: POLL_TIMEOUT,
-    });
+    // The re-spawned PTY must come back in the agent's SAVED cwd — the runtime
+    // cwd the live cwd-sensor tracked (the mock `cd`'d the terminal there before
+    // launching the agent), persisted on the sleeping arm and replayed by `wake`
+    // (`cwd: meta.cwd`). A resume into a default/wrong cwd is exactly the hole
+    // this guards. The codex MOCK can't prove this via its indicator: its fake
+    // `codex` is reached by ABSOLUTE PATH and the bare `codex resume --last`
+    // resume form carries no title-printf, so `matchesAgent` can't re-light it
+    // from the resume (a real `codex` on PATH would). So prove the cwd DIRECTLY
+    // and mock-independently — run `pwd` in the now-live woken terminal and
+    // assert it reports the saved cwd. Scope the buffer read to THIS tile's id.
+    const id = sleptIdByWorld.get(this);
+    assert.ok(id, "No slept/woken terminal id captured");
+    await this.terminalRun("pwd");
+    const scopedSelector = `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-visible]`;
+    // Match the unique temp-dir leaf, not the full path: a long absolute path
+    // wraps across xterm rows (the buffer reader joins visual lines with "\n"),
+    // but the short mkdtemp leaf lands intact at the tail of the `pwd` output.
+    const wantCwdLeaf = path.basename(codexMockCwd());
+    try {
+      await waitForBufferContains(this.page, wantCwdLeaf, {
+        selector: scopedSelector,
+      });
+    } catch {
+      const dump = await readBufferText(this.page, scopedSelector).catch(
+        () => "",
+      );
+      throw new Error(
+        `Woken terminal's \`pwd\` never reported the saved cwd (…/${wantCwdLeaf}) ` +
+          `— resume landed in the wrong cwd, not where the agent was slept. ` +
+          `Buffer:\n${dump.slice(0, 800)}`,
+      );
+    }
   },
 );
 

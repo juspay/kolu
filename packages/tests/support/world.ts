@@ -43,9 +43,13 @@ const STEP_GUARD = 10_000;
 setDefaultTimeout(Math.max(POLL_TIMEOUT, HYDRATION_TIMEOUT) + STEP_GUARD);
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
+/** Locator for the app's settled state: a visible terminal screen, a dormant
+ *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
+ *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
+ *  `.xterm-screen`), and it is NOT the empty state — so the dormant body is the
+ *  third settled shape a reload/converge can land on. */
 const SETTLED_SELECTOR =
-  '[data-visible] .xterm-screen, [data-testid="empty-state"]';
+  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
  *  keep the one place it's duplicated legible and self-documenting. Exported so
