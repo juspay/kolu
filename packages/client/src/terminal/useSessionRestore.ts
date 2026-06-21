@@ -242,6 +242,20 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
+        // A SLEEPING saved record is restored DORMANT — seed it (no PTY spawn, no
+        // resume; Wake does that later). It keeps its saved id, so its canvas
+        // layout and the active marker map 1:1 and the dragged-then-reloaded
+        // position survives. The restore card thus brings back BOTH arms.
+        if (t.state === "sleeping") {
+          await client.terminal.restoreSleeping(t);
+          const sleepingId = t.id as TerminalId;
+          oldToNew.set(t.id, sleepingId);
+          if (t.id === session.activeTerminalId) {
+            restoredActiveId = sleepingId;
+            store.setActiveSilently(sleepingId);
+          }
+          continue;
+        }
         // `t.location` is deliberately NOT forwarded: the create seam carries
         // only client-owned `InitialTerminalMetadata`, and the *endpoint* owns
         // location — so each terminal re-spawns at `LOCAL_LOCATION`. That is

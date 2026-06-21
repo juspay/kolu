@@ -36,6 +36,17 @@ function makeMeta(overrides: Partial<ActiveTerminal> = {}): ActiveTerminal {
   };
 }
 
+function makeSleepingMeta(lastActivityAt = 0): TerminalMetadata {
+  return {
+    state: "sleeping",
+    sleptAt: 1_700_000_000_000,
+    cwd: "/tmp",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt,
+  };
+}
+
 /** Convenience: rank a single terminal and return its bucket. */
 function bucket(meta: TerminalMetadata, stale: boolean): DockRowBucket {
   const rows = rankDockRows(
@@ -84,6 +95,25 @@ describe("rankDockRows — parked bucket precedence", () => {
 
   it("never-touched plain shells route to none, not idle", () => {
     expect(bucket(makeMeta(), false)).toBe("none");
+  });
+
+  it("classifies a sleeping terminal as its own bucket, not none", () => {
+    expect(bucket(makeSleepingMeta(), false)).toBe("sleeping");
+  });
+
+  it("keeps a sleeping terminal in sleeping even when STALE — decoupled from parked", () => {
+    // A long-slept tile must read 'asleep', never be parked-dropped; the dock's
+    // sleeping check runs before the parked check precisely for this.
+    expect(bucket(makeSleepingMeta(1), true)).toBe("sleeping");
+  });
+
+  it("never drops a sleeping row from the ranking", () => {
+    const rows = rankDockRows(
+      ["t1"] as TerminalId[],
+      () => makeSleepingMeta(1),
+      () => true,
+    );
+    expect(rows.map((r) => r.id)).toContain("t1");
   });
 
   it("meta.agent is not mutated by ranking — render layer retains identity after park", () => {

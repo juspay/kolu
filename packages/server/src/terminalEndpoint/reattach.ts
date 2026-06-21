@@ -40,11 +40,13 @@ import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
 import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
+import { getTerminal } from "../terminal-registry.ts";
 import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import {
   adoptLocalOrphan,
   adoptLocalTerminal,
   reapUnrepresentablePty,
+  seedSleepingTerminal,
 } from "./local.ts";
 
 /** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
@@ -64,7 +66,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   const live = (await ptyHostClient.surface.terminal.list({})).entries;
 
   const saved = getSavedSession();
-  const { adopt, adoptOrphans } = reconcile(live, saved);
+  const { adopt, adoptOrphans, reapSleeping } = reconcile(live, saved);
 
   // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides
   // its whole record through (`adoptLocalTerminal`); a survivor with NO saved
@@ -100,13 +102,35 @@ export async function adoptSurvivingSession(): Promise<void> {
 
   const adoptedCount = adopt.length + orphansAdopted;
 
-  // Converge the saved session to exactly what is now live: exited terminals
-  // drop out (no stale restore card for them), and the active marker is kept
-  // iff its terminal survived. An empty adopted set clears the session
-  // (`saveSession` empty→null), so an all-exited survivor shows no restore card.
+  // Seed every SLEEPING saved record dormant — they have no PTY to adopt, so they
+  // would otherwise be absent from the registry and wiped by the converge below.
+  // Seeding here makes a slept terminal survive a server restart and ride the wire
+  // as ☾ (the reboot-then-wake journey). A malformed record drops itself (tolerant).
+  for (const record of saved?.terminals ?? []) {
+    if (record.state === "sleeping") seedSleepingTerminal(record);
+  }
+  // Adopt-or-REAP the crash-window survivors: a sleep that persisted the dormant
+  // record but crashed before the PTY kill completed leaves a PTY whose id is a
+  // sleeping saved id. The record is sleeping, so REAP the orphan (never re-wake) —
+  // the cold path converges with no orphan PTY (the reboot-mid-sleep journey).
+  for (const orphan of reapSleeping) {
+    log.info(
+      { terminal: orphan.id },
+      "reaping a sleeping terminal's crash-surviving PTY",
+    );
+    void ptyHostClient.surface.terminal
+      .kill({ id: orphan.id })
+      .catch((err) =>
+        log.error({ err, terminal: orphan.id }, "reap of sleeping PTY failed"),
+      );
+  }
+
+  // Converge the saved session to exactly what is now live or dormant: exited
+  // terminals drop out (no stale restore card), and the active marker is kept iff
+  // its terminal is still present (adopted active OR seeded sleeping). An empty
+  // registry clears the session (`saveSession` empty→null).
   restoreActiveTerminalId(
-    saved?.activeTerminalId &&
-      adopt.some(({ record }) => record.id === saved.activeTerminalId)
+    saved?.activeTerminalId && getTerminal(saved.activeTerminalId)
       ? saved.activeTerminalId
       : null,
   );

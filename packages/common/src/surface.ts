@@ -38,6 +38,7 @@ import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
   AwarenessLiveFieldsSchema,
   AwarenessPersistedFieldsSchema,
+  PrResultSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-awareness/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
@@ -327,6 +328,15 @@ const SleepingDiscriminantSchema = z.object({
   /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
    *  of the live overlay — the one scalar an active terminal doesn't carry. */
   sleptAt: z.number(),
+  /** A FROZEN SNAPSHOT of the live `pr` overlay at sleep time, so the dormant
+   *  tile can still surface the GitHub PR the terminal was working — the live PR
+   *  resolution is gone with the PTY. `cwd`/`git` ride the persisted base (true
+   *  identity, re-resolved live on wake); `pr` is genuinely LIVE (checks tick),
+   *  so it can't sit on the base — its frozen copy belongs here on the sleeping
+   *  arm, captured at sleep via the `...entry.meta` spread and DISCARDED on wake
+   *  (`wakeMeta`), where the re-spawned PTY's PR sensor re-resolves it. Optional:
+   *  a terminal slept before this field, or with no PR context, carries none. */
+  pr: PrResultSchema.optional(),
 });
 
 /** The active arm's persisted core — `persisted base + state: "active"`, the one
@@ -556,6 +566,9 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
  *  only on-disk arm Phase 1 writes. The whole-record adoption path is typed to
  *  this (a sleeping record has no live PTY to adopt). */
 export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
+/** The sleeping arm of `SavedTerminal` — persisted base + `sleptAt` + id. What a
+ *  slept terminal persists and what the boot seed / restore card read back. */
+export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
@@ -920,6 +933,23 @@ export function activeArm(
   m: TerminalMetadata | null | undefined,
 ): ActiveTerminal | undefined {
   return m?.state === "active" ? m : undefined;
+}
+
+/** Narrow a terminal to its SLEEPING arm, or `undefined` when it is active /
+ *  absent. The sibling projection `activeArm`'s doc anticipates: a sleeping-
+ *  SPECIFIC consumer — the ☾ dock bucket, the moonlit minimap/switcher pip, the
+ *  DormantTileBody's `sleptAt` — reads THIS rather than re-scattering
+ *  `state === "sleeping"` checks, so the one discriminant has exactly one reader
+ *  per arm and "is this tile sleeping?" is greppable across every LIVE-metadata
+ *  presence surface. (Persistence-typed readers that hold a `SavedTerminal`
+ *  rather than `TerminalMetadata` — e.g. session restore — narrow `state`
+ *  directly, since this accessor only accepts the live union.) Truthiness alone
+ *  answers presence; the returned arm exposes `sleptAt` for the "asleep 3d"
+ *  label. */
+export function sleepingArm(
+  m: TerminalMetadata | null | undefined,
+): SleepingTerminal | undefined {
+  return m?.state === "sleeping" ? m : undefined;
 }
 
 /** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,

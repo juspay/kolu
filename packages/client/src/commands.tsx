@@ -3,6 +3,7 @@
 import {
   activeArm,
   type RecentAgent,
+  sleepingArm,
   type TerminalId,
 } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
@@ -34,6 +35,7 @@ import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { daemonWarming } from "./kaval/useDaemonStatus";
+import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { recentAgents, recentRepos } from "./wire";
 
@@ -171,6 +173,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   // the toggle with a guard or telemetry.
   const posture = useViewPosture();
   const tileStore = useTileStore();
+  const crud = useTerminalCrud();
 
   return createMemo((): PaletteCommand[] => [
     // --- Workspaces ---
@@ -237,55 +240,88 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             section: "active-terminal" as const,
             onSelect: () => deps.handleClose(),
           },
-          actionPaletteCommand("toggleSubPanel", deps, {
-            section: "active-terminal",
-          }),
-          actionPaletteCommand("createSubTerminal", deps, {
-            section: "active-terminal",
-          }),
-          {
-            kind: "action" as const,
-            name: "Copy terminal text",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleCopyTerminalText(),
-          },
-          {
-            kind: "action" as const,
-            name: "Export scrollback as PDF",
-            section: "active-terminal" as const,
-            onSelect: () => deps.handleExportScrollbackAsPdf(),
-          },
-          ...(activeArm(deps.activeMeta())?.agent
+          // Sleep / Wake — one or the other by the active tile's lifecycle state.
+          sleepingArm(deps.activeMeta())
+            ? {
+                kind: "action" as const,
+                name: "Wake terminal",
+                section: "active-terminal" as const,
+                onSelect: () => {
+                  const id = deps.activeId();
+                  if (id) void crud.handleWake(id);
+                },
+              }
+            : {
+                kind: "action" as const,
+                name: "Sleep terminal",
+                section: "active-terminal" as const,
+                onSelect: () => {
+                  const id = deps.activeId();
+                  if (id) crud.requestSleep(id);
+                },
+              },
+          // Live-only actions (split / copy / screenshot / export / recent-agent
+          // prefill) need a running PTY, so they're gated on the ACTIVE arm — not
+          // merely `activeId() !== null`, which is also true for a SLEEPING tile
+          // (F3). A sleeping parent would otherwise sprout an active sub-terminal
+          // `TerminalContent` hides behind the dormant body, and copy/screenshot
+          // would hit a PTY-less tile. Sleep/Wake/Close/theme/intent above stay on
+          // both arms (they touch persisted fields, not a live PTY).
+          ...(activeArm(deps.activeMeta())
             ? [
+                actionPaletteCommand("toggleSubPanel", deps, {
+                  section: "active-terminal",
+                }),
+                actionPaletteCommand("createSubTerminal", deps, {
+                  section: "active-terminal",
+                }),
                 {
                   kind: "action" as const,
-                  name: "Export agent session as HTML",
+                  name: "Copy terminal text",
                   section: "active-terminal" as const,
-                  description:
-                    "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
-                  onSelect: () => deps.handleExportSessionAsHtml(),
+                  onSelect: () => deps.handleCopyTerminalText(),
                 },
-              ]
-            : []),
-          actionPaletteCommand("screenshotTerminal", deps, {
-            section: "active-terminal",
-          }),
-          // "Recent agents" — surfaces agent CLIs the user has previously run
-          // in any kolu terminal, auto-detected via the preexec OSC 633;E
-          // command mark. Promoted to a root-level drill-in under the
-          // Active Terminal section now that the section framework exists.
-          // Visible when at least one agent has been seen AND there is an
-          // active terminal to prefill it into.
-          ...(recentAgents().length > 0
-            ? [
                 {
-                  kind: "group" as const,
-                  name: "Recent agents",
+                  kind: "action" as const,
+                  name: "Export scrollback as PDF",
                   section: "active-terminal" as const,
-                  description: "Prefill an agent CLI into the active terminal",
-                  children: (): PaletteItem[] =>
-                    agentItems(recentAgents(), deps.handleRunInActiveTerminal),
+                  onSelect: () => deps.handleExportScrollbackAsPdf(),
                 },
+                ...(activeArm(deps.activeMeta())?.agent
+                  ? [
+                      {
+                        kind: "action" as const,
+                        name: "Export agent session as HTML",
+                        section: "active-terminal" as const,
+                        description:
+                          "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
+                        onSelect: () => deps.handleExportSessionAsHtml(),
+                      },
+                    ]
+                  : []),
+                actionPaletteCommand("screenshotTerminal", deps, {
+                  section: "active-terminal",
+                }),
+                // "Recent agents" — surfaces agent CLIs the user has previously
+                // run in any kolu terminal, auto-detected via the preexec OSC
+                // 633;E command mark. Prefills into the active PTY, so it needs a
+                // live terminal as well as a seen agent.
+                ...(recentAgents().length > 0
+                  ? [
+                      {
+                        kind: "group" as const,
+                        name: "Recent agents",
+                        section: "active-terminal" as const,
+                        description:
+                          "Prefill an agent CLI into the active terminal",
+                        children: (): PaletteItem[] =>
+                          agentItems(
+                            recentAgents(),
+                            deps.handleRunInActiveTerminal,
+                          ),
+                      },
+                    ]
+                  : []),
               ]
             : []),
           // Theme is a per-active-terminal property (`client.terminal.setTheme`

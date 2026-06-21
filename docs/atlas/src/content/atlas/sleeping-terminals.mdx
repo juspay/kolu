@@ -2,8 +2,8 @@
 title: "Sleeping terminals"
 description: A plan for Sleep/Wake. Model the terminal as a sum — Terminal = active or sleeping — so a dormant terminal is a STATE on one record, not a separate thing. Sleep flips that state IN PLACE on a stable id; the live PTY/agent are released but the persisted base — cwd, layout, last agent command — stays, so wake re-spawns and resumes the agent exactly the way a server reboot already does. Presence reads the union; touching a live field narrows to active.
 parents: [phantom-running-background, feature]
-status: accepted
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-06-21
 ---
 
@@ -211,6 +211,20 @@ bumps `SCHEMA_VERSION` — the one sanctioned place the default is supplied; rea
 sites narrow, never coalesce.
 
 ### Phase 2 — Sleep / Wake (in place)
+
+**<PrLink pr={1487} />.** Implemented exactly as planned: the one registry holds
+the `Terminal` union under a stable id (`TerminalProcess` is a discriminated
+process — the sleeping arm's PTY handle is *absent by type*), sleep flips in place
+persist-before-kill, wake re-spawns on the same id and replays the **observed**
+`lastAgentCommand` through `resumeAgentCommand`, and boot re-seeds sleeping records
+(adopt-or-reap). The dormant tile surfaces the **last-known context** it was
+working — `cwd` and branch ride the persisted base, while the live PR is *snapshotted*
+onto the sleeping arm at sleep and discarded on wake (the PR sensor re-resolves it
+live). The journey e2e asserts the real outcomes — *wake resumes the same
+conversation*, *drag a dormant tile then reload*, *reboot then wake*, *reboot
+mid-sleep converges* — not counts. *(An agent launched through a `nix run …#agent`
+wrapper — whose observed head token is `nix`, not the agent — is not resumed on
+wake; it wakes to a bare shell, tracked as [#1492](https://github.com/juspay/kolu/issues/1492).)*
 
 <Callout kind="warn" title="Re-planned after a first cut (PR #1466, discarded)">
 The first Phase-2 implementation built the sleeping arm as an **immutable** record

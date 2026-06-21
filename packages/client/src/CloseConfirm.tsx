@@ -5,6 +5,7 @@
 import Dialog from "@corvu/dialog";
 import {
   activePr,
+  sleepingArm,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
@@ -61,7 +62,12 @@ const CloseConfirm: Component<{
     return e && !e.eligible ? e.reason : undefined;
   };
   const splitCount = () => props.target?.splitCount ?? 0;
-  const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
+  // A sleeping terminal has no live PTY — closing it DISCARDS the record (the
+  // same dialog reworded, still driven off the persisted git/worktree info).
+  const isDiscard = () =>
+    props.target ? sleepingArm(props.target.meta) !== undefined : false;
+  const closeLabel = () =>
+    isDiscard() ? "Discard" : splitCount() > 0 ? "Close all" : "Close terminal";
   const chrome = surface({ portalled: true });
 
   return (
@@ -82,9 +88,11 @@ const CloseConfirm: Component<{
           <Show
             when={canRemoveWorktree()}
             fallback={
-              splitCount() > 0
-                ? "Close terminal and splits?"
-                : "Close terminal?"
+              isDiscard()
+                ? "Discard sleeping terminal?"
+                : splitCount() > 0
+                  ? "Close terminal and splits?"
+                  : "Close terminal?"
             }
           >
             Remove worktree too?

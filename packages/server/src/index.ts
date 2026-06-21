@@ -47,9 +47,9 @@ import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import {
+  activeTerminalCount,
   countActiveClaudeSessions,
   snapshotSession,
-  terminalCount,
 } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -382,7 +382,11 @@ const server = serve(
       // depend on — kept decoupled from the snapshot file basename above.
       logPrefix: "diag",
       extraColumns: () => ({
-        terminals: terminalCount(),
+        // LIVE terminals only — the column tracks live-PTY heap (sensors, taps,
+        // the headless mirror). Sleeping records hold none of that, so counting
+        // them here (`terminalCount`) would let dormant tiles read as live
+        // processes against the heap curve (F9).
+        terminals: activeTerminalCount(),
         publisherSize: publisherSize(),
         claudeSessions: countActiveClaudeSessions(),
         pendingSummaryFetches: getPendingSummaryFetches(),

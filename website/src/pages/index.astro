@@ -734,6 +734,18 @@ const tunnels = [
           activity-window filter hides stale rows without killing them.
         </dd>
       </div>
+      <div class="concept">
+        <dt>Sleep &amp; wake <span class="mono">☾</span></dt>
+        <dd>
+          Done with a tile for now? Hit <strong>☾</strong> on its title bar to
+          put it to sleep — its PTY, agent process, and WebGL context are
+          released, exactly as if closed, while the tile stays on the canvas,
+          moonlit and dormant. <strong>Wake</strong> it and kolu re-spawns in
+          the same directory and resumes the agent right where it left off — the
+          conversation returns, not a blank shell. Park many long-lived sessions
+          without paying their live cost.
+        </dd>
+      </div>
     </dl>
 
     <details class="deep">
@@ -761,6 +773,49 @@ const tunnels = [
           <li>
             A fresh agent transition automatically resurfaces a hidden terminal,
             so nothing important stays buried.
+          </li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="deep">
+      <summary>
+        <span class="deep-tag">how-to</span>
+        Sleep a terminal — park it without paying its cost
+      </summary>
+      <div class="deep-body">
+        <p>
+          Sleeping is how you keep many agent sessions parked while only the ones
+          you're using stay live. A sleeping tile is a full canvas citizen — only
+          the live shell goes dark.
+        </p>
+        <ul>
+          <li>
+            <strong>Put it to sleep.</strong> Click <strong>☾</strong> on the
+            title bar, or run <em>Sleep terminal</em> from the palette. The PTY,
+            agent process, and GPU/WebGL context are released — exactly as if
+            you'd closed it — and the tile goes moonlit and dormant in place.
+          </li>
+          <li>
+            <strong>Still a citizen.</strong> Drag, resize, rename, and re-theme a
+            sleeping tile like any other; only typing is fenced off, since there's
+            no live shell behind it.
+          </li>
+          <li>
+            <strong>Last-known metadata stays put.</strong> The dormant tile keeps
+            showing what it was working — its working directory, git branch, and
+            GitHub PR — so a parked session never loses its identity.
+          </li>
+          <li>
+            <strong>Wake resumes the agent.</strong> Wake it and kolu re-spawns
+            the terminal in the same directory and resumes the agent right where
+            it left off — the same restore path terminals come back through after
+            a restart. The conversation returns, not a blank shell.
+          </li>
+          <li>
+            <strong>Survives a full restart</strong> and reads moonlit in the dock
+            and minimap. Closing a sleeping tile simply <strong>discards</strong>
+            it — there's nothing running to kill.
           </li>
         </ul>
       </div>

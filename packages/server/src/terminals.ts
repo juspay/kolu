@@ -18,8 +18,8 @@
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
-  SavedActiveTerminalSchema,
   type SavedTerminal,
+  SavedTerminalSchema,
   type TerminalId,
   type TerminalInfo,
 } from "kolu-common/surface";
@@ -32,10 +32,14 @@ import {
 // `localTerminalEndpoint`.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import {
+  beginSleepLocal,
+  localTerminalEndpoint,
+  releaseSleptLocalPty,
+} from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
-import type { SessionSnapshot } from "./session.ts";
+import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // A single local endpoint today. P3 will select the endpoint per call
@@ -45,6 +49,7 @@ const localEndpoint = localTerminalEndpoint;
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
 export {
+  activeTerminalCount,
   countActiveClaudeSessions,
   getTerminal,
   listTerminals,
@@ -68,7 +73,11 @@ export {
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
     ([id, entry]): SavedTerminal =>
-      SavedActiveTerminalSchema.parse({ ...entry.meta, id }),
+      // The registry now holds the `Terminal` union, so project each entry
+      // through the SAVED discriminated union: an active entry strips its live
+      // overlay onto the active arm, a sleeping entry carries its persisted base
+      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
+      SavedTerminalSchema.parse({ ...entry.meta, id }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }
@@ -102,6 +111,17 @@ export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
   return localEndpoint.killTerminal(id);
+}
+
+/** Sleep a terminal — flip it to the sleeping arm IN PLACE, persist the session
+ *  DURABLY, then release its PTY (persist-before-kill). A crash in the kill
+ *  window leaves a sleeping record on disk, never a zombie active one; boot
+ *  reconcile reaps any briefly-surviving PTY (adopt-or-reap). A no-op if `id`
+ *  is not an active terminal. */
+export async function sleepTerminal(id: TerminalId): Promise<void> {
+  if (!beginSleepLocal(id)) return;
+  saveSession(snapshotSession());
+  await releaseSleptLocalPty(id);
 }
 
 /** Set or clear a terminal's parent relationship. */

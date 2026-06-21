@@ -8,6 +8,8 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import { sleepingArm } from "kolu-common/surface";
+import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -49,17 +51,34 @@ const TILE_TRANSITION_PROPS =
 /** Build the hover tooltip for a minimap tile. Closes #870: the previous
  *  `title={id}` showed the opaque terminal id; now it shows the same
  *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
- *  plus the last-active duration. Multi-line via `\n` — supported in
- *  modern browsers' `title` attribute. */
-function tileTooltip(info: TerminalDisplayInfo, parked: boolean): string {
+ *  plus a presence-specific duration line. Multi-line via `\n` — supported in
+ *  modern browsers' `title` attribute.
+ *
+ *  The second line is keyed on the tile's presence so it reads truthfully per
+ *  arm (F5): a SLEEPING tile shows "Asleep <since slept>" from `sleptAt`, not
+ *  the "Active <ago>" wording a bare not-parked tile gets — a slept tile is
+ *  decoupled from staleness (`parked=false`) but is emphatically not active. */
+function tileTooltip(
+  info: TerminalDisplayInfo,
+  presence: "sleeping" | "parked" | "agent" | "none",
+): string {
   const { group, label, suffix } = info.key;
   const headParts: string[] = [group];
   if (label && label !== group) headParts.push(label);
   if (suffix) headParts.push(suffix);
   const head = headParts.join(" · ");
-  const ago = formatTimeAgo(info.meta.lastActivityAt);
   const lines = [head];
-  if (ago) lines.push(parked ? `Parked — last active ${ago}` : `Active ${ago}`);
+  const sleeping = sleepingArm(info.meta);
+  if (sleeping) {
+    const ago = formatTimeAgo(sleeping.sleptAt);
+    lines.push(ago ? `Asleep — ${ago}` : "Asleep");
+  } else {
+    const ago = formatTimeAgo(info.meta.lastActivityAt);
+    if (ago)
+      lines.push(
+        presence === "parked" ? `Parked — last active ${ago}` : `Active ${ago}`,
+      );
+  }
   return lines.join("\n");
 }
 
@@ -319,18 +338,31 @@ const CanvasMinimap: Component<{
                 repoColor: i.repoColor,
               };
             });
-            // Reactive accessor: bucket classification (awaiting / working /
-            // none) plus user-window staleness. Split from `tile()` so the
-            // minute-by-minute staleness tick doesn't invalidate the
-            // rectangle geometry — only the badge surface re-runs. Memoized
-            // because the JSX reads it 7× per tile per tick.
+            // Reactive accessor: which presence visual this tile gets, as ONE
+            // discriminant (mirroring the dock's `classifyDockRow` priority)
+            // rather than an enum plus parallel booleans whose legal
+            // combinations are a hand-enforced subset. `bucket` carries the
+            // agent sub-classification (awaiting / working) and is only
+            // meaningful when `presence === "agent"` — it drives the dot color
+            // and testid. Split from `tile()` so the minute-by-minute staleness
+            // tick doesn't invalidate the rectangle geometry — only the badge
+            // surface re-runs. Memoized because the JSX reads it per tile per tick.
             const state = createMemo(() => {
               const i = info();
-              if (!i) return { bucket: "none" as const, parked: false };
-              return {
-                bucket: metaBucket(i.meta),
-                parked: isParked(i.meta.lastActivityAt),
-              };
+              if (!i)
+                return { presence: "none" as const, bucket: "none" as const };
+              const bucket = metaBucket(i.meta);
+              // Sleeping FIRST (a deliberate dormant state, DECOUPLED from
+              // staleness — never parked-ghosted, however long it slept); then
+              // parked staleness; then agent presence; else none.
+              const presence = sleepingArm(i.meta)
+                ? ("sleeping" as const)
+                : isParked(i.meta.lastActivityAt)
+                  ? ("parked" as const)
+                  : bucket !== "none"
+                    ? ("agent" as const)
+                    : ("none" as const);
+              return { presence, bucket };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
             // sourced from the same identity key the workspace switcher uses.
@@ -339,7 +371,7 @@ const CanvasMinimap: Component<{
             // stays total).
             const tooltip = () => {
               const i = info();
-              return i ? tileTooltip(i, state().parked) : id;
+              return i ? tileTooltip(i, state().presence) : id;
             };
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
@@ -369,10 +401,12 @@ const CanvasMinimap: Component<{
             // One morphing element covers both the full rect and the 6 px
             // parked-ghost; CSS interpolates between them so the tile glides
             // when `parked()` flips instead of popping.
-            const parked = () => state().parked;
+            const presence = () => state().presence;
+            const parked = () => presence() === "parked";
+            const sleeping = () => presence() === "sleeping";
             const isActive = () => tileStore.activeId() === id;
-            const hasAgent = () => state().bucket !== "none";
-            const badgeVisible = () => hasAgent() && !parked();
+            const hasAgent = () => presence() === "agent";
+            const badgeVisible = () => hasAgent();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
@@ -384,6 +418,18 @@ const CanvasMinimap: Component<{
               h: number;
               repoColor: string;
             }): JSX.CSSProperties => {
+              if (sleeping()) {
+                // Moonlit, dimmed, full-size — visually distinct from both an
+                // active repo-color tile and the parked ghost.
+                return {
+                  left: `${t.x}px`,
+                  top: `${t.y}px`,
+                  width: `${t.w}px`,
+                  height: `${t.h}px`,
+                  "background-color": MOONLIT.tileBg,
+                  border: `1px dashed ${MOONLIT.accent}`,
+                };
+              }
               if (parked()) {
                 return {
                   left: `${t.x + t.w / 2 - GHOST_PX / 2}px`,

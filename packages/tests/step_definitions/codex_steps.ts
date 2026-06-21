@@ -34,6 +34,19 @@ const getCodexDir = () => process.env.KOLU_CODEX_DIR;
 let mockCwd: string | null = null;
 let mockFixture: CodexFixture | null = null;
 
+/** The directory the active Codex mock `cd`'d the terminal into — the cwd the
+ *  threads-DB fixture is keyed on. Exposed so the sleeping-terminals journey can
+ *  assert a WOKEN terminal re-spawned in this SAVED cwd (its fake `codex` binary
+ *  is reached by absolute path and the bare `codex resume --last` resume form
+ *  carries no title-printf, so the mock can't re-light its indicator from the
+ *  resume — the woken shell's own `pwd` is the cwd proof instead). Throws if no
+ *  mock is active, so a misordered step fails loudly rather than matching null. */
+export function codexMockCwd(): string {
+  if (!mockCwd)
+    throw new Error("No Codex mock active — call the mock step first");
+  return mockCwd;
+}
+
 function cleanup() {
   if (mockCwd && fs.existsSync(mockCwd)) {
     fs.rmSync(mockCwd, { recursive: true, force: true });

@@ -9,11 +9,11 @@ import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
+import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
@@ -197,6 +197,80 @@ export const useTerminalCrud = createSharedRoot(() => {
     await handleKill(id);
   }
 
+  /** Request sleep — the shared entry the ☾ tile button and the palette both
+   *  call. Surfaces the one-time discoverability tip, and when the terminal has
+   *  splits, confirms via an action toast before closing them (a sleeping record
+   *  is a single terminal — splits must not vanish silently, the §2
+   *  non-negotiable). No splits → sleep straight away. */
+  function requestSleep(id: TerminalId) {
+    showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
+    const subs = store.getSubTerminalIds(id).length;
+    if (subs > 0) {
+      toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
+        duration: Number.POSITIVE_INFINITY,
+        action: {
+          label: "Sleep & close splits",
+          onClick: () => void handleSleep(id),
+        },
+      });
+      return;
+    }
+    void handleSleep(id);
+  }
+
+  /** Sleep a terminal: close its splits first (a sleeping record is a single
+   *  terminal — sub-terminals are CLOSED, not frozen), then flip it to the
+   *  dormant arm on the server. The tile STAYS (now dormant) — no
+   *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
+   *  Wake call-to-action. Reached through `requestSleep` (which confirms splits). */
+  async function handleSleep(id: TerminalId) {
+    const subs = store.getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    try {
+      await client.terminal.sleep({ id });
+    } catch (err) {
+      toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
+    }
+  }
+
+  /** Wake a sleeping terminal: the server re-spawns its PTY on the same id and
+   *  resumes its agent (session-restore-of-one). The metadata subscription flips
+   *  it back to active and the tile re-renders live — so the client just asks. */
+  async function handleWake(id: TerminalId) {
+    try {
+      await client.terminal.wake({ id });
+    } catch (err) {
+      toast.error(`Failed to wake terminal: ${(err as Error).message}`);
+    }
+  }
+
+  /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
+   *  released it) and auto-switch away. The close-path twin of `handleKill` for
+   *  the dormant arm; reached from the reworded close-confirm dialog.
+   *
+   *  Surfaces a genuine discard failure (network / server error) in a toast and
+   *  does NOT evict the tile locally (F4): swallowing every error and removing
+   *  anyway would make a failed discard look successful and desync the UI from
+   *  the still-present server record. The server's `discardSleeping` is a no-op
+   *  on an already-gone id (it returns without throwing), so the common
+   *  already-removed case resolves cleanly and the tile evicts as before.
+   *
+   *  Returns `true` on success, `false` on a surfaced failure — the
+   *  worktree-removal close path (F10) must NOT delete the worktree when the
+   *  sleeping record wasn't actually discarded, or the still-present terminal
+   *  would point at a removed cwd. The standalone close-confirm caller ignores
+   *  the result (it only needs the toast). */
+  async function handleDiscard(id: TerminalId): Promise<boolean> {
+    try {
+      await client.terminal.discardSleeping({ id });
+    } catch (err) {
+      toast.error(`Failed to discard terminal: ${(err as Error).message}`);
+      return false;
+    }
+    removeAndAutoSwitch(id);
+    return true;
+  }
+
   async function handleCopyTerminalText() {
     const id = store.focusedId();
     if (id === null) return;
@@ -268,6 +342,10 @@ export const useTerminalCrud = createSharedRoot(() => {
     toggleSubPanel,
     handleKill,
     handleKillWithSubs,
+    requestSleep,
+    handleSleep,
+    handleWake,
+    handleDiscard,
     handleCopyTerminalText,
     handleRunInActiveTerminal,
     handleCloseAll,

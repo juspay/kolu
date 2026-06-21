@@ -77,6 +77,11 @@ export interface PtySpawnOpts {
   cwd?: string;
   parentId?: string;
   initialMetadata?: InitialTerminalMetadata;
+  /** A ready-to-run agent resume invocation (the output of `resumeAgentCommand`,
+   *  e.g. `claude -c`), written into the fresh PTY as type-ahead once its sensors
+   *  are wired. Set only on WAKE — session-restore-of-one resumes the sleeping
+   *  terminal's agent exactly as a reboot does. Undefined for an ordinary spawn. */
+  resumeCommand?: string;
 }
 
 /** Control surface for one running terminal. Read/write on the PTY and

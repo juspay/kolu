@@ -11,7 +11,7 @@
 import { LOCAL_LOCATION } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import type { TerminalProcess } from "../terminal-registry.ts";
+import type { ActiveTerminalProcess } from "../terminal-registry.ts";
 import {
   __resetSurfaceCtxForTest,
   noopSurfaceCtxForTest,
@@ -23,7 +23,7 @@ import {
   updateServerMetadata,
 } from "./metadata.ts";
 
-function fakeTerminal(): TerminalProcess {
+function fakeTerminal(): ActiveTerminalProcess {
   return {
     info: { id: "term-pub-test", pid: 0 },
     meta: {
@@ -37,7 +37,7 @@ function fakeTerminal(): TerminalProcess {
       lastActivityAt: 0,
     },
     // Tests never touch the PTY handle; the publish path doesn't read it.
-    handle: {} as TerminalProcess["handle"],
+    handle: {} as ActiveTerminalProcess["handle"],
   };
 }
 

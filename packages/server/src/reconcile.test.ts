@@ -21,6 +21,17 @@ function term(id: string): SavedTerminal {
     lastActivityAt: 0,
   };
 }
+function sleepingTerm(id: string): SavedTerminal {
+  return {
+    id,
+    state: "sleeping",
+    sleptAt: 1,
+    cwd: "/x",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 0,
+  };
+}
 function saved(...terminals: SavedTerminal[]): SavedSession {
   return { terminals, activeTerminalId: terminals[0]?.id ?? null, savedAt: 1 };
 }
@@ -81,5 +92,38 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
       saved(a, b, c),
     );
     expect(adopt.map((a) => a.record.id)).toEqual(["a", "b", "c"]); // saved order wins
+  });
+
+  it("never adopts a sleeping record, and reaps nothing when its PTY is gone", () => {
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [],
+      saved(sleepingTerm("s")),
+    );
+    expect(adopt).toEqual([]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping).toEqual([]);
+  });
+
+  it("reaps a sleeping record's crash-surviving PTY — neither adopted nor orphaned", () => {
+    // Persist-before-kill crashed after the flip but before the PTY kill: the PTY
+    // outlived the sleep. Its id is a saved id, so it's not an orphan — and the
+    // record is sleeping, so it's reaped, never re-woken.
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [live("s")],
+      saved(sleepingTerm("s")),
+    );
+    expect(adopt).toEqual([]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping.map((e) => e.id)).toEqual(["s"]);
+  });
+
+  it("partitions a mixed session: adopt the active survivor, reap the sleeping survivor", () => {
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [live("a"), live("s")],
+      saved(term("a"), sleepingTerm("s")),
+    );
+    expect(adopt.map((p) => p.record.id)).toEqual(["a"]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping.map((e) => e.id)).toEqual(["s"]);
   });
 });

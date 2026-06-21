@@ -191,6 +191,7 @@ export function parseAgentCommand(raw: string): string | null {
 
   const agent = basename(head);
   const allowed = STABLE_FLAGS.get(agent);
+  // Not a known agent invocation — the head basename isn't in the allowlist.
   if (allowed === undefined) return null;
 
   // Exit-immediately flags → not an agent session.

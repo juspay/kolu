@@ -14,6 +14,7 @@
 
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
+import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -333,7 +334,10 @@ const App: Component = () => {
           setCloseConfirmTarget(null);
           // Don't refocus — the natural reactive focus handlers (sub-panel,
           // active terminal) restore focus to the right place after the kill.
-          if (target) void crud.handleKillWithSubs(target.id);
+          // A sleeping terminal has no PTY to kill: DISCARD its record instead.
+          if (!target) return;
+          if (sleepingArm(target.meta)) void crud.handleDiscard(target.id);
+          else void crud.handleKillWithSubs(target.id);
         }}
         onCloseAndRemove={() => {
           const target = closeConfirmTarget();
