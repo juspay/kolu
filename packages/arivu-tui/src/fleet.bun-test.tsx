@@ -75,6 +75,7 @@ test("paints a host group, a terminal row, and the header clock", async () => {
       {
         label: "zest",
         status: connected,
+        live: [],
         terminals: {
           [id("z1")]: val({
             git: {
@@ -98,6 +99,7 @@ test("the board reflects an agent flipping to awaiting you (calm ≠ alert)", as
   const host = (state: string): FleetHostState => ({
     label: "zest",
     status: connected,
+    live: [],
     terminals: { [id("z1")]: val({ agent: agentVal(state) }) },
   });
   const calm = await renderBoard(viewOf([host("thinking")]));
@@ -117,6 +119,7 @@ test("a working row's spinner is frame-dependent (◜ ≠ ◝)", async () => {
     {
       label: "a",
       status: connected,
+      live: [],
       terminals: { [id("a1")]: val({ agent: agentVal("thinking") }) },
     },
   ]);
@@ -125,12 +128,32 @@ test("a working row's spinner is frame-dependent (◜ ≠ ◝)", async () => {
   expect(f0).not.toBe(f1); // the spinner glyph cycles with the animation frame
 });
 
+test("a live terminal paints the green activity dot (≠ a quiet one)", async () => {
+  const board = (live: string[]): FleetHostState => ({
+    label: "zest",
+    status: connected,
+    live,
+    terminals: { [id("z1")]: val({ agent: agentVal("thinking") }) },
+  });
+  // A working row's leading glyph is the spinner, so the only difference between
+  // these two frames is the live-dot column lighting up — proving the green dot
+  // paints from the `activity` set, orthogonal to the agent-state glyph.
+  const quiet = await renderBoard(viewOf([board([])]));
+  const loud = await renderBoard(viewOf([board(["z1"])]));
+  // The dot column is the sole difference: the working row's spinner and every
+  // other cell are identical, so a different frame means the dot lit up. (A bare
+  // `toContain("●")` would be a false positive — the footer's "● 0 need you"
+  // tally carries a dot regardless of liveness.)
+  expect(loud).not.toBe(quiet);
+});
+
 test("an unreachable host renders a distinct header, not a vanished group", async () => {
   const frame = await renderBoard(
     viewOf([
       {
         label: "staging",
         status: { kind: "unreachable", reason: "ECONNREFUSED" },
+        live: [],
         terminals: {},
       },
     ]),
@@ -147,6 +170,7 @@ test("a version-skew host renders the skew header", async () => {
       {
         label: "old",
         status: { kind: "skew", localVersion: "0.1", hostVersion: "9.9" },
+        live: [],
         terminals: {},
       },
     ]),
@@ -161,11 +185,13 @@ test("needs mode flattens across hosts with no per-host headers", async () => {
         {
           label: "a",
           status: connected,
+          live: [],
           terminals: { [id("a1")]: val({ agent: agentVal("awaiting_user") }) },
         },
         {
           label: "b",
           status: connected,
+          live: [],
           terminals: { [id("b1")]: val({ agent: agentVal("thinking") }) },
         },
       ],
@@ -186,11 +212,13 @@ test("needs mode names each row's source host (no group header to carry it)", as
         {
           label: "zest",
           status: connected,
+          live: [],
           terminals: { [id("z1")]: val({ agent: agentVal("awaiting_user") }) },
         },
         {
           label: "pluto",
           status: connected,
+          live: [],
           terminals: { [id("p1")]: val({ agent: agentVal("thinking") }) },
         },
       ],
@@ -208,11 +236,13 @@ test("agent mode names each row's source host inside the urgency sections", asyn
         {
           label: "zest",
           status: connected,
+          live: [],
           terminals: { [id("z1")]: val({ agent: agentVal("awaiting_user") }) },
         },
         {
           label: "pluto",
           status: connected,
+          live: [],
           terminals: { [id("p1")]: val({ agent: agentVal("thinking") }) },
         },
       ],
@@ -234,6 +264,7 @@ test("repo·branch absorbs a wide terminal's slack, truncates a narrow one", asy
     {
       label: "zest",
       status: connected,
+      live: [],
       terminals: {
         [id("z1")]: val({
           git: {

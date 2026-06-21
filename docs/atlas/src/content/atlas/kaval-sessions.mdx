@@ -168,7 +168,7 @@ server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dia
 `}
 />
 
-**There is one backend, not many** — and one backend means one *shape*, not one host. A backend is **three surfaces bound to an endpoint** — PTY · fs · git — and local vs remote is only the transport each is dialed over. The PTY surface already works this way (kaval at a unix socket since B2, or ssh stdio); fs and git extend the **same** pattern — served at the host, mirrored over the same `HostSession` link (`mirrorRemoteCollection`, the R-1.5 remote-process-monitor pattern). **No reach-over-ssh per op, no polling.**
+**There is one backend, not many** — and one backend means one *shape*, not one host. A backend is **three surfaces bound to an endpoint** — PTY · fs · git — and local vs remote is only the transport each is dialed over. The PTY surface already works this way (kaval at a unix socket since B2, or ssh stdio); fs and git extend the **same** pattern — served at the host, mirrored over the same `HostSession` link (`mirrorRemoteSurface`, the R-1.5 remote-process-monitor pattern). **No reach-over-ssh per op, no polling.**
 
 | At the endpoint | local | remote — same `HostSession` link |
 | --- | --- | --- |
@@ -310,7 +310,7 @@ master -> agent: "channel ~50ms"
 
 **kaval and kolu-watcher are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally that role isn't even a separate process — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so it splits out as its own **kolu-watcher** process beside kaval.
 
-And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteCollection`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
+And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteSurface`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
 
 <ProcDiagram />
 

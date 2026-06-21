@@ -47,10 +47,18 @@ interface Fake {
 }
 
 /** A fake arivu connection whose `awareness.keys` yields one snapshot then stays
- *  open (so the host reads as live) until `dropLink()` / `dispose()` ends it. */
+ *  open (so the host reads as live) until `dropLink()` / `dispose()` ends it. The
+ *  client always exposes EVERY `arivuSurface` entry — exactly like the real
+ *  oRPC router client `connectArivu`/`connectArivuViaHost` build, so a supplied
+ *  sink never hits `mirrorRemoteSurface`'s client/surface-mismatch guard for a
+ *  primitive a real client would still have. */
 function fakeConn(opts: {
   version?: string;
   terminals: Record<string, AwarenessValue>;
+  /** The `activity` stream's single frame — the set of terminals "live" right
+   *  now. Omitted ⇒ the activity stream opens, yields nothing, and stays open
+   *  (the real shape: the entry always exists; an empty host just never lights). */
+  activity?: string[];
 }): Fake {
   let endKeys!: () => void;
   const open = new Promise<void>((res) => {
@@ -70,6 +78,16 @@ function fakeConn(opts: {
           })(),
         get: async ({ key }: { key: TerminalId }) =>
           once(opts.terminals[key] as AwarenessValue),
+      },
+      // Always present (the real client always exposes it). Yields the live set
+      // once when given, then stays open like a real stream until the link drops;
+      // when omitted it opens and simply never lights a terminal.
+      activity: {
+        get: async () =>
+          (async function* () {
+            if (opts.activity) yield opts.activity as TerminalId[];
+            await open;
+          })(),
       },
     },
   };
@@ -144,18 +162,26 @@ function recordingSink(): {
   statuses: Array<[string, FleetHostStatus]>;
   upserts: Array<[string, string, AwarenessValue]>;
   removes: Array<[string, string]>;
+  lives: Array<[string, string[]]>;
+  clears: string[];
 } {
   const statuses: Array<[string, FleetHostStatus]> = [];
   const upserts: Array<[string, string, AwarenessValue]> = [];
   const removes: Array<[string, string]> = [];
+  const lives: Array<[string, string[]]> = [];
+  const clears: string[] = [];
   return {
     statuses,
     upserts,
     removes,
+    lives,
+    clears,
     sink: {
       setStatus: (l, s) => statuses.push([l, s]),
       upsert: (l, i, v) => upserts.push([l, i, v]),
       remove: (l, i) => removes.push([l, i]),
+      setLive: (l, live) => lives.push([l, live]),
+      clearHost: (l) => clears.push(l),
     },
   };
 }
@@ -189,6 +215,27 @@ describe("startFleet", () => {
         .map(([l]) => l)
         .sort(),
     ).toEqual(["a", "b"]);
+    handle.dispose();
+  });
+
+  it("mirrors the activity stream into the sink's live set (the green dot)", async () => {
+    const a = fakeConn({
+      terminals: {
+        [id("loud")]: val({ agent: agentVal("thinking") }),
+        [id("quiet")]: val({ agent: agentVal("thinking") }),
+      },
+      activity: ["loud"], // only `loud` is moving bytes right now
+    });
+    const { sink, lives } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("a"),
+      connect: async () => a.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(20);
+    // The activity frame reached the sink, host-labelled, with only the live id.
+    expect(lives).toContainEqual(["a", ["loud"]]);
     handle.dispose();
   });
 
@@ -301,6 +348,36 @@ describe("startFleet", () => {
 
     f.dropLink(); // the box went away
     await delay(20);
+    expect(statuses).toContainEqual([
+      "x",
+      { kind: "unreachable", reason: "connection closed" },
+    ]);
+    handle.dispose();
+  });
+
+  it("clears a host's stale rows + live set when its link drops, not just the status", async () => {
+    // A connected host with a live, awaiting-you terminal. When the link drops
+    // the orchestrator must CLEAR the mirrored data (so the board stops counting,
+    // animating, and alerting on it), not merely flip the header — a dead box
+    // must not keep showing the rows it had before it died.
+    const f = fakeConn({
+      terminals: { [id("blocked")]: val({ agent: agentVal("awaiting_user") }) },
+      activity: ["blocked"],
+    });
+    const { sink, statuses, clears } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("x"),
+      connect: async () => f.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(20);
+    expect(statuses).toContainEqual(["x", { kind: "connected" }]);
+
+    f.dropLink(); // the box went away
+    await delay(20);
+    // The host's data was cleared, and only THEN flipped to unreachable.
+    expect(clears).toContain("x");
     expect(statuses).toContainEqual([
       "x",
       { kind: "unreachable", reason: "connection closed" },

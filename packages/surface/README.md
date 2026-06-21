@@ -647,6 +647,25 @@ const bClient = directLink<typeof projected.surface.contract>(router);
 - **`surfaceClientRef(A, router)`** — a surface-typed wrapper over `directLink` that gives B's handlers a live, in-process client of sibling surface A.
 - **`deriveCell` / `deriveStream` / `deriveEvent`** — map an upstream A primitive into the matching slot of B's `implementSurface` deps. `deriveCell` tracks A's snapshot-then-deltas and republishes the mapped value through B's cell; `deriveStream` preserves snapshot-then-deltas frame-by-frame; `deriveEvent` is the same wiring typed as an event (no snapshot obligation). Teardown is handled for you: B's abort signal threads into A's call and an abort-time upstream rejection is swallowed, so aborting a B subscription tears down the matching A subscription with no leak.
 
+## Mirror a remote surface into local sinks: `mirrorRemoteSurface`
+
+`projectSurface` *re-serves* A as a new surface B. `mirrorRemoteSurface` does the other thing a consumer of a remote surface needs: it **drives A's primitives into local sinks** — the consume-side **dual of `implementSurface`**. `implementSurface(surface, deps)` walks a spec and wires the *produce* side (server handlers that yield on demand); `mirrorRemoteSurface(surface, client, sink)` walks the *same* spec and wires the *consume* side (subscribe each primitive through a live client, push every frame into a caller-supplied callback). In pipes/conduit terms, `implementSurface` builds a Source and `mirrorRemoteSurface` connects it to a `SurfaceSink` and runs it.
+
+```ts
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
+
+await mirrorRemoteSurface(arivuSurface, client, {
+  collections: { awareness: { upsert, remove } },          // keyed map → your store
+  streams:     { activity:  { input: {}, onFrame: setLive } }, // a flow → a callback
+  // cells:    { version:   (v) => … }, events: { … }       // each kind, one call
+}, { signal, log });
+```
+
+- One call mirrors a **cell, a collection, a stream, and an event** together, instead of a consumer hand-stitching `<coll>.keys`+`<coll>.get`, a separate `<cell>.get` read, and a separate `<stream>.get` loop. The per-key collection bridge that *was* `@kolu/surface-nix-host`'s public `mirrorRemoteCollection` is now the **private** `mirrorCollection` engine inside it — consumers use `mirrorRemoteSurface` only ("you don't sell half a house").
+- Each `SurfaceSink<S>` entry is **optional** — a primitive is subscribed iff a sink is supplied (the R-2 awareness fold is intended to want only the collection; the fleet board, today, wants the collection + the stream). The sink does **not** re-serve the surface (that's `projectSurface`): a sink can fold frames anywhere — the `arivu-tui` fleet board keys every host's terminals into one `(host, id)` store; kolu's R-2 fold is intended to merge each upsert into its co-owned `terminalMetadata` (a planned/drishti consumer, not yet wired in this repo). Interception is the common case.
+- Lives at the **`@kolu/surface/mirror`** subpath (it imports the server layer's abort helpers), and resolves when every subscription settles — over one shared link, the cue that the link closed.
+- **Two failures are distinct, both fail-fast where it matters.** An *upstream* per-primitive error (a remote stream blip) is logged and the subscription settles — one bad stream must not reject the whole mirror. But a *sink* failure (your `onFrame`/`upsert`/`remove` throws — a bug in your local fold) is **not** an upstream blip: it **rejects** the whole mirror so the broken fold surfaces, never logged-and-swallowed (the no-fallback rule — a caught error can't collapse to a quietly-resolved mirror). And supplying a sink for a primitive the **client** doesn't expose is a client/surface mismatch — it throws synchronously (fail-fast), where *omitting* a sink is the tolerated "no interest" path.
+
 ### See also: `@kolu/surface-mcp`
 
 The sibling package [`@kolu/surface-mcp`](../surface-mcp) re-exposes any surface as an **MCP server** — point it at a live-surface client and a default-deny `expose` allowlist (each cell/stream/event a resource, each procedure a tool) plus optional bespoke `tools`, and `serveSurfaceAsMcp` builds the MCP server: the subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the resource/tool wiring are the package's. It's built on `projectSurface` for the curation step — shape a narrowed, observer-safe surface in surface-land, then expose *that*. See the package for full docs.
@@ -781,6 +800,23 @@ deriveStream(upstream, map): StreamHandlerDeps<I, T>                   // → st
 deriveEvent(upstream, map): EventHandlerDeps<I, T>                     // → events.<key>
 // upstream is a client streaming call ((input, { signal }) => Promise<AsyncIterable<F>>);
 // each helper threads B's abort into A's call and swallows the abort-time upstream rejection.
+```
+
+### Mirror (`@kolu/surface/mirror`)
+
+The consume-side dual of `implementSurface` — drive a remote surface's primitives into local sinks. See [Mirror a remote surface into local sinks](#mirror-a-remote-surface-into-local-sinks-mirrorremotesurface) above. (Imports the server layer for its abort helpers, so it's *not* on the browser-safe root.)
+
+```ts
+mirrorRemoteSurface(sourceSurface, client, sink, { signal?, log? }): Promise<void>
+  // walks sourceSurface.spec; for each primitive the sink opts into, subscribes via
+  // `client` and pushes frames to the sink callback. Resolves when all subscriptions
+  // settle (link closed / aborted). `client` is any SurfaceClientOf<S> (read structurally).
+
+// SurfaceSink<S> — every entry OPTIONAL (a primitive is mirrored iff a sink is given):
+//   cells:       { <k>: (value) => void }
+//   collections: { <k>: { upsert: (key, value) => void; remove: (key) => void } }
+//   streams:     { <k>: { input; onFrame: (frame) => void } }
+//   events:      { <k>: { input; onFrame: (frame) => void } }
 ```
 
 ### Stdio transport (`@kolu/surface/links/stdio`, `@kolu/surface/loopback`, `@kolu/surface/peer-server`)

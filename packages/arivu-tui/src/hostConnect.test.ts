@@ -51,6 +51,15 @@ function makeInProcessArivuClient(
         },
       },
     },
+    // The probe only reads the `version` cell; a minimal empty `activity` source
+    // satisfies `implementSurface`'s "a dep per stream" requirement.
+    streams: {
+      activity: {
+        source: async function* (): AsyncGenerator<TerminalId[]> {
+          yield [];
+        },
+      },
+    },
   });
   return directLink<typeof arivuSurface.contract>(router);
 }
