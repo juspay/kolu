@@ -229,16 +229,30 @@ const App: Component = () => {
     recencyOf,
   });
 
-  /** The one content-kind dispatch for a sleeping tile's body — desktop AND
-   *  mobile route through here so neither surface mounts xterm against a
-   *  PTY-released terminal. Returns the dormant placeholder (intent/cwd/Wake)
-   *  for a sleeping id, or `null` for a live id (the caller renders the live
-   *  body in that case). */
-  function renderSleepingBodyIfSleeping(id: TerminalId): JSX.Element | null {
-    if (tileStore.contentOf(id)?.kind !== "sleeping") return null;
-    const meta = sleepingArm(store.getMetadata(id));
-    if (!meta) return null;
-    return <DormantTileBody id={id} meta={meta} />;
+  /** The one content-kind dispatch for a tile's body — desktop AND mobile route
+   *  through here so neither surface mounts xterm against a PTY-released
+   *  terminal. A sleeping tile renders the frozen dormant placeholder
+   *  (intent/cwd/Wake); a live tile renders the caller's `live` body.
+   *
+   *  The dispatch is a `<Show>` whose `when` is the sleeping arm (truthy only
+   *  while sleeping) — NOT an eager `sleeping ? … : live()` ternary. The body is
+   *  injected into the tile via `{props.renderBody()}`, so its reactive reads
+   *  are tracked by that JSX insertion: an eager `store.getMetadata(id)` read at
+   *  this level would re-run the whole expression — and RE-CREATE the live
+   *  `<TerminalContent>` (wiping its just-expanded sub-panel) — on every
+   *  metadata tick (agent state, activity, a fresh split arriving). `<Show>`
+   *  only swaps subtrees when the truthiness of `when` flips, so the live body
+   *  is created ONCE and survives those ticks; only a real sleep/wake transition
+   *  changes the arm. The `meta` accessor stays narrowed inside the branch. */
+  function renderTileBody(
+    id: TerminalId,
+    live: () => JSX.Element,
+  ): JSX.Element {
+    return (
+      <Show when={sleepingArm(store.getMetadata(id))} fallback={live()}>
+        {(meta) => <DormantTileBody id={id} meta={meta()} />}
+      </Show>
+    );
   }
 
   /** Canvas tile body — every live tile stays mounted (`visible={true}`) so
@@ -246,35 +260,31 @@ const App: Component = () => {
    *  takes keyboard focus. A sleeping tile renders the frozen dormant body
    *  instead (no PTY/xterm). */
   function renderCanvasTileBody(id: TerminalId, active: () => boolean) {
-    return (
-      renderSleepingBodyIfSleeping(id) ?? (
-        <TerminalContent
-          terminalId={id}
-          visible={true}
-          focused={active()}
-          theme={getTerminalTheme(id)}
-          onCloseTerminal={closeTerminal}
-          onFocus={() => store.setActiveSilently(id)}
-        />
-      )
-    );
+    return renderTileBody(id, () => (
+      <TerminalContent
+        terminalId={id}
+        visible={true}
+        focused={active()}
+        theme={getTerminalTheme(id)}
+        onCloseTerminal={closeTerminal}
+        onFocus={() => store.setActiveSilently(id)}
+      />
+    ));
   }
 
   /** Mobile body — only the active terminal is visible (others hide via
    *  the parent's classList) so xterm doesn't try to size a 0×0 element. A
    *  sleeping tile renders the dormant body instead. */
   function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
-    return (
-      renderSleepingBodyIfSleeping(id) ?? (
-        <TerminalContent
-          terminalId={id}
-          visible={visible()}
-          focused={visible()}
-          theme={getTerminalTheme(id)}
-          onCloseTerminal={closeTerminal}
-        />
-      )
-    );
+    return renderTileBody(id, () => (
+      <TerminalContent
+        terminalId={id}
+        visible={visible()}
+        focused={visible()}
+        theme={getTerminalTheme(id)}
+        onCloseTerminal={closeTerminal}
+      />
+    ));
   }
 
   // The one canvas-surface decision — which surface wins, in what order. The
