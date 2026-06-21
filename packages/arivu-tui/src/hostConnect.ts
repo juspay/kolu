@@ -60,9 +60,15 @@ const ARIVU_AGENT_DRVS_ENV = "ARIVU_AGENT_DRVS_JSON";
 export function connectArivuViaHost(
   host: string,
   kavalSocket?: string,
+  onLog?: (line: string) => void,
 ): Promise<Connection> {
   return dialAgentOnce<ArivuContract>({
     host,
+    // Where the dial's lifecycle / forwarded-daemon-stderr lines go. The bare
+    // `--host` dashboard omits it (its lines reach process.stderr, harmless: it
+    // snapshots then disposes BEFORE the alt-screen opens). The live `fleet`
+    // board passes a sink so a held-open session can't bleed onto the screen.
+    onLog,
     // `${agentPath}/bin/arivu`, run as `arivu --stdio`. The drv map is keyed to
     // the arivu DAEMON drv (sensors + git/gh), not the arivu-tui viewer.
     binary: "arivu",

@@ -132,6 +132,12 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
    *  the caller's concern (see the arivu-tui `--kaval` call site). */
   extraArgs?: readonly string[];
+  /** Diagnostic-line sink, forwarded to `HostSessionOptions.onLog`. Omit and the
+   *  session writes its `nix copy` progress / connection transitions / forwarded
+   *  remote stderr to `process.stderr` (what a plain CLI wants). An alt-screen
+   *  consumer (an OpenTUI board) passes its own sink so these never corrupt the
+   *  rendered screen — the lines stay in the session state for failure reads. */
+  onLog?: (line: string) => void;
 }
 
 /** Dial an agent on `host` over ssh, one-shot. Provisions the daemon's closure,
@@ -163,6 +169,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     host: opts.host,
     binary: opts.binary,
     extraArgs: opts.extraArgs,
+    onLog: opts.onLog,
     resolveDrvPath: () => resolveAgentDrv(opts.host, drvBySystem, opts.drvNoun),
   });
   // The agent's OWN fatal reason, read off the session AFTER a failed dial. When

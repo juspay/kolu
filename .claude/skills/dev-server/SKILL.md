@@ -132,12 +132,33 @@ done
 rm -f .dev-server/ports.json
 ```
 
-**Never** `pkill -f <substring>` at all — not `kolu` / `vite` / `tsx`, and not a
-"more specific" source path like `packages/server/src/index.ts` either. Production
-runs that exact source from the nix store, so a path substring is *not* safer than
-a name — it matched and killed production `kolu.service` once. A bracket trick
-(`[v]ite`) only dodges self-match, not the production process. Match the
-remembered ports only; if you can't resolve a PID by port, leave the process.
+**Never** `pkill -f <substring>` / `pgrep -f <substring> | kill` at all — not
+`kolu` / `vite` / `tsx`, and not a "more specific" source path or socket path like
+`packages/server/src/index.ts` or `kaval-7692/pty-host.sock` either. Production
+runs that exact source from the nix store and a production daemon *listens on* that
+exact socket path/port, so a path substring is *not* safer than a name — it matched
+and killed production `kolu.service` once, and a `pgrep -f "<sock-path>"` matched
+and killed the production **kaval** daemon another time (the daemon's old **low**
+PID, not your freshly-spawned **high**-PID dialer). A bracket trick (`[v]ite`) only
+dodges self-match, not the production process. Match the remembered ports only; if
+you can't resolve a PID by port, leave the process.
+
+**Any background process *you* spawned — capture its PID at spawn and kill *that*
+exact PID, never re-resolve it.** This applies beyond the dev server: a kaval /
+arivu dialer you start for evidence capture, an ssh-tunnelled daemon, anything
+backgrounded with `&`. Record `$!` the instant you launch it
+(`nohup … & PID=$!; echo "$PID" >> .dev-server/spawned.pids`) and kill by `$PID`.
+A re-resolved `pgrep`/`pkill` can only *guess* which match is yours and will pick
+the wrong one — a production daemon on the same socket/port. Ephemeral test daemons
+are cheap; if you didn't capture the PID, **leave the process** for the user / OS
+rather than guess.
+
+**A cleanup kill that returns non-zero (e.g. exit 144 — `SIGKILL`+128, you killed
+your own process group) or visibly kills your own shell means you mismatched the
+target: STOP.** Do not "retry" it or run a broader pattern — re-check which PID you
+hit (`ps -p "$PID" -o pid,uptime,args`); a long uptime / low PID is production, not
+your seconds-old spawn. Re-running a substring kill after the first failure is how
+the production-kaval kill compounded.
 
 ## Acceptance (verify before declaring the app launched / torn down)
 

@@ -55,9 +55,15 @@ if (values.help) {
 }
 
 // pino to fd 2 (stderr) — NEVER stdout, which is the protocol channel in
-// --stdio mode. The level is env-tunable for field debugging.
+// --stdio mode. Over `--stdio` the daemon's stderr is forwarded to the dialing
+// viewer, so it defaults to `warn` there: a viewer (especially the alt-screen
+// `arivu-tui fleet` board) wants the daemon SILENT about routine info, not a
+// flood of "git watcher installed" lines crossing the wire onto its screen.
+// A real fatal still prints (the catch below writes a plain line, level-agnostic),
+// and the dial's failure reason is captured regardless. `ARIVU_LOG_LEVEL`
+// overrides for field debugging; the socket path keeps `info`.
 const log = pino(
-  { level: process.env.ARIVU_LOG_LEVEL ?? "info" },
+  { level: process.env.ARIVU_LOG_LEVEL ?? (values.stdio ? "warn" : "info") },
   pino.destination(2),
 );
 

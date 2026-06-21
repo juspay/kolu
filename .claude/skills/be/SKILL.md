@@ -112,7 +112,12 @@ green before capturing.
    absent).
 3. **Join before Done** — confirm CI is green on the final `HEAD` **and** evidence
    is posted. If a CI fix-commit changed visible behavior *after* capture,
-   re-capture so the evidence matches what actually merges.
+   re-capture so the evidence matches what actually merges. **Tearing down any
+   daemon you spawned for capture (a local kaval / arivu dialer, an ssh tunnel) is
+   governed by `/dev-server` §5** — kill the PID you captured at spawn (`$!`),
+   **never** `pgrep -f`/`pkill -f` a socket-path/port substring: it matches the
+   production kaval/kolu daemon, not your dialer. Cheaper still: leave the ephemeral
+   test daemon for the user / OS rather than guess a PID.
 
 ## Done
 
