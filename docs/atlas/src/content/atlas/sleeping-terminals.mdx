@@ -215,10 +215,16 @@ sites narrow, never coalesce.
 **<PrLink pr={1487} />.** Implemented exactly as planned: the one registry holds
 the `Terminal` union under a stable id (`TerminalProcess` is a discriminated
 process — the sleeping arm's PTY handle is *absent by type*), sleep flips in place
-persist-before-kill, wake re-spawns on the same id and replays `resumeAgentCommand`,
-and boot re-seeds sleeping records (adopt-or-reap). The journey e2e asserts the
-real outcomes — *wake resumes the same conversation*, *drag a dormant tile then
-reload*, *reboot then wake*, *reboot mid-sleep converges* — not counts.
+persist-before-kill, wake re-spawns on the same id and replays the **observed**
+`lastAgentCommand` through `resumeAgentCommand`, and boot re-seeds sleeping records
+(adopt-or-reap). The dormant tile surfaces the **last-known context** it was
+working — `cwd` and branch ride the persisted base, while the live PR is *snapshotted*
+onto the sleeping arm at sleep and discarded on wake (the PR sensor re-resolves it
+live). The journey e2e asserts the real outcomes — *wake resumes the same
+conversation*, *drag a dormant tile then reload*, *reboot then wake*, *reboot
+mid-sleep converges* — not counts. *(An agent launched through a `nix run …#agent`
+wrapper — whose observed head token is `nix`, not the agent — is not resumed on
+wake; it wakes to a bare shell, tracked as [#1492](https://github.com/juspay/kolu/issues/1492).)*
 
 <Callout kind="warn" title="Re-planned after a first cut (PR #1466, discarded)">
 The first Phase-2 implementation built the sleeping arm as an **immutable** record

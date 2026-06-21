@@ -97,10 +97,16 @@ sites narrow, never coalesce.</p>
 #1487 </a>.</strong> Implemented exactly as planned: the one registry holds
 the <code>Terminal</code> union under a stable id (<code>TerminalProcess</code> is a discriminated
 process — the sleeping arm’s PTY handle is <em>absent by type</em>), sleep flips in place
-persist-before-kill, wake re-spawns on the same id and replays <code>resumeAgentCommand</code>,
-and boot re-seeds sleeping records (adopt-or-reap). The journey e2e asserts the
-real outcomes — <em>wake resumes the same conversation</em>, <em>drag a dormant tile then
-reload</em>, <em>reboot then wake</em>, <em>reboot mid-sleep converges</em> — not counts.</p>
+persist-before-kill, wake re-spawns on the same id and replays the <strong>observed</strong>
+<code>lastAgentCommand</code> through <code>resumeAgentCommand</code>, and boot re-seeds sleeping records
+(adopt-or-reap). The dormant tile surfaces the <strong>last-known context</strong> it was
+working — <code>cwd</code> and branch ride the persisted base, while the live PR is <em>snapshotted</em>
+onto the sleeping arm at sleep and discarded on wake (the PR sensor re-resolves it
+live). The journey e2e asserts the real outcomes — <em>wake resumes the same
+conversation</em>, <em>drag a dormant tile then reload</em>, <em>reboot then wake</em>, <em>reboot
+mid-sleep converges</em> — not counts. <em>(An agent launched through a <code>nix run …#agent</code>
+wrapper — whose observed head token is <code>nix</code>, not the agent — is not resumed on
+wake; it wakes to a bare shell, tracked as <a href="https://github.com/juspay/kolu/issues/1492">#1492</a>.)</em></p>
 <aside class="callout callout-warn" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Re-planned after a first cut (PR #1466, discarded)</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>The first Phase-2 implementation built the sleeping arm as an <strong>immutable</strong> record
 minted with a <strong>fresh id</strong> into a <strong>separate store</strong>. Hands-on testing surfaced two
 bugs in a minute — you couldn’t <strong>drag</strong> a sleeping tile, and <strong>waking</strong> one didn’t
