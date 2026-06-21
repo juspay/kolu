@@ -21,7 +21,7 @@
  * link.
  */
 
-import { agentCommandForKind } from "anyagent/cli";
+import { agentCommandForKind, resumeAgentCommand } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
@@ -826,9 +826,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  base rides through WHOLE (theme/layout/intent/git/lastAgentCommand); only the
    *  live overlay is re-derived by the sensors. Returns the active info, or
    *  undefined when `id` is not a sleeping terminal. */
-  wake(id: TerminalId, resumeCommand: string | null): TerminalInfo | undefined {
+  wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
+    // Render the resume FORM from the sleeping arm's captured resume input
+    // (`resumeAgentCommand`: claude `-c`, codex `resume --last`, opencode
+    // `--continue`), or null for a never-ran / non-resumable agent. Both halves
+    // of "how does a slept agent resume?" — input selection at sleep, form
+    // rendering at wake — live in the two arms of the sleeping lifecycle here.
+    const resumeCommand = entry.meta.resumeCommand
+      ? resumeAgentCommand(entry.meta.resumeCommand)
+      : null;
     const meta = wakeMeta(entry.meta);
     log
       .child({ terminal: id })
@@ -930,13 +938,10 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
   return localEndpointImpl.releaseSleptPty(id);
 }
 
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, replaying
- *  `resumeCommand` (the `resumeAgentCommand` form, or null). */
-export function wakeLocalTerminal(
-  id: TerminalId,
-  resumeCommand: string | null,
-): TerminalInfo | undefined {
-  return localEndpointImpl.wake(id, resumeCommand);
+/** Wake a sleeping terminal: flip to active + re-spawn on the same id, self-deriving
+ *  the resume form from the sleeping arm's captured `resumeCommand`. */
+export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
+  return localEndpointImpl.wake(id);
 }
 
 /** Discard a sleeping terminal's record (no PTY to kill). */

@@ -15,7 +15,6 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import { resumeAgentCommand } from "anyagent/cli";
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
@@ -128,18 +127,12 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
   await releaseSleptLocalPty(id);
 }
 
-/** Wake a sleeping terminal — session-restore-of-one. Reuse the persisted
- *  `lastAgentCommand` to build the resume form (`resumeAgentCommand`: claude
- *  `-c`, codex `resume --last`, opencode `--continue`), so the agent resumes
- *  exactly as a reboot would; the endpoint re-spawns the PTY on the same id and
- *  replays it. Returns the active info, or undefined if `id` is not sleeping. */
+/** Wake a sleeping terminal — session-restore-of-one. The endpoint self-derives
+ *  the resume form from the sleeping arm's captured `resumeCommand`, re-spawns
+ *  the PTY on the same id and replays it. Returns the active info, or undefined
+ *  if `id` is not sleeping. */
 export function wakeTerminal(id: TerminalId): TerminalInfo | undefined {
-  const entry = getTerminal(id);
-  if (!entry || entry.meta.state !== "sleeping") return undefined;
-  const resume = entry.meta.lastAgentCommand
-    ? resumeAgentCommand(entry.meta.lastAgentCommand)
-    : null;
-  return wakeLocalTerminal(id, resume);
+  return wakeLocalTerminal(id);
 }
 
 /** Discard a sleeping terminal — remove its record (no PTY to kill). Serves both
