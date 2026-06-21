@@ -85,6 +85,14 @@ browser.")
 - **VIDEO** — motion is the point: a transition, a multi-step flow, a live update, latency-to-
   payoff, an animation, a drag/resize. You need to *watch it happen.*
 
+> **A value-over-time display is MOTION, never a single moment.** If the element's *job* is to
+> change on its own — a running timer, "Running for" / relative-time / "last seen" string,
+> countdown, live counter, progress that advances, a tick at some cadence — classify it VIDEO and
+> *watch it tick*. A still of `Running for 0s` is structurally blind to the actual defect: a frozen
+> clock and a live one are pixel-identical in one frame, so a screenshot can never prove the tick
+> fires at the cadence the displayed precision implies (seconds shown ⇒ must update every second).
+> Classify by what the element *does over time*, not by what the panel looks like at one instant.
+
 Image and video are **co-equal first-class outputs.** A screenshot is a complete deliverable, not a
 runner-up to video. (A before↔after of a *static* change is two stills; only reach for two clips
 when the difference is itself motion — e.g. an animation-timing change.)

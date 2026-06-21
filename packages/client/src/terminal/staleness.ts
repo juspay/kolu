@@ -17,6 +17,8 @@
 
 import { type Accessor, createSignal, onCleanup } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
+import { getClockNow } from "../time/clock";
+import { compactDelta } from "../time/duration";
 import {
   activityWindowThresholdMs,
   type IdleBucketKey,
@@ -86,17 +88,36 @@ export function useIdleClassifier(): (
   };
 }
 
+/** Compact forward duration: "12s" / "5m" / "2h" / "3d". Single-unit and
+ *  coarse — it renders only the dominant tier of the shared {@link compactDelta}
+ *  ladder. Driven live by `useDuration`'s 1s clock, so the sub-minute seconds
+ *  tier counts up; the coarser tiers change at most once a minute. */
+export function formatDuration(ms: number): string {
+  const { value, unit } = compactDelta(ms);
+  return `${value}${unit}`;
+}
+
+/** Reactive elapsed-since formatter. Returns a function consumers call with a
+ *  start timestamp — invoking it inside a tracking context (JSX, `createMemo`)
+ *  subscribes to the shared **1s** clock, so a "Running for" readout counts up
+ *  live (`1s → 2s → …`) through its sub-minute window. The 1s cadence (not
+ *  staleness's 60s `getNowTicker`) is what `formatDuration`'s seconds tier
+ *  needs; past a minute the per-second recompute yields the same string, a
+ *  no-op SolidJS skips, and the clock is the one the chrome-bar uptime already
+ *  runs — no new timer. */
+export function useDuration(): (startedAtMs: number) => string {
+  const tick = getClockNow();
+  return (startedAtMs) => formatDuration(tick() - startedAtMs);
+}
+
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
- *  (= "no agent transition observed yet"). Plain `Date.now()` read,
- *  not reactive: tooltips and hover panels recompute on mount, which is
- *  finer-grained than the 60s tick anyway. */
+ *  (= "no agent transition observed yet"), "just now" under a minute. Single-
+ *  unit "ago" suffix over the shared {@link compactDelta} ladder. Plain
+ *  `Date.now()` read, not reactive: tooltips and hover panels recompute on
+ *  mount, which is finer-grained than the 60s tick anyway. */
 export function formatTimeAgo(ts: number): string {
   if (ts === 0) return "";
-  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
+  const { value, unit } = compactDelta(Date.now() - ts);
+  if (unit === "s") return "just now";
+  return `${value}${unit} ago`;
 }

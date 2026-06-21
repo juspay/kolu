@@ -2,8 +2,8 @@
  *  layouts: the phone's left-edge swipe drawer (inlined in `MobileTileView`)
  *  and the compact layout's persistent left rail (`CompactTileView`).
  *
- *  Rows match the desktop bare-dock layout — `[agent] branch [pips] time` over a
- *  CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
+ *  Rows match the desktop bare-dock layout — `[activity] [agent] branch [pips] time`
+ *  over a CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
  *  Android 44-48 px minimum. No reply input and no xterm buffer tail; the user's
  *  intent here is "switch to that other terminal", not "respond inline".
  *
@@ -21,12 +21,22 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
-import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
+import {
+  DOCK_CARDS_SUBGRID_LEFT_RESTORE,
+  DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GRID_TOUCH,
+} from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
-import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
+import {
+  ActivityPip,
+  createDockRowData,
+  PrPip,
+  StatePip,
+  SubCountCell,
+} from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -66,9 +76,11 @@ function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
-  // Subgrid container — same shape as the desktop dock. Four cols:
-  // agent · branch · sub-count · time. PR pip lives on line 2 (left)
-  // alongside the subline, anchored to col 2 left edge so PR icons
+  // Subgrid container — same shape as the desktop dock. Five cols:
+  // activity · agent · branch · sub-count · time. The leading 12px
+  // activity track is fixed (not `auto`) so the live dot never shifts
+  // the agent column. PR pip lives on line 2 (left) alongside the
+  // subline, anchored to the branch column's left edge so PR icons
   // align across every section.
   //
   // Right gutter (`pr-3` / `-mr-3`) happens to match the desktop
@@ -81,7 +93,7 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class="dock-cards-section grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
+      class={`dock-cards-section grid ${DOCK_ROW_GRID_TOUCH} gap-x-3 pl-6 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
@@ -112,8 +124,8 @@ function DockListSection(props: {
 }
 
 /** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
- *  (two-line subgrid, agent slot + branch + sub-count + time on
- *  line 1, PR pip + subline on line 2); the two diverge on touch
+ *  (two-line subgrid, activity + agent slot + branch + sub-count +
+ *  time on line 1, PR pip + subline on line 2); the two diverge on touch
  *  target sizing, the Corvu drag-to-dismiss pointer-down trap, and
  *  the absence of a `Cmd+N` shortcut hint. Update both files when
  *  row geometry changes. */
@@ -166,6 +178,7 @@ function DockListRow(props: {
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
           classList={{ "opacity-70": props.bucket === "sleeping" }}
         >
+          <ActivityPip id={props.id} />
           <StatePip bucket={props.bucket} unread={unread()} />
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
@@ -178,17 +191,20 @@ function DockListRow(props: {
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — same dot/timestamp swap and no-reflow width as the
-           *  desktop dock, shared via RecencyCell. */}
+          {/* Recency cell — "Xs ago", same no-reflow width as the desktop
+           *  dock, shared via RecencyCell. Live signal rides the leading
+           *  ActivityPip column. */}
           <RecencyCell
-            id={props.id}
             lastActivityAt={c().meta.lastActivityAt}
             textSize="text-[0.65rem]"
           />
-          {/* Second line — flex row spanning col 2 → end. PR pip on
-           *  the left (anchored to col 2 left edge so it aligns
-           *  across every section), subline text following. */}
-          <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+          {/* Second line — flex row spanning the branch column → end.
+           *  PR pip on the left (anchored to the branch column's left
+           *  edge so it aligns across every section), subline text
+           *  following. */}
+          <div
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+          >
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}

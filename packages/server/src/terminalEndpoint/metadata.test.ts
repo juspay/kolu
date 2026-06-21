@@ -110,6 +110,7 @@ describe("metadata publish routing", () => {
         taskProgress: null,
         workflow: null,
         contextTokens: null,
+        startedAt: null,
       };
     });
     await settle();

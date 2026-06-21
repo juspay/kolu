@@ -7,6 +7,7 @@ import {
   deriveTaskProgress,
   encodeProjectPath,
   extractTasks,
+  firstTranscriptTimestampMs,
   INTERRUPT_TEXT_PREFIX,
   INTERRUPT_TOOL_RESULT_PREFIX,
   outstandingBackgroundTasks,
@@ -1022,6 +1023,61 @@ describe("tailJsonlLines", () => {
     fs.writeFileSync(filePath, line);
     const result = tailJsonlLines(filePath, 16_384);
     expect(result).toEqual([line]);
+  });
+});
+
+describe("firstTranscriptTimestampMs", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-first-ts-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns the FIRST entry's timestamp — conversation start, not the tail", () => {
+    const filePath = path.join(tmpDir, "convo.jsonl");
+    const first = "2026-06-20T10:00:00.000Z";
+    const last = "2026-06-20T12:30:00.000Z";
+    fs.writeFileSync(
+      filePath,
+      `${[
+        JSON.stringify({ type: "user", timestamp: first }),
+        JSON.stringify({
+          type: "assistant",
+          timestamp: last,
+          message: { stop_reason: "end_turn" },
+        }),
+      ].join("\n")}\n`,
+    );
+    expect(firstTranscriptTimestampMs(filePath)).toBe(Date.parse(first));
+  });
+
+  it("skips leading entries that lack a parseable timestamp", () => {
+    const filePath = path.join(tmpDir, "meta-first.jsonl");
+    const ts = "2026-06-20T10:00:00.000Z";
+    fs.writeFileSync(
+      filePath,
+      `${[
+        JSON.stringify({ type: "summary" }), // no timestamp
+        JSON.stringify({ type: "user", timestamp: ts }),
+      ].join("\n")}\n`,
+    );
+    expect(firstTranscriptTimestampMs(filePath)).toBe(Date.parse(ts));
+  });
+
+  it("returns null for an absent file (brand-new session, no transcript yet)", () => {
+    expect(
+      firstTranscriptTimestampMs(path.join(tmpDir, "nope.jsonl")),
+    ).toBeNull();
+  });
+
+  it("returns null when no leading entry carries a timestamp", () => {
+    const filePath = path.join(tmpDir, "no-ts.jsonl");
+    fs.writeFileSync(filePath, `${JSON.stringify({ type: "summary" })}\n`);
+    expect(firstTranscriptTimestampMs(filePath)).toBeNull();
   });
 });
 

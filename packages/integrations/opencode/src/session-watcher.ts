@@ -17,6 +17,7 @@ import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   deriveSessionState,
   getLatestAssistantContextTokens,
+  getSessionStartedAt,
   getSessionTaskProgress,
   getSessionTitle,
   type OpenCodeSession,
@@ -56,6 +57,11 @@ export function createOpenCodeWatcher(
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
+  // Session start time = the earliest message's `time_created`, immutable once
+  // a message exists. Resolve it lazily and cache: null until the first message
+  // lands, then the indexed query never runs again for this watcher.
+  let startedAt: number | null = null;
+
   function refresh(db: DatabaseSync): OpenCodeInfo | null {
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
@@ -86,6 +92,7 @@ export function createOpenCodeWatcher(
     // state). Using derived.state's single-message lens would blank the
     // count whenever the user is typing.
     const contextTokens = getLatestAssistantContextTokens(session.id, log, db);
+    startedAt ??= getSessionStartedAt(session.id, log, db);
 
     return {
       kind: "opencode",
@@ -95,6 +102,7 @@ export function createOpenCodeWatcher(
       summary,
       taskProgress,
       contextTokens,
+      startedAt,
     };
   }
 

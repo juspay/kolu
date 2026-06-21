@@ -12,6 +12,7 @@ import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
+import { useDuration } from "../terminal/staleness";
 import {
   agentIcons,
   agentNames,
@@ -29,6 +30,9 @@ const MetadataInspector: Component<{
   themeName?: string;
   onThemeClick?: () => void;
 }> = (props) => {
+  // Reactive elapsed-since formatter for the agent's "Running for" row; reads
+  // the shared 60s tick so it advances on its own while the panel is open.
+  const runningFor = useDuration();
   return (
     <Show
       when={props.meta}
@@ -182,6 +186,15 @@ const MetadataInspector: Component<{
                   <Row label="State" variant="badge">
                     {stateLabels[agent().state] ?? agent().state}
                   </Row>
+                  <Show when={agent().startedAt}>
+                    {(startedAt) => (
+                      <Row label="Running for">
+                        <span class="font-mono text-fg">
+                          {runningFor(startedAt())}
+                        </span>
+                      </Row>
+                    )}
+                  </Show>
                   <Show when={agent().summary}>
                     {(summary) => (
                       <Row label="Task">

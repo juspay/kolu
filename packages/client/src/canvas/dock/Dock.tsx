@@ -26,8 +26,13 @@
  *     row count) that pins to the scrollport top until the next
  *     repo's header pushes it off — so a row's repo is legible at a
  *     glance and the label survives the scroll. Rows below stack as
- *     `state · branch · pips · time` lines. The first-column **state pip** (`StatePip`) encodes
- *     urgency by shape: filled orange disk + pulse for unread
+ *     `activity · state · branch · pips · time` lines. The leading
+ *     **activity pip** (`ActivityPip`) is a soft green pulse while the
+ *     terminal streams output and nothing otherwise — the orthogonal
+ *     "moving bytes right now" axis, sitting in a fixed-width reserved
+ *     column so its presence never shifts the pips to its right. The
+ *     **state pip** (`StatePip`) beside it encodes agent urgency by
+ *     shape: filled orange disk + pulse for unread
  *     attention, dim small disk for already-seen awaiting, hollow
  *     spinning ring for working, muted dot for idle, nothing for
  *     parked/none. Agent kind is not surfaced here — it lives on
@@ -78,6 +83,8 @@ import {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
+  DOCK_ROW_BRANCH_COL,
+  DOCK_ROW_GRID_DESKTOP,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -87,7 +94,13 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
-import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
+import {
+  ActivityPip,
+  createDockRowData,
+  PrPip,
+  StatePip,
+  SubCountCell,
+} from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -347,21 +360,23 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => (
-  // Section is the grid container. Four columns: agent · branch ·
-  // sub-count · time. PR pip is NOT a grid column — it lives inline
-  // on line 2 (left of the subline text), so its X-position is
-  // anchored to col 2's left edge and stays consistent across every
-  // section regardless of how the right-side columns sized
-  // themselves. Branch is `minmax(0,1fr)` so it stretches and
-  // truncates; sub-count and time are `auto`, so an empty sub-count
-  // column collapses to 0 and gives its width back to the branch.
-  // Each DockRow is a subgrid item that inherits these columns,
-  // keeping the icons aligned vertically across rows in one section.
+  // Section is the grid container. Five columns: activity · agent ·
+  // branch · sub-count · time. The leading activity column is a fixed
+  // 12px reserved track (not `auto`) so the live dot's presence never
+  // shifts the StatePip column — pips stay aligned across rows whether
+  // or not each is streaming. PR pip is NOT a grid column — it lives
+  // inline on line 2 (left of the subline text), anchored to the branch
+  // column's left edge so its X stays consistent across every section.
+  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
+  // and time are `auto`, so an empty sub-count column collapses to 0 and
+  // gives its width back to the branch. Each DockRow is a subgrid item
+  // that inherits these columns, keeping the icons aligned vertically
+  // across rows in one section.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID_DESKTOP} gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
     {/* Header is a sticky band tinted with the repo colour (see
      *  `.dock-cards-section-header`), riding above the repo-colour
@@ -403,11 +418,12 @@ const RepoSection: Component<{
 
 /** A row in cards mode — two lines:
  *
- *    Line 1: `agent · branch · sub-count · time`
- *    Line 2: `[PR pip] subline`  (col 2 → end)
+ *    Line 1: `activity · agent · branch · sub-count · time`
+ *    Line 2: `[PR pip] subline`  (branch col → end)
  *
- *  The PR pip rides on line 2 at the leftmost X (anchored to col 2's
- *  left edge) so PR icons align across every section. Sub-count cell
+ *  The PR pip rides on line 2 at the leftmost X (anchored to the
+ *  branch column's left edge, col 3) so PR icons align across every
+ *  section. Sub-count cell
  *  is empty when the row has none, collapsing the column back into
  *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock
@@ -473,6 +489,7 @@ const DockRow: Component<{
           classList={{ "opacity-70": props.bucket === "sleeping" }}
           title="Jump to this terminal"
         >
+          <ActivityPip id={props.id} />
           <StatePip bucket={props.bucket} unread={unread()} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
@@ -485,11 +502,10 @@ const DockRow: Component<{
             />
           </span>
           <SubCountCell subCount={c().info.subCount} />
-          {/* Recency cell — "Xs ago", swapped for the live dot while streaming.
-           *  Shared with the touch drawer; the no-reflow width contract lives
-           *  in RecencyCell. */}
+          {/* Recency cell — "Xs ago". Shared with the touch drawer; the
+           *  no-reflow width contract lives in RecencyCell. The live signal
+           *  rides the leading ActivityPip column, not here. */}
           <RecencyCell
-            id={props.id}
             lastActivityAt={c().meta.lastActivityAt}
             textSize="text-[0.6rem]"
           />
@@ -502,13 +518,15 @@ const DockRow: Component<{
               {props.flatIndex + 1}
             </span>
           </Show>
-          {/* Second line — flex row spanning col 2 → end. Leads with
-           *  the PR pip (left edge anchored to col 2 left, so PR
-           *  icons align across every section) followed by the
-           *  subline text (agent summary / state, or foreground
-           *  process title, or an invisible placeholder keeping the
-           *  row two-line tall). */}
-          <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+          {/* Second line — flex row spanning the branch column → end.
+           *  Leads with the PR pip (left edge anchored to the branch
+           *  column's left, so PR icons align across every section)
+           *  followed by the subline text (agent summary / state, or
+           *  foreground process title, or an invisible placeholder
+           *  keeping the row two-line tall). */}
+          <div
+            class={`${DOCK_ROW_BRANCH_COL} col-end-[-1] flex items-center gap-1.5 min-w-0`}
+          >
             <PrPip meta={c().meta} />
             <Show
               when={rowSubline(c().meta)}

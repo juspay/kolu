@@ -34,6 +34,10 @@ export const OpenCodeInfoSchema = z.object({
    *  Null when the latest message is a user turn or the agent has not
    *  yet produced an assistant reply. */
   contextTokens: z.number().nullable(),
+  /** Epoch-ms the session began — the `time_created` of its earliest
+   *  message (one indexed query). Null until the first message lands.
+   *  Drives the inspector's "Running for" elapsed display. */
+  startedAt: z.number().nullable(),
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;

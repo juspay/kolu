@@ -12,9 +12,9 @@
  *
  * Info equality is deliberately NOT part of this interface — it's a property
  * of the AgentInfo union shape, exposed as the free function `agentInfoEqual`
- * below. All concrete AgentInfo variants share the same 5-field shape today
- * (state, sessionId, model, summary, taskProgress), so one equality function
- * suffices for every adapter.
+ * below. All concrete AgentInfo variants share the fields modeled by
+ * `AgentInfoShape` (see its definition for the canonical field set), so one
+ * equality function suffices for every adapter.
  */
 
 import type { Logger } from "kolu-shared";
@@ -69,6 +69,16 @@ export interface AgentInfoShape {
    *  `message.usage`; OpenCode reads `tokens.total` from the latest
    *  assistant message. Both collapse to the same scalar meaning. */
   contextTokens: number | null;
+  /** Epoch-ms the conversation began — one shared meaning across integrations:
+   *  the age of the conversation/thread, which SURVIVES a resume (it is not the
+   *  current process's uptime). Each reads it from its own on-disk anchor:
+   *  Claude Code's transcript first-entry `timestamp`; Codex's uuidv7 thread-id
+   *  timestamp (thread creation); OpenCode's earliest message `time_created`.
+   *  Null until resolvable — no message yet, or an id we can't decode. Immutable
+   *  once set; drives the inspector's "Running for" elapsed display. Compared in
+   *  `agentInfoEqual` so its first resolution dispatches even if nothing else
+   *  changed. */
+  startedAt: number | null;
 }
 
 /** Agent-detection contract. Type parameters: `Session` is the adapter's
@@ -190,10 +200,12 @@ export function matchesAgent(
   );
 }
 
-/** Structural equality over the shared 5-field AgentInfo shape, plus `kind`.
- *  One implementation serves every adapter — if a new integration wants a
- *  different equality contract, its Info shape is out of bounds anyway and
- *  needs to be addressed schema-side, not by forking the comparator. */
+/** Structural equality over every field of the shared `AgentInfoShape` (see
+ *  its definition for the canonical field set; `taskProgress` compared
+ *  deep, the rest by identity). One implementation serves every adapter — if
+ *  a new integration wants a different equality contract, its Info shape is
+ *  out of bounds anyway and needs to be addressed schema-side, not by forking
+ *  the comparator. */
 export function agentInfoEqual<A extends AgentInfoShape>(
   a: A | null,
   b: A | null,
@@ -206,6 +218,7 @@ export function agentInfoEqual<A extends AgentInfoShape>(
   if (a.model !== b.model) return false;
   if (a.summary !== b.summary) return false;
   if (a.contextTokens !== b.contextTokens) return false;
+  if (a.startedAt !== b.startedAt) return false;
   return taskProgressEqual(a.taskProgress, b.taskProgress);
 }
 

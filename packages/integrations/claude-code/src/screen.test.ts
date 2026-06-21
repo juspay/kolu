@@ -265,6 +265,7 @@ function waitingInfo(): ClaudeCodeInfo {
     taskProgress: null,
     workflow: null,
     contextTokens: 1234,
+    startedAt: null,
   };
 }
 
