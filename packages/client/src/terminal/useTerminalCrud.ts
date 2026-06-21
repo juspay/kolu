@@ -23,8 +23,9 @@ import { useTerminalStore } from "./useTerminalStore";
  *  internally (no `deps` argument), so consumers that already touch the store
  *  — `TileTitleActions`, `TerminalContent` — can call `useTerminalCrud()`
  *  directly instead of receiving crud-derived closures drilled from App.tsx.
- *  Mirrors the `useIntentEditor` de-deps: the old `{ store }` argument was an
- *  unenforceable "deps never change identity" convention held by a comment. */
+ *  The old `{ store }` argument was an unenforceable "deps never change
+ *  identity" convention held only by a comment; reading the store internally
+ *  retires it. */
 export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
   const subPanel = useSubPanel();

@@ -12,7 +12,13 @@
  *  the autosave round-trips back through the metadata stream. Writes flow OUT
  *  via the debounced `setNotes` RPC; the server's own 500ms autosave then
  *  lands them on disk. Pending edits are flushed on terminal switch, on blur,
- *  and on unmount so a quick "type then navigate away" never drops the tail. */
+ *  and on unmount so a quick "type then navigate away" never drops the tail.
+ *
+ *  The "saved" marker (`savedValue`) only advances when a `setNotes` RPC
+ *  actually resolves — never optimistically. A failed save therefore leaves the
+ *  draft dirty (footer stays "Saving…", a retry is allowed), and a generation
+ *  counter keeps two in-flight saves that resolve out of order from letting an
+ *  older draft overwrite a newer one. */
 
 import { debounce } from "@solid-primitives/scheduled";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -74,18 +80,41 @@ const NotesTab: Component<{
 
   const [textareaRef, setTextareaRef] = createSignal<HTMLTextAreaElement>();
   const [draft, setDraft] = createSignal("");
-  // The value last sent to the server for the *current* terminal — a signal so
-  // the autosave indicator and the dirty check below stay reactive.
+  // The value the server has *confirmed* for the current terminal — a signal so
+  // the autosave indicator and the dirty check below stay reactive. Advanced
+  // only when a `setNotes` RPC resolves, never optimistically: a failed save
+  // must leave the draft dirty so blur/unmount/next-keystroke retries it and
+  // the footer keeps reading "Saving…" instead of lying "Autosaved".
   const [savedValue, setSavedValue] = createSignal("");
   const dirty = () => draft() !== savedValue();
 
+  // Monotonic save generation. Each `persist` claims the next number; only the
+  // newest in-flight save is allowed to advance `savedValue` on success, so two
+  // RPCs that resolve out of order can't let an older draft win over a newer one.
+  let saveGen = 0;
+  // The last text handed to an RPC (regardless of whether it has resolved yet).
+  // Gates `flush` so blur/switch/unmount don't re-fire a write already in flight
+  // for the same text — without coupling that gate to the *confirmed*
+  // `savedValue`, which now only moves on success.
+  let lastSent = "";
+
   const persist = (id: TerminalId, text: string) => {
-    setSavedValue(text);
+    const gen = ++saveGen;
+    lastSent = text;
     void client.terminal
       .setNotes({ id, notes: text })
-      .catch((err: Error) =>
-        toast.error(`Failed to save notes: ${err.message}`),
-      );
+      .then(() => {
+        // A newer save superseded this one mid-flight — its result is the
+        // source of truth, so drop this stale ack.
+        if (gen === saveGen) setSavedValue(text);
+      })
+      .catch((err: Error) => {
+        // Leave the draft dirty: this text is no longer the confirmed value, so
+        // a retry must be allowed. Re-arm `lastSent` only if no newer save has
+        // since claimed the wire, so the next flush/keystroke re-sends it.
+        if (gen === saveGen) lastSent = savedValue();
+        toast.error(`Failed to save notes: ${err.message}`);
+      });
   };
 
   const scheduleSave = debounce(
@@ -94,10 +123,11 @@ const NotesTab: Component<{
   );
 
   /** Cancel any pending debounced write and persist the current draft right
-   *  now if it diverged — used on terminal switch, blur, and unmount. */
+   *  now if it diverged from what's already on (or heading to) the server —
+   *  used on terminal switch, blur, and unmount. */
   const flush = (id: TerminalId | null) => {
     scheduleSave.clear();
-    if (id !== null && dirty()) persist(id, draft());
+    if (id !== null && draft() !== lastSent) persist(id, draft());
   };
 
   // Seed the draft when the active terminal changes — and ONLY then. Binding
@@ -110,6 +140,7 @@ const NotesTab: Component<{
       (_id, prevId) => {
         if (prevId) flush(prevId);
         const seed = props.meta?.notes ?? "";
+        lastSent = seed;
         setSavedValue(seed);
         setDraft(seed);
       },

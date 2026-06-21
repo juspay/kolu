@@ -6,7 +6,7 @@
  *
  * Client-facing per-terminal metadata setters (`setTerminalParent`,
  * `setCanvasLayout`, `setSubPanelState`, `setRightPanelState`,
- * `setTerminalTheme`, `setTerminalIntent`) live here because they're
+ * `setTerminalTheme`, `setTerminalNotes`) live here because they're
  * endpoint-agnostic — they mutate the in-registry entry through the
  * narrowed `updateClientMetadata` helper, which publishes through the
  * same metadata channel regardless of which endpoint owns the terminal.
@@ -18,6 +18,7 @@
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
+  notesModeOf,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalId,
@@ -202,11 +203,17 @@ export function setRightPanelState(
   });
 }
 
-function rightPanelStateEqual(
+/** Equality guard for `setRightPanelState`'s publish gate. Exported for the
+ *  regression test that a notesMode-only toggle is detected (not swallowed). */
+export function rightPanelStateEqual(
   a: RightPanelPerTerminalState,
   b: RightPanelPerTerminalState,
 ): boolean {
   if (a.activeTab !== b.activeTab || a.codeMode !== b.codeMode) return false;
+  // Resolve the optional `notesMode` through its single default site so an
+  // explicit "edit" and an absent field compare equal (and a real Edit↔Preview
+  // toggle is still detected and published).
+  if (notesModeOf(a) !== notesModeOf(b)) return false;
   const am = a.selectedFileByMode;
   const bm = b.selectedFileByMode;
   if (am === bm) return true;

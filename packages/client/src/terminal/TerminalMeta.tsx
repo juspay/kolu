@@ -108,12 +108,12 @@ const TerminalMeta: Component<{
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole notes affordance regardless of git state. */}
           <div class="flex items-center gap-1.5 min-w-0 text-xs">
-            {/* Agent-state pip leading the branch/intent annotation —
+            {/* Agent-state pip leading the branch/notes annotation —
              *  the same shape-distinct StatePip the dock row leads its
              *  annotation line with (spinning ring = working, dot =
              *  awaiting), reused verbatim so a working/awaiting agent
              *  reads identically in the title and the dock, and sits
-             *  beside the same branch/intent context it does there.
+             *  beside the same branch/notes context it does there.
              *  Gated on a live agent: when none is attached the title
              *  shows no pip (exactly as its agent-kind indicator vanishes
              *  when the session ends), leaving the dock's idle/parked

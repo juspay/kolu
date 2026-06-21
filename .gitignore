@@ -27,5 +27,6 @@ packages/client/public/fonts
 .dev-server/
 # /be review gauntlet: per-worktree scratch (reviewer comment artifacts)
 .be-review-comments/
+.be-review/
 # /self-improve skill: per-worktree scratch (mined transcript signals)
 .self-improve/

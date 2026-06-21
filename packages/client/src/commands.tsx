@@ -265,7 +265,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // merely `activeId() !== null`, which is also true for a SLEEPING tile
           // (F3). A sleeping parent would otherwise sprout an active sub-terminal
           // `TerminalContent` hides behind the dormant body, and copy/screenshot
-          // would hit a PTY-less tile. Sleep/Wake/Close/theme/intent above stay on
+          // would hit a PTY-less tile. Sleep/Wake/Close/theme/notes above stay on
           // both arms (they touch persisted fields, not a live PTY).
           ...(activeArm(deps.activeMeta())
             ? [
