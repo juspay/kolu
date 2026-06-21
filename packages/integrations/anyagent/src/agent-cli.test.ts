@@ -402,25 +402,27 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     );
   });
 
-  // Fallback policy: an id that fails its per-agent shape gate (would-be shell
-  // injection, wrong format, empty) must NOT splice — fall back to most-recent.
+  // A SAME-agent ref whose id fails its per-agent shape gate (would-be shell
+  // injection, wrong format, empty) is a BROKEN claim to know the conversation:
+  // never splice it, and never silently downgrade to the most-recent (wrong)
+  // conversation either. `resumeAgentCommand` returns null so the terminal wakes
+  // to a bare shell rather than landing in a stranger's conversation.
   it.each([
-    ["claude", { kind: "claude-code", id: "not-a-uuid" }, "claude -c"],
-    ["claude", { kind: "claude-code", id: "" }, "claude -c"],
+    ["claude", { kind: "claude-code", id: "not-a-uuid" }],
+    ["claude", { kind: "claude-code", id: "" }],
     [
       // a hostile id carrying shell metacharacters never reaches the command
       "claude",
       { kind: "claude-code", id: "$(rm -rf ~)" },
-      "claude -c",
     ],
-    ["codex", { kind: "codex", id: "ses_wrongshape" }, "codex resume --last"],
+    ["codex", { kind: "codex", id: "ses_wrongshape" }],
     [
+      // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
       "opencode",
       { kind: "opencode", id: "11111111-2222-3333-4444-555555555555" },
-      "opencode --continue",
     ],
-  ] as const)("rejects a malformed id and falls back: %j + %j → %j", (normalized, session, expected) => {
-    expect(resumeAgentCommand(normalized, session)).toBe(expected);
+  ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
+    expect(resumeAgentCommand(normalized, session)).toBeNull();
   });
 
   // No ref at all → unchanged most-recent behavior (back-compat with callers

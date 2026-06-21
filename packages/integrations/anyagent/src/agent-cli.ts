@@ -261,12 +261,20 @@ export function parseAgentCommand(raw: string): string | null {
  * if the agent is in the allowlist but not the resume table. Input is
  * assumed already normalized — callers should not pass raw user input.
  *
- * With a `session` ref that names this SAME agent and carries a shell-safe id,
- * resume the EXACT conversation (`claude --resume <id>`, etc., juspay/kolu#1495).
- * Otherwise — no ref, a ref for a different agent, or an id that fails its shape
- * gate — fall back to the most-recent marker (`claude -c`, etc.). The fallback is
- * the locked policy: never resume a *wrong* conversation, but don't regress the
- * common one-conversation-per-cwd case when no id was captured.
+ * Marker selection (three disjoint cases, never silently the wrong one):
+ *   - SAME-agent ref + shell-safe id → resume the EXACT conversation
+ *     (`claude --resume <id>`, etc., juspay/kolu#1495).
+ *   - SAME-agent ref but the id FAILS its shape gate → return `null`. A captured
+ *     id for THIS agent that no longer matches its pattern means our claim to know
+ *     the conversation is broken (corrupt persisted state, parser drift, an
+ *     upstream CLI changing its id format). Quietly resuming the most-recent
+ *     conversation in the cwd would reintroduce the exact bug #1495 fixes — land
+ *     in a *stranger's* conversation. So we refuse to resume at all: the terminal
+ *     wakes to a bare shell (loud by absence), same as a never-observed agent,
+ *     rather than the wrong conversation.
+ *   - no ref, or a ref for a DIFFERENT agent → fall back to the most-recent
+ *     marker (`claude -c`, etc.). This is the compatibility path for terminals
+ *     that captured no id; it never aims an id at the wrong CLI.
  */
 export function resumeAgentCommand(
   normalized: string,
@@ -283,18 +291,26 @@ export function resumeAgentCommand(
   if (head === undefined || !(head in AGENT_RESUME)) return null;
   const agent = head as ResumableAgent;
   const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
-
-  // Resume the EXACT conversation only when the ref names this same agent (so
-  // the id is never aimed at the wrong CLI) AND the id passes its shell-inert
-  // shape gate. `shellJoin([id])` quotes the id as a single token — a no-op for
-  // a gate-passing id, but it keeps the "data, not shell text" intent explicit.
   const policy = AGENT_RESUME[agent];
-  const marker =
-    session !== undefined &&
-    session.kind === BASENAME_TO_KIND[agent] &&
-    policy.idPattern.test(session.id)
-      ? policy.byId(shellJoin([session.id]))
-      : policy.last;
+
+  // Does the ref name THIS agent? If so, its id is a claim to know the exact
+  // conversation that must be honored or refused — never silently downgraded.
+  const isSameAgentRef =
+    session !== undefined && session.kind === BASENAME_TO_KIND[agent];
+
+  let marker: string;
+  if (isSameAgentRef) {
+    // Same-agent ref: resume the EXACT conversation iff the id passes its
+    // shell-inert shape gate. `shellJoin([id])` quotes the id as a single token —
+    // a no-op for a gate-passing id, but it keeps the "data, not shell text"
+    // intent explicit. A malformed id is a broken claim → refuse to resume
+    // (return null) rather than fall back to the most-recent (wrong) conversation.
+    if (!policy.idPattern.test(session.id)) return null;
+    marker = policy.byId(shellJoin([session.id]));
+  } else {
+    // No ref, or a ref for a different agent: most-recent fallback (no id to aim).
+    marker = policy.last;
+  }
 
   return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }
