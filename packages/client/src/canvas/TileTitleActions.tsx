@@ -10,6 +10,7 @@
 
 import { activeArm, type TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { DEFAULT_THEME_NAME } from "terminal-themes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -42,8 +43,17 @@ const TileTitleActions: Component<{
   const { showTipOnce } = useTips();
 
   const meta = () => store.getMetadata(props.id);
+  // The active tile resolves its name via `activeThemeName()`, which falls back
+  // to the default theme name (and reflects the live palette preview). The
+  // non-active tiles read the persisted `meta()?.themeName` directly — with no
+  // fallback — so a terminal that never had a theme persisted (rendered on the
+  // default "Tomorrow Night") showed its pill only while focused and lost it the
+  // moment it wasn't. Give the non-active branch the SAME default fallback so
+  // the pill shows the tile's effective theme on every tile, focused or not.
   const themeName = () =>
-    store.activeId() === props.id ? activeThemeName() : meta()?.themeName;
+    store.activeId() === props.id
+      ? activeThemeName()
+      : (meta()?.themeName ?? DEFAULT_THEME_NAME);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
