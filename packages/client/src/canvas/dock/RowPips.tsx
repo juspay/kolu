@@ -58,6 +58,7 @@ import type { PrInfo } from "anyforge/schemas";
 import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
+import { MOONLIT } from "../../terminal/moonlit";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalActivity } from "../../terminal/useTerminalActivity";
@@ -181,7 +182,12 @@ export const StatePip: Component<{
         <Match when={variant() === "sleeping"}>
           {/* Moonlit ☾ — a deliberate dormant state, visually distinct from the
            *  agent shapes and from the parked-drop. */}
-          <span class="text-[0.7rem] leading-none text-[#8895ad]">☾</span>
+          <span
+            class="text-[0.7rem] leading-none"
+            style={{ color: MOONLIT.accent }}
+          >
+            ☾
+          </span>
         </Match>
       </Switch>
     </span>

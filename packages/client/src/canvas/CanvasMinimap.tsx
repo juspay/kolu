@@ -9,6 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { sleepingArm } from "kolu-common/surface";
+import { MOONLIT } from "../terminal/moonlit";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -408,8 +409,8 @@ const CanvasMinimap: Component<{
                   top: `${t.y}px`,
                   width: `${t.w}px`,
                   height: `${t.h}px`,
-                  "background-color": "#1d2230",
-                  border: "1px dashed #8895ad",
+                  "background-color": MOONLIT.tileBg,
+                  border: `1px dashed ${MOONLIT.accent}`,
                 };
               }
               if (parked()) {

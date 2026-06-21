@@ -14,6 +14,7 @@
 import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { MOONLIT } from "./moonlit";
 import { formatTimeAgo } from "./staleness";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -32,7 +33,17 @@ const DormantTileBody: Component<{
 
   return (
     <div
-      class="flex min-h-0 flex-1 select-none flex-col items-center justify-center gap-3 bg-[#171a20] px-4 text-center text-[#8895ad]"
+      class="flex min-h-0 flex-1 select-none flex-col items-center justify-center gap-3 bg-[var(--moonlit-bg)] px-4 text-center text-[var(--moonlit-accent)]"
+      // Moonlit palette flows from the single MOONLIT source as CSS custom
+      // properties so the arbitrary-value classes (which can't read a JS const)
+      // and the hover state stay in sync with the minimap + RowPips ☾.
+      style={{
+        "--moonlit-bg": MOONLIT.bg,
+        "--moonlit-accent": MOONLIT.accent,
+        "--moonlit-dim": MOONLIT.dim,
+        "--moonlit-ink": MOONLIT.ink,
+        "--moonlit-accent-hover": MOONLIT.accentHover,
+      }}
       // Focus-frozen: clicking the dormant body makes the tile active/selected
       // like any terminal, but never wakes it — only Wake respawns.
       onPointerDown={() => props.onFocus?.()}
@@ -47,17 +58,17 @@ const DormantTileBody: Component<{
       </div>
       <Show when={lastAgent()}>
         {(cmd) => (
-          <div class="max-w-full truncate font-mono text-xs text-[#5b626d]">
+          <div class="max-w-full truncate font-mono text-xs text-[var(--moonlit-dim)]">
             {cmd()}
           </div>
         )}
       </Show>
-      <div class="text-[0.65rem] uppercase tracking-wide text-[#5b626d]">
+      <div class="text-[0.65rem] uppercase tracking-wide text-[var(--moonlit-dim)]">
         PTY released
       </div>
       <button
         type="button"
-        class="mt-1 rounded-md bg-[#8895ad] px-3 py-1 text-xs font-semibold text-[#0e1014] transition-colors hover:bg-[#a3afc4]"
+        class="mt-1 rounded-md bg-[var(--moonlit-accent)] px-3 py-1 text-xs font-semibold text-[var(--moonlit-ink)] transition-colors hover:bg-[var(--moonlit-accent-hover)]"
         onClick={(e) => {
           // Don't let the click bubble to the focus-frozen pointer handler.
           e.stopPropagation();
