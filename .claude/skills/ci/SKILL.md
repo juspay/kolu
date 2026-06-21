@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Reference for the `odu` runner — how to invoke a full pipeline, a single recipe, or a platform-pinned node, and how to attach to a live run, from a project whose CI odu runs. Trigger when the user asks to "run CI", "run the pipeline", "re-run a check", or names a specific recipe by `<recipe>@<platform>`.
+description: Reference for the `odu` runner — how to invoke a full pipeline, a single recipe, or a platform-pinned node, and how to attach to a live run, from a project whose CI odu runs. Trigger when the user asks to "run CI", "run the pipeline", "re-run a check", to run named lanes or recipes (e.g. "run fmt and nix", "just the e2e lane", bare selectors like `fmt`/`nix`/`e2e`), or names a recipe by `<recipe>@<platform>`. This skill — not a repo's local `just ci` / `just <recipe>` — is how an odu-run request is served.
 ---
 
 # odu
@@ -12,13 +12,22 @@ the run is **live state you attach to**: the coordinator serves a typed
 surface on `.ci/odu.sock`, so `status`/`logs`/`attach` are in-band — no
 process-compose, no separately-versioned socket client.
 
+> **A request to run CI is a request to run `odu` — never `just ci`.** Many
+> consuming repos expose a `just ci` (or `just <recipe>`) target that runs a
+> pipeline locally. Do **not** shell out to it: it is a parallel, non-attachable
+> path that bypasses everything odu gives you — the live surface, per-node GitHub
+> statuses, structured results, fail-fast, `cancel`/`supersede`, and the log
+> resources below. "run CI", "run fmt and nix", "re-run the e2e lane" all mean
+> *drive an odu run*, by the MCP face first and the `odu` CLI otherwise.
+>
 > **Prefer the MCP face for runs.** When the `odu-mcp` skill is present (the
 > `mcp__odu__*` tools — check for an odu MCP server before shelling out), drive
-> runs through it — `run` → `wait_for_settle` (fail-fast) → read the red node's
-> log → `node_rerun`, with `cancel` / `run({supersede})` to call off or replace
-> a run. It spawns the same coordinator but gives you structured results and the
-> fail-fast loop instead of scraping terminal output. The `nix run … -- run`
-> CLI below is the reference and the fallback when no MCP server is wired.
+> runs through it — `run` (pass `selectors` for named lanes/recipes) →
+> `wait_for_settle` (fail-fast) → read the red node's log → `node_rerun`, with
+> `cancel` / `run({supersede})` to call off or replace a run. It spawns the same
+> coordinator but gives you structured results and the fail-fast loop instead of
+> scraping terminal output. The `nix run … -- run` CLI below is the reference and
+> the fallback when no MCP server is wired.
 >
 > **Logs are a resource, not a tool.** Don't look for a log-tail tool — there
 > isn't one. A node's output is the MCP **resource** `surface://collections/logs/{id}`

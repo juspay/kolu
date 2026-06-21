@@ -478,7 +478,7 @@ let
   # stood up the Bun runtime; PR2a compiles the OpenTUI/Solid bundle (dist/bin.js)
   # in the `arivuTuiBuilt` tree and runs it. The Bun-ness is one wrapper, one
   # binary: the daemon (`arivu`, below) and the rest of kolu stay Node, so the Bun
-  # runtime never crosses ssh. See nix/packages/arivu-tui.
+  # runtime never crosses ssh. See packages/arivu-tui/nix.
   #
   # LD_LIBRARY_PATH below carries libstdc++ for @opentui/core's native dlopen —
   # see packages/arivu-tui/build.ts for why that one package stays native.
@@ -496,7 +496,7 @@ let
       # default.nix` never touch this attr), so `nix develop` cold eval and the
       # Node build paths never realise bun2nix's transitive nodes.
       b2n = import ./nix/bun2nix.nix { inherit pkgs; };
-      arivuTuiBuilt = pkgs.callPackage ./nix/packages/arivu-tui {
+      arivuTuiBuilt = pkgs.callPackage ./packages/arivu-tui/nix {
         bun2nix = b2n;
         koluSrc = src;
       };
