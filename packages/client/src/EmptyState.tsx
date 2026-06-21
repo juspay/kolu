@@ -4,6 +4,7 @@ import type { PwaInstall } from "@kolu/solid-pwa-install";
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { resumableTerminalIds } from "./restoreModel";
 import { showsWelcome } from "./capabilities";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -79,9 +80,9 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   const resumableIds = createMemo(() => {
     const session = props.savedSession;
     if (!session) return [] as string[];
-    return session.terminals
-      .filter((t) => !t.parentId && t.lastAgentCommand !== undefined)
-      .map((t) => t.id);
+    // Sleeping records are excluded — they restore DORMANT (no agent resumed),
+    // so they must not inflate the "resume N agents" count or the resume set.
+    return resumableTerminalIds(session.terminals);
   });
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
@@ -133,26 +134,55 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                           <For each={group.terminals}>
                             {(t) => (
                               <div title={t.cwd}>
-                                <div class="text-sm text-fg-2 truncate leading-snug">
+                                <div
+                                  class="text-sm text-fg-2 truncate leading-snug"
+                                  classList={{
+                                    "opacity-60": t.state === "sleeping",
+                                  }}
+                                >
+                                  <Show when={t.state === "sleeping"}>
+                                    <span
+                                      data-testid="restore-sleeping"
+                                      data-terminal-id={t.id}
+                                      class="mr-1 text-fg-3"
+                                      title="Asleep — restores dormant; wake it later"
+                                      aria-hidden="true"
+                                    >
+                                      ☾
+                                    </span>
+                                  </Show>
                                   {terminalKey(t).label}
                                 </div>
                                 <Show
-                                  when={
-                                    resumeAgents() && t.lastAgentCommand
-                                      ? t.lastAgentCommand
-                                      : undefined
+                                  when={t.state === "sleeping"}
+                                  fallback={
+                                    <Show
+                                      when={
+                                        resumeAgents() && t.lastAgentCommand
+                                          ? t.lastAgentCommand
+                                          : undefined
+                                      }
+                                    >
+                                      {(cmd) => (
+                                        <div
+                                          data-testid="resume-command"
+                                          data-terminal-id={t.id}
+                                          title={cmd()}
+                                          class="mt-1 font-mono text-[11px] text-fg-3/80 truncate leading-relaxed"
+                                        >
+                                          {cmd()}
+                                        </div>
+                                      )}
+                                    </Show>
                                   }
                                 >
-                                  {(cmd) => (
-                                    <div
-                                      data-testid="resume-command"
-                                      data-terminal-id={t.id}
-                                      title={cmd()}
-                                      class="mt-1 font-mono text-[11px] text-fg-3/80 truncate leading-relaxed"
-                                    >
-                                      {cmd()}
-                                    </div>
-                                  )}
+                                  {/* A sleeping record restores DORMANT — no agent
+                                      relaunches on restore; it comes back asleep
+                                      and the user wakes it later. Say so plainly
+                                      instead of a resume-command line. */}
+                                  <div class="mt-1 text-[11px] text-fg-3/60 truncate leading-relaxed italic">
+                                    Asleep · restores dormant
+                                  </div>
                                 </Show>
                               </div>
                             )}

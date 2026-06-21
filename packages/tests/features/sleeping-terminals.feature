@@ -104,6 +104,7 @@ Feature: Sleeping terminals
     Given a saved session with one good and one malformed sleeping record
     When I open the app
     Then the session restore card should be visible
+    And the restore card should mark a sleeping terminal as asleep
     When I click the restore button
     Then the restored sleeping tile should be sleeping
     And there should be exactly 1 canvas tile

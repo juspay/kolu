@@ -271,6 +271,24 @@ Then("the slept terminal should be live", async function (this: KoluWorld) {
 });
 
 Then(
+  "the restore card should mark a sleeping terminal as asleep",
+  async function (this: KoluWorld) {
+    // The restore card must SHOW which saved records are asleep — a sleeping
+    // record restores DORMANT (never resuming an agent), so it carries a ☾
+    // marker (`restore-sleeping`) rather than a resume-command line. Scope to the
+    // restore card so a dormant canvas tile's ☾ can't satisfy it.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelector(
+          '[data-testid="session-restore"] [data-testid="restore-sleeping"]',
+        ) !== null,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the restored sleeping tile should be sleeping",
   async function (this: KoluWorld) {
     // Identify the dormant tile that came back via the restore card (saved id),
