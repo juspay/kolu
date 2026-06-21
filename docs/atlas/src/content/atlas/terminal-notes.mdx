@@ -2,12 +2,13 @@
 title: Terminal Notes
 description: Every terminal gets a Markdown notes scratchpad — a right-panel tab, a close-dialog reminder, a title-bar icon. It reuses kolu's existing `intent` field, renamed `notes` — a rename plus migration and three client surfaces, not a feature from scratch.
 parents: [feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-21
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import reuseDiagram from "../../diagrams/terminal-notes-reuse.svg?raw";
 
@@ -145,3 +146,5 @@ One PR, with a test + visual evidence. In order:
 - **Inline editor** reconciles from the server only when *not* editing — a live `value={meta.notes}` clobbers keystrokes.
 - **Icon gates on a non-empty body** (not just any notes) so it complements the title chip instead of duplicating it.
 </Callout>
+
+Shipped in <PrLink pr={1500} /> — the rename + migration, the three surfaces, and the pre-rename fixture test all landed together.
