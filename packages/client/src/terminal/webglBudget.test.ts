@@ -60,6 +60,21 @@ describe("admitWebglTiles (#1399 WebGL context budget)", () => {
     expect(admitWebglTiles(ids(6), one, WEBGL_CONTEXT_CAP)).toEqual(ids(6));
   });
 
+  // The cap sits in a band between two opposite failures (see webglBudget.ts):
+  // too LOW re-introduces the #1399 churn-leak (budget < working set), too HIGH
+  // approaches Chrome's ~16-context-per-tab ceiling and lets a long session
+  // drift into eviction — Chrome drops the oldest live context and xterm parks
+  // that tile on a blank frame for ~3s (its webglcontextlost → 3000ms
+  // restoration wait → DOM fallback). #1399 shipped 12 (only 4 of headroom),
+  // which proved too thin once transient pre-GC contexts are counted.
+  it("the shipped cap leaves real headroom below Chrome's per-tab ceiling (the eviction regression)", () => {
+    const CHROME_CONTEXT_LIMIT = 16; // measured on Chrome 148 (#575)
+    const MIN_HEADROOM = 8; // room for transient pre-GC contexts on a long session
+    expect(CHROME_CONTEXT_LIMIT - WEBGL_CONTEXT_CAP).toBeGreaterThanOrEqual(
+      MIN_HEADROOM,
+    );
+  });
+
   it("throws when costOf returns 0 — guards against infinite loop", () => {
     expect(() => admitWebglTiles(ids(1), () => 0, 12)).toThrow(
       /admitWebglTiles: costOf returned 0/,
