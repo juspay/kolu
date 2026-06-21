@@ -87,6 +87,15 @@ Feature: Theme switching
     And the palette search input should be focused
     And there should be no page errors
 
+  # Regression (#1480): a tile on the default (unset) theme dropped its theme
+  # pill the moment it lost focus, because the non-focused branch read
+  # `meta().themeName` with no default fallback while the focused branch fell
+  # back to the default name. With shuffle off (the test default) both tiles
+  # sit on the default theme, so the non-focused tile must still show its pill.
+  Scenario: Theme pill shows on every tile, including non-focused default-theme tiles
+    When I create a terminal
+    Then every canvas tile should show its theme pill
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I select "Set theme" in the palette

@@ -95,6 +95,32 @@ Then(
   },
 );
 
+Then(
+  "every canvas tile should show its theme pill",
+  async function (this: KoluWorld) {
+    // Regression guard for #1480: the pill must be present on EVERY tile,
+    // not just the focused one. The bug rendered no pill on a non-focused
+    // tile whose theme was the default (unset) — the `<Show>` element was
+    // absent from the DOM, not merely clipped — so assert each canvas tile
+    // contains a pill element. Requires ≥2 tiles so a non-focused one exists.
+    await this.page.waitForFunction(
+      () => {
+        const tiles = [
+          ...document.querySelectorAll('[data-testid="canvas-tile"]'),
+        ];
+        return (
+          tiles.length >= 2 &&
+          tiles.every((tile) =>
+            tile.querySelector('[data-testid="tile-theme-pill"]'),
+          )
+        );
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page
     .locator(
