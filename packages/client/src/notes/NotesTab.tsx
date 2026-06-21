@@ -196,6 +196,13 @@ const NotesTab: Component<{
   // in Edit mode — so navigating in via the chip, the command, the title-bar
   // icon, or the tab button lands the cursor ready to type. `on` fires only on
   // the gate's transitions, so it focuses on entry, not on every dep change.
+  //
+  // Double-rAF, not `queueMicrotask`: when the entry point is the command
+  // palette, closing it runs `refocusIfNoDialogOpen()`, which refocuses the
+  // terminal one `requestAnimationFrame` later (the Notes tab isn't a dialog,
+  // so its guard doesn't spare us). A microtask focus would land first and then
+  // be stolen by that rAF; focusing a frame *after* it wins the race — the same
+  // double-rAF idiom `CommandPalette` uses to focus its own input past Corvu.
   createEffect(
     on(
       () =>
@@ -203,7 +210,10 @@ const NotesTab: Component<{
         rightPanel.activeTab().kind === "notes" &&
         mode() === "edit",
       (ready) => {
-        if (ready) queueMicrotask(() => textareaRef()?.focus());
+        if (ready)
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => textareaRef()?.focus()),
+          );
       },
     ),
   );
