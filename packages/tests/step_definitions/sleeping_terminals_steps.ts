@@ -10,9 +10,9 @@
  *   - asserting a tile is DORMANT (`dormant-tile-body` + `data-sleeping="true"`,
  *     and crucially NO live `.xterm-screen`) vs. LIVE (a live xterm present);
  *   - waking via the dormant body's `wake-button`;
- *   - proving the agent RESUMED — the woken PTY replays the resume invocation
- *     (`codex resume --last`) in the SAME cwd, which a blank fresh agent never
- *     would (the agent-resume hole);
+ *   - proving the agent RESUMED — the woken PTY replays the resume-by-id
+ *     invocation (`codex resume <session-id>`, juspay/kolu#1495) in the SAME cwd,
+ *     which a blank fresh agent never would (the agent-resume hole);
  *   - dragging a dormant tile (via the canvas-layout RPC the drag handle drives)
  *     and asserting its persisted position survives a reload;
  *   - planting a good + a malformed sleeping record so cold restore drops the
@@ -395,10 +395,10 @@ Then(
     // cwd the live cwd-sensor tracked (the mock `cd`'d the terminal there before
     // launching the agent), persisted on the sleeping arm and replayed by `wake`
     // (`cwd: meta.cwd`). A resume into a default/wrong cwd is exactly the hole
-    // this guards. The codex MOCK can't prove this via its indicator: its fake
-    // `codex` is reached by ABSOLUTE PATH and the bare `codex resume --last`
-    // resume form carries no title-printf, so `matchesAgent` can't re-light it
-    // from the resume (a real `codex` on PATH would). So prove the cwd DIRECTLY
+    // this guards. The codex MOCK can't reliably prove this via its indicator: its
+    // fake `codex` is reached by ABSOLUTE PATH while the replayed `codex resume
+    // <session-id>` resume form runs the bare-word `codex`, so `matchesAgent` can't
+    // depend on it re-lighting from the resume. So prove the cwd DIRECTLY
     // and mock-independently — run `pwd` in the now-live woken terminal and
     // assert it reports the saved cwd. Scope the buffer read to THIS tile's id.
     const id = sleptIdByWorld.get(this);

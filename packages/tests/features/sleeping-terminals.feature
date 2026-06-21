@@ -14,13 +14,15 @@ Feature: Sleeping terminals
   @codex-mock
   Scenario: Waking a sleeping agent terminal resumes the SAME conversation
     # Run a real (mock) Codex agent in the terminal so the dock lights up with a
-    # codex agent state and the server captures `lastAgentCommand`. Sleep it via
-    # the tile ☾ button: the live xterm/PTY is released and the dormant body shows.
-    # Wake it: the PTY re-spawns on the SAME id and the server replays the agent's
-    # RESUME form (`codex resume --last`) into the fresh PTY — so the prior
-    # conversation comes back. A blank fresh agent would type NOTHING; asserting
-    # the resume invocation lands in the new buffer AND the codex dock state
-    # returns in the SAME cwd is exactly the hole the agent-resume bug fell through.
+    # codex agent state and the server captures `lastAgentCommand` AND the live
+    # session id (the codex mock's fixed thread `00000000-0000-0000-0000-000000000001`).
+    # Sleep it via the tile ☾ button: the live xterm/PTY is released and the dormant
+    # body shows. Wake it: the PTY re-spawns on the SAME id and the server replays
+    # the agent's RESUME-BY-ID form (`codex resume <session-id>`, juspay/kolu#1495)
+    # into the fresh PTY — so the EXACT prior conversation comes back, not merely the
+    # most-recent in the cwd. A blank fresh agent would type NOTHING; asserting the
+    # by-id resume invocation lands in the new buffer AND the codex dock state returns
+    # in the SAME cwd is exactly the hole the agent-resume bug fell through.
     Given the terminal is ready
     When a Codex session is mocked with state "waiting"
     Then the tile chrome should show a Codex indicator with state "waiting"
@@ -30,7 +32,7 @@ Feature: Sleeping terminals
     And the dormant tile should show its saved working directory
     When I wake the slept terminal via the dormant body wake button
     Then the slept terminal should be live
-    And the woken terminal should replay the agent resume invocation "codex resume --last"
+    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
     And the woken terminal should resume in the same working directory
     And there should be no page errors
 
@@ -56,7 +58,8 @@ Feature: Sleeping terminals
     # daemon (session-preserving restart — capture before kill). The slept record
     # must outlive the restart and come back via the restore card as a DORMANT
     # tile (not a live one, not a vanished one). Waking it then resumes the agent
-    # exactly as before — the resume invocation replays into the re-spawned PTY.
+    # exactly as before — the by-id resume invocation (the exact conversation,
+    # juspay/kolu#1495) replays into the re-spawned PTY.
     Given the terminal is ready
     When a Codex session is mocked with state "waiting"
     Then the tile chrome should show a Codex indicator with state "waiting"
@@ -71,7 +74,7 @@ Feature: Sleeping terminals
     Then the restored sleeping tile should be sleeping
     When I wake the restored sleeping tile via the dormant body wake button
     Then the restored sleeping tile should be live
-    And the woken terminal should replay the agent resume invocation "codex resume --last"
+    And the woken terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
     And there should be no page errors
 
   @kaval-restart
