@@ -275,17 +275,18 @@ export function formatAwarenessJson(
  *  working; `idle` = everything else (waiting / no agent). */
 export type FleetUrgency = "need" | "work" | "idle";
 
-/** Sort rank (lower floats up) and tone for each urgency — the single source the
- *  cross-fleet "needs-you first" ordering and the colouring both read. */
-const URGENCY_RANK: Record<FleetUrgency, number> = {
-  need: 0,
-  work: 1,
-  idle: 2,
-};
-const URGENCY_TONE: Record<FleetUrgency, FieldTone> = {
-  need: "awaiting",
-  work: "working",
-  idle: "idle",
+/** The one descriptor per urgency — its sort rank (lower floats up), colour
+ *  tone, and section/state label — so the cross-fleet "needs-you first"
+ *  ordering, the colouring, the row-state cell, and the agent-mode section
+ *  headers all read a single definition. A new urgency (or a relabel) is one
+ *  edit here, not four sites kept in agreement by hand. */
+const URGENCY: Record<
+  FleetUrgency,
+  { rank: number; tone: FieldTone; label: string }
+> = {
+  need: { rank: 0, tone: "awaiting", label: "awaiting you" },
+  work: { rank: 1, tone: "working", label: "working" },
+  idle: { rank: 2, tone: "idle", label: "idle" },
 };
 
 /** Map an agent to its fleet urgency: `awaiting_user` → need (blocked on you),
@@ -306,20 +307,18 @@ export function agentUrgency(agent: AwarenessValue["agent"]): FleetUrgency {
 }
 
 /** The fleet row's pointed state label: needs read as "awaiting you", work as
- *  "working"; an idle terminal shows its agent's own label (e.g. "waiting") or
- *  "idle" when no agent runs. */
+ *  "working" (both the shared `URGENCY` label); an idle terminal overrides with
+ *  its agent's own label (e.g. "waiting") or falls back to the `idle` label when
+ *  no agent runs. */
 function fleetStateText(
   urgency: FleetUrgency,
   agent: AwarenessValue["agent"],
 ): string {
-  switch (urgency) {
-    case "need":
-      return "awaiting you";
-    case "work":
-      return "working";
-    case "idle":
-      return agent ? agentStatusLabel(agent.state) : "idle";
-  }
+  return urgency === "idle"
+    ? agent
+      ? agentStatusLabel(agent.state)
+      : URGENCY.idle.label
+    : URGENCY[urgency].label;
 }
 
 /** One terminal as a fleet row. The agent name stays calm; the urgency carries
@@ -359,7 +358,7 @@ export function fleetRow(
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
       text: fleetStateText(urgency, v.agent),
-      tone: URGENCY_TONE[urgency],
+      tone: URGENCY[urgency].tone,
     },
     active: { text: relativeTime(v.lastActivityAt, now), tone: "muted" },
   };
@@ -373,8 +372,8 @@ function sortedEntries(
   return (
     Object.entries(terminals) as Array<[TerminalId, AwarenessValue]>
   ).sort(([ia, a], [ib, b]) => {
-    const ra = URGENCY_RANK[agentUrgency(a.agent)];
-    const rb = URGENCY_RANK[agentUrgency(b.agent)];
+    const ra = URGENCY[agentUrgency(a.agent)].rank;
+    const rb = URGENCY[agentUrgency(b.agent)].rank;
     if (ra !== rb) return ra - rb;
     if (a.lastActivityAt !== b.lastActivityAt)
       return b.lastActivityAt - a.lastActivityAt;
@@ -422,12 +421,19 @@ export type FleetView =
       alertHosts: string[];
     };
 
+/** The agent-mode section order — needs first, then working, then idle — each
+ *  labelled from the shared `URGENCY` table so a section header can't drift from
+ *  the row-state cell it duplicates. */
+const AGENT_SECTION_ORDER: ReadonlyArray<FleetUrgency> = [
+  "need",
+  "work",
+  "idle",
+];
 const AGENT_SECTIONS: ReadonlyArray<{ urgency: FleetUrgency; label: string }> =
-  [
-    { urgency: "need", label: "awaiting you" },
-    { urgency: "work", label: "working" },
-    { urgency: "idle", label: "idle" },
-  ];
+  AGENT_SECTION_ORDER.map((urgency) => ({
+    urgency,
+    label: URGENCY[urgency].label,
+  }));
 
 /** Project the live aggregate to the board. Pure: same input, same output, no
  *  clock of its own (`now` is passed so recency is testable). */
@@ -457,7 +463,7 @@ export function projectFleet(
 
   if (mode === "needs") {
     const flat = [...allRows].sort(
-      (a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency],
+      (a, b) => URGENCY[a.urgency].rank - URGENCY[b.urgency].rank,
     );
     return { mode, flat, summary, alertHosts };
   }
