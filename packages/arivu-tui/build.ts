@@ -10,9 +10,17 @@
  * Bun still loads @opentui/core's native Zig FFI core at runtime — only the JSX
  * *transform* moves to build time.
  *
- * `packages: "external"` keeps every dependency (@opentui/*, @kolu/*, cleye,
- * solid-js) resolved from node_modules at runtime; we bundle only arivu-tui's own
- * `src/`. `splitting: true` keeps the OpenTUI render path (the dynamic `import`
+ * `solid-js` + `@opentui/solid` MUST be bundled, not external: @opentui/solid's
+ * Bun plugin rewrites `solid-js/dist/server.js` → the reactive `solid.js` client
+ * build (Bun resolves solid-js to its SSR/server build under the `node`
+ * condition, whose signals don't track). That redirect only fires when solid is
+ * loaded *during the build*, so an external solid-js ships the NON-REACTIVE server
+ * build and the UI silently freezes at runtime (the dev `bunfig` preload masks
+ * this, since it does the same redirect at load time — so it only bites the Nix
+ * bundle). Bundling them in also guarantees ONE solid instance shared between our
+ * code and the reconciler. Only `@opentui/core` stays external — its native Zig
+ * FFI loader is bundle-hostile and resolves its per-arch lib from node_modules at
+ * runtime. `splitting: true` keeps the OpenTUI render path (the dynamic `import`
  * of `./tui.tsx`, behind bin.ts's TTY gate) a lazy chunk, so a piped/`--json` run
  * never pulls the native renderer in.
  */
@@ -28,7 +36,9 @@ const result = await Bun.build({
   outdir: "./dist",
   target: "bun",
   splitting: true,
-  packages: "external",
+  // Bundle everything (so solid-js gets the reactive redirect + one instance);
+  // only the native @opentui/core package is external (see the note above).
+  external: ["@opentui/core"],
   plugins: [solidPlugin],
 });
 
