@@ -1,6 +1,6 @@
 ---
 title: arivu — terminal awareness as an ephemeral surface on kaval
-description: Repeat the kaval decoupling one level up. The awareness sensors (git · PR · agent · foreground) become a generic library — kolu runs it in-process locally (writing terminalMetadata directly), and an ephemeral daemon (arivu) on top of kaval serves the same awareness over ssh for remote terminals, mirrored + folded into kolu. One library, two homes. arivu + arivu-tui ship standalone first; the kolu fold lives in remote-terminals R4.
+description: Repeat the kaval decoupling one level up. The awareness sensors (git · PR · agent · foreground) become a generic library — kolu runs it in-process locally (writing terminalMetadata directly), and an ephemeral daemon (arivu) on top of kaval serves the same awareness over ssh for remote terminals, mirrored + folded into kolu. One library, two homes. arivu + arivu-tui ship standalone first; the kolu fold lives in remote-terminals R7.
 parents: [kaval-sessions, feature]
 status: accepted
 maturity: budding
@@ -56,11 +56,11 @@ Three claims, each verified against the shipped code:
 Local and remote share the *sensor library* and *one schema* — but they are genuinely different paths, not "only the transport." The surface and the fold exist only where awareness crosses a process boundary:
 
 - **Local → in-process, no surface.** kolu-server runs the sensors and writes `terminalMetadata` directly. Same process = nothing to serve, nothing to merge; wrapping it in an in-process surface is the fictional boundary rejected in #1406. Local stays this way for good — in-process sensors are always the running build, fresh by construction. Even after remote ships, local does **not** switch to dialing a local arivu "for consistency" (pure ceremony to move data within one process). The consistency that matters — same library, schema, contract — is already there.
-- **Remote → serve (arivu), then mirror + fold (kolu).** `arivu` is Nix-provisioned over ssh (kaval's staleKey recipe), runs the identical sensors, and **serves** the slice over `stdioLink`. The kolu-side **mirror + fold** is *not* arivu's concern — it is [remote-terminals](remote-terminals.html) **R4**'s, and the fold's costs live there.
+- **Remote → serve (arivu), then mirror + fold (kolu).** `arivu` is Nix-provisioned over ssh (kaval's staleKey recipe), runs the identical sensors, and **serves** the slice over `stdioLink`. The kolu-side **mirror + fold** is *not* arivu's concern — it is [remote-terminals](remote-terminals.html) **R7**'s, and the fold's costs live there.
 
 So the asymmetry is **real and confined to the wire**: local is closure → mutate; remote is closure → frame → serve → mirror → fold. They share the invariant sensor library and one schema. The one new artifact is the host-side hooks impl that reifies each `mutate` closure into a serialized slice frame — a wire carries values, not closures.
 
-> **`mirrorRemoteSurface` has graduated** (<PrLink pr={1497} />). It is now the one public mirror in `@kolu/surface` — the spec-driven dual of `implementSurface` that drives *every* primitive of a served surface into caller-supplied sinks; `mirrorRemoteCollection` is demoted to its private per-key engine ("you don't sell half a house"). The trigger was arivu growing a real **`activity` stream** (the green dot) — the second stream-bearing consumer the graduation waited for. It still does not dissolve kolu's R4 fold (irreducible domain logic); the fold simply consumes `mirrorRemoteSurface`. As a `@kolu/surface` API change it rode `surface.md`'s drishti merge-gate.
+> **`mirrorRemoteSurface` has graduated** (<PrLink pr={1497} />). It is now the one public mirror in `@kolu/surface` — the spec-driven dual of `implementSurface` that drives *every* primitive of a served surface into caller-supplied sinks; `mirrorRemoteCollection` is demoted to its private per-key engine ("you don't sell half a house"). The trigger was arivu growing a real **`activity` stream** (the green dot) — the second stream-bearing consumer the graduation waited for. It still does not dissolve kolu's R7 fold (irreducible domain logic); the fold simply consumes `mirrorRemoteSurface`. As a `@kolu/surface` API change it rode `surface.md`'s drishti merge-gate.
 
 ## The standalone tool — `arivu` + `arivu-tui`
 
@@ -79,7 +79,7 @@ It ships self-contained: the sensors (`@kolu/terminal-awareness/sensors.ts`) imp
 
 ## The R4 tree — shipped end-to-end
 
-The standalone arivu story (extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity) is complete. **R4.6** — the kolu mirror + fold — is *not* arivu's job; it lives in [remote-terminals](remote-terminals.html) **R4** (long-lived `HostSession` + full-surface `mirrorRemoteSurface` + the persisted/live fold), gated on R3. arivu just points there.
+The standalone arivu story (extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity) is complete. The **kolu fold** — kolu dialing this host's arivu over a long-lived `HostSession`, mirroring it, and folding it into its own canvas — is not arivu's job; it lives in the parent [remote-terminals](remote-terminals.html) roadmap as **R7**, gated on the remote dial. *And* arivu's own next step — **growing an fs/git surface** so a remote Code tab works — is roadmapped there as **R6**. arivu just points there.
 
 | Phase | Ships | <PrLink pr={1413} /> etc. |
 | --- | --- | --- |
@@ -196,7 +196,7 @@ Two boundary calls keep it honest:
 - **The aggregation join is a leaf reducer, not electricity.** It hides a bounded host-keyed merge, not a hard volatility (transport + provision + reconnect already belong to `@kolu/surface-nix-host`; the per-primitive mirror to `@kolu/surface`). So no `@kolu/fleet-mirror` — that is exactly the "tidy generic helper" trap electricity warns against.
 
 <Callout kind="good" title="It stays a TUI, not a surface-app">
-A read-only aggregator has nothing to fold and nothing to persist, so a browser shell with a stale-tab/reconnect story is pure ceremony for a glance view. The TUI ships fast, is dev-loop-native, and proves the aggregation core cheaply. A web `arivu-board` (the literal drishti twin — browser ↔ Bun ↔ N ssh dials) is an attractive *follow-on*, explicitly second, never the headline. And a team-wide read-only monitor is a **different product** from kolu's own-canvas fold ([remote-terminals](remote-terminals.html) R4) — so it belongs as arivu's own consumer, with zero kolu-server, not folded into kolu.
+A read-only aggregator has nothing to fold and nothing to persist, so a browser shell with a stale-tab/reconnect story is pure ceremony for a glance view. The TUI ships fast, is dev-loop-native, and proves the aggregation core cheaply. A web `arivu-board` (the literal drishti twin — browser ↔ Bun ↔ N ssh dials) is an attractive *follow-on*, explicitly second, never the headline. And a team-wide read-only monitor is a **different product** from kolu's own-canvas fold ([remote-terminals](remote-terminals.html) R7) — so it belongs as arivu's own consumer, with zero kolu-server, not folded into kolu.
 </Callout>
 
 ## Why Bun, contained to the viewer
@@ -219,5 +219,5 @@ So the split is narrow and deliberate: **`arivu-tui` alone** becomes a Bun binar
 
 - The standalone story shipped end-to-end R4.1–R4.5: extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity. Supersedes two closed plans (<PrLink pr={1398} />, <PrLink pr={1409} />) that kept awareness *inside* kolu and split hairs over an in-process compose-vs-serve boundary this design dissolves by moving the producer into a daemon.
 - **R4.4 → `dialAgentOnce`** — the gauntlet lifted the shared one-shot dial into `@kolu/surface-nix-host`; kaval-tui and arivu-tui are now thin wrappers over one primitive (paired drishti pin-bump merge-gate).
-- **R4.5.3 as-built** — the board is always live (`--json` is the one-shot); a dropped one-shot dial flips a host to `unreachable` rather than reconnecting (long-lived reconnect stays remote-terminals R4 / `HostSession`); host discovery is `--host` + a small `~/.ssh/config` enumerator (no new dep). Gauntlet + dogfooding added `--kaval <host>=<socket>` pinning, a responsive `repo·branch` layout, the `--host` stderr-bleed fix (`onLog` sink), and a darwin `bun install --backend=copyfile` fix.
+- **R4.5.3 as-built** — the board is always live (`--json` is the one-shot); a dropped one-shot dial flips a host to `unreachable` rather than reconnecting (long-lived reconnect stays remote-terminals R7 / `HostSession`); host discovery is `--host` + a small `~/.ssh/config` enumerator (no new dep). Gauntlet + dogfooding added `--kaval <host>=<socket>` pinning, a responsive `repo·branch` layout, the `--host` stderr-bleed fix (`onLog` sink), and a darwin `bun install --backend=copyfile` fix.
 - **Packaging co-located** (<PrLink pr={1491} />) — the viewer's Bun/Nix manifest moved from `nix/packages/` into `packages/arivu-tui/nix/` so the viewer is one self-contained directory (a pnpm-workspace exclusion keeps the bun manifest out of pnpm's glob).
