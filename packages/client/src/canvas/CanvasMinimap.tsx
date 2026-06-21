@@ -320,28 +320,31 @@ const CanvasMinimap: Component<{
                 repoColor: i.repoColor,
               };
             });
-            // Reactive accessor: bucket classification (awaiting / working /
-            // none) plus user-window staleness. Split from `tile()` so the
-            // minute-by-minute staleness tick doesn't invalidate the
-            // rectangle geometry — only the badge surface re-runs. Memoized
-            // because the JSX reads it 7× per tile per tick.
+            // Reactive accessor: which presence visual this tile gets, as ONE
+            // discriminant (mirroring the dock's `classifyDockRow` priority)
+            // rather than an enum plus parallel booleans whose legal
+            // combinations are a hand-enforced subset. `bucket` carries the
+            // agent sub-classification (awaiting / working) and is only
+            // meaningful when `presence === "agent"` — it drives the dot color
+            // and testid. Split from `tile()` so the minute-by-minute staleness
+            // tick doesn't invalidate the rectangle geometry — only the badge
+            // surface re-runs. Memoized because the JSX reads it per tile per tick.
             const state = createMemo(() => {
               const i = info();
               if (!i)
-                return {
-                  bucket: "none" as const,
-                  parked: false,
-                  sleeping: false,
-                };
-              const sleeping = sleepingArm(i.meta) !== undefined;
-              return {
-                bucket: metaBucket(i.meta),
-                // Sleeping is a deliberate dormant state, DECOUPLED from
-                // staleness: a sleeping tile is never parked-ghosted — it renders
-                // full-size and moonlit (see `tileStyle`), however long it slept.
-                parked: !sleeping && isParked(i.meta.lastActivityAt),
-                sleeping,
-              };
+                return { presence: "none" as const, bucket: "none" as const };
+              const bucket = metaBucket(i.meta);
+              // Sleeping FIRST (a deliberate dormant state, DECOUPLED from
+              // staleness — never parked-ghosted, however long it slept); then
+              // parked staleness; then agent presence; else none.
+              const presence = sleepingArm(i.meta)
+                ? ("sleeping" as const)
+                : isParked(i.meta.lastActivityAt)
+                  ? ("parked" as const)
+                  : bucket !== "none"
+                    ? ("agent" as const)
+                    : ("none" as const);
+              return { presence, bucket };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
             // sourced from the same identity key the workspace switcher uses.
@@ -350,7 +353,7 @@ const CanvasMinimap: Component<{
             // stays total).
             const tooltip = () => {
               const i = info();
-              return i ? tileTooltip(i, state().parked) : id;
+              return i ? tileTooltip(i, state().presence === "parked") : id;
             };
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
@@ -380,11 +383,12 @@ const CanvasMinimap: Component<{
             // One morphing element covers both the full rect and the 6 px
             // parked-ghost; CSS interpolates between them so the tile glides
             // when `parked()` flips instead of popping.
-            const parked = () => state().parked;
-            const sleeping = () => state().sleeping;
+            const presence = () => state().presence;
+            const parked = () => presence() === "parked";
+            const sleeping = () => presence() === "sleeping";
             const isActive = () => tileStore.activeId() === id;
-            const hasAgent = () => state().bucket !== "none";
-            const badgeVisible = () => hasAgent() && !parked();
+            const hasAgent = () => presence() === "agent";
+            const badgeVisible = () => hasAgent();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
