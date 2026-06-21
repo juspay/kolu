@@ -327,6 +327,14 @@ const SleepingDiscriminantSchema = z.object({
   /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
    *  of the live overlay — the one scalar an active terminal doesn't carry. */
   sleptAt: z.number(),
+  /** The agent's RESUME INPUT, captured at sleep time so wake can re-spawn the
+   *  agent. Distinct from `lastAgentCommand` (which keeps meaning ONLY the
+   *  command the OSC 633;E sensor actually observed): this holds the resume
+   *  input wake feeds to `resumeAgentCommand`, which may be a synthesized bare
+   *  basename when an agent was file-watcher-detected but never typed. A
+   *  sleep-specific concept, so it lives on the sleeping arm alone. Absent when
+   *  the terminal had no agent to resume. */
+  resumeCommand: z.string().optional(),
 });
 
 /** The active arm's persisted core — `persisted base + state: "active"`, the one

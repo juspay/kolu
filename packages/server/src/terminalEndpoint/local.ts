@@ -379,7 +379,15 @@ export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
  *  dropped on wake. The `location` rides the base, so a future remote terminal
  *  wakes against its own host. */
 export function wakeMeta(sleeping: SleepingTerminal): ActiveTerminal {
-  const { state: _state, sleptAt: _sleptAt, ...persisted } = sleeping;
+  // Drop the sleeping-only discriminant fields (`sleptAt` and the resume input
+  // `resumeCommand`) so neither rides onto the active arm — the active arm never
+  // carries them, and the resume form was already rendered by `wake`.
+  const {
+    state: _state,
+    sleptAt: _sleptAt,
+    resumeCommand: _resumeCommand,
+    ...persisted
+  } = sleeping;
   return {
     ...createMetadata(persisted.cwd, persisted.location),
     ...persisted,
@@ -761,14 +769,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
-    // Capture the agent's RESUME INPUT onto the persisted base before the flip,
-    // so wake can resume. Prefer the command the OSC 633;E sensor captured (it
-    // carries flags); but when that never fired YET an agent is DETECTED (the
-    // reliable file-watcher path that lights the dock — e.g. `opencode` launched
-    // via `nix run`, whose head token is `nix`, or any shell where the command
-    // tap didn't fire), fall back to the detected kind so wake still resumes
+    // Capture the agent's RESUME INPUT into the sleeping-only `resumeCommand`
+    // field so wake can resume — WITHOUT overwriting `lastAgentCommand`, which
+    // keeps meaning only the command the OSC 633;E sensor actually observed.
+    // Prefer that observed command (it carries flags); but when it never fired
+    // YET an agent is DETECTED (the reliable file-watcher path that lights the
+    // dock — e.g. `opencode` launched via `nix run`, whose head token is `nix`,
+    // or any shell where the command tap didn't fire), fall back to a
+    // synthesized bare basename for the detected kind so wake still resumes
     // cwd-most-recent. Without this, a real running agent wakes to a bare shell.
-    const resumeInput =
+    const resumeCommand =
       entry.meta.lastAgentCommand ??
       (entry.meta.agent
         ? agentCommandForKind(entry.meta.agent.kind)
@@ -777,7 +787,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       info: { id, pid: 0 },
       meta: SleepingTerminalSchema.parse({
         ...entry.meta,
-        lastAgentCommand: resumeInput,
+        resumeCommand,
         state: "sleeping",
         sleptAt: Date.now(),
       }),
