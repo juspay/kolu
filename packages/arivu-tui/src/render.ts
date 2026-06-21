@@ -417,16 +417,24 @@ export interface FleetSummary {
   hostsTotal: number;
 }
 
-/** The whole board as plain data: the groups (or the flat list for `needs`), the
- *  footer summary, and which hosts carry a needs-you agent (drives the alert
- *  strip). The renderer paints this and nothing more. */
-export interface FleetView {
-  mode: FleetMode;
-  groups: FleetGroup[];
-  flat: FleetRow[];
-  summary: FleetSummary;
-  alertHosts: string[];
-}
+/** The whole board as plain data, discriminated on `mode` so exactly one
+ *  projection is present: `needs` carries the flat fleet-wide list, `host`/`agent`
+ *  carry the groups. No dead `[]` for the renderer to know-to-ignore — it switches
+ *  on `mode` and reads the field that exists. `summary`/`alertHosts` (the footer
+ *  tally and the alert-strip hosts) are shared by every mode. */
+export type FleetView =
+  | {
+      mode: "needs";
+      flat: FleetRow[];
+      summary: FleetSummary;
+      alertHosts: string[];
+    }
+  | {
+      mode: "host" | "agent";
+      groups: FleetGroup[];
+      summary: FleetSummary;
+      alertHosts: string[];
+    };
 
 const AGENT_SECTIONS: ReadonlyArray<{ urgency: FleetUrgency; label: string }> =
   [
@@ -465,14 +473,14 @@ export function projectFleet(
     const flat = [...allRows].sort(
       (a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency],
     );
-    return { mode, groups: [], flat, summary, alertHosts };
+    return { mode, flat, summary, alertHosts };
   }
   if (mode === "agent") {
     const groups = AGENT_SECTIONS.map(({ urgency, label }) => ({
       label,
       rows: allRows.filter((r) => r.urgency === urgency),
     })).filter((g) => g.rows.length > 0);
-    return { mode, groups, flat: [], summary, alertHosts };
+    return { mode, groups, summary, alertHosts };
   }
   // host mode (default): one group per host, in dial order, even when empty or
   // down — an unreachable host renders as a distinct header, never vanishes.
@@ -483,7 +491,7 @@ export function projectFleet(
       fleetRow(s.label, id, v, now),
     ),
   }));
-  return { mode, groups, flat: [], summary, alertHosts };
+  return { mode, groups, summary, alertHosts };
 }
 
 /** One host's one-shot snapshot for `fleet --json` — the terminals it served, a

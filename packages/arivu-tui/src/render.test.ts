@@ -240,6 +240,7 @@ describe("projectFleet — host mode", () => {
       host("staging", { kind: "unreachable", reason: "ECONNREFUSED" }, {}),
     ];
     const view = projectFleet(states, NOW, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
 
     expect(view.groups.map((g) => g.label)).toEqual(["zest", "staging"]);
     // needs-you bubbles above the (more recent) working row.
@@ -284,6 +285,7 @@ describe("projectFleet — host mode", () => {
       ),
     ];
     const view = projectFleet(states, NOW, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
     expect(view.groups[0]?.rows).toHaveLength(1);
     expect(view.groups[1]?.rows).toHaveLength(1);
     expect(view.groups[0]?.rows[0]?.host).toBe("a");
@@ -314,14 +316,19 @@ describe("projectFleet — needs & agent modes", () => {
 
   it("needs mode flattens across hosts, urgency-sorted, no groups", () => {
     const view = projectFleet(states, NOW, "needs");
-    expect(view.groups).toEqual([]);
+    // The view is a sum on `mode`: a needs view carries `flat` and has no
+    // `groups` field at all (the type forbids reading it), so there is no dead
+    // `[]` to assert against.
+    expect(view.mode).toBe("needs");
+    if (view.mode !== "needs") throw new Error("unreachable");
     expect(view.flat.map((r) => r.urgency)).toEqual(["need", "work", "idle"]);
     expect(view.flat.map((r) => r.host)).toEqual(["a", "b", "a"]);
   });
 
   it("agent mode groups into non-empty urgency sections across hosts", () => {
     const view = projectFleet(states, NOW, "agent");
-    expect(view.flat).toEqual([]);
+    expect(view.mode).toBe("agent");
+    if (view.mode === "needs") throw new Error("unreachable");
     expect(view.groups.map((g) => g.label)).toEqual([
       "awaiting you",
       "working",

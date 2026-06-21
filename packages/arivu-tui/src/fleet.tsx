@@ -190,6 +190,17 @@ export function FleetBoard(props: {
   clock: () => string;
 }) {
   const hostsTotal = () => props.view().summary.hostsTotal;
+  // The view is a sum on `mode`: read only the field that exists for the arm.
+  // These accessors narrow the discriminant so the empty arm contributes
+  // nothing — no dead `[]` to know-to-ignore.
+  const flat = () => {
+    const v = props.view();
+    return v.mode === "needs" ? v.flat : [];
+  };
+  const groups = () => {
+    const v = props.view();
+    return v.mode === "needs" ? [] : v.groups;
+  };
   return (
     <box flexDirection="column" padding={1}>
       <text fg={TITLE}>
@@ -201,7 +212,7 @@ export function FleetBoard(props: {
       {props.view().mode === "needs" ? (
         <box flexDirection="column" marginTop={1}>
           <For
-            each={props.view().flat}
+            each={flat()}
             fallback={
               <text fg={TONE_COLOR.muted}>no terminals across the fleet</text>
             }
@@ -211,7 +222,7 @@ export function FleetBoard(props: {
         </box>
       ) : (
         <For
-          each={props.view().groups}
+          each={groups()}
           fallback={<text fg={TONE_COLOR.muted}>no hosts</text>}
         >
           {(group) => <Group group={group} frame={props.frame} />}
