@@ -200,7 +200,7 @@ export function dashRow(
   return {
     id: { text: shortId(id), tone: "plain" },
     repoBranch: {
-      text: v.git ? `${v.git.repoName ?? "?"}·${v.git.branch ?? "?"}` : DASH,
+      text: v.git ? `${v.git.repoName}·${v.git.branch}` : DASH,
       tone: "plain",
     },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
