@@ -10,8 +10,8 @@
  *    gesture; persisting it into account prefs would mean the next desktop
  *    session opens with the panel collapsed for reasons the user never
  *    expressed on desktop.
- *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
- *    file) lives in an in-memory store keyed by terminal id; mutations
+ *  - **Per-terminal task state** (activeTab, codeMode, notesMode, per-mode
+ *    selected file) lives in an in-memory store keyed by terminal id; mutations
  *    push to the server via `client.terminal.setRightPanel`, which writes
  *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
  *    `useSubPanel.ts` exactly.

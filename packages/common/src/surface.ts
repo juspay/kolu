@@ -109,10 +109,11 @@ export const NotesTabViewSchema = z.enum(["edit", "preview"]);
 export const RightPanelTabKindSchema = z.enum(["inspector", "code", "notes"]);
 
 /** Per-terminal right-panel state — which tab is open, which sub-mode
- *  the Code tab is in, and which file the user last selected in each
- *  mode. The three fields move together because they are *about* the
- *  terminal's task (reviewing branch X, browsing repo, inspecting agent
- *  output) — switching terminals should restore them as a unit.
+ *  the Code tab is in, which sub-mode the Notes tab is in, and which
+ *  file the user last selected in each mode. These fields move together
+ *  because they are *about* the terminal's task (reviewing branch X,
+ *  browsing repo, inspecting agent output) — switching terminals should
+ *  restore them as a unit.
  *
  *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
  *  within a single terminal keeps each mode's last-viewed file, mirroring
