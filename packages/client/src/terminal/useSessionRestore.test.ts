@@ -39,7 +39,7 @@ vi.mock("solid-sonner", () => ({
     warning: () => {},
   }),
 }));
-vi.mock("anyagent/cli", () => ({ resumeAgentCommand: () => null }));
+vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 
 import { useSessionRestore } from "./useSessionRestore";
 import type { TerminalStore } from "./useTerminalStore";
