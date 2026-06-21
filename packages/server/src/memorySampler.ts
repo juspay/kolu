@@ -10,47 +10,16 @@
  * carry-over. The client adds its own JS-heap figure locally (off
  * `performance.memory`), so it never rides this cell.
  *
- * Memory churns byte-by-byte, but the rail renders whole megabytes, so the cell
- * dep uses {@link processMemoryMbEqual} as its `equals` — the framework's own
- * content-dedup path drops every set that doesn't move a displayed MB, keeping
- * the wire quiet while RSS hovers. The sampler itself just sets unconditionally.
+ * Memory churns byte-by-byte, but the rail renders whole megabytes. The cell's
+ * backing store and its whole-MB `equals` (the dedup that drops every set which
+ * doesn't move a displayed MB) live beside the cell definition in `surface.ts`,
+ * not here: this module's job is the read+publish cadence, not how the cell is
+ * backed and deduped. The sampler just sets unconditionally via injected
+ * `publish`; the framework's content-dedup path keeps the wire quiet.
  */
 
 import type { PtyHostClient } from "kaval";
-import { bytesToWholeMB } from "kolu-common/surface";
 import type { DaemonState, ProcessMemory } from "kolu-common/surface";
-
-/** Whole displayed megabytes of a byte count (the rail's granularity). `null`
- *  RSS (no daemon) stays `null` so it compares distinctly from any real value.
- *  Built on the shared {@link bytesToWholeMB} so the dedup boundary and the
- *  client's rendered figure are one computation, not two copies. */
-function rssMb(bytes: number | null): number | null {
-  return bytes === null ? null : bytesToWholeMB(bytes);
-}
-
-/** Two readouts are equal when they render the same whole-MB rail figures —
- *  the cell's `equals`, so a sub-MB RSS wobble never re-publishes. */
-export function processMemoryMbEqual(
-  a: ProcessMemory,
-  b: ProcessMemory,
-): boolean {
-  return (
-    rssMb(a.serverRssBytes) === rssMb(b.serverRssBytes) &&
-    rssMb(a.kavalRssBytes) === rssMb(b.kavalRssBytes)
-  );
-}
-
-/** In-memory backing for the `processMemory` cell. The sampler writes through
- *  `surfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
- *  subscription reads the latest via `get`. No persistence — a live metric has
- *  no on-disk slot, mirroring the `terminalList` cell. */
-let current: ProcessMemory = { serverRssBytes: 0, kavalRssBytes: null };
-export const memoryCellStore = {
-  get: (): ProcessMemory => current,
-  set: (value: ProcessMemory): void => {
-    current = value;
-  },
-};
 
 /** The seams the sampler reads/writes through — injected so a unit test can
  *  drive the kaval-down / heartbeat-anomaly branches without a real daemon. */

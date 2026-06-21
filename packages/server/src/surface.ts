@@ -46,10 +46,15 @@ import type {
   ActivityFeed,
   KoluBuildInfo,
   Preferences,
+  ProcessMemory,
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { type koluSurface, surfaces } from "kolu-common/surface";
+import {
+  bytesToWholeMB,
+  type koluSurface,
+  surfaces,
+} from "kolu-common/surface";
 import {
   type FsReadFileOutput,
   fsListAllOutputEqual,
@@ -61,7 +66,6 @@ import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
-import { memoryCellStore, processMemoryMbEqual } from "./memorySampler.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
@@ -101,6 +105,48 @@ const activityFeedStore: CellStore<ActivityFeed> = confStore<ActivityFeed>(
 );
 const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
+
+// ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
+//
+// Defined here beside the cell entry (mirroring `terminalList`), not in
+// `memorySampler.ts`: the cell's storage shape and dedup predicate are the
+// surface layer's concern. The sampler only reads+publishes via the injected
+// `publish` (→ `surfaceCtx.cells.processMemory.set` → `set` below).
+
+/** Whole displayed megabytes of a byte count (the rail's granularity). `null`
+ *  RSS (no daemon) stays `null` so it compares distinctly from any real value.
+ *  Built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  client's rendered figure are one computation, not two copies. */
+function rssMb(bytes: number | null): number | null {
+  return bytes === null ? null : bytesToWholeMB(bytes);
+}
+
+/** Two readouts are equal when they render the same whole-MB rail figures —
+ *  the cell's `equals`, so a sub-MB RSS wobble never re-publishes. */
+export function processMemoryMbEqual(
+  a: ProcessMemory,
+  b: ProcessMemory,
+): boolean {
+  return (
+    rssMb(a.serverRssBytes) === rssMb(b.serverRssBytes) &&
+    rssMb(a.kavalRssBytes) === rssMb(b.kavalRssBytes)
+  );
+}
+
+/** In-memory backing for the `processMemory` cell. The sampler writes through
+ *  `surfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
+ *  subscription reads the latest via `get`. No persistence — a live metric has
+ *  no on-disk slot, mirroring the `terminalList` cell. */
+let currentProcessMemory: ProcessMemory = {
+  serverRssBytes: 0,
+  kavalRssBytes: null,
+};
+const memoryCellStore = {
+  get: (): ProcessMemory => currentProcessMemory,
+  set: (value: ProcessMemory): void => {
+    currentProcessMemory = value;
+  },
+};
 
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
