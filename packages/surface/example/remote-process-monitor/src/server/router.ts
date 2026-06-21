@@ -171,29 +171,15 @@ export function buildRouter(opts: BuildRouterOptions) {
   return { router, session };
 }
 
-/** The subset of `implementSurface(...).ctx` the bridge pumps actually
- *  call. Keep this in sync with the surface's cells/collections —
- *  every cell/collection actually written from a pump must appear
- *  here, otherwise the pumps compile against a narrower-than-real
- *  type and a typo / missing-write goes undetected. */
-type FragmentCtx = {
-  ctx: {
-    cells: {
-      system: { set: (v: SystemInfo) => void };
-      connection: { set: (v: ConnectionInfo) => void };
-    };
-    collections: {
-      processes: {
-        upsert: (k: Pid, v: Process) => void;
-        remove: (k: Pid) => void;
-      };
-      cpuCores: {
-        upsert: (k: CoreId, v: CpuCore) => void;
-        remove: (k: CoreId) => void;
-      };
-    };
-  };
-};
+/** The `{ ctx }` the bridge pumps mutate — derived from the framework's own
+ *  `implementSurface` return so it can't drift from the surface's
+ *  cells/collections. A typo or missing-write in a pump now fails to compile
+ *  against the real `ctx` (the whole point), with no hand-maintained shadow to
+ *  keep in sync. */
+type FragmentCtx = Pick<
+  ReturnType<typeof implementSurface<typeof surface.spec>>,
+  "ctx"
+>;
 
 /** Demo-side logging — every interesting bridge event goes to stderr
  *  so `just dev` / `nix run` users see the full data flow. */
