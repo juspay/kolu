@@ -9,7 +9,7 @@
     "build": "bun build.ts",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
-    "test:render": "bun test ./src/tui.bun-test.tsx"
+    "test:render": "bun test ./src/tui.bun-test.tsx ./src/fleet.bun-test.tsx"
   },
   "dependencies": {
     "@kolu/arivu-contract": "workspace:*",

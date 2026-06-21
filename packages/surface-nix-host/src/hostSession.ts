@@ -140,6 +140,14 @@ export interface HostSessionOptions {
    *  (drishti's browser socket gives up at 60s) and above a healthy
    *  post-`nix copy` handshake, which is sub-second. */
   connectTimeoutMs?: number;
+  /** Where the session's diagnostic lines go — `nix copy` progress, ssh spawn
+   *  errors, connection transitions, the forwarded remote-agent stderr, and the
+   *  `lastError`. Default writes each (newline-terminated) to `process.stderr`,
+   *  which a plain CLI wants. An **alt-screen** consumer (an OpenTUI board) must
+   *  pass its own sink so these never corrupt the rendered screen — the lines
+   *  are still accumulated in `progressLines`/`remoteProgressLines` regardless,
+   *  so a diverting sink loses nothing a failure-reason read would want. */
+  onLog?: (line: string) => void;
 }
 
 /** The typed RPC client produced by a successful `acquire`/`pin`/
@@ -345,18 +353,43 @@ export class HostSession<C extends AnyContractRouter> {
         this.clearTimer();
     }
     if (patch.lastError !== undefined && patch.lastError !== null) {
-      process.stderr.write(
-        `[host:${this.opts.host}] lastError: ${patch.lastError}\n`,
-      );
+      this.emit(`[host:${this.opts.host}] lastError: ${patch.lastError}`);
     }
     this.stateCell.set(next);
   }
 
+  /** Route one diagnostic line to the configured sink (default: `process.stderr`,
+   *  newline-terminated). The single choke-point for every line the session
+   *  emits, so an alt-screen consumer diverts them all by passing one `onLog`.
+   *
+   *  `onLog` is caller-supplied and `emit` is the one funnel every diagnostic
+   *  path runs through (state transitions, progress updates, child-stderr
+   *  handlers). A throwing sink must NOT escape: `emit` runs from `updateState`
+   *  BEFORE `stateCell.set`, so an uncaught throw here would skip the state
+   *  write, the reconnect scheduling, or break out of an event callback —
+   *  freezing the session. Guard at this funnel (the project's
+   *  `callback-fanout-guarded-at-funnel` rule), and surface the sink's own
+   *  failure on stderr so it isn't swallowed silently. */
+  private emit(line: string): void {
+    if (this.opts.onLog) {
+      try {
+        this.opts.onLog(line);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `[host:${this.opts.host}] onLog sink threw: ${reason}\n`,
+        );
+      }
+    } else {
+      process.stderr.write(`${line}\n`);
+    }
+  }
+
   /** Parent-side lifecycle event (nix copy progress, ssh spawn errors,
-   *  reconnect timer, teardown). Logged to stderr with a `[local]` tag
-   *  and accumulated in the connection cell's progress ring. */
+   *  reconnect timer, teardown). Emitted with a `[local]` tag and accumulated in
+   *  the connection cell's progress ring. */
   private addLocalProgress(line: string): void {
-    process.stderr.write(`[host:${this.opts.host} local] ${line}\n`);
+    this.emit(`[host:${this.opts.host} local] ${line}`);
     this.updateState({
       progressLines: [
         ...this.stateCell.current().progressLines,
@@ -371,7 +404,7 @@ export class HostSession<C extends AnyContractRouter> {
    *  kept UNTAGGED in `remoteProgressLines` so a consumer reads the agent's own
    *  output by origin rather than re-parsing the tag. */
   private addRemoteProgress(line: string): void {
-    process.stderr.write(`[host:${this.opts.host} remote] ${line}\n`);
+    this.emit(`[host:${this.opts.host} remote] ${line}`);
     const current = this.stateCell.current();
     this.updateState({
       progressLines: [...current.progressLines, `[remote] ${line}`],
@@ -381,9 +414,7 @@ export class HostSession<C extends AnyContractRouter> {
 
   private logTransition(from: ConnectionState, to: ConnectionState): void {
     if (from === to) return;
-    process.stderr.write(
-      `[host:${this.opts.host} local] connection: ${from} → ${to}\n`,
-    );
+    this.emit(`[host:${this.opts.host} local] connection: ${from} → ${to}`);
   }
 
   /** Arm the session's single pending timer. Auto-nulls `pendingTimer`
