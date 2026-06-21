@@ -1,0 +1,8 @@
+# Local-dev preload only (`bun run src/bin.ts` / `pnpm --filter arivu-tui start`).
+# @opentui/solid's preload registers the babel-preset-solid JSX transform so
+# `<box>`/`<text>` compile to Solid's fine-grained reactive output when Bun
+# executes the .tsx source directly. The Nix BUILD path does NOT use this — it
+# runs the same transform once at build time via `build.ts` (the @opentui/solid
+# Bun plugin), shipping an already-reactive `dist/bin.js` so the runtime needs no
+# babel. Two paths, one transform: this for the dev loop, build.ts for release.
+preload = ["@opentui/solid/preload"]

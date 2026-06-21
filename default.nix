@@ -474,13 +474,15 @@ let
   # A pure surface CLIENT, so it needs no git/gh and no state dir.
   #
   # Unlike kaval-tui (still tsx, via mkAgentTuiWrapper above), the viewer runs
-  # under **Bun** — the contained, deliberate runtime split arivu P3 needs: PR2
-  # renders the dashboard with OpenTUI, whose native Zig core loads via
-  # Bun.dlopen. PR1 is the behaviour-preserving runtime swap ALONE — today's
-  # columnify text output, now executed by Bun from the `arivuTuiBuilt` tree
-  # (bun.nix dep cache + hydrated @kolu/*). The Bun-ness is one wrapper, one
-  # binary: the daemon (`arivu`, below) and the rest of kolu stay Node, so the
-  # Bun runtime never crosses ssh. See nix/packages/arivu-tui for the build.
+  # under **Bun** — the contained, deliberate runtime split arivu P3 needs: PR2a
+  # renders the dashboard with OpenTUI, whose native Zig core (libopentui.so)
+  # loads via Bun.dlopen. PR1 stood up the Bun runtime; PR2a compiles the
+  # OpenTUI/Solid bundle (dist/bin.js) in the `arivuTuiBuilt` tree and runs it.
+  # That dlopen needs libstdc++ — carried on LD_LIBRARY_PATH below (@opentui/core
+  # ships its native lib PREBUILT, so no node-gyp; libc/libm resolve via the
+  # running bun process, only libstdc++/libgcc_s must be added). The Bun-ness is
+  # one wrapper, one binary: the daemon (`arivu`, below) and the rest of kolu stay
+  # Node, so the Bun runtime never crosses ssh. See nix/packages/arivu-tui.
   #
   # P2's `--host <ssh>` still rides this wrapper: ARIVU_AGENT_DRVS_JSON carries
   # the per-system `{ system → arivu .drv }` map so the viewer can ship the
@@ -509,7 +511,8 @@ let
       makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
         --add-flags "${arivuTuiBuilt.entryPath}" \
         --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]}
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]} \
+        --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}
     '';
 
   # @kolu/surface example demos — derivations live next to each demo's
