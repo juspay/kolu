@@ -84,22 +84,16 @@ stdenv.mkDerivation (finalAttrs: {
   dontFixup = true;
   dontPatchShebangs = true;
 
-  # PR2a compiles the OpenTUI/Solid viewer to an already-reactive bundle here, at
-  # Nix build time (see buildPhase + build.ts), so the runtime needs no babel.
-  # The bun2nix hook's own build phase is unused — we drive `bun build.ts`
-  # ourselves so the @opentui/solid plugin (not a runtime preload) does the JSX
-  # transform.
+  # Drive `bun build.ts` ourselves instead of the bun2nix hook's build phase, so
+  # the @opentui/solid plugin (not a runtime preload) does the JSX transform at
+  # build time — see packages/arivu-tui/build.ts for why.
   dontUseBunBuild = true;
 
-  # Bring the viewer source + its build script into the bun project root (the
-  # bun.nix dep cache + hydrated @kolu/* already populated node_modules above),
-  # then run `bun build.ts`: the @opentui/solid Bun plugin transforms the Solid
-  # JSX once into a reactive `dist/bin.js` (+ a lazy `tui.tsx` chunk behind
-  # bin.ts's TTY gate). The runtime then needs no babel; bun still loads
-  # @opentui/core's per-arch native renderer (libopentui.so) via FFI at run time
-  # (the wrapper in ../../default.nix puts libstdc++ on LD_LIBRARY_PATH for that
-  # dlopen). `cp -L` because the store sources are read-only; build.ts only reads
-  # them, and Bun.build writes dist/ into the writable build root.
+  # Bring the viewer source + its build script into the bun project root (deps
+  # already populated above), then run `bun build.ts` to produce dist/bin.js — see
+  # packages/arivu-tui/build.ts for what gets bundled vs left native and why.
+  # `cp -L` because the store sources are read-only; build.ts only reads them, and
+  # Bun.build writes dist/ into the writable build root.
   buildPhase = ''
     runHook preBuild
     cp -rL ${koluSrc}/packages/arivu-tui/src ./src

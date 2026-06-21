@@ -19,10 +19,22 @@
  * this, since it does the same redirect at load time — so it only bites the Nix
  * bundle). Bundling them in also guarantees ONE solid instance shared between our
  * code and the reconciler. Only `@opentui/core` stays external — its native Zig
- * FFI loader is bundle-hostile and resolves its per-arch lib from node_modules at
- * runtime. `splitting: true` keeps the OpenTUI render path (the dynamic `import`
- * of `./tui.tsx`, behind bin.ts's TTY gate) a lazy chunk, so a piped/`--json` run
- * never pulls the native renderer in.
+ * FFI loader is bundle-hostile and resolves its per-arch lib (libopentui.so,
+ * shipped PREBUILT, no node-gyp) from node_modules at runtime. The `external`
+ * list and the runtime native-lib set are two halves of one fact: because
+ * @opentui/core is external, its .so is dlopen'd at run time and needs libstdc++
+ * on LD_LIBRARY_PATH — which the wrapper in `default.nix` adds (libc/libm resolve
+ * via the running bun process; only libstdc++/libgcc_s must be added). `splitting:
+ * true` keeps the OpenTUI render path (the dynamic `import` of `./tui.tsx`, behind
+ * bin.ts's TTY gate) a lazy chunk, so a piped/`--json` run never pulls the native
+ * renderer in.
+ *
+ * This comment is the single canonical rationale for the whole transform/bundle/
+ * native-dlopen story; the dev preload (bunfig.toml), the Nix buildPhase
+ * (nix/packages/arivu-tui/default.nix), and the wrapper's LD_LIBRARY_PATH
+ * (default.nix) each carry only a one-line local note that points back here, so
+ * the reasoning lives in exactly one place and the three secondary sites can't
+ * drift.
  */
 import { rmSync } from "node:fs";
 import solidPlugin from "@opentui/solid/bun-plugin";
