@@ -36,7 +36,7 @@ const SubPanelTabBar: Component<{
             // Append 1-based index when multiple tabs share the same name
             const suffixed =
               props.subIds.length <= 1 ? base : `${base} ${index() + 1}`;
-            // Supplant rule: intent line-1 takes the label slot when set.
+            // Supplant rule: notes line-1 takes the label slot when set.
             return annotationLine(m?.notes, suffixed);
           };
           const isActive = () => props.activeSubTab === id;

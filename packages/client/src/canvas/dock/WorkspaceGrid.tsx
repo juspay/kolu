@@ -557,7 +557,7 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* Headline: annotation slot — intent line-1 if the user set
+      {/* Headline: annotation slot — notes line-1 if the user set
        *  one, otherwise the branch label (the human-readable anchor
        *  of the card). DM Sans semibold either way. */}
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
@@ -628,11 +628,13 @@ const WorkspaceCard: Component<{
         )}
       </Show>
 
-      {/* Intent body — lines 2+ of the markdown when the user wrote a
-       *  multiline intent. Line 1 already lives in the annotation slot
+      {/* Notes body — lines 2+ of the markdown when the user wrote
+       *  multiline notes. Line 1 already lives in the annotation slot
        *  above; the body renders only when there's prose past line 1.
-       *  Shared <NotesBody> so every dock + switcher render site
-       *  looks the same. */}
+       *  The shared <NotesBody> box renders only in this switcher
+       *  card (the canvas-tile and dock-awaiting card show only the
+       *  line-1 annotation, plus — on the canvas-tile — a note-icon
+       *  affordance gated on body presence). */}
       <NotesBody
         notes={props.entry.info.meta.notes}
         testId="workspace-switcher-card-notes"

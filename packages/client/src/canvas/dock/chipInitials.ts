@@ -2,12 +2,12 @@
  *  32 px tile in the collapsed dock. The repo half is the first
  *  alphanumeric character of the repo name in any script (`répo` → `R`,
  *  `日本語` → `日`), uppercased; the sub half is the first grapheme of the
- *  intent (an emoji or other symbol when the user leads with one), with a
+ *  notes (an emoji or other symbol when the user leads with one), with a
  *  fallback to the first alphanumeric character of the branch tail when the
- *  intent is unset. Each half is clamped to a single grapheme so unicode
+ *  notes are unset. Each half is clamped to a single grapheme so unicode
  *  case-expansion (`ß` → `SS`) can't paint two glyphs on a one-glyph tile.
  *
- *  Cards mode renders the same intent through `NotesMarkdownInline`,
+ *  Cards mode renders the same notes through `NotesMarkdownInline`,
  *  which preserves emoji and symbol prefixes verbatim. The chip's sub
  *  glyph reads through `notesLeadGlyph` so the rail can't disagree
  *  with the cards header on the same source string — both surfaces
@@ -44,11 +44,11 @@ function caseToOneGlyph(glyph: string, mode: "upper" | "lower"): string {
  *  - `repo` — first alphanumeric char of `info.key.group` in any script,
  *    uppercased (`"kolu"` → `"K"`, `"répo"` → `"R"`). Repo names don't carry
  *    emoji, so the alphanumeric-only match is intentional here.
- *  - `sub` — first grapheme of the intent's display line (line 1, with
- *    leading markdown chrome stripped) when the intent is set;
+ *  - `sub` — first grapheme of the notes' display line (line 1, with
+ *    leading markdown chrome stripped) when the notes are set;
  *    lowercased when it's a unicode letter or digit (`\p{L}`/`\p{N}`),
  *    passed through verbatim when it's an emoji or other symbol. Falls
- *    back to the first alpha-num of the branch tail when the intent has
+ *    back to the first alpha-num of the branch tail when the notes have
  *    nothing renderable.
  *  - `subIsGlyph` — `true` when `sub` is a non-alphanumeric grapheme
  *    (emoji, symbol, punctuation). The CSS hook (`data-glyph`) uses
