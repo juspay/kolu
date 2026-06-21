@@ -1,7 +1,11 @@
 ---
-description: Project-wide conventions — pipeline overview, feature discoverability, git
+description: Project-wide conventions — communication style, pipeline overview, feature discoverability, git
 applyTo: "**"
 ---
+
+## Communication
+
+- **Answer in plain words.** When the user asks you to explain, summarize, or reason about something (not write code), reach for everyday language first and keep it short. Introduce a piece of jargon, a symbol-heavy phrasing, or an internal codename only when it carries weight the plain word can't — then gloss it once. This is the default for *every* turn, not a per-request favor: the user should never have to ask twice.
 
 ## Workflow
 
