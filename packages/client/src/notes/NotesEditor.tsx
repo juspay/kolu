@@ -19,6 +19,7 @@ import {
   createSignal,
   For,
   on,
+  onCleanup,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -63,39 +64,64 @@ const NotesEditor: Component<{
 }> = (props) => {
   const [draft, setDraft] = createSignal(props.notes() ?? "");
   const [mode, setMode] = createSignal<"edit" | "preview">("edit");
+  // `pending` covers BOTH a debounce-armed save (unsaved keystrokes exist)
+  // AND any in-flight `setNotes` RPC. It's a counter over RPCs (so a stale
+  // echo from an earlier RPC can't slip through while a later one is still
+  // in flight — `!pending` must mean *no* save of ours is pending) OR'd
+  // with the debounce-armed flag. The reconcile effect gates on it so a
+  // server echo never clobbers an unsaved or in-flight draft.
+  let inflight = 0;
+  let dirty = false;
   const [pending, setPending] = createSignal(false);
+  const recomputePending = () => setPending(dirty || inflight > 0);
   // Non-reactive: only the reconcile effect reads it, and making it a
   // signal would re-run that effect on every focus/blur for nothing.
   let editing = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const [getTextarea, setTextarea] = createSignal<HTMLTextAreaElement>();
 
+  // Clear an armed debounce on unmount so the timer can't fire a `setNotes`
+  // at an already-closed terminal (and surface a spurious error toast).
+  onCleanup(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+
   function flush(id: TerminalId, value: string) {
-    setPending(true);
+    inflight++;
+    recomputePending();
     void client.terminal
       .setNotes({ id, notes: value })
       .catch((err: Error) =>
         toast.error(`Failed to save notes: ${err.message}`),
       )
-      .finally(() => setPending(false));
+      .finally(() => {
+        inflight--;
+        recomputePending();
+      });
   }
 
   function scheduleSave(id: TerminalId, value: string) {
-    setPending(true);
+    dirty = true;
+    recomputePending();
     clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
+      dirty = false;
       flush(id, value);
     }, SAVE_DEBOUNCE_MS);
   }
 
   /** Cancel any pending debounce and flush immediately to `id`. Used on
    *  blur and on terminal-switch so edits never sit in an unflushed
-   *  timer when the user moves focus away. */
+   *  timer when the user moves focus away. Resets `dirty` — the
+   *  debounce's "unsaved keystrokes exist" flag — because the flush
+   *  consumes them, or `pending` would stay true forever (and the
+   *  reconcile effect would ignore every later echo). */
   function flushNow(id: TerminalId, value: string) {
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
+      dirty = false;
       flush(id, value);
     }
   }
