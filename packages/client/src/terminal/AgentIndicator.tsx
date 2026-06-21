@@ -90,15 +90,19 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
         )}
       </Show>
       {/* Running-for badge, beside the token count. Hidden until `startedAt`
-       *  resolves (epoch-ms is always truthy, so the bare value gates Show). */}
+       *  resolves (epoch-ms is always truthy, so the bare value gates Show).
+       *  Fixed-width, right-aligned box: the value reflows once a second and
+       *  the title bar centers its content, so a width-changing badge would
+       *  jitter the whole row every tick (the UI font doesn't honor
+       *  tabular-nums, so "33s" and "35s" differ in width). A constant box
+       *  pins the layout. The tooltip keys on `startedAt` alone (not the live
+       *  duration) so it isn't recomputed each tick. */}
       <Show when={props.agent.startedAt}>
         {(startedAt) => (
           <span
             data-testid="agent-running-for"
-            class="tabular-nums text-fg-3"
-            title={`Running for ${runningFor(startedAt())} · started ${new Date(
-              startedAt(),
-            ).toLocaleString()}`}
+            class="inline-block min-w-[2.5em] text-right tabular-nums text-fg-3"
+            title={`Started ${new Date(startedAt()).toLocaleString()}`}
           >
             {runningFor(startedAt())}
           </span>
