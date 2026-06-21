@@ -17,14 +17,15 @@
  */
 
 import type { PtyHostClient } from "kaval";
+import { bytesToWholeMB } from "kolu-common/surface";
 import type { DaemonState, ProcessMemory } from "kolu-common/surface";
 
-const BYTES_PER_MB = 1_048_576;
-
 /** Whole displayed megabytes of a byte count (the rail's granularity). `null`
- *  RSS (no daemon) stays `null` so it compares distinctly from any real value. */
+ *  RSS (no daemon) stays `null` so it compares distinctly from any real value.
+ *  Built on the shared {@link bytesToWholeMB} so the dedup boundary and the
+ *  client's rendered figure are one computation, not two copies. */
 function rssMb(bytes: number | null): number | null {
-  return bytes === null ? null : Math.round(bytes / BYTES_PER_MB);
+  return bytes === null ? null : bytesToWholeMB(bytes);
 }
 
 /** Two readouts are equal when they render the same whole-MB rail figures —

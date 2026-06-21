@@ -763,6 +763,19 @@ export const ProcessMemorySchema = z.object({
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 
+/** Bytes in one megabyte. The single source of truth both the server-side dedup
+ *  boundary and the client-side rail rendering read, so they can't drift. */
+export const BYTES_PER_MB = 1_048_576;
+
+/** The whole-megabyte figure the rail displays for a byte count. One
+ *  computation, shared: the server's `processMemory` dedup (drop a set when the
+ *  displayed MB doesn't move) and the client's `formatMBCompact` rendering both
+ *  read it, so the dedup boundary and the rendered figure provably agree rather
+ *  than relying on two byte-for-byte-identical copies. */
+export function bytesToWholeMB(bytes: number): number {
+  return Math.round(bytes / BYTES_PER_MB);
+}
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once

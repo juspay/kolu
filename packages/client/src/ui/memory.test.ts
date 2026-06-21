@@ -1,7 +1,6 @@
+import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { bytesToMB, formatMB, formatMBCompact } from "./memory";
-
-const MB = 1_048_576;
 
 describe("bytesToMB", () => {
   it("rounds to 0.1 MB", () => {

@@ -1,3 +1,4 @@
+import { BYTES_PER_MB as MB } from "kolu-common/surface";
 import type { ProcessMemory } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -5,8 +6,6 @@ import {
   processMemoryMbEqual,
   sampleMemoryOnce,
 } from "./memorySampler.ts";
-
-const MB = 1_048_576;
 
 /** A deps stub with sane defaults; override per test. */
 function deps(over: Partial<MemorySamplerDeps> = {}): {

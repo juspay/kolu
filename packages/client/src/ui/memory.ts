@@ -3,7 +3,7 @@
  *  dialog (the full `used / total (limit)` breakdown) and the chrome-bar rail
  *  (the compact whole-MB readouts), so the granularity rules live in one place. */
 
-const BYTES_PER_MB = 1_048_576;
+import { BYTES_PER_MB, bytesToWholeMB } from "kolu-common/surface";
 
 /** Bytes → megabytes, rounded to 0.1 MB. A number (not a string) so the
  *  diagnostic JSON snapshot stays machine-parseable. */
@@ -19,10 +19,11 @@ export function formatMB(bytes: number): string {
 }
 
 /** Bytes → a compact whole-MB string for the rail (e.g. `142 MB`). Coarser than
- *  {@link formatMB} on purpose: the rail wants a glanceable figure, and the
- *  server-side sampler dedups on this same whole-MB granularity. */
+ *  {@link formatMB} on purpose: the rail wants a glanceable figure. Built on the
+ *  shared {@link bytesToWholeMB}, the same computation the server-side sampler
+ *  dedups on — so the rendered figure and the dedup boundary can't drift. */
 export function formatMBCompact(bytes: number): string {
-  return `${Math.round(bytes / BYTES_PER_MB)} MB`;
+  return `${bytesToWholeMB(bytes)} MB`;
 }
 
 /** `performance.memory` is Chromium-only and missing from the DOM type
