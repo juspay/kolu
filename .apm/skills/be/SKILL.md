@@ -95,10 +95,16 @@ check during §2. `/ci` and `/evidence` already run on pu; keep it that way.
 other captures on-screen behavior — so **run them concurrently**; don't wait for
 green before capturing.
 
-1. **Kick off `/ci` first, backgrounded** — start the pipeline (background;
-   consume `--progress json`) so it churns while you capture evidence. React to
-   streamed `failed`/`errored` nodes the moment they land: fix→fmt→commit→retry
-   on real failures, confirm green on the final `HEAD`.
+1. **Kick off `/ci` first, backgrounded** — start the pipeline so it churns while
+   you capture evidence. **Drive it through the odu MCP face, not a shelled-out
+   `nix run .#odu`:** when an odu MCP server is wired (the `mcp__odu__*` tools —
+   check before shelling out), every run *and every status/log check* goes through
+   it — `run` → `wait_for_settle` (fail-fast) → read the red node's log via
+   `ReadMcpResourceTool` on `surface://collections/logs/{id}` → `node_rerun`, per
+   the `/ci` skill. Reaching for `nix run .#odu -- run/status` while that server is
+   present is the fallback path, not the default. React to `failed`/`errored` nodes
+   the moment they land: fix→fmt→commit→retry on real failures, confirm green on
+   the final `HEAD`.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior
