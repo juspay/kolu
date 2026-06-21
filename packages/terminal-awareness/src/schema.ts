@@ -51,6 +51,19 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   OpenCodeInfoSchema,
 ]);
 
+/** A reference to the EXACT agent conversation that was running on a terminal —
+ *  the agent discriminator (`kind`, matching `AgentInfo.kind`) paired with that
+ *  agent's native session/conversation `id`. Captured live from `agent.sessionId`
+ *  and persisted (unlike the rest of the live `agent` field) so waking a slept
+ *  terminal — or restoring after a restart — can resume THAT conversation, not
+ *  merely the most-recent one in the cwd (juspay/kolu#1495). The `kind` rides
+ *  with the `id` so a consumer can never aim the id at the wrong agent CLI. */
+export const AgentSessionRefSchema = z.object({
+  kind: AgentKindSchema,
+  id: z.string(),
+});
+export type AgentSessionRef = z.infer<typeof AgentSessionRefSchema>;
+
 // ── PR resolution — closed forge union + wire result ──────────────────
 //
 // anyforge owns the forge-neutral, generic shapes (`PrUnavailableSourceBase`,
@@ -133,6 +146,13 @@ export const AwarenessPersistedFieldsSchema = z.object({
    *  input; drives the "resume agent on restore" offer. Absent for terminals
    *  that never ran a known agent. */
   lastAgentCommand: z.string().optional(),
+  /** The EXACT agent conversation last running in this terminal — its agent
+   *  `kind` + native session `id` (see `AgentSessionRefSchema`). Captured live
+   *  from `agent.sessionId` but persisted here (the live `agent` field is wiped
+   *  on restart), so wake / restore resumes that conversation rather than the
+   *  most-recent one in the cwd (juspay/kolu#1495). Absent for terminals whose
+   *  agent never resolved a session (then resume falls back to most-recent). */
+  agentSession: AgentSessionRefSchema.optional(),
   /** Workspace-switcher recency key: epoch-millis of the last agent
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0`. */

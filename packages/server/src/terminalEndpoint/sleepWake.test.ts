@@ -17,6 +17,7 @@
  * pin the pure mapping `wakeMeta` and the synchronous registry flips.
  */
 
+import { resumeAgentCommand } from "anyagent/cli";
 import {
   type ActiveTerminal,
   LOCAL_LOCATION,
@@ -71,6 +72,10 @@ function activeEntry(): ActiveTerminalProcess {
       foreground: null,
       lastActivityAt: 123,
       lastAgentCommand: "opencode --model sonnet",
+      // The EXACT conversation running on this terminal (juspay/kolu#1495) — must
+      // ride the persisted base through sleep → snapshot → wake so resume targets
+      // THIS session, not the most-recent one in the cwd.
+      agentSession: { kind: "opencode", id: "ses_118316090ffewMmbj6bsfKwj4R" },
       themeName: "rose",
       intent: "fix the auth race",
     },
@@ -100,6 +105,11 @@ describe("beginSleep — flip active → sleeping in place", () => {
     // Persisted base survives — incl. lastAgentCommand, the resume input
     // (the BUG-B guard: the discarded cut stripped this as "live overlay").
     expect(entry.meta.lastAgentCommand).toBe("opencode --model sonnet");
+    // …and the exact-conversation ref rides through too (juspay/kolu#1495).
+    expect(entry.meta.agentSession).toEqual({
+      kind: "opencode",
+      id: "ses_118316090ffewMmbj6bsfKwj4R",
+    });
     expect(entry.meta.cwd).toBe("/work/repo");
     expect(entry.meta.themeName).toBe("rose");
     expect(entry.meta.intent).toBe("fix the auth race");
@@ -157,6 +167,11 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     if (saved?.state !== "sleeping") throw new Error("expected sleeping arm");
     expect(saved.sleptAt).toBeGreaterThan(0);
     expect(saved.lastAgentCommand).toBe("opencode --model sonnet");
+    // The exact-conversation ref persists across a daemon restart (juspay/kolu#1495).
+    expect(saved.agentSession).toEqual({
+      kind: "opencode",
+      id: "ses_118316090ffewMmbj6bsfKwj4R",
+    });
 
     // It round-trips through the saved discriminated union — agent/foreground
     // don't leak, but the `pr` SNAPSHOT persists (so a dormant tile keeps its
@@ -178,6 +193,7 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     location: LOCAL_LOCATION,
     lastActivityAt: 5,
     lastAgentCommand: "opencode --model sonnet",
+    agentSession: { kind: "opencode", id: "ses_118316090ffewMmbj6bsfKwj4R" },
     themeName: "rose",
     intent: "fix the auth race",
     // A frozen PR snapshot on the sleeping arm — wake must DISCARD it (the
@@ -200,6 +216,11 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     expect(active.state).toBe("active");
     // Persisted base preserved (the resume input survives → wake can resume).
     expect(active.lastAgentCommand).toBe("opencode --model sonnet");
+    // The exact-conversation ref rides through wake too (juspay/kolu#1495).
+    expect(active.agentSession).toEqual({
+      kind: "opencode",
+      id: "ses_118316090ffewMmbj6bsfKwj4R",
+    });
     expect(active.cwd).toBe("/work/repo");
     expect(active.themeName).toBe("rose");
     expect(active.intent).toBe("fix the auth race");
@@ -211,6 +232,48 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     expect(active.pr).toEqual({ kind: "pending" });
     // The sleeping-only scalar is gone.
     expect((active as Record<string, unknown>).sleptAt).toBeUndefined();
+  });
+});
+
+describe("wake resume targets the EXACT conversation, not most-recent (juspay/kolu#1495)", () => {
+  // The issue's scenario, at the model layer: a terminal slept on conversation A;
+  // a SECOND conversation B later ran in the same cwd. Wake must resume A — the
+  // conversation that was running on THIS terminal — not B (the folder's newest).
+  // Wake builds its resume input purely from the persisted base (lastAgentCommand
+  // + agentSession), never from the cwd's live state, so the woken meta's ref IS A.
+  const CONV_A = "ses_AAAAAAAAAAAAAAAAAAAAAAAAA";
+  const sleptOnA: SleepingTerminal = {
+    state: "sleeping",
+    sleptAt: 999,
+    cwd: "/work/repo",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 5,
+    lastAgentCommand: "opencode --model sonnet",
+    agentSession: { kind: "opencode", id: CONV_A },
+    themeName: "rose",
+    pr: { kind: "pending" },
+  };
+
+  it("builds a resume-by-id command for the slept conversation", () => {
+    const active = wakeMeta(sleptOnA);
+    // This is exactly how `wake()` derives the resume input (local.ts).
+    const resumeCommand = active.lastAgentCommand
+      ? resumeAgentCommand(active.lastAgentCommand, active.agentSession)
+      : null;
+    // Targets conversation A by id — NOT the most-recent `--continue` marker.
+    expect(resumeCommand).toBe(`opencode --session ${CONV_A} --model sonnet`);
+    expect(resumeCommand).not.toContain("--continue");
+  });
+
+  it("falls back to most-recent when no conversation ref was ever captured", () => {
+    const { agentSession: _drop, ...noRef } = sleptOnA;
+    const active = wakeMeta(noRef as SleepingTerminal);
+    const resumeCommand = active.lastAgentCommand
+      ? resumeAgentCommand(active.lastAgentCommand, active.agentSession)
+      : null;
+    // Nothing to target → today's behavior is preserved (no regression).
+    expect(resumeCommand).toBe("opencode --continue --model sonnet");
   });
 });
 

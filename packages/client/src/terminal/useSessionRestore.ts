@@ -295,9 +295,15 @@ export function useSessionRestore(deps: {
         // command, if the user didn't opt out. The command is already
         // normalized (prompts/positionals stripped by the allowlist at
         // capture time), so there's nothing arbitrary to smuggle through.
+        // `t.agentSession` (when present) targets the EXACT conversation that
+        // was running on this terminal rather than the most-recent one in the
+        // cwd (juspay/kolu#1495); absent → most-recent fallback.
         const optedIn = !resumeIds || resumeIds.has(t.id);
         if (t.lastAgentCommand && optedIn) {
-          const resumeForm = resumeAgentCommand(t.lastAgentCommand);
+          const resumeForm = resumeAgentCommand(
+            t.lastAgentCommand,
+            t.agentSession,
+          );
           if (resumeForm) {
             await client.terminal.sendInput({
               id: newId,

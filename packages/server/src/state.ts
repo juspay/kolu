@@ -113,7 +113,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.27.0";
+const SCHEMA_VERSION = "1.28.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -497,6 +497,13 @@ export const store = new Conf<PersistedState>({
     // now-required discriminant rejects the whole session at startup.
     "1.27.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillTerminalState),
+    // `SavedTerminal.agentSession` added (the exact agent conversation ref —
+    // `{ kind, id }` — captured for resume-by-id on wake/restore, juspay/kolu#1495).
+    // The field is OPTIONAL, so a pre-1.28 record that lacks it parses cleanly and
+    // simply falls back to the most-recent-conversation resume — no data to
+    // backfill, no validation failure. The bump + this entry exist only to honor
+    // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
+    "1.28.0": () => {},
   },
 });
 

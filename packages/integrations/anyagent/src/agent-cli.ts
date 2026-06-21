@@ -105,32 +105,72 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
+type ResumableAgent = "claude" | "codex" | "opencode";
+
+/**
+ * A reference to the EXACT agent conversation that was running on a terminal —
+ * captured live from `AgentInfo.sessionId` and persisted so it survives sleep /
+ * restart (juspay/kolu#1495). `kind` is the agent discriminator (matches
+ * `AgentInfo.kind`); `id` is that agent's native session/conversation id. The
+ * `kind` travels WITH the `id` so the id can never be aimed at the wrong agent:
+ * `resumeAgentCommand` only uses it when `kind` names the same agent the command
+ * head does.
+ */
+export interface AgentSessionRef {
+  kind: AgentKind;
+  id: string;
+}
+
 /**
  * Resume markers spliced in right after the agent binary for agents that
  * support conversation continuity. The `Record` key union is the exact set of
- * resume-capable agents, so adding an agent forces adding a marker (type error
- * if omitted). Narrower than `STABLE_FLAGS`: detection-only agents (`aider`,
- * `goose`, `gemini`, `cursor-agent`) are absent and `resumeAgentCommand`
+ * resume-capable agents, so adding an agent forces adding BOTH marker forms
+ * (type error if omitted). Narrower than `STABLE_FLAGS`: detection-only agents
+ * (`aider`, `goose`, `gemini`, `cursor-agent`) are absent and `resumeAgentCommand`
  * returns `null` for them.
  *
- * Each value is the literal token sequence inserted after the head:
- *   claude `-c`              → continue most-recent conversation in cwd
- *   codex `resume --last`    → subcommand form; last session in cwd
- *                              (`--last` skips the interactive picker)
- *   opencode `--continue`    → continue most-recent session in cwd
+ * Two forms per agent:
+ *   - `last`  — continue the MOST-RECENT conversation in the cwd, no id needed:
+ *       claude `-c` · codex `resume --last` (`--last` skips the picker) ·
+ *       opencode `--continue`.
+ *   - `byId`  — resume the EXACT conversation by its native id (juspay/kolu#1495):
+ *       claude `--resume <id>` · codex `resume <id>` · opencode `--session <id>`.
+ *       The argument is the already-validated, shell-safe session id.
  *
  * Each marker is spliced into the command as a RAW string (not re-quoted argv),
- * so a multi-word marker like `resume --last` works as written; the tokens are
- * plain flags/identifiers with no shell-significant characters. `parseAgentCommand`
+ * so a multi-word marker like `resume --last` works as written; the flag tokens
+ * are plain identifiers with no shell-significant characters, and the spliced id
+ * is `shellJoin`-quoted as one token at the splice site. `parseAgentCommand`
  * strips `-c`/`--continue`/`--resume`/`-r` during normalization (per
  * juspay/kolu#467), so the input is always resume-free — no idempotency case.
  */
-type ResumableAgent = "claude" | "codex" | "opencode";
+const AGENT_RESUME: Record<
+  ResumableAgent,
+  { last: string; byId: (id: string) => string }
+> = {
+  claude: { last: "-c", byId: (id) => `--resume ${id}` },
+  codex: { last: "resume --last", byId: (id) => `resume ${id}` },
+  opencode: { last: "--continue", byId: (id) => `--session ${id}` },
+};
 
-const AGENT_RESUME: Record<ResumableAgent, string> = {
-  claude: "-c",
-  codex: "resume --last",
-  opencode: "--continue",
+/** Canonical UUID shape (claude + codex session ids). */
+const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Per-agent shape gate for a native session id before it is spliced into a shell
+ * command as type-ahead. The id is OBSERVED data (read from the agent's own
+ * session file / DB), so it crosses into a shell line as UNTRUSTED input: each
+ * pattern is anchored and admits only shell-inert characters — hex + hyphen for
+ * the claude/codex UUIDs, `ses_` + alnum for opencode — with a length cap baked
+ * into the pattern, so a matching id cannot carry a metacharacter, newline, or
+ * word-splitting space. An id that fails its gate falls back to the `last`
+ * (most-recent) marker rather than resuming the wrong conversation.
+ */
+const SESSION_ID_PATTERN: Record<ResumableAgent, RegExp> = {
+  claude: UUID_RE,
+  codex: UUID_RE,
+  opencode: /^ses_[0-9a-zA-Z]{1,64}$/,
 };
 
 /**
@@ -237,8 +277,18 @@ export function parseAgentCommand(raw: string): string | null {
  * return the resume-mode invocation for agents that support it, or `null`
  * if the agent is in the allowlist but not the resume table. Input is
  * assumed already normalized — callers should not pass raw user input.
+ *
+ * With a `session` ref that names this SAME agent and carries a shell-safe id,
+ * resume the EXACT conversation (`claude --resume <id>`, etc., juspay/kolu#1495).
+ * Otherwise — no ref, a ref for a different agent, or an id that fails its shape
+ * gate — fall back to the most-recent marker (`claude -c`, etc.). The fallback is
+ * the locked policy: never resume a *wrong* conversation, but don't regress the
+ * common one-conversation-per-cwd case when no id was captured.
  */
-export function resumeAgentCommand(normalized: string): string | null {
+export function resumeAgentCommand(
+  normalized: string,
+  session?: AgentSessionRef,
+): string | null {
   const trimmed = normalized.trim();
   // The agent basename is always a safe bare word, so `shellSplit` reads the
   // head reliably. We only need it to look up the agent — we do NOT re-render
@@ -248,7 +298,19 @@ export function resumeAgentCommand(normalized: string): string | null {
   // recovered (F2) and (b) risk re-mangling the canonical `'\''` idiom (F3).
   const head = shellSplit(trimmed)[0];
   if (head === undefined || !(head in AGENT_RESUME)) return null;
-  const marker = AGENT_RESUME[head as ResumableAgent];
+  const agent = head as ResumableAgent;
   const tail = trimmed.slice(head.length).trimStart(); // everything after the head token
+
+  // Resume the EXACT conversation only when the ref names this same agent (so
+  // the id is never aimed at the wrong CLI) AND the id passes its shell-inert
+  // shape gate. `shellJoin([id])` quotes the id as a single token — a no-op for
+  // a gate-passing id, but it keeps the "data, not shell text" intent explicit.
+  const marker =
+    session !== undefined &&
+    session.kind === BASENAME_TO_KIND[agent] &&
+    SESSION_ID_PATTERN[agent].test(session.id)
+      ? AGENT_RESUME[agent].byId(shellJoin([session.id]))
+      : AGENT_RESUME[agent].last;
+
   return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }

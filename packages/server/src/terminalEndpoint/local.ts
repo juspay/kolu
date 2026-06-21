@@ -877,13 +877,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
     // Render the resume FORM from the OBSERVED `lastAgentCommand` (the command the
-    // OSC 633;E sensor captured) via `resumeAgentCommand` (claude `-c`, codex
-    // `resume --last`, opencode `--continue`), or null for a never-observed /
-    // non-resumable agent. An agent whose launch the command tap never observed
-    // (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is NOT resumed
-    // on wake — it wakes to a bare shell, by design (tracked: juspay/kolu#1492).
+    // OSC 633;E sensor captured) via `resumeAgentCommand`. With the persisted
+    // `agentSession` ref it resumes the EXACT conversation that was running on
+    // this terminal (`claude --resume <id>`, etc., juspay/kolu#1495); without it
+    // (never resolved a session) it falls back to the most-recent marker (claude
+    // `-c`, codex `resume --last`, opencode `--continue`). Null for a never-
+    // observed / non-resumable agent: an agent whose launch the command tap never
+    // observed (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is
+    // NOT resumed on wake — it wakes to a bare shell, by design (juspay/kolu#1492).
     const resumeCommand = entry.meta.lastAgentCommand
-      ? resumeAgentCommand(entry.meta.lastAgentCommand)
+      ? resumeAgentCommand(entry.meta.lastAgentCommand, entry.meta.agentSession)
       : null;
     const meta = wakeMeta(entry.meta);
     log

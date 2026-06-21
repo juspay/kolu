@@ -10,7 +10,8 @@
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher
  *                                                    (lives on m.pr)
  *    title:<id>        ─►  process observer      (lives on m.foreground)
- *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent)
+ *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent;
+ *                                                 persists m.agentSession)
  *    commandRun:<id>   ─►  agent-command tracker (lives on m.lastAgentCommand)
  *
  *  Metadata writes funnel through `sink.update*Metadata` so the
@@ -62,6 +63,7 @@ import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+import { agentSessionToPersist } from "./agentSession.ts";
 import type {
   AgentInfo,
   AwarenessLiveFields,
@@ -495,12 +497,25 @@ function publishAgentField(
     nextAgent,
     record.meta.lastActivityAt,
   );
+  // The EXACT conversation ref to persist for wake/restore resume — non-null only
+  // when the conversation identity (kind+sessionId) is genuinely new, so a same-
+  // session state/summary tick on the agent firehose never re-arms autosave here
+  // (juspay/kolu#1495). Captured BEFORE the live write so it reads the prior ref.
+  const nextSession = agentSessionToPersist(
+    record.meta.agentSession,
+    nextAgent,
+  );
   sink.updateServerLiveMetadata(record, (m) => {
     m.agent = nextAgent;
   });
   if (bump) {
     sink.updateServerMetadata(record, (m) => {
       m.lastActivityAt = Date.now();
+    });
+  }
+  if (nextSession) {
+    sink.updateServerMetadata(record, (m) => {
+      m.agentSession = nextSession;
     });
   }
 }

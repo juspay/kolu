@@ -8,6 +8,7 @@
  *  from there. This package is for code that has agent-specific concerns. */
 
 export {
+  type AgentSessionRef,
   agentNameFromCommand,
   parseAgentCommand,
   resumeAgentCommand,
