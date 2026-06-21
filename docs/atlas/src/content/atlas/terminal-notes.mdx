@@ -120,22 +120,22 @@ notes one last time before they're gone.
 |---|---|
 | **Storage** | reuse `intent`, renamed **`notes`** — persistence already done |
 | **Home** | dedicated **Notes tab** + inline editor |
-| **Editor** | shared `NotesEditor` — **Edit / Preview** sub-tabs, extracted from the modal |
+| **Editor** | plain `<textarea>` + `@kolu/solid-markdown` preview (**Edit / Preview** tabs) |
 | **Saving** | debounced autosave (client → `setNotes` → server's 500 ms → disk) |
 | **On close** | deleted with the terminal; the dialog is the reminder |
-| **Boundary** | leaf — not a `@kolu/*` package |
+| **Boundary** | **leaf** — reuses the existing renderer + surface; not a `@kolu/*` package |
 
 - **Reuse, renamed.** `intent` is already persist + autosave + sleep/wake + restore + render. Rename → `notes` (one `state.ts` migration); the **title still shows the first line** as the chip.
 - **New tab arm.** Notes becomes a kind in the right-panel tab union (`RightPanelTabKindSchema`); the editor is extracted once into a shared `NotesEditor`.
 - **Orchestration stays at the root.** `CloseConfirm` renders the **frozen `target.meta.notes` snapshot**, never a live read — the contract that keeps the reminder from shifting under the user. Leaf components get data + callbacks; the editor singleton lives at `App.tsx`.
-- **Leaf, not [electricity](./electricity.html).** The editor *is* domain-agnostic — but electricity means hiding a *hard volatility* (transport, persistence, GPU-loss); a markdown editor hides only a bounded algorithm (textarea + debounce + the existing renderer). That's the *agnostic ≠ electricity* trap. The hard parts — live state, persistence, md→safe-HTML — are already owned by [`@kolu/surface`](./surface-app.html) + `@kolu/solid-markdown`. So `NotesEditor` is a shared leaf component; the feature, a domain-coupled leaf.
+- **A leaf, not an [electricity](./electricity.html).** The axes a notes editor could own are already packages — markdown → safe-HTML is `@kolu/solid-markdown`, live-state + persistence are [`@kolu/surface`](./surface-app.html). `NotesEditor` just plugs into both, like `defineMutation` / `@kolu/commands` in the register.
 
 ## Implementation details
 
 One PR, with a test + visual evidence. In order:
 
 1. **Rename** `intent` → `notes` across common/server/client + a `state.ts` migration (idempotent, optional-safe).
-2. **Extract** `NotesEditor` from the modal and give it **Edit / Preview** sub-tabs (Code-tab style).
+2. **Extract** `NotesEditor` (textarea + **Edit / Preview** sub-tabs) from the modal.
 3. **Notes tab** — add the `notes` tab kind (compiler-enforced 3-place union change) + `NotesPanel` with inline debounced autosave.
 4. **Title-bar icon** — body-gated `NotesIcon` → `rightPanel.showNotes()`.
 5. **Close-dialog reminder** — read-only, off the frozen `target.meta.notes` snapshot.
