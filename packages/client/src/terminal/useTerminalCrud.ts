@@ -9,11 +9,11 @@ import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
+import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
@@ -253,15 +253,22 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  anyway would make a failed discard look successful and desync the UI from
    *  the still-present server record. The server's `discardSleeping` is a no-op
    *  on an already-gone id (it returns without throwing), so the common
-   *  already-removed case resolves cleanly and the tile evicts as before. */
-  async function handleDiscard(id: TerminalId) {
+   *  already-removed case resolves cleanly and the tile evicts as before.
+   *
+   *  Returns `true` on success, `false` on a surfaced failure — the
+   *  worktree-removal close path (F10) must NOT delete the worktree when the
+   *  sleeping record wasn't actually discarded, or the still-present terminal
+   *  would point at a removed cwd. The standalone close-confirm caller ignores
+   *  the result (it only needs the toast). */
+  async function handleDiscard(id: TerminalId): Promise<boolean> {
     try {
       await client.terminal.discardSleeping({ id });
     } catch (err) {
       toast.error(`Failed to discard terminal: ${(err as Error).message}`);
-      return;
+      return false;
     }
     removeAndAutoSwitch(id);
+    return true;
   }
 
   async function handleCopyTerminalText() {

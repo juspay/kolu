@@ -10,8 +10,10 @@ export function useWorktreeOps(deps: {
   handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleKill: (id: TerminalId) => Promise<void>;
   /** Discard a SLEEPING terminal's record — the dormant arm has no PTY, so the
-   *  worktree-removal close path routes it here instead of the live kill RPC. */
-  handleDiscard: (id: TerminalId) => Promise<void>;
+   *  worktree-removal close path routes it here instead of the live kill RPC.
+   *  Resolves `false` when the discard failed (and was toasted) so the caller
+   *  can abort before removing the worktree out from under a still-live record. */
+  handleDiscard: (id: TerminalId) => Promise<boolean>;
 }) {
   const { store } = deps;
 
@@ -71,7 +73,11 @@ export function useWorktreeOps(deps: {
     if (sleepingArm(meta)) {
       // No splits on a sleeping record (sleep closes them) and no PTY to kill —
       // discard the dormant record, then fall through to remove the worktree.
-      await deps.handleDiscard(id);
+      // If the discard failed (toasted by handleDiscard), STOP (F10): removing
+      // the worktree now would strand the still-present terminal at a deleted
+      // cwd. The user can retry the close once the server is reachable again.
+      const discarded = await deps.handleDiscard(id);
+      if (!discarded) return;
     } else {
       const subs = store.getSubTerminalIds(id);
       for (const subId of subs) await deps.handleKill(subId);
