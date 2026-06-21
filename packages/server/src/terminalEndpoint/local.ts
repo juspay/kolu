@@ -57,11 +57,12 @@ import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
+  type ActiveTerminalProcess,
   drainTerminals,
+  getActiveTerminal,
   getTerminal,
   listTerminals,
   registerTerminal,
-  type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
@@ -270,7 +271,7 @@ export function bridgeStream<T>(
  *  `record.meta` IS `entry.meta` (same object), so a sensor mutating its
  *  record is publishing kolu-server state directly. */
 function makeAwarenessSink(
-  entry: TerminalProcess,
+  entry: ActiveTerminalProcess,
   id: TerminalId,
 ): AwarenessSink {
   return {
@@ -395,7 +396,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.lastActivityAt !== undefined)
       meta.lastActivityAt = initial.lastActivityAt;
 
-    const entry: TerminalProcess = {
+    const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
       meta,
       handle: proxy,
@@ -425,7 +426,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    const entry: TerminalProcess = {
+    const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta,
       handle: proxy,
@@ -490,7 +491,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     id: TerminalId,
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
-    entry: TerminalProcess,
+    entry: ActiveTerminalProcess,
     tlog: typeof log,
   ): Promise<void> {
     // Phase 1 — the spawn RPC. A failure here means no PTY was created
@@ -569,7 +570,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  long-lived pty-host). */
   private startAwarenessSensors(
     id: TerminalId,
-    entry: TerminalProcess,
+    entry: ActiveTerminalProcess,
     pid: number,
   ): void {
     const abort = new AbortController();
@@ -722,7 +723,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `terminal.spawn` and the pty-host throws "no PTY with id". `ready` is the
     // `TerminalHandle` invariant (undefined ⟹ already live); awaiting it
     // surfaces a spawn failure rather than hitting a missing PTY.
-    await getTerminal(id)?.handle.ready;
+    await getActiveTerminal(id)?.handle.ready;
     const stream = await ptyHostClient.surface.terminalAttach.get(
       { id },
       { signal },

@@ -12,29 +12,47 @@
 import { ORPCError } from "@orpc/server";
 import type {
   ActiveTerminal,
+  SleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 
-/** Server-side terminal state. `info` is the wire shape sent in the
- *  `terminalList` cell snapshot; `meta` is mutated in place by the
- *  owning endpoint's providers and published via the
- *  `terminalMetadata` collection from `terminalEndpoint/metadata.ts`;
- *  `handle` is the abstract control surface (write / resize / screen
- *  state — NO `dispose()`, the endpoint's `killTerminal` is the sole
- *  termination path). */
-export interface TerminalProcess {
+/** An ACTIVE terminal process — a running PTY with its live control surface.
+ *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
+ *  the active arm, mutated in place by the owning endpoint's providers and
+ *  published via the `terminalMetadata` collection from
+ *  `terminalEndpoint/metadata.ts`; `handle` is the abstract control surface
+ *  (write / resize / screen state — NO `dispose()`, the endpoint's
+ *  `killTerminal` is the sole termination path). */
+export interface ActiveTerminalProcess {
   info: TerminalInfo;
-  /** The live registry holds only ACTIVE terminals: a `TerminalProcess` is a
-   *  running PTY, so its metadata is the active arm by construction. A sleeping
-   *  terminal has no live process — it lives only as a persisted `SavedTerminal`
-   *  record, never here. (The `terminalMetadata` collection's value is still the
-   *  `Terminal` union, so client presence consumers narrow `state === "active"`;
-   *  the server registry never has to.) */
   meta: ActiveTerminal;
   handle: TerminalHandle;
 }
+
+/** A SLEEPING terminal process — the SAME registry entry under the SAME stable
+ *  id, but with its PTY/handle and live overlay released. Its metadata is the
+ *  sleeping arm (persisted base + `sleptAt`), so there is no `handle` — the live
+ *  resource is **absent by type**, which is the plan's safety invariant: a
+ *  sleeping terminal can sit in the one registry (and thus ride the `terminalList`
+ *  cell + the `terminalMetadata` collection with nothing extra), yet the compiler
+ *  refuses any code that reaches for its PTY handle without first narrowing.
+ *  `handle?: never` keeps the field accessible on the union so `entry.handle`
+ *  truthiness narrows a `TerminalProcess` to the active arm in one idiom. */
+export interface SleepingTerminalProcess {
+  info: TerminalInfo;
+  meta: SleepingTerminal;
+  handle?: never;
+}
+
+/** The one registry's value — `Terminal = active | sleeping` made concrete as a
+ *  process. Sleep flips an active entry to a sleeping one IN PLACE (same id,
+ *  same map slot, persisted base preserved, live overlay + handle released);
+ *  wake flips it back by re-spawning. Presence reads the union off the map;
+ *  liveness narrows to `ActiveTerminalProcess` via `entry.handle` (or
+ *  `getActiveTerminal`). */
+export type TerminalProcess = ActiveTerminalProcess | SleepingTerminalProcess;
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
@@ -87,13 +105,40 @@ export const terminalCount = (): number => terminals.size;
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {
-    if (entry.meta.agent?.kind === "claude-code") n++;
+    if (
+      entry.meta.state === "active" &&
+      entry.meta.agent?.kind === "claude-code"
+    )
+      n++;
   }
   return n;
 }
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
+}
+
+/** Narrow a registry lookup to its ACTIVE arm — the entry only if it is a live
+ *  PTY (`handle` present). The single seam every handle-touching path (attach,
+ *  resize, sendInput, kill, screen reads) uses so a sleeping terminal can never
+ *  be driven as a live one: a sleeping id yields `undefined` here, exactly as an
+ *  absent id does. The `entry?.handle` truthiness check narrows the union to
+ *  `ActiveTerminalProcess` with no cast. */
+export function getActiveTerminal(
+  id: TerminalId,
+): ActiveTerminalProcess | undefined {
+  const entry = terminals.get(id);
+  return entry?.handle ? entry : undefined;
+}
+
+/** `getActiveTerminal` or throw the typed not-found fault — for handlers whose
+ *  whole contract needs a live PTY (resize, input, screen state). A sleeping or
+ *  absent id is "not found" to them by the same code, since neither can take the
+ *  operation. */
+export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
+  const entry = getActiveTerminal(id);
+  if (!entry) throw terminalNotFound(id);
+  return entry;
 }
 
 /** The terminal-not-found fault as a typed oRPC error. One definition of

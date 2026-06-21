@@ -18,8 +18,8 @@
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
-  SavedActiveTerminalSchema,
   type SavedTerminal,
+  SavedTerminalSchema,
   type TerminalId,
   type TerminalInfo,
 } from "kolu-common/surface";
@@ -68,7 +68,11 @@ export {
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
     ([id, entry]): SavedTerminal =>
-      SavedActiveTerminalSchema.parse({ ...entry.meta, id }),
+      // The registry now holds the `Terminal` union, so project each entry
+      // through the SAVED discriminated union: an active entry strips its live
+      // overlay onto the active arm, a sleeping entry carries its persisted base
+      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
+      SavedTerminalSchema.parse({ ...entry.meta, id }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

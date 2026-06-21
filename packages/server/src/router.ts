@@ -29,7 +29,9 @@ import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
+  type ActiveTerminalProcess,
   getTerminal,
+  requireActiveTerminal,
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
@@ -66,7 +68,7 @@ function base64DecodedLength(data: string): number {
 /** Bracketed-paste an on-disk path into a terminal so agents that accept
  *  paste-as-file-path (codex, Claude Code) attach the file. Shared by every
  *  handler that uploads content to per-terminal scratch storage. */
-function bracketedPastePath(entry: TerminalProcess, path: string): void {
+function bracketedPastePath(entry: ActiveTerminalProcess, path: string): void {
   entry.handle.write(`${BRACKETED_PASTE_START}${path}${BRACKETED_PASTE_END}`);
 }
 
@@ -94,11 +96,11 @@ export const appRouter = t.router({
     ),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
-      requireTerminal(input.id).handle.resize(input.cols, input.rows);
+      requireActiveTerminal(input.id).handle.resize(input.cols, input.rows);
     }),
 
     sendInput: t.terminal.sendInput.handler(async ({ input }) => {
-      requireTerminal(input.id).handle.write(input.data);
+      requireActiveTerminal(input.id).handle.write(input.data);
     }),
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
@@ -154,7 +156,7 @@ export const appRouter = t.router({
      * output is `z.string()` — and a no-op `term.write("")` for xterm.)
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      requireTerminal(input.id);
+      requireActiveTerminal(input.id);
       const { snapshot, deltas } = await localTerminalEndpoint.attach(
         input.id,
         signal,
@@ -164,18 +166,18 @@ export const appRouter = t.router({
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
-      return await requireTerminal(input.id).handle.getScreenState();
+      return await requireActiveTerminal(input.id).handle.getScreenState();
     }),
 
     screenText: t.terminal.screenText.handler(async ({ input }) => {
-      return await requireTerminal(input.id).handle.getScreenText(
+      return await requireActiveTerminal(input.id).handle.getScreenText(
         input.startLine,
         input.endLine,
       );
     }),
 
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
-      const entry = requireTerminal(input.id);
+      const entry = requireActiveTerminal(input.id);
       const bytes = base64DecodedLength(input.data);
       const reason = sizeRejectionFor("clipboard image", bytes);
       if (reason !== null) {
@@ -187,7 +189,7 @@ export const appRouter = t.router({
     }),
 
     uploadFile: t.terminal.uploadFile.handler(async ({ input }) => {
-      const entry = requireTerminal(input.id);
+      const entry = requireActiveTerminal(input.id);
       const bytes = base64DecodedLength(input.data);
       const reason = rejectionFor(input.name, bytes);
       if (reason !== null) {
@@ -222,7 +224,7 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        const term = requireTerminal(input.id);
+        const term = requireActiveTerminal(input.id);
         const agent = term.meta.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {

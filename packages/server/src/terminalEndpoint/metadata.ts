@@ -32,6 +32,7 @@ import { seedAwarenessValue } from "@kolu/terminal-awareness";
 import { prValue } from "anyforge/schemas";
 import {
   type ActiveTerminal,
+  activeArm,
   type HostLocation,
   type LiveTerminalFields,
   prUnavailableReason,
@@ -41,7 +42,10 @@ import {
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import type { TerminalProcess } from "../terminal-registry.ts";
+import type {
+  ActiveTerminalProcess,
+  TerminalProcess,
+} from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
  *  means "no agent transition observed yet" — the only event that lifts
@@ -76,8 +80,12 @@ export function createMetadata(
  *  snapshot. */
 function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
   const m = entry.meta;
-  const pr = prValue(m.pr);
-  const prUnavailable = prUnavailableReason(m.pr);
+  // The live overlay (pr/agent/foreground) exists only on the active arm; a
+  // sleeping terminal publishes its persisted base alone. Narrow once so the
+  // debug line reads the live fields safely and reports `sleeping` for the rest.
+  const live = activeArm(m);
+  const pr = live ? prValue(live.pr) : null;
+  const prUnavailable = live ? prUnavailableReason(live.pr) : undefined;
   log.debug(
     {
       terminal: terminalId,
@@ -86,10 +94,10 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
       branch: m.git?.branch,
       pr: pr?.number ?? null,
       checks: pr?.checks ?? null,
-      prStatus: m.pr.kind,
+      prStatus: live ? live.pr.kind : "sleeping",
       ...(prUnavailable && { prUnavailable }),
-      ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
-      ...(m.foreground && { foreground: m.foreground.name }),
+      ...(live?.agent && { agent: `${live.agent.kind}:${live.agent.state}` }),
+      ...(live?.foreground && { foreground: live.foreground.name }),
     },
     "metadata publish",
   );
@@ -113,7 +121,7 @@ function publishSnapshotAndDirty(
  *  `terminals:dirty` firehose can't grow back: every live-field write
  *  must go through `updateServerLiveMetadata`. Fires `terminals:dirty`. */
 export function updateServerMetadata(
-  entry: TerminalProcess,
+  entry: ActiveTerminalProcess,
   terminalId: string,
   mutate: (meta: ServerPersistedTerminalFields) => void,
 ): void {
@@ -128,7 +136,7 @@ export function updateServerMetadata(
  *  Together with the matching narrowing on `updateServerMetadata`,
  *  this is the structural guarantee that the firehose can't grow back. */
 export function updateServerLiveMetadata(
-  entry: TerminalProcess,
+  entry: ActiveTerminalProcess,
   terminalId: string,
   mutate: (meta: LiveTerminalFields) => void,
 ): void {
