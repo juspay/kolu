@@ -242,6 +242,28 @@ Then("the slept terminal should be sleeping", async function (this: KoluWorld) {
   await waitForSleeping(this, id);
 });
 
+Then(
+  "the dormant tile should show its saved working directory",
+  async function (this: KoluWorld) {
+    // The dormant body surfaces the LAST-KNOWN metadata frozen at sleep — here
+    // the cwd the codex mock `cd`'d the terminal into. Assert the `dormant-cwd`
+    // line, scoped to THIS slept tile, reports that saved cwd (its unique leaf).
+    const id = sleptIdByWorld.get(this);
+    assert.ok(id, "No slept terminal id captured — call the sleep step first");
+    const leaf = path.basename(codexMockCwd());
+    await this.page.waitForFunction(
+      ({ sel, tileId, want }) => {
+        const el = document.querySelector(
+          `${sel}[data-terminal-id="${tileId}"] [data-testid="dormant-cwd"]`,
+        );
+        return (el?.textContent ?? "").includes(want);
+      },
+      { sel: CANVAS_TILE_SELECTOR, tileId: id, want: leaf },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then("the slept terminal should be live", async function (this: KoluWorld) {
   const id = sleptIdByWorld.get(this);
   assert.ok(id, "No slept terminal id captured — call the sleep step first");

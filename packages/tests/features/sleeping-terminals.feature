@@ -27,6 +27,7 @@ Feature: Sleeping terminals
     When I sleep the active terminal via the tile sleep button
     Then the slept terminal should be sleeping
     And the dock should show 1 sleeping row
+    And the dormant tile should show its saved working directory
     When I wake the slept terminal via the dormant body wake button
     Then the slept terminal should be live
     And the woken terminal should replay the agent resume invocation "codex resume --last"

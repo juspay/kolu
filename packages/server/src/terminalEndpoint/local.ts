@@ -21,7 +21,7 @@
  * link.
  */
 
-import { agentCommandForKind, resumeAgentCommand } from "anyagent/cli";
+import { resumeAgentCommand } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
@@ -380,15 +380,12 @@ export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
  *  dropped on wake. The `location` rides the base, so a future remote terminal
  *  wakes against its own host. */
 export function wakeMeta(sleeping: SleepingTerminal): ActiveTerminal {
-  // Drop the sleeping-only discriminant fields (`sleptAt` and the resume input
-  // `resumeCommand`) so neither rides onto the active arm — the active arm never
-  // carries them, and the resume form was already rendered by `wake`.
-  const {
-    state: _state,
-    sleptAt: _sleptAt,
-    resumeCommand: _resumeCommand,
-    ...persisted
-  } = sleeping;
+  // Drop the sleeping-only discriminant fields (`sleptAt` and the frozen `pr`
+  // snapshot) so neither rides onto the active arm — the active arm never carries
+  // `sleptAt`, and the live `pr` is re-resolved by the re-spawned PTY's sensor
+  // (`createMetadata` re-seeds it to `{ kind: "pending" }`), so the stale snapshot
+  // must NOT ride back over that fresh resolution.
+  const { state: _state, sleptAt: _sleptAt, pr: _pr, ...persisted } = sleeping;
   return {
     ...createMetadata(persisted.cwd, persisted.location),
     ...persisted,
@@ -824,25 +821,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
-    // Capture the agent's RESUME INPUT into the sleeping-only `resumeCommand`
-    // field so wake can resume — WITHOUT overwriting `lastAgentCommand`, which
-    // keeps meaning only the command the OSC 633;E sensor actually observed.
-    // Prefer that observed command (it carries flags); but when it never fired
-    // YET an agent is DETECTED (the reliable file-watcher path that lights the
-    // dock — e.g. `opencode` launched via `nix run`, whose head token is `nix`,
-    // or any shell where the command tap didn't fire), fall back to a
-    // synthesized bare basename for the detected kind so wake still resumes
-    // cwd-most-recent. Without this, a real running agent wakes to a bare shell.
-    const resumeCommand =
-      entry.meta.lastAgentCommand ??
-      (entry.meta.agent
-        ? agentCommandForKind(entry.meta.agent.kind)
-        : undefined);
+    // Flip the active entry to the sleeping arm IN PLACE. The persisted base
+    // (cwd / git / lastAgentCommand / theme / intent / …) rides the `...entry.meta`
+    // spread, and the live `pr` overlay is FROZEN onto the sleeping arm because
+    // `SleepingTerminalSchema` declares `pr` (see `SleepingDiscriminantSchema`),
+    // so the parse KEEPS it — while the rest of the live overlay (`agent` /
+    // `foreground`), absent from the sleeping schema, is stripped by the same
+    // parse. The dormant tile reads cwd / branch / pr off this snapshot; wake
+    // re-spawns and resumes the OBSERVED `lastAgentCommand` (the PR sensor
+    // re-resolves live).
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: SleepingTerminalSchema.parse({
         ...entry.meta,
-        resumeCommand,
         state: "sleeping",
         sleptAt: Date.now(),
       }),
@@ -884,13 +875,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // Render the resume FORM from the sleeping arm's captured resume input
-    // (`resumeAgentCommand`: claude `-c`, codex `resume --last`, opencode
-    // `--continue`), or null for a never-ran / non-resumable agent. Both halves
-    // of "how does a slept agent resume?" — input selection at sleep, form
-    // rendering at wake — live in the two arms of the sleeping lifecycle here.
-    const resumeCommand = entry.meta.resumeCommand
-      ? resumeAgentCommand(entry.meta.resumeCommand)
+    // Render the resume FORM from the OBSERVED `lastAgentCommand` (the command the
+    // OSC 633;E sensor captured) via `resumeAgentCommand` (claude `-c`, codex
+    // `resume --last`, opencode `--continue`), or null for a never-observed /
+    // non-resumable agent. An agent whose launch the command tap never observed
+    // (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is NOT resumed
+    // on wake — it wakes to a bare shell, by design (tracked: juspay/kolu#1492).
+    const resumeCommand = entry.meta.lastAgentCommand
+      ? resumeAgentCommand(entry.meta.lastAgentCommand)
       : null;
     const meta = wakeMeta(entry.meta);
     log

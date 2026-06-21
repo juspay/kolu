@@ -38,6 +38,7 @@ import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
   AwarenessLiveFieldsSchema,
   AwarenessPersistedFieldsSchema,
+  PrResultSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-awareness/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
@@ -327,14 +328,15 @@ const SleepingDiscriminantSchema = z.object({
   /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
    *  of the live overlay — the one scalar an active terminal doesn't carry. */
   sleptAt: z.number(),
-  /** The agent's RESUME INPUT, captured at sleep time so wake can re-spawn the
-   *  agent. Distinct from `lastAgentCommand` (which keeps meaning ONLY the
-   *  command the OSC 633;E sensor actually observed): this holds the resume
-   *  input wake feeds to `resumeAgentCommand`, which may be a synthesized bare
-   *  basename when an agent was file-watcher-detected but never typed. A
-   *  sleep-specific concept, so it lives on the sleeping arm alone. Absent when
-   *  the terminal had no agent to resume. */
-  resumeCommand: z.string().optional(),
+  /** A FROZEN SNAPSHOT of the live `pr` overlay at sleep time, so the dormant
+   *  tile can still surface the GitHub PR the terminal was working — the live PR
+   *  resolution is gone with the PTY. `cwd`/`git` ride the persisted base (true
+   *  identity, re-resolved live on wake); `pr` is genuinely LIVE (checks tick),
+   *  so it can't sit on the base — its frozen copy belongs here on the sleeping
+   *  arm, captured at sleep via the `...entry.meta` spread and DISCARDED on wake
+   *  (`wakeMeta`), where the re-spawned PTY's PR sensor re-resolves it. Optional:
+   *  a terminal slept before this field, or with no PR context, carries none. */
+  pr: PrResultSchema.optional(),
 });
 
 /** The active arm's persisted core — `persisted base + state: "active"`, the one

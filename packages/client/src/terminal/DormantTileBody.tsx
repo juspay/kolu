@@ -2,19 +2,24 @@
  *
  *  No xterm, no PTY, no stream attach: a sleeping tile holds no live resource, so
  *  this imports NO `Terminal`/xterm and never touches the attach path. It renders
- *  a moonlit, dimmed placeholder showing the agent it will resume and a Wake
- *  call-to-action that re-spawns + resumes (session-restore-of-one). The moonlit
- *  palette is fixed (not the per-terminal theme), so a sleeping tile reads
- *  consistently "asleep" regardless of which theme it carries.
+ *  a moonlit, dimmed placeholder showing the agent it will resume, the last-known
+ *  metadata (cwd · branch · GitHub PR) frozen at sleep, and a Wake call-to-action
+ *  that re-spawns + resumes (session-restore-of-one). The moonlit palette is fixed
+ *  (not the per-terminal theme), so a sleeping tile reads consistently "asleep"
+ *  regardless of which theme it carries.
  *
  *  Clicking the body FOCUSES the tile (focus-frozen) — it does not wake; only the
  *  explicit Wake button respawns. This is the canvas/mobile sleeping body; the
  *  swap between this and the live `Terminal` tree lives in `TerminalContent`. */
 
+import { prValue } from "anyforge/schemas";
 import { sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { GitBranchIcon, PrStateIcon } from "../ui/Icons";
+import ChecksIndicator from "./ChecksIndicator";
 import { MOONLIT } from "./moonlit";
+import { prTooltip } from "./prTooltip";
 import { formatTimeAgo } from "./staleness";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -30,14 +35,22 @@ const DormantTileBody: Component<{
     const a = arm();
     return a ? formatTimeAgo(a.sleptAt) : "";
   };
-  // The agent line wake will RESUME. Prefer the sleeping arm's `resumeCommand`
-  // (the captured resume input — present even when the OSC 633;E command tap
-  // never fired but an agent was file-watcher-DETECTED, e.g. `nix run …#opencode`)
-  // and fall back to the observed `lastAgentCommand` (F6). Reading only the
-  // latter made a detected-but-not-observed agent look like a bare shell even
-  // though Wake will resume it.
-  const resumableAgent = () =>
-    arm()?.resumeCommand ?? meta()?.lastAgentCommand ?? null;
+  // The agent line wake will RESUME — the OBSERVED `lastAgentCommand` (it rides
+  // the persisted base, so it's present on the sleeping arm). Null when the OSC
+  // 633;E command tap never captured an agent launch, in which case wake brings
+  // back a bare shell.
+  const resumableAgent = () => arm()?.lastAgentCommand ?? null;
+  // Last-known metadata, frozen at sleep. `cwd` + `git.branch` ride the persisted
+  // base; `pr` is the snapshot the sleeping arm froze off the live overlay (wake
+  // discards it and re-resolves). `prValue` projects the resolved PR (or null for
+  // a pending/absent/unavailable snapshot — a dormant tile can't act on those, so
+  // only a resolved PR is shown).
+  const cwd = () => arm()?.cwd ?? null;
+  const branch = () => arm()?.git?.branch ?? null;
+  const snapshotPr = () => {
+    const pr = arm()?.pr;
+    return pr ? prValue(pr) : null;
+  };
 
   return (
     <div
@@ -71,6 +84,58 @@ const DormantTileBody: Component<{
           </div>
         )}
       </Show>
+      {/* Last-known metadata, frozen at sleep — the working directory, git branch,
+          and the GitHub PR the terminal was on. Reuses the live tile's PR chip
+          (PrStateIcon · ChecksIndicator · #N · title) verbatim. */}
+      <div class="flex w-full flex-col items-center gap-1 text-xs text-[var(--moonlit-dim)]">
+        <Show when={cwd()}>
+          {(c) => (
+            <div
+              class="max-w-full truncate font-mono"
+              title={c()}
+              data-testid="dormant-cwd"
+            >
+              {c()}
+            </div>
+          )}
+        </Show>
+        <Show when={branch()}>
+          {(b) => (
+            <div
+              class="flex max-w-full items-center gap-1"
+              data-testid="dormant-branch"
+            >
+              <GitBranchIcon class="h-3 w-3 shrink-0" />
+              <span class="truncate">{b()}</span>
+            </div>
+          )}
+        </Show>
+        <Show when={snapshotPr()}>
+          {(info) => (
+            <span
+              class="flex max-w-full items-center gap-1"
+              data-testid="dormant-pr"
+              title={prTooltip(info())}
+            >
+              <PrStateIcon state={info().state} class="h-3 w-3 shrink-0" />
+              <Show when={info().checks}>
+                {(checks) => <ChecksIndicator status={checks()} />}
+              </Show>
+              <a
+                href={info().url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="shrink-0 hover:text-[var(--moonlit-accent)]"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                #{info().number}
+              </a>
+              <span class="truncate">{info().title}</span>
+            </span>
+          )}
+        </Show>
+      </div>
       <div class="text-[0.65rem] uppercase tracking-wide text-[var(--moonlit-dim)]">
         PTY released
       </div>

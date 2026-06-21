@@ -19,7 +19,6 @@
 
 import {
   type ActiveTerminal,
-  type AgentInfo,
   LOCAL_LOCATION,
   SavedTerminalSchema,
   type SleepingTerminal,
@@ -55,7 +54,19 @@ function activeEntry(): ActiveTerminalProcess {
       cwd: "/work/repo",
       git: null,
       location: LOCAL_LOCATION,
-      pr: { kind: "pending" },
+      // A RESOLVED live PR — so the sleep-time snapshot onto the sleeping arm
+      // (the dormant-tile metadata) is meaningful, not a bare `{ kind: "pending" }`.
+      pr: {
+        kind: "ok",
+        value: {
+          number: 42,
+          title: "Fix the auth race",
+          url: "https://github.com/o/r/pull/42",
+          state: "open",
+          checks: "pass",
+          checkRuns: [],
+        },
+      },
       agent: null,
       foreground: null,
       lastActivityAt: 123,
@@ -94,10 +105,11 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(entry.meta.intent).toBe("fix the auth race");
     expect(entry.meta.sleptAt).toBeGreaterThan(0);
 
-    // Live overlay gone — absent by type AND at runtime.
+    // Live overlay gone — agent/foreground absent by type AND at runtime. `pr`
+    // is the EXCEPTION: it's frozen onto the sleeping arm as a snapshot (asserted
+    // by the dedicated "freezes the last-known PR" test below).
     const raw = entry.meta as Record<string, unknown>;
     expect(raw.agent).toBeUndefined();
-    expect(raw.pr).toBeUndefined();
     expect(raw.foreground).toBeUndefined();
 
     // No live PTY handle on a sleeping process.
@@ -117,41 +129,26 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
   });
 
-  it("captures a DETECTED agent's resume input into `resumeCommand` when the command sensor never captured one", () => {
-    // The pre-review manual sim's bug: opencode was DETECTED (the file-watcher
-    // path lit the dock) but its launch command was never captured by the OSC
-    // 633;E tap (`nix run …#opencode`, or a shell where the command tap stayed
-    // silent), so there was nothing to resume and wake woke a bare shell. Sleep
-    // now falls back to the detected kind, captured into the sleeping-only
-    // `resumeCommand` field (NOT overwriting `lastAgentCommand`, which keeps
-    // meaning only "observed"), so wake resumes cwd-most-recent.
-    const detectedAgent: AgentInfo = {
-      kind: "opencode",
-      state: "waiting",
-      sessionId: "ses_1",
-      model: null,
-      summary: null,
-      taskProgress: null,
-      contextTokens: null,
-      startedAt: null,
-    };
-    const base = activeEntry();
-    registerTerminal(ID, {
-      ...base,
-      meta: { ...base.meta, lastAgentCommand: undefined, agent: detectedAgent },
-    });
+  it("freezes the last-known PR onto the sleeping arm (the dormant-tile metadata)", () => {
+    // The dormant tile surfaces the GitHub PR the terminal was on, but the live
+    // `pr` overlay is gone with the PTY — so sleep FREEZES a snapshot onto the
+    // sleeping arm (it rides the `...entry.meta` spread; `agent`/`foreground`,
+    // absent from the sleeping schema, are still stripped). Wake discards it
+    // (see the wakeMeta test) and the re-spawned PR sensor re-resolves.
+    registerTerminal(ID, activeEntry());
     expect(beginSleepLocal(ID)).toBe(true);
     const entry = getTerminal(ID);
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
-    // → wake runs `opencode --continue` and the conversation resumes.
-    expect(entry.meta.resumeCommand).toBe("opencode");
-    // `lastAgentCommand` stays "observed-only" — the sensor never captured one.
-    expect(entry.meta.lastAgentCommand).toBeUndefined();
+    if (entry.meta.pr?.kind !== "ok") {
+      throw new Error("expected a snapshotted resolved PR on the sleeping arm");
+    }
+    expect(entry.meta.pr.value.number).toBe(42);
+    expect(entry.meta.pr.value.title).toBe("Fix the auth race");
   });
 });
 
 describe("snapshotSession — a slept terminal serializes through the sleeping arm", () => {
-  it("emits state=sleeping + sleptAt, strips the live overlay, keeps lastAgentCommand", () => {
+  it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + lastAgentCommand", () => {
     registerTerminal(ID, activeEntry());
     beginSleepLocal(ID);
 
@@ -161,11 +158,14 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     expect(saved.sleptAt).toBeGreaterThan(0);
     expect(saved.lastAgentCommand).toBe("opencode --model sonnet");
 
-    // It round-trips through the saved discriminated union — no live field leaked.
+    // It round-trips through the saved discriminated union — agent/foreground
+    // don't leak, but the `pr` SNAPSHOT persists (so a dormant tile keeps its
+    // last-known PR across a daemon restart, like cwd/branch).
     expect(() => SavedTerminalSchema.parse(saved)).not.toThrow();
     const raw = saved as Record<string, unknown>;
     expect(raw.agent).toBeUndefined();
-    expect(raw.pr).toBeUndefined();
+    expect(raw.foreground).toBeUndefined();
+    expect(saved.pr?.kind).toBe("ok");
   });
 });
 
@@ -180,6 +180,19 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     lastAgentCommand: "opencode --model sonnet",
     themeName: "rose",
     intent: "fix the auth race",
+    // A frozen PR snapshot on the sleeping arm — wake must DISCARD it (the
+    // re-spawned PR sensor re-resolves it live), never ride it onto the active arm.
+    pr: {
+      kind: "ok",
+      value: {
+        number: 42,
+        title: "Fix the auth race",
+        url: "https://github.com/o/r/pull/42",
+        state: "open",
+        checks: "pass",
+        checkRuns: [],
+      },
+    },
   };
 
   it("flips to active, rides the persisted base through WHOLE, and resets the live overlay", () => {
@@ -190,7 +203,9 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     expect(active.cwd).toBe("/work/repo");
     expect(active.themeName).toBe("rose");
     expect(active.intent).toBe("fix the auth race");
-    // Live overlay re-seeded to defaults (sensors re-derive on the re-spawned PTY).
+    // Live overlay re-seeded to defaults — incl. the frozen `pr` snapshot
+    // DISCARDED (reset to `{ kind: "pending" }`, NOT ridden onto the active arm);
+    // the re-spawned PTY's sensors re-derive agent/foreground/pr.
     expect(active.agent).toBeNull();
     expect(active.foreground).toBeNull();
     expect(active.pr).toEqual({ kind: "pending" });
@@ -217,7 +232,6 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
     lastAgentCommand: "claude --model sonnet",
-    resumeCommand: "claude --model sonnet",
   });
 
   afterEach(() => unregisterTerminal(WAKE_ID));
@@ -241,7 +255,6 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
       );
     // The whole persisted base + sleeping discriminant rode back through.
     expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
-    expect(entry.meta.resumeCommand).toBe("claude --model sonnet");
     expect(entry.meta.sleptAt).toBe(222);
     expect(entry.handle).toBeUndefined();
   });

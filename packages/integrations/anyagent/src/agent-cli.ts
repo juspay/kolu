@@ -105,43 +105,6 @@ function basename(s: string): string {
   return slash === -1 ? s : s.slice(slash + 1);
 }
 
-/** Detect a `nix run <flake-ref>#<agent> [...]` wrapper that launches a KNOWN
- *  agent. kolu documents `nix run github:juspay/AI#opencode`, and on a host
- *  without the agent on `PATH` that wrapper is the only way to run it — so a
- *  resume must re-run the WRAPPER, not the bare agent (which isn't on `PATH`,
- *  and so errors `command not found`). Returns the wrapped agent basename (the
- *  flake ref's `#fragment`, e.g. `opencode`), or null when it isn't a known-agent
- *  `nix run` wrapper. The resume marker is passed THROUGH the wrapper after a
- *  `--` so it reaches the agent rather than `nix run` itself. */
-export function nixRunWrappedAgent(command: string): string | null {
-  const argv = parseArgsStringToArgv(command.trim());
-  if (argv[0] !== "nix" || argv[1] !== "run") return null;
-  const ref = argv[2];
-  if (ref === undefined) return null;
-  const hash = ref.lastIndexOf("#");
-  if (hash === -1) return null;
-  const agent = basename(ref.slice(hash + 1));
-  return STABLE_FLAGS.has(agent) ? agent : null;
-}
-
-/** The bare, re-runnable `nix run <ref>#<agent>` for a wrapper launch — trailing
- *  agent args dropped (resume continues the session, which already carries them).
- *  Null when `command` is not a known-agent `nix run` wrapper, OR when the
- *  wrapped agent is invoked with an exit-immediately flag (F7): the direct path
- *  rejects `opencode --help` as not-a-session, but `nix run …#opencode -- --help`
- *  reaches the SAME exit-immediate agent through the wrapper, so it must be
- *  rejected too rather than polluting the recent/resume state with a launch that
- *  exits at once. The agent's own args are everything after `nix run <ref>` —
- *  including the args after `--` (which the wrapper forwards to the agent). */
-function nixRunBase(command: string): string | null {
-  if (nixRunWrappedAgent(command) === null) return null;
-  const argv = parseArgsStringToArgv(command.trim());
-  // argv[3..] is everything the wrapper passes the agent (a leading `--` just
-  // separates nix's args from the agent's; either side can carry an exit flag).
-  if (argv.slice(3).some((t) => EXIT_FLAGS.has(t))) return null;
-  return `${argv[0]} ${argv[1]} ${argv[2]}`;
-}
-
 /**
  * Resume markers spliced in right after the agent binary for agents that
  * support conversation continuity. The `Record` key union is the exact set of
@@ -192,27 +155,6 @@ const BASENAME_TO_KIND: Record<string, AgentKind> = {
   opencode: "opencode",
 };
 
-/** The inverse bridge — an `AgentKind` back to the resumable binary basename
- *  (`claude-code → claude`, the one place the two axes differ). DERIVED from the
- *  single `BASENAME_TO_KIND` source so the bijection has ONE home, not two parallel
- *  tables that could drift: a new agent registered in `BASENAME_TO_KIND` rides
- *  through here automatically. Every `AgentKind` is resume-capable (all three are in
- *  `AGENT_RESUME`), so the result always feeds `resumeAgentCommand` to a real resume
- *  form. Used when an agent was DETECTED (the file-watcher path that lights the dock)
- *  but its launch command was never captured by the OSC 633;E sensor — e.g.
- *  `opencode` launched via `nix run`, whose head token is `nix`, or any shell where
- *  the command tap didn't fire: the detected kind still names a cwd-most-recent
- *  resume. */
-const KIND_TO_COMMAND = Object.fromEntries(
-  Object.entries(BASENAME_TO_KIND).map(([command, kind]) => [kind, command]),
-) as Record<AgentKind, string>;
-
-/** The bare resumable command for a detected `AgentKind` (e.g. `opencode`),
- *  ready for `resumeAgentCommand`. */
-export function agentCommandForKind(kind: AgentKind): string {
-  return KIND_TO_COMMAND[kind];
-}
-
 /**
  * Resolve the `AgentKind` discriminator for a command string (typically
  * the normalized output of `parseAgentCommand`, but raw command strings
@@ -220,8 +162,6 @@ export function agentCommandForKind(kind: AgentKind): string {
  * unrecognized commands and for detection-only agents.
  */
 export function agentKindFromCommand(command: string): AgentKind | null {
-  const wrapped = nixRunWrappedAgent(command);
-  if (wrapped !== null) return BASENAME_TO_KIND[wrapped] ?? null;
   const head = command.trim().split(/\s+/, 1)[0] ?? "";
   return BASENAME_TO_KIND[basename(head)] ?? null;
 }
@@ -236,8 +176,6 @@ export function agentKindFromCommand(command: string): AgentKind | null {
  * being quoted. Returns `null` for an empty command.
  */
 export function agentNameFromCommand(command: string): string | null {
-  const wrapped = nixRunWrappedAgent(command);
-  if (wrapped !== null) return wrapped;
   const head = shellSplit(command.trim())[0];
   return head === undefined ? null : basename(head);
 }
@@ -253,9 +191,8 @@ export function parseAgentCommand(raw: string): string | null {
 
   const agent = basename(head);
   const allowed = STABLE_FLAGS.get(agent);
-  // Not a direct agent invocation — but a `nix run <ref>#<agent>` wrapper for a
-  // known agent IS a launch we can resume; capture it as the bare wrapper.
-  if (allowed === undefined) return nixRunBase(raw);
+  // Not a known agent invocation — the head basename isn't in the allowlist.
+  if (allowed === undefined) return null;
 
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
@@ -303,14 +240,6 @@ export function parseAgentCommand(raw: string): string | null {
  */
 export function resumeAgentCommand(normalized: string): string | null {
   const trimmed = normalized.trim();
-  // A `nix run <ref>#<agent>` wrapper resumes by passing the marker THROUGH to
-  // the agent after a `--`, so `nix run` itself doesn't eat it:
-  // `nix run github:juspay/AI#opencode -- --continue`. Re-running the bare agent
-  // would error `command not found` when it lives only inside the wrapper.
-  const wrapped = nixRunWrappedAgent(trimmed);
-  if (wrapped !== null && wrapped in AGENT_RESUME) {
-    return `${trimmed} -- ${AGENT_RESUME[wrapped as ResumableAgent]}`;
-  }
   // The agent basename is always a safe bare word, so `shellSplit` reads the
   // head reliably. We only need it to look up the agent — we do NOT re-render
   // the tail. Splicing the resume marker as a STRING between head and tail
