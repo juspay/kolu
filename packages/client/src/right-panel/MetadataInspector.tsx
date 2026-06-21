@@ -189,7 +189,10 @@ const MetadataInspector: Component<{
                   <Show when={agent().startedAt}>
                     {(startedAt) => (
                       <Row label="Running for">
-                        <span class="font-mono text-fg">
+                        <span
+                          class="font-mono text-fg"
+                          title={`Started ${new Date(startedAt()).toLocaleString()}`}
+                        >
                           {runningFor(startedAt())}
                         </span>
                       </Row>

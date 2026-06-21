@@ -1,11 +1,12 @@
 /** AI agent state indicator — logo + state label + compact context-token
- *  count. Logo animates when active. Renders the appropriate icon per agent
- *  kind (Claude Code, OpenCode). */
+ *  count + a live running-for duration. Logo animates when active. Renders the
+ *  appropriate icon per agent kind (Claude Code, OpenCode). */
 
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
+import { useDuration } from "./staleness";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
  *  — the same "your turn" token the dock pip and awaiting column use, so a
@@ -51,6 +52,9 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const Icon = () => agentIcons[props.agent.kind];
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
+  // Live elapsed-since formatter for the running-for badge; ticks every second
+  // off the shared clock, the same readout the inspector's "Running for" uses.
+  const runningFor = useDuration();
   return (
     <span
       class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
@@ -82,6 +86,21 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
             title={contextTokensTooltip(box().value, props.agent.model)}
           >
             {tokenFormat.format(box().value)}
+          </span>
+        )}
+      </Show>
+      {/* Running-for badge, beside the token count. Hidden until `startedAt`
+       *  resolves (epoch-ms is always truthy, so the bare value gates Show). */}
+      <Show when={props.agent.startedAt}>
+        {(startedAt) => (
+          <span
+            data-testid="agent-running-for"
+            class="tabular-nums text-fg-3"
+            title={`Running for ${runningFor(startedAt())} · started ${new Date(
+              startedAt(),
+            ).toLocaleString()}`}
+          >
+            {runningFor(startedAt())}
           </span>
         )}
       </Show>
