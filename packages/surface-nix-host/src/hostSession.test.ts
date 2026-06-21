@@ -73,6 +73,44 @@ function unresolvableSession() {
   });
 }
 
+describe("HostSession onLog sink (alt-screen consumers divert all diagnostics)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(provisionAgent).mockResolvedValue(PROVISION_FAILURE);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("routes every diagnostic line to onLog and none to process.stderr", async () => {
+    const lines: string[] = [];
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const session = new HostSession({
+      host: "altscreen",
+      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      binary: "agent",
+      reconnectDelayMs: 1000,
+      onLog: (line) => lines.push(line),
+    });
+
+    // Drive the failing-provision lifecycle so transitions + lastError emit.
+    session.pin().catch(() => {});
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    // The lines reached the sink, host-tagged, including a connection transition…
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((l) => l.startsWith("[host:altscreen"))).toBe(true);
+    expect(lines.some((l) => l.includes("connection:"))).toBe(true);
+    // …and NOT one of them touched the tty — the alt-screen invariant.
+    const toTty = stderr.mock.calls.map((c) => String(c[0]));
+    expect(toTty.some((l) => l.includes("[host:altscreen"))).toBe(false);
+
+    stderr.mockRestore();
+    session.destroy();
+  });
+});
+
 describe("HostSession reconnect after give-up", () => {
   beforeEach(() => {
     vi.useFakeTimers();

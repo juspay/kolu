@@ -211,10 +211,15 @@ async function runFleet(opts: {
     );
   }
 
+  // The board owns the alt-screen, so the dial's diagnostic lines must NOT reach
+  // the tty — pass a discarding sink (a host's failure reason still surfaces via
+  // the rejected dial → its `unreachable` header; the board never needs the raw
+  // lifecycle chatter). Paired with the daemon quieting its `--stdio` logs.
+  const swallow = (): void => {};
   const connect: FleetConnector = (host) =>
     host.ssh === null
       ? connectArivu(arivuSocketPath(undefined))
-      : connectArivuViaHost(host.ssh);
+      : connectArivuViaHost(host.ssh, undefined, swallow);
 
   if (opts.json) {
     // Scriptable one-shot — never touches the renderer.
