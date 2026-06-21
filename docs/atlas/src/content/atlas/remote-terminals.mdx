@@ -105,15 +105,17 @@ R4's fold merges each remote `AwarenessValue` into the **co-owned** `terminalMet
 
 ## Implementation details
 
-Every phase done so far, as one tree — R1 and R2 shipped, R3–R5 remain. Each big node links to its child note for the PR-level build log.
+Every phase done so far, as one tree — R1 and R2 shipped, R3–R5 remain. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child notes (R2 → pty-daemon, R3 → kaval-sessions, R4 → arivu), and the remaining phases — R3.7–R3.8 in kaval-sessions, R4.6 · R5 just below on this page.
 
 export const PT_C = { ship: "#15803d", prog: "#b45309", last: "#64748b", txt: "#1f2937", sub: "#6b7280", line: "#cbd5e1" };
 
-export const PtRow = ({ d, g, c, l, m }) => (
+export const PtRow = ({ d, g, c, l, m, h }) => (
   <div style={`display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:${d * 1.6}rem`}>
     <span style={`color:${PT_C[c]};width:1.2ch;flex:none;text-align:center`}>{g}</span>
     <span style={`color:${PT_C.txt};font-weight:${d === 0 ? 600 : 400}`}>{l}</span>
-    <span style={`color:${PT_C.sub};margin-left:auto;white-space:nowrap;font-size:.92em`}>{m}</span>
+    <span style={`color:${PT_C.sub};margin-left:auto;white-space:nowrap;font-size:.92em`}>
+      {h ? <a href={h} style={`color:${PT_C.sub};text-decoration:underline;text-decoration-color:${PT_C.line};text-underline-offset:2px`}>{m}</a> : m}
+    </span>
   </div>
 );
 
@@ -122,29 +124,29 @@ export const PT = [
   { d: 1, g: "✓", c: "ship", l: "R1a · TerminalEndpoint seam", m: "#981" },
   { d: 1, g: "✓", c: "ship", l: "R1b · @kolu/surface + surface-nix-host", m: "#984" },
   { d: 1, g: "✓", c: "ship", l: "R1c · @kolu/terminal-awareness engine", m: "#1004" },
-  { d: 0, g: "✓", c: "ship", l: "R2 · kaval — local PTY survival", m: "→ pty-daemon · shipped" },
+  { d: 0, g: "✓", c: "ship", l: "R2 · kaval — local PTY survival", m: "→ pty-daemon · shipped", h: "pty-daemon.html" },
   { d: 1, g: "✓", c: "ship", l: "R2.1 · spawn-policy inversion", m: "#1292" },
   { d: 1, g: "✓", c: "ship", l: "R2.2 · kaval binary + client", m: "#1301" },
   { d: 1, g: "✓", c: "ship", l: "R2.3 · the door (topology flip)", m: "#1310" },
   { d: 1, g: "✓", c: "ship", l: "R2.4 · survival chain", m: "#1330·37·44·53" },
   { d: 1, g: "✓", c: "ship", l: "R2.5 · live inventory", m: "#1458" },
-  { d: 0, g: "◐", c: "prog", l: "R3 · Remote over ssh", m: "→ kaval-sessions · underway" },
+  { d: 0, g: "◐", c: "prog", l: "R3 · Remote over ssh", m: "→ kaval-sessions · underway", h: "kaval-sessions.html" },
   { d: 1, g: "✓", c: "ship", l: "R3.1 · backend cleanup", m: "#1364" },
   { d: 1, g: "✓", c: "ship", l: "R3.2 · kaval-tui create", m: "#1370" },
   { d: 1, g: "✓", c: "ship", l: "R3.3 · kaval-tui --host (reach + provision)", m: "#1373" },
   { d: 1, g: "✓", c: "ship", l: "R3.4 · upstream frontDaemonOverStdio", m: "#1374" },
   { d: 1, g: "✓", c: "ship", l: "R3.5 · skip redundant provisioning", m: "#1377" },
   { d: 1, g: "✓", c: "ship", l: "R3.6 · multiplex ssh connections", m: "#1378" },
-  { d: 1, g: "○", c: "prog", l: "R3.7 · kolu dials remotes (the ssh driver)", m: "next" },
-  { d: 1, g: "○", c: "prog", l: "R3.8 · canvas multiplex + validate", m: "next" },
-  { d: 0, g: "◐", c: "prog", l: "R4 · Remote awareness (the arivu fold)", m: "→ arivu · underway" },
+  { d: 1, g: "○", c: "prog", l: "R3.7 · kolu dials remotes (the ssh driver)", m: "kaval-sessions →", h: "kaval-sessions.html" },
+  { d: 1, g: "○", c: "prog", l: "R3.8 · canvas multiplex + validate", m: "kaval-sessions →", h: "kaval-sessions.html" },
+  { d: 0, g: "◐", c: "prog", l: "R4 · Remote awareness (the arivu fold)", m: "→ arivu · underway", h: "arivu.html" },
   { d: 1, g: "✓", c: "ship", l: "R4.1 · extract @kolu/terminal-awareness", m: "#1413" },
   { d: 1, g: "✓", c: "ship", l: "R4.2 · provider → adapter rename", m: "#1419" },
   { d: 1, g: "✓", c: "ship", l: "R4.3 · arivu + arivu-tui standalone", m: "#1428" },
   { d: 1, g: "✓", c: "ship", l: "R4.4 · arivu-tui --host", m: "#1439" },
   { d: 1, g: "✓", c: "ship", l: "R4.5 · arivu-tui fleet dashboard", m: "#1470·79·86·97" },
-  { d: 1, g: "○", c: "prog", l: "R4.6 · the kolu mirror + fold", m: "gated on R3" },
-  { d: 0, g: "○", c: "last", l: "R5 · Overflow-recovery loop", m: "~130 LoC · last" },
+  { d: 1, g: "○", c: "prog", l: "R4.6 · the kolu mirror + fold", m: "gated on R3 ↓", h: "#r4-defn" },
+  { d: 0, g: "○", c: "last", l: "R5 · Overflow-recovery loop", m: "~130 LoC ↓", h: "#r5-defn" },
 ];
 
 <div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto">
@@ -152,11 +154,21 @@ export const PT = [
   {PT.map((r, i) => <PtRow key={i} {...r} />)}
 </div>
 
-**R3 — remote over ssh** ([kaval-sessions](kaval-sessions.html)). The spike shipped (R3.1–R3.6): a kaval is now dialable local-or-ssh from `kaval-tui`, with the warm ssh path provisioned, deduped, and connection-multiplexed (<PrLink pr={1373} /> · <PrLink pr={1377} /> · <PrLink pr={1378} />). What's left: **R3.7** — kolu-server's N-endpoint registry + the ssh driver (the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location`), dialing the host's kaval directly via the shipped `frontDaemonOverStdio` plus a thin remote fs/git surface for the Code tab (awareness comes from arivu — R4); **R3.8** — the canvas **multiplex** (a tile per kaval, local always present) and validating the feel against tmux-switch.
+### R3 — remote over ssh
 
-**R4 — remote awareness fold** ([arivu](arivu.html)). The awareness daemon shipped standalone (R4.1–R4.5): the sensor library, `arivu` + `arivu-tui`, `--host`, and the live multi-host fleet board (<PrLink pr={1428} /> · <PrLink pr={1439} /> · <PrLink pr={1497} />). **R4.6** is the kolu consumer: dial a *remote* arivu over a long-lived `HostSession`, mirror its `awareness` collection with `mirrorRemoteSurface`, and fold each `AwarenessValue` into `terminalMetadata` across the persisted/live fence (see the callout above), stamping `location` kolu-side. Four irreducible, remote-only costs: closure→frame reification (already shipped, R4.3), the fold + fence split, semantic version-skew (bounded by re-provision-on-dial), and the kolu-side `location` stamp. **Gated on R3** — there's no remote tile to fold into until R3 ships one.
+Defined in [kaval-sessions](kaval-sessions.html) (R3.1–R3.8). The spike shipped (R3.1–R3.6): a kaval is now dialable local-or-ssh from `kaval-tui`, with the warm ssh path provisioned, deduped, and connection-multiplexed (<PrLink pr={1373} /> · <PrLink pr={1377} /> · <PrLink pr={1378} />). What's left: **R3.7** — kolu-server's N-endpoint registry + the ssh driver (the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location`), dialing the host's kaval directly via the shipped `frontDaemonOverStdio` plus a thin remote fs/git surface for the Code tab (awareness comes from arivu — R4); **R3.8** — the canvas **multiplex** (a tile per kaval, local always present) and validating the feel against tmux-switch.
 
-**R5 — overflow-recovery loop** (~130 LoC w/ tests). kaval sheds a slow attach subscriber by *ending* its iterator — today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and silently freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` scroll-lock reset), distinct from PTY-exit. *Open:* whether a drop is reachable on the local socket at all, or only across an ssh hop — if the latter, R5 collapses into an R3 companion.
+<a id="r4-defn"></a>
+
+### R4 — remote awareness fold
+
+R4.1–R4.5 are defined in [arivu](arivu.html); **R4.6, the kolu fold, is defined here** (it is kolu-server glue, with no child note). The awareness daemon shipped standalone (R4.1–R4.5): the sensor library, `arivu` + `arivu-tui`, `--host`, and the live multi-host fleet board (<PrLink pr={1428} /> · <PrLink pr={1439} /> · <PrLink pr={1497} />). **R4.6** is the kolu consumer: dial a *remote* arivu over a long-lived `HostSession`, mirror its `awareness` collection with `mirrorRemoteSurface`, and fold each `AwarenessValue` into `terminalMetadata` across the persisted/live fence (see the callout above), stamping `location` kolu-side. Four irreducible, remote-only costs: closure→frame reification (already shipped, R4.3), the fold + fence split, semantic version-skew (bounded by re-provision-on-dial), and the kolu-side `location` stamp. **Gated on R3** — there's no remote tile to fold into until R3 ships one.
+
+<a id="r5-defn"></a>
+
+### R5 — overflow-recovery loop
+
+**Defined here** (kolu/kaval-side, no child note). ~130 LoC w/ tests. kaval sheds a slow attach subscriber by *ending* its iterator — today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and silently freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` scroll-lock reset), distinct from PTY-exit. *Open:* whether a drop is reachable on the local socket at all, or only across an ssh hop — if the latter, R5 collapses into an R3 companion.
 
 ## History
 
