@@ -116,12 +116,14 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
   });
 
-  it("derives the resume input from a DETECTED agent when the command sensor never captured one", () => {
+  it("captures a DETECTED agent's resume input into `resumeCommand` when the command sensor never captured one", () => {
     // The pre-review manual sim's bug: opencode was DETECTED (the file-watcher
     // path lit the dock) but its launch command was never captured by the OSC
     // 633;E tap (`nix run …#opencode`, or a shell where the command tap stayed
-    // silent), so `lastAgentCommand` was null and wake woke a bare shell. Sleep
-    // now falls back to the detected kind, so wake resumes cwd-most-recent.
+    // silent), so there was nothing to resume and wake woke a bare shell. Sleep
+    // now falls back to the detected kind, captured into the sleeping-only
+    // `resumeCommand` field (NOT overwriting `lastAgentCommand`, which keeps
+    // meaning only "observed"), so wake resumes cwd-most-recent.
     const detectedAgent: AgentInfo = {
       kind: "opencode",
       state: "waiting",
@@ -141,7 +143,9 @@ describe("beginSleep — flip active → sleeping in place", () => {
     const entry = getTerminal(ID);
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
     // → wake runs `opencode --continue` and the conversation resumes.
-    expect(entry.meta.lastAgentCommand).toBe("opencode");
+    expect(entry.meta.resumeCommand).toBe("opencode");
+    // `lastAgentCommand` stays "observed-only" — the sensor never captured one.
+    expect(entry.meta.lastAgentCommand).toBeUndefined();
   });
 });
 
