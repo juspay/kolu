@@ -232,8 +232,12 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
     // (the existing screen, not motion) and treat each delta as one pulse. Held
     // for the terminal's lifetime; `abort` tears it down on departure. Drive it
-    // through the same receptacle the consume side uses, so the subscribe/abort/
-    // swallow-AbortError teardown lives in exactly one place.
+    // through the same `mirrorRemoteSurface` receptacle the consume side uses, so
+    // this tap reuses its subscribe/abort/swallow-AbortError teardown rather than a
+    // third hand-rolled copy. (The other per-terminal taps — cwd/title/command/
+    // foreground — still ride `bridgeKavalTaps`'s `bridgeStream`; folding those onto
+    // the receptacle too would make the shared `@kolu/terminal-awareness` take a
+    // mirror dep, a larger consolidation left for later.)
     void mirrorRemoteSurface(
       ptyHostSurface,
       kaval.client,

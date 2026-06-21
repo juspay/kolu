@@ -462,12 +462,19 @@ async function mirrorCollection<K, V>(opts: {
           try {
             opts.onRemove(key);
           } catch (sinkErr) {
-            throw new SinkError(sinkErr);
+            // The SAME sink-failure channel as onUpsert above: route through
+            // `rejectSink` and stop the loop, so there's one "sink threw → fail
+            // the mirror" path, not a second `throw`/re-throw spelling. Returning
+            // ends the keys loop exactly as the old `throw` did; `sinkFailed`
+            // then wins the race and the top-level fold rethrows the cause.
+            rejectSink(new SinkError(sinkErr));
+            return;
           }
         }
       }
     } catch (err) {
-      if (err instanceof SinkError) throw err;
+      // Only upstream (keys-stream) failures reach here now — every sink failure
+      // goes through `rejectSink` above, so there's no `SinkError` to re-throw.
       if (!isAbortReason(err, opts.signal)) {
         opts.log(`${opts.label}: keys stream error: ${(err as Error).message}`);
       }
