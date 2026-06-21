@@ -318,7 +318,7 @@ local_deployed_files:
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
-  .agents/skills/atlas/SKILL.md: sha256:dbb0719ff579299fff9942fb974ba84601a3931aede8d135f3287659540a4df8
+  .agents/skills/atlas/SKILL.md: sha256:2c7c3b4a34f3ebe9ff614c341889839f96f7793f0f70613c76722917eca1c0db
   .agents/skills/be-review/SKILL.md: sha256:07cf8b3e4261e26983d686bd834ac02865195c3ede3c5845293fb13ab234f2dd
   .agents/skills/be/SKILL.md: sha256:1ffd8c05ece8cf1d358c58572378b2b7113ff6683aef4840ea2d310818b9f77e
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
@@ -353,7 +353,7 @@ local_deployed_file_hashes:
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/skills/atlas/SKILL.md: sha256:dbb0719ff579299fff9942fb974ba84601a3931aede8d135f3287659540a4df8
+  .claude/skills/atlas/SKILL.md: sha256:2c7c3b4a34f3ebe9ff614c341889839f96f7793f0f70613c76722917eca1c0db
   .claude/skills/be-review/SKILL.md: sha256:07cf8b3e4261e26983d686bd834ac02865195c3ede3c5845293fb13ab234f2dd
   .claude/skills/be/SKILL.md: sha256:1ffd8c05ece8cf1d358c58572378b2b7113ff6683aef4840ea2d310818b9f77e
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
