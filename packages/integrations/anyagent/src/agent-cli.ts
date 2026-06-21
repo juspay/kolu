@@ -110,21 +110,36 @@ function basename(s: string): string {
 
 type ResumableAgent = "claude" | "codex" | "opencode";
 
+/** Canonical UUID shape (claude + codex session ids). */
+const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 /**
- * Resume markers spliced in right after the agent binary for agents that
- * support conversation continuity. The `Record` key union is the exact set of
- * resume-capable agents, so adding an agent forces adding BOTH marker forms
- * (type error if omitted). Narrower than `STABLE_FLAGS`: detection-only agents
- * (`aider`, `goose`, `gemini`, `cursor-agent`) are absent and `resumeAgentCommand`
- * returns `null` for them.
+ * The whole per-agent resume policy — one entry per resume-capable agent, so
+ * "how does agent X resume (and is its id safe to splice)?" is one thing in one
+ * place. The `Record` key union is the exact set of resume-capable agents, so
+ * adding an agent forces adding ALL three facets (type error if omitted).
+ * Narrower than `STABLE_FLAGS`: detection-only agents (`aider`, `goose`,
+ * `gemini`, `cursor-agent`) are absent and `resumeAgentCommand` returns `null`
+ * for them.
  *
- * Two forms per agent:
- *   - `last`  — continue the MOST-RECENT conversation in the cwd, no id needed:
- *       claude `-c` · codex `resume --last` (`--last` skips the picker) ·
- *       opencode `--continue`.
- *   - `byId`  — resume the EXACT conversation by its native id (juspay/kolu#1495):
- *       claude `--resume <id>` · codex `resume <id>` · opencode `--session <id>`.
- *       The argument is the already-validated, shell-safe session id.
+ * Three facets per agent:
+ *   - `last`     — continue the MOST-RECENT conversation in the cwd, no id
+ *       needed: claude `-c` · codex `resume --last` (`--last` skips the picker)
+ *       · opencode `--continue`.
+ *   - `byId`     — resume the EXACT conversation by its native id
+ *       (juspay/kolu#1495): claude `--resume <id>` · codex `resume <id>` ·
+ *       opencode `--session <id>`. The argument is the already-validated,
+ *       shell-safe session id.
+ *   - `idPattern` — the shape gate a native session id must pass before it is
+ *       spliced via `byId`. The id is OBSERVED data (read from the agent's own
+ *       session file / DB), so it crosses into a shell line as UNTRUSTED input:
+ *       each pattern is anchored and admits only shell-inert characters — hex +
+ *       hyphen for the claude/codex UUIDs, `ses_` + alnum for opencode — with a
+ *       length cap baked into the pattern, so a matching id cannot carry a
+ *       metacharacter, newline, or word-splitting space. An id that fails its
+ *       gate falls back to the `last` (most-recent) marker rather than resuming
+ *       the wrong conversation.
  *
  * Each marker is spliced into the command as a RAW string (not re-quoted argv),
  * so a multi-word marker like `resume --last` works as written; the flag tokens
@@ -135,31 +150,19 @@ type ResumableAgent = "claude" | "codex" | "opencode";
  */
 const AGENT_RESUME: Record<
   ResumableAgent,
-  { last: string; byId: (id: string) => string }
+  { last: string; byId: (id: string) => string; idPattern: RegExp }
 > = {
-  claude: { last: "-c", byId: (id) => `--resume ${id}` },
-  codex: { last: "resume --last", byId: (id) => `resume ${id}` },
-  opencode: { last: "--continue", byId: (id) => `--session ${id}` },
-};
-
-/** Canonical UUID shape (claude + codex session ids). */
-const UUID_RE =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
-/**
- * Per-agent shape gate for a native session id before it is spliced into a shell
- * command as type-ahead. The id is OBSERVED data (read from the agent's own
- * session file / DB), so it crosses into a shell line as UNTRUSTED input: each
- * pattern is anchored and admits only shell-inert characters — hex + hyphen for
- * the claude/codex UUIDs, `ses_` + alnum for opencode — with a length cap baked
- * into the pattern, so a matching id cannot carry a metacharacter, newline, or
- * word-splitting space. An id that fails its gate falls back to the `last`
- * (most-recent) marker rather than resuming the wrong conversation.
- */
-const SESSION_ID_PATTERN: Record<ResumableAgent, RegExp> = {
-  claude: UUID_RE,
-  codex: UUID_RE,
-  opencode: /^ses_[0-9a-zA-Z]{1,64}$/,
+  claude: { last: "-c", byId: (id) => `--resume ${id}`, idPattern: UUID_RE },
+  codex: {
+    last: "resume --last",
+    byId: (id) => `resume ${id}`,
+    idPattern: UUID_RE,
+  },
+  opencode: {
+    last: "--continue",
+    byId: (id) => `--session ${id}`,
+    idPattern: /^ses_[0-9a-zA-Z]{1,64}$/,
+  },
 };
 
 /** Maps the agent binary basename to the discriminator used by
@@ -285,12 +288,13 @@ export function resumeAgentCommand(
   // the id is never aimed at the wrong CLI) AND the id passes its shell-inert
   // shape gate. `shellJoin([id])` quotes the id as a single token — a no-op for
   // a gate-passing id, but it keeps the "data, not shell text" intent explicit.
+  const policy = AGENT_RESUME[agent];
   const marker =
     session !== undefined &&
     session.kind === BASENAME_TO_KIND[agent] &&
-    SESSION_ID_PATTERN[agent].test(session.id)
-      ? AGENT_RESUME[agent].byId(shellJoin([session.id]))
-      : AGENT_RESUME[agent].last;
+    policy.idPattern.test(session.id)
+      ? policy.byId(shellJoin([session.id]))
+      : policy.last;
 
   return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }
