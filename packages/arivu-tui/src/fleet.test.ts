@@ -51,6 +51,9 @@ interface Fake {
 function fakeConn(opts: {
   version?: string;
   terminals: Record<string, AwarenessValue>;
+  /** The `activity` stream's single frame — the set of terminals "live" right
+   *  now. Omitted ⇒ the fake serves no activity stream (the mirror skips it). */
+  activity?: string[];
 }): Fake {
   let endKeys!: () => void;
   const open = new Promise<void>((res) => {
@@ -71,6 +74,17 @@ function fakeConn(opts: {
         get: async ({ key }: { key: TerminalId }) =>
           once(opts.terminals[key] as AwarenessValue),
       },
+      ...(opts.activity
+        ? {
+            activity: {
+              get: async () =>
+                (async function* () {
+                  yield opts.activity as TerminalId[];
+                  await open; // stay open like a real stream, until the link drops.
+                })(),
+            },
+          }
+        : {}),
     },
   };
   return {
@@ -144,18 +158,22 @@ function recordingSink(): {
   statuses: Array<[string, FleetHostStatus]>;
   upserts: Array<[string, string, AwarenessValue]>;
   removes: Array<[string, string]>;
+  lives: Array<[string, string[]]>;
 } {
   const statuses: Array<[string, FleetHostStatus]> = [];
   const upserts: Array<[string, string, AwarenessValue]> = [];
   const removes: Array<[string, string]> = [];
+  const lives: Array<[string, string[]]> = [];
   return {
     statuses,
     upserts,
     removes,
+    lives,
     sink: {
       setStatus: (l, s) => statuses.push([l, s]),
       upsert: (l, i, v) => upserts.push([l, i, v]),
       remove: (l, i) => removes.push([l, i]),
+      setLive: (l, live) => lives.push([l, live]),
     },
   };
 }
@@ -189,6 +207,27 @@ describe("startFleet", () => {
         .map(([l]) => l)
         .sort(),
     ).toEqual(["a", "b"]);
+    handle.dispose();
+  });
+
+  it("mirrors the activity stream into the sink's live set (the green dot)", async () => {
+    const a = fakeConn({
+      terminals: {
+        [id("loud")]: val({ agent: agentVal("thinking") }),
+        [id("quiet")]: val({ agent: agentVal("thinking") }),
+      },
+      activity: ["loud"], // only `loud` is moving bytes right now
+    });
+    const { sink, lives } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("a"),
+      connect: async () => a.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(20);
+    // The activity frame reached the sink, host-labelled, with only the live id.
+    expect(lives).toContainEqual(["a", ["loud"]]);
     handle.dispose();
   });
 

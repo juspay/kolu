@@ -9,18 +9,22 @@
  * Each host is independent: a cold-provisioning box and a fast one connect in
  * parallel, and one dead box surfaces as an `unreachable` host — never sinks the
  * board (the no-fallback rule: a caught dial error SURFACES, it does not
- * collapse the fleet to empty). The mirror is the SHIPPED `mirrorRemoteCollection`
- * the kolu R-2 fold and the `remote-process-monitor` demo also use; the
- * (host, terminalId) keying is the consumer's job and lives here.
+ * collapse the fleet to empty). One `mirrorRemoteSurface` call drives the whole
+ * arivu surface — the `version` cell (skew gate), the `awareness` collection
+ * (the rows), and the `activity` stream (the live green dot) — into the sink in
+ * one shot; the (host, terminalId) keying is the consumer's job and lives here.
+ * The same primitive the kolu R-2 fold and the `remote-process-monitor` demo use.
  */
 
 import {
   ARIVU_CONTRACT_VERSION,
+  arivuSurface,
   type AwarenessValue,
   type TerminalId,
 } from "@kolu/arivu-contract";
+import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { mirrorRemoteCollection } from "@kolu/surface-nix-host";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { Connection } from "./connect.ts";
 import type { FleetHost } from "./hosts.ts";
 import { snapshotAwareness } from "./read.ts";
@@ -38,6 +42,10 @@ export interface FleetSink {
   setStatus: (label: string, status: FleetHostStatus) => void;
   upsert: (label: string, id: TerminalId, value: AwarenessValue) => void;
   remove: (label: string, id: TerminalId) => void;
+  /** The whole set of terminals on this host moving bytes right now (the
+   *  `activity` stream's current frame) — drives the live green dot. Replaces the
+   *  host's live set each frame (snapshot-then-deltas). */
+  setLive: (label: string, live: TerminalId[]) => void;
 }
 
 export interface FleetHandle {
@@ -61,7 +69,13 @@ async function probeContractVersion(
   );
   return {
     hostVersion: version.contractVersion,
-    skewed: version.contractVersion !== ARIVU_CONTRACT_VERSION,
+    // Use the framework's `major.minor` predicate, not raw string inequality: an
+    // additive host (a newer minor — e.g. one that grew the `activity` stream)
+    // is compatible, not skew. A lower minor or a major mismatch is skew.
+    skewed: !isContractVersionCompatible(
+      version.contractVersion,
+      ARIVU_CONTRACT_VERSION,
+    ),
   };
 }
 
@@ -131,9 +145,13 @@ async function runHost(
   // the global handler). The no-fallback rule: it SURFACES as this host's
   // `unreachable` header while the rest of the fleet keeps updating.
   try {
-    // Read the host's declared contract version → connected | skew (the shared
-    // probe `snapshotFleet` also uses; an empty stream throws into the catch
-    // below → this host's `unreachable` header).
+    // The version HANDSHAKE first — gate connected-vs-skew with an honest
+    // reason on failure, BEFORE mirroring. The `version` cell is the
+    // compatibility gate, not live data (arivu is ephemeral; its version never
+    // changes mid-connection), so it's a one-shot probe — an empty stream throws
+    // into the catch below as this host's `unreachable`, never a silent collapse
+    // to connected. (This is why the cell is probed, not folded into the mirror:
+    // a mirror swallows per-stream blips, but the handshake must surface.)
     const { hostVersion, skewed } = await probeContractVersion(conn);
     opts.sink.setStatus(
       host.label,
@@ -142,21 +160,32 @@ async function runHost(
         : { kind: "connected" },
     );
 
-    // Live mirror — `mirrorRemoteCollection` holds the keys + per-key streams
-    // open and pumps every delta. It settles when the link closes; if we didn't
+    // Then ONE call mirrors the live DATA: the `awareness` collection (the rows)
+    // and the `activity` stream (the live green dot). `mirrorRemoteSurface`
+    // settles when every subscription does — i.e. the link closed; if we didn't
     // dispose on purpose, the box went away, so flip the header to unreachable
     // while the other hosts keep updating (the negative-proof path).
-    await mirrorRemoteCollection<TerminalId, AwarenessValue>({
-      label: `awareness@${host.label}`,
-      log: opts.log,
-      keys: conn.client.surface.awareness.keys({}),
-      get: (key, signal) =>
-        conn.client.surface.awareness.get({ key }, { signal }),
-      onUpsert: (id, value) => opts.sink.upsert(host.label, id, value),
-      onRemove: (id) => opts.sink.remove(host.label, id),
-    });
-    // The mirror returned without throwing → the keys stream closed cleanly
-    // (`mirrorRemoteCollection` swallows its own stream errors). The box went
+    await mirrorRemoteSurface(
+      arivuSurface,
+      conn.client,
+      {
+        collections: {
+          awareness: {
+            upsert: (id, value) => opts.sink.upsert(host.label, id, value),
+            remove: (id) => opts.sink.remove(host.label, id),
+          },
+        },
+        streams: {
+          activity: {
+            input: {},
+            onFrame: (live) => opts.sink.setLive(host.label, live),
+          },
+        },
+      },
+      { log: opts.log },
+    );
+    // The mirror returned → every subscription settled (the link closed;
+    // `mirrorRemoteSurface` swallows its own per-stream errors). The box went
     // away: flip the header unless we tore it down on purpose.
     if (!isDisposed()) {
       opts.sink.setStatus(host.label, {

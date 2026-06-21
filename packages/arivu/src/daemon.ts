@@ -33,6 +33,7 @@ import {
   implementSurface,
   inMemoryChannelByName,
   inMemoryStore,
+  pollOnEvent,
 } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
@@ -49,6 +50,7 @@ import {
   resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
+import { createActivityTracker, sameActivitySet } from "./activity.ts";
 import { makeAwarenessSink } from "./hooks.ts";
 
 /** How arivu exposes the awareness surface. `socket` binds a unix socket (the
@@ -138,6 +140,12 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
   }
   log.info({ kavalSocket }, "arivu: dialed kaval");
 
+  // ── Live-output activity — the set of terminals moving bytes right now, fed
+  //    from kaval's raw output tap (below) and served as the `activity` stream
+  //    (snapshot-then-deltas, the whole live set per frame). The flow primitive
+  //    beside the stateful collection + cell.
+  const activity = createActivityTracker();
+
   // ── The served awareness surface — a keyed collection backed by a cache ──
   const cache = new Map<TerminalId, AwarenessValue>();
   const fragment = implementSurface(arivuSurface, {
@@ -152,6 +160,21 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
         remove: (key) => {
           cache.delete(key);
         },
+      },
+    },
+    streams: {
+      // Poll-on-event over the live set: yield the current set, then re-yield
+      // whenever a terminal lights up or goes quiet. `sameActivitySet` suppresses
+      // the redundant yield when a timer re-arm left the set unchanged.
+      activity: {
+        source: (_input, signal) =>
+          pollOnEvent({
+            read: async () => activity.snapshot(),
+            isEqual: sameActivitySet,
+            install: (onEvent) => activity.onChange(onEvent),
+            signal,
+            onReadError: () => {},
+          }),
       },
     },
   });
@@ -203,9 +226,32 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
       onError: () => {},
     });
     const stopAwareness = startAwareness(record, id, signals, sink, log);
+
+    // Tap raw output to drive the live-activity set (the green dot). We want only
+    // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
+    // (the existing screen, not motion) and treat each delta as one pulse. Held
+    // for the terminal's lifetime; `abort` tears it down on departure.
+    void (async () => {
+      try {
+        const stream = await kaval.client.surface.terminalAttach.get(
+          { id },
+          { signal: abort.signal },
+        );
+        for await (const msg of stream) {
+          if (abort.signal.aborted) break;
+          if (msg.kind === "delta") activity.noteOutput(id);
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          log.debug({ err, terminal: id }, "arivu: activity tap ended");
+        }
+      }
+    })();
+
     return () => {
       abort.abort();
       stopAwareness();
+      activity.forget(id);
     };
   };
 
@@ -248,6 +294,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     clearInterval(pollTimer);
     for (const stop of watched.values()) stop();
     watched.clear();
+    activity.dispose();
     kaval.dispose();
   };
 

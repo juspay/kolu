@@ -204,8 +204,14 @@ function host(
   label: string,
   status: FleetHostState["status"],
   terminals: Record<string, AwarenessValue>,
+  live: string[] = [],
 ): FleetHostState {
-  return { label, status, terminals: terminals as FleetHostState["terminals"] };
+  return {
+    label,
+    status,
+    terminals: terminals as FleetHostState["terminals"],
+    live,
+  };
 }
 
 describe("agentUrgency", () => {
@@ -265,6 +271,27 @@ describe("projectFleet — host mode", () => {
       hostsTotal: 2,
     });
     expect(view.alertHosts).toEqual(["zest"]);
+  });
+
+  it("marks a row live iff its terminal is in the host's activity set", () => {
+    const states = [
+      host(
+        "zest",
+        { kind: "connected" },
+        {
+          [id("z-loud")]: val({ agent: agentVal("thinking") }),
+          [id("z-quiet")]: val({ agent: agentVal("thinking") }),
+        },
+        // Only z-loud is moving bytes right now (the `activity` stream frame).
+        [id("z-loud")],
+      ),
+    ];
+    const view = projectFleet(states, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
+    const rows = view.groups[0]?.rows ?? [];
+    const live = new Map(rows.map((r) => [r.id, r.live]));
+    expect(live.get("z-loud")).toBe(true);
+    expect(live.get("z-quiet")).toBe(false);
   });
 
   it("keeps two hosts' identical terminal ids distinct (host, terminalId key)", () => {

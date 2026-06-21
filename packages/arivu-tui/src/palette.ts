@@ -29,3 +29,7 @@ export const HEADER = "#8b94a6";
 export const SUBTLE = "#8b94a6";
 /** Violet — the fleet's per-host group bar (matches the plan's prototype). */
 export const HOST = "#a78bfa";
+/** Green — the live-output activity dot (a terminal moving bytes right now), the
+ *  fleet echo of kolu's Dock green dot. A chrome colour, not a per-cell tone: it
+ *  rides the `activity` stream, orthogonal to the agent-state tones. */
+export const LIVE = "#7ee787";
