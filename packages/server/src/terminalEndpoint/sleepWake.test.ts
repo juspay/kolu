@@ -19,6 +19,7 @@
 
 import {
   type ActiveTerminal,
+  type AgentInfo,
   LOCAL_LOCATION,
   SavedTerminalSchema,
   type SleepingTerminal,
@@ -113,6 +114,34 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(beginSleepLocal(ID)).toBe(true);
     expect(beginSleepLocal(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+  });
+
+  it("derives the resume input from a DETECTED agent when the command sensor never captured one", () => {
+    // The pre-review manual sim's bug: opencode was DETECTED (the file-watcher
+    // path lit the dock) but its launch command was never captured by the OSC
+    // 633;E tap (`nix run …#opencode`, or a shell where the command tap stayed
+    // silent), so `lastAgentCommand` was null and wake woke a bare shell. Sleep
+    // now falls back to the detected kind, so wake resumes cwd-most-recent.
+    const detectedAgent: AgentInfo = {
+      kind: "opencode",
+      state: "waiting",
+      sessionId: "ses_1",
+      model: null,
+      summary: null,
+      taskProgress: null,
+      contextTokens: null,
+      startedAt: null,
+    };
+    const base = activeEntry();
+    registerTerminal(ID, {
+      ...base,
+      meta: { ...base.meta, lastAgentCommand: undefined, agent: detectedAgent },
+    });
+    expect(beginSleepLocal(ID)).toBe(true);
+    const entry = getTerminal(ID);
+    if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
+    // → wake runs `opencode --continue` and the conversation resumes.
+    expect(entry.meta.lastAgentCommand).toBe("opencode");
   });
 });
 

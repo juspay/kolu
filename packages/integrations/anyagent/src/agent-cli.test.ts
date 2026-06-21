@@ -4,6 +4,7 @@ import { shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
+  agentCommandForKind,
   agentKindFromCommand,
   parseAgentCommand,
   resumeAgentCommand,
@@ -344,6 +345,19 @@ describe("resumeAgentCommand", () => {
     expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
       `claude -c --add-dir ~/projects/foo`,
     );
+  });
+});
+
+describe("agentCommandForKind — detected kind → resumable command", () => {
+  // The fallback sleep uses when the OSC command tap never fired but an agent was
+  // DETECTED: the kind alone must round-trip to a real resume form, for all three.
+  it.each([
+    ["claude-code", "claude", "claude -c"],
+    ["codex", "codex", "codex resume --last"],
+    ["opencode", "opencode", "opencode --continue"],
+  ] as const)("%s → %s → resume %s", (kind, command, resumeForm) => {
+    expect(agentCommandForKind(kind)).toBe(command);
+    expect(resumeAgentCommand(agentCommandForKind(kind))).toBe(resumeForm);
   });
 });
 

@@ -21,6 +21,7 @@
  * link.
  */
 
+import { agentCommandForKind } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
@@ -760,10 +761,23 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
+    // Capture the agent's RESUME INPUT onto the persisted base before the flip,
+    // so wake can resume. Prefer the command the OSC 633;E sensor captured (it
+    // carries flags); but when that never fired YET an agent is DETECTED (the
+    // reliable file-watcher path that lights the dock — e.g. `opencode` launched
+    // via `nix run`, whose head token is `nix`, or any shell where the command
+    // tap didn't fire), fall back to the detected kind so wake still resumes
+    // cwd-most-recent. Without this, a real running agent wakes to a bare shell.
+    const resumeInput =
+      entry.meta.lastAgentCommand ??
+      (entry.meta.agent
+        ? agentCommandForKind(entry.meta.agent.kind)
+        : undefined);
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: SleepingTerminalSchema.parse({
         ...entry.meta,
+        lastAgentCommand: resumeInput,
         state: "sleeping",
         sleptAt: Date.now(),
       }),
