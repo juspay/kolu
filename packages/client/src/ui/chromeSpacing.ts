@@ -74,3 +74,19 @@ export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
  *  `DOCK_CARDS_GUTTER_*` (24 px) while the touch list uses `pr-3` /
  *  `-mr-3` (12 px); see the comment in `DockList.tsx`. */
 export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-6 pl-6";
+
+/** Dock row column geometry — single invariant shared by the desktop
+ *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one
+ *  concept: `[activity 12px][agent 16px desktop / 20px touch][branch
+ *  minmax(0,1fr)][sub-count auto][time auto]`, with the line-2 flex row
+ *  (PR pip + subline) starting at the branch column. The line-2 start is
+ *  derived, not free: branch = (pre-branch track count) + 1 =
+ *  (activity + agent = 2) + 1 = col-start-3. Insert or remove a track
+ *  and you MUST update the track list and `DOCK_ROW_BRANCH_COL`
+ *  together, here, so the two stay in agreement. The desktop / touch
+ *  templates differ only in the agent track width (16 px vs 20 px). */
+export const DOCK_ROW_GRID_DESKTOP =
+  "grid-cols-[12px_16px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_GRID_TOUCH =
+  "grid-cols-[12px_20px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_BRANCH_COL = "col-start-3";
