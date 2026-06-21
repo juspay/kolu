@@ -101,7 +101,13 @@ them. Only evicting a tile past the cap still swaps it. The cap started at 2
 tiles (#1403/#1404, for the A↔B reflow) and was raised to a context cap of
 12 in [#1399](https://github.com/juspay/kolu/issues/1399) — a budget smaller
 than the working set churned WebGL contexts on every switch and leaked GPU
-VRAM to a crash on AMD. See `useTerminalStore.ts` (`holdsWebgl`) and
+VRAM to a crash on AMD. It was later trimmed to **8**
+([#1494](https://github.com/juspay/kolu/pull/1494)): 12 left only 4 contexts
+of headroom below Chrome's ~16/tab ceiling, so on a long session the
+transient contexts Chrome holds until GC drifted the live count into
+eviction — and an evicted tile parks on a blank frame for the 3s xterm waits
+on `webglcontextrestored` before falling back to DOM, the corruption a
+refresh cleared. See `useTerminalStore.ts` (`holdsWebgl`) and
 `webglBudget.ts` (`WEBGL_CONTEXT_CAP` + `admitWebglTiles`). *(Cause #2 of
 #1400 — the selection-offset-under-zoom bug — was fixed separately and
 filed upstream as
