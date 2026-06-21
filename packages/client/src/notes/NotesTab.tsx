@@ -16,9 +16,11 @@
  *
  *  The "saved" marker (`savedValue`) only advances when a `setNotes` RPC
  *  actually resolves — never optimistically. A failed save therefore leaves the
- *  draft dirty (footer stays "Saving…", a retry is allowed), and a generation
+ *  draft dirty (footer stays "Saving…", a retry is allowed). A generation
  *  counter keeps two in-flight saves that resolve out of order from letting an
- *  older draft overwrite a newer one. */
+ *  older draft overwrite a newer one, and — paired with a terminal-id check on
+ *  each ack — keeps a slow save fired for a terminal we've since switched away
+ *  from out of the *current* terminal's editor state. */
 
 import { debounce } from "@solid-primitives/scheduled";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -88,9 +90,11 @@ const NotesTab: Component<{
   const [savedValue, setSavedValue] = createSignal("");
   const dirty = () => draft() !== savedValue();
 
-  // Monotonic save generation. Each `persist` claims the next number; only the
-  // newest in-flight save is allowed to advance `savedValue` on success, so two
-  // RPCs that resolve out of order can't let an older draft win over a newer one.
+  // Monotonic save generation. Each `persist` claims the next number, and a
+  // terminal switch bumps it too; only the newest in-flight save is allowed to
+  // advance `savedValue` on success, so two RPCs that resolve out of order can't
+  // let an older draft win — and a save fired before a switch can't land on the
+  // terminal we switched to.
   let saveGen = 0;
   // The last text handed to an RPC (regardless of whether it has resolved yet).
   // Gates `flush` so blur/switch/unmount don't re-fire a write already in flight
@@ -101,18 +105,25 @@ const NotesTab: Component<{
   const persist = (id: TerminalId, text: string) => {
     const gen = ++saveGen;
     lastSent = text;
+    // A late ack may only touch the editor state if it's still the newest save
+    // (`gen === saveGen`, defeats out-of-order resolution) AND it was fired for
+    // the terminal still on screen (`id === props.terminalId`). Without the
+    // id guard, a save started for terminal A that resolves *after* a switch
+    // to B would write A's notes into B's `savedValue`/`lastSent` — corrupting
+    // B's dirty indicator and flush gate. The switch effect bumps `saveGen`, so
+    // the id check is a belt to the generation's suspenders.
+    const isCurrent = () => gen === saveGen && id === props.terminalId;
     void client.terminal
       .setNotes({ id, notes: text })
       .then(() => {
-        // A newer save superseded this one mid-flight — its result is the
-        // source of truth, so drop this stale ack.
-        if (gen === saveGen) setSavedValue(text);
+        if (isCurrent()) setSavedValue(text);
       })
       .catch((err: Error) => {
         // Leave the draft dirty: this text is no longer the confirmed value, so
-        // a retry must be allowed. Re-arm `lastSent` only if no newer save has
-        // since claimed the wire, so the next flush/keystroke re-sends it.
-        if (gen === saveGen) lastSent = savedValue();
+        // a retry must be allowed. Re-arm `lastSent` only if this is still the
+        // current terminal's newest save, so the next flush/keystroke re-sends
+        // it without clobbering a terminal we've since switched to.
+        if (isCurrent()) lastSent = savedValue();
         toast.error(`Failed to save notes: ${err.message}`);
       });
   };
@@ -139,6 +150,11 @@ const NotesTab: Component<{
       () => props.terminalId,
       (_id, prevId) => {
         if (prevId) flush(prevId);
+        // Invalidate every save still in flight for the outgoing terminal: a
+        // later `++saveGen` here means their `gen === saveGen` check can never
+        // pass again, so a slow ack for the terminal we just left can't write
+        // its notes into the incoming terminal's seeded state below.
+        saveGen++;
         const seed = props.meta?.notes ?? "";
         lastSent = seed;
         setSavedValue(seed);
