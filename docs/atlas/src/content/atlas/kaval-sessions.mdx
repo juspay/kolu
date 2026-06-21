@@ -53,7 +53,7 @@ export const KavalCanvas = () => (
 
 export const ProcDiagram = () => (
   <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 680 560" width="100%" role="img" aria-label="Process and host topology for R3.7. The local host runs the browser (packages/client) over ws to kolu-server, which holds the provider DAG plus fs and git watchers. An ssh seam (HostSession / stdioLink) crosses to the remote prod host, which exposes one ssh endpoint: kolu-watcher (amber, re-runs fresh) fronting kaval over a unix socket. kaval is the durable survivor (green) — it survives restarts while kolu-watcher re-runs fresh on the current build." style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
+    <svg viewBox="0 0 680 560" width="100%" role="img" aria-label="Process and host topology for R3.7. The local host runs the browser (packages/client) over ws to kolu-server, which runs the provider DAG plus fs and git in-process. An ssh seam (HostSession / stdioLink, one multiplexed tunnel) crosses to the remote prod host, which runs two already-shipped daemons: kaval (green, durable) holding the PTYs, dialed directly via frontDaemonOverStdio, and arivu (amber, ephemeral) running the awareness sensors, re-provisioned each dial. kaval survives restarts; arivu is re-derived from the current build on every dial." style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
       <defs>
         <marker id="kvsProc-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
           <path d="M0,0 L7,3 L0,6 Z" fill="#3f444b" />
@@ -71,7 +71,7 @@ export const ProcDiagram = () => (
       <rect x="285" y="14.5" width="11" height="9" rx="1.5" fill="#E6F4EA" stroke="#15803D" />
       <text x="301" y="22" font-size="11" fill="#6b7178">durable</text>
       <rect x="354" y="14.5" width="11" height="9" rx="1.5" fill="#FBF1DC" stroke="#B45309" />
-      <text x="370" y="22" font-size="11" fill="#6b7178">re-runs fresh</text>
+      <text x="370" y="22" font-size="11" fill="#6b7178">ephemeral</text>
       <text x="462" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#1a1c20">packages/…</text>
       <text x="538" y="22" font-size="11" fill="#6b7178">= package</text>
 
@@ -102,22 +102,22 @@ export const ProcDiagram = () => (
       {/* ── ssh seam (the labelled hop between hosts) ───────── */}
       <line x1="290" y1="222" x2="174" y2="318" stroke="#0D32B2" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#kvsProc-arSsh)" />
       <text x="486" y="252" font-size="11" font-weight="700" font-family="ui-monospace, monospace" fill="#0D32B2" text-anchor="middle">ssh · HostSession (stdioLink)</text>
-      <text x="486" y="269" font-size="9.5" fill="#4A5072" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
+      <text x="486" y="269" font-size="9.5" fill="#4A5072" text-anchor="middle">kaval (frontDaemonOverStdio) · arivu awareness · fs/git</text>
 
       {/* ── REMOTE host ────────────────────────────────────── */}
       <rect x="8" y="306" width="664" height="248" rx="9" fill="#FBFBFE" stroke="#9aa0aa" stroke-dasharray="5 4" stroke-width="1.3" />
-      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#4A5072">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
+      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#4A5072">host · remote (prod)  —  kaval (PTY) + arivu (awareness), each dialed over ssh</text>
 
-      {/* kolu-watcher — re-runs fresh (amber) */}
+      {/* arivu — awareness · ephemeral (amber) */}
       <rect x="22" y="338" width="300" height="200" rx="7" fill="#FFFBF1" stroke="#B45309" stroke-width="1.6" />
       <rect x="22" y="338" width="300" height="22" rx="7" fill="#B45309" />
       <rect x="22" y="349" width="300" height="11" fill="#B45309" />
-      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · kolu-watcher  —  re-runs fresh</text>
-      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/server   (the provider DAG)</text>
-      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/integrations/git</text>
+      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · arivu  —  awareness · ephemeral</text>
+      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/arivu   (the provider DAG)</text>
+      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/terminal-awareness</text>
       <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface</text>
-      <text x="32" y="446" font-size="10" font-style="italic" fill="#92400E">fronts kaval; runs the DAG + native fs/git;</text>
-      <text x="32" y="462" font-size="10" font-style="italic" fill="#92400E">serves pty-host + fs/git over ssh</text>
+      <text x="32" y="446" font-size="10" font-style="italic" fill="#92400E">runs the sensors (provider DAG);</text>
+      <text x="32" y="462" font-size="10" font-style="italic" fill="#92400E">serves awareness over ssh · re-provisioned</text>
 
       {/* kaval — durable · SURVIVES (green, the highlight) — soft halo */}
       <rect x="375" y="333" width="286" height="210" rx="10" fill="none" stroke="#15803D" stroke-width="3.5" opacity="0.16" />
@@ -134,7 +134,7 @@ export const ProcDiagram = () => (
 
       <line x1="322" y1="440" x2="380" y2="440" stroke="#3f444b" stroke-width="1.4" marker-end="url(#kvsProc-ar)" />
       <text x="351" y="432" font-size="8.5" font-family="ui-monospace, monospace" fill="#3f444b" text-anchor="middle">unix socket</text>
-      <text x="351" y="454" font-size="8" fill="#6b7178" text-anchor="middle">taps + pty-host</text>
+      <text x="351" y="454" font-size="8" fill="#6b7178" text-anchor="middle">arivu reads taps</text>
     </svg>
   </div>
 );
@@ -150,10 +150,10 @@ kolu-server keys its pty-host endpoint by `hostId` (one key today — `local`). 
 | At the endpoint | local | remote — same `HostSession` link |
 | --- | --- | --- |
 | **PTY** — kaval (fds + OSC taps) | unix socket | ssh stdio |
-| **provider DAG + fs/git watchers** | in kolu-server | in **kolu-watcher** → stream metadata |
-| **Code-tab fs** — browse · read · watch | node fs (native) | remote fs surface · snapshot-then-delta |
+| **awareness — provider DAG + git watcher** | in kolu-server (in-process) | in **[arivu](arivu.html)** → mirrored + folded (R4) |
+| **Code-tab fs** — browse · read · watch | node fs (native) | a thin remote fs/git surface · snapshot-then-delta |
 
-Awareness providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** on the current build. (The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic, coupled to it; the generic, kolu-agnostic kaval earns its standalone name.) So R3.1's `TerminalEndpoint` rename anticipated a second *implementation* the kaval model dissolves: not two backends, one whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
+Awareness providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so transport-free. kaval stays the durable survivor; the **provider DAG is [arivu](arivu.html)** — the host-side awareness daemon, already shipped standalone and decoupled from kolu — dialed and folded in by R4. arivu is **ephemeral and re-provisioned each dial**, so its sensors are always re-derived from the current build (the #1031 "never serve stale detection" lesson, met by re-provisioning, not a kolu-coupled process). kaval itself is dialed **directly** over ssh via the shipped `frontDaemonOverStdio` (R3.4) — nothing fronts it. So R3.1's `TerminalEndpoint` rename anticipated a second *implementation* the kaval model dissolves: not two backends, one whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
 
 **Switch or multiplex** is a later, reversible UI call the spike doesn't depend on. The lean is **multiplex**: switch is a *terminal-multiplexer* metaphor, but kolu is a *canvas* — "watch a local build beside a prod-ssh tile" is the point, not a corner case. The cost over switch is modest and clean — per-tile `location` returns, but *additively* (no `RemoteTerminalBackend`, no screen mirror — just which endpoint holds this tile's PTY), and the ChromeBar shows only the kavals this canvas actually has tiles on.
 
@@ -196,7 +196,7 @@ ssh <em>reach + provision</em> is R3's biggest unknown, shared by both granulari
 
 The N-endpoint registry + the ssh driver: the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location` on records. It reuses the *same* `getHostSession` driver the spike built; it carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`).
 
-**The remote pair is two processes — forced, not incidental.** kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code); one process can't be both. Locally that role isn't even separate — the DAG + fs/git watchers run *inside* kolu-server. Remotely kolu-server isn't on the host, so it splits out as its own process beside kaval. And because kaval serves a *unix socket*, the host exposes **one** ssh endpoint — kolu-watcher: kolu-server dials it over one `HostSession` `stdioLink`, and kolu-watcher locally fronts kaval's socket for PTY + taps while serving its own fs/git + metadata (`mirrorRemoteSurface`).
+**The remote host runs two already-shipped daemons — kaval + arivu — each dialed directly.** kaval is the durable PTY survivor (it must outlive deploys); **[arivu](arivu.html)** is the host-side provider DAG (awareness), ephemeral and re-provisioned each dial so it is always the current build's sensors. Locally neither is a separate process — kaval is the local daemon and the sensors run *inside* kolu-server. Remotely, kolu-server **dials each over the (R3.6-multiplexed) ssh tunnel**: kaval for PTYs via the shipped `frontDaemonOverStdio` (no intermediary fronts it), and arivu for awareness (mirrored + folded — R4). The one genuinely-new R3.7 surface is the **remote fs/git** for the Code tab — a thin surface (snapshot-then-delta over the same `HostSession`, `mirrorRemoteSurface`) composing `@kolu/surface-nix-host` + `kolu-git`: a leaf, not a daemon.
 
 <ProcDiagram />
 
