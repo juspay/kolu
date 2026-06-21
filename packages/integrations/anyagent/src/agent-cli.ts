@@ -137,9 +137,11 @@ const UUID_RE =
  *       each pattern is anchored and admits only shell-inert characters — hex +
  *       hyphen for the claude/codex UUIDs, `ses_` + alnum for opencode — with a
  *       length cap baked into the pattern, so a matching id cannot carry a
- *       metacharacter, newline, or word-splitting space. An id that fails its
- *       gate falls back to the `last` (most-recent) marker rather than resuming
- *       the wrong conversation.
+ *       metacharacter, newline, or word-splitting space. The gate is fail-closed:
+ *       a same-agent ref whose id fails this pattern is a broken claim and yields
+ *       NO resume (a bare shell), never a downgrade to `last` — see
+ *       `resumeAgentCommand`. `last` is reached only when there is no ref or the
+ *       ref names a different agent (no id to aim at the wrong CLI).
  *
  * Each marker is spliced into the command as a RAW string (not re-quoted argv),
  * so a multi-word marker like `resume --last` works as written; the flag tokens
