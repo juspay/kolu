@@ -31,7 +31,7 @@
  *
  * This comment is the single canonical rationale for the whole transform/bundle/
  * native-dlopen story; the dev preload (bunfig.toml), the Nix buildPhase
- * (nix/packages/arivu-tui/default.nix), and the wrapper's LD_LIBRARY_PATH
+ * (packages/arivu-tui/nix/default.nix), and the wrapper's LD_LIBRARY_PATH
  * (default.nix) each carry only a one-line local note that points back here, so
  * the reasoning lives in exactly one place and the three secondary sites can't
  * drift.
