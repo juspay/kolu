@@ -1,6 +1,6 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import { resumeAgentCommand } from "anyagent/cli";
+import { resumeFormFor } from "anyagent/cli";
 import type {
   InitialTerminalMetadata,
   SavedSession,
@@ -298,19 +298,16 @@ export function useSessionRestore(deps: {
         // `t.agentSession` (when present) targets the EXACT conversation that
         // was running on this terminal rather than the most-recent one in the
         // cwd (juspay/kolu#1495); absent → most-recent fallback.
+        // `resumeFormFor` is the SAME composition the server's wake path feeds a
+        // fresh spawn (`local.ts`), so restore and wake can't drift.
         const optedIn = !resumeIds || resumeIds.has(t.id);
-        if (t.lastAgentCommand && optedIn) {
-          const resumeForm = resumeAgentCommand(
-            t.lastAgentCommand,
-            t.agentSession,
-          );
-          if (resumeForm) {
-            await client.terminal.sendInput({
-              id: newId,
-              data: `${resumeForm}\r`,
-            });
-            resumed++;
-          }
+        const resumeForm = optedIn ? resumeFormFor(t) : null;
+        if (resumeForm) {
+          await client.terminal.sendInput({
+            id: newId,
+            data: `${resumeForm}\r`,
+          });
+          resumed++;
         }
       }
       for (const t of subTerminals) {
