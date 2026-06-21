@@ -44,6 +44,11 @@ function init() {
     return getThemeByName(preview ?? getThemeName(id));
   }
 
+  function getTerminalThemeName(id: TerminalId): string {
+    const preview = store.activeId() === id ? previewThemeName() : undefined;
+    return (preview ?? getThemeName(id)) || DEFAULT_THEME_NAME;
+  }
+
   function setThemeName(id: TerminalId, name: string) {
     void client.terminal
       .setTheme({ id, themeName: name })
@@ -83,6 +88,7 @@ function init() {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
+    getTerminalThemeName,
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleShuffleTheme,
