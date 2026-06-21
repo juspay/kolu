@@ -175,7 +175,13 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
   const log = opts.log ?? (() => {});
   const ns = client.surface as Record<string, EntryClient>;
   const spec = source.spec;
-  const tasks: Promise<void>[] = [];
+  // Setup is two passes so it's all-or-nothing: pass 1 VALIDATES every opted-in
+  // primitive (the only step that can throw a client/surface mismatch) and stages
+  // a `start` closure; pass 2 runs the closures to begin subscriptions. Nothing is
+  // subscribed until validation has fully succeeded — so a mismatch on a later
+  // primitive can't leave an earlier primitive's long-lived task running (and
+  // mutating the sink) after the caller already observed the rejection.
+  const starts: Array<() => Promise<void>> = [];
 
   // View the precisely-typed sink through loose per-kind maps inside the body —
   // the public `SurfaceSink<S>` type already paid for the precision at the call
@@ -207,12 +213,14 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
   // `connected`. `requireEntry` enforces that — `continue` only when there is no
   // sink at all.
 
-  // The four loops below can throw synchronously on a client/surface mismatch
-  // (`requireEntry`). That is a programming error, but the function's contract is
+  // PASS 1 — validate every opted-in primitive and stage its `start` closure.
+  // `requireEntry` (and the collection `keys` check) can throw synchronously on a
+  // client/surface mismatch. That is a programming error, but the contract is
   // "returns `Promise<void>`, all failures are rejections" — and a caller may fire
   // it `void`-style (the daemon does), where a sync throw would crash inline
-  // rather than surface as a rejection it can flip a host on. So collect the tasks
-  // inside a try and turn any setup throw into a rejected promise.
+  // rather than surface as a rejection it can flip a host on. So validation runs
+  // inside a try and any throw becomes a rejected promise — crucially, BEFORE any
+  // `start` closure has run, so no subscription is left orphaned by the throw.
   try {
     // Cells: a cell's `get` yields snapshot-then-deltas with no input — just a
     // single-input stream whose argument is `{}`. So a cell sink reuses the stream
@@ -221,7 +229,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const onValue = cellSinks?.[key];
       if (!onValue) continue;
       const entry = requireEntry(ns, key, "cell");
-      tasks.push(
+      starts.push(() =>
         subscribeStream(entry, {}, onValue, signal, log, `${key} cell`),
       );
     }
@@ -239,7 +247,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
         );
       }
       const keysFn = entry.keys;
-      tasks.push(
+      starts.push(() =>
         mirrorCollection({
           label: `${key} collection`,
           log,
@@ -262,7 +270,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const s = streamSinks?.[key];
       if (!s) continue;
       const entry = requireEntry(ns, key, "stream");
-      tasks.push(
+      starts.push(() =>
         subscribeStream(
           entry,
           s.input,
@@ -277,17 +285,18 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const e = eventSinks?.[key];
       if (!e) continue;
       const entry = requireEntry(ns, key, "event");
-      tasks.push(
+      starts.push(() =>
         subscribeStream(entry, e.input, e.onFrame, signal, log, `${key} event`),
       );
     }
   } catch (err) {
-    // A setup mismatch — abort any subscriptions already started before the throw,
-    // then reject. (The signal is the caller's, so we can't abort it; the started
-    // tasks thread it and will settle, but we don't await them — the mismatch is
-    // the load-bearing failure.)
+    // A setup mismatch caught before any subscription started (no `start` closure
+    // has run yet) — nothing to unwind, just reject.
     return Promise.reject(err);
   }
+
+  // PASS 2 — validation passed, so start every staged subscription.
+  const tasks = starts.map((start) => start());
 
   // Resolve when every subscription has settled. Over one shared link that means
   // the link closed (or `signal` aborted) — the cue a consumer flips a host to

@@ -236,4 +236,34 @@ describe("mirrorRemoteSurface", () => {
       }),
     ).rejects.toThrow(/client\/surface mismatch/);
   });
+
+  it("starts NO subscription when a later opted-in primitive fails validation", async () => {
+    // Setup is all-or-nothing: a valid earlier sink (the cell) must not begin
+    // subscribing if a later opted-in sink (the stream) has no client entry. If
+    // setup started tasks before validating everything, the cell's long-lived
+    // subscription would keep pushing frames into the sink after the caller already
+    // observed the rejection.
+    let cellSubscribed = false;
+    const client = {
+      surface: {
+        // A valid cell entry, declared first so its `start` would run first…
+        count: {
+          get: async () => {
+            cellSubscribed = true;
+            return gen(1, 2, 3);
+          },
+        },
+        // …but `ticks` is absent, so validating the stream sink throws.
+      },
+    };
+    await expect(
+      mirrorRemoteSurface(testSurface, asClient(client), {
+        cells: { count: () => {} },
+        streams: { ticks: { input: {}, onFrame: () => {} } },
+      }),
+    ).rejects.toThrow(/client\/surface mismatch/);
+    // Give any erroneously-started task a tick to call `get`.
+    await delay(10);
+    expect(cellSubscribed).toBe(false);
+  });
 });
