@@ -18,7 +18,8 @@ import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { expect, test } from "bun:test";
 import { testRender } from "@opentui/solid";
 import { FleetBoard } from "./fleet.tsx";
-import { type FleetHostState, type FleetView, projectFleet } from "./render.ts";
+import type { FleetHostState } from "./fleetTypes.ts";
+import { type FleetView, projectFleet } from "./render.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
 function val(over: Partial<AwarenessValue>): AwarenessValue {

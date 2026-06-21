@@ -24,7 +24,7 @@ import { mirrorRemoteCollection } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 import type { FleetHost } from "./hosts.ts";
 import { snapshotAwareness } from "./read.ts";
-import type { FleetHostStatus, FleetSnapshot } from "./render.ts";
+import type { FleetHostStatus, FleetSnapshot } from "./fleetTypes.ts";
 
 /** Dials one host's arivu, returning the contract-typed connection. Injected so
  *  the unit test feeds fakes; `bin.ts` supplies the real local/remote dials. The

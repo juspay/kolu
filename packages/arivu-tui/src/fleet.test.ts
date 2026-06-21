@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import type { Connection } from "./connect.ts";
 import { type FleetSink, snapshotFleet, startFleet } from "./fleet.ts";
 import type { FleetHost } from "./hosts.ts";
-import type { FleetHostStatus } from "./render.ts";
+import type { FleetHostStatus } from "./fleetTypes.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
 function val(over: Partial<AwarenessValue>): AwarenessValue {

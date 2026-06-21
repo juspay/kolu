@@ -30,11 +30,10 @@ import {
 } from "./fleet.ts";
 import type { FleetHost } from "./hosts.ts";
 import { HEADER, HOST, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
+import type { FleetHostState, FleetHostStatus } from "./fleetTypes.ts";
 import {
   type FieldTone,
   type FleetGroup,
-  type FleetHostState,
-  type FleetHostStatus,
   type FleetMode,
   type FleetRow,
   type FleetView,

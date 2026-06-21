@@ -13,6 +13,11 @@
  */
 
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  FleetHostState,
+  FleetHostStatus,
+  FleetSnapshot,
+} from "./fleetTypes.ts";
 
 /** How many leading chars of a terminal id the dashboard shows. v4 UUIDs
  *  collide with vanishing probability across the handful one runs; `--json`
@@ -265,25 +270,6 @@ export function formatAwarenessJson(
 // (`fleet.tsx`) both go through here, so the grouping/sort/summary stay
 // unit-tested and never depend on the Bun renderer.
 
-/** A host's connection state in the fleet aggregate. `skew` carries both
- *  versions so the header can name the mismatch; `unreachable` carries why (the
- *  no-fallback rule: a dead dial SURFACES as a distinct state, never a silently
- *  vanished group). */
-export type FleetHostStatus =
-  | { kind: "connecting" }
-  | { kind: "connected" }
-  | { kind: "skew"; localVersion: string; hostVersion: string }
-  | { kind: "unreachable"; reason: string };
-
-/** The live aggregate: per host, its status + the terminals mirrored from it.
- *  Keyed by `label` at the top and `TerminalId` within, so two hosts' identical
- *  terminal ids stay distinct — the (host, terminalId) key the plan calls for. */
-export interface FleetHostState {
-  label: string;
-  status: FleetHostStatus;
-  terminals: Record<TerminalId, AwarenessValue>;
-}
-
 /** The coarse urgency of a terminal — drives the glyph, the tone, and the
  *  needs-you-first sort. `need` = an agent awaiting you; `work` = an agent
  *  working; `idle` = everything else (waiting / no agent). */
@@ -493,21 +479,6 @@ export function projectFleet(
   }));
   return { mode, groups, summary, alertHosts };
 }
-
-/** One host's one-shot snapshot for `fleet --json` — the terminals it served, a
- *  contract-skewed host (its rows kept, plus the version mismatch so a scripter
- *  sees the same skew signal the live board does), or why it couldn't be reached
- *  (kept honest, never dropped). */
-export type FleetSnapshot =
-  | { label: string; kind: "ok"; entries: Array<[TerminalId, AwarenessValue]> }
-  | {
-      label: string;
-      kind: "skew";
-      localVersion: string;
-      hostVersion: string;
-      entries: Array<[TerminalId, AwarenessValue]>;
-    }
-  | { label: string; kind: "unreachable"; reason: string };
 
 /** `fleet --json` — a flat `[{ host, terminalId, ...AwarenessValue }]` for
  *  scripting (e.g. a notifier that pings when any box has an awaiting agent).

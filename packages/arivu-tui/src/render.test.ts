@@ -1,5 +1,6 @@
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { describe, expect, it } from "vitest";
+import type { FleetHostState } from "./fleetTypes.ts";
 import {
   agentShortName,
   agentStatusLabel,
@@ -7,7 +8,6 @@ import {
   agentUrgency,
   dashRow,
   dashRows,
-  type FleetHostState,
   formatAwarenessJson,
   formatFleetJson,
   prTone,
