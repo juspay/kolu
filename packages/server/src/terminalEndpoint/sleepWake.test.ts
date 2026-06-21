@@ -41,6 +41,7 @@ import {
   beginSleepLocal,
   discardLocalSleeping,
   seedSleepingTerminal,
+  wakeLocalTerminal,
   wakeMeta,
 } from "./local.ts";
 
@@ -195,6 +196,52 @@ describe("wakeMeta — the inverse mapping (pure)", () => {
     expect(active.pr).toEqual({ kind: "pending" });
     // The sleeping-only scalar is gone.
     expect((active as Record<string, unknown>).sleptAt).toBeUndefined();
+  });
+});
+
+describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", () => {
+  // In the unit-test env no kaval endpoint is booted, so the wake's spawn RPC
+  // rejects at `buildTerminalSpawnInput` (the pty-host facade throws "not
+  // connected"). That is exactly the failed-wake path: `wake` flips the entry to
+  // an active sync-shadow, the async spawn tail fails, and — before this fix —
+  // `unwindSpawnShadow` unregistered the id, ERASING the dormant record the user
+  // can still wake (the next autosave would persist that loss). The fix restores
+  // the captured `prior` sleeping entry on a wake-spawn failure.
+  const WAKE_ID = "33333333-3333-4333-8333-333333333333";
+  const sleepingRecord = () => ({
+    id: WAKE_ID,
+    state: "sleeping" as const,
+    sleptAt: 222,
+    cwd: "/work/repo",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 7,
+    lastAgentCommand: "claude --model sonnet",
+    resumeCommand: "claude --model sonnet",
+  });
+
+  afterEach(() => unregisterTerminal(WAKE_ID));
+
+  it("restores the sleeping entry when the wake spawn fails", async () => {
+    expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
+
+    // Wake returns synchronously after registering the active sync-shadow; the
+    // spawn tail fails on a later microtask. The shadow IS active right after.
+    wakeLocalTerminal(WAKE_ID);
+    expect(getTerminal(WAKE_ID)?.meta.state).toBe("active");
+
+    // Let the rejected spawn RPC propagate through `spawnAndWire`'s catch.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const entry = getTerminal(WAKE_ID);
+    expect(entry).toBeDefined();
+    if (entry?.meta.state !== "sleeping")
+      throw new Error("expected the sleeping record to be RESTORED, not dropped");
+    // The whole persisted base + sleeping discriminant rode back through.
+    expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
+    expect(entry.meta.resumeCommand).toBe("claude --model sonnet");
+    expect(entry.meta.sleptAt).toBe(222);
+    expect(entry.handle).toBeUndefined();
   });
 });
 

@@ -246,12 +246,20 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
    *  released it) and auto-switch away. The close-path twin of `handleKill` for
-   *  the dormant arm; reached from the reworded close-confirm dialog. */
+   *  the dormant arm; reached from the reworded close-confirm dialog.
+   *
+   *  Surfaces a genuine discard failure (network / server error) in a toast and
+   *  does NOT evict the tile locally (F4): swallowing every error and removing
+   *  anyway would make a failed discard look successful and desync the UI from
+   *  the still-present server record. The server's `discardSleeping` is a no-op
+   *  on an already-gone id (it returns without throwing), so the common
+   *  already-removed case resolves cleanly and the tile evicts as before. */
   async function handleDiscard(id: TerminalId) {
     try {
       await client.terminal.discardSleeping({ id });
-    } catch {
-      // Already gone — fall through to the client-side cleanup.
+    } catch (err) {
+      toast.error(`Failed to discard terminal: ${(err as Error).message}`);
+      return;
     }
     removeAndAutoSwitch(id);
   }

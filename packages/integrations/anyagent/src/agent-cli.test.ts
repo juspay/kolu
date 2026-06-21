@@ -370,6 +370,21 @@ describe("nix run wrapper — resume re-runs the wrapper, not the bare agent", (
     expect(parseAgentCommand("nix run nixpkgs#vim")).toBeNull();
   });
 
+  // Regression (codex review F7): the direct path rejects an exit-immediate
+  // invocation (`opencode --help`), but the SAME flag through the wrapper
+  // (`nix run …#opencode -- --help`) reaches the same exit-at-once agent — so it
+  // must be rejected too rather than pollute recent/resume state. The flag may
+  // sit before OR after the `--` separator.
+  it("rejects a wrapped agent invoked with an exit-immediately flag", () => {
+    expect(parseAgentCommand(`${WRAP} -- --help`)).toBeNull();
+    expect(parseAgentCommand(`${WRAP} -- --version`)).toBeNull();
+    expect(parseAgentCommand(`${WRAP} -- -h`)).toBeNull();
+    expect(parseAgentCommand(`${WRAP} --help`)).toBeNull();
+    expect(parseAgentCommand("nix run github:juspay/AI#codex -- -V")).toBeNull();
+    // A normal flag after `--` still captures the bare re-runnable wrapper.
+    expect(parseAgentCommand(`${WRAP} -- --model glm`)).toBe(WRAP);
+  });
+
   it("resumes THROUGH the wrapper with `-- <marker>`", () => {
     expect(resumeAgentCommand(WRAP)).toBe(`${WRAP} -- --continue`);
     expect(resumeAgentCommand("nix run github:juspay/AI#codex")).toBe(

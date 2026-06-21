@@ -88,16 +88,25 @@ export const appRouter = t.router({
     })),
   },
   terminal: {
-    create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd, input.parentId, {
+    create: t.terminal.create.handler(async ({ input }) => {
+      // A sub-terminal must hang off a LIVE parent. Reject a `parentId` that is
+      // absent or SLEEPING (F3): the client gates split actions on the active
+      // arm, but a raw RPC or a multi-client race could still ask to create a
+      // child under a dormant parent — `TerminalContent` then renders only the
+      // parent's dormant body and the new active sub-terminal would be a hidden
+      // live PTY with no visible home. `requireActiveTerminal` is the same
+      // live-PTY narrow every per-terminal handler uses; a sleeping/absent id is
+      // "not found" to it by the same code.
+      if (input.parentId !== undefined) requireActiveTerminal(input.parentId);
+      return createTerminal(input.cwd, input.parentId, {
         themeName: input.themeName,
         canvasLayout: input.canvasLayout,
         subPanel: input.subPanel,
         rightPanel: input.rightPanel,
         lastActivityAt: input.lastActivityAt,
         intent: input.intent,
-      }),
-    ),
+      });
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireActiveTerminal(input.id).handle.resize(input.cols, input.rows);

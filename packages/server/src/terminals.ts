@@ -53,6 +53,7 @@ const localEndpoint = localTerminalEndpoint;
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
 export {
+  activeTerminalCount,
   countActiveClaudeSessions,
   getTerminal,
   listTerminals,

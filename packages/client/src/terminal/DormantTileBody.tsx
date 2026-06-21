@@ -25,11 +25,19 @@ const DormantTileBody: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const meta = () => store.getMetadata(props.terminalId);
+  const arm = () => sleepingArm(meta());
   const sleptAgo = () => {
-    const arm = sleepingArm(meta());
-    return arm ? formatTimeAgo(arm.sleptAt) : "";
+    const a = arm();
+    return a ? formatTimeAgo(a.sleptAt) : "";
   };
-  const lastAgent = () => meta()?.lastAgentCommand ?? null;
+  // The agent line wake will RESUME. Prefer the sleeping arm's `resumeCommand`
+  // (the captured resume input — present even when the OSC 633;E command tap
+  // never fired but an agent was file-watcher-DETECTED, e.g. `nix run …#opencode`)
+  // and fall back to the observed `lastAgentCommand` (F6). Reading only the
+  // latter made a detected-but-not-observed agent look like a bare shell even
+  // though Wake will resume it.
+  const resumableAgent = () =>
+    arm()?.resumeCommand ?? meta()?.lastAgentCommand ?? null;
 
   return (
     <div
@@ -56,7 +64,7 @@ const DormantTileBody: Component<{
       <div class="text-sm font-semibold">
         Asleep{sleptAgo() ? ` · ${sleptAgo()}` : ""}
       </div>
-      <Show when={lastAgent()}>
+      <Show when={resumableAgent()}>
         {(cmd) => (
           <div class="max-w-full truncate font-mono text-xs text-[var(--moonlit-dim)]">
             {cmd()}

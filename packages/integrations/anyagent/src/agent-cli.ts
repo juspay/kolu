@@ -126,10 +126,19 @@ export function nixRunWrappedAgent(command: string): string | null {
 
 /** The bare, re-runnable `nix run <ref>#<agent>` for a wrapper launch — trailing
  *  agent args dropped (resume continues the session, which already carries them).
- *  Null when `command` is not a known-agent `nix run` wrapper. */
+ *  Null when `command` is not a known-agent `nix run` wrapper, OR when the
+ *  wrapped agent is invoked with an exit-immediately flag (F7): the direct path
+ *  rejects `opencode --help` as not-a-session, but `nix run …#opencode -- --help`
+ *  reaches the SAME exit-immediate agent through the wrapper, so it must be
+ *  rejected too rather than polluting the recent/resume state with a launch that
+ *  exits at once. The agent's own args are everything after `nix run <ref>` —
+ *  including the args after `--` (which the wrapper forwards to the agent). */
 function nixRunBase(command: string): string | null {
   if (nixRunWrappedAgent(command) === null) return null;
   const argv = parseArgsStringToArgv(command.trim());
+  // argv[3..] is everything the wrapper passes the agent (a leading `--` just
+  // separates nix's args from the agent's; either side can carry an exit flag).
+  if (argv.slice(3).some((t) => EXIT_FLAGS.has(t))) return null;
   return `${argv[0]} ${argv[1]} ${argv[2]}`;
 }
 

@@ -10,7 +10,11 @@
  * via `actionPaletteCommand`.
  */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import {
+  activeArm,
+  type TerminalId,
+  type TerminalMetadata,
+} from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import type { Accessor } from "solid-js";
 import type { PaletteAction, SectionId } from "../CommandPalette";
@@ -98,6 +102,15 @@ export type AppAction = DispatchableAction | DisplayOnlyAction;
 /** Type guard: does this action carry a registry-dispatched handler? */
 export function isDispatchable(a: AppAction): a is DispatchableAction {
   return "handler" in a;
+}
+
+/** The active terminal's id ONLY when it is a LIVE (active-arm) tile, else null.
+ *  The split/toggle shortcuts gate on this so a chord pressed while a SLEEPING
+ *  tile is selected is a no-op rather than spawning a hidden active child under a
+ *  dormant parent (F3). `activeMeta()` is the active tile's metadata; `activeArm`
+ *  is the same live narrow the title bar and palette use. */
+function activeLiveId(ctx: ActionContext): TerminalId | null {
+  return activeArm(ctx.activeMeta()) ? ctx.activeId() : null;
 }
 
 /** Cycle to the next/previous terminal by position. */
@@ -231,7 +244,10 @@ const _ACTIONS = {
     label: "Toggle terminal split",
     keybind: { key: "`", code: "Backquote", ctrl: true },
     handler: (ctx) => {
-      const id = ctx.activeId();
+      // Split needs a live PTY — gate on the ACTIVE arm, not bare `activeId()`
+      // (also true for a sleeping tile, which would spawn a hidden active child
+      // under a dormant parent — F3).
+      const id = activeLiveId(ctx);
       if (id) ctx.toggleSubPanel(id);
     },
   },
@@ -239,7 +255,7 @@ const _ACTIONS = {
     label: "Split terminal",
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     handler: (ctx) => {
-      const id = ctx.activeId();
+      const id = activeLiveId(ctx);
       if (id)
         ctx.handleCreateSubTerminal(id, ctx.activeMeta()?.cwd ?? undefined);
     },

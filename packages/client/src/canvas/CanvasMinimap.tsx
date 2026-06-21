@@ -51,17 +51,34 @@ const TILE_TRANSITION_PROPS =
 /** Build the hover tooltip for a minimap tile. Closes #870: the previous
  *  `title={id}` showed the opaque terminal id; now it shows the same
  *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
- *  plus the last-active duration. Multi-line via `\n` — supported in
- *  modern browsers' `title` attribute. */
-function tileTooltip(info: TerminalDisplayInfo, parked: boolean): string {
+ *  plus a presence-specific duration line. Multi-line via `\n` — supported in
+ *  modern browsers' `title` attribute.
+ *
+ *  The second line is keyed on the tile's presence so it reads truthfully per
+ *  arm (F5): a SLEEPING tile shows "Asleep <since slept>" from `sleptAt`, not
+ *  the "Active <ago>" wording a bare not-parked tile gets — a slept tile is
+ *  decoupled from staleness (`parked=false`) but is emphatically not active. */
+function tileTooltip(
+  info: TerminalDisplayInfo,
+  presence: "sleeping" | "parked" | "agent" | "none",
+): string {
   const { group, label, suffix } = info.key;
   const headParts: string[] = [group];
   if (label && label !== group) headParts.push(label);
   if (suffix) headParts.push(suffix);
   const head = headParts.join(" · ");
-  const ago = formatTimeAgo(info.meta.lastActivityAt);
   const lines = [head];
-  if (ago) lines.push(parked ? `Parked — last active ${ago}` : `Active ${ago}`);
+  const sleeping = sleepingArm(info.meta);
+  if (sleeping) {
+    const ago = formatTimeAgo(sleeping.sleptAt);
+    lines.push(ago ? `Asleep — ${ago}` : "Asleep");
+  } else {
+    const ago = formatTimeAgo(info.meta.lastActivityAt);
+    if (ago)
+      lines.push(
+        presence === "parked" ? `Parked — last active ${ago}` : `Active ${ago}`,
+      );
+  }
   return lines.join("\n");
 }
 
@@ -354,7 +371,7 @@ const CanvasMinimap: Component<{
             // stays total).
             const tooltip = () => {
               const i = info();
-              return i ? tileTooltip(i, state().presence === "parked") : id;
+              return i ? tileTooltip(i, state().presence) : id;
             };
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.

@@ -72,6 +72,7 @@ import {
   listTerminals,
   registerTerminal,
   type SleepingTerminalProcess,
+  type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
@@ -438,13 +439,22 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  of `spawnPty` (createMetadata-seeded) and `wake` (sleeping-base-preserved):
    *  both register a live entry then spawn, differing only in the `meta` carried
    *  in and whether `opts.resumeCommand` replays an agent on the freshly-spawned
-   *  PTY. */
+   *  PTY.
+   *
+   *  Captures the entry this active shadow OVERWRITES (`prior`) and threads it
+   *  into the spawn tail so a wake whose spawn/wiring fails can RESTORE the
+   *  sleeping record rather than drop it (F2): `wake` overwrites a sleeping
+   *  entry, and unconditionally unregistering on failure would erase the dormant
+   *  record the user can still wake (and the next autosave would persist that
+   *  loss). A fresh `spawnPty` overwrites nothing, so `prior` is undefined and
+   *  the unwind is a plain unregister as before. */
   private registerActiveAndSpawn(
     id: TerminalId,
     meta: ActiveTerminal,
     opts: PtySpawnOpts,
   ): TerminalInfo {
     const tlog = log.child({ terminal: id });
+    const prior = getTerminal(id);
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
@@ -455,7 +465,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     emitTerminalsDirty();
     emitTerminalListChanged();
 
-    void this.spawnAndWire(id, opts, proxy, entry, tlog);
+    void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
     return entry.info;
   }
 
@@ -491,9 +501,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
-      // now-orphaned PTY, unwind the entry.
+      // now-orphaned PTY, unwind the entry. Adoption overwrites no prior record
+      // (a survivor is registered fresh at boot), so there is nothing to
+      // restore — `prior` is undefined and the unwind is a plain unregister.
       this.killHalfWiredPty(
         id,
+        entry,
+        undefined,
         tlog,
         err,
         "sensor wiring failed while adopting a surviving PTY; killing the orphan",
@@ -509,20 +523,30 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     tlog.info({ pid: liveEntry.pid }, "adopted surviving PTY");
   }
 
-  /** The pty-host spawn RPC + the killed-during-spawn race check. Returns the
-   *  resolved `{pid, cwd}`, or null if the terminal was killed while the RPC
-   *  was in flight (the pty-host-side PTY is then cleaned up here). Throws on
-   *  an RPC failure — the caller (`spawnAndWire`) unwinds the shadow. */
+  /** The pty-host spawn RPC + the raced-during-spawn check. Returns the resolved
+   *  `{pid, cwd}`, or null if the registry's active entry for `id` is no longer
+   *  the one this spawn is wiring — killed, slept, or re-spawned while the RPC was
+   *  in flight (the pty-host-side PTY is then cleaned up here). Throws on an RPC
+   *  failure — the caller (`spawnAndWire`) unwinds the shadow.
+   *
+   *  The check is by IDENTITY (`getActiveTerminal(id) === expected`), not mere
+   *  presence (F1): a `beginSleep` that flipped the entry to sleeping mid-spawn
+   *  leaves a DIFFERENT entry under the same id, so a bare presence check would
+   *  pass and the tail would wire sensors + republish active metadata over the
+   *  sleeping flip — leaking a hidden live PTY the registry believes is dormant.
+   *  A mismatch leaves the registry ALONE (it now holds someone else's entry —
+   *  the sleeping flip, or a fresh re-spawn) and only kills the orphaned PTY. */
   private async spawnViaClient(
     id: TerminalId,
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
+    expected: ActiveTerminalProcess,
   ): Promise<{ pid: number; cwd: string } | null> {
     const res = await ptyHostClient.surface.terminal.spawn(
       await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
     );
-    if (!getTerminal(id)) {
-      proxy.markFailed(new Error("terminal killed during spawn"));
+    if (getActiveTerminal(id) !== expected) {
+      proxy.markFailed(new Error("terminal raced during spawn (killed/slept)"));
       try {
         await ptyHostClient.surface.terminal.kill({ id });
       } catch (err) {
@@ -535,13 +559,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return { pid: res.pid, cwd: res.cwd };
   }
 
-  /** Async tail of `spawnPty`: confirm the PTY spawned, then start the
-   *  sensor set against its taps. On failure unwinds the shadow. */
+  /** Async tail of `spawnPty`/`wake`: confirm the PTY spawned, then start the
+   *  sensor set against its taps. On failure unwinds the shadow, restoring a
+   *  `prior` sleeping entry on a wake (F2). */
   private async spawnAndWire(
     id: TerminalId,
     opts: PtySpawnOpts,
     proxy: PtyHostTerminalProxy,
     entry: ActiveTerminalProcess,
+    prior: TerminalProcess | undefined,
     tlog: typeof log,
   ): Promise<void> {
     // Phase 1 — the spawn RPC. A failure here means no PTY was created
@@ -549,14 +575,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // to kill: just unwind the sync shadow.
     let res: { pid: number; cwd: string } | null;
     try {
-      res = await this.spawnViaClient(id, opts, proxy);
+      res = await this.spawnViaClient(id, opts, proxy, entry);
     } catch (err) {
       tlog.error({ err }, "pty-host terminal.spawn failed");
       proxy.markFailed(err);
-      this.unwindSpawnShadow(id);
+      this.unwindSpawnShadow(id, entry, prior);
       return;
     }
-    if (!res) return; // killed during spawn — spawnViaClient already cleaned up
+    if (!res) return; // raced during spawn — spawnViaClient already cleaned up
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
@@ -574,6 +600,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     } catch (err) {
       this.killHalfWiredPty(
         id,
+        entry,
+        prior,
         tlog,
         err,
         "pty-host sensor wiring failed after spawn; killing the orphaned PTY",
@@ -590,9 +618,28 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     emitTerminalListChanged();
   }
 
-  /** Drop a sync-shadow entry whose async spawn/wiring failed (idempotent). */
-  private unwindSpawnShadow(id: TerminalId): void {
-    if (!getTerminal(id)) return;
+  /** Unwind the active sync-shadow `entry` whose async spawn/wiring failed.
+   *
+   *  Identity-gated: acts ONLY while the registry still holds OUR `entry`. A
+   *  `beginSleep` / re-spawn that raced in mid-spawn replaced it with a different
+   *  entry under the same id, and that newer entry is authoritative — clobbering
+   *  it here would re-introduce the F1/F2 loss (drop the sleeping flip, or evict
+   *  a fresh re-spawn). When we DO still own the slot, RESTORE a `prior` sleeping
+   *  record (F2: a failed WAKE must leave the dormant terminal the user can still
+   *  wake, not erase it); otherwise (a fresh `spawnPty`, `prior` undefined or
+   *  active) drop the shadow. Idempotent. */
+  private unwindSpawnShadow(
+    id: TerminalId,
+    entry: ActiveTerminalProcess,
+    prior: TerminalProcess | undefined,
+  ): void {
+    if (getTerminal(id) !== entry) return;
+    if (prior?.meta.state === "sleeping") {
+      registerTerminal(id, prior);
+      publishTerminalState(prior, id);
+      emitTerminalListChanged();
+      return;
+    }
     unregisterTerminal(id);
     emitTerminalsDirty();
     emitTerminalListChanged();
@@ -601,11 +648,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   /** Recover from "the PTY exists on the daemon but sensor wiring failed":
    *  log the wiring error under `reason`, tear down any partial sensors, kill
    *  the orphaned PTY (a kill failure is logged, not thrown — there's nothing
-   *  left to do), and unwind the sync shadow. Extracted as the one reap policy
-   *  so B3.3's survivor-adoption path can share it — one place to change how a
-   *  half-wired PTY is reaped; `reason` distinguishes the call site. */
+   *  left to do), and unwind the sync shadow (restoring a `prior` sleeping
+   *  record on a failed wake — F2). Extracted as the one reap policy so B3.3's
+   *  survivor-adoption path can share it — one place to change how a half-wired
+   *  PTY is reaped; `reason` distinguishes the call site. */
   private killHalfWiredPty(
     id: TerminalId,
+    entry: ActiveTerminalProcess,
+    prior: TerminalProcess | undefined,
     tlog: typeof log,
     err: unknown,
     reason: string,
@@ -617,7 +667,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       .catch((killErr) =>
         tlog.error({ err: killErr }, "kill of half-wired PTY failed"),
       );
-    this.unwindSpawnShadow(id);
+    this.unwindSpawnShadow(id, entry, prior);
   }
 
   /** Start the per-terminal sensor set against the pty-host's tap streams.

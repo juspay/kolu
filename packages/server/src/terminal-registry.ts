@@ -94,8 +94,21 @@ export function listTerminals(): TerminalInfo[] {
   return [...terminals.values()].map((entry) => entry.info);
 }
 
-/** Number of live terminal processes. Cheap counter for diagnostics. */
+/** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
+ *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
+ *  so heap diagnostics that correlate a column with live-terminal memory must use
+ *  `activeTerminalCount` instead (F9). */
 export const terminalCount = (): number => terminals.size;
+
+/** Number of LIVE terminal processes — entries with a PTY handle (the active
+ *  arm). This is the count that tracks live-terminal heap (sensors, taps, the
+ *  headless mirror); the heap diagnostic reports THIS, not `terminalCount`, so a
+ *  pile of dormant records can't read as live processes (F9). */
+export const activeTerminalCount = (): number => {
+  let n = 0;
+  for (const entry of terminals.values()) if (entry.handle) n++;
+  return n;
+};
 
 /** Number of terminals currently hosting a Claude Code session. Derived
  *  from `entry.meta.agent` — the agent detectors inside
