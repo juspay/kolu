@@ -8,11 +8,13 @@ the foreground process.
 
 Where [`kaval-tui`](../kaval-tui) shows what's _running_ in each PTY, arivu-tui
 shows what each terminal _is in_ — a "what is every agent doing, across every
-repo" dashboard, with **zero kolu-server and no browser**.
+repo, across every machine" dashboard, with **zero kolu-server and no browser**.
 
 ```
-arivu-tui          an OpenTUI dashboard — one row per terminal (Ctrl-C to quit)
-arivu-tui --json   a one-shot machine-readable dump (a top-level array)
+arivu-tui                an OpenTUI dashboard of ONE endpoint (Ctrl-C to quit)
+arivu-tui --json         a one-shot machine-readable dump (a top-level array)
+arivu-tui fleet          a LIVE multi-host board — many machines, one screen
+arivu-tui fleet --json   a flat [{ host, terminalId, ...awareness }] dump
 ```
 
 ```
@@ -29,9 +31,31 @@ The agent column buckets each AI agent's fine-grained state into `working` /
 agent state and PR carry a semantic colour (awaiting → amber, working → cyan,
 pass/fail → green/red); the rest stay calm.
 
-The dashboard is a **point-in-time snapshot** read once when it opens; the clock
-in the header ticks every second so you can see it's live. Live row refresh and
-the multi-host fleet board land in the next slice (P3 PR2b).
+The bare dashboard is a **point-in-time snapshot** read once when it opens; the
+clock in the header ticks every second so you can see it's live. For **live rows
+across machines**, use `fleet` (below).
+
+## fleet — the live multi-host board
+
+```sh
+arivu-tui fleet --host nix@a --host nix@b   # local + a + b, live
+arivu-tui fleet --host nix@prod --no-local  # just the remote(s)
+arivu-tui fleet --ssh-config                # add every Host alias from ~/.ssh/config
+arivu-tui fleet --json                      # [{ host, terminalId, ...awareness }]
+```
+
+`fleet` dials each host once (the same Nix-over-ssh provisioning as `--host`; the
+local arivu is included unless `--no-local`), then **mirrors** every host's
+`awareness` collection into one aggregate keyed by `(host, terminalId)` and
+re-renders on any delta — so a `working → awaiting you` transition repaints
+without a re-dial. Every agent **awaiting you** floats to the top across the whole
+fleet, and a breathing amber strip names which hosts need you. Terminals are
+grouped per host; a host that's unreachable or running a version-skew build gets a
+distinct header rather than silently vanishing.
+
+- `--by host` (default) — per-host groups, needs-you first within each.
+- `--by needs` — one fleet-wide list, urgency-sorted ("who's waiting, anywhere").
+- `--by agent` — grouped by agent state (awaiting / working / idle) across hosts.
 
 ## Short ids
 

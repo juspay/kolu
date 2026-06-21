@@ -22,30 +22,11 @@
  * when stdout is a TTY.
  */
 
-import { render } from "@opentui/solid";
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
-import { type DashRow, dashRows, type FieldTone } from "./render.ts";
-
-/** The palette — the one place a semantic `tone` becomes a concrete colour. The
- *  awaiting (blocked-on-you) amber and working cyan are the two the eye should
- *  catch; everything else stays calm. */
-const TONE_COLOR: Record<FieldTone, string> = {
-  working: "#56b6c2",
-  awaiting: "#e6a23c",
-  idle: "#5b6678",
-  pass: "#7ec699",
-  fail: "#e06c75",
-  pending: "#c8a24c",
-  muted: "#5b6678",
-  plain: "#c8d0de",
-};
-
-// Chrome colours — the title bar and column headers, which are NOT per-cell
-// tones, so they live outside TONE_COLOR. Every per-cell colour is spelled
-// exactly once, in TONE_COLOR above; nothing here re-spells a tone's hex.
-const TITLE = "#7c8696";
-const HEADER = "#8b94a6";
+import { HEADER, TITLE, TONE_COLOR } from "./palette.ts";
+import { type DashRow, dashRows } from "./render.ts";
+import { runTui } from "./runtime.tsx";
 
 // Column widths (chars). Sized so the whole table fits an 80-column terminal:
 // 9 + 24 + 12 + 18 + 8 + "ACTIVE"(6) = 77 columns, + the box's padding={1}
@@ -115,28 +96,13 @@ export function AwarenessTable(props: {
 /** Run the dashboard in the alt-screen until the user quits with Ctrl-C (or a
  *  kill signal). The rows are the snapshot bin.ts already read; the clock is the
  *  only live value. Resolves once the renderer has torn down; a render-time
- *  error is surfaced, never swallowed into a frozen screen. */
+ *  error is surfaced, never swallowed into a frozen screen (see `runTui`). */
 export async function runDashboardTui(args: {
   entries: Array<[TerminalId, AwarenessValue]>;
 }): Promise<void> {
   // Snapshot → static rows, projected once against a fixed `now` (PR2a: the list
-  // does not auto-update; PR2b mirrors the collection for live rows).
+  // does not auto-update; the fleet board mirrors the collection for live rows).
   const rows = dashRows(args.entries, Date.now());
-
-  let quitting = false;
-  let resolveDone!: () => void;
-  const done = new Promise<void>((res) => {
-    resolveDone = res;
-  });
-  // OpenTUI owns the renderer and its teardown: `render()` returns Promise<void>
-  // (no handle to destroy), and the alt-screen is torn down by exitOnCtrlC /
-  // exitSignals / onDestroy below. So `quit()` only releases the awaiter — there
-  // is nothing for us to destroy here.
-  const quit = (): void => {
-    if (quitting) return;
-    quitting = true;
-    resolveDone();
-  };
 
   function App() {
     const [clock, setClock] = createSignal(new Date());
@@ -149,22 +115,5 @@ export async function runDashboardTui(args: {
     );
   }
 
-  let renderErr: unknown;
-  // Ctrl-C / a kill signal tear the renderer down through OpenTUI's own exit
-  // path; `onDestroy` finishes the same teardown (release the awaiter). No `q`
-  // handler — Ctrl-C is the one quit, handled by the renderer itself.
-  render(() => <App />, {
-    screenMode: "alternate-screen",
-    exitOnCtrlC: true,
-    exitSignals: ["SIGINT", "SIGTERM"],
-    clearOnShutdown: true,
-    useMouse: false,
-    onDestroy: () => quit(),
-  }).catch((err) => {
-    renderErr = err;
-    quit();
-  });
-
-  await done;
-  if (renderErr) throw renderErr;
+  await runTui(() => <App />);
 }

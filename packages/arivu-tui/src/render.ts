@@ -255,3 +255,257 @@ export function formatAwarenessJson(
     2,
   );
 }
+
+// ─── Fleet (PR2b) ────────────────────────────────────────────────────────────
+//
+// The multi-host board projects the SAME awareness values, one level up: many
+// hosts, each a group of terminals, with every `awaiting_user` agent floated to
+// the top across the whole fleet. Everything below is pure data — the live
+// aggregate the orchestrator fills (`fleet.ts`) and the view it paints
+// (`fleet.tsx`) both go through here, so the grouping/sort/summary stay
+// unit-tested and never depend on the Bun renderer.
+
+/** A host's connection state in the fleet aggregate. `skew` carries both
+ *  versions so the header can name the mismatch; `unreachable` carries why (the
+ *  no-fallback rule: a dead dial SURFACES as a distinct state, never a silently
+ *  vanished group). */
+export type FleetHostStatus =
+  | { kind: "connecting" }
+  | { kind: "connected" }
+  | { kind: "skew"; localVersion: string; hostVersion: string }
+  | { kind: "unreachable"; reason: string };
+
+/** The live aggregate: per host, its status + the terminals mirrored from it.
+ *  Keyed by `label` at the top and `TerminalId` within, so two hosts' identical
+ *  terminal ids stay distinct — the (host, terminalId) key the plan calls for. */
+export interface FleetHostState {
+  label: string;
+  status: FleetHostStatus;
+  terminals: Record<TerminalId, AwarenessValue>;
+}
+
+/** The coarse urgency of a terminal — drives the glyph, the tone, and the
+ *  needs-you-first sort. `need` = an agent awaiting you; `work` = an agent
+ *  working; `idle` = everything else (waiting / no agent). */
+export type FleetUrgency = "need" | "work" | "idle";
+
+/** Sort rank (lower floats up) and tone for each urgency — the single source the
+ *  cross-fleet "needs-you first" ordering and the colouring both read. */
+const URGENCY_RANK: Record<FleetUrgency, number> = {
+  need: 0,
+  work: 1,
+  idle: 2,
+};
+const URGENCY_TONE: Record<FleetUrgency, FieldTone> = {
+  need: "awaiting",
+  work: "working",
+  idle: "idle",
+};
+
+/** Map an agent to its fleet urgency: `awaiting_user` → need (blocked on you),
+ *  the working states → work, everything else (waiting / no agent) → idle. The
+ *  exhaustive switch over the closed `agentBucket` union means a new bucket
+ *  forces a decision here rather than silently falling to idle. */
+export function agentUrgency(agent: AwarenessValue["agent"]): FleetUrgency {
+  if (!agent) return "idle";
+  switch (agentBucket(agent.state)) {
+    case "awaiting":
+      return "need";
+    case "working":
+      return "work";
+    case "waiting":
+    case "other":
+      return "idle";
+  }
+}
+
+/** The fleet row's pointed state label: needs read as "awaiting you", work as
+ *  "working"; an idle terminal shows its agent's own label (e.g. "waiting") or
+ *  "idle" when no agent runs. */
+function fleetStateText(
+  urgency: FleetUrgency,
+  agent: AwarenessValue["agent"],
+): string {
+  switch (urgency) {
+    case "need":
+      return "awaiting you";
+    case "work":
+      return "working";
+    case "idle":
+      return agent ? agentStatusLabel(agent.state) : "idle";
+  }
+}
+
+/** One terminal as a fleet row. The agent name stays calm; the urgency carries
+ *  the colour (the leading glyph + the state cell), so the eye lands on a `need`
+ *  row's amber, not on every agent name. Reuses the single-host projection
+ *  helpers verbatim — the PR/where/recency decisions are defined once. */
+export interface FleetRow {
+  host: string;
+  id: string;
+  urgency: FleetUrgency;
+  agent: DashCell;
+  where: DashCell;
+  pr: DashCell;
+  state: DashCell;
+  active: DashCell;
+}
+
+export function fleetRow(
+  host: string,
+  id: TerminalId,
+  v: AwarenessValue,
+  now: number,
+): FleetRow {
+  const urgency = agentUrgency(v.agent);
+  return {
+    host,
+    id: shortId(id),
+    urgency,
+    agent: {
+      text: v.agent ? agentShortName(v.agent.kind) : DASH,
+      tone: "plain",
+    },
+    where: {
+      text: v.git ? `${orDash(v.git.repoName)}·${orDash(v.git.branch)}` : DASH,
+      tone: "plain",
+    },
+    pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
+    state: {
+      text: fleetStateText(urgency, v.agent),
+      tone: URGENCY_TONE[urgency],
+    },
+    active: { text: relativeTime(v.lastActivityAt, now), tone: "muted" },
+  };
+}
+
+/** Order terminals within a scope: needs-you first, then most-recently-active,
+ *  then id (a stable tiebreak). The one ordering every fleet view shares. */
+function sortedEntries(
+  terminals: Record<string, AwarenessValue>,
+): Array<[TerminalId, AwarenessValue]> {
+  return (
+    Object.entries(terminals) as Array<[TerminalId, AwarenessValue]>
+  ).sort(([ia, a], [ib, b]) => {
+    const ra = URGENCY_RANK[agentUrgency(a.agent)];
+    const rb = URGENCY_RANK[agentUrgency(b.agent)];
+    if (ra !== rb) return ra - rb;
+    if (a.lastActivityAt !== b.lastActivityAt)
+      return b.lastActivityAt - a.lastActivityAt;
+    return ia.localeCompare(ib);
+  });
+}
+
+/** How the board is grouped/sorted. `host` (default) = per-host groups; `needs`
+ *  = one flat fleet-wide urgency list; `agent` = grouped into Awaiting / Working
+ *  / Idle sections across all hosts. */
+export type FleetMode = "host" | "needs" | "agent";
+
+/** A rendered group — a host (host mode, with its `status`) or an urgency
+ *  section (agent mode, no `status`). `needs` mode uses `flat` instead. */
+export interface FleetGroup {
+  label: string;
+  status?: FleetHostStatus;
+  rows: FleetRow[];
+}
+
+export interface FleetSummary {
+  needYou: number;
+  working: number;
+  idle: number;
+  hostsDown: number;
+  hostsTotal: number;
+}
+
+/** The whole board as plain data: the groups (or the flat list for `needs`), the
+ *  footer summary, and which hosts carry a needs-you agent (drives the alert
+ *  strip). The renderer paints this and nothing more. */
+export interface FleetView {
+  mode: FleetMode;
+  groups: FleetGroup[];
+  flat: FleetRow[];
+  summary: FleetSummary;
+  alertHosts: string[];
+}
+
+const AGENT_SECTIONS: ReadonlyArray<{ urgency: FleetUrgency; label: string }> =
+  [
+    { urgency: "need", label: "awaiting you" },
+    { urgency: "work", label: "working" },
+    { urgency: "idle", label: "idle" },
+  ];
+
+/** Project the live aggregate to the board. Pure: same input, same output, no
+ *  clock of its own (`now` is passed so recency is testable). */
+export function projectFleet(
+  states: FleetHostState[],
+  now: number,
+  mode: FleetMode,
+): FleetView {
+  // Every terminal across the fleet, each tagged with its host — the basis for
+  // the flat (needs/agent) views and the summary counts.
+  const allRows: FleetRow[] = states.flatMap((s) =>
+    sortedEntries(s.terminals).map(([id, v]) => fleetRow(s.label, id, v, now)),
+  );
+
+  const summary: FleetSummary = {
+    needYou: allRows.filter((r) => r.urgency === "need").length,
+    working: allRows.filter((r) => r.urgency === "work").length,
+    idle: allRows.filter((r) => r.urgency === "idle").length,
+    hostsDown: states.filter((s) => s.status.kind === "unreachable").length,
+    hostsTotal: states.length,
+  };
+  const alertHosts = states
+    .filter((s) =>
+      Object.values(s.terminals).some((v) => agentUrgency(v.agent) === "need"),
+    )
+    .map((s) => s.label);
+
+  if (mode === "needs") {
+    const flat = [...allRows].sort(
+      (a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency],
+    );
+    return { mode, groups: [], flat, summary, alertHosts };
+  }
+  if (mode === "agent") {
+    const groups = AGENT_SECTIONS.map(({ urgency, label }) => ({
+      label,
+      rows: allRows.filter((r) => r.urgency === urgency),
+    })).filter((g) => g.rows.length > 0);
+    return { mode, groups, flat: [], summary, alertHosts };
+  }
+  // host mode (default): one group per host, in dial order, even when empty or
+  // down — an unreachable host renders as a distinct header, never vanishes.
+  const groups = states.map((s) => ({
+    label: s.label,
+    status: s.status,
+    rows: sortedEntries(s.terminals).map(([id, v]) =>
+      fleetRow(s.label, id, v, now),
+    ),
+  }));
+  return { mode, groups, flat: [], summary, alertHosts };
+}
+
+/** One host's one-shot snapshot for `fleet --json` — the terminals it served,
+ *  or why it couldn't be reached (kept honest, never dropped). */
+export type FleetSnapshot =
+  | { label: string; kind: "ok"; entries: Array<[TerminalId, AwarenessValue]> }
+  | { label: string; kind: "unreachable"; reason: string };
+
+/** `fleet --json` — a flat `[{ host, terminalId, ...AwarenessValue }]` for
+ *  scripting (e.g. a notifier that pings when any box has an awaiting agent).
+ *  An unreachable host emits one `{ host, terminalId: null, unreachable }` row
+ *  so a down box is visible in the output, not silently absent. */
+export function formatFleetJson(snaps: FleetSnapshot[]): string {
+  const rows: Array<Record<string, unknown>> = [];
+  for (const s of snaps) {
+    if (s.kind === "ok") {
+      for (const [id, value] of s.entries) {
+        rows.push({ host: s.label, terminalId: id, ...value });
+      }
+    } else {
+      rows.push({ host: s.label, terminalId: null, unreachable: s.reason });
+    }
+  }
+  return JSON.stringify(rows, null, 2);
+}

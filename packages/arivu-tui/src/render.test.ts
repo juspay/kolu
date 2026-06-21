@@ -4,10 +4,14 @@ import {
   agentShortName,
   agentStatusLabel,
   agentTone,
+  agentUrgency,
   dashRow,
   dashRows,
+  type FleetHostState,
   formatAwarenessJson,
+  formatFleetJson,
   prTone,
+  projectFleet,
   relativeTime,
   shortId,
 } from "./render.ts";
@@ -188,5 +192,162 @@ describe("formatAwarenessJson", () => {
   });
   it("honest empty array when there are no terminals", () => {
     expect(JSON.parse(formatAwarenessJson([]))).toEqual([]);
+  });
+});
+
+// ─── Fleet (PR2b) ────────────────────────────────────────────────────────────
+
+const agentVal = (state: string): AwarenessValue["agent"] =>
+  ({ kind: "claude-code", state }) as AwarenessValue["agent"];
+
+function host(
+  label: string,
+  status: FleetHostState["status"],
+  terminals: Record<string, AwarenessValue>,
+): FleetHostState {
+  return { label, status, terminals: terminals as FleetHostState["terminals"] };
+}
+
+describe("agentUrgency", () => {
+  it("buckets awaiting → need, working → work, the rest → idle", () => {
+    expect(agentUrgency(agentVal("awaiting_user"))).toBe("need");
+    expect(agentUrgency(agentVal("thinking"))).toBe("work");
+    expect(agentUrgency(agentVal("tool_use"))).toBe("work");
+    expect(agentUrgency(agentVal("waiting"))).toBe("idle");
+    expect(agentUrgency(agentVal("brand_new"))).toBe("idle");
+    expect(agentUrgency(null)).toBe("idle");
+  });
+});
+
+describe("projectFleet — host mode", () => {
+  it("groups per host, floats needs-you first, and counts the summary", () => {
+    const states = [
+      host(
+        "zest",
+        { kind: "connected" },
+        {
+          [id("z-work")]: val({
+            agent: agentVal("thinking"),
+            lastActivityAt: NOW - 1_000,
+          }),
+          [id("z-need")]: val({
+            agent: agentVal("awaiting_user"),
+            lastActivityAt: NOW - 9_000,
+          }),
+          [id("z-idle")]: val({ agent: null, lastActivityAt: NOW - 60_000 }),
+        },
+      ),
+      host("staging", { kind: "unreachable", reason: "ECONNREFUSED" }, {}),
+    ];
+    const view = projectFleet(states, NOW, "host");
+
+    expect(view.groups.map((g) => g.label)).toEqual(["zest", "staging"]);
+    // needs-you bubbles above the (more recent) working row.
+    expect(view.groups[0]?.rows.map((r) => r.id)).toEqual([
+      "z-need",
+      "z-work",
+      "z-idle",
+    ]);
+    expect(view.groups[0]?.rows[0]?.state.text).toBe("awaiting you");
+    // the unreachable host is a distinct, empty group — never vanished.
+    expect(view.groups[1]?.status).toEqual({
+      kind: "unreachable",
+      reason: "ECONNREFUSED",
+    });
+    expect(view.groups[1]?.rows).toEqual([]);
+
+    expect(view.summary).toEqual({
+      needYou: 1,
+      working: 1,
+      idle: 1,
+      hostsDown: 1,
+      hostsTotal: 2,
+    });
+    expect(view.alertHosts).toEqual(["zest"]);
+  });
+
+  it("keeps two hosts' identical terminal ids distinct (host, terminalId key)", () => {
+    const states = [
+      host(
+        "a",
+        { kind: "connected" },
+        {
+          [id("same")]: val({ agent: agentVal("thinking") }),
+        },
+      ),
+      host(
+        "b",
+        { kind: "connected" },
+        {
+          [id("same")]: val({ agent: agentVal("awaiting_user") }),
+        },
+      ),
+    ];
+    const view = projectFleet(states, NOW, "host");
+    expect(view.groups[0]?.rows).toHaveLength(1);
+    expect(view.groups[1]?.rows).toHaveLength(1);
+    expect(view.groups[0]?.rows[0]?.host).toBe("a");
+    expect(view.groups[1]?.rows[0]?.host).toBe("b");
+    expect(view.summary.needYou).toBe(1);
+    expect(view.summary.working).toBe(1);
+  });
+});
+
+describe("projectFleet — needs & agent modes", () => {
+  const states = [
+    host(
+      "a",
+      { kind: "connected" },
+      {
+        [id("a-idle")]: val({ agent: null }),
+        [id("a-need")]: val({ agent: agentVal("awaiting_user") }),
+      },
+    ),
+    host(
+      "b",
+      { kind: "connected" },
+      {
+        [id("b-work")]: val({ agent: agentVal("thinking") }),
+      },
+    ),
+  ];
+
+  it("needs mode flattens across hosts, urgency-sorted, no groups", () => {
+    const view = projectFleet(states, NOW, "needs");
+    expect(view.groups).toEqual([]);
+    expect(view.flat.map((r) => r.urgency)).toEqual(["need", "work", "idle"]);
+    expect(view.flat.map((r) => r.host)).toEqual(["a", "b", "a"]);
+  });
+
+  it("agent mode groups into non-empty urgency sections across hosts", () => {
+    const view = projectFleet(states, NOW, "agent");
+    expect(view.flat).toEqual([]);
+    expect(view.groups.map((g) => g.label)).toEqual([
+      "awaiting you",
+      "working",
+      "idle",
+    ]);
+    expect(view.groups.every((g) => g.status === undefined)).toBe(true);
+  });
+});
+
+describe("formatFleetJson", () => {
+  it("flattens to { host, terminalId, ...value } and surfaces down hosts", () => {
+    const out = formatFleetJson([
+      {
+        label: "a",
+        kind: "ok",
+        entries: [[id("t1"), val({ cwd: "/x" })]],
+      },
+      { label: "b", kind: "unreachable", reason: "timeout" },
+    ]);
+    const parsed = JSON.parse(out);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]).toMatchObject({ host: "a", terminalId: "t1", cwd: "/x" });
+    expect(parsed[1]).toEqual({
+      host: "b",
+      terminalId: null,
+      unreachable: "timeout",
+    });
   });
 });
