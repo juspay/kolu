@@ -25,7 +25,7 @@
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 import { HEADER, TITLE, TONE_COLOR } from "./palette.ts";
-import { type DashRow, dashRows } from "./render.ts";
+import { cell, type DashRow, dashRows } from "./render.ts";
 import { runTui } from "./runtime.tsx";
 
 // Column widths (chars). Sized so the whole table fits an 80-column terminal:
@@ -37,11 +37,6 @@ const W_WHERE = 24;
 const W_PR = 12;
 const W_AGENT = 18;
 const W_FG = 8;
-
-/** Pad to width, or truncate with an ellipsis when too long. */
-function cell(s: string, w: number): string {
-  return s.length > w ? `${s.slice(0, w - 1)}…` : s.padEnd(w);
-}
 
 /** The table: a title carrying the live clock, a header row, and one row per
  *  terminal — the agent state + PR coloured by tone, the rest calm. The `clock`

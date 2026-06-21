@@ -28,6 +28,13 @@ export function shortId(id: string): string {
   return id.slice(0, SHORT_ID_LEN);
 }
 
+/** Pad a string to width `w`, or truncate with an ellipsis when too long. The
+ *  fixed-column layout primitive both OpenTUI views (`tui.tsx`, `fleet.tsx`)
+ *  paint cells with — spelled once here so the truncation rule can't drift. */
+export function cell(s: string, w: number): string {
+  return s.length > w ? `${s.slice(0, w - 1)}…` : s.padEnd(w);
+}
+
 const DASH = "—";
 
 /** Strip terminal-hostile bytes from a value. A shell can set its title /
@@ -151,6 +158,14 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
+/** `repo·branch` for the dashboard's "where" — each half sanitized (repo names
+ *  come from fs paths, branches from git, so both can carry control bytes that
+ *  would corrupt the table), or a dash when the terminal isn't in a git repo.
+ *  Shared by the single-host table (`dashRow`) and the fleet row (`fleetRow`). */
+function repoBranchText(git: AwarenessValue["git"]): string {
+  return git ? `${orDash(git.repoName)}·${orDash(git.branch)}` : DASH;
+}
+
 /** Semantic colour hint for a cell — the renderer owns the palette, this owns
  *  which bucket a value falls in. */
 export type FieldTone =
@@ -225,14 +240,7 @@ export function dashRow(
 ): DashRow {
   return {
     id: { text: shortId(id), tone: "plain" },
-    repoBranch: {
-      // Repo names come from filesystem paths and the branch from git, so both
-      // can carry newlines/escape bytes — sanitize each before joining (the
-      // same defence `orDash` gives the foreground name) so a hostile name can't
-      // corrupt the table or inject control effects.
-      text: v.git ? `${orDash(v.git.repoName)}·${orDash(v.git.branch)}` : DASH,
-      tone: "plain",
-    },
+    repoBranch: { text: repoBranchText(v.git), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
     foreground: { text: orDash(v.foreground?.name), tone: "plain" },
@@ -333,10 +341,11 @@ export interface FleetRow {
   host: string;
   id: string;
   urgency: FleetUrgency;
-  /** The raw `lastActivityAt` epoch-millis, carried alongside the formatted
-   *  `active` cell so a fleet-wide comparator can tiebreak on recency without
-   *  re-parsing the rendered "3s"/"5m" string. The cell stays for display; this
-   *  is the sort key. */
+  /** The raw `lastActivityAt` epoch-millis. NOT pre-formatted: recency is the
+   *  one cell that ticks with the wall clock rather than a store delta, so the
+   *  row carries the raw value and the view formats it with `relativeTime(…,
+   *  now())` — keeping the 1s clock off the structural projection. It also
+   *  doubles as the fleet-wide comparator's recency tiebreak. */
   activeAt: number;
   /** The raw terminal id (full, not the shortened display form), the final
    *  stable tiebreak so a flat/grouped fleet list orders identically every
@@ -346,14 +355,12 @@ export interface FleetRow {
   where: DashCell;
   pr: DashCell;
   state: DashCell;
-  active: DashCell;
 }
 
 export function fleetRow(
   host: string,
   id: TerminalId,
   v: AwarenessValue,
-  now: number,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
   return {
@@ -366,16 +373,16 @@ export function fleetRow(
       text: v.agent ? agentShortName(v.agent.kind) : DASH,
       tone: "plain",
     },
-    where: {
-      text: v.git ? `${orDash(v.git.repoName)}·${orDash(v.git.branch)}` : DASH,
-      tone: "plain",
-    },
+    where: { text: repoBranchText(v.git), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
       text: fleetStateText(urgency, v.agent),
       tone: URGENCY[urgency].tone,
     },
-    active: { text: relativeTime(v.lastActivityAt, now), tone: "muted" },
+    // Recency is NOT pre-formatted here: it's the one cell that changes with the
+    // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and
+    // formatting it in the row keeps the 1s clock tick from re-running this whole
+    // projection — the row reads `relativeTime(activeAt, now())` itself.
   };
 }
 
@@ -485,7 +492,6 @@ function sanitizeStatus(status: FleetHostStatus): FleetHostStatus {
  *  the alt-screen. (`fleet --json` is built separately off the raw snapshot.) */
 export function projectFleet(
   states: FleetHostState[],
-  now: number,
   mode: FleetMode,
 ): FleetView {
   // Every terminal across the fleet, each tagged with its (sanitized) host
@@ -498,7 +504,7 @@ export function projectFleet(
     const host = sanitize(s.label);
     return sortedEntries(s.terminals).map(([id, v]) => ({
       key: s.label,
-      row: fleetRow(host, id, v, now),
+      row: fleetRow(host, id, v),
     }));
   });
 

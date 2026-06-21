@@ -40,7 +40,7 @@ const NOW = 1_700_000_000_000;
 const viewOf = (
   states: FleetHostState[],
   mode: "host" | "needs" | "agent" = "host",
-): FleetView => projectFleet(states, NOW, mode);
+): FleetView => projectFleet(states, mode);
 
 /** Render a board to its painted character frame, then tear the renderer down. */
 async function renderBoard(view: FleetView, frame = 0): Promise<string> {
@@ -49,6 +49,7 @@ async function renderBoard(view: FleetView, frame = 0): Promise<string> {
       <FleetBoard
         view={() => view}
         frame={() => frame}
+        now={() => NOW}
         clock={() => "12:00:00"}
       />
     ),

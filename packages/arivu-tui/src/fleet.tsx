@@ -32,12 +32,14 @@ import type { FleetHost } from "./hosts.ts";
 import { HEADER, HOST, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
 import type { FleetHostState, FleetHostStatus } from "./fleetTypes.ts";
 import {
+  cell,
   type FieldTone,
   type FleetGroup,
   type FleetMode,
   type FleetRow,
   type FleetView,
   projectFleet,
+  relativeTime,
 } from "./render.ts";
 import { runTui } from "./runtime.tsx";
 
@@ -59,10 +61,6 @@ const W_WHERE = 22;
 const W_WHERE_WITH_HOST = 14;
 const W_PR = 11;
 const W_STATE = 13;
-
-function cell(s: string, w: number): string {
-  return s.length > w ? `${s.slice(0, w - 1)}…` : s.padEnd(w);
-}
 
 /** The leading glyph for a row, animated for a working agent. */
 function rowGlyph(row: FleetRow, frame: number): string {
@@ -103,6 +101,7 @@ function hostBadge(status: FleetHostStatus | undefined): {
 function Row(props: {
   row: FleetRow;
   frame: () => number;
+  now: () => number;
   showHost?: boolean;
 }) {
   return (
@@ -110,11 +109,9 @@ function Row(props: {
       <text fg={TONE_COLOR[props.row.state.tone]}>
         {cell(rowGlyph(props.row, props.frame()), 2)}
       </text>
-      {props.showHost ? (
-        <text fg={HOST}>{cell(props.row.host, W_HOST)}</text>
-      ) : (
-        <text fg={HOST}>{""}</text>
-      )}
+      <text fg={HOST}>
+        {props.showHost ? cell(props.row.host, W_HOST) : ""}
+      </text>
       <text fg={TONE_COLOR[props.row.agent.tone]}>
         {cell(props.row.agent.text, W_AGENT)}
       </text>
@@ -130,8 +127,11 @@ function Row(props: {
       <text fg={TONE_COLOR[props.row.state.tone]}>
         {cell(props.row.state.text, W_STATE)}
       </text>
-      <text fg={TONE_COLOR[props.row.active.tone]}>
-        {props.row.active.text}
+      {/* Recency is read from the raw `activeAt` against the live `now()` here,
+          not pre-formatted in the projection — so the 1s clock repaints only
+          this cell, never the whole board. */}
+      <text fg={TONE_COLOR.muted}>
+        {relativeTime(props.row.activeAt, props.now())}
       </text>
     </box>
   );
@@ -146,6 +146,7 @@ function Row(props: {
 function Group(props: {
   group: FleetGroup;
   frame: () => number;
+  now: () => number;
   showHost?: boolean;
 }) {
   const badge = hostBadge(props.group.status);
@@ -167,7 +168,12 @@ function Group(props: {
         fallback={<text fg={TONE_COLOR.muted}>{"  no terminals"}</text>}
       >
         {(row) => (
-          <Row row={row} frame={props.frame} showHost={props.showHost} />
+          <Row
+            row={row}
+            frame={props.frame}
+            now={props.now}
+            showHost={props.showHost}
+          />
         )}
       </For>
     </box>
@@ -216,6 +222,7 @@ function Summary(props: { view: () => FleetView }) {
 export function FleetBoard(props: {
   view: () => FleetView;
   frame: () => number;
+  now: () => number;
   clock: () => string;
 }) {
   const hostsTotal = () => props.view().summary.hostsTotal;
@@ -250,7 +257,14 @@ export function FleetBoard(props: {
               <text fg={TONE_COLOR.muted}>no terminals across the fleet</text>
             }
           >
-            {(row) => <Row row={row} frame={props.frame} showHost={true} />}
+            {(row) => (
+              <Row
+                row={row}
+                frame={props.frame}
+                now={props.now}
+                showHost={true}
+              />
+            )}
           </For>
         </box>
       ) : (
@@ -259,7 +273,12 @@ export function FleetBoard(props: {
           fallback={<text fg={TONE_COLOR.muted}>no hosts</text>}
         >
           {(group) => (
-            <Group group={group} frame={props.frame} showHost={showHost()} />
+            <Group
+              group={group}
+              frame={props.frame}
+              now={props.now}
+              showHost={showHost()}
+            />
           )}
         </For>
       )}
@@ -330,11 +349,14 @@ export async function runFleetTui(args: {
         fleet?.dispose();
       });
     });
+    // The projection depends on the STORE only, never `now()` — so the 1s clock
+    // tick repaints just the recency cells (which read `now()` in the row) and
+    // the header clock, not this whole derivation.
     const view = createMemo(() =>
-      projectFleet(Object.values(store), now(), args.mode),
+      projectFleet(Object.values(store), args.mode),
     );
     const clock = () => new Date(now()).toLocaleTimeString();
-    return <FleetBoard view={view} frame={frame} clock={clock} />;
+    return <FleetBoard view={view} frame={frame} now={now} clock={clock} />;
   }
 
   await runTui(() => <App />);

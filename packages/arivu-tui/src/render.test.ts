@@ -239,7 +239,7 @@ describe("projectFleet — host mode", () => {
       ),
       host("staging", { kind: "unreachable", reason: "ECONNREFUSED" }, {}),
     ];
-    const view = projectFleet(states, NOW, "host");
+    const view = projectFleet(states, "host");
     if (view.mode === "needs") throw new Error("unreachable");
 
     expect(view.groups.map((g) => g.label)).toEqual(["zest", "staging"]);
@@ -284,7 +284,7 @@ describe("projectFleet — host mode", () => {
         },
       ),
     ];
-    const view = projectFleet(states, NOW, "host");
+    const view = projectFleet(states, "host");
     if (view.mode === "needs") throw new Error("unreachable");
     expect(view.groups[0]?.rows).toHaveLength(1);
     expect(view.groups[1]?.rows).toHaveLength(1);
@@ -315,7 +315,7 @@ describe("projectFleet — needs & agent modes", () => {
   ];
 
   it("needs mode flattens across hosts, urgency-sorted, no groups", () => {
-    const view = projectFleet(states, NOW, "needs");
+    const view = projectFleet(states, "needs");
     // The view is a sum on `mode`: a needs view carries `flat` and has no
     // `groups` field at all (the type forbids reading it), so there is no dead
     // `[]` to assert against.
@@ -326,7 +326,7 @@ describe("projectFleet — needs & agent modes", () => {
   });
 
   it("agent mode groups into non-empty urgency sections across hosts", () => {
-    const view = projectFleet(states, NOW, "agent");
+    const view = projectFleet(states, "agent");
     expect(view.mode).toBe("agent");
     if (view.mode === "needs") throw new Error("unreachable");
     expect(view.groups.map((g) => g.label)).toEqual([
@@ -364,7 +364,7 @@ describe("projectFleet — needs & agent modes", () => {
         },
       ),
     ];
-    const view = projectFleet(fleet, NOW, "needs");
+    const view = projectFleet(fleet, "needs");
     if (view.mode !== "needs") throw new Error("unreachable");
     // beta's fresher row leads even though alpha is the first host.
     expect(view.flat.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
@@ -393,7 +393,7 @@ describe("projectFleet — needs & agent modes", () => {
         },
       ),
     ];
-    const view = projectFleet(fleet, NOW, "agent");
+    const view = projectFleet(fleet, "agent");
     if (view.mode === "needs") throw new Error("unreachable");
     const awaiting = view.groups.find((g) => g.label === "awaiting you");
     expect(awaiting?.rows.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
@@ -410,7 +410,7 @@ describe("projectFleet — terminal-safety", () => {
         {},
       ),
     ];
-    const view = projectFleet(states, NOW, "host");
+    const view = projectFleet(states, "host");
     if (view.mode === "needs") throw new Error("unreachable");
     // No raw control byte reaches the painted group label or the reason.
     for (const g of view.groups) {
@@ -430,7 +430,7 @@ describe("projectFleet — terminal-safety", () => {
         { [id("t")]: val({ agent: agentVal("thinking") }) },
       ),
     ];
-    const view = projectFleet(states, NOW, "needs");
+    const view = projectFleet(states, "needs");
     if (view.mode !== "needs") throw new Error("unreachable");
     expect(view.flat[0]?.host).not.toMatch(/[\x00-\x1f\x7f]/);
   });
@@ -451,7 +451,7 @@ describe("projectFleet — terminal-safety", () => {
         { [id("t-space")]: val({ agent: agentVal("awaiting_user") }) },
       ),
     ];
-    const view = projectFleet(states, NOW, "host");
+    const view = projectFleet(states, "host");
     if (view.mode === "needs") throw new Error("unreachable");
     // Two distinct groups, each with ONLY its own terminal — never merged. Use
     // `sortId` (the full id), since `id` is the shortened display form.
