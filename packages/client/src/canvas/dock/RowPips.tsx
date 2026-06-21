@@ -138,11 +138,7 @@ export const PrPip: Component<{ meta: TerminalMetadata }> = (props) => {
 export const SubCountCell: Component<{ subCount: number }> = (props) => (
   <span class="flex items-center justify-end">
     <Show when={props.subCount > 0}>
-      <SubCountChip
-        count={props.subCount}
-        active={false}
-        testId="dock-sub-count"
-      />
+      <SubCountChip count={props.subCount} testId="dock-sub-count" />
     </Show>
   </span>
 );
