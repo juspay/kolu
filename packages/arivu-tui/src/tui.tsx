@@ -42,9 +42,11 @@ const TONE_COLOR: Record<FieldTone, string> = {
   plain: "#c8d0de",
 };
 
+// Chrome colours — the title bar and column headers, which are NOT per-cell
+// tones, so they live outside TONE_COLOR. Every per-cell colour is spelled
+// exactly once, in TONE_COLOR above; nothing here re-spells a tone's hex.
 const TITLE = "#7c8696";
 const HEADER = "#8b94a6";
-const MUTED = "#5b6678";
 
 // Column widths (chars). Sized for an ~80-col terminal; long values ellipsize.
 const W_ID = 10;
@@ -81,7 +83,7 @@ export function AwarenessTable(props: {
         <text fg={HEADER}>ACTIVE</text>
       </box>
       {count === 0 ? (
-        <text fg={MUTED}>
+        <text fg={TONE_COLOR.muted}>
           no terminals — is kaval running, with arivu watching it?
         </text>
       ) : (
