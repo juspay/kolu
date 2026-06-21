@@ -171,6 +171,17 @@ export const contract = oc.router({
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    /** Sleep a terminal: flip it to the dormant arm IN PLACE (same id), persist
+     *  the session durably, then release its PTY/xterm/agent — persist-before-kill.
+     *  Idempotent / a no-op on an already-sleeping or absent id. */
+    sleep: oc.input(TerminalAttachInputSchema).output(z.void()),
+    /** Wake a sleeping terminal: re-spawn its PTY on the SAME id in its saved cwd
+     *  and resume its agent — session-restore-of-one. Returns the woken active
+     *  info; throws NOT_FOUND if the id is not a sleeping terminal. */
+    wake: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    /** Discard a sleeping terminal's record (no PTY to kill — sleep released it).
+     *  Serves both wake-failed cleanup and the user closing a sleeping tile. */
+    discardSleeping: oc.input(TerminalAttachInputSchema).output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

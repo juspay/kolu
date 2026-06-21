@@ -23,10 +23,11 @@
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
-import { LOCAL_LOCATION } from "kolu-common/surface";
+import { LOCAL_LOCATION, SleepingTerminalSchema } from "kolu-common/surface";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
+  SleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
@@ -63,12 +64,14 @@ import {
   getTerminal,
   listTerminals,
   registerTerminal,
+  type SleepingTerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
 import {
   createMetadata,
+  publishTerminalState,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
@@ -358,6 +361,25 @@ export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
   };
 }
 
+/** The WAKE mapping — the inverse of the sleeping flip: a sleeping terminal's
+ *  persisted base becomes a fresh live `ActiveTerminal`. `createMetadata` seeds
+ *  the live-field defaults (pr/agent/foreground re-derived by the sensors on the
+ *  re-spawned PTY), then the persisted base is spread WHOLE — theme, layout,
+ *  intent, git, and crucially `lastAgentCommand` all ride through, never
+ *  reconstructed field-by-field (the #1275 lossy class, and the BUG-B class that
+ *  stripped the agent on the discarded first cut) — and `state` flips to active.
+ *  Pure + exported so a schema-key round-trip test pins that no persisted key is
+ *  dropped on wake. The `location` rides the base, so a future remote terminal
+ *  wakes against its own host. */
+export function wakeMeta(sleeping: SleepingTerminal): ActiveTerminal {
+  const { state: _state, sleptAt: _sleptAt, ...persisted } = sleeping;
+  return {
+    ...createMetadata(persisted.cwd, persisted.location),
+    ...persisted,
+    state: "active",
+  };
+}
+
 // ── Endpoint implementation ────────────────────────────────────────────
 
 class LocalTerminalEndpoint implements TerminalEndpoint {
@@ -369,8 +391,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
-    const tlog = log.child({ terminal: id });
-
     // Sync shadow: register a connecting entry (proxy handle + default
     // metadata) so the tile renders immediately — the `TerminalEndpoint.
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
@@ -384,7 +404,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // this synchronous path cannot see). Seed with the caller's cwd or empty,
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
-    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const meta: ActiveTerminal = { ...createMetadata(cwd, LOCAL_LOCATION) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
@@ -396,6 +415,22 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.lastActivityAt !== undefined)
       meta.lastActivityAt = initial.lastActivityAt;
 
+    return this.registerActiveAndSpawn(id, meta, opts);
+  }
+
+  /** Register a fresh ACTIVE sync-shadow entry under `id` (proxy handle + the
+   *  given `meta`) and kick off its async spawn + sensor wiring. The shared core
+   *  of `spawnPty` (createMetadata-seeded) and `wake` (sleeping-base-preserved):
+   *  both register a live entry then spawn, differing only in the `meta` carried
+   *  in and whether `opts.resumeCommand` replays an agent on the freshly-spawned
+   *  PTY. */
+  private registerActiveAndSpawn(
+    id: TerminalId,
+    meta: ActiveTerminal,
+    opts: PtySpawnOpts,
+  ): TerminalInfo {
+    const tlog = log.child({ terminal: id });
+    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
       meta,
@@ -530,6 +565,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       );
       return;
     }
+    // WAKE: replay the agent as type-ahead now that the sensor set is wired, so
+    // the command-run tap catches the resumed invocation and the agent indicator
+    // re-lights. The PTY buffers the bytes until the shell reaches its prompt
+    // (the same type-ahead a fast typist relies on), so there's no readiness
+    // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
+    if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
     emitTerminalListChanged();
   }
@@ -700,6 +741,89 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return entry.info;
   }
 
+  /** Begin sleeping an ACTIVE terminal: stop its sensor set and flip its registry
+   *  entry to the sleeping arm IN PLACE (same id, same map slot, persisted base
+   *  preserved, live overlay dropped + `sleptAt` stamped), publishing the new
+   *  state — but leave the PTY ALIVE. The caller persists the session durably,
+   *  THEN calls `releaseSleptPty` to kill the PTY (persist-before-kill). Sensors
+   *  go down FIRST so no in-flight tap can re-publish the active meta over the
+   *  flip (the sink closes over the active entry) and the later kill can't reach
+   *  `handleExit` (which would unregister our sleeping entry). Returns false — a
+   *  no-op — when `id` is not an active terminal (already sleeping / absent). */
+  beginSleep(id: TerminalId): boolean {
+    const entry = getActiveTerminal(id);
+    if (!entry) return false;
+    this.teardownSensors(id);
+    const sleeping: SleepingTerminalProcess = {
+      info: { id, pid: 0 },
+      meta: SleepingTerminalSchema.parse({
+        ...entry.meta,
+        state: "sleeping",
+        sleptAt: Date.now(),
+      }),
+    };
+    registerTerminal(id, sleeping);
+    publishTerminalState(sleeping, id);
+    emitTerminalListChanged();
+    log
+      .child({ terminal: id })
+      .info("flipped to sleeping (PTY pending release)");
+    return true;
+  }
+
+  /** Release the PTY of a terminal `beginSleep` already flipped to sleeping: kill
+   *  the now-detached PTY and scrub its scratch. The registry entry STAYS (as
+   *  sleeping). A kill failure is logged, not thrown — the record is sleeping
+   *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
+  async releaseSleptPty(id: TerminalId): Promise<void> {
+    try {
+      await ptyHostClient.surface.terminal.kill({ id });
+    } catch (err) {
+      log
+        .child({ terminal: id })
+        .error(
+          { err },
+          "pty-host kill failed while sleeping; record is sleeping regardless",
+        );
+    }
+    cleanupTerminalScratch(id);
+  }
+
+  /** Wake a SLEEPING terminal: flip it back to the active arm and re-spawn its
+   *  PTY on the SAME id in its saved cwd, replaying `resumeCommand` (the resume
+   *  form from `resumeAgentCommand`, or null for a never-ran / non-resumable
+   *  agent) so the conversation comes back — session-restore-of-one. The persisted
+   *  base rides through WHOLE (theme/layout/intent/git/lastAgentCommand); only the
+   *  live overlay is re-derived by the sensors. Returns the active info, or
+   *  undefined when `id` is not a sleeping terminal. */
+  wake(id: TerminalId, resumeCommand: string | null): TerminalInfo | undefined {
+    const entry = getTerminal(id);
+    if (!entry || entry.meta.state !== "sleeping") return undefined;
+    const meta = wakeMeta(entry.meta);
+    log
+      .child({ terminal: id })
+      .info({ resuming: resumeCommand !== null }, "waking");
+    return this.registerActiveAndSpawn(id, meta, {
+      cwd: meta.cwd,
+      parentId: meta.parentId,
+      resumeCommand: resumeCommand ?? undefined,
+    });
+  }
+
+  /** Discard a SLEEPING terminal: remove its record. There is no PTY to kill —
+   *  sleep already released it — so this just scrubs any leftover scratch,
+   *  unregisters, and arms the autosave. Returns false when `id` is not sleeping. */
+  discardSleeping(id: TerminalId): boolean {
+    const entry = getTerminal(id);
+    if (!entry || entry.meta.state !== "sleeping") return false;
+    cleanupTerminalScratch(id);
+    unregisterTerminal(id);
+    emitTerminalsDirty();
+    emitTerminalListChanged();
+    log.child({ terminal: id }).info("discarded sleeping terminal");
+    return true;
+  }
+
   async killAllTerminals(): Promise<void> {
     const ids = listTerminals().map((info) => info.id);
     log.info({ count: ids.length }, "killing all terminals");
@@ -757,6 +881,38 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
 const localEndpointImpl = new LocalTerminalEndpoint();
 export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
+
+// ── Sleep / wake / discard (local-only today, like adoption) ────────────
+//
+// Exposed as standalone entries rather than on the shared `TerminalEndpoint`
+// interface — sleep/wake is local-only for now (manual, single-host). P3's
+// remote-host sleep is an additive sibling, not a retrofit of the interface.
+
+/** Flip an active terminal to the sleeping arm IN PLACE (PTY left alive). The
+ *  facade persists the session durably, THEN calls `releaseSleptLocalPty` to kill
+ *  the PTY (persist-before-kill). Returns false if `id` is not active. */
+export function beginSleepLocal(id: TerminalId): boolean {
+  return localEndpointImpl.beginSleep(id);
+}
+
+/** Kill the PTY of an already-flipped sleeping terminal. */
+export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
+  return localEndpointImpl.releaseSleptPty(id);
+}
+
+/** Wake a sleeping terminal: flip to active + re-spawn on the same id, replaying
+ *  `resumeCommand` (the `resumeAgentCommand` form, or null). */
+export function wakeLocalTerminal(
+  id: TerminalId,
+  resumeCommand: string | null,
+): TerminalInfo | undefined {
+  return localEndpointImpl.wake(id, resumeCommand);
+}
+
+/** Discard a sleeping terminal's record (no PTY to kill). */
+export function discardLocalSleeping(id: TerminalId): boolean {
+  return localEndpointImpl.discardSleeping(id);
+}
 
 /** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
  *  persisted chrome rides through whole (`adoptedMeta`), with the live daemon

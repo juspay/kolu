@@ -15,6 +15,7 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
+import { resumeAgentCommand } from "anyagent/cli";
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
@@ -32,10 +33,16 @@ import {
 // `localTerminalEndpoint`.
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import {
+  beginSleepLocal,
+  discardLocalSleeping,
+  localTerminalEndpoint,
+  releaseSleptLocalPty,
+  wakeLocalTerminal,
+} from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
-import type { SessionSnapshot } from "./session.ts";
+import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // A single local endpoint today. P3 will select the endpoint per call
@@ -106,6 +113,37 @@ export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
   return localEndpoint.killTerminal(id);
+}
+
+/** Sleep a terminal — flip it to the sleeping arm IN PLACE, persist the session
+ *  DURABLY, then release its PTY (persist-before-kill). A crash in the kill
+ *  window leaves a sleeping record on disk, never a zombie active one; boot
+ *  reconcile reaps any briefly-surviving PTY (adopt-or-reap). A no-op if `id`
+ *  is not an active terminal. */
+export async function sleepTerminal(id: TerminalId): Promise<void> {
+  if (!beginSleepLocal(id)) return;
+  saveSession(snapshotSession());
+  await releaseSleptLocalPty(id);
+}
+
+/** Wake a sleeping terminal — session-restore-of-one. Reuse the persisted
+ *  `lastAgentCommand` to build the resume form (`resumeAgentCommand`: claude
+ *  `-c`, codex `resume --last`, opencode `--continue`), so the agent resumes
+ *  exactly as a reboot would; the endpoint re-spawns the PTY on the same id and
+ *  replays it. Returns the active info, or undefined if `id` is not sleeping. */
+export function wakeTerminal(id: TerminalId): TerminalInfo | undefined {
+  const entry = getTerminal(id);
+  if (!entry || entry.meta.state !== "sleeping") return undefined;
+  const resume = entry.meta.lastAgentCommand
+    ? resumeAgentCommand(entry.meta.lastAgentCommand)
+    : null;
+  return wakeLocalTerminal(id, resume);
+}
+
+/** Discard a sleeping terminal — remove its record (no PTY to kill). Serves both
+ *  the wake-failed cleanup and the user closing a sleeping tile. */
+export function discardSleeping(id: TerminalId): void {
+  discardLocalSleeping(id);
 }
 
 /** Set or clear a terminal's parent relationship. */

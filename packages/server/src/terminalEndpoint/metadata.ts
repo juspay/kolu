@@ -112,6 +112,18 @@ function publishSnapshotAndDirty(
   terminalsDirtyChannel.publish({});
 }
 
+/** Publish a terminal's current metadata snapshot AND arm the session autosave —
+ *  for a lifecycle STATE FLIP (active↔sleeping) that REPLACES the registry entry
+ *  rather than mutating one field in place, so it can't ride the field mutators
+ *  above. Accepts the union: a freshly-flipped sleeping entry publishes its
+ *  persisted base; `publishSnapshot` narrows the live overlay away by `state`. */
+export function publishTerminalState(
+  entry: TerminalProcess,
+  terminalId: string,
+): void {
+  publishSnapshotAndDirty(entry, terminalId);
+}
+
 /** Atomically mutate server-persisted metadata (`cwd`, `git`,
  *  `lastAgentCommand`, `lastActivityAt`) and publish. The mutator is
  *  narrowed to `ServerPersistedTerminalFields` — bidirectional fence: a
