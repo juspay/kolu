@@ -1,0 +1,147 @@
+---
+title: Terminal Notes
+description: Every terminal gets a Markdown notes scratchpad — a right-panel tab, a close-dialog reminder, a title-bar icon. It reuses kolu's existing `intent` field, renamed `notes` — a rename plus migration and three client surfaces, not a feature from scratch.
+parents: [feature]
+status: proposed
+maturity: seedling
+updated: 2026-06-21
+---
+
+import Callout from "../../components/Callout.astro";
+import Svg from "../../components/Svg.astro";
+import reuseDiagram from "../../diagrams/terminal-notes-reuse.svg?raw";
+
+export const C = {
+  bg: "#15171c", panel: "#171a20", chrome: "#1b1e24", line: "#2a2e37",
+  fg: "#c7ccd6", dim: "#8b929d", faint: "#5b626d",
+  blue: "#6ea8e0", green: "#6cc070", amber: "#d6a35c", red: "#d66c6c",
+};
+
+export const Panel = (props) => (
+  <figure style="margin:1.5rem 0">
+    <div style={`max-width:${props.w || "32rem"};margin:0 auto;border:1px solid ${C.line};border-radius:12px;overflow:hidden;background:${C.bg};box-shadow:0 6px 22px rgba(0,0,0,.32)`}>
+      {props.children}
+    </div>
+    {props.cap && <figcaption style="margin-top:.55rem;text-align:center;font-size:.78rem;color:#7a8089">{props.cap}</figcaption>}
+  </figure>
+);
+
+export const Note = (props) => (
+  <svg width={props.s || 13} height={props.s || 13} viewBox="0 0 24 24" fill="none" stroke={props.c || C.amber} stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="flex:none">
+    <path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 12h6" /><path d="M9 16h4" />
+  </svg>
+);
+
+export const Skel = () => <span style="width:13px;height:13px;border-radius:3px;background:#ffffff12;display:inline-block"></span>;
+
+export const NotesTab = () => (
+  <Panel w="19rem" cap="Edit / Preview are sub-tabs — like the Code tab's modes. Edit shown; Preview swaps the pane to the rendered markdown.">
+    <div style={`display:flex;gap:.1rem;padding:.4rem .45rem 0;background:${C.chrome};border-bottom:1px solid ${C.line}`}>
+      <span style={`font:600 .7rem/1 ui-sans-serif;color:${C.faint};padding:.4rem .5rem`}>Inspector</span>
+      <span style={`font:600 .7rem/1 ui-sans-serif;color:${C.faint};padding:.4rem .5rem`}>Code</span>
+      <span style={`font:650 .7rem/1 ui-sans-serif;color:${C.fg};padding:.4rem .5rem;border-bottom:2px solid ${C.blue}`}>Notes</span>
+    </div>
+    <div style={`display:flex;gap:.3rem;padding:.45rem .7rem;background:${C.panel};border-bottom:1px solid ${C.line}`}>
+      <span style={`font:600 .64rem/1 ui-sans-serif;color:${C.fg};background:#ffffff12;border:1px solid ${C.line};border-radius:6px;padding:.22rem .55rem`}>Edit</span>
+      <span style={`font:600 .64rem/1 ui-sans-serif;color:${C.faint};padding:.22rem .55rem`}>Preview</span>
+    </div>
+    <div style="padding:.6rem .7rem;min-height:5.5rem">
+      <div style={`font:.72rem/1.9 ui-monospace,monospace;color:${C.dim}`}>
+        <div style={`color:${C.fg}`}>## TODO</div>
+        <div>- [ ] fix auth bug</div>
+        <div>- [ ] ask Sri re: deploy<span style={`color:${C.blue}`}>|</span></div>
+      </div>
+    </div>
+    <div style={`display:flex;align-items:center;gap:.35rem;padding:.4rem .7rem;border-top:1px solid ${C.line};background:${C.panel};font:.66rem/1 ui-sans-serif`}>
+      <span style={`color:${C.green}`}>●</span><span style={`color:${C.dim}`}>autosaved · debounced</span>
+    </div>
+  </Panel>
+);
+
+export const TitleBar = () => (
+  <Panel w="30rem" cap="A note icon appears once a note has a body — click it → Notes tab. The first line still rides the title as the chip.">
+    <div style={`display:flex;align-items:center;gap:.5rem;padding:.55rem .7rem;background:${C.chrome}`}>
+      <span style={`width:9px;height:9px;border-radius:50%;background:${C.blue}`}></span>
+      <span style={`font:650 .74rem/1 ui-sans-serif;color:${C.fg}`}>api</span>
+      <span style={`font:.66rem/1 ui-monospace,monospace;color:${C.faint}`}>main</span>
+      <span style={`font:.62rem/1 ui-sans-serif;color:${C.amber};background:#d6a35c1f;border:1px solid #d6a35c55;border-radius:5px;padding:.13rem .42rem`}>TODO</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:.55rem">
+        <Skel /><Skel />
+        <span style={`display:inline-flex;border:1px solid ${C.amber};border-radius:6px;padding:.16rem .22rem;box-shadow:0 0 0 2px #d6a35c33`}><Note /></span>
+        <Skel />
+        <span style={`font:.78rem/1 ui-sans-serif;color:${C.faint}`}>✕</span>
+      </span>
+    </div>
+  </Panel>
+);
+
+export const CloseDialog = () => (
+  <Panel w="23rem" cap="Closing deletes the notes — so the dialog shows them first, read-only, from the frozen snapshot. A last look.">
+    <div style={`padding:.95rem 1.05rem;background:${C.panel}`}>
+      <div style={`font:650 .85rem/1 ui-sans-serif;color:${C.fg};margin-bottom:.7rem`}>Close terminal?</div>
+      <div style={`border:1px solid ${C.line};border-radius:8px;background:${C.bg};padding:.55rem .65rem;margin-bottom:.6rem`}>
+        <div style={`display:flex;align-items:center;gap:.3rem;font:600 .56rem/1 ui-sans-serif;color:${C.faint};letter-spacing:.06em;margin-bottom:.4rem`}><Note s={11} /> NOTES</div>
+        <div style={`font:700 .74rem/1.3 ui-sans-serif;color:${C.fg}`}>TODO</div>
+        <div style={`font:.7rem/1.6 ui-sans-serif;color:${C.dim}`}>☐ fix auth bug · ☐ ask Sri re: deploy</div>
+      </div>
+      <div style={`display:flex;align-items:center;gap:.4rem;font:.68rem/1 ui-monospace,monospace;color:${C.dim};background:${C.chrome};border-radius:7px;padding:.42rem .55rem;margin-bottom:.85rem`}>
+        <span>⎇</span><span style={`color:${C.fg}`}>kolu</span><span style={`color:${C.faint}`}>/</span><span>public-table</span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:.5rem">
+        <span style={`font:.7rem/1 ui-sans-serif;color:${C.dim};padding:.42rem .7rem`}>Cancel</span>
+        <span style={`font:600 .7rem/1 ui-sans-serif;color:#fff;background:${C.red};border-radius:7px;padding:.42rem .7rem`}>Close terminal</span>
+      </div>
+    </div>
+  </Panel>
+);
+
+Every terminal — active or sleeping — gets a Markdown notes scratchpad. The catch:
+the field **already exists** as `intent` (`surface.ts:255`), fully wired. So this
+is a **rename + three surfaces**, not a new feature.
+
+<Svg svg={reuseDiagram} caption="The field already ships (left, green). Rename intent→notes — a one-time state.ts migration, title still shows the first line — and add three client surfaces (right, amber)." />
+
+## User-facing description
+
+Notes live in their own **Notes tab**, with **Edit / Preview** sub-tabs (like the
+Code tab) and autosave as you type. When a terminal has notes, a **note icon**
+lights up in its title bar (→ the tab), and **closing** the terminal shows the
+notes one last time before they're gone.
+
+<NotesTab />
+
+<TitleBar />
+
+<CloseDialog />
+
+## Architecture-level changes
+
+| | |
+|---|---|
+| **Storage** | reuse `intent`, renamed **`notes`** — persistence already done |
+| **Home** | dedicated **Notes tab** + inline editor |
+| **Editor** | shared `NotesEditor` — **Edit / Preview** sub-tabs, extracted from the modal |
+| **Saving** | debounced autosave (client → `setNotes` → server's 500 ms → disk) |
+| **On close** | deleted with the terminal; the dialog is the reminder |
+| **Boundary** | leaf — not a `@kolu/*` package |
+
+- **Reuse, renamed.** `intent` is already persist + autosave + sleep/wake + restore + render. Rename → `notes` (one `state.ts` migration); the **title still shows the first line** as the chip.
+- **New tab arm.** Notes becomes a kind in the right-panel tab union (`RightPanelTabKindSchema`); the editor is extracted once into a shared `NotesEditor`.
+- **Orchestration stays at the root.** `CloseConfirm` renders the **frozen `target.meta.notes` snapshot**, never a live read — the contract that keeps the reminder from shifting under the user. Leaf components get data + callbacks; the editor singleton lives at `App.tsx`.
+- **Leaf, not [electricity](./electricity.html).** The editor *is* domain-agnostic — but electricity means hiding a *hard volatility* (transport, persistence, GPU-loss); a markdown editor hides only a bounded algorithm (textarea + debounce + the existing renderer). That's the *agnostic ≠ electricity* trap. The hard parts — live state, persistence, md→safe-HTML — are already owned by [`@kolu/surface`](./surface-app.html) + `@kolu/solid-markdown`. So `NotesEditor` is a shared leaf component; the feature, a domain-coupled leaf.
+
+## Implementation details
+
+One PR, with a test + visual evidence. In order:
+
+1. **Rename** `intent` → `notes` across common/server/client + a `state.ts` migration (idempotent, optional-safe).
+2. **Extract** `NotesEditor` from the modal and give it **Edit / Preview** sub-tabs (Code-tab style).
+3. **Notes tab** — add the `notes` tab kind (compiler-enforced 3-place union change) + `NotesPanel` with inline debounced autosave.
+4. **Title-bar icon** — body-gated `NotesIcon` → `rightPanel.showNotes()`.
+5. **Close-dialog reminder** — read-only, off the frozen `target.meta.notes` snapshot.
+
+<Callout kind="warn" title="Three things that bite">
+- **Migration** must be idempotent + optional-safe — test against a *pre-rename* session fixture, or notes vanish on first launch.
+- **Inline editor** reconciles from the server only when *not* editing — a live `value={meta.notes}` clobbers keystrokes.
+- **Icon gates on a non-empty body** (not just any notes) so it complements the title chip instead of duplicating it.
+</Callout>

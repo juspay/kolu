@@ -3,7 +3,7 @@ title: Electricity — identified, and their progress
 description: A tracker for kolu's electricities — infrastructure pulled out from beneath the app into its own thing — and where each stands.
 parents: [analysis]
 maturity: evergreen
-updated: 2026-06-10
+updated: 2026-06-21
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -23,7 +23,7 @@ The live example: asked to add back/forward to the Code-tab preview, a session p
 - **Agnostic ≠ electricity — apply test ② honestly.** A clean, reusable, agnostic primitive that hides only a *bounded algorithm* (a stack, a debounce, an `===`) is a **leaf** (`nonempty`/`html-escape`-tier), not a receptacle. "I found a tidy generic module" is the feeling that *precedes* the mistake. Ask what **hard** volatility it hides — transport, GPU-context loss, sandboxing, reconnect — before reaching for `@kolu/`.
 </Callout>
 
-> "Decompose based on volatility." Functional decomposition splits a system by what it *does*; volatility-based decomposition isolates each area likely to *change* behind a stable interface — the way a body keeps blood-pressure, pulse, and salinity volatility "encapsulated behind the service called the heart." An *electricity*, here, is one such volatility pulled out into its own package. — Juval Löwy, [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (excerpt from *Righting Software*).
+> **"Decompose based on volatility"** — Löwy's directive: encapsulate each area *likely to change* behind a stable interface, rather than split a system by what it *does*. "Electricity" is *his own* example, and the source of our term: *"the electricity that powers a house … is highly volatile: power can be AC or DC; 110 volts or 220 volts … produced by solar panels … a generator … or plain grid connectivity … All that volatility is encapsulated behind a receptacle … all the user sees is an opaque receptacle."* The body does the same — blood-pressure, salinity, and pulse volatility *"encapsulated behind the service called the heart."* An *electricity*, in kolu, is one such volatility lifted into its own `@kolu/*` package; a *receptacle* is the socket a consumer plugs into. — Juval Löwy, [*Software System Decomposition*](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2), ch. 2 of *Righting Software*.
 
 ## The electricities
 
