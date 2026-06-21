@@ -35,15 +35,18 @@ import {
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import {
+  discardLocalSleeping,
+  localTerminalEndpoint,
+  seedSleepingTerminal,
+  wakeLocalTerminal,
+} from "./terminalEndpoint/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
   createTerminal,
-  discardSleeping,
   killAllTerminals,
   killTerminal,
-  restoreSleeping,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -52,7 +55,6 @@ import {
   setTerminalParent,
   setTerminalTheme,
   sleepTerminal,
-  wakeTerminal,
 } from "./terminals.ts";
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
@@ -229,18 +231,18 @@ export const appRouter = t.router({
 
     wake: t.terminal.wake.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "wake");
-      const info = wakeTerminal(input.id);
+      const info = wakeLocalTerminal(input.id);
       if (!info) throw terminalNotFound(input.id);
       return info;
     }),
 
     discardSleeping: t.terminal.discardSleeping.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "discard sleeping");
-      discardSleeping(input.id);
+      discardLocalSleeping(input.id);
     }),
 
     restoreSleeping: t.terminal.restoreSleeping.handler(async ({ input }) => {
-      restoreSleeping(input);
+      seedSleepingTerminal(input);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

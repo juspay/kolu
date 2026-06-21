@@ -18,7 +18,6 @@
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
-  type SavedSleepingTerminal,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalId,
@@ -35,11 +34,8 @@ import {
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 import {
   beginSleepLocal,
-  discardLocalSleeping,
   localTerminalEndpoint,
   releaseSleptLocalPty,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -126,28 +122,6 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
   if (!beginSleepLocal(id)) return;
   saveSession(snapshotSession());
   await releaseSleptLocalPty(id);
-}
-
-/** Wake a sleeping terminal — session-restore-of-one. The endpoint self-derives
- *  the resume form from the sleeping arm's captured `resumeCommand`, re-spawns
- *  the PTY on the same id and replays it. Returns the active info, or undefined
- *  if `id` is not sleeping. */
-export function wakeTerminal(id: TerminalId): TerminalInfo | undefined {
-  return wakeLocalTerminal(id);
-}
-
-/** Discard a sleeping terminal — remove its record (no PTY to kill). Reached when
- *  the user closes a sleeping tile via the close-confirm dialog. */
-export function discardSleeping(id: TerminalId): void {
-  discardLocalSleeping(id);
-}
-
-/** Restore a sleeping terminal at cold boot — seed its dormant record into the
- *  registry (no PTY spawned). The restore card calls this for each saved sleeping
- *  arm, the spawn-path twin of `createTerminal` for the active arm. A malformed
- *  record drops itself at the seed boundary. */
-export function restoreSleeping(record: SavedSleepingTerminal): void {
-  seedSleepingTerminal(record);
 }
 
 /** Set or clear a terminal's parent relationship. */
