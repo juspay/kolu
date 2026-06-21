@@ -866,12 +866,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Wake a SLEEPING terminal: flip it back to the active arm and re-spawn its
-   *  PTY on the SAME id in its saved cwd, replaying `resumeCommand` (the resume
-   *  form from `resumeAgentCommand`, or null for a never-ran / non-resumable
-   *  agent) so the conversation comes back — session-restore-of-one. The persisted
-   *  base rides through WHOLE (theme/layout/intent/git/lastAgentCommand); only the
-   *  live overlay is re-derived by the sensors. Returns the active info, or
-   *  undefined when `id` is not a sleeping terminal. */
+   *  PTY on the SAME id in its saved cwd, replaying the resume form derived from
+   *  the persisted `lastAgentCommand` (via `resumeAgentCommand`, or null for a
+   *  never-observed / non-resumable agent) so the conversation comes back —
+   *  session-restore-of-one. The persisted base rides through WHOLE
+   *  (theme/layout/intent/git/lastAgentCommand); only the live overlay is
+   *  re-derived by the sensors. Returns the active info, or undefined when `id`
+   *  is not a sleeping terminal. */
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
@@ -986,7 +987,7 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
 }
 
 /** Wake a sleeping terminal: flip to active + re-spawn on the same id, self-deriving
- *  the resume form from the sleeping arm's captured `resumeCommand`. */
+ *  the resume form from the persisted `lastAgentCommand` (the observed agent launch). */
 export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
   return localEndpointImpl.wake(id);
 }
