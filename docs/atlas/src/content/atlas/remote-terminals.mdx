@@ -13,7 +13,7 @@ import Issue from "../../components/Issue.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
-**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon. **What remains (R5–R8) is one linear roadmap, defined in this note**: harden reconnect, give fs/git the awareness treatment (one shared library, two homes), dial remotes + fold their awareness/fs-git into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
+**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon. **What remains (R5–R8) is one linear roadmap, defined in this note**: harden reconnect, grow `@kolu/terminal-workspace` (one surface — awareness + fs/git — two homes), dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
 
 export const PAL = { bg: "#0f1117", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
@@ -128,7 +128,7 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "R4 · arivu — the awareness daemon", m: "→ arivu", h: "arivu.html" },
   { d: 1, g: "✓", c: "ship", l: "R4.1–R4.5 · sensors → daemon → --host → fleet", m: "#1413…1497" },
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop", m: "next · defined ↓", h: "#r5" },
-  { d: 0, g: "○", c: "prog", l: "R6 · fs/git — one shared library, two homes", m: "defined ↓", h: "#r6" },
+  { d: 0, g: "○", c: "prog", l: "R6 · terminal-workspace — one surface (awareness + fs/git)", m: "defined ↓", h: "#r6" },
   { d: 0, g: "○", c: "prog", l: "R7 · kolu dials remotes + the fold", m: "needs R6 ↓", h: "#r7" },
   { d: 0, g: "○", c: "last", l: "R8 · canvas multiplex + validate", m: "defined ↓", h: "#r8" },
 ];
@@ -148,20 +148,23 @@ The shipped branches **R1–R4** are detailed in their child notes (and the PRs 
 
 <a id="r6"></a>
 
-### R6 — fs/git becomes a shared library (one impl, two homes)
+### R6 — `@kolu/terminal-workspace`: one library, one surface, two homes
 
-The **awareness pattern, applied to fs/git.** The sensors are already a shared library — `@kolu/terminal-awareness` — that kolu runs **in-process** for local terminals and **arivu** serves remotely: *one library, two homes*. fs/git is only half there: kolu serves it **in-process** for local terminals (`localEndpoint` → `kolu-git` + node fs), and there is no remote home yet.
+The host-side library that knows a terminal's working directory becomes **`@kolu/terminal-workspace`** — the shipped `@kolu/terminal-awareness` (R4.1) grown to cover fs/git too, run *in-process* locally (kolu) and hosted by *arivu* remotely: the same two homes the sensors already proved. It serves **one `@kolu/surface` surface**; the primitives differ only in *kind*:
 
-The trap to avoid — the wart: letting arivu **reimplement** fs/git would leave kolu with *two* fs/git implementations, its own (local) and arivu's (remote). So R6 instead **extracts the fs/git surface into a shared library** (exactly as R4.1 extracted the sensors), giving **one implementation, two homes**: kolu keeps running it in-process locally (unchanged), and the remote daemon — arivu's host-side process — **hosts the same library**. arivu doesn't grow *its own* fs/git; it hosts the shared one. What extracts is the **thin surface** — the `localFs`/`localGit` wrapper over `kolu-git` (on-demand reads **plus** the `subscribeRepoChange`/`FileChange` watchers, so it is snapshot-then-delta) — *not* the terminal-endpoint orchestration around it (spawn · adopt · the registry), which stays kolu's and gets a remote impl in R7. (The contract also stays split from awareness: raw fs/git is its own surface, never folded into `AwarenessValue`.)
+- `awareness` (collection) + `activity` (stream) — the derived status badge + the green-dot liveness. **Shipped.**
+- `fsListAll` · `fsReadFile` · `gitStatus` · `gitDiff` (procedures) + `subscribeRepoChange` / `FileChange` (watcher streams) — the Code tab's raw reads + live deltas. **New in R6**, lifted from kolu-server's `localEndpoint` (a thin wrapper over `kolu-git` + `serve-dir`) into the shared library.
+
+This kills the duplication wart: without it, arivu would **reimplement** fs/git and kolu would carry *two* fs/git impls (its own local, arivu's remote). Instead there is **one** — in-process locally, via arivu remotely. Only the thin fs/git wrapper moves; the terminal-endpoint *orchestration* around it (spawn · adopt · the registry) stays kolu's and gets a remote impl in R7. (One surface, but two *uses*: see R7 — the `awareness` collection is folded into `terminalMetadata`; the fs/git procedures are called on demand. Nothing is folded into `AwarenessValue` because procedures were never part of it.)
 
 <a id="r7"></a>
 
 ### R7 — kolu dials remotes + the fold
 
-The linchpin — and it **needs R6** (the remote Code tab calls arivu's shared fs/git library). kolu-server gains the **N-endpoint registry + the ssh driver** — the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location` — reusing the *same* `getHostSession` the spike (R3) built. It dials the host's **kaval** for the PTY (via the shipped `frontDaemonOverStdio`) → a remote tile; and dials its **arivu** over a *long-lived* `HostSession`. From arivu it consumes two things by **two different mechanisms** (both via `mirrorRemoteSurface`), and the distinction is load-bearing:
+The linchpin — and it **needs R6** (the remote Code tab calls arivu's shared fs/git library). kolu-server gains the **N-endpoint registry + the ssh driver** — the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location` — reusing the *same* `getHostSession` the spike (R3) built. It dials the host's **kaval** for the PTY (via the shipped `frontDaemonOverStdio`) → a remote tile; and dials its **arivu** over a *long-lived* `HostSession`. From arivu's **one `terminal-workspace` surface** (R6) it consumes primitives **two different ways** — the distinction is load-bearing:
 
-- **awareness → folded.** Each `AwarenessValue` is *folded* into the tile's co-owned `terminalMetadata` across the persisted/live fence (see the callout). arivu's **`activity` stream** is mirrored the same way to drive the remote tile's **green dot** (the live-byte signal — not the `lastActivityAt` timestamp).
-- **fs/git → served, never folded.** The Code tab's raw reads (`fsReadFile`/`gitDiff`) and live change deltas (`subscribeRepoChange`/`FileChange`) are *served* behind the `TerminalEndpoint` fs/git seam — mirrored over the same `HostSession` — and never touch `terminalMetadata`. This is the consumer of R6.
+- **awareness + activity → mirrored & folded.** The `awareness` collection is mirrored with `mirrorRemoteSurface` and *folded* into the tile's co-owned `terminalMetadata` across the persisted/live fence (see the callout); the `activity` stream drives the remote tile's **green dot** (the live-byte signal, not the `lastActivityAt` timestamp).
+- **fs/git → called on demand, never folded.** The Code tab *calls* the fs/git procedures (`fsReadFile`/`gitDiff`) and subscribes the watcher streams (`subscribeRepoChange`/`FileChange`) directly over the same `HostSession` — request/response + live deltas, never into `terminalMetadata`. This is the consumer of R6.
 
 `location` is co-owned with `terminalMetadata`, persisted kolu-side, re-validated on reconnect against the remote kaval's live `cwd`. (Paste/upload is a `TerminalEndpoint` concern — served behind the same seam with the `PRECONDITION_FAILED` guard — not awareness, not fs/git.) The result: a remote terminal as capable as a local one — PTY, awareness badge, green dot, working Code tab. The shape is the **lead diagram** above.
 
@@ -188,4 +191,4 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 - **2026-05-26 → 28** — R1 shipped: the `TerminalEndpoint` seam (<PrLink pr={981} />), the framework gaps + `@kolu/surface-nix-host` (<PrLink pr={984} />), and the shared sensor engine (<PrLink pr={1004} />).
 - **R2 re-sequenced before R3/R5** — a whole-plan `/lowy` pass showed that building the multi-client survivor *once* collapses the later phases; R2 split into [pty-daemon](pty-daemon.html) and shipped end-to-end (R2.1 → R2.5), closing <Issue n={671} /> (terminals survive a deploy).
 - **Multi-host end state** set 2026-06-11: 1 local + N ssh kavals, host-switched in the ChromeBar; R2's redo baked the host-count-agnostic shapes (hostId-keyed status, the `HostLocation` discriminator) so R3 retrofits nothing.
-- **Renumbered to one R1–R8 tree** (2026-06-21) — shipped branches R1–R4 (was `R-1`/`R-1.5`/`R-4`/`R-2`/`R-3` + colliding child `P`/`B` schemes), and the remaining work lifted out of the child notes into a **linear R5–R8 roadmap defined here** (so the forward plan lives in one place; fs/git gets the awareness treatment — one shared library, two homes, never a second impl in arivu — as its own phase, R6). Git holds the old labels. Cf. [ghostex vs kolu](ghostex-vs-remote-terminals.html), [herdr vs kolu](herdr-vs-kolu.html), [kaval vs zmosh](kaval-vs-zmosh.html).
+- **Renumbered to one R1–R8 tree** (2026-06-21) — shipped branches R1–R4 (was `R-1`/`R-1.5`/`R-4`/`R-2`/`R-3` + colliding child `P`/`B` schemes), and the remaining work lifted out of the child notes into a **linear R5–R8 roadmap defined here** (so the forward plan lives in one place; fs/git joins awareness in one library, `@kolu/terminal-workspace` — one surface, two homes, never a second impl in arivu — as its own phase, R6). Git holds the old labels. Cf. [ghostex vs kolu](ghostex-vs-remote-terminals.html), [herdr vs kolu](herdr-vs-kolu.html), [kaval vs zmosh](kaval-vs-zmosh.html).
