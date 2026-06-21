@@ -21,15 +21,15 @@
  * link.
  */
 
-import { resumeAgentCommand } from "anyagent/cli";
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  LOCAL_LOCATION,
-  SavedSleepingTerminalSchema,
-  SleepingTerminalSchema,
-  TerminalIdSchema,
-} from "kolu-common/surface";
+  type AwarenessRecord,
+  type AwarenessSignals,
+  type AwarenessSink,
+  startAwareness,
+} from "@kolu/terminal-awareness";
+import { resumeFormFor } from "anyagent/cli";
+import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
@@ -37,6 +37,12 @@ import type {
   SleepingTerminal,
   TerminalId,
   TerminalInfo,
+} from "kolu-common/surface";
+import {
+  LOCAL_LOCATION,
+  SavedSleepingTerminalSchema,
+  SleepingTerminalSchema,
+  TerminalIdSchema,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -83,12 +89,6 @@ import {
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
-import {
-  type AwarenessSignals,
-  type AwarenessSink,
-  type AwarenessRecord,
-  startAwareness,
-} from "@kolu/terminal-awareness";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -877,14 +877,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
     // Render the resume FORM from the OBSERVED `lastAgentCommand` (the command the
-    // OSC 633;E sensor captured) via `resumeAgentCommand` (claude `-c`, codex
-    // `resume --last`, opencode `--continue`), or null for a never-observed /
-    // non-resumable agent. An agent whose launch the command tap never observed
-    // (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is NOT resumed
-    // on wake — it wakes to a bare shell, by design (tracked: juspay/kolu#1492).
-    const resumeCommand = entry.meta.lastAgentCommand
-      ? resumeAgentCommand(entry.meta.lastAgentCommand)
-      : null;
+    // OSC 633;E sensor captured) via `resumeAgentCommand`. With the persisted
+    // `agentSession` ref it resumes the EXACT conversation that was running on
+    // this terminal (`claude --resume <id>`, etc., juspay/kolu#1495); without it
+    // (never resolved a session) it falls back to the most-recent marker (claude
+    // `-c`, codex `resume --last`, opencode `--continue`). Null for a never-
+    // observed / non-resumable agent: an agent whose launch the command tap never
+    // observed (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is
+    // NOT resumed on wake — it wakes to a bare shell, by design (juspay/kolu#1492).
+    const resumeCommand = resumeFormFor(entry.meta);
     const meta = wakeMeta(entry.meta);
     log
       .child({ terminal: id })

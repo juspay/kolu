@@ -28,6 +28,10 @@ export interface FleetHostState {
   label: string;
   status: FleetHostStatus;
   terminals: Record<TerminalId, AwarenessValue>;
+  /** The terminals on this host moving bytes right now — the `activity` stream's
+   *  current frame, replaced whole on each delta. Drives the live green dot;
+   *  empty until the first frame (and for a skewed host that can't serve it). */
+  live: TerminalId[];
 }
 
 /** One host's one-shot snapshot for `fleet --json` — the terminals it served, a

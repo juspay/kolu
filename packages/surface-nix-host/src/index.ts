@@ -29,7 +29,6 @@ export {
   type HostSessionOptions,
   type HostSessionState,
 } from "./hostSession";
-export { mirrorRemoteCollection } from "./mirrorRemoteCollection";
 export {
   type ProvisionOptions,
   type ProvisionResult,

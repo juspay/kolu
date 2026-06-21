@@ -3,6 +3,10 @@ paths:
   - "**"
 ---
 
+## Communication
+
+- **Answer in plain words.** When the user asks you to explain, summarize, or reason about something (not write code), reach for everyday language first and keep it short. Introduce a piece of jargon, a symbol-heavy phrasing, or an internal codename only when it carries weight the plain word can't — then gloss it once. This is the default for *every* turn, not a per-request favor: the user should never have to ask twice.
+
 ## Workflow
 
 - Use `/be` to take a task end-to-end: interview → setup → implement (test-first) → draft PR → review gauntlet (lens-debate → codex-debate → simplify → code-police) → ship (CI + evidence) → done. One interview up front, autonomous after.

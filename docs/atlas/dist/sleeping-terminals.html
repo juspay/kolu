@@ -129,12 +129,14 @@ already showing simply changes state, so the tile keeps its slot, dock order,
 selection, and id with <strong>zero swap</strong>.</p>
 <p><strong>Wake is session-restore-of-one — literally the path a reboot runs.</strong> kolu already
 rehydrates terminals on server restart: it re-spawns the PTY in the saved cwd and
-resumes the agent with <code>resumeAgentCommand</code> (claude <code>-c</code>, codex <code>resume --last</code>,
-opencode <code>--continue</code> — <em>continue the most-recent conversation in this cwd</em>). Wake
-flips the record back to <code>active</code> and replays that <strong>same</strong> path on the one record.
-So wake resumes your agent to <strong>exactly the degree a reboot does</strong> — the bar you
-already trust — with no bespoke sleep-only resume and no stored session id to drift
-out of sync. The persisted base carries <code>cwd</code> + the last agent command, which is
+resumes the agent with <code>resumeAgentCommand</code>. With the persisted <code>agentSession</code> ref
+(juspay/kolu#1495) that resume targets the <strong>exact</strong> conversation that was running on
+this terminal — <code>claude --resume &lt;id&gt;</code>, <code>codex resume &lt;id&gt;</code>, <code>opencode --session &lt;id&gt;</code>
+— and falls back to the cwd-most-recent form (claude <code>-c</code> &amp;c.) only when no session
+was ever captured. Wake flips the record back to <code>active</code> and replays that <strong>same</strong>
+path on the one record. So wake resumes your agent to <strong>exactly the degree a reboot
+does</strong> — the bar you already trust — with no bespoke sleep-only resume. The persisted
+base carries <code>cwd</code> + the last agent command + the conversation ref, which is
 everything that path needs; the in-place flip keeps them on the record by default.</p>
 <p><strong>One registry, one list — no merge seam.</strong> A sleeping terminal is the same entry
 in the one terminal registry, so it rides the <em>one</em> id list the client already
@@ -236,13 +238,14 @@ existing restore path <strong>just work</strong>: wake is restore-one, drag is a
 presence is one classifier. We’d revisit only if mutating in place ever proved to
 need boot-hydration surgery (it doesn’t — wake replays the path reboot already
 runs).</li>
-<li><strong>Wake resumes the <em>most-recent</em> conversation in the cwd, not a pinned session.</strong>
-By design, wake reuses <code>resumeAgentCommand</code> (claude <code>-c</code> &amp;c.) — the same
-cwd-scoped resume a reboot uses. With kolu’s one-agent-per-worktree norm this is
-the right conversation; the honest caveat is that it is <em>cwd-most-recent</em>, not an
-exact session id. If exact-session fidelity is ever needed, it’s a <strong>shared</strong>
-improvement to the one restore path (persist a session handle, resume by id) that
-benefits reboot and wake together — never a wake-only fork.</li>
+<li><strong>Wake resumes the <em>exact</em> conversation that was running — resolved in juspay/kolu#1495.</strong>
+Originally wake reused only the cwd-scoped <code>resumeAgentCommand</code> (claude <code>-c</code> &amp;c.), so a
+cwd with two conversations could wake on the wrong one. The follow-on persisted the
+agent’s native session id (<code>agentSession</code> = <code>{ kind, id }</code>, captured live from
+<code>agent.sessionId</code>) and resumes by it (<code>claude --resume &lt;id&gt;</code> &amp;c.), falling back to
+cwd-most-recent only when no session was ever captured. Exactly the <strong>shared</strong>
+improvement to the one restore path this caveat anticipated — it benefits reboot and
+wake together, never a wake-only fork.</li>
 <li><strong>Wake lands a clean resumed session — no repainted scrollback.</strong> Identical to a
 reboot: the conversation is back, but the prior on-screen text is not repainted.
 Phase 3’s frozen-frame capture is what shows the last visual state during the

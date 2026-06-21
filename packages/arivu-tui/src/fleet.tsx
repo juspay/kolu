@@ -30,7 +30,7 @@ import {
   startFleet,
 } from "./fleet.ts";
 import type { FleetHost } from "./hosts.ts";
-import { HEADER, HOST, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
+import { HEADER, HOST, LIVE, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
 import type { FleetHostState, FleetHostStatus } from "./fleetTypes.ts";
 import {
   cell,
@@ -56,6 +56,7 @@ const IDLE_GLYPH = "○";
 // branches in full instead of clipping them into an 80-col straitjacket. The
 // host-less modes (`needs`/`agent`) prepend a `W_HOST` column (no per-host group
 // header to name the machine), which `whereWidth` subtracts from the slack.
+const W_LIVE = 2; // the leading green activity dot (output moving right now)
 const W_GLYPH = 2;
 const W_HOST = 12;
 const W_AGENT = 8;
@@ -71,7 +72,13 @@ const MIN_WHERE = 12; // floor so a narrow terminal truncates rather than vanish
  *  stay aligned. */
 function whereWidth(termWidth: number, showHost: boolean): number {
   const fixed =
-    W_GLYPH + (showHost ? W_HOST : 0) + W_AGENT + W_PR + W_STATE + W_RECENCY;
+    W_LIVE +
+    W_GLYPH +
+    (showHost ? W_HOST : 0) +
+    W_AGENT +
+    W_PR +
+    W_STATE +
+    W_RECENCY;
   return Math.max(MIN_WHERE, termWidth - 2 - fixed);
 }
 
@@ -121,6 +128,10 @@ function Row(props: {
   const whereW = () => whereWidth(props.termWidth(), props.showHost ?? false);
   return (
     <box flexDirection="row">
+      {/* Live-output dot — green when this terminal is moving bytes right now (the
+          `activity` stream), blank otherwise. Orthogonal to the urgency glyph: one
+          says "output flowing", the other says "agent blocked/working/idle". */}
+      <text fg={LIVE}>{cell(props.row.live ? "●" : "", W_LIVE)}</text>
       <text fg={TONE_COLOR[props.row.state.tone]}>
         {cell(rowGlyph(props.row, props.frame()), W_GLYPH)}
       </text>
@@ -325,6 +336,7 @@ export async function runFleetTui(args: {
       label: host.label,
       status: { kind: "connecting" },
       terminals: {},
+      live: [],
     };
   }
   const [store, setStore] = createStore<Record<string, FleetHostState>>(seed);
@@ -338,6 +350,20 @@ export async function runFleetTui(args: {
         "terminals",
         produce((terminals) => {
           delete terminals[id];
+        }),
+      ),
+    // The `activity` stream replaces the whole live set each frame — assign it
+    // straight onto the host (the projection reads membership per row).
+    setLive: (label, live) => setStore(label, "live", live),
+    // The link dropped — drop the host's now-stale rows and live set, keeping the
+    // seeded entry (so the unreachable header still renders and Solid's key set
+    // never trips). The projection then counts/animates/alerts on nothing for it.
+    clearHost: (label) =>
+      setStore(
+        label,
+        produce((host) => {
+          host.terminals = {};
+          host.live = [];
         }),
       ),
   };

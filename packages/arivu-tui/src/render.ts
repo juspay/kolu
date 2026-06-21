@@ -340,6 +340,10 @@ function fleetStateText(
 export interface FleetRow {
   host: string;
   id: string;
+  /** Output moving on this terminal right now — the `activity` stream's live
+   *  membership. Drives the green dot. Pure projection input: the host carries a
+   *  live set, this row reflects whether THIS terminal is in it. */
+  live: boolean;
   urgency: FleetUrgency;
   /** The raw `lastActivityAt` epoch-millis. NOT pre-formatted: recency is the
    *  one cell that ticks with the wall clock rather than a store delta, so the
@@ -361,11 +365,13 @@ export function fleetRow(
   host: string,
   id: TerminalId,
   v: AwarenessValue,
+  live: boolean,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
   return {
     host,
     id: shortId(id),
+    live,
     urgency,
     activeAt: v.lastActivityAt,
     sortId: id,
@@ -502,9 +508,10 @@ export function projectFleet(
   // merge — sanitizing must change what is PAINTED, never who a row belongs to.
   const allRows: Array<{ key: string; row: FleetRow }> = states.flatMap((s) => {
     const host = sanitize(s.label);
+    const liveSet = new Set(s.live);
     return sortedEntries(s.terminals).map(([id, v]) => ({
       key: s.label,
-      row: fleetRow(host, id, v),
+      row: fleetRow(host, id, v, liveSet.has(id)),
     }));
   });
 

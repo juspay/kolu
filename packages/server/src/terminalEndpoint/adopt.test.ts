@@ -44,6 +44,10 @@ const sentinel: SavedActiveTerminal = {
     remoteUrl: "git@example.com:sentinel.git",
   },
   lastAgentCommand: "claude --model sonnet",
+  agentSession: {
+    kind: "claude-code",
+    id: "edb66a3b-9f17-4c39-9050-3b77904c313a",
+  },
   lastActivityAt: 1_718_000_000_000,
   themeName: "Dracula",
   parentId: "term-parent",

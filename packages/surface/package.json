@@ -13,6 +13,7 @@
     "./define": "./src/define.ts",
     "./first-frame": "./src/firstFrame.ts",
     "./loopback": "./src/loopback.ts",
+    "./mirror": "./src/mirrorRemoteSurface.ts",
     "./project": "./src/project.ts",
     "./server": "./src/server.ts",
     "./ws-origin": "./src/wsOrigin.ts",

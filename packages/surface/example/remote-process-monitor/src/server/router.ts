@@ -25,11 +25,11 @@ import {
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AgentClient,
   type HostSession,
   makeClientCursor,
-  mirrorRemoteCollection,
 } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import {
@@ -148,16 +148,16 @@ export function buildRouter(opts: BuildRouterOptions) {
   // Start a background pump that pins the session, then loops over each
   // successive AgentClient the session produces — each time the agent
   // process is respawned (after a transport drop), the bridge fetches
-  // the new client and restarts all pumps against it. The framework's
-  // `ClientRetryPlugin` is NOT load-bearing here: stdio links don't
-  // recover mid-stream (the underlying streams die with the process), so
-  // the only reliable recovery is to re-issue the subscriptions on the
-  // *new* client. The outer loop is what implements "reconnect → state
-  // reconciles" (row 12 of the falsifiability checklist). This loop relies
-  // on each pump *settling* when the link drops: a pump's RPC against a
-  // dead `StdioRPCLink` rejects synchronously (the link fails fast once
-  // its inbound stream ends — it does not hang), so `Promise.allSettled`
-  // returns and the loop advances to the respawned client.
+  // the new client and re-issues ONE `mirrorRemoteSurface` against it. The
+  // framework's `ClientRetryPlugin` is NOT load-bearing here: stdio links
+  // don't recover mid-stream (the underlying streams die with the
+  // process), so the only reliable recovery is to re-mirror on the *new*
+  // client. The outer loop is what implements "reconnect → state
+  // reconciles" (row 12 of the falsifiability checklist). It relies on the
+  // mirror *settling* when the link drops: each subscription's RPC against
+  // a dead `StdioRPCLink` rejects once its inbound stream ends (the link
+  // fails fast — it does not hang), so `mirrorRemoteSurface` resolves and
+  // the loop advances to the respawned client.
   void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
@@ -171,29 +171,15 @@ export function buildRouter(opts: BuildRouterOptions) {
   return { router, session };
 }
 
-/** The subset of `implementSurface(...).ctx` the bridge pumps actually
- *  call. Keep this in sync with the surface's cells/collections —
- *  every cell/collection actually written from a pump must appear
- *  here, otherwise the pumps compile against a narrower-than-real
- *  type and a typo / missing-write goes undetected. */
-type FragmentCtx = {
-  ctx: {
-    cells: {
-      system: { set: (v: SystemInfo) => void };
-      connection: { set: (v: ConnectionInfo) => void };
-    };
-    collections: {
-      processes: {
-        upsert: (k: Pid, v: Process) => void;
-        remove: (k: Pid) => void;
-      };
-      cpuCores: {
-        upsert: (k: CoreId, v: CpuCore) => void;
-        remove: (k: CoreId) => void;
-      };
-    };
-  };
-};
+/** The `{ ctx }` the bridge pumps mutate — derived from the framework's own
+ *  `implementSurface` return so it can't drift from the surface's
+ *  cells/collections. A typo or missing-write in a pump now fails to compile
+ *  against the real `ctx` (the whole point), with no hand-maintained shadow to
+ *  keep in sync. */
+type FragmentCtx = Pick<
+  ReturnType<typeof implementSurface<typeof surface.spec>>,
+  "ctx"
+>;
 
 /** Demo-side logging — every interesting bridge event goes to stderr
  *  so `just dev` / `nix run` users see the full data flow. */
@@ -201,14 +187,17 @@ function log(line: string): void {
   process.stderr.write(`[bridge] ${line}\n`);
 }
 
-/** Pin the session, then loop: fetch the current AgentClient, run all
- *  three pumps against it concurrently, wait for them to end (which
- *  happens when the link errors — stdio process death), then wait for
- *  the session to provide a fresh client (post-reconnect) and repeat.
+/** Pin the session, then loop: fetch the current AgentClient, mirror the WHOLE
+ *  agent surface into the parent with one `mirrorRemoteSurface` call, wait for it
+ *  to settle (which happens when the link errors — stdio process death), then
+ *  wait for the session to provide a fresh client (post-reconnect) and repeat.
  *
- *  The reconnect-loop primitive itself (`makeClientCursor`) lives in
- *  `@kolu/surface-nix-host`; this function is the demo-specific
- *  composition (which pumps to run on each cycle). */
+ *  This is the headline of the surface-mirror graduation: the three hand-rolled
+ *  pumps (system cell, cpuCores collection, processesSnapshot stream) collapse
+ *  into one declarative sink — the consume-side dual of the `implementSurface`
+ *  call that built the parent's own surface above. The reconnect-loop primitive
+ *  (`makeClientCursor`) and the per-client re-mirror stay the demo's job, because
+ *  stdio links don't recover mid-stream. */
 async function bridgeAgentToParent(
   session: HostSession<typeof surface.contract>,
   fragment: FragmentCtx,
@@ -236,92 +225,52 @@ async function bridgeAgentToParent(
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;
     }
-    log("agent client ready; starting pumps");
-    await Promise.allSettled([
-      pumpSystemCell(client, session, fragment),
-      pumpProcessesSnapshot(client, fragment, browserSnapshotBus),
-      pumpCpuCores(client, fragment),
-    ]);
-    log("bridge: pumps ended (link likely died) — awaiting next client");
+    log("agent client ready; starting mirror");
+    // Per-client mirror state — a fresh snapshot leads each (re)connect, so the
+    // seen-PID set and frame counter reset with the client.
+    const seenPids = new Set<Pid>();
+    let frames = 0;
+    let firstSystemFrame = true;
+    await mirrorRemoteSurface(surface, client, {
+      cells: {
+        // The agent's `system` cell → the parent's. First frame = first data,
+        // so flip the session to connected (idempotent thereafter).
+        system: (remoteSystem) => {
+          if (firstSystemFrame) {
+            firstSystemFrame = false;
+            log("system: first snapshot → marking connected");
+            session.markConnected();
+          }
+          fragment.ctx.cells.system.set(remoteSystem);
+        },
+      },
+      collections: {
+        // Small-N per-key collection — the path the private `mirrorCollection`
+        // engine drives (keys stream + per-key value streams).
+        cpuCores: {
+          upsert: (key, value) =>
+            fragment.ctx.collections.cpuCores.upsert(key, value),
+          remove: (key) => fragment.ctx.collections.cpuCores.remove(key),
+        },
+      },
+      streams: {
+        // Bulk discriminated-union stream — one long-lived stream regardless of
+        // process count. Each frame is a full keyed-snapshot (first, or on
+        // reconnect) or a per-tick delta; `applySnapshotMessage` applies both,
+        // and the parent re-publishes the frame verbatim to its browser bus.
+        processesSnapshot: {
+          input: {},
+          onFrame: (msg) => {
+            frames += 1;
+            applySnapshotMessage(msg, seenPids, fragment, frames);
+            browserSnapshotBus.publish(msg);
+          },
+        },
+      },
+    });
+    log("bridge: mirror ended (link likely died) — awaiting next client");
   }
   log("bridge: session destroyed — exiting reconnect loop");
-}
-
-/** Mirror the agent's `cpuCores` collection — small-N showcase of
- *  `mirrorRemoteCollection`. */
-function pumpCpuCores(
-  client: ProcessMonitorAgent,
-  fragment: FragmentCtx,
-): Promise<void> {
-  return mirrorRemoteCollection<CoreId, CpuCore>({
-    label: "cpuCores",
-    log,
-    keys: client.surface.cpuCores.keys({}) as Promise<
-      AsyncIterable<readonly CoreId[]>
-    >,
-    get: (key, signal) =>
-      client.surface.cpuCores.get({ key }, { signal }) as Promise<
-        AsyncIterable<CpuCore>
-      >,
-    onUpsert: (key, value) =>
-      fragment.ctx.collections.cpuCores.upsert(key, value),
-    onRemove: (key) => fragment.ctx.collections.cpuCores.remove(key),
-  });
-}
-
-/** Mirror the agent's system cell into the parent's local cell. */
-async function pumpSystemCell(
-  client: ProcessMonitorAgent,
-  session: HostSession<typeof surface.contract>,
-  fragment: FragmentCtx,
-): Promise<void> {
-  let n = 0;
-  try {
-    for await (const remoteSystem of await client.surface.system.get({})) {
-      n += 1;
-      if (n === 1) log("system: first snapshot → marking connected");
-      session.markConnected();
-      fragment.ctx.cells.system.set(remoteSystem);
-    }
-    log(`system: stream closed cleanly after ${n} yields`);
-  } catch (err) {
-    log(`system: stream error after ${n} yields: ${(err as Error).message}`);
-  }
-}
-
-/** Mirror the agent's processes via the BULK `processesSnapshot`
- *  stream — ONE long-lived stream, regardless of process count. Each
- *  yield is either a full keyed-snapshot (first frame on subscribe,
- *  or on every reconnect via `ClientRetryPlugin`) or a per-tick delta.
- *  Both shapes apply to the parent's local collection in a single
- *  batch.
- *
- *  This replaces the older "keys-stream + N per-key subscribes"
- *  bridge — fine over local stdio but a noticeable drip over a
- *  high-latency `ssh` link (600 PIDs × ~10ms RTT ≈ 6 seconds of
- *  one-row-at-a-time fill). With the bulk stream, cold-start is O(1)
- *  RPCs regardless of process count. */
-async function pumpProcessesSnapshot(
-  client: ProcessMonitorAgent,
-  fragment: FragmentCtx,
-  browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
-): Promise<void> {
-  const seenPids = new Set<Pid>();
-  let frames = 0;
-  try {
-    for await (const msg of await client.surface.processesSnapshot.get({})) {
-      frames += 1;
-      applySnapshotMessage(msg, seenPids, fragment, frames);
-      // Independent activity: re-publish to browser subscribers via
-      // the parent's local bus. Verbatim forward — no inspection of
-      // frame contents here; the mirror logic above is the only
-      // place that knows the discriminated-union shape.
-      browserSnapshotBus.publish(msg);
-    }
-    log(`processes: snapshot stream closed (${frames} frames total)`);
-  } catch (err) {
-    log(`processes: snapshot stream error: ${(err as Error).message}`);
-  }
 }
 
 /** Apply one `processesSnapshot` frame to the parent's local

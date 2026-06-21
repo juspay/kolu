@@ -347,6 +347,104 @@ describe("resumeAgentCommand", () => {
   });
 });
 
+describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
+  const CLAUDE_ID = "edb66a3b-9f17-4c39-9050-3b77904c313a";
+  const CODEX_ID = "7f9f9a2e-1b3c-4c7a-9b0e-1d2e3f4a5b6c";
+  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+
+  it.each([
+    [
+      "claude",
+      { kind: "claude-code", id: CLAUDE_ID },
+      `claude --resume ${CLAUDE_ID}`,
+    ],
+    [
+      "claude --model sonnet",
+      { kind: "claude-code", id: CLAUDE_ID },
+      `claude --resume ${CLAUDE_ID} --model sonnet`,
+    ],
+    ["codex", { kind: "codex", id: CODEX_ID }, `codex resume ${CODEX_ID}`],
+    [
+      "codex --yolo",
+      { kind: "codex", id: CODEX_ID },
+      `codex resume ${CODEX_ID} --yolo`,
+    ],
+    [
+      "opencode",
+      { kind: "opencode", id: OPENCODE_ID },
+      `opencode --session ${OPENCODE_ID}`,
+    ],
+    [
+      "opencode --agent build --pure",
+      { kind: "opencode", id: OPENCODE_ID },
+      `opencode --session ${OPENCODE_ID} --agent build --pure`,
+    ],
+  ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
+    expect(resumeAgentCommand(normalized, session)).toBe(expected);
+  });
+
+  // The id is spliced as a single safe token, and the rest of the tail keeps its
+  // existing quoting — so a quoted flag value survives alongside the id splice.
+  it("preserves a quoted tail value alongside the id splice", () => {
+    expect(
+      resumeAgentCommand(`claude --settings '{"ultracode": true}'`, {
+        kind: "claude-code",
+        id: CLAUDE_ID,
+      }),
+    ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"ultracode": true}'`);
+  });
+
+  // Fallback policy (locked): a ref naming a DIFFERENT agent than the command is
+  // never aimed at this CLI — fall back to the most-recent marker.
+  it("falls back to most-recent when the ref names a different agent", () => {
+    expect(resumeAgentCommand("claude", { kind: "codex", id: CODEX_ID })).toBe(
+      "claude -c",
+    );
+  });
+
+  // A SAME-agent ref whose id fails its per-agent shape gate (would-be shell
+  // injection, wrong format, empty) is a BROKEN claim to know the conversation:
+  // never splice it, and never silently downgrade to the most-recent (wrong)
+  // conversation either. `resumeAgentCommand` returns null so the terminal wakes
+  // to a bare shell rather than landing in a stranger's conversation.
+  it.each([
+    ["claude", { kind: "claude-code", id: "not-a-uuid" }],
+    ["claude", { kind: "claude-code", id: "" }],
+    [
+      // a hostile id carrying shell metacharacters never reaches the command
+      "claude",
+      { kind: "claude-code", id: "$(rm -rf ~)" },
+    ],
+    ["codex", { kind: "codex", id: "ses_wrongshape" }],
+    [
+      // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
+      "opencode",
+      { kind: "opencode", id: "11111111-2222-3333-4444-555555555555" },
+    ],
+  ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
+    expect(resumeAgentCommand(normalized, session)).toBeNull();
+  });
+
+  // No ref at all → unchanged most-recent behavior (back-compat with callers
+  // that have no captured conversation id).
+  it("falls back to most-recent when no session ref is given", () => {
+    expect(resumeAgentCommand("claude")).toBe("claude -c");
+    expect(resumeAgentCommand("codex --yolo")).toBe(
+      "codex resume --last --yolo",
+    );
+  });
+
+  // Detection-only agents stay null even with a ref — there is no resume form.
+  it("returns null for a non-resumable agent regardless of ref", () => {
+    expect(
+      resumeAgentCommand("aider", {
+        kind: "claude-code",
+        id: CLAUDE_ID,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("agentKindFromCommand", () => {
   it("maps claude basename to claude-code kind", () => {
     expect(agentKindFromCommand("claude")).toBe("claude-code");

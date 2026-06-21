@@ -28,11 +28,13 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   implementSurface,
   inMemoryChannelByName,
   inMemoryStore,
+  pollOnEvent,
 } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
@@ -45,10 +47,11 @@ import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostListEntry,
-  type ptyHostSurface,
+  ptyHostSurface,
   resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
+import { createActivityTracker, sameActivitySet } from "./activity.ts";
 import { makeAwarenessSink } from "./hooks.ts";
 
 /** How arivu exposes the awareness surface. `socket` binds a unix socket (the
@@ -138,6 +141,12 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
   }
   log.info({ kavalSocket }, "arivu: dialed kaval");
 
+  // ── Live-output activity — the set of terminals moving bytes right now, fed
+  //    from kaval's raw output tap (below) and served as the `activity` stream
+  //    (snapshot-then-deltas, the whole live set per frame). The flow primitive
+  //    beside the stateful collection + cell.
+  const activity = createActivityTracker();
+
   // ── The served awareness surface — a keyed collection backed by a cache ──
   const cache = new Map<TerminalId, AwarenessValue>();
   const fragment = implementSurface(arivuSurface, {
@@ -152,6 +161,21 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
         remove: (key) => {
           cache.delete(key);
         },
+      },
+    },
+    streams: {
+      // Poll-on-event over the live set: yield the current set, then re-yield
+      // whenever a terminal lights up or goes quiet. `sameActivitySet` suppresses
+      // the redundant yield when a timer re-arm left the set unchanged.
+      activity: {
+        source: (_input, signal) =>
+          pollOnEvent({
+            read: async () => activity.snapshot(),
+            isEqual: sameActivitySet,
+            install: (onEvent) => activity.onChange(onEvent),
+            signal,
+            onReadError: () => {},
+          }),
       },
     },
   });
@@ -203,9 +227,40 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
       onError: () => {},
     });
     const stopAwareness = startAwareness(record, id, signals, sink, log);
+
+    // Tap raw output to drive the live-activity set (the green dot). We want only
+    // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
+    // (the existing screen, not motion) and treat each delta as one pulse. Held
+    // for the terminal's lifetime; `abort` tears it down on departure. Drive it
+    // through the same `mirrorRemoteSurface` receptacle the consume side uses, so
+    // this tap reuses its subscribe/abort/swallow-AbortError teardown rather than a
+    // third hand-rolled copy. (The other per-terminal taps — cwd/title/command/
+    // foreground — still ride `bridgeKavalTaps`'s `bridgeStream`; folding those onto
+    // the receptacle too would make the shared `@kolu/terminal-awareness` take a
+    // mirror dep, a larger consolidation left for later.)
+    void mirrorRemoteSurface(
+      ptyHostSurface,
+      kaval.client,
+      {
+        streams: {
+          terminalAttach: {
+            input: { id },
+            onFrame: (msg) => {
+              if (msg.kind === "delta") activity.noteOutput(id);
+            },
+          },
+        },
+      },
+      {
+        signal: abort.signal,
+        log: (line) => log.debug({ terminal: id }, line),
+      },
+    );
+
     return () => {
       abort.abort();
       stopAwareness();
+      activity.forget(id);
     };
   };
 
@@ -248,6 +303,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     clearInterval(pollTimer);
     for (const stop of watched.values()) stop();
     watched.clear();
+    activity.dispose();
     kaval.dispose();
   };
 

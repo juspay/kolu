@@ -27,6 +27,7 @@
  * mutator type can be narrowed to exactly one half.
  */
 
+import { AgentKindSchema, AgentSessionRefSchema } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -43,13 +44,23 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
+// `AgentKindSchema` + `AgentSessionRefSchema` are OWNED by anyagent/schemas
+// (the lower layer that owns the `AgentKind` vocabulary and the
+// `resumeAgentCommand` receptacle consuming the ref). Re-exported here so the
+// persist path (`agentSession.ts`) and kolu-common/surface keep resolving them
+// from this schema home — one declaration, validated once.
+export { AgentKindSchema, AgentSessionRefSchema };
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
 ]);
+
+// `AgentSessionRef` (the persisted conversation-identity ref) is imported by
+// `agentSession.ts` from this module; re-export the inferred type from the
+// anyagent-owned schema so that import keeps resolving.
+export type AgentSessionRef = z.infer<typeof AgentSessionRefSchema>;
 
 // ── PR resolution — closed forge union + wire result ──────────────────
 //
@@ -133,6 +144,13 @@ export const AwarenessPersistedFieldsSchema = z.object({
    *  input; drives the "resume agent on restore" offer. Absent for terminals
    *  that never ran a known agent. */
   lastAgentCommand: z.string().optional(),
+  /** The EXACT agent conversation last running in this terminal — its agent
+   *  `kind` + native session `id` (see `AgentSessionRefSchema`). Captured live
+   *  from `agent.sessionId` but persisted here (the live `agent` field is wiped
+   *  on restart), so wake / restore resumes that conversation rather than the
+   *  most-recent one in the cwd (juspay/kolu#1495). Absent for terminals whose
+   *  agent never resolved a session (then resume falls back to most-recent). */
+  agentSession: AgentSessionRefSchema.optional(),
   /** Workspace-switcher recency key: epoch-millis of the last agent
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0`. */
