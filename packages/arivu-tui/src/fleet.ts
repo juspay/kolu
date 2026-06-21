@@ -46,6 +46,12 @@ export interface FleetSink {
    *  `activity` stream's current frame) — drives the live green dot. Replaces the
    *  host's live set each frame (snapshot-then-deltas). */
   setLive: (label: string, live: TerminalId[]) => void;
+  /** Drop every mirrored row and the live set for this host, leaving only its
+   *  status. Called when the link closes/fails: the mirrored data is now STALE
+   *  (the box is gone), so it must not keep being counted, animated, or alerted
+   *  on. The no-fallback rule — an `unreachable` host shows its header, never a
+   *  frozen snapshot of `working`/`awaiting you` rows from before it died. */
+  clearHost: (label: string) => void;
 }
 
 export interface FleetHandle {
@@ -186,8 +192,11 @@ async function runHost(
     );
     // The mirror returned → every subscription settled (the link closed;
     // `mirrorRemoteSurface` swallows its own per-stream errors). The box went
-    // away: flip the header unless we tore it down on purpose.
+    // away: flip the header AND drop its now-stale rows + live set unless we tore
+    // it down on purpose — a dead host must not keep showing (and counting, and
+    // alerting on) the terminals it had before the link dropped.
     if (!isDisposed()) {
+      opts.sink.clearHost(host.label);
       opts.sink.setStatus(host.label, {
         kind: "unreachable",
         reason: "connection closed",
@@ -196,8 +205,10 @@ async function runHost(
   } catch (err) {
     // The post-dial path threw — the version probe rejected, or the mirror's
     // own setup did. Same contract as a failed dial: this host is unreachable,
-    // the others are untouched.
+    // its stale rows are cleared, the others are untouched. (A throw before any
+    // upsert leaves nothing to clear; clearing is idempotent either way.)
     if (!isDisposed()) {
+      opts.sink.clearHost(host.label);
       opts.sink.setStatus(host.label, {
         kind: "unreachable",
         reason: (err as Error).message,

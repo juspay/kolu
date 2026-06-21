@@ -169,4 +169,71 @@ describe("mirrorRemoteSurface", () => {
     ).resolves.toBeUndefined();
     expect(logs.some((l) => l.includes("boom"))).toBe(true);
   });
+
+  it("rejects (does not log/swallow) when a stream SINK throws — fail-fast", async () => {
+    // A throw from the caller's `onFrame` is a broken local fold, not an upstream
+    // blip: it must reject the whole mirror (no-fallback: a caught error can't
+    // collapse to a quietly-resolved mirror), and never be hidden as a logged
+    // remote-stream error — even when the logger is a no-op.
+    const client = { surface: { ticks: { get: async () => gen(1) } } };
+    const logs: string[] = [];
+    await expect(
+      mirrorRemoteSurface(
+        testSurface,
+        asClient(client),
+        {
+          streams: {
+            ticks: {
+              input: {},
+              onFrame: () => {
+                throw new Error("fold blew up");
+              },
+            },
+          },
+        },
+        { log: (l) => logs.push(l) },
+      ),
+    ).rejects.toThrow("fold blew up");
+    // The sink failure was NOT logged as an upstream blip.
+    expect(logs.some((l) => l.includes("fold blew up"))).toBe(false);
+  });
+
+  it("rejects when a collection UPSERT sink throws — fail-fast", async () => {
+    const client = {
+      surface: {
+        items: {
+          keys: async () =>
+            (async function* () {
+              yield ["a"];
+              await delay(50); // stay open; the sink throw ends the mirror first.
+            })(),
+          get: async () => gen({ v: 1 }),
+        },
+      },
+    };
+    await expect(
+      mirrorRemoteSurface(testSurface, asClient(client), {
+        collections: {
+          items: {
+            upsert: () => {
+              throw new Error("upsert fold blew up");
+            },
+            remove: () => {},
+          },
+        },
+      }),
+    ).rejects.toThrow("upsert fold blew up");
+  });
+
+  it("rejects (does not no-op) when a sink is supplied but the client lacks the entry", async () => {
+    // Omitting a sink is non-interest; SUPPLYING one for a primitive the client
+    // doesn't expose is a client/surface mismatch — fail-fast, never silent
+    // no-data while the caller still thinks it's connected.
+    const client = { surface: {} };
+    await expect(
+      mirrorRemoteSurface(testSurface, asClient(client), {
+        cells: { count: () => {} },
+      }),
+    ).rejects.toThrow(/client\/surface mismatch/);
+  });
 });

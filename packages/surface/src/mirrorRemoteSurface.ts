@@ -132,6 +132,25 @@ type EntryClient = {
   ) => Promise<AsyncIterable<readonly unknown[]>>;
 };
 
+/** Resolve the client namespace entry for a primitive a sink opted into, or
+ *  throw a client/surface-mismatch error. Only called when a sink IS supplied —
+ *  so a missing entry is a wrong/incompatible client (fail-fast), never the
+ *  tolerated "no sink = no interest" path. The `get` verb is the floor every
+ *  primitive's entry must have; `keys` is checked separately for collections. */
+function requireEntry(
+  ns: Record<string, EntryClient>,
+  key: string,
+  kind: string,
+): EntryClient {
+  const entry = ns[key];
+  if (!entry || typeof entry.get !== "function") {
+    throw new Error(
+      `mirrorRemoteSurface: a sink was supplied for ${kind} "${key}" but the client has no such entry — wrong or incompatible client (client/surface mismatch).`,
+    );
+  }
+  return entry;
+}
+
 // ── mirrorRemoteSurface ──────────────────────────────────────────────────
 
 /** Mirror every primitive of `source` that `sink` opts into, by subscribing
@@ -180,70 +199,132 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
     | Record<string, FlowSink | undefined>
     | undefined;
 
-  // Cells: a cell's `get` yields snapshot-then-deltas with no input — just a
-  // single-input stream whose argument is `{}`. So a cell sink reuses the stream
-  // subscribe loop verbatim.
-  for (const key of Object.keys(spec.cells ?? {})) {
-    const onValue = cellSinks?.[key];
-    const entry = ns[key];
-    if (!onValue || !entry) continue;
-    tasks.push(subscribeStream(entry, {}, onValue, signal, log, `${key} cell`));
-  }
+  // Omitting a sink is deliberate non-interest — that primitive is skipped. But
+  // SUPPLYING a sink means the caller expects that primitive on the wire, so a
+  // missing client entry (or a missing required verb) is a client/surface
+  // mismatch, not an absence to tolerate: the no-fallback rule says it crashes
+  // loudly here, never degrades to silently-no-data while the caller still reads
+  // `connected`. `requireEntry` enforces that — `continue` only when there is no
+  // sink at all.
 
-  // Collections: discover keys from the `keys` stream, hold a per-key value
-  // stream open for each present key, and remove departed keys.
-  for (const key of Object.keys(spec.collections ?? {})) {
-    const colSink = collSinks?.[key];
-    const entry = ns[key];
-    // A collection always exposes `keys`; the guard satisfies the loose type.
-    if (!colSink || !entry?.keys) continue;
-    const keysFn = entry.keys;
-    tasks.push(
-      mirrorCollection({
-        label: `${key} collection`,
-        log,
-        signal,
-        keys: keysFn({}, { signal }),
-        get: (k, s) =>
-          entry.get({ key: k }, { signal: s }) as Promise<
-            AsyncIterable<unknown>
-          >,
-        onUpsert: colSink.upsert,
-        onRemove: colSink.remove,
-      }),
-    );
-  }
+  // The four loops below can throw synchronously on a client/surface mismatch
+  // (`requireEntry`). That is a programming error, but the function's contract is
+  // "returns `Promise<void>`, all failures are rejections" — and a caller may fire
+  // it `void`-style (the daemon does), where a sync throw would crash inline
+  // rather than surface as a rejection it can flip a host on. So collect the tasks
+  // inside a try and turn any setup throw into a rejected promise.
+  try {
+    // Cells: a cell's `get` yields snapshot-then-deltas with no input — just a
+    // single-input stream whose argument is `{}`. So a cell sink reuses the stream
+    // subscribe loop verbatim.
+    for (const key of Object.keys(spec.cells ?? {})) {
+      const onValue = cellSinks?.[key];
+      if (!onValue) continue;
+      const entry = requireEntry(ns, key, "cell");
+      tasks.push(
+        subscribeStream(entry, {}, onValue, signal, log, `${key} cell`),
+      );
+    }
 
-  // Streams + events: subscribe `get(input)` and push each frame. The two kinds
-  // share a wire shape; the Event/Stream distinction (snapshot obligation) is the
-  // server's, and the consume side treats both as "a frame arrived".
-  for (const key of Object.keys(spec.streams ?? {})) {
-    const s = streamSinks?.[key];
-    const entry = ns[key];
-    if (!s || !entry) continue;
-    tasks.push(
-      subscribeStream(entry, s.input, s.onFrame, signal, log, `${key} stream`),
-    );
-  }
-  for (const key of Object.keys(spec.events ?? {})) {
-    const e = eventSinks?.[key];
-    const entry = ns[key];
-    if (!e || !entry) continue;
-    tasks.push(
-      subscribeStream(entry, e.input, e.onFrame, signal, log, `${key} event`),
-    );
+    // Collections: discover keys from the `keys` stream, hold a per-key value
+    // stream open for each present key, and remove departed keys.
+    for (const key of Object.keys(spec.collections ?? {})) {
+      const colSink = collSinks?.[key];
+      if (!colSink) continue;
+      const entry = requireEntry(ns, key, "collection");
+      // A collection MUST expose `keys` — a `get`-only entry can't be a collection.
+      if (!entry.keys) {
+        throw new Error(
+          `mirrorRemoteSurface: client entry "${key}" is missing the "keys" verb — it cannot serve the "${key}" collection (client/surface mismatch).`,
+        );
+      }
+      const keysFn = entry.keys;
+      tasks.push(
+        mirrorCollection({
+          label: `${key} collection`,
+          log,
+          signal,
+          keys: keysFn({}, { signal }),
+          get: (k, s) =>
+            entry.get({ key: k }, { signal: s }) as Promise<
+              AsyncIterable<unknown>
+            >,
+          onUpsert: colSink.upsert,
+          onRemove: colSink.remove,
+        }),
+      );
+    }
+
+    // Streams + events: subscribe `get(input)` and push each frame. The two kinds
+    // share a wire shape; the Event/Stream distinction (snapshot obligation) is the
+    // server's, and the consume side treats both as "a frame arrived".
+    for (const key of Object.keys(spec.streams ?? {})) {
+      const s = streamSinks?.[key];
+      if (!s) continue;
+      const entry = requireEntry(ns, key, "stream");
+      tasks.push(
+        subscribeStream(
+          entry,
+          s.input,
+          s.onFrame,
+          signal,
+          log,
+          `${key} stream`,
+        ),
+      );
+    }
+    for (const key of Object.keys(spec.events ?? {})) {
+      const e = eventSinks?.[key];
+      if (!e) continue;
+      const entry = requireEntry(ns, key, "event");
+      tasks.push(
+        subscribeStream(entry, e.input, e.onFrame, signal, log, `${key} event`),
+      );
+    }
+  } catch (err) {
+    // A setup mismatch — abort any subscriptions already started before the throw,
+    // then reject. (The signal is the caller's, so we can't abort it; the started
+    // tasks thread it and will settle, but we don't await them — the mismatch is
+    // the load-bearing failure.)
+    return Promise.reject(err);
   }
 
   // Resolve when every subscription has settled. Over one shared link that means
   // the link closed (or `signal` aborted) — the cue a consumer flips a host to
-  // "unreachable" on. `allSettled`, not `all`: one primitive's stream error must
-  // not reject the whole mirror (it's already logged), and teardown is uniform.
-  return Promise.allSettled(tasks).then(() => undefined);
+  // "unreachable" on. `allSettled`, not `all`: one primitive's *upstream* stream
+  // error must not reject the whole mirror (it's already logged), and teardown is
+  // uniform. But a *sink* failure is NOT an upstream blip — it's a bug in the
+  // caller's local fold, and the no-fallback rule (`caught-error-must-not-
+  // collapse-to-empty`) says it must surface, not be logged and swallowed: a task
+  // tags such a rejection with `SinkError`, and the first one rethrows here so the
+  // mirror rejects rather than quietly resolving on a broken fold.
+  return Promise.allSettled(tasks).then((results) => {
+    for (const r of results) {
+      if (r.status === "rejected" && r.reason instanceof SinkError) {
+        throw r.reason.cause;
+      }
+    }
+  });
+}
+
+/** A failure raised by a caller-supplied sink callback (`onFrame` / `upsert` /
+ *  `remove`), as opposed to an upstream stream/iterator error. Tagged so the
+ *  top-level fold can tell the two apart: an upstream blip settles (logged), a
+ *  sink failure rejects the whole mirror (fail-fast — a broken local fold must
+ *  surface, never collapse to a quietly-resolved mirror). */
+class SinkError extends Error {
+  constructor(readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "SinkError";
+  }
 }
 
 /** Subscribe a single `get(input)` stream and push each frame into `onFrame`,
- *  swallowing abort-time rejections (teardown) and logging any other error. The
- *  shared loop behind cell, stream, and event sinks. */
+ *  swallowing abort-time rejections (teardown) and logging any other UPSTREAM
+ *  error. The shared loop behind cell, stream, and event sinks. A throw from
+ *  `onFrame` (the caller's local fold) is NOT an upstream blip: it's wrapped in a
+ *  `SinkError` and rethrown so the mirror rejects (fail-fast) rather than logging
+ *  and swallowing a broken fold. */
 async function subscribeStream(
   entry: EntryClient,
   input: unknown,
@@ -252,15 +333,39 @@ async function subscribeStream(
   log: (line: string) => void,
   label: string,
 ): Promise<void> {
+  let iterable: AsyncIterable<unknown>;
   try {
-    const iterable = (await entry.get(input, {
-      signal,
-    })) as AsyncIterable<unknown>;
-    for await (const frame of iterateUntilAborted(iterable, signal)) {
-      onFrame(frame);
-    }
+    iterable = (await entry.get(input, { signal })) as AsyncIterable<unknown>;
   } catch (err) {
     if (isAbortReason(err, signal)) return;
+    log(`${label}: ${(err as Error).message}`);
+    return;
+  }
+  for await (const frame of guardUpstream(
+    iterateUntilAborted(iterable, signal),
+    log,
+    label,
+  )) {
+    // Outside the upstream guard: a throw here is the sink's, not the stream's.
+    try {
+      onFrame(frame);
+    } catch (err) {
+      throw new SinkError(err);
+    }
+  }
+}
+
+/** Wrap an upstream async iterable so a non-abort iteration error is logged and
+ *  ends the loop (the upstream-blip contract) instead of propagating — keeping
+ *  upstream failures distinct from the sink failures the caller throws past it. */
+async function* guardUpstream<T>(
+  source: AsyncGenerator<T>,
+  log: (line: string) => void,
+  label: string,
+): AsyncGenerator<T> {
+  try {
+    yield* source;
+  } catch (err) {
     log(`${label}: ${(err as Error).message}`);
   }
 }
@@ -295,43 +400,72 @@ async function mirrorCollection<K, V>(opts: {
   // string-compare that only matched because the reason was never set.
   const abortReason = (): unknown =>
     opts.signal?.reason ?? new DOMException("aborted", "AbortError");
-  try {
-    for await (const keys of iterateUntilAborted(
-      await opts.keys,
-      opts.signal,
-    )) {
-      const next = new Set(keys);
-      for (const key of next) {
-        if (open.has(key)) continue;
-        const ctl = new AbortController();
-        open.set(key, ctl);
-        void (async () => {
+  // A sink callback (`onUpsert`/`onRemove`) that throws is the caller's broken
+  // fold, not an upstream blip — it must surface (fail-fast), not be logged and
+  // swallowed. But the per-key value pumps run detached (fire-and-forget), so a
+  // throw inside one can't reach this promise on its own; we route the FIRST sink
+  // failure through `rejectSink`, race it against the keys loop, and rethrow it as
+  // a `SinkError` so the top-level fold rejects the whole mirror.
+  let rejectSink!: (err: unknown) => void;
+  const sinkFailed = new Promise<never>((_, reject) => {
+    rejectSink = reject;
+  });
+  // Don't crash on an unobserved rejection if the keys loop wins the race first.
+  sinkFailed.catch(() => {});
+  const keysLoop = (async (): Promise<void> => {
+    try {
+      for await (const keys of iterateUntilAborted(
+        await opts.keys,
+        opts.signal,
+      )) {
+        const next = new Set(keys);
+        for (const key of next) {
+          if (open.has(key)) continue;
+          const ctl = new AbortController();
+          open.set(key, ctl);
+          void (async () => {
+            try {
+              const stream = await opts.get(key, ctl.signal);
+              for await (const value of stream) {
+                if (ctl.signal.aborted) break;
+                // The sink call is OUTSIDE the upstream try below: a throw here is
+                // the caller's, surfaced via `rejectSink`, not logged as a blip.
+                try {
+                  opts.onUpsert(key, value);
+                } catch (sinkErr) {
+                  rejectSink(new SinkError(sinkErr));
+                  return;
+                }
+              }
+            } catch (err) {
+              if (!isAbortReason(err, ctl.signal)) {
+                opts.log(
+                  `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
+                );
+              }
+            }
+          })();
+        }
+        for (const [key, ctl] of [...open]) {
+          if (next.has(key)) continue;
+          ctl.abort(abortReason());
+          open.delete(key);
           try {
-            const stream = await opts.get(key, ctl.signal);
-            for await (const value of stream) {
-              if (ctl.signal.aborted) break;
-              opts.onUpsert(key, value);
-            }
-          } catch (err) {
-            if (!isAbortReason(err, ctl.signal)) {
-              opts.log(
-                `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
-              );
-            }
+            opts.onRemove(key);
+          } catch (sinkErr) {
+            throw new SinkError(sinkErr);
           }
-        })();
+        }
       }
-      for (const [key, ctl] of [...open]) {
-        if (next.has(key)) continue;
-        ctl.abort(abortReason());
-        open.delete(key);
-        opts.onRemove(key);
+    } catch (err) {
+      if (err instanceof SinkError) throw err;
+      if (!isAbortReason(err, opts.signal)) {
+        opts.log(`${opts.label}: keys stream error: ${(err as Error).message}`);
       }
     }
-  } catch (err) {
-    if (!isAbortReason(err, opts.signal)) {
-      opts.log(`${opts.label}: keys stream error: ${(err as Error).message}`);
-    }
+  })();
+  try {
+    await Promise.race([keysLoop, sinkFailed]);
   } finally {
     for (const ctl of open.values()) ctl.abort(abortReason());
   }

@@ -355,6 +355,17 @@ export async function runFleetTui(args: {
     // The `activity` stream replaces the whole live set each frame — assign it
     // straight onto the host (the projection reads membership per row).
     setLive: (label, live) => setStore(label, "live", live),
+    // The link dropped — drop the host's now-stale rows and live set, keeping the
+    // seeded entry (so the unreachable header still renders and Solid's key set
+    // never trips). The projection then counts/animates/alerts on nothing for it.
+    clearHost: (label) =>
+      setStore(
+        label,
+        produce((host) => {
+          host.terminals = {};
+          host.live = [];
+        }),
+      ),
   };
 
   let fleet: FleetHandle | undefined;

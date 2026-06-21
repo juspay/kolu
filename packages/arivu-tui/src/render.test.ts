@@ -294,6 +294,43 @@ describe("projectFleet — host mode", () => {
     expect(live.get("z-quiet")).toBe(false);
   });
 
+  it("does not count or alert on a cleared unreachable host (no stale rows)", () => {
+    // After a link drops, `fleet.ts` clears the host's terminals + live set and
+    // flips it to unreachable. The projection must then count/animate/alert on
+    // NOTHING for it — a dead box can't keep contributing a `need`/`work` row or
+    // firing the alert strip from data captured before it died. (Live data still
+    // flows for the surviving host.)
+    const states = [
+      host(
+        "up",
+        { kind: "connected" },
+        { [id("u-need")]: val({ agent: agentVal("awaiting_user") }) },
+        [id("u-need")],
+      ),
+      // The dead host: unreachable AND cleared (the post-`clearHost` shape).
+      host(
+        "down",
+        { kind: "unreachable", reason: "connection closed" },
+        {},
+        [],
+      ),
+    ];
+    const view = projectFleet(states, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
+    const down = view.groups.find((g) => g.label === "down");
+    expect(down?.rows).toEqual([]);
+    // Only the live host's terminal counts; the dead host adds nothing but its
+    // hostsDown tally, and never names itself in the alert strip.
+    expect(view.summary).toEqual({
+      needYou: 1,
+      working: 0,
+      idle: 0,
+      hostsDown: 1,
+      hostsTotal: 2,
+    });
+    expect(view.alertHosts).toEqual(["up"]);
+  });
+
   it("keeps two hosts' identical terminal ids distinct (host, terminalId key)", () => {
     const states = [
       host(
