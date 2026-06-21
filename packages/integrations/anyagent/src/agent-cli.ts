@@ -298,3 +298,23 @@ export function resumeAgentCommand(
 
   return tail === "" ? `${head} ${marker}` : `${head} ${marker} ${tail}`;
 }
+
+/**
+ * Derive the resume FORM for a terminal's persisted base — the one composition
+ * `wake()` (and the client's session-restore path) feeds into a fresh spawn:
+ * render the persisted `lastAgentCommand` via `resumeAgentCommand`, passing the
+ * persisted `agentSession` ref so it targets the EXACT conversation that ran on
+ * this terminal (juspay/kolu#1495); `null` when no agent command was ever
+ * observed, or when the observed command is not resumable.
+ *
+ * One home for the `lastAgentCommand` + `agentSession` → resume-form mapping, so
+ * the wake path and its tests can't drift from each other.
+ */
+export function resumeFormFor(meta: {
+  lastAgentCommand?: string;
+  agentSession?: AgentSessionRef;
+}): string | null {
+  return meta.lastAgentCommand
+    ? resumeAgentCommand(meta.lastAgentCommand, meta.agentSession)
+    : null;
+}

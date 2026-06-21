@@ -21,15 +21,15 @@
  * link.
  */
 
-import { resumeAgentCommand } from "anyagent/cli";
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  LOCAL_LOCATION,
-  SavedSleepingTerminalSchema,
-  SleepingTerminalSchema,
-  TerminalIdSchema,
-} from "kolu-common/surface";
+  type AwarenessRecord,
+  type AwarenessSignals,
+  type AwarenessSink,
+  startAwareness,
+} from "@kolu/terminal-awareness";
+import { resumeFormFor } from "anyagent/cli";
+import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
@@ -37,6 +37,12 @@ import type {
   SleepingTerminal,
   TerminalId,
   TerminalInfo,
+} from "kolu-common/surface";
+import {
+  LOCAL_LOCATION,
+  SavedSleepingTerminalSchema,
+  SleepingTerminalSchema,
+  TerminalIdSchema,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -83,12 +89,6 @@ import {
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
-import {
-  type AwarenessSignals,
-  type AwarenessSink,
-  type AwarenessRecord,
-  startAwareness,
-} from "@kolu/terminal-awareness";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -885,9 +885,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // observed / non-resumable agent: an agent whose launch the command tap never
     // observed (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is
     // NOT resumed on wake — it wakes to a bare shell, by design (juspay/kolu#1492).
-    const resumeCommand = entry.meta.lastAgentCommand
-      ? resumeAgentCommand(entry.meta.lastAgentCommand, entry.meta.agentSession)
-      : null;
+    const resumeCommand = resumeFormFor(entry.meta);
     const meta = wakeMeta(entry.meta);
     log
       .child({ terminal: id })

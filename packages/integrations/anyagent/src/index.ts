@@ -8,19 +8,19 @@
  *  from there. This package is for code that has agent-specific concerns. */
 
 export {
-  type AgentSessionRef,
-  agentNameFromCommand,
-  parseAgentCommand,
-  resumeAgentCommand,
-} from "./agent-cli.ts";
-
-export {
-  type AgentInfoShape,
   type AgentAdapter,
+  type AgentInfoShape,
   type AgentTerminalState,
   type AgentWatcher,
   agentInfoEqual,
   matchesAgent,
 } from "./agent-adapter.ts";
+export {
+  type AgentSessionRef,
+  agentNameFromCommand,
+  parseAgentCommand,
+  resumeAgentCommand,
+  resumeFormFor,
+} from "./agent-cli.ts";
 export { classifyByAwaiting } from "./lifecycle.ts";
 export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";

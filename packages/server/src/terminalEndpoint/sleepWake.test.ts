@@ -17,7 +17,7 @@
  * pin the pure mapping `wakeMeta` and the synchronous registry flips.
  */
 
-import { resumeAgentCommand } from "anyagent/cli";
+import { resumeFormFor } from "anyagent/cli";
 import {
   type ActiveTerminal,
   LOCAL_LOCATION,
@@ -257,10 +257,7 @@ describe("wake resume targets the EXACT conversation, not most-recent (juspay/ko
 
   it("builds a resume-by-id command for the slept conversation", () => {
     const active = wakeMeta(sleptOnA);
-    // This is exactly how `wake()` derives the resume input (local.ts).
-    const resumeCommand = active.lastAgentCommand
-      ? resumeAgentCommand(active.lastAgentCommand, active.agentSession)
-      : null;
+    const resumeCommand = resumeFormFor(active);
     // Targets conversation A by id — NOT the most-recent `--continue` marker.
     expect(resumeCommand).toBe(`opencode --session ${CONV_A} --model sonnet`);
     expect(resumeCommand).not.toContain("--continue");
@@ -269,9 +266,7 @@ describe("wake resume targets the EXACT conversation, not most-recent (juspay/ko
   it("falls back to most-recent when no conversation ref was ever captured", () => {
     const { agentSession: _drop, ...noRef } = sleptOnA;
     const active = wakeMeta(noRef as SleepingTerminal);
-    const resumeCommand = active.lastAgentCommand
-      ? resumeAgentCommand(active.lastAgentCommand, active.agentSession)
-      : null;
+    const resumeCommand = resumeFormFor(active);
     // Nothing to target → today's behavior is preserved (no regression).
     expect(resumeCommand).toBe("opencode --continue --model sonnet");
   });
