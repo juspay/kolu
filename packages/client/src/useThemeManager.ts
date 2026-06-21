@@ -39,14 +39,21 @@ function init() {
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  function getTerminalTheme(id: TerminalId): ITheme {
+  /** A tile's resolved theme name before the default fallback: the active
+   *  tile's live preview if any, else its committed `themeName` (which may be
+   *  unset). Shared by the ITheme and name-string accessors below so the
+   *  preview-vs-committed rule lives in exactly one place. */
+  function effectiveThemeName(id: TerminalId): string | undefined {
     const preview = store.activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? getThemeName(id));
+    return preview ?? getThemeName(id);
+  }
+
+  function getTerminalTheme(id: TerminalId): ITheme {
+    return getThemeByName(effectiveThemeName(id));
   }
 
   function getTerminalThemeName(id: TerminalId): string {
-    const preview = store.activeId() === id ? previewThemeName() : undefined;
-    return (preview ?? getThemeName(id)) || DEFAULT_THEME_NAME;
+    return effectiveThemeName(id) || DEFAULT_THEME_NAME;
   }
 
   function setThemeName(id: TerminalId, name: string) {
