@@ -406,7 +406,7 @@ const escapes = [
       <span class="cmd"
         >nix run github:juspay/kolu#arivu<span class="cmt">       # awareness over the running kaval</span></span
       >
-      <span class="cmd">nix run github:juspay/kolu#arivu-tui -- list</span>
+      <span class="cmd">nix run github:juspay/kolu#arivu-tui</span>
     </div>
     <pre
       class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
@@ -428,10 +428,10 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     </p>
     <div class="kv-term">
       <span class="cmd"
-        >nix run github:juspay/kolu#arivu-tui -- list --host nix@prod</span
+        >nix run github:juspay/kolu#arivu-tui -- --host nix@prod</span
       >
       <span class="cmd"
-        >nix run github:juspay/kolu#arivu-tui -- watch &lt;id&gt; --host nix@prod</span
+        >nix run github:juspay/kolu#arivu-tui -- --host nix@prod --json</span
       >
     </div>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
@@ -439,8 +439,9 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
       <em>running</em> in each PTY, <code class="mono text-ink">arivu-tui</code>{" "}
       shows what each terminal <em>is in</em> — a "what is every agent doing,
       across every repo" dashboard you can <code class="mono text-ink">ssh</code>{" "}
-      into. <code class="mono text-ink">watch &lt;id&gt;</code> follows one
-      terminal live. It runs the <em>same</em> awareness sensors kolu uses
+      into — a compact, truecolour table with a clock ticking in the header.{" "}
+      <code class="mono text-ink">--json</code> dumps the same surface for
+      scripts. It runs the <em>same</em> awareness sensors kolu uses
       internally, now as a process of its own — the design lives in the{" "}
       <a
         href="https://kolu.dev/atlas/arivu.html"
