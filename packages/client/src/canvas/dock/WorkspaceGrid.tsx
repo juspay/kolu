@@ -635,7 +635,7 @@ const WorkspaceCard: Component<{
        *  looks the same. */}
       <NotesBody
         notes={props.entry.info.meta.notes}
-        testId="workspace-switcher-card-intent"
+        testId="workspace-switcher-card-notes"
       />
     </button>
   );
