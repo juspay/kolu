@@ -529,8 +529,8 @@ const WorkspaceCard: Component<{
       {/* Eyebrow: repo identity + (right) PR badge if resolved.
        *  The merge-state icon + CI dot mirror the terminal title bar
        *  and dock row, so the workspace switcher card speaks the same
-       *  PR vocabulary at a glance. The intent glyph is NOT rendered
-       *  here — line 1 of intent (or the branch fallback) lives in the
+       *  PR vocabulary at a glance. The notes glyph is NOT rendered
+       *  here — line 1 of the notes (or the branch fallback) lives in the
        *  headline below; rendering the glyph again as a separate chip
        *  would duplicate it. */}
       <div class="flex items-center justify-between gap-2 min-w-0">
