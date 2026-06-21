@@ -37,8 +37,14 @@ import {
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
+import { formatMBCompact } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
+import {
+  clientHeapUsedBytes,
+  kavalRssBytes,
+  serverRssBytes,
+} from "./useMemoryUsage";
 
 /** The daemon's honest state → the `kaval` tone, via the shared presentation
  *  table (so the rail and the dialog can't drift); undefined (status still
@@ -51,6 +57,29 @@ function kavalDot(state: DaemonState | undefined): string {
 /** The thin vertical rule between two columns. */
 const Divider: Component = () => (
   <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+);
+
+/** A compact whole-MB memory readout for a rail column — hidden until the figure
+ *  is present (undefined pre-yield, or `null` when there's nothing to measure:
+ *  no kaval daemon, or a non-Chromium browser with no `performance.memory`). The
+ *  `data-testid` lets the e2e assert each source's reading independently. */
+const MemReadout: Component<{
+  bytes: number | null | undefined;
+  testid: string;
+  tip: string;
+}> = (props) => (
+  <Show when={props.bytes}>
+    {(bytes) => (
+      <Tip label={props.tip}>
+        <span
+          data-testid={props.testid}
+          class="tabular-nums text-[10px] text-fg-3"
+        >
+          {formatMBCompact(bytes())}
+        </span>
+      </Tip>
+    )}
+  </Show>
 );
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
@@ -86,6 +115,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           )}
         </Show>
         <Commit sha={pwa.server()?.commit} />
+        <MemReadout
+          bytes={serverRssBytes()}
+          testid="server-memory"
+          tip="kolu-server memory (resident set size)"
+        />
       </span>
 
       <Divider />
@@ -110,6 +144,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             <StaleBadge />
           </Tip>
         </Show>
+        <MemReadout
+          bytes={clientHeapUsedBytes()}
+          testid="client-memory"
+          tip="This browser's JS heap (used)"
+        />
       </span>
 
       <Divider />
@@ -150,6 +189,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             </Show>
           )}
         </Show>
+        <MemReadout
+          bytes={kavalRssBytes()}
+          testid="kaval-memory"
+          tip="kaval daemon memory (resident set size)"
+        />
         {/* B3.4: the running daemon is a build behind what the server would spawn.
             A passive amber chip — the column's own click opens the dialog where
             the running-vs-expected detail and the restart live. */}

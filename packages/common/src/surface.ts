@@ -744,6 +744,25 @@ export const DaemonStatusSchema = z.object({
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
 
+/** Live process-memory readout for the chrome bar's identity rail — the
+ *  resident-set size (RSS) of the two server-side processes the rail names. The
+ *  CLIENT's own JS-heap figure is NOT here: it's a browser-local fact read off
+ *  `performance.memory` in the client (no wire round-trip), so this cell carries
+ *  only what the client can't measure itself.
+ *
+ *  `serverRssBytes` is the kolu-server process (always present — it's measuring
+ *  itself). `kavalRssBytes` is the kaval pty-host daemon, a SEPARATE process the
+ *  server polls over the daemon's `system.heartbeat`; it is `null` whenever there
+ *  is no live daemon to measure (down / degraded / pre-first-poll) — the honest
+ *  "no value", never a misleading `0`. A continuously-changing metric, kept off
+ *  the lifecycle-transition `daemonStatus` collection so the two different change
+ *  rates don't ride one channel. */
+export const ProcessMemorySchema = z.object({
+  serverRssBytes: z.number(),
+  kavalRssBytes: z.number().nullable(),
+});
+export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
+
 export interface KoluBuildInfo extends BuildInfo {
   /** App version (X.Y.Z) — the rail's `srv` column shows it as `vX.Y.Z` beside the
    *  commit. Optional only in the library-seeded default (`{ commit }`); once
@@ -830,6 +849,19 @@ export const koluSurface = defineSurface({
     terminalList: {
       schema: z.array(TerminalInfoSchema),
       default: [] as z.infer<typeof TerminalInfoSchema>[],
+      verbs: ["get"],
+    },
+
+    /** Live process-memory readout (server + kaval RSS) for the rail. The
+     *  server's periodic sampler is the sole writer (`surfaceCtx.cells.
+     *  processMemory.set`); clients read-only. `kavalRssBytes` is `null` until
+     *  the first daemon poll, and whenever the daemon is down. */
+    processMemory: {
+      schema: ProcessMemorySchema,
+      default: {
+        serverRssBytes: 0,
+        kavalRssBytes: null,
+      } satisfies z.infer<typeof ProcessMemorySchema>,
       verbs: ["get"],
     },
   },

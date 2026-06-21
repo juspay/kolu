@@ -14,6 +14,8 @@ import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
+import { formatMB, readJsHeap } from "./ui/memory";
+import { kavalRssBytes, serverRssBytes } from "./ui/useMemoryUsage";
 import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -42,45 +44,6 @@ function browserFacts() {
   };
 }
 
-/** Single source of truth for byte-count display across the dialog.
- *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
- *  callers may parse programmatically). `formatMB` returns a display string
- *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
- *  "0.0 MB" obscures more than it communicates. Every byte render in this
- *  module goes through these two; evolving the granularity is one edit. */
-function bytesToMB(bytes: number): number {
-  return Math.round((bytes / 1_048_576) * 10) / 10;
-}
-function formatMB(bytes: number): string {
-  if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytesToMB(bytes).toFixed(1)} MB`;
-}
-
-/** `performance.memory` is Chromium-only and missing from the DOM type
- *  definitions — isolate the narrow cast here so the snapshot memo stays
- *  free of it. Returns null on non-Chromium browsers. */
-function readJsHeap(): {
-  usedMB: number;
-  totalMB: number;
-  limitMB: number;
-} | null {
-  const mem = (
-    performance as {
-      memory?: {
-        usedJSHeapSize: number;
-        totalJSHeapSize: number;
-        jsHeapSizeLimit: number;
-      };
-    }
-  ).memory;
-  if (!mem) return null;
-  return {
-    usedMB: bytesToMB(mem.usedJSHeapSize),
-    totalMB: bytesToMB(mem.totalJSHeapSize),
-    limitMB: bytesToMB(mem.jsHeapSizeLimit),
-  };
-}
-
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
@@ -97,6 +60,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         activeId: props.activeId,
         terminalCount: getDiagnostics().length,
         jsHeap: readJsHeap(),
+        // Server + kaval RSS ride the `processMemory` cell (the same source the
+        // rail reads); null kaval = no live daemon to measure.
+        serverRss: serverRssBytes() ?? null,
+        kavalRss: kavalRssBytes() ?? null,
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
         // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
@@ -225,6 +192,20 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                     {heap().usedMB} / {heap().totalMB} MB
                     <span class="text-fg-3/70"> (limit {heap().limitMB})</span>
                   </span>
+                </Row>
+              )}
+            </Show>
+            <Show when={snapshot().session.serverRss}>
+              {(rss) => (
+                <Row label="Server RSS">
+                  <span class="font-mono text-fg">{formatMB(rss())}</span>
+                </Row>
+              )}
+            </Show>
+            <Show when={snapshot().session.kavalRss}>
+              {(rss) => (
+                <Row label="kaval RSS">
+                  <span class="font-mono text-fg">{formatMB(rss())}</span>
                 </Row>
               )}
             </Show>

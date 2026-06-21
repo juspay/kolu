@@ -63,8 +63,11 @@ import { z } from "zod";
  *  and `system.info` was added. Bumped to 3.1 (additive · minor): the
  *  host-global `inventory` stream — a daemon that predates it (a 3.0 survivor)
  *  is wire-incompatible and forced to recycle, never silently degraded to a
- *  boot-only adoption. */
-export const PTY_HOST_CONTRACT_VERSION = "3.1";
+ *  boot-only adoption. Bumped to 3.2 (additive · minor): `system.heartbeat`
+ *  now reports the daemon's `rss` so the server can surface kaval's memory on
+ *  the rail — a 3.1 survivor (no `rss` in its heartbeat) is recycled on adoption
+ *  rather than silently reporting no daemon memory. */
+export const PTY_HOST_CONTRACT_VERSION = "3.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -194,7 +197,15 @@ const SystemVersionOutputSchema = z.object({
   identity: PtyHostIdentitySchema.optional(),
 });
 
-const SystemHeartbeatOutputSchema = z.object({ ts: z.number() });
+const SystemHeartbeatOutputSchema = z.object({
+  ts: z.number(),
+  /** The daemon's resident-set size (`process.memoryUsage().rss`, bytes) at
+   *  reply time — the server folds it onto the rail's kaval memory readout.
+   *  Optional (additive · 3.2): a 3.1 survivor omits it, which the version gate
+   *  recycles anyway, but the optionality keeps the schema honest about who
+   *  populates it. */
+  rss: z.number().optional(),
+});
 
 /** Host facts a client reads once per connection to compose spawn policy for
  *  *this* host — including one it isn't running on (the R-2 remote enabler).

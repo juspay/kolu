@@ -186,9 +186,13 @@ export function runContractCorpus(opts: {
       expect(typeof v.identity?.navigableCommit).toBe("string");
     });
 
-    it("system.heartbeat: returns a timestamp", async () => {
-      const { ts } = await client().surface.system.heartbeat({});
+    it("system.heartbeat: returns a timestamp and the daemon's RSS", async () => {
+      const { ts, rss } = await client().surface.system.heartbeat({});
       expect(typeof ts).toBe("number");
+      // The 3.2 addition — the daemon measures its own process RSS so the
+      // server can surface kaval's memory on the rail.
+      expect(typeof rss).toBe("number");
+      expect(rss).toBeGreaterThan(0);
     });
 
     it("system.info: host facts a client composes spawn policy against", async () => {

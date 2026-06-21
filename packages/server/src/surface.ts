@@ -61,6 +61,7 @@ import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { memoryCellStore, processMemoryMbEqual } from "./memorySampler.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
@@ -167,6 +168,14 @@ const koluDeps: Omit<
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
       store: { get: () => listTerminals(), set: () => {} },
+    },
+    processMemory: {
+      // Live metric; the in-memory store has no persistent slot. The sampler
+      // (`memorySampler.ts`) is the sole writer via `surfaceCtx.cells.
+      // processMemory.set`. `equals` dedups at whole-MB granularity so a sub-MB
+      // RSS wobble never re-publishes to every connected client.
+      store: memoryCellStore,
+      equals: processMemoryMbEqual,
     },
   },
 
