@@ -28,7 +28,6 @@ import { NOTES_TAB_VIEW_ORDER, notesViewLabel } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
-  createMemo,
   createSignal,
   For,
   on,
@@ -78,7 +77,9 @@ const NotesTab: Component<{
   visible: boolean;
 }> = (props) => {
   const rightPanel = useRightPanel();
-  const mode = () => rightPanel.notesMode();
+  // `notesMode` is already a stable accessor on the singleton — alias it
+  // directly rather than wrapping it in another thunk.
+  const mode = rightPanel.notesMode;
 
   const [textareaRef, setTextareaRef] = createSignal<HTMLTextAreaElement>();
   const [draft, setDraft] = createSignal("");
@@ -193,17 +194,18 @@ const NotesTab: Component<{
 
   // Focus the textarea whenever the Notes tab becomes the active, visible tab
   // in Edit mode — so navigating in via the chip, the command, the title-bar
-  // icon, or the tab button lands the cursor ready to type.
-  const editReady = createMemo(
-    () =>
-      props.visible &&
-      rightPanel.activeTab().kind === "notes" &&
-      mode() === "edit",
-  );
+  // icon, or the tab button lands the cursor ready to type. `on` fires only on
+  // the gate's transitions, so it focuses on entry, not on every dep change.
   createEffect(
-    on(editReady, (ready) => {
-      if (ready) queueMicrotask(() => textareaRef()?.focus());
-    }),
+    on(
+      () =>
+        props.visible &&
+        rightPanel.activeTab().kind === "notes" &&
+        mode() === "edit",
+      (ready) => {
+        if (ready) queueMicrotask(() => textareaRef()?.focus());
+      },
+    ),
   );
 
   return (

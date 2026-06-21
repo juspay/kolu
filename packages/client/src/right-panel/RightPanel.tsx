@@ -19,9 +19,9 @@ import type {
 } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";
+import NotesTab from "../notes/NotesTab";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
-import NotesTab from "../notes/NotesTab";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
