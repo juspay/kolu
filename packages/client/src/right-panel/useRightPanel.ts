@@ -28,6 +28,7 @@ import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
   type NotesTabView,
+  notesModeOf,
   type RightPanelPerTerminalState,
   type RightPanelTab,
   rightPanelView,
@@ -329,10 +330,11 @@ export function useRightPanel() {
     /** Change the sub-mode within the Code tab. */
     setCodeMode: (mode: CodeTabView) => mutateActive({ codeMode: mode }),
 
-    /** Persisted Notes-tab sub-mode (Edit / Preview), defaulting to `"edit"`
-     *  for records persisted before the Notes tab existed. Read regardless of
-     *  which tab is active so the switcher restores the user's last sub-view. */
-    notesMode: (): NotesTabView => activeState().notesMode ?? "edit",
+    /** Persisted Notes-tab sub-mode (Edit / Preview). The default for records
+     *  persisted before the Notes tab existed is resolved through `notesModeOf`,
+     *  the single default site. Read regardless of which tab is active so the
+     *  switcher restores the user's last sub-view. */
+    notesMode: (): NotesTabView => notesModeOf(activeState()),
     /** Switch to the Notes tab. When `mode` is omitted the persisted
      *  `notesMode` is restored; pass `mode` to override. Mirrors `showCode`. */
     showNotes: (mode?: NotesTabView) =>

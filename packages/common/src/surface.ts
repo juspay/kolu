@@ -127,8 +127,8 @@ export const RightPanelPerTerminalStateSchema = z.object({
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
   /** Notes-tab sub-mode (Edit / Preview). Optional so a `rightPanel` record
-   *  persisted before the Notes tab existed parses cleanly — readers default
-   *  it to `"edit"` (see `rightPanelView` / `useRightPanel.notesMode`). */
+   *  persisted before the Notes tab existed parses cleanly — readers resolve
+   *  the absence through `notesModeOf`, the single default site. */
   notesMode: NotesTabViewSchema.optional(),
   /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
    *  key means "no selection" for that mode. */
@@ -668,11 +668,19 @@ export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
   notesMode: "edit",
 };
 
+/** The single home for the "absent `notesMode` means Edit" default. The
+ *  field is schema-optional so a `rightPanel` record persisted before the
+ *  Notes tab existed parses cleanly; every reader resolves the absence here
+ *  rather than re-spelling `?? "edit"`, so the default lives in exactly one
+ *  place (mirroring how `codeMode`'s default lives only in
+ *  `DEFAULT_RIGHT_PANEL_PER_TERMINAL`). */
+export const notesModeOf = (p: { notesMode?: NotesTabView }): NotesTabView =>
+  p.notesMode ?? "edit";
+
 /** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
  *  Storage stays flat (Solid's setStore shallow-merges correctly); use sites
- *  get the exhaustive-match-friendly DU. `notesMode` defaults to `"edit"`
- *  here — the field is optional on the schema so records persisted before the
- *  Notes tab existed carry no value. */
+ *  get the exhaustive-match-friendly DU. The `notesMode` absence is resolved
+ *  through `notesModeOf`, the one default site. */
 export function rightPanelView(p: {
   activeTab: RightPanelTabKind;
   codeMode: CodeTabView;
@@ -684,7 +692,7 @@ export function rightPanelView(p: {
     case "code":
       return { kind: "code", mode: p.codeMode };
     case "notes":
-      return { kind: "notes", mode: p.notesMode ?? "edit" };
+      return { kind: "notes", mode: notesModeOf(p) };
   }
 }
 
