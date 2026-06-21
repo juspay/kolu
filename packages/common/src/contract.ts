@@ -24,6 +24,7 @@ import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
   RightPanelPerTerminalStateSchema,
+  SavedSleepingTerminalSchema,
   surfaces,
   TerminalAttachInputSchema,
   TerminalIdSchema,
@@ -182,6 +183,10 @@ export const contract = oc.router({
     /** Discard a sleeping terminal's record (no PTY to kill — sleep released it).
      *  Serves both wake-failed cleanup and the user closing a sleeping tile. */
     discardSleeping: oc.input(TerminalAttachInputSchema).output(z.void()),
+    /** Seed a SLEEPING terminal into the registry from its saved record — the
+     *  dormant analogue of create, used by the cold-boot restore card to bring a
+     *  slept terminal back as ☾ (no PTY spawned). A malformed record is dropped. */
+    restoreSleeping: oc.input(SavedSleepingTerminalSchema).output(z.void()),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */
     killAll: oc.output(z.void()),

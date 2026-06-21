@@ -52,6 +52,14 @@ export interface ReconcileResult {
   /** Live daemon PTYs with no saved record — adopt from the live snapshot
    *  (`orphanMeta`), never reap. See the module doc (F1). */
   adoptOrphans: PtyHostListEntry[];
+  /** Live daemon PTYs whose id matches a SLEEPING saved record — a sleep that
+   *  persisted the dormant record but crashed before the PTY kill completed, so
+   *  the PTY briefly outlived the flip. Adopt-or-REAP resolves to REAP: the
+   *  record is sleeping, so the caller kills the orphaned PTY and keeps the record
+   *  dormant (the boot never re-wakes a sleeping terminal). Without this, the PTY
+   *  would fall into neither adopt nor adoptOrphans (its id is a saved id) and
+   *  leak as a hidden live process. */
+  reapSleeping: PtyHostListEntry[];
 }
 
 /** Join a surviving daemon's live PTYs against the saved session on terminal
@@ -64,10 +72,15 @@ export function reconcile(
   const liveById = new Map(live.map((entry) => [entry.id, entry]));
   const savedTerminals = saved?.terminals ?? [];
   const savedIds = new Set(savedTerminals.map((terminal) => terminal.id));
+  const sleepingIds = new Set(
+    savedTerminals
+      .filter((terminal) => terminal.state === "sleeping")
+      .map((terminal) => terminal.id),
+  );
   const adopt: AdoptPair[] = [];
   for (const record of savedTerminals) {
-    // Only an ACTIVE saved terminal can have a surviving PTY — a sleeping
-    // record released its PTY at sleep, so it never pairs with a live entry.
+    // Only an ACTIVE saved terminal can be ADOPTED — a sleeping record released
+    // its PTY at sleep, so it is seeded dormant (never paired with a live entry).
     // The narrow also makes `record` the active arm for the whole-record adopt.
     if (record.state !== "active") continue;
     const liveEntry = liveById.get(record.id);
@@ -76,5 +89,8 @@ export function reconcile(
   return {
     adopt,
     adoptOrphans: live.filter((entry) => !savedIds.has(entry.id)),
+    // A sleeping record's id is a saved id, so its surviving PTY is excluded from
+    // adoptOrphans above; surface it here so the caller reaps it.
+    reapSleeping: live.filter((entry) => sleepingIds.has(entry.id)),
   };
 }

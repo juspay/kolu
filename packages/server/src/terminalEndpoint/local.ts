@@ -23,10 +23,16 @@
 
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import { inMemoryChannel } from "@kolu/surface/server";
-import { LOCAL_LOCATION, SleepingTerminalSchema } from "kolu-common/surface";
+import {
+  LOCAL_LOCATION,
+  SavedSleepingTerminalSchema,
+  SleepingTerminalSchema,
+  TerminalIdSchema,
+} from "kolu-common/surface";
 import type {
   ActiveTerminal,
   SavedActiveTerminal,
+  SavedSleepingTerminal,
   SleepingTerminal,
   TerminalId,
   TerminalInfo,
@@ -912,6 +918,40 @@ export function wakeLocalTerminal(
 /** Discard a sleeping terminal's record (no PTY to kill). */
 export function discardLocalSleeping(id: TerminalId): boolean {
   return localEndpointImpl.discardSleeping(id);
+}
+
+/** Seed a SLEEPING terminal into the registry from its saved record — the dormant
+ *  analogue of adoption (there is no PTY to re-wire). Used by BOTH boot paths: the
+ *  surviving-daemon reconcile (`adoptSurvivingSession`) and the cold-boot restore
+ *  (`terminal.restoreSleeping`), so a slept terminal reappears as ☾ on any restart.
+ *
+ *  Tolerates a malformed record by DROPPING it (returns false, never throws) so one
+ *  corrupt entry — a base truncated by a crash mid-write, hand-edited, or left by an
+ *  older build — can't break the load for every other terminal (the
+ *  `persisted-schema-stays-tolerant` policy). Idempotent: re-seeding a present id is
+ *  a no-op.
+ *
+ *  Fires only `emitTerminalListChanged` (the wire), NEVER the autosave dirty: on
+ *  cold boot the active records are not yet restored, so a snapshot-and-save here
+ *  would persist a set missing them and wipe the saved session. Persistence is the
+ *  caller's job — the survivor path's explicit converge, or the restore loop's
+ *  active spawns. */
+export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
+  const idParsed = TerminalIdSchema.safeParse(record.id);
+  const recordParsed = SavedSleepingTerminalSchema.safeParse(record);
+  if (!idParsed.success || !recordParsed.success) {
+    log.warn(
+      { id: record.id },
+      "dropping malformed sleeping record at the read boundary",
+    );
+    return false;
+  }
+  const id = idParsed.data;
+  if (getTerminal(id)) return false;
+  const { id: _id, ...meta } = recordParsed.data;
+  registerTerminal(id, { info: { id, pid: 0 }, meta });
+  emitTerminalListChanged();
+  return true;
 }
 
 /** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its

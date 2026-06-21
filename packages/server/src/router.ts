@@ -43,6 +43,7 @@ import {
   discardSleeping,
   killAllTerminals,
   killTerminal,
+  restoreSleeping,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -227,6 +228,10 @@ export const appRouter = t.router({
     discardSleeping: t.terminal.discardSleeping.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "discard sleeping");
       discardSleeping(input.id);
+    }),
+
+    restoreSleeping: t.terminal.restoreSleeping.handler(async ({ input }) => {
+      restoreSleeping(input);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

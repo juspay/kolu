@@ -36,7 +36,12 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { snapshotSession } from "../terminals.ts";
-import { beginSleepLocal, discardLocalSleeping, wakeMeta } from "./local.ts";
+import {
+  beginSleepLocal,
+  discardLocalSleeping,
+  seedSleepingTerminal,
+  wakeMeta,
+} from "./local.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -172,5 +177,47 @@ describe("discardSleeping — removes only a sleeping record", () => {
     registerTerminal(ID, activeEntry());
     expect(discardLocalSleeping(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("active");
+  });
+});
+
+describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
+  const SEED_ID = "22222222-2222-4222-8222-222222222222";
+  const validRecord = () => ({
+    id: SEED_ID,
+    state: "sleeping" as const,
+    sleptAt: 111,
+    cwd: "/work/repo",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 5,
+    lastAgentCommand: "claude --model sonnet",
+  });
+
+  afterEach(() => unregisterTerminal(SEED_ID));
+
+  it("seeds a valid sleeping record into the registry, dormant (no handle)", () => {
+    expect(seedSleepingTerminal(validRecord())).toBe(true);
+    const entry = getTerminal(SEED_ID);
+    if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
+    expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
+    expect(entry.meta.sleptAt).toBe(111);
+    expect(entry.handle).toBeUndefined();
+  });
+
+  it("DROPS a malformed record (missing sleptAt) without throwing or polluting the set", () => {
+    const malformed = { ...validRecord(), sleptAt: undefined };
+    expect(seedSleepingTerminal(malformed as never)).toBe(false);
+    expect(getTerminal(SEED_ID)).toBeUndefined();
+  });
+
+  it("DROPS a record with a non-uuid id", () => {
+    const bad = { ...validRecord(), id: "not-a-uuid" };
+    expect(seedSleepingTerminal(bad as never)).toBe(false);
+  });
+
+  it("is idempotent — re-seeding a present id is a no-op", () => {
+    expect(seedSleepingTerminal(validRecord())).toBe(true);
+    expect(seedSleepingTerminal(validRecord())).toBe(false);
+    expect(getTerminal(SEED_ID)?.meta.state).toBe("sleeping");
   });
 });

@@ -556,6 +556,9 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
  *  only on-disk arm Phase 1 writes. The whole-record adoption path is typed to
  *  this (a sleeping record has no live PTY to adopt). */
 export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
+/** The sleeping arm of `SavedTerminal` — persisted base + `sleptAt` + id. What a
+ *  slept terminal persists and what the boot seed / restore card read back. */
+export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 

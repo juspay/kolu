@@ -19,6 +19,7 @@ import { resumeAgentCommand } from "anyagent/cli";
 import {
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
+  type SavedSleepingTerminal,
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalId,
@@ -38,6 +39,7 @@ import {
   discardLocalSleeping,
   localTerminalEndpoint,
   releaseSleptLocalPty,
+  seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
@@ -144,6 +146,14 @@ export function wakeTerminal(id: TerminalId): TerminalInfo | undefined {
  *  the wake-failed cleanup and the user closing a sleeping tile. */
 export function discardSleeping(id: TerminalId): void {
   discardLocalSleeping(id);
+}
+
+/** Restore a sleeping terminal at cold boot — seed its dormant record into the
+ *  registry (no PTY spawned). The restore card calls this for each saved sleeping
+ *  arm, the spawn-path twin of `createTerminal` for the active arm. A malformed
+ *  record drops itself at the seed boundary. */
+export function restoreSleeping(record: SavedSleepingTerminal): void {
+  seedSleepingTerminal(record);
 }
 
 /** Set or clear a terminal's parent relationship. */
