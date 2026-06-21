@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "jsxImportSource": "@opentui/solid"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // The Bun-lane render test imports `bun:test`, which the Node `tsc` gate can't
+  // resolve — Bun runs (and effectively type-checks) it, so keep it out of tsc.
+  "exclude": ["src/**/*.bun-test.tsx"]
 }

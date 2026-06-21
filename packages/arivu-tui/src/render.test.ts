@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   agentShortName,
   agentStatusLabel,
+  agentTone,
+  dashRow,
+  dashRows,
   formatAwarenessJson,
-  formatAwarenessList,
+  prTone,
   relativeTime,
-  resolveTerminalId,
   shortId,
 } from "./render.ts";
 
@@ -22,23 +24,36 @@ function val(over: Partial<AwarenessValue>): AwarenessValue {
     agent: null,
     foreground: null,
     ...over,
-  };
+  } as AwarenessValue;
 }
 
 const id = (s: string): TerminalId => s as TerminalId;
 const NOW = 1_700_000_000_000;
 
-const ALL_LABELS = [
-  "agent",
-  "pr",
-  "branch",
-  "repo",
-  "remote",
-  "foreground",
-  "title",
-  "agent cmd",
-  "active",
-];
+describe("shortId", () => {
+  it("keeps the leading 8 chars", () => {
+    expect(shortId("a3f1c0de-1234-5678")).toBe("a3f1c0de");
+    expect(shortId("abc")).toBe("abc");
+  });
+});
+
+describe("relativeTime", () => {
+  it("renders compact ages and dashes a 0 (never active)", () => {
+    expect(relativeTime(0, NOW)).toBe("—");
+    expect(relativeTime(NOW - 5_000, NOW)).toBe("5s");
+    expect(relativeTime(NOW - 5 * 60_000, NOW)).toBe("5m");
+    expect(relativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h");
+    expect(relativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d");
+  });
+});
+
+describe("agentShortName", () => {
+  it("shortens claude-code to claude, leaves others", () => {
+    expect(agentShortName("claude-code")).toBe("claude");
+    expect(agentShortName("codex")).toBe("codex");
+    expect(agentShortName("opencode")).toBe("opencode");
+  });
+});
 
 describe("agentStatusLabel", () => {
   it("buckets working / awaiting / waiting", () => {
@@ -53,156 +68,101 @@ describe("agentStatusLabel", () => {
   });
 });
 
-describe("agentShortName", () => {
-  it("shortens claude-code to claude, leaves others", () => {
-    expect(agentShortName("claude-code")).toBe("claude");
-    expect(agentShortName("codex")).toBe("codex");
-    expect(agentShortName("opencode")).toBe("opencode");
+describe("agentTone", () => {
+  const agent = (state: string): AwarenessValue["agent"] =>
+    ({ kind: "claude-code", state }) as AwarenessValue["agent"];
+  it("tones by bucket; no agent is muted, unknown is plain", () => {
+    expect(agentTone(null)).toBe("muted");
+    expect(agentTone(agent("thinking"))).toBe("working");
+    expect(agentTone(agent("awaiting_user"))).toBe("awaiting");
+    expect(agentTone(agent("waiting"))).toBe("idle");
+    expect(agentTone(agent("??"))).toBe("plain");
   });
 });
 
-describe("relativeTime", () => {
-  it("renders compact ages and dashes a 0 (never active)", () => {
-    expect(relativeTime(0, NOW)).toBe("—");
-    expect(relativeTime(NOW - 5_000, NOW)).toBe("5s");
-    expect(relativeTime(NOW - 5 * 60_000, NOW)).toBe("5m");
-    expect(relativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h");
-    expect(relativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d");
+describe("prTone", () => {
+  const ok = (checks: string): AwarenessValue["pr"] =>
+    ({
+      kind: "ok",
+      value: { number: 1, state: "open", checks },
+    }) as AwarenessValue["pr"];
+  it("tones a resolved PR by its checks", () => {
+    expect(prTone(ok("pass"))).toBe("pass");
+    expect(prTone(ok("fail"))).toBe("fail");
+    expect(prTone(ok("pending"))).toBe("pending");
   });
-});
-
-describe("formatAwarenessList", () => {
-  it("honest one-liner when empty", () => {
-    expect(formatAwarenessList([])).toContain("no terminals");
-  });
-
-  it("renders a vertical record surfacing EVERY awareness field", () => {
-    const out = formatAwarenessList(
-      [
-        [
-          id("a3f10000-0000-4000-8000-000000000000"),
-          val({
-            cwd: "/home/u/code/kolu",
-            git: {
-              branch: "feat/dial-ssh",
-              repoName: "kolu",
-              remoteUrl: "https://github.com/juspay/kolu",
-            } as AwarenessValue["git"],
-            lastActivityAt: NOW - 3 * 60_000,
-            lastAgentCommand: "claude --model sonnet",
-            pr: {
-              kind: "ok",
-              value: { number: 1412, state: "open", checks: "pass" },
-            } as AwarenessValue["pr"],
-            agent: {
-              kind: "claude-code",
-              state: "thinking",
-            } as AwarenessValue["agent"],
-            foreground: { name: "node", title: "claude: implement X" },
-          }),
-        ],
-      ],
-      { home: "/home/u", now: NOW },
-    );
-    // header line: short id + tildeified cwd
-    expect(out).toContain("a3f10000  ~/code/kolu");
-    // a labeled line per field
-    for (const label of ALL_LABELS) expect(out).toContain(label);
-    expect(out).toContain("claude · working"); // agent
-    expect(out).toContain("#1412 open ✓"); // pr (number · state · checks)
-    expect(out).toContain("kolu"); // repo
-    expect(out).toContain("feat/dial-ssh"); // branch
-    expect(out).toContain("github.com/juspay/kolu"); // remote
-    expect(out).toContain("3m"); // active
-    expect(out).toContain("node"); // foreground
-    expect(out).toContain("claude: implement X"); // title
-    expect(out).toContain("claude --model sonnet"); // agent cmd
-  });
-
-  it("dashes unresolved fields but keeps every label", () => {
-    const out = formatAwarenessList([[id("b7c2"), val({})]], { now: NOW });
-    expect(out).toContain("b7c2  /repo"); // header still shows the cwd
-    for (const label of ALL_LABELS) expect(out).toContain(label);
-    expect(out).toContain("pending"); // pr pending
-    // agent · branch · repo · remote · foreground · title · agent-cmd · active
-    expect(out.match(/—/g)?.length).toBeGreaterThanOrEqual(8);
-  });
-
-  it("separates multiple terminals with a blank line", () => {
-    const out = formatAwarenessList(
-      [
-        [id("aaaa1111-0000-4000-8000-000000000000"), val({})],
-        [id("bbbb2222-0000-4000-8000-000000000000"), val({})],
-      ],
-      { now: NOW },
-    );
-    expect(out).toContain("\n\n");
-    expect(out).toContain("aaaa1111");
-    expect(out).toContain("bbbb2222");
-  });
-
-  it("renders each PR arm", () => {
-    const pr = (p: AwarenessValue["pr"]) =>
-      formatAwarenessList([[id("a"), val({ pr: p })]], { now: NOW });
+  it("mutes anything unresolved", () => {
+    expect(prTone({ kind: "pending" } as AwarenessValue["pr"])).toBe("muted");
+    expect(prTone({ kind: "absent" } as AwarenessValue["pr"])).toBe("muted");
     expect(
-      pr({
-        kind: "ok",
-        value: { number: 7, state: "merged", checks: "fail" },
-      } as AwarenessValue["pr"]),
-    ).toContain("#7 merged ✗");
-    expect(pr({ kind: "pending" })).toContain("pending");
-    expect(
-      pr({
+      prTone({
         kind: "unavailable",
-        source: { provider: "gh", code: "not-logged-in" },
-      } as unknown as AwarenessValue["pr"]),
-    ).toContain("unavailable: not-logged-in");
+        source: { provider: "gh", code: "not-authenticated" },
+      } as AwarenessValue["pr"]),
+    ).toBe("muted");
+  });
+});
+
+describe("dashRow", () => {
+  it("projects the dashboard columns with tones", () => {
+    const row = dashRow(
+      id("a3f1c0de-xyz"),
+      val({
+        git: { repoName: "kolu", branch: "feat/x" } as AwarenessValue["git"],
+        pr: {
+          kind: "ok",
+          value: { number: 12, state: "open", checks: "pass" },
+        } as AwarenessValue["pr"],
+        agent: {
+          kind: "claude-code",
+          state: "awaiting_user",
+        } as AwarenessValue["agent"],
+        foreground: {
+          name: "nvim",
+          title: "x",
+        } as AwarenessValue["foreground"],
+        lastActivityAt: NOW - 3_000,
+      }),
+      NOW,
+    );
+    expect(row).toEqual({
+      id: "a3f1c0de",
+      repoBranch: "kolu·feat/x",
+      pr: { text: "#12 open ✓", tone: "pass" },
+      agent: { text: "claude · awaiting", tone: "awaiting" },
+      foreground: "nvim",
+      active: "3s",
+    });
+  });
+  it("dashes a terminal with no git", () => {
+    const row = dashRow(id("b7"), val({ git: null }), NOW);
+    expect(row.repoBranch).toBe("—");
+  });
+});
+
+describe("dashRows", () => {
+  it("sorts by id and projects each", () => {
+    const rows = dashRows(
+      [
+        [id("c-9"), val({})],
+        [id("a-1"), val({})],
+        [id("b-5"), val({})],
+      ],
+      NOW,
+    );
+    expect(rows.map((r) => r.id)).toEqual(["a-1", "b-5", "c-9"]);
   });
 });
 
 describe("formatAwarenessJson", () => {
-  it("is a top-level array of { id, ...value } with the full id + raw value", () => {
-    const full = id("a3f10000-0000-4000-8000-000000000000");
-    const parsed = JSON.parse(
-      formatAwarenessJson([
-        [full, val({ cwd: "/x", lastAgentCommand: "codex" })],
-      ]),
-    ) as Array<{ id: string; cwd: string; lastAgentCommand: string }>;
-    expect(parsed).toHaveLength(1);
-    expect(parsed[0]?.id).toBe(full);
-    expect(parsed[0]?.cwd).toBe("/x");
-    expect(parsed[0]?.lastAgentCommand).toBe("codex");
+  it("emits a top-level array of { id, ...value }, full ids, valid JSON", () => {
+    const out = formatAwarenessJson([[id("full-id-1234"), val({ cwd: "/x" })]]);
+    const parsed = JSON.parse(out);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].id).toBe("full-id-1234");
+    expect(parsed[0].cwd).toBe("/x");
   });
-});
-
-describe("resolveTerminalId", () => {
-  const ids = [
-    "a3f10000-1111-4000-8000-000000000000",
-    "b7c20000-2222-4000-8000-000000000000",
-  ];
-  it("resolves a unique prefix", () => {
-    expect(resolveTerminalId("a3f1", ids)).toEqual({
-      kind: "found",
-      id: ids[0],
-    });
-  });
-  it("resolves a full id to itself", () => {
-    expect(resolveTerminalId(ids[1]!, ids)).toEqual({
-      kind: "found",
-      id: ids[1],
-    });
-  });
-  it("reports no match", () => {
-    expect(resolveTerminalId("zzzz", ids)).toEqual({ kind: "none" });
-  });
-  it("rejects the empty query (a prefix of everything)", () => {
-    expect(resolveTerminalId("", ids)).toEqual({ kind: "none" });
-  });
-  it("reports ambiguity with the matches", () => {
-    const amb = resolveTerminalId("a", ["aa11", "ab22"]);
-    expect(amb.kind).toBe("ambiguous");
-  });
-  it("shortId takes the first 8 chars", () => {
-    expect(shortId("a3f10000-1111")).toBe("a3f10000");
+  it("honest empty array when there are no terminals", () => {
+    expect(JSON.parse(formatAwarenessJson([]))).toEqual([]);
   });
 });

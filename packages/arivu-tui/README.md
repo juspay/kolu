@@ -11,31 +11,38 @@ shows what each terminal _is in_ — a "what is every agent doing, across every
 repo" dashboard, with **zero kolu-server and no browser**.
 
 ```
-arivu-tui list [--json]   one row per terminal — id · branch · pr · agent · foreground
-arivu-tui watch <id>      follow one terminal's awareness live (Ctrl-C to stop)
+arivu-tui          an OpenTUI dashboard — one row per terminal (Ctrl-C to quit)
+arivu-tui --json   a one-shot machine-readable dump (a top-level array)
 ```
 
 ```
-ID        BRANCH         PR        AGENT             FOREGROUND
-a3f10000  feat/dial-ssh  #1412 ✓   claude · working  node
-b7c20000  master         —         codex · waiting   codex
-c9d40000  fix/fold       #1408 ✗   —                 nvim
+arivu  ·  3 terminals  ·  20:06:50  ·  Ctrl-C to quit
+
+ID        REPO·BRANCH   PR          AGENT               FG      ACTIVE
+a3f10000  kolu·feat/x   #1412 ✓     claude · working    node    4s
+b7c20000  kolu·master   —           codex · awaiting    codex   1s
+c9d40000  drishti·fold  #1408 ✗     —                   nvim    12m
 ```
 
 The agent column buckets each AI agent's fine-grained state into `working` /
-`awaiting` / `waiting`; the PR column rolls its checks up to ✓ / ✗ / ·.
+`awaiting` / `waiting`; the PR column rolls its checks up to ✓ / ✗ / ·. The
+agent state and PR carry a semantic colour (awaiting → amber, working → cyan,
+pass/fail → green/red); the rest stay calm.
+
+The dashboard is a **point-in-time snapshot** read once when it opens; the clock
+in the header ticks every second so you can see it's live. Live row refresh and
+the multi-host fleet board land in the next slice (P3 PR2b).
 
 ## Short ids
 
-Terminal ids are uuids, so `list` prints just the first 8 characters; `watch`
-takes that short form **or any unique prefix**, resolved against the live set.
+Terminal ids are uuids, so the dashboard prints just the first 8 characters;
 `--json` keeps the full id (so `jq -r '.[].id'` round-trips).
 
 ## Running it
 
 ```sh
-nix run github:juspay/kolu#arivu-tui -- list
-nix run github:juspay/kolu#arivu-tui -- watch a3f1
+nix run github:juspay/kolu#arivu-tui          # the dashboard
+nix run github:juspay/kolu#arivu-tui -- --json # scriptable dump
 ```
 
 By default it dials an arivu on this machine. Two ways to point it elsewhere,
@@ -55,9 +62,9 @@ By default it dials an arivu on this machine. Two ways to point it elsewhere,
   discovers the one that's up.
 
 ```sh
-nix run github:juspay/kolu#arivu-tui -- list --host nix@prod
+nix run github:juspay/kolu#arivu-tui -- --host nix@prod
 # several kavals on the host? pick one:
-nix run github:juspay/kolu#arivu-tui -- list --host nix@prod --kaval "$XDG_RUNTIME_DIR"/kaval-7692/pty-host.sock
+nix run github:juspay/kolu#arivu-tui -- --host nix@prod --kaval "$XDG_RUNTIME_DIR"/kaval-7692/pty-host.sock
 ```
 
 `--host` ships the target-arch arivu **daemon** closure, so run arivu-tui from

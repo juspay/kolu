@@ -1,48 +1,26 @@
 /**
- * Pure rendering helpers for the arivu-tui CLI — no I/O, no transport, so the
- * formatting is unit-testable without a socket. `bin.ts` is the thin glue that
- * reads the `awareness` collection over the contract and prints these.
+ * Pure rendering helpers for the arivu-tui dashboard — no I/O, no transport, no
+ * OpenTUI. The PROJECTION (which columns, their formatted values, and the
+ * *semantic* tone each takes) lives here as plain data so it is unit-tested
+ * under Node/vitest and never depends on the Bun renderer; `tui.tsx` only maps a
+ * tone to a colour and paints. `bin.ts` reads the `awareness` collection and
+ * feeds these.
  *
- * The whole point of arivu-tui is to surface what `@kolu/terminal-awareness`
- * produces, so the view shows EVERY field the `AwarenessValue` carries. A flat
- * one-row-per-terminal table can't fit that many columns without wrapping into
- * gibberish, so each terminal is rendered as a VERTICAL RECORD — a header line
- * (`<id>  <cwd>`) followed by one aligned `label  value` line per field. The
- * only things not broken out are the deep internals (git's repoRoot/worktree
- * paths, the per-check array, vendor agent ids); those stay in `--json`.
+ * arivu-tui shows what each terminal *is in* — repo·branch · PR + checks · agent
+ * state · foreground · recency — where kaval-tui shows what's *running*. The
+ * compact one-row-per-terminal table is the human view; `--json` dumps the full
+ * raw `AwarenessValue` (every deep field) for scripts.
  */
 
 import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
 
-/** How many leading chars of a terminal id the header shows (and accepts as the
- *  hand-typed form). v4 UUIDs collide with vanishing probability across the
- *  handful one runs; `--json` keeps the full id. */
+/** How many leading chars of a terminal id the dashboard shows. v4 UUIDs
+ *  collide with vanishing probability across the handful one runs; `--json`
+ *  keeps the full id. */
 export const SHORT_ID_LEN = 8;
 
 export function shortId(id: string): string {
   return id.slice(0, SHORT_ID_LEN);
-}
-
-/** The outcome of resolving a user-typed id-or-prefix against the live ids. */
-export type ResolveResult =
-  | { kind: "found"; id: string }
-  | { kind: "none" }
-  | { kind: "ambiguous"; matches: string[] };
-
-/** Resolve a user-supplied id-or-prefix to a single full terminal id against
- *  the live set. A full id is a prefix of itself, so a pasted full id resolves
- *  to itself. Empty query is a no-match (a prefix of every id — a footgun if
- *  `$id` is accidentally empty). Case-insensitive (UUIDs are lowercase hex). */
-export function resolveTerminalId(query: string, ids: string[]): ResolveResult {
-  if (query === "") return { kind: "none" };
-  const q = query.toLowerCase();
-  const exact = ids.find((id) => id.toLowerCase() === q);
-  if (exact !== undefined) return { kind: "found", id: exact };
-  const matches = ids.filter((id) => id.toLowerCase().startsWith(q));
-  const [first, ...rest] = matches;
-  if (first === undefined) return { kind: "none" };
-  if (rest.length > 0) return { kind: "ambiguous", matches };
-  return { kind: "found", id: first };
 }
 
 const DASH = "—";
@@ -52,13 +30,6 @@ const DASH = "—";
  *  could inject control effects. JSON output stays raw; this is human-only. */
 function sanitize(value: string): string {
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
-}
-
-/** Collapse a leading `$HOME` to `~` for a shorter, familiar path. */
-function tildeify(cwd: string, home: string | undefined): string {
-  if (home === undefined || home === "") return cwd;
-  if (cwd === home) return "~";
-  return cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
 /** Compact relative age (`3s`/`5m`/`2h`/`4d`) of an epoch-millis against `now`;
@@ -79,10 +50,12 @@ export function agentShortName(kind: string): string {
   return kind === "claude-code" ? "claude" : kind;
 }
 
-/** Bucket an agent's fine-grained state into the dashboard label: actively
- *  computing → `working`, blocked on you → `awaiting`, idle → `waiting`. An
- *  unrecognized state falls through verbatim so a new agent state is visible. */
-export function agentStatusLabel(state: string): string {
+/** The coarse bucket an agent's fine-grained state falls in. The closed union
+ *  means a tone/label decision can switch exhaustively over it, and a brand-new
+ *  state surfaces as `other` (shown verbatim) rather than silently miscoloured. */
+function agentBucket(
+  state: string,
+): "working" | "awaiting" | "waiting" | "other" {
   switch (state) {
     case "thinking":
     case "tool_use":
@@ -93,8 +66,16 @@ export function agentStatusLabel(state: string): string {
     case "waiting":
       return "waiting";
     default:
-      return state;
+      return "other";
   }
+}
+
+/** The dashboard label for an agent's state, derived from its bucket. An
+ *  unrecognized (`other`) state falls through verbatim so a new agent state is
+ *  visible rather than silently collapsed. */
+export function agentStatusLabel(state: string): string {
+  const bucket = agentBucket(state);
+  return bucket === "other" ? state : bucket;
 }
 
 function agentValue(agent: AwarenessValue["agent"]): string {
@@ -124,74 +105,98 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
-/** Every field of the awareness value as `[label, value]` rows, in one place so
- *  `list` and `watch` never drift. The header (id + cwd) is separate. */
-function fields(v: AwarenessValue, now: number): Array<[string, string]> {
-  return [
-    ["agent", agentValue(v.agent)],
-    ["pr", prValueText(v.pr)],
-    ["branch", orDash(v.git?.branch)],
-    ["repo", orDash(v.git?.repoName)],
-    ["remote", orDash(v.git?.remoteUrl)],
-    ["foreground", orDash(v.foreground?.name)],
-    ["title", orDash(v.foreground?.title)],
-    ["agent cmd", orDash(v.lastAgentCommand)],
-    ["active", relativeTime(v.lastActivityAt, now)],
-  ];
+/** Semantic colour hint for a cell — the renderer owns the palette, this owns
+ *  which bucket a value falls in. */
+export type FieldTone =
+  | "working"
+  | "awaiting"
+  | "idle"
+  | "pass"
+  | "fail"
+  | "pending"
+  | "muted"
+  | "plain";
+
+/** The agent state's tone, keyed on its bucket: working → cyan, awaiting (blocked
+ *  on you) → amber, idle → dim, an unrecognized state → plain, no agent → muted.
+ *  The exhaustive switch over the closed bucket means a new bucket forces a tone
+ *  decision here rather than silently falling to plain. */
+export function agentTone(agent: AwarenessValue["agent"]): FieldTone {
+  if (!agent) return "muted";
+  switch (agentBucket(agent.state)) {
+    case "working":
+      return "working";
+    case "awaiting":
+      return "awaiting";
+    case "waiting":
+      return "idle";
+    case "other":
+      return "plain";
+  }
 }
 
-const LABEL_WIDTH = 11;
-
-/** Per-row render options threaded from the CLI. */
-export interface RenderOptions {
-  /** The home dir to collapse to `~` in the cwd. */
-  home?: string;
-  /** "Now" for the relative `active` line (defaults to wall-clock). */
-  now?: number;
+/** The PR's tone, keyed on its checks when resolved: pass → green, fail → red,
+ *  pending → amber; anything unresolved (pending/absent/unavailable) → muted. */
+export function prTone(pr: AwarenessValue["pr"]): FieldTone {
+  if (pr.kind !== "ok") return "muted";
+  return pr.value.checks === "pass"
+    ? "pass"
+    : pr.value.checks === "fail"
+      ? "fail"
+      : "pending";
 }
 
-/** One terminal as a vertical record: `<id>  <cwd>` then an aligned
- *  `label  value` line per awareness field. */
-function record(
+/** A dashboard cell that carries a semantic tone for colouring. */
+export interface DashCell {
+  text: string;
+  tone: FieldTone;
+}
+
+/** One terminal as a compact dashboard row. */
+export interface DashRow {
+  id: string;
+  repoBranch: string;
+  pr: DashCell;
+  agent: DashCell;
+  foreground: string;
+  active: string;
+}
+
+/** Project a terminal to its dashboard columns: short id, repo·branch, PR
+ *  (toned by checks), agent · state (toned), foreground, and recency. Pure data
+ *  — `tui.tsx` paints it, vitest tests it. */
+export function dashRow(
   id: TerminalId,
   v: AwarenessValue,
-  opts: RenderOptions,
-): string {
-  const now = opts.now ?? Date.now();
-  const header = `${shortId(id)}  ${sanitize(tildeify(v.cwd, opts.home)) || DASH}`;
-  const lines = fields(v, now).map(
-    ([label, value]) => `  ${label.padEnd(LABEL_WIDTH)}${value}`,
-  );
-  return [header, ...lines].join("\n");
+  now: number,
+): DashRow {
+  return {
+    id: shortId(id),
+    repoBranch: v.git
+      ? `${v.git.repoName ?? "?"}·${v.git.branch ?? "?"}`
+      : DASH,
+    pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
+    agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
+    foreground: orDash(v.foreground?.name),
+    active: relativeTime(v.lastActivityAt, now),
+  };
 }
 
-/** Render the dashboard — one vertical record per terminal, sorted by id for
- *  stable output, blank-line separated. Empty set gets an honest one-liner. */
-export function formatAwarenessList(
+/** Sort the awareness entries by id (stable display) and project each to a
+ *  dashboard row against `now`. The single ordering both the OpenTUI table and
+ *  any test share. */
+export function dashRows(
   entries: Array<[TerminalId, AwarenessValue]>,
-  opts: RenderOptions = {},
-): string {
-  if (entries.length === 0) {
-    return "no terminals — is kaval running, with arivu watching it?";
-  }
+  now: number,
+): DashRow[] {
   return [...entries]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([id, v]) => record(id, v, opts))
-    .join("\n\n");
+    .map(([id, v]) => dashRow(id, v, now));
 }
 
-/** Render a single terminal's record — the `watch` repaint. */
-export function formatAwarenessRow(
-  id: TerminalId,
-  v: AwarenessValue,
-  opts: RenderOptions = {},
-): string {
-  return record(id, v, opts);
-}
-
-/** `list --json` — a top-level array of `{ id, ...value }`, 2-space indented,
- *  full ids, controls JSON-escaped (so `jq '.[]'` works). The complete raw
- *  awareness value, including the deep fields the record doesn't break out. */
+/** `--json` — a top-level array of `{ id, ...value }`, 2-space indented, full
+ *  ids, controls JSON-escaped (so `jq '.[]'` works). The complete raw awareness
+ *  value, including the deep fields the table doesn't break out. */
 export function formatAwarenessJson(
   entries: Array<[TerminalId, AwarenessValue]>,
 ): string {
