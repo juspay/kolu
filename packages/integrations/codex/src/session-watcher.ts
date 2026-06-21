@@ -130,6 +130,7 @@ export function createCodexWatcher(
       summary: meta.title,
       taskProgress: null,
       contextTokens,
+      startedAt: session.startedAt,
     };
   }
 

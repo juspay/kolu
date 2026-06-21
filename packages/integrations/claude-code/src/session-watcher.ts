@@ -22,6 +22,7 @@ import {
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
+  firstTranscriptTimestampMs,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
   liveWorkflowRuns,
@@ -138,6 +139,13 @@ export function createSessionWatcher(
   let transcriptWatching: TranscriptWatching = { kind: "none" };
   let lastInfo: ClaudeCodeInfo | null = null;
   let lastSummary: string | null = null;
+  // Conversation start = the transcript's first `timestamp`, immutable once the
+  // first message exists. Resolved lazily off the transcript head and cached:
+  // null until the first message lands, then the head read never runs again. NB
+  // this is NOT `session.startedAt` (process start, reset on `claude -c` resume,
+  // used for orphan detection) — the inspector wants the conversation's age,
+  // which survives resume, matching codex/opencode's "Running for" semantics.
+  let startedAt: number | null = null;
   const taskMap = new Map<string, "pending" | "in_progress" | "completed">();
   let taskScanOffset = 0;
   // Partial final line from the previous chunked scan. Carried across
@@ -424,6 +432,10 @@ export function createSessionWatcher(
         ? deriveWorkflowProgress(session, outstanding, observe)
         : null;
 
+    // Conversation age (survives `claude -c` resume), resolved once off the
+    // transcript head and cached — see the `startedAt` declaration.
+    startedAt ??= firstTranscriptTimestampMs(transcriptWatching.path);
+
     const info: ClaudeCodeInfo = {
       kind: "claude-code",
       state: publishedState,
@@ -433,6 +445,7 @@ export function createSessionWatcher(
       taskProgress: deriveTaskProgress(taskMap),
       contextTokens: derived.contextTokens,
       workflow,
+      startedAt,
     };
 
     if (!claudeInfoEqual(info, lastInfo)) {

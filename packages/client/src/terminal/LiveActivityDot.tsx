@@ -13,7 +13,8 @@ import type { Component } from "solid-js";
 
 /** Pure visual leaf: it encapsulates only the dot's geometry and always renders.
  *  The live/static GATE lives once per call site (each surface owns when to mount
- *  it) — the dock swaps the timestamp for this dot, the title bar overlays it —
+ *  it) — the dock row renders this dot in its own leading activity column
+ *  (the timestamp stays put in the recency cell), the title bar overlays it —
  *  so the `isLive` predicate is consulted exactly once where the layout choice
  *  differs, never re-asked here. */
 const LiveActivityDot: Component = () => {

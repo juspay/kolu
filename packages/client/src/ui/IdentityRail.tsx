@@ -21,14 +21,8 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
-import {
-  type Accessor,
-  type Component,
-  createSignal,
-  onCleanup,
-  Show,
-} from "solid-js";
-import { createSharedRoot } from "../createSharedRoot";
+import { type Component, createSignal, Show } from "solid-js";
+import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
   KavalUpdateBadge,
@@ -53,18 +47,6 @@ function kavalDot(state: DaemonState | undefined): string {
   if (!state) return "bg-fg-3/50";
   return toneDot[DAEMON_STATE_PRESENTATION[state].tone];
 }
-
-// A 1s clock so the kaval uptime ticks live (`15s → 16s → …`) rather than
-// jumping in coarse steps that read as frozen. One shared owner (the
-// `createSharedRoot` singleton idiom shared with `staleness.ts`/`useDockOrder`),
-// so the single interval is owned and its `onCleanup` clears it — never an
-// orphaned module-level timer that leaks under HMR or a test teardown.
-const getClockNow = createSharedRoot<Accessor<number>>(() => {
-  const [now, setNow] = createSignal(Date.now());
-  const id = setInterval(() => setNow(Date.now()), 1_000);
-  onCleanup(() => clearInterval(id));
-  return now;
-});
 
 /** The thin vertical rule between two columns. */
 const Divider: Component = () => (
