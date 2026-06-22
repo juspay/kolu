@@ -414,4 +414,52 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     });
     expect(mirror.procedures).toEqual({});
   });
+
+  // F1 (R7 breaking change): the return is the plain handle `{ procedures, done }`,
+  // NOT a thenable. A stale consumer that kept the old `await mirrorRemoteSurface(...)`
+  // form must NOT silently get the old settle semantics — `await handle` resolves to
+  // the handle itself at once and does not wait for the link to close. The settle is
+  // `.done`. This pins that contract in CI so nobody re-introduces a back-compat
+  // thenable shim (which `await` would silently honour, hiding the changed contract)
+  // and so the doc note's claim is machine-checked, not just prose.
+  it("returns a non-thenable handle — a bare `await` does NOT wait for the link", async () => {
+    // A stream that stays OPEN: `done` must still be pending after a bare await, so
+    // the bare await provably did not wait for the link to close.
+    let closeTicks!: () => void;
+    const ticksOpen = new Promise<void>((r) => {
+      closeTicks = r;
+    });
+    const client = {
+      surface: {
+        ticks: {
+          get: async () =>
+            (async function* () {
+              yield 0;
+              await ticksOpen;
+            })(),
+        },
+      },
+    };
+    const handle = mirrorRemoteSurface(testSurface, asClient(client), {
+      streams: { ticks: { input: {}, onFrame: () => {} } },
+    });
+
+    // The handle is not a promise — `await` on it is the identity, not a settle.
+    expect(typeof (handle as { then?: unknown }).then).toBe("undefined");
+    const awaited = await handle;
+    expect(awaited).toBe(handle); // `await` gave back the object, not `undefined`
+
+    // The link is still open, so the REAL settle (`.done`) is still pending — proof
+    // the bare await did not behave like the old `Promise<void>` return.
+    let settled = false;
+    void handle.done.then(() => {
+      settled = true;
+    });
+    await delay(10);
+    expect(settled).toBe(false);
+
+    closeTicks();
+    await handle.done; // now the link closed → `.done` settles
+    expect(settled).toBe(true);
+  });
 });
