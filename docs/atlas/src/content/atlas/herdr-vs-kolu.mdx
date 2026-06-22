@@ -92,7 +92,7 @@ Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a s
 </Callout>
 
 <Callout kind="danger" title="A7 · SCM_RIGHTS live fd-passing — explicit NON-GOAL">
-<Pill variant="bad">drop</Pill> <Pill variant="bad">category-mismatch</Pill> &nbsp; herdr passes live master fds via `sendmsg`/`recvmsg` ancillary messages because *its whole server restarts*. *(herdr server/handoff.rs:370-454,:26 `MAX_FDS_PER_HANDOFF=64`; handoff_runtime.rs:5-21.)* kolu inverts this: kaval **is** the survivor and stays alive across a deploy, so there is no fd to move on the common path. node-pty exposes no master-fd handle. It would matter *only* for upgrading the daemon binary itself — which the cgroup-survival design deliberately makes rare. **Write it down as a named non-goal** so a future contributor who reads this note doesn't reintroduce the <Issue n={1034} /> race for marginal benefit. (A6 remote-over-SSH: borrow herdr's reattach-hint UX, not the transport. The earlier "C1 pool-key leak" R7 blocker is **stale** — `hostSession.ts:735` already keys on `(host, binary)` with `.drv` excluded, fixed <Issue n={1054} />.)
+<Pill variant="bad">drop</Pill> <Pill variant="bad">category-mismatch</Pill> &nbsp; herdr passes live master fds via `sendmsg`/`recvmsg` ancillary messages because *its whole server restarts*. *(herdr server/handoff.rs:370-454,:26 `MAX_FDS_PER_HANDOFF=64`; handoff_runtime.rs:5-21.)* kolu inverts this: kaval **is** the survivor and stays alive across a deploy, so there is no fd to move on the common path. node-pty exposes no master-fd handle. It would matter *only* for upgrading the daemon binary itself — which the cgroup-survival design deliberately makes rare. **Write it down as a named non-goal** so a future contributor who reads this note doesn't reintroduce the <Issue n={1034} /> race for marginal benefit. (A6 remote-over-SSH: borrow herdr's reattach-hint UX, not the transport. The earlier "C1 pool-key leak" R8 blocker is **stale** — `hostSession.ts:735` already keys on `(host, binary)` with `.drv` excluded, fixed <Issue n={1054} />.)
 </Callout>
 
 ## UX — what to adopt
@@ -140,7 +140,7 @@ The two highest-leverage herdr ideas the plans never covered. One — native ses
 3. **kaval-tui:** A5's socket path and G3's attach TTY-guard shipped (<PrLink pr={1084} />, <PrLink pr={1255} />); carry the non-tty contract forward to Phase 3's `kill`/`spawn`.
 4. **UX:** ship the attention rollup with `Done = unseen` (U1), keeping `unread`-bytes distinct from turn-finished; fold the navigator into the palette (U3).
 5. **G1 (native `--resume`) shipped** (<Issue n={1495} />): the live `agent.sessionId` is persisted as a `{ kind, id }` ref and replayed by id on wake/restore — the clearest adoptable, now done.
-6. **U2's `blocked` signal:** <Issue n={905} /> shipped (screen-scrape `awaiting_user`) — remaining: map `awaiting_user` into the U1 rollup as Blocked. **Later:** R7 reattach-hint UX (A6).
+6. **U2's `blocked` signal:** <Issue n={905} /> shipped (screen-scrape `awaiting_user`) — remaining: map `awaiting_user` into the U1 rollup as Blocked. **Later:** R8 reattach-hint UX (A6).
 
 ---
 
