@@ -51,9 +51,12 @@ import {
   createSignal,
   type JSX,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
+import { Portal } from "solid-js/web";
+import { createEventListener } from "@solid-primitives/event-listener";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import { resolveLinkHref } from "@kolu/solid-browser";
@@ -61,6 +64,8 @@ import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
+import { surface } from "../ui/Surface";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
@@ -82,6 +87,106 @@ const TruncatedBanner: Component<{ show: boolean }> = (p) => (
     </div>
   </Show>
 );
+
+type FootnoteState = { anchor: HTMLElement; definition: HTMLElement };
+
+const FootnotePopover: Component<{
+  fn: () => FootnoteState | null;
+  onDismiss: () => void;
+  onNavigateRelative: (href: string) => void;
+  onNavigateWikilink: (target: string, anchor: HTMLElement) => void;
+}> = (props) => {
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => props.fn()?.anchor,
+    open: () => props.fn() !== null,
+    onDismiss: props.onDismiss,
+    anchor: "bottom-start",
+    flip: true,
+    panelMinWidth: 320,
+  });
+
+  createEventListener(
+    () => (props.fn() ? document : undefined),
+    "scroll",
+    props.onDismiss,
+    { capture: true },
+  );
+
+  const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
+
+  const content = createMemo(() => {
+    const def = props.fn()?.definition;
+    if (!def) return "";
+    const clone = def.cloneNode(true) as HTMLElement;
+    clone.removeAttribute("id");
+    for (const backref of clone.querySelectorAll('a[href*="-ref-"]')) {
+      backref.remove();
+    }
+    for (const nested of clone.querySelectorAll("[data-md-footnote]")) {
+      nested.removeAttribute("data-md-footnote");
+    }
+    return clone.innerHTML;
+  });
+
+  return (
+    <Show when={props.fn()}>
+      {(fn) => (
+        <Portal>
+          <div
+            ref={(el: HTMLElement) => {
+              panelRef(el);
+              const onPanelClick = (e: MouseEvent) => {
+                const target = e.target as Element;
+                const anchor = target.closest("a");
+                if (!anchor) return;
+                const href = anchor.getAttribute("href");
+                if (anchor.hasAttribute("data-md-wikilink")) {
+                  e.preventDefault();
+                  const wlTarget = anchor.getAttribute("data-md-wikilink");
+                  if (wlTarget) props.onNavigateWikilink(wlTarget, anchor);
+                  return;
+                }
+                if (anchor.hasAttribute("data-md-rel")) {
+                  e.preventDefault();
+                  if (href) props.onNavigateRelative(href);
+                }
+              };
+              el.addEventListener("click", onPanelClick);
+              onCleanup(() => el.removeEventListener("click", onPanelClick));
+            }}
+            data-testid="footnote-popover"
+            class={`fixed z-50 flex flex-col ${chrome.class} p-3`}
+            style={{
+              ...panelStyle(),
+              ...chrome.style,
+              width: "min(360px, calc(100vw - 2rem))",
+              "max-height": "min(50vh, 22rem)",
+              overflow: "auto",
+            }}
+          >
+            <div
+              class="text-sm leading-relaxed text-fg-2"
+              innerHTML={content()}
+            />
+            <button
+              type="button"
+              class="mt-2 border-t border-edge pt-1.5 text-xs text-fg-3/60 hover:text-fg-2 transition-colors"
+              onClick={() => {
+                fn().definition.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+                props.onDismiss();
+              }}
+            >
+              see all ↓
+            </button>
+          </div>
+        </Portal>
+      )}
+    </Show>
+  );
+};
 
 export type BrowseFileDispatcherProps = {
   terminalId: TerminalId;
@@ -178,6 +283,40 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       label: path,
     })),
   );
+
+  // ── Relative-link navigation ───────────────────────────────────────
+  // Shared by the MarkdownRenderer and the footnote popover's inner links.
+  // A repo-relative link resolves against the previewed doc's own directory
+  // (GitHub-style), then opens through the same front door every other
+  // "open this file" producer uses. A miss (traversal escaping the repo root,
+  // or a fragment/query-only href) surfaces a toast rather than no-op'ing
+  // silently, so a dead link isn't indistinguishable from a working one.
+  const onNavigateRelative = (href: string) => {
+    const path = resolveLinkHref(props.filePath, href);
+    if (path === null) {
+      toast.error(`Can't open link: ${href}`);
+      return;
+    }
+    openPreviewPath(path);
+  };
+
+  // ── Footnote popover ───────────────────────────────────────────────
+  // A footnote forward-ref click opens a popover anchored to the marker,
+  // showing the definition inline. Toggle: clicking the same marker again
+  // closes it. Dismiss: outside-click/Escape (via useAnchoredPopover) +
+  // scroll (capture-phase listener). The popover reuses the same link
+  // resolvers the preview uses, so relative links and wikilinks inside a
+  // footnote body still open the right way.
+  const [footnote, setFootnote] = createSignal<FootnoteState | null>(null);
+
+  const onFootnote = (anchor: HTMLElement, definition: HTMLElement) => {
+    const current = footnote();
+    if (current?.anchor === anchor) {
+      setFootnote(null);
+      return;
+    }
+    setFootnote({ anchor, definition });
+  };
 
   // The comment address space a view exposes — the single axis this seam
   // decides on (see the header):
@@ -374,24 +513,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
               }
-              onNavigateRelative={(href) => {
-                // A repo-relative link resolves against the previewed doc's own
-                // directory (GitHub-style), then opens through the same front
-                // door terminal `path:line` links use — so a miss surfaces a
-                // toast and any file type opens, not a bogus new tab (#1161).
-                const path = resolveLinkHref(props.filePath, href);
-                // The anchor is tagged `data-md-rel` (so the click was already
-                // preventDefault'd) yet didn't resolve to a repo path — a
-                // traversal that escapes the repo root, or a fragment/query-only
-                // href. Surface it rather than no-op silently, so a dead link
-                // isn't indistinguishable from a working one.
-                if (path === null) {
-                  toast.error(`Can't open link: ${href}`);
-                  return;
-                }
-                openPreviewPath(path);
-              }}
+              onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}
+              onFootnote={onFootnote}
             />,
           )}
         </div>
@@ -471,6 +595,12 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         maxHeight={280}
         truncate
         flip
+      />
+      <FootnotePopover
+        fn={footnote}
+        onDismiss={() => setFootnote(null)}
+        onNavigateRelative={onNavigateRelative}
+        onNavigateWikilink={onNavigateWikilink}
       />
     </>
   );

@@ -191,6 +191,34 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[^1]");
   });
 
+  it("tags the forward-ref anchor with data-md-footnote", () => {
+    const out = html("text[^1] here\n\n[^1]: the note");
+    expect(out).toContain("data-md-footnote");
+    // The marker is on the forward-ref <a> (the superscript link), not on
+    // the back-ref ↩ — verify by checking the forward ref specifically.
+    const fwdRef = out.match(/<a[^>]*data-md-footnote[^>]*>/);
+    expect(fwdRef).not.toBeNull();
+    expect(fwdRef![0]).toContain('href="#footnote-1"');
+  });
+
+  it("does NOT tag the back-reference ↩ with data-md-footnote", () => {
+    const out = html("text[^1] here\n\n[^1]: the note");
+    const backref = out.match(/<a[^>]*data-footnote-backref[^>]*>/);
+    expect(backref).not.toBeNull();
+    expect(backref![0]).not.toContain("data-md-footnote");
+  });
+
+  it("tags every forward-ref when there are multiple footnotes", () => {
+    const out = html("a[^1] b[^2]\n\n[^1]: one\n[^2]: two");
+    const fwdRefs = out.match(/<a[^>]*data-md-footnote[^>]*>/g);
+    expect(fwdRefs?.length).toBe(2);
+  });
+
+  it("is a no-op when there are no footnotes", () => {
+    const out = html("just a paragraph");
+    expect(out).not.toContain("data-md-footnote");
+  });
+
   it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
     const out = html("> [!WARNING]\n> be careful");
     expect(out).toContain('data-md-alert="warning"');

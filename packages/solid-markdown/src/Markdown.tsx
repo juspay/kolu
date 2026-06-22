@@ -49,16 +49,23 @@ function copyCodeBlock(button: HTMLElement): void {
     .catch((err) => console.warn("markdown: copy to clipboard failed", err));
 }
 
-/** Host hooks for the two link kinds the preview intercepts: a repo-relative
- *  `[]()` link (resolved against the doc's directory) and an Obsidian-style
- *  `[[wikilink]]` (resolved pathless across the repo). Both fire only in the
- *  document preview; everywhere else links are off and these never run. */
+/** Host hooks for the link kinds and footnote popovers the preview intercepts:
+ *  a repo-relative `[]()` link (resolved against the doc's directory), an
+ *  Obsidian-style `[[wikilink]]` (resolved pathless across the repo), and a
+ *  footnote forward-ref (the host renders a popover anchored to the marker).
+ *  All fire only in the document preview; everywhere else links are off and
+ *  these never run. */
 type LinkHandlers = {
   onNavigateRelative?: (href: string) => void;
   /** A wikilink click — the host resolves `target` (`Note` / `Note#Heading`)
    *  against the whole repo. `anchor` is the clicked element so the host can
    *  anchor a disambiguation menu to it when the target is ambiguous. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** A footnote forward-ref click — the host renders a popover anchored to
+   *  `anchor` showing the `definition` node (the `<li>` from the bottom
+   *  footnotes section). `definition` is the live DOM node, not a clone;
+   *  the host clones it for display. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 };
 
 /** Handle interactive bits inside the rendered Markdown — code-copy buttons,
@@ -93,6 +100,19 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     if (anchor) {
       e.stopPropagation();
       const href = anchor.getAttribute("href");
+      // Footnote forward-refs (tagged by the renderer with `data-md-footnote`)
+      // open a host-rendered popover instead of scrolling to the definition.
+      // The back-ref `↩` is NOT tagged, so it falls through to the in-page
+      // scroll branch below and jumps back up to the marker.
+      if (anchor.hasAttribute("data-md-footnote") && href) {
+        const id = href.slice(1);
+        const definition = el.querySelector(`#${CSS.escape(id)}`);
+        if (definition) {
+          e.preventDefault();
+          handlers.onFootnote?.(anchor, definition as HTMLElement);
+          return;
+        }
+      }
       // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
       // the preview without navigating or writing the app's URL hash.
       if (href?.startsWith("#") && href.length > 1) {
@@ -151,6 +171,11 @@ export const Markdown: Component<{
    *  disambiguation menu to it when the basename matches more than one file.
    *  Unwired ⇒ wikilinks are inert. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** A footnote forward-ref click — the host renders a popover anchored to
+   *  `anchor` showing the `definition` node (the `<li>` from the bottom
+   *  footnotes section). Unwired ⇒ footnote markers scroll to the definition
+   *  (the original in-page anchor behaviour). */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -219,6 +244,7 @@ export const Markdown: Component<{
         bindInteractions(el, {
           onNavigateRelative: props.onNavigateRelative,
           onNavigateWikilink: props.onNavigateWikilink,
+          onFootnote: props.onFootnote,
         })
       }
       class="kolu-md"

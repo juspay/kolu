@@ -195,6 +195,12 @@ const DOCUMENT_ATTR = [
   // entry. The link policy keys on it to route the click to the pathless
   // wikilink resolver instead of the directory-relative one.
   "data-md-wikilink",
+  // The footnote forward-ref marker the renderer stamps on a superscript link
+  // (see render.ts `rewriteFootnotes`). Like `data-md-wikilink`, this must come
+  // from the parser — only it can tell a forward ref from the back-ref `↩` —
+  // so it has to survive DOMPurify. The component keys on it to fire the
+  // `onFootnote` host callback instead of the in-page scroll.
+  "data-md-footnote",
 ];
 const INTENT_ATTR = ["href", "title"];
 

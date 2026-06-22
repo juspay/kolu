@@ -478,7 +478,18 @@
 /* The reference superscript links down to a "Footnotes" section at the end.
  * marked-footnote's `class="sr-only"` on the section heading is stripped by
  * the allowlist, so it shows as a small label rather than being hidden — fine
- * for a reading preview. */
+ * for a reading preview. The forward-ref anchor is tagged `data-md-footnote`
+ * (render.ts → rewriteFootnotes) so it reads as clickable: pointer cursor +
+ * a subtle hover tint. The back-ref `↩` is NOT tagged and keeps the default
+ * link style. */
+.kolu-md [data-md-footnote] {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.12s ease;
+}
+.kolu-md [data-md-footnote]:hover {
+  background: color-mix(in oklch, currentColor 12%, transparent);
+}
 .kolu-md sup a {
   text-decoration: none;
   padding: 0 0.1em;

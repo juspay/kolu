@@ -297,6 +297,23 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
+/** Tag footnote forward-reference anchors with an allowlist-safe
+ *  `data-md-footnote` flag. `marked-footnote` stamps `data-footnote-ref` on the
+ *  superscript link that points down to the definition, and `data-footnote-backref`
+ *  on the `↩` link that points back up. DOMPurify strips both (they're `data-*`
+ *  attributes and `ALLOW_DATA_ATTR` is false), so the only way to distinguish a
+ *  forward ref from a back-ref after sanitization is a marker that survives the
+ *  allowlist. `data-md-footnote` (bare flag, no value) is added pre-sanitize, on
+ *  forward refs only — the back-ref is deliberately left untagged so the click
+ *  handler can tell them apart. This mirrors how `rewriteAlerts` swaps
+ *  `class="markdown-alert"` for `data-md-alert`. */
+function rewriteFootnotes(html: string): string {
+  return html.replace(
+    /\bdata-footnote-ref(?=\s|>)/g,
+    "data-md-footnote data-footnote-ref",
+  );
+}
+
 // The soft-break setting and the raw-HTML toggle are the axes that vary the
 // parser, so cache one configured instance per (breaks, rawHtml). Rendering is
 // synchronous, so a shared instance is safe; the cache just avoids rebuilding
@@ -331,5 +348,5 @@ export function renderMarkdownToRawHtml(
   const { yaml, body } = splitFrontMatter(markdown);
   const meta =
     (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
-  return meta + rewriteAlerts(inst.parse(body) as string);
+  return meta + rewriteAlerts(rewriteFootnotes(inst.parse(body) as string));
 }
