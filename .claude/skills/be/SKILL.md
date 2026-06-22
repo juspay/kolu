@@ -121,6 +121,19 @@ green before capturing.
      even where `.agency/do.md`'s steady-state note still reads "rasam, not
      sincereintent / sincereintent retired": that line is the default pin, this
      ordering supersedes it the moment the primary is dark.
+     - **The same `rasam → sincereintent` order governs *every* darwin lane this
+       run starts — including a downstream/companion repo's CI** (e.g. the drishti
+       PR a `@kolu/surface` change requires per `surface.md`). A consuming repo's
+       own `hosts.json` may name a *different*, possibly-dark darwin host (drishti's
+       `zest`); when it's offline you fall through to the **same** working
+       fallback. But that repo's CI is the shelled-out `nix run … odu -- run`
+       path, not `mcp__odu__run`, so pin the override with **`--host
+       aarch64-darwin=srid@sincereintent`** (per the `/ci` skill) — **never** by
+       exporting inline JSON into `$ODU_HOSTS`, which odu reads as a *file path*,
+       not a value: an inline `$ODU_HOSTS='{…}'` is **silently ignored**, the lane
+       falls back to the repo's on-disk `zest`, and you burn a full CI run on the
+       dead host. If you must set `$ODU_HOSTS`, write a real hosts *file* and point
+       at it; otherwise reach for `--host`.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior

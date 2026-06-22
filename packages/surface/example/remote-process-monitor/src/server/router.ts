@@ -126,6 +126,15 @@ export function buildRouter(opts: BuildRouterOptions) {
       },
     },
     procedures: {
+      // `kill` forwards browser → agent. R7 made `mirrorRemoteSurface` a *total*
+      // dual, so the bridge's `mirrorRemoteSurface(...)` below now also returns a
+      // `procedures.process.kill` forwarder — but those stubs are bound to ONE
+      // spawn's client, and `stdio` links don't recover mid-stream (the bridge
+      // re-mirrors per respawn). A kill can be invoked any time, including across a
+      // respawn, so it forwards through `session.acquire()` (always the *current*
+      // live client) rather than a per-spawn mirror stub. R8's long-lived
+      // `HostSession` client is durable across reconnects, so it can hand its
+      // forwarders straight off the mirror.
       process: {
         kill: async ({ input }) => {
           const client = await session.acquire();
@@ -267,7 +276,7 @@ async function bridgeAgentToParent(
           },
         },
       },
-    });
+    }).done;
     log("bridge: mirror ended (link likely died) — awaiting next client");
   }
   log("bridge: session destroyed — exiting reconnect loop");
