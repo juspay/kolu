@@ -64,7 +64,7 @@ import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { terminalWorkspace } from "../wire";
+import { client, terminalWorkspace } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
@@ -135,14 +135,14 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     async (i): Promise<FsReadFileOutput> => {
       if (isBinaryPreviewable(i.filePath)) {
         const mtimeMs =
-          await terminalWorkspace.rpc.surface.fs.statFileMtimeMs(i);
+          await client.surface.terminalWorkspace.fs.statFileMtimeMs(i);
         return {
           kind: "binary",
           url: `${buildTerminalFileUrl(props.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
         };
       }
       const { content, truncated } =
-        await terminalWorkspace.rpc.surface.fs.readFile(i);
+        await client.surface.terminalWorkspace.fs.readFile(i);
       return { kind: "text", content, truncated };
     },
     filePulse,

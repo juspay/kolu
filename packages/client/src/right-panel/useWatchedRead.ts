@@ -37,7 +37,7 @@ export interface WatchedRead<O> {
 export function useWatchedRead<I, O>(
   /** The procedure input, or `null` to stand the read down (no repo / wrong view). */
   input: Accessor<I | null>,
-  /** Call the workspace procedure — e.g. `(i) => terminalWorkspace.rpc.surface.git.getStatus(i)`. */
+  /** Call the workspace procedure — e.g. `(i) => client.surface.terminalWorkspace.git.getStatus(i)`. */
   read: (input: I) => Promise<O>,
   /** The change-pulse subscription scoped to the same repo/file — re-querying on
    *  each new pulse is what keeps the value live. */

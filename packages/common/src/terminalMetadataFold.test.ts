@@ -27,9 +27,11 @@ const active: ActiveTerminal = {
   git: {
     repoRoot: "/work/repo",
     repoName: "repo",
-    branch: "main",
-    dirty: true,
     worktreePath: "/work/repo",
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: "/work/repo",
+    remoteUrl: null,
   },
   lastActivityAt: 123,
   lastAgentCommand: "claude --model sonnet",

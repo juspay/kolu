@@ -1011,8 +1011,12 @@ export type Surface = SurfaceTypes<typeof koluSurface.spec>;
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
 export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
-export type TerminalMetadata =
-  Surface["collections"]["terminalMetadata"]["Value"];
+// R8: the `terminalMetadata` COLLECTION now carries kolu's own fields only
+// (`KoluTerminalFields`), but `TerminalMetadata` is the FULL internal record —
+// what the registry holds, sessions persist, and the client reconstructs by
+// joining the two wire halves (`joinTerminalMetadata`). So it's pinned to its own
+// schema, decoupled from the (shrunk) collection value type it used to alias.
+export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 

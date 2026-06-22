@@ -88,10 +88,11 @@ export const surfaceApp = clients.surfaceApp;
 
 /** R8: the composed terminal-workspace surface client — the `awareness`
  *  collection (`terminalWorkspace.collections.awareness.use(...)`), the `activity`
- *  stream, and the fs/git read procedures + change-pulse watcher streams
- *  (`terminalWorkspace.rpc.surface.fs.listAll(...)`,
- *  `terminalWorkspace.streams.subscribeRepoChange.use(...)`). The Code tab + the
- *  metadata join read off this instead of kolu's old value-bearing streams. */
+ *  stream, and the fs/git change-pulse watcher streams
+ *  (`terminalWorkspace.streams.subscribeRepoChange.use(...)`). The fs/git read
+ *  PROCEDURES are typed off the full link — `client.surface.terminalWorkspace.fs.listAll(...)`
+ *  — because the surface client's `.rpc` is intentionally untyped (`unknown`). The
+ *  Code tab + the metadata join read off these instead of kolu's old streams. */
 export const terminalWorkspace = clients.terminalWorkspace;
 
 /** Convenience alias — the FULL combined link. `client.terminal.create(...)`,

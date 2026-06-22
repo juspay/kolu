@@ -64,7 +64,7 @@ import {
 } from "../ui/pierreTheme";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { terminalWorkspace } from "../wire";
+import { client, terminalWorkspace } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { useWatchedRead } from "./useWatchedRead";
@@ -329,7 +329,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    (i) => client.surface.terminalWorkspace.git.getStatus(i),
     repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -345,7 +345,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    (i) => client.surface.terminalWorkspace.git.getStatus(i),
     repoPulse,
     {
       onError: (err) => {
@@ -369,7 +369,7 @@ const CodeTab: Component<{
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    (i) => client.surface.terminalWorkspace.git.getStatus(i),
     repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
@@ -384,7 +384,7 @@ const CodeTab: Component<{
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    (i) => terminalWorkspace.rpc.surface.fs.listAll(i),
+    (i) => client.surface.terminalWorkspace.fs.listAll(i),
     repoPulse,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
@@ -401,7 +401,7 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    (i) => terminalWorkspace.rpc.surface.git.getDiff(i),
+    (i) => client.surface.terminalWorkspace.git.getDiff(i),
     repoPulse,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
