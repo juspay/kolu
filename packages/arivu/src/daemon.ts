@@ -255,7 +255,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
         signal: abort.signal,
         log: (line) => log.debug({ terminal: id }, line),
       },
-    );
+    ).done;
 
     return () => {
       abort.abort();

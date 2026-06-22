@@ -189,7 +189,7 @@ async function runHost(
         },
       },
       { log: opts.log },
-    );
+    ).done;
     // The mirror returned → every subscription settled (the link closed;
     // `mirrorRemoteSurface` swallows its own per-stream errors). The box went
     // away: flip the header AND drop its now-stale rows + live set unless we tore

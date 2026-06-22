@@ -10,7 +10,9 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
+import { directLink } from "./links/direct";
 import { mirrorRemoteSurface } from "./mirrorRemoteSurface";
+import { type Channel, implementSurface, inMemoryChannel } from "./server";
 
 const testSurface = defineSurface({
   cells: { count: { schema: z.number(), default: 0 } },
@@ -62,7 +64,7 @@ describe("mirrorRemoteSurface", () => {
     const streamFrames: number[] = [];
     const eventFrames: string[] = [];
 
-    const done = mirrorRemoteSurface(testSurface, asClient(client), {
+    const { done } = mirrorRemoteSurface(testSurface, asClient(client), {
       cells: { count: (v) => cellFrames.push(v) },
       collections: {
         items: {
@@ -118,7 +120,7 @@ describe("mirrorRemoteSurface", () => {
 
     const upserts: string[] = [];
     const removes: string[] = [];
-    const done = mirrorRemoteSurface(testSurface, asClient(client), {
+    const { done } = mirrorRemoteSurface(testSurface, asClient(client), {
       collections: {
         items: {
           upsert: (k) => upserts.push(k),
@@ -144,7 +146,7 @@ describe("mirrorRemoteSurface", () => {
     const cellFrames: number[] = [];
     await mirrorRemoteSurface(testSurface, asClient(client), {
       cells: { count: (v) => cellFrames.push(v) },
-    });
+    }).done;
     expect(cellFrames).toEqual([7]);
   });
 
@@ -165,7 +167,7 @@ describe("mirrorRemoteSurface", () => {
         asClient(client),
         { streams: { ticks: { input: {}, onFrame: () => {} } } },
         { log: (l) => logs.push(l) },
-      ),
+      ).done,
     ).resolves.toBeUndefined();
     expect(logs.some((l) => l.includes("boom"))).toBe(true);
   });
@@ -192,7 +194,7 @@ describe("mirrorRemoteSurface", () => {
           },
         },
         { log: (l) => logs.push(l) },
-      ),
+      ).done,
     ).rejects.toThrow("fold blew up");
     // The sink failure was NOT logged as an upstream blip.
     expect(logs.some((l) => l.includes("fold blew up"))).toBe(false);
@@ -221,7 +223,7 @@ describe("mirrorRemoteSurface", () => {
             remove: () => {},
           },
         },
-      }),
+      }).done,
     ).rejects.toThrow("upsert fold blew up");
   });
 
@@ -233,7 +235,7 @@ describe("mirrorRemoteSurface", () => {
     await expect(
       mirrorRemoteSurface(testSurface, asClient(client), {
         cells: { count: () => {} },
-      }),
+      }).done,
     ).rejects.toThrow(/client\/surface mismatch/);
   });
 
@@ -260,10 +262,147 @@ describe("mirrorRemoteSurface", () => {
       mirrorRemoteSurface(testSurface, asClient(client), {
         cells: { count: () => {} },
         streams: { ticks: { input: {}, onFrame: () => {} } },
-      }),
+      }).done,
     ).rejects.toThrow(/client\/surface mismatch/);
     // Give any erroneously-started task a tick to call `get`.
     await delay(10);
     expect(cellSubscribed).toBe(false);
+  });
+});
+
+// ── Procedures — the pull-side half of the total dual ─────────────────────
+//
+// A streaming primitive is PUSH (frames flow into a sink); a procedure is PULL
+// (a local call runs on the remote and returns). So procedures don't live in the
+// SurfaceSink — they come back as forwarding stubs on `mirrorRemoteSurface`'s
+// return (`{ procedures, done }`). These tests pin that the stubs forward, that
+// `serve ∘ mirror ≈ identity` holds once a re-served surface grafts them, and
+// that a missing client entry fails loud (no silent undefined).
+
+const procSurface = defineSurface({
+  procedures: {
+    math: {
+      double: {
+        input: z.object({ x: z.number() }),
+        output: z.object({ y: z.number() }),
+      },
+      // no input — exercises the void-input forwarder shape.
+      ping: { output: z.object({ pong: z.boolean() }) },
+      // no output — exercises the void-output forwarder shape.
+      reset: { input: z.object({ to: z.number() }) },
+    },
+  },
+});
+
+/** Serve `procSurface` over an in-process `directLink` — the "remote" the mirror
+ *  consumes. `recordedResets` lets a test assert a no-output procedure actually
+ *  ran on the far side. */
+function serveProc(recordedResets: number[] = []) {
+  const { router } = implementSurface(procSurface, {
+    channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
+    procedures: {
+      math: {
+        double: ({ input }) => ({ y: input.x * 2 }),
+        ping: () => ({ pong: true }),
+        reset: ({ input }) => {
+          recordedResets.push(input.to);
+        },
+      },
+    },
+  });
+  return directLink<typeof procSurface.contract>(router);
+}
+
+describe("mirrorRemoteSurface — procedures (the total dual)", () => {
+  it("forwards each procedure kind (in+out, no-input, no-output) to the remote", async () => {
+    const resets: number[] = [];
+    const mirror = mirrorRemoteSurface(procSurface, serveProc(resets), {});
+
+    expect(await mirror.procedures.math.double({ x: 21 })).toEqual({ y: 42 });
+    expect(await mirror.procedures.math.ping()).toEqual({ pong: true });
+    await expect(
+      mirror.procedures.math.reset({ to: 7 }),
+    ).resolves.toBeUndefined();
+    expect(resets).toEqual([7]); // the no-output call actually ran on the far side
+  });
+
+  it("serve ∘ mirror ≈ identity — a re-served forwarded procedure round-trips", async () => {
+    // Mirror the remote, then RE-SERVE the mirror by grafting its forwarders into
+    // a second `implementSurface`. The re-served surface must behave like the
+    // remote — the location-transparency the whole epic rests on.
+    const mirror = mirrorRemoteSurface(procSurface, serveProc(), {});
+    const { router: reRouter } = implementSurface(procSurface, {
+      channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
+      procedures: {
+        math: {
+          double: ({ input }) => mirror.procedures.math.double(input),
+          ping: () => mirror.procedures.math.ping(),
+          reset: ({ input }) => mirror.procedures.math.reset(input),
+        },
+      },
+    });
+    const reServed = directLink<typeof procSurface.contract>(reRouter);
+    expect(await reServed.surface.math.double({ x: 21 })).toEqual({ y: 42 });
+    expect(await reServed.surface.math.ping()).toEqual({ pong: true });
+  });
+
+  it("mirrors a stream into a sink AND forwards a procedure in one call", async () => {
+    // The headline: one declarative call drives BOTH halves of the dual — the
+    // streaming sink (push) and the procedure forwarder (pull) — over one client.
+    const mixed = defineSurface({
+      streams: {
+        ticks: {
+          inputSchema: z.object({ n: z.number() }),
+          outputSchema: z.object({ i: z.number() }),
+        },
+      },
+      procedures: {
+        math: {
+          double: {
+            input: z.object({ x: z.number() }),
+            output: z.object({ y: z.number() }),
+          },
+        },
+      },
+    });
+    const { router } = implementSurface(mixed, {
+      channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
+      streams: {
+        ticks: {
+          source: async function* (input) {
+            for (let i = 0; i < input.n; i++) yield { i };
+          },
+        },
+      },
+      procedures: { math: { double: ({ input }) => ({ y: input.x * 2 }) } },
+    });
+    const client = directLink<typeof mixed.contract>(router);
+
+    const frames: number[] = [];
+    const mirror = mirrorRemoteSurface(mixed, client, {
+      streams: { ticks: { input: { n: 3 }, onFrame: (f) => frames.push(f.i) } },
+    });
+    expect(await mirror.procedures.math.double({ x: 4 })).toEqual({ y: 8 });
+    await mirror.done; // the ticks stream yielded 3 frames then closed → settles.
+    expect(frames).toEqual([0, 1, 2]);
+  });
+
+  it("a forwarder for a procedure the client lacks rejects (client/surface mismatch)", async () => {
+    // Omitting a streaming sink is non-interest; a procedure stub is always
+    // present (the dual is total), but calling one the client doesn't expose is a
+    // mismatch — it must reject loudly, never resolve to undefined.
+    const client = { surface: {} };
+    const mirror = mirrorRemoteSurface(procSurface, asClient(client), {});
+    await expect(mirror.procedures.math.double({ x: 1 })).rejects.toThrow(
+      /client\/surface mismatch/,
+    );
+  });
+
+  it("exposes an empty procedures map for a surface with no procedures", () => {
+    const client = { surface: { count: { get: async () => gen(0) } } };
+    const mirror = mirrorRemoteSurface(testSurface, asClient(client), {
+      cells: { count: () => {} },
+    });
+    expect(mirror.procedures).toEqual({});
   });
 });
