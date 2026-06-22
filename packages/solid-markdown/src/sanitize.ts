@@ -201,6 +201,11 @@ const DOCUMENT_ATTR = [
   // so it has to survive DOMPurify. The component keys on it to fire the
   // `onFootnote` host callback instead of the in-page scroll.
   "data-md-footnote",
+  // The footnote back-ref marker the renderer stamps on the `↩` link. The
+  // host's popover clones the definition and uses this to strip back-refs from
+  // the clone — a stable attribute selector instead of a fragile href substring
+  // match that would false-positive on external links containing `-ref-`.
+  "data-md-backref",
 ];
 const INTENT_ATTR = ["href", "title"];
 

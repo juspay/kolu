@@ -208,6 +208,13 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(backref![0]).not.toContain("data-md-footnote");
   });
 
+  it("tags the back-reference ↩ with data-md-backref", () => {
+    const out = html("text[^1] here\n\n[^1]: the note");
+    const backref = out.match(/<a[^>]*data-md-backref[^>]*>/);
+    expect(backref).not.toBeNull();
+    expect(backref![0]).toContain("data-footnote-backref");
+  });
+
   it("tags every forward-ref when there are multiple footnotes", () => {
     const out = html("a[^1] b[^2]\n\n[^1]: one\n[^2]: two");
     const fwdRefs = out.match(/<a[^>]*data-md-footnote[^>]*>/g);

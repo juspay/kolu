@@ -51,7 +51,6 @@ import {
   createSignal,
   type JSX,
   Match,
-  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -119,7 +118,7 @@ const FootnotePopover: Component<{
     if (!def) return "";
     const clone = def.cloneNode(true) as HTMLElement;
     clone.removeAttribute("id");
-    for (const backref of clone.querySelectorAll('a[href*="-ref-"]')) {
+    for (const backref of clone.querySelectorAll("[data-md-backref]")) {
       backref.remove();
     }
     for (const nested of clone.querySelectorAll("[data-md-footnote]")) {
@@ -135,7 +134,7 @@ const FootnotePopover: Component<{
           <div
             ref={(el: HTMLElement) => {
               panelRef(el);
-              const onPanelClick = (e: MouseEvent) => {
+              createEventListener(el, "click", (e: MouseEvent) => {
                 const target = e.target as Element;
                 const anchor = target.closest("a");
                 if (!anchor) return;
@@ -150,9 +149,7 @@ const FootnotePopover: Component<{
                   e.preventDefault();
                   if (href) props.onNavigateRelative(href);
                 }
-              };
-              el.addEventListener("click", onPanelClick);
-              onCleanup(() => el.removeEventListener("click", onPanelClick));
+              });
             }}
             data-testid="footnote-popover"
             class={`fixed z-50 flex flex-col ${chrome.class} p-3`}

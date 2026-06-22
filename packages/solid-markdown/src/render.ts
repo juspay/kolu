@@ -298,20 +298,29 @@ function rewriteAlerts(html: string): string {
 }
 
 /** Tag footnote forward-reference anchors with an allowlist-safe
- *  `data-md-footnote` flag. `marked-footnote` stamps `data-footnote-ref` on the
- *  superscript link that points down to the definition, and `data-footnote-backref`
- *  on the `↩` link that points back up. DOMPurify strips both (they're `data-*`
- *  attributes and `ALLOW_DATA_ATTR` is false), so the only way to distinguish a
- *  forward ref from a back-ref after sanitization is a marker that survives the
- *  allowlist. `data-md-footnote` (bare flag, no value) is added pre-sanitize, on
- *  forward refs only — the back-ref is deliberately left untagged so the click
- *  handler can tell them apart. This mirrors how `rewriteAlerts` swaps
- *  `class="markdown-alert"` for `data-md-alert`. */
+ *  `data-md-footnote` flag and back-reference anchors with `data-md-backref`.
+ *  `marked-footnote` stamps `data-footnote-ref` on the superscript link that
+ *  points down to the definition, and `data-footnote-backref` on the `↩` link
+ *  that points back up. DOMPurify strips both (they're `data-*` attributes and
+ *  `ALLOW_DATA_ATTR` is false), so the only way to distinguish a forward ref
+ *  from a back-ref after sanitization is a marker that survives the allowlist.
+ *  `data-md-footnote` (bare flag, no value) is added pre-sanitize on forward
+ *  refs only; `data-md-backref` on back-refs only. The click handler keys on
+ *  `data-md-footnote` to fire the `onFootnote` callback; back-refs fall through
+ *  to the in-page scroll branch. The host's popover clones the definition and
+ *  uses `[data-md-backref]` to strip back-refs from the clone — a stable
+ *  attribute selector, not a fragile href substring match. This mirrors how
+ *  `rewriteAlerts` swaps `class="markdown-alert"` for `data-md-alert`. */
 function rewriteFootnotes(html: string): string {
-  return html.replace(
-    /\bdata-footnote-ref(?=\s|>)/g,
-    "data-md-footnote data-footnote-ref",
-  );
+  return html
+    .replace(
+      /\bdata-footnote-ref(?=\s|>)/g,
+      "data-md-footnote data-footnote-ref",
+    )
+    .replace(
+      /\bdata-footnote-backref(?=\s|>)/g,
+      "data-md-backref data-footnote-backref",
+    );
 }
 
 // The soft-break setting and the raw-HTML toggle are the axes that vary the
