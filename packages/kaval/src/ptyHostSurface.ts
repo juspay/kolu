@@ -63,8 +63,11 @@ import { z } from "zod";
  *  and `system.info` was added. Bumped to 3.1 (additive · minor): the
  *  host-global `inventory` stream — a daemon that predates it (a 3.0 survivor)
  *  is wire-incompatible and forced to recycle, never silently degraded to a
- *  boot-only adoption. */
-export const PTY_HOST_CONTRACT_VERSION = "3.1";
+ *  boot-only adoption. Bumped to 3.2 (additive · minor): the new
+ *  `system.processMemory` verb reports the daemon's `rss` so the server can
+ *  surface kaval's memory on the rail — a 3.1 survivor (lacking the verb) is
+ *  recycled on adoption rather than silently reporting no daemon memory. */
+export const PTY_HOST_CONTRACT_VERSION = "3.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -194,7 +197,18 @@ const SystemVersionOutputSchema = z.object({
   identity: PtyHostIdentitySchema.optional(),
 });
 
-const SystemHeartbeatOutputSchema = z.object({ ts: z.number() });
+const SystemHeartbeatOutputSchema = z.object({
+  ts: z.number(),
+});
+
+/** The daemon's resident-set size (`process.memoryUsage().rss`, bytes) at reply
+ *  time — its own atomic verb so it changes for its own reason (what
+ *  process-memory facts the rail wants), independent of `system.heartbeat`'s
+ *  pure liveness round-trip. The server folds `rss` onto the rail's kaval memory
+ *  readout. */
+const SystemProcessMemoryOutputSchema = z.object({
+  rss: z.number(),
+});
 
 /** Host facts a client reads once per connection to compose spawn policy for
  *  *this* host — including one it isn't running on (the R-2 remote enabler).
@@ -299,6 +313,12 @@ export const ptyHostSurface = defineSurface({
     system: {
       version: { input: z.object({}), output: SystemVersionOutputSchema },
       heartbeat: { input: z.object({}), output: SystemHeartbeatOutputSchema },
+      /** The daemon's own process RSS — its own atomic verb so liveness and
+       *  process-memory observability change for unrelated reasons (3.2). */
+      processMemory: {
+        input: z.object({}),
+        output: SystemProcessMemoryOutputSchema,
+      },
       /** Host facts for client-side spawn-policy composition (B0). */
       info: { input: z.object({}), output: SystemInfoOutputSchema },
     },

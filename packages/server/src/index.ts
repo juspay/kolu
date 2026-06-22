@@ -37,9 +37,18 @@ import {
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
+import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { publisherSize } from "./publisher.ts";
-import { publishDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { ensureLocalEndpoint } from "./ptyHost/index.ts";
+import {
+  publishDaemonStatus,
+  readDaemonStatus,
+} from "./ptyHost/daemonStatus.ts";
+import {
+  ensureLocalEndpoint,
+  LOCAL_HOST_ID,
+  ptyHostClient,
+} from "./ptyHost/index.ts";
+import { surfaceCtx } from "./surfaceCtx.ts";
 import { startInventoryReconciler } from "./terminalEndpoint/inventoryReconcile.ts";
 import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -344,6 +353,25 @@ await ensureLocalEndpoint({
   // the reconciler's own re-subscribe loop absorbs the down/connect lifecycle.
   onBootSettled: startInventoryReconciler,
 });
+
+// Feed the chrome bar's memory readout: sample this server's RSS and poll the
+// kaval daemon's RSS on a fixed cadence, publishing both on the `processMemory`
+// cell. The client adds its own JS heap locally. Started after the endpoint so
+// the daemon-state reader and the live client are wired; the sampler reports
+// `null` kaval memory until the daemon connects.
+startMemorySampler(
+  liveSamplerDeps({
+    client: ptyHostClient,
+    daemonState: () => readDaemonStatus(LOCAL_HOST_ID)?.state,
+    publish: (m) => surfaceCtx.cells.processMemory.set(m),
+    // A believed-connected daemon whose processMemory poll throws/times out is a
+    // real failed RPC, not a benign degradation — log at ERROR with the full
+    // error object (stack preserved), and the rail surfaces it as a distinct
+    // `error` state, not "no daemon".
+    reportPollError: (err) =>
+      log.error({ err }, "kaval processMemory poll failed"),
+  }),
+);
 
 // --- TLS setup ---
 const tlsOptions = await resolveTlsOptions(argv.flags);

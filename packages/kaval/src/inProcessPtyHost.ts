@@ -311,7 +311,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           startedAt,
           identity: currentPtyHostIdentity(),
         }),
-        heartbeat: async () => ({ ts: Date.now() }),
+        heartbeat: async () => ({
+          ts: Date.now(),
+        }),
+        processMemory: async () => ({ rss: process.memoryUsage().rss }),
         // The host's own facts, read-only — a client composes spawn policy
         // against these (and for a remote host, this is the *only* way it
         // learns the login shell / HOME / rcDir it must target).

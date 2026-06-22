@@ -21,7 +21,7 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
 import {
@@ -37,8 +37,14 @@ import {
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
+import { formatMBCompact } from "./memory";
 import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
+import {
+  clientHeapUsedBytes,
+  kavalMemoryDisplay,
+  serverRssBytes,
+} from "./useMemoryUsage";
 
 /** The daemon's honest state → the `kaval` tone, via the shared presentation
  *  table (so the rail and the dialog can't drift); undefined (status still
@@ -51,6 +57,64 @@ function kavalDot(state: DaemonState | undefined): string {
 /** The thin vertical rule between two columns. */
 const Divider: Component = () => (
   <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+);
+
+/** A compact whole-MB memory readout for a rail column — hidden until the figure
+ *  is present (undefined pre-yield, or `null` when there's nothing to measure:
+ *  no kaval daemon, or a non-Chromium browser with no `performance.memory`). The
+ *  `data-testid` lets the e2e assert each source's reading independently. */
+const MemReadout: Component<{
+  bytes: number | null;
+  testid: string;
+  tip: string;
+}> = (props) => (
+  <Show when={props.bytes}>
+    {(bytes) => (
+      <Tip label={props.tip}>
+        <span
+          data-testid={props.testid}
+          class="tabular-nums text-[10px] text-fg-3"
+        >
+          {formatMBCompact(bytes())}
+        </span>
+      </Tip>
+    )}
+  </Show>
+);
+
+/** The kaval column's memory readout, from the shared {@link kavalMemoryDisplay}
+ *  derivation (which folds in the connected-now gate + the three-way unwrap, so
+ *  this and the Diagnostic dialog read one source). `ok` renders the MB figure;
+ *  `error` (a believed-connected daemon whose poll failed) renders a distinct
+ *  `mem ?` chip so a failed poll never looks identical to "no daemon"; `null`
+ *  (not connected / absent) renders nothing. */
+const KavalMemReadout: Component = () => (
+  <Switch>
+    <Match
+      when={(() => {
+        const d = kavalMemoryDisplay();
+        return d?.kind === "ok" ? d : false;
+      })()}
+    >
+      {(ok) => (
+        <MemReadout
+          bytes={ok().rssBytes}
+          testid="kaval-memory"
+          tip="kaval daemon memory (resident set size)"
+        />
+      )}
+    </Match>
+    <Match when={kavalMemoryDisplay()?.kind === "error"}>
+      <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
+        <span
+          data-testid="kaval-memory-error"
+          class="tabular-nums text-[10px] text-warning"
+        >
+          mem ?
+        </span>
+      </Tip>
+    </Match>
+  </Switch>
 );
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
@@ -86,6 +150,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           )}
         </Show>
         <Commit sha={pwa.server()?.commit} />
+        <MemReadout
+          bytes={serverRssBytes()}
+          testid="server-memory"
+          tip="kolu-server memory (resident set size)"
+        />
       </span>
 
       <Divider />
@@ -110,6 +179,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             <StaleBadge />
           </Tip>
         </Show>
+        <MemReadout
+          bytes={clientHeapUsedBytes()}
+          testid="client-memory"
+          tip="This browser's JS heap (used)"
+        />
       </span>
 
       <Divider />
@@ -150,6 +224,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             </Show>
           )}
         </Show>
+        <KavalMemReadout />
         {/* B3.4: the running daemon is a build behind what the server would spawn.
             A passive amber chip — the column's own click opens the dialog where
             the running-vs-expected detail and the restart live. */}
