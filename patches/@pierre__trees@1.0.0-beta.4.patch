@@ -1,16 +1,21 @@
 diff --git a/dist/render/FileTreeView.js b/dist/render/FileTreeView.js
-index 648639b4b65c1dd797434e3afe189848426f4d53..cf034f4e2d33510e1b44a0343a0ff759c6a05c48 100644
+index 648639b4b65c1dd797434e3afe189848426f4d53..d4a5ad4a0039af2cf953ee9adab7d979e4558b05 100644
 --- a/dist/render/FileTreeView.js
 +++ b/dist/render/FileTreeView.js
-@@ -1287,10 +1287,9 @@ function FileTreeView({ composition, controller, gitStatusByPath, ignoredGitDire
+@@ -1287,10 +1287,14 @@ function FileTreeView({ composition, controller, gitStatusByPath, ignoredGitDire
  			}
  		}
  		updateViewportRef.current = update;
 -		let hasSeenInitialControllerSnapshot = false;
++		// kolu patch: do NOT swallow the first emit after a (re)subscribe. The
++		// upstream `hasSeenInitialControllerSnapshot` guard skipped a re-render on
++		// the first emit after EVERY (re)subscribe — but this effect re-subscribes
++		// whenever its layout deps change, so a real `batch`/`resetPaths` mutation
++		// landing in that window was dropped (model updated, DOM never repainted).
++		// Always bump the revision so a mutation always re-renders.
  		const unsubscribe = controller.subscribe(() => {
 -			if (hasSeenInitialControllerSnapshot) setControllerRevision((revision) => revision + 1);
 -			else hasSeenInitialControllerSnapshot = true;
-+			console.log("PIERRE_EMIT"); // PIERRE-PATCH-DEBUG
 +			setControllerRevision((revision) => revision + 1);
  			update();
  		});
