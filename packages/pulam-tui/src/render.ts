@@ -14,6 +14,8 @@
 
 import type {
   AwarenessValue,
+  GitChangeStatus,
+  LocalGitStatus,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import type {
@@ -161,12 +163,20 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
-/** `repo·branch` for the dashboard's "where" — each half sanitized (repo names
- *  come from fs paths, branches from git, so both can carry control bytes that
- *  would corrupt the table), or a dash when the terminal isn't in a git repo.
- *  Shared by the single-host table (`dashRow`) and the fleet row (`fleetRow`). */
-function repoBranchText(git: AwarenessValue["git"]): string {
-  return git ? `${orDash(git.repoName)}·${orDash(git.branch)}` : DASH;
+/** `repo·branch` from the raw repo/branch source — each half sanitized (repo
+ *  names come from fs paths, branches from git, so both can carry control bytes
+ *  that would corrupt the table), or a dash when the terminal isn't in a git repo
+ *  (both `null`). The ONE place this heading is formatted: the compact `where`
+ *  cell, the single-host table, and the drill-in pane's title all call it over
+ *  the same source, so the compact-cell and detail-heading formatting are two
+ *  reads of one rule rather than one reading the other's output. */
+function repoBranchText(
+  repoName: string | null,
+  branch: string | null,
+): string {
+  return repoName === null && branch === null
+    ? DASH
+    : `${orDash(repoName)}·${orDash(branch)}`;
 }
 
 /** Semantic colour hint for a cell — the renderer owns the palette, this owns
@@ -243,7 +253,10 @@ export function dashRow(
 ): DashRow {
   return {
     id: { text: shortId(id), tone: "plain" },
-    repoBranch: { text: repoBranchText(v.git), tone: "plain" },
+    repoBranch: {
+      text: repoBranchText(v.git?.repoName ?? null, v.git?.branch ?? null),
+      tone: "plain",
+    },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
     foreground: { text: orDash(v.foreground?.name), tone: "plain" },
@@ -342,6 +355,14 @@ function fleetStateText(
  *  helpers verbatim — the PR/where/recency decisions are defined once. */
 export interface FleetRow {
   host: string;
+  /** A stable identity for this row across re-projections — the selection cursor
+   *  tracks this, not a bare list index (rows reorder as agents change urgency).
+   *  Computed once here, next to the (host, terminalId) keying the projection
+   *  already owns, so "how a fleet row is uniquely named" lives in ONE place
+   *  rather than being re-derived by a separate ` `-join in the view. The full
+   *  terminal id is unique within a host; the host disambiguates the rare
+   *  cross-host id collision; a NUL separator can't appear in either part. */
+  key: string;
   id: string;
   /** Output moving on this terminal right now — the `activity` stream's live
    *  membership. Drives the green dot. Pure projection input: the host carries a
@@ -358,36 +379,67 @@ export interface FleetRow {
    *  stable tiebreak so a flat/grouped fleet list orders identically every
    *  paint regardless of host-iteration order. */
   sortId: string;
+  /** The raw repo name / branch (each `null` when the terminal isn't in a git
+   *  repo), straight off the awareness `git` fields. The compact `where` cell and
+   *  the drill-in pane's title are two INDEPENDENT formattings of these one
+   *  source (both via `repoBranchText`) — the detail heading does not read the
+   *  compact cell's already-truncated/joined output, so a change to one cell's
+   *  width or separator can't silently move the other. */
+  repoName: string | null;
+  branch: string | null;
   agent: DashCell;
   where: DashCell;
   pr: DashCell;
   state: DashCell;
+  /** The repo's full live status, or undefined until the first
+   *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo). The
+   *  ONE git value on the row: both the compact working-tree cell (`gitCell`) and
+   *  the drill-in pane (`gitDetail`) are projections of it, derived at their read
+   *  sites — the row no longer also stores the pre-projected cell, so the two
+   *  can't desync. The fleet requests `mode: "local"` only, so this is the
+   *  `local` arm of the status union (branch + working-tree always set). */
+  gitStatus?: LocalGitStatus;
 }
 
 export function fleetRow(
-  host: string,
+  // The host the row is PAINTED under (sanitized for the alt-screen) and the host
+  // the row's stable selection key is built from (the RAW label, the partition
+  // identity) are two distinct strings: two raw labels that sanitize to the same
+  // display text (e.g. `a\nb` and `a b`) must keep DISTINCT selection keys, or
+  // ↑/↓/Enter could highlight or drill into the wrong host's row. `displayHost`
+  // is paint-only; `identityHost` is who the row belongs to (the same raw label
+  // `projectFleet` partitions the host-mode buckets on).
+  displayHost: string,
+  identityHost: string,
   id: TerminalId,
   v: AwarenessValue,
   live: boolean,
+  gitStatus?: LocalGitStatus,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
+  const repoName = v.git?.repoName ?? null;
+  const branch = v.git?.branch ?? null;
   return {
-    host,
+    host: displayHost,
+    key: `${identityHost}\u0000${id}`,
     id: shortId(id),
     live,
     urgency,
     activeAt: v.lastActivityAt,
     sortId: id,
+    repoName,
+    branch,
     agent: {
       text: v.agent ? agentShortName(v.agent.kind) : DASH,
       tone: "plain",
     },
-    where: { text: repoBranchText(v.git), tone: "plain" },
+    where: { text: repoBranchText(repoName, branch), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
       text: fleetStateText(urgency, v.agent),
       tone: URGENCY[urgency].tone,
     },
+    gitStatus,
     // Recency is NOT pre-formatted here: it's the one cell that changes with the
     // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and
     // formatting it in the row keeps the 1s clock tick from re-running this whole
@@ -512,9 +564,18 @@ export function projectFleet(
   const allRows: Array<{ key: string; row: FleetRow }> = states.flatMap((s) => {
     const host = sanitize(s.label);
     const liveSet = new Set(s.live);
+    // Join each terminal to its repo's live git status (keyed by repo root, not
+    // terminal — the working-tree answer is shared by every terminal in a repo).
     return sortedEntries(s.terminals).map(([id, v]) => ({
       key: s.label,
-      row: fleetRow(host, id, v, liveSet.has(id)),
+      row: fleetRow(
+        host,
+        s.label,
+        id,
+        v,
+        liveSet.has(id),
+        v.git ? s.gitStatuses[v.git.repoRoot] : undefined,
+      ),
     }));
   });
 
@@ -605,4 +666,172 @@ export function formatFleetJson(snaps: FleetSnapshot[]): string {
     }
   }
   return JSON.stringify(rows, null, 2);
+}
+
+// ─── Git status (R4.7) ───────────────────────────────────────────────────────
+//
+// The fleet board's live working-tree view: each row carries a compact cell
+// (changed count + ahead/behind), and a selected row drills into a detail pane
+// (the branch tracking header, the staged·modified·untracked summary, and the
+// changed-file list). All pure projection over `GitStatusOutput` — `fleet.ts`
+// runs the subscribeRepoChange→getStatus loop that fills it, `fleet.tsx` paints
+// what these return.
+
+/** Ahead/behind as a compact `↑a↓b` (omitting a zero side), or "" when level or
+ *  untracked. `sep` spaces the two arrows apart in the roomier detail pane. */
+function aheadBehindText(ahead: number, behind: number, sep = ""): string {
+  const up = ahead > 0 ? `↑${ahead}` : "";
+  const down = behind > 0 ? `↓${behind}` : "";
+  return up && down ? `${up}${sep}${down}` : up || down;
+}
+
+/** The compact per-row working-tree cell. Undefined status (first pulse still in
+ *  flight, or a terminal not in a repo) paints blank; a clean tree a calm check;
+ *  a dirty tree the changed-file count — each suffixed with the branch's
+ *  ahead/behind. Calm tones throughout: the fleet's colour budget is the agent
+ *  urgency and the green live dot, not git churn. */
+export function gitCell(status: LocalGitStatus | undefined): DashCell {
+  if (!status) return { text: "", tone: "muted" };
+  // The `local` arm always carries the branch header, so read it directly — no
+  // null guard for a state this consumer structurally can't receive.
+  const ab = aheadBehindText(status.branch.ahead, status.branch.behind);
+  const changed = status.files.length;
+  if (changed === 0) {
+    return { text: ab ? `✓ ${ab}` : "✓", tone: "muted" };
+  }
+  const dirty = `✎${changed}`;
+  return { text: ab ? `${dirty} ${ab}` : dirty, tone: "plain" };
+}
+
+/** Tone for one changed file's status code: added green, deleted/conflict red,
+ *  modified/type-changed amber, untracked dim, rename/copy calm. Exhaustive over
+ *  the closed `GitChangeStatus` enum so a new code forces a decision here. */
+function gitStatusTone(code: GitChangeStatus): FieldTone {
+  switch (code) {
+    case "A":
+      return "pass";
+    case "D":
+    case "U":
+      return "fail";
+    case "M":
+    case "T":
+      return "pending";
+    case "?":
+      return "muted";
+    case "R":
+    case "C":
+      return "plain";
+    default: {
+      const _exhaustive: never = code;
+      return _exhaustive;
+    }
+  }
+}
+
+/** One changed file in the drill-in list. */
+export interface GitDetailFile {
+  code: string;
+  path: string;
+  tone: FieldTone;
+}
+
+/** The drill-in detail pane as plain data: the repo·branch title, the ahead/
+ *  behind tracking, a one-line working-tree summary, and the changed-file list
+ *  (capped, with a count of any overflow). `fleet.tsx` paints it; vitest tests
+ *  it. */
+export interface GitDetailView {
+  title: string;
+  tracking: string;
+  summary: string;
+  files: GitDetailFile[];
+  more: number;
+}
+
+/** How many changed files the detail pane lists before collapsing the rest into
+ *  a "+N more" line — a pane, not a full `git status`, so it stays bounded. */
+export const GIT_DETAIL_FILE_CAP = 20;
+
+/** Project a selected row to its detail pane. An unresolved status (no pulse yet)
+ *  reads as "loading…", never a clean/empty tree — the no-fallback distinction
+ *  between "not known yet" and "known to be clean". */
+export function gitDetail(row: FleetRow): GitDetailView {
+  // Derive the heading from the raw repo/branch source via the shared
+  // `repoBranchText`, NOT from the compact row's already-truncated `where.text`:
+  // the roomy pane and the compact cell are two independent formattings of one
+  // source, so neither's width budget drives the other's heading.
+  const title = repoBranchText(row.repoName, row.branch);
+  const status = row.gitStatus;
+  if (!status) {
+    return { title, tracking: "", summary: "loading…", files: [], more: 0 };
+  }
+  // The `local` arm always carries the branch header and the working-tree
+  // counts, so read both directly — no null arm for a state this consumer
+  // structurally can't receive.
+  const tracking = aheadBehindText(
+    status.branch.ahead,
+    status.branch.behind,
+    " ",
+  );
+  const wt = status.workingTree;
+  const summary =
+    wt.staged + wt.modified + wt.untracked === 0
+      ? "clean working tree"
+      : `staged ${wt.staged} · modified ${wt.modified} · untracked ${wt.untracked}`;
+  const shown = status.files.slice(0, GIT_DETAIL_FILE_CAP);
+  const files: GitDetailFile[] = shown.map((f) => ({
+    code: f.status,
+    // Git file paths are arbitrary bytes — a working-tree or committed name can
+    // carry a newline / ESC / BEL — so they funnel through the same control-byte
+    // strip the row's repo·branch heading and every other TUI-bound cell use,
+    // never painting verbatim into the alt-screen. Each half is sanitized before
+    // the rename arrow is joined so the arrow itself stays intact.
+    path: f.oldPath
+      ? `${sanitize(f.oldPath)} → ${sanitize(f.path)}`
+      : sanitize(f.path),
+    tone: gitStatusTone(f.status),
+  }));
+  return {
+    title,
+    tracking,
+    summary,
+    files,
+    more: status.files.length - shown.length,
+  };
+}
+
+/** The rows in visual top-to-bottom order — the order the board paints and the
+ *  selection cursor steps through: groups concatenated in their painted order,
+ *  or the flat `needs` list as-is. The one flattening both the keyboard handler
+ *  (for the row count) and the board (for the cursor identity) share, so a ↑/↓
+ *  step always lands on the row that visually follows. */
+export function flattenRows(view: FleetView): FleetRow[] {
+  return view.mode === "needs" ? view.flat : view.groups.flatMap((g) => g.rows);
+}
+
+/** Step the selection from `currentKey` by `delta` over `rows` (in visual order),
+ *  returning the neighbour's stable key with wrap — ↓ past the last row lands on
+ *  the first, ↑ before the first on the last. Tracking identity rather than an
+ *  index means the cursor survives both a shrink AND a reorder of the live row
+ *  set. With NO live selection — a missing key (nothing selected yet) or a stale
+ *  one (the selected terminal left) — there is no neighbour to step from, so the
+ *  first keypress ENTERS the list at the natural end: ↓ selects the first row, ↑
+ *  the last. (Resolving the absent key to index 0 and then adding the delta would
+ *  skip the first row on the very first ↓ — a real cursor lands on what you
+ *  pressed toward.) An empty list has no row to name → `null`. */
+export function step(
+  currentKey: string | null,
+  delta: number,
+  rows: FleetRow[],
+): string | null {
+  if (rows.length === 0) return null;
+  const current = rows.findIndex((r) => r.key === currentKey);
+  // No row currently holds the key (absent or stale): enter at the end the
+  // keypress points toward — ↓ at the first row, ↑ at the last — rather than
+  // stepping off a phantom index-0 selection.
+  if (current === -1) {
+    const entry = delta < 0 ? rows.length - 1 : 0;
+    return rows[entry]?.key ?? null;
+  }
+  const next = (((current + delta) % rows.length) + rows.length) % rows.length;
+  return rows[next]?.key ?? null;
 }

@@ -16,6 +16,7 @@
 
 import type {
   AwarenessValue,
+  GitStatusOutput,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { expect, test } from "bun:test";
@@ -38,20 +39,51 @@ function val(over: Partial<AwarenessValue>): AwarenessValue {
 }
 const agentVal = (state: string): AwarenessValue["agent"] =>
   ({ kind: "claude-code", state }) as AwarenessValue["agent"];
+const gitInfo = (repoRoot: string): AwarenessValue["git"] => ({
+  repoRoot,
+  repoName: "kolu",
+  worktreePath: repoRoot,
+  branch: "feat/x",
+  isWorktree: false,
+  mainRepoRoot: repoRoot,
+  remoteUrl: null,
+});
+type LocalStatus = Extract<GitStatusOutput, { mode: "local" }>;
+const makeStatus = (over: Partial<LocalStatus> = {}): LocalStatus => ({
+  mode: "local",
+  files: [],
+  branch: { name: "feat/x", upstream: null, ahead: 0, behind: 0 },
+  workingTree: { staged: 0, modified: 0, untracked: 0 },
+  ...over,
+});
 const NOW = 1_700_000_000_000;
 
+// The host states the tests author often omit `gitStatuses` (most cases don't
+// exercise the git cell); inject an empty default so the literals stay terse.
+type HostInput = Omit<FleetHostState, "gitStatuses"> &
+  Partial<Pick<FleetHostState, "gitStatuses">>;
 const viewOf = (
-  states: FleetHostState[],
+  states: HostInput[],
   mode: "host" | "needs" | "agent" = "host",
-): FleetView => projectFleet(states, mode);
+): FleetView =>
+  projectFleet(
+    states.map((s) => ({ gitStatuses: {}, ...s })),
+    mode,
+  );
+
+/** A row's stable key — the same `${host}\u0000${id}` the projection computes —
+ *  so a render test can drive the identity-based selection cursor. */
+const rowKey = (host: string, id: string): string => `${host}\u0000${id}`;
 
 /** Render a board to its painted character frame, then tear the renderer down.
  *  `width` drives `useTerminalDimensions()` so the responsive `repo·branch`
- *  column can be tested at different terminal widths. */
+ *  column can be tested at different terminal widths; `selectedKey`/`open` drive
+ *  the selection cursor and drill-in pane. */
 async function renderBoard(
   view: FleetView,
   frame = 0,
   width = 80,
+  opts: { selectedKey?: string | null; open?: boolean; height?: number } = {},
 ): Promise<string> {
   const t = await testRender(
     () => (
@@ -60,9 +92,11 @@ async function renderBoard(
         frame={() => frame}
         now={() => NOW}
         clock={() => "12:00:00"}
+        selectedKey={() => opts.selectedKey ?? null}
+        open={() => opts.open ?? false}
       />
     ),
-    { width, height: 18 },
+    { width, height: opts.height ?? 18 },
   );
   await t.flush();
   const out = t.captureCharFrame();
@@ -104,6 +138,7 @@ test("the board reflects an agent flipping to awaiting you (calm ≠ alert)", as
     status: connected,
     live: [],
     terminals: { [id("z1")]: val({ agent: agentVal(state) }) },
+    gitStatuses: {},
   });
   const calm = await renderBoard(viewOf([host("thinking")]));
   const alert = await renderBoard(viewOf([host("awaiting_user")]));
@@ -137,6 +172,7 @@ test("a live terminal paints the green activity dot (≠ a quiet one)", async ()
     status: connected,
     live,
     terminals: { [id("z1")]: val({ agent: agentVal("thinking") }) },
+    gitStatuses: {},
   });
   // A working row's leading glyph is the spinner, so the only difference between
   // these two frames is the live-dot column lighting up — proving the green dot
@@ -277,6 +313,7 @@ test("repo·branch absorbs a wide terminal's slack, truncates a narrow one", asy
           agent: agentVal("thinking"),
         }),
       },
+      gitStatuses: {},
     },
   ];
 
@@ -289,4 +326,84 @@ test("repo·branch absorbs a wide terminal's slack, truncates a narrow one", asy
   const narrow = await renderBoard(viewOf(states), 0, 70);
   expect(narrow).not.toContain(`kolu·${longBranch}`);
   expect(narrow).toContain("…");
+});
+
+// ─── Git status: the live cell, the cursor, and the drill-in pane (R4.7) ─────
+
+const repoHost = (gitStatuses: Record<string, LocalStatus>): HostInput => ({
+  label: "zest",
+  status: connected,
+  live: [],
+  terminals: {
+    [id("z1")]: val({ git: gitInfo("/r/kolu"), agent: agentVal("thinking") }),
+  },
+  gitStatuses,
+});
+
+test("paints a row's live git cell — changed count and ahead/behind (R4.7)", async () => {
+  const frame = await renderBoard(
+    viewOf([
+      repoHost({
+        "/r/kolu": makeStatus({
+          files: [
+            { path: "a", status: "M" },
+            { path: "b", status: "?" },
+          ],
+          branch: {
+            name: "feat/x",
+            upstream: "origin/feat/x",
+            ahead: 2,
+            behind: 0,
+          },
+        }),
+      }),
+    ]),
+    0,
+    120, // wide so the git cell isn't squeezed out of an 80-col row
+  );
+  expect(frame).toContain("✎2"); // two changed files
+  expect(frame).toContain("↑2"); // two commits ahead of upstream
+});
+
+test("Enter opens the drill-in detail pane; it's closed by default", async () => {
+  const states = [
+    repoHost({
+      "/r/kolu": makeStatus({
+        files: [{ path: "u.md", status: "?" }],
+        workingTree: { staged: 1, modified: 0, untracked: 1 },
+      }),
+    }),
+  ];
+  const closed = await renderBoard(viewOf(states), 0, 80, { open: false });
+  const open = await renderBoard(viewOf(states), 0, 80, {
+    selectedKey: rowKey("zest", "z1"),
+    open: true,
+    height: 24,
+  });
+  expect(closed).not.toContain("staged 1"); // the summary line is the pane's
+  expect(open).toContain("staged 1 · modified 0 · untracked 1");
+  expect(open).not.toBe(closed); // opening the pane repaints to a new frame
+});
+
+test("the selection cursor marks the selected row and moves with the key", async () => {
+  const states: HostInput[] = [
+    {
+      label: "zest",
+      status: connected,
+      live: [],
+      terminals: {
+        [id("z1")]: val({ agent: agentVal("thinking") }),
+        [id("z2")]: val({ agent: agentVal("thinking") }),
+      },
+      gitStatuses: {},
+    },
+  ];
+  const at0 = await renderBoard(viewOf(states), 0, 80, {
+    selectedKey: rowKey("zest", "z1"),
+  });
+  const at1 = await renderBoard(viewOf(states), 0, 80, {
+    selectedKey: rowKey("zest", "z2"),
+  });
+  expect(at0).toContain("▸"); // the cursor is painted
+  expect(at0).not.toBe(at1); // and it sits on a different row as the key moves
 });

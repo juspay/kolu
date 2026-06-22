@@ -57,9 +57,19 @@ distinct header rather than silently vanishing. The board **fills the terminal
 width** — `repo·branch` grows to show long branches in full on a wide screen and
 truncates only when the terminal is genuinely narrow.
 
+Each row also carries a **live working-tree cell** — a changed-file count and the
+branch's ahead/behind vs upstream — refreshed the instant a repo changes (the
+daemon's `subscribeRepoChange` pulse re-queries `git status`, keyed by repo so
+repo-mates share one watch). **Select** a row with ↑/↓ and press **Enter** to
+**drill in**: a panel opens that repo's full `git status` — the
+`staged · modified · untracked` summary and the changed-file list — and **Esc**
+closes it.
+
 - `--by host` (default) — per-host groups, needs-you first within each.
 - `--by needs` — one fleet-wide list, urgency-sorted ("who's waiting, anywhere").
 - `--by agent` — grouped by agent state (awaiting / working / idle) across hosts.
+- **↑/↓** move the row cursor, **Enter** opens the git-status drill-in, **Esc**
+  closes it, **Ctrl-C** quits.
 - `--kaval <host>=<socket>` — pin which kaval a remote host's pulam dials, for a
   host running several (a standalone kaval + a kolu-server). Repeatable; the
   `<host>` matches a `--host` value. Omit and each host discovers the one that's

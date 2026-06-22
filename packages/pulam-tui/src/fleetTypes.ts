@@ -11,6 +11,7 @@
 
 import type {
   AwarenessValue,
+  LocalGitStatus,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 
@@ -35,6 +36,15 @@ export interface FleetHostState {
    *  current frame, replaced whole on each delta. Drives the live green dot;
    *  empty until the first frame (and for a skewed host that can't serve it). */
   live: TerminalId[];
+  /** Live working-tree status per repo on this host, keyed by repo root path —
+   *  the latest `git.getStatus` re-query each `subscribeRepoChange` pulse drives
+   *  (R4.7). The fleet only ever requests `mode: "local"`, so this is the
+   *  `local` arm of the status union (branch tracking + working-tree counts both
+   *  present), not the wide union. Keyed by repo, NOT terminal: many terminals
+   *  share one repo, and the answer is per-working-tree. A repo is absent until
+   *  its first pulse resolves and is dropped when no terminal references it (or
+   *  the host's link drops). */
+  gitStatuses: Record<string, LocalGitStatus>;
 }
 
 /** One host's one-shot snapshot for `fleet --json` — the terminals it served, a

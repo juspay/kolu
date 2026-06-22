@@ -729,8 +729,13 @@ const CodeTab: Component<{
   // any view (the scope switcher annotates the Branch segment even from
   // Local/Browse). `undefined` while pending; `null` once loaded with no
   // resolvable base (a remote-less repo, #1244, degrades to an empty diff
-  // rather than erroring); a `{ ref, sha }` object otherwise.
-  const branchBase = () => branchStatus()?.base;
+  // rather than erroring); a `{ ref, sha }` object otherwise. `base` lives only
+  // on the `branch` arm of the status union — this stream always requests
+  // `mode: "branch"`, so the narrow is exhaustive, never a real "wrong arm".
+  const branchBase = () => {
+    const s = branchStatus();
+    return s?.mode === "branch" ? s.base : undefined;
+  };
   const branchRef = (): string | null => branchBase()?.ref ?? null;
   // The *actionable* no-base case: Branch is the active view AND it has no
   // resolvable base (so the empty tree is "nothing to compare against", not

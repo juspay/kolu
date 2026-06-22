@@ -250,6 +250,36 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
     mode: "local",
   });
   expect(Array.isArray(status.files)).toBe(true);
+  // R4.7: local-mode getStatus also carries the branch tracking header and the
+  // working-tree section counts (computed off the same `git status`), proven
+  // over the real served link rather than only in kolu-git's unit tests.
+  expect(status.mode).toBe("local");
+  if (status.mode !== "local") throw new Error("expected local-mode status");
+  expect(status.branch.name).toBe(BRANCH);
+  expect(status.workingTree.untracked).toBeGreaterThanOrEqual(1); // note.txt
+
+  // ── R4.7: a working-tree change PULSES subscribeRepoChange, and re-querying
+  //    getStatus reflects it — the {seq}+requery loop the fleet board's
+  //    git-status view runs, exercised end to end over a real link (the gate for
+  //    kolu's remote Code tab, which had no standalone proof before this). ─────
+  const pulses = await conn.client.surface.subscribeRepoChange.get({
+    repoPath: repo,
+  });
+  const iter = pulses[Symbol.asyncIterator]();
+  expect((await iter.next()).value).toEqual({ seq: 0 }); // the snapshot pulse
+  await sleep(100); // let the working-tree watcher arm before the change
+  writeFileSync(join(repo, "fresh.txt"), "new\n");
+  const pulsed = await iter.next(); // a real fs change → the next {seq} pulse
+  expect(pulsed.done).toBe(false);
+  const after = await conn.client.surface.git.getStatus({
+    repoPath: repo,
+    mode: "local",
+  });
+  expect(after.files.some((f) => f.path === "fresh.txt")).toBe(true);
+  expect(after.mode).toBe("local");
+  if (after.mode !== "local") throw new Error("expected local-mode status");
+  expect(after.workingTree.untracked).toBeGreaterThanOrEqual(2); // +fresh.txt
+  await iter.return?.(); // close the subscription before the kill below
 
   // ── kill the terminal → pulam reconciles it out of the collection ─
   await ptyHost.client.surface.terminal.kill({ id });

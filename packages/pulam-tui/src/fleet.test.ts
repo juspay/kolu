@@ -10,11 +10,17 @@
 import {
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type AwarenessValue,
+  type GitStatusOutput,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
-import type { Connection } from "./connect.ts";
-import { type FleetSink, snapshotFleet, startFleet } from "./fleet.ts";
+import type { ArivuClient, Connection } from "./connect.ts";
+import {
+  type FleetSink,
+  RepoWatchSet,
+  snapshotFleet,
+  startFleet,
+} from "./fleet.ts";
 import type { FleetHost } from "./hosts.ts";
 import type { FleetHostStatus } from "./fleetTypes.ts";
 
@@ -59,6 +65,9 @@ function fakeConn(opts: {
    *  now. Omitted ⇒ the activity stream opens, yields nothing, and stays open
    *  (the real shape: the entry always exists; an empty host just never lights). */
   activity?: string[];
+  /** The status `git.getStatus` returns for any repo (the watcher's re-query).
+   *  Omitted ⇒ a clean default. */
+  gitStatus?: GitStatusOutput;
 }): Fake {
   let endKeys!: () => void;
   const open = new Promise<void>((res) => {
@@ -91,6 +100,19 @@ function fakeConn(opts: {
             if (opts.activity) yield opts.activity as TerminalId[];
             await open;
           })(),
+      },
+      // The git-status watcher arm: a `{seq:0}` snapshot pulse, then stays open
+      // until the link drops. `getStatus` returns the configured status. Streams
+      // are reached through `.get` on the client, procedures called directly.
+      subscribeRepoChange: {
+        get: async () =>
+          (async function* () {
+            yield { seq: 0 };
+            await open;
+          })(),
+      },
+      git: {
+        getStatus: async () => opts.gitStatus ?? makeStatus(),
       },
     },
   };
@@ -166,26 +188,145 @@ function recordingSink(): {
   upserts: Array<[string, string, AwarenessValue]>;
   removes: Array<[string, string]>;
   lives: Array<[string, string[]]>;
+  gitSets: Array<[string, string, GitStatusOutput]>;
+  gitClears: Array<[string, string]>;
   clears: string[];
 } {
   const statuses: Array<[string, FleetHostStatus]> = [];
   const upserts: Array<[string, string, AwarenessValue]> = [];
   const removes: Array<[string, string]> = [];
   const lives: Array<[string, string[]]> = [];
+  const gitSets: Array<[string, string, GitStatusOutput]> = [];
+  const gitClears: Array<[string, string]> = [];
   const clears: string[] = [];
   return {
     statuses,
     upserts,
     removes,
     lives,
+    gitSets,
+    gitClears,
     clears,
     sink: {
       setStatus: (l, s) => statuses.push([l, s]),
       upsert: (l, i, v) => upserts.push([l, i, v]),
       remove: (l, i) => removes.push([l, i]),
       setLive: (l, live) => lives.push([l, live]),
+      setGitStatus: (l, repo, s) => gitSets.push([l, repo, s]),
+      clearGitStatus: (l, repo) => gitClears.push([l, repo]),
       clearHost: (l) => clears.push(l),
     },
+  };
+}
+
+/** A `GitStatusOutput` for tests — a local-mode status with no changed files and
+ *  the branch/working-tree headers present (override any local-arm field). */
+type LocalStatus = Extract<GitStatusOutput, { mode: "local" }>;
+function makeStatus(over: Partial<LocalStatus> = {}): GitStatusOutput {
+  return {
+    mode: "local",
+    files: [],
+    branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
+    workingTree: { staged: 0, modified: 0, untracked: 0 },
+    ...over,
+  };
+}
+
+/** Minimal `GitInfo` for an awareness value — only `repoRoot` is load-bearing
+ *  (the key the watcher subscribes on). */
+function gitInfo(repoRoot: string): AwarenessValue["git"] {
+  return {
+    repoRoot,
+    repoName: "repo",
+    worktreePath: repoRoot,
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: repoRoot,
+    remoteUrl: null,
+  };
+}
+
+/** A pushable async iterable — `{seq:0}` snapshot at subscribe, then a fresh
+ *  pulse per `push()`, ending on `end()` (or the abort signal). Models the
+ *  surface's `subscribeRepoChange` watcher stream for the RepoWatchSet unit
+ *  test. */
+function pushable(signal?: AbortSignal): {
+  iterable: AsyncIterable<{ seq: number }>;
+  push: () => void;
+  ended: () => boolean;
+} {
+  const queue: Array<{ seq: number }> = [{ seq: 0 }];
+  let wake: (() => void) | null = null;
+  let ended = false;
+  const end = () => {
+    ended = true;
+    wake?.();
+    wake = null;
+  };
+  signal?.addEventListener("abort", end, { once: true });
+  let seq = 1;
+  return {
+    push: () => {
+      queue.push({ seq: seq++ });
+      wake?.();
+      wake = null;
+    },
+    ended: () => ended,
+    iterable: {
+      async *[Symbol.asyncIterator]() {
+        for (;;) {
+          while (queue.length) {
+            const v = queue.shift();
+            if (v) yield v;
+          }
+          if (ended) return;
+          await new Promise<void>((r) => {
+            wake = r;
+          });
+        }
+      },
+    },
+  };
+}
+
+/** A fake client exposing just the two surface members RepoWatchSet uses:
+ *  `subscribeRepoChange` (a pushable stream per subscription) and `git.getStatus`
+ *  (the current status, re-read each call). Records subscription count + the
+ *  per-repo pulse controllers so a test can drive a change. */
+function fakeGitClient(): {
+  client: ArivuClient;
+  pulse: (repoPath: string) => void;
+  setStatus: (s: GitStatusOutput) => void;
+  subscribeCount: () => number;
+} {
+  const streams = new Map<string, ReturnType<typeof pushable>>();
+  let subscribeCount = 0;
+  let status = makeStatus();
+  const client = {
+    surface: {
+      subscribeRepoChange: {
+        get: async (
+          { repoPath }: { repoPath: string },
+          opts?: { signal?: AbortSignal },
+        ) => {
+          subscribeCount++;
+          const p = pushable(opts?.signal);
+          streams.set(repoPath, p);
+          return p.iterable;
+        },
+      },
+      git: {
+        getStatus: async () => status,
+      },
+    },
+  } as unknown as ArivuClient;
+  return {
+    client,
+    pulse: (repoPath) => streams.get(repoPath)?.push(),
+    setStatus: (s) => {
+      status = s;
+    },
+    subscribeCount: () => subscribeCount,
   };
 }
 
@@ -386,6 +527,137 @@ describe("startFleet", () => {
       { kind: "unreachable", reason: "connection closed" },
     ]);
     handle.dispose();
+  });
+
+  it("watches a terminal's repo and pushes its live git status to the sink (R4.7)", async () => {
+    const repo = "/repo/kolu";
+    const f = fakeConn({
+      terminals: { [id("t")]: val({ git: gitInfo(repo) }) },
+      gitStatus: makeStatus({
+        workingTree: { staged: 1, modified: 2, untracked: 3 },
+      }),
+    });
+    const { sink, gitSets } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("a"),
+      connect: async () => f.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(30);
+    // awareness upsert → repoRoot → subscribeRepoChange {seq:0} → getStatus →
+    // setGitStatus, host-labelled and keyed by repo root.
+    const hit = gitSets.find(([l, r]) => l === "a" && r === repo);
+    expect(hit).toBeDefined();
+    const status = hit?.[2];
+    expect(status?.mode).toBe("local");
+    if (status?.mode !== "local") throw new Error("expected local-mode status");
+    expect(status.workingTree).toEqual({
+      staged: 1,
+      modified: 2,
+      untracked: 3,
+    });
+    handle.dispose();
+  });
+
+  it("skips the git-status watch on a contract-skewed host (rows still show)", async () => {
+    // A skewed daemon's `getStatus` shape is exactly what the gate distrusts, so
+    // its rows + skew header still show but NO per-repo watch opens — no churn of
+    // failing `getStatus` re-queries the interactive UI would log to a no-op sink.
+    const repo = "/repo/kolu";
+    const f = fakeConn({
+      version: "0.3",
+      terminals: { [id("t")]: val({ git: gitInfo(repo) }) },
+    });
+    const { sink, statuses, upserts, gitSets } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("old"),
+      connect: async () => f.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(30);
+    // The host is flagged skew and its row is still mirrored…
+    expect(statuses).toContainEqual([
+      "old",
+      {
+        kind: "skew",
+        localVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
+        hostVersion: "0.3",
+      },
+    ]);
+    expect(upserts).toContainEqual(["old", "t", expect.anything()]);
+    // …but its repo's git status was never watched or pushed.
+    expect(gitSets).toEqual([]);
+    handle.dispose();
+  });
+});
+
+describe("RepoWatchSet", () => {
+  const watchSet = (client: ArivuClient, sink: FleetSink): RepoWatchSet =>
+    new RepoWatchSet({ client, label: "h", sink, log: () => {} });
+
+  it("subscribes once per repo and pushes the snapshot-pulse's re-query", async () => {
+    const fake = fakeGitClient();
+    const { sink, gitSets } = recordingSink();
+    const w = watchSet(fake.client, sink);
+    w.retain("/r");
+    await delay(20);
+    // The {seq:0} snapshot pulse drove one getStatus → one setGitStatus.
+    expect(gitSets.filter(([, r]) => r === "/r")).toHaveLength(1);
+    expect(fake.subscribeCount()).toBe(1);
+    w.dispose();
+  });
+
+  it("re-queries getStatus on every later pulse", async () => {
+    const fake = fakeGitClient();
+    const { sink, gitSets } = recordingSink();
+    const w = watchSet(fake.client, sink);
+    w.retain("/r");
+    await delay(20);
+    fake.setStatus(
+      makeStatus({
+        files: [{ path: "x", status: "?" }],
+        workingTree: { staged: 0, modified: 0, untracked: 1 },
+      }),
+    );
+    fake.pulse("/r"); // a repo change
+    await delay(20);
+    const sets = gitSets.filter(([, r]) => r === "/r");
+    expect(sets.length).toBeGreaterThanOrEqual(2); // snapshot + the pulse
+    const last = sets.at(-1)?.[2];
+    expect(last?.mode).toBe("local");
+    if (last?.mode !== "local") throw new Error("expected local-mode status");
+    expect(last.workingTree.untracked).toBe(1);
+    w.dispose();
+  });
+
+  it("ref-counts a repo: two terminals share one subscription, the last to leave clears it", async () => {
+    const fake = fakeGitClient();
+    const { sink, gitClears } = recordingSink();
+    const w = watchSet(fake.client, sink);
+    w.retain("/r"); // first terminal in the repo
+    w.retain("/r"); // a second terminal in the same repo
+    await delay(20);
+    expect(fake.subscribeCount()).toBe(1); // one subscription, not two
+    w.release("/r"); // one terminal left — repo still referenced
+    expect(gitClears).toHaveLength(0); // so its status is NOT cleared
+    w.release("/r"); // the last terminal left
+    expect(gitClears).toContainEqual(["h", "/r"]); // now the status is dropped
+    w.dispose();
+  });
+
+  it("dispose aborts every watch without throwing (the host link dropped)", async () => {
+    const fake = fakeGitClient();
+    const { sink } = recordingSink();
+    const w = watchSet(fake.client, sink);
+    w.retain("/a");
+    w.retain("/b");
+    await delay(20);
+    expect(fake.subscribeCount()).toBe(2);
+    // The abort ends both subscriptions cleanly — a leaked loop would keep the
+    // process from settling.
+    expect(() => w.dispose()).not.toThrow();
   });
 });
 

@@ -20,8 +20,15 @@
  * interactive `fleet` board (the `--json` path never touches the renderer).
  */
 
-import { useTerminalDimensions } from "@opentui/solid";
-import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js";
+import { useKeyboard, useTerminalDimensions } from "@opentui/solid";
+import {
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import {
   type FleetConnector,
@@ -35,12 +42,17 @@ import type { FleetHostState, FleetHostStatus } from "./fleetTypes.ts";
 import {
   cell,
   type FieldTone,
+  flattenRows,
   type FleetGroup,
   type FleetMode,
   type FleetRow,
   type FleetView,
+  gitCell,
+  gitDetail,
+  type GitDetailView,
   projectFleet,
   relativeTime,
+  step,
 } from "./render.ts";
 import { runTui } from "./runtime.tsx";
 
@@ -56,10 +68,12 @@ const IDLE_GLYPH = "○";
 // branches in full instead of clipping them into an 80-col straitjacket. The
 // host-less modes (`needs`/`agent`) prepend a `W_HOST` column (no per-host group
 // header to name the machine), which `whereWidth` subtracts from the slack.
+const W_CURSOR = 2; // the leading ▸ selection cursor (drives the drill-in)
 const W_LIVE = 2; // the leading green activity dot (output moving right now)
 const W_GLYPH = 2;
 const W_HOST = 12;
 const W_AGENT = 8;
+const W_GIT = 8; // the live working-tree cell, "✎12 ↑3" — longer counts ellipsize
 const W_PR = 15; // "#12345 merged ✓" — wide enough that the check glyph never clips
 const W_STATE = 13;
 const W_RECENCY = 5; // the trailing "24s"/"3h"/"364d" column, reserved off the slack
@@ -72,10 +86,12 @@ const MIN_WHERE = 12; // floor so a narrow terminal truncates rather than vanish
  *  stay aligned. */
 function whereWidth(termWidth: number, showHost: boolean): number {
   const fixed =
+    W_CURSOR +
     W_LIVE +
     W_GLYPH +
     (showHost ? W_HOST : 0) +
     W_AGENT +
+    W_GIT +
     W_PR +
     W_STATE +
     W_RECENCY;
@@ -123,11 +139,20 @@ function Row(props: {
   frame: () => number;
   now: () => number;
   termWidth: () => number;
+  selectedKey: () => string | null;
   showHost?: boolean;
 }) {
   const whereW = () => whereWidth(props.termWidth(), props.showHost ?? false);
+  const selected = () => props.selectedKey() === props.row.key;
+  // The compact working-tree cell is a projection of the row's raw `gitStatus`,
+  // derived here at its read site — the row carries only the raw status (one git
+  // value), mirroring how the drill-in pane derives `gitDetail(row)` on demand.
+  const git = createMemo(() => gitCell(props.row.gitStatus));
   return (
     <box flexDirection="row">
+      {/* Selection cursor — ▸ on the highlighted row, blank otherwise. ↑/↓ move
+          it; Enter opens that row's repo in the drill-in git-status detail pane. */}
+      <text fg={HOST}>{cell(selected() ? "▸" : "", W_CURSOR)}</text>
       {/* Live-output dot — green when this terminal is moving bytes right now (the
           `activity` stream), blank otherwise. Orthogonal to the urgency glyph: one
           says "output flowing", the other says "agent blocked/working/idle". */}
@@ -144,6 +169,10 @@ function Row(props: {
       <text fg={TONE_COLOR[props.row.where.tone]}>
         {cell(props.row.where.text, whereW())}
       </text>
+      {/* Live working-tree cell — the changed-file count + branch ahead/behind,
+          repainted on each `subscribeRepoChange` pulse (R4.7). Derived from the
+          row's raw `gitStatus` here, not stored pre-projected on the row. */}
+      <text fg={TONE_COLOR[git().tone]}>{cell(git().text, W_GIT)}</text>
       <text fg={TONE_COLOR[props.row.pr.tone]}>
         {cell(props.row.pr.text, W_PR)}
       </text>
@@ -171,6 +200,7 @@ function Group(props: {
   frame: () => number;
   now: () => number;
   termWidth: () => number;
+  selectedKey: () => string | null;
   showHost?: boolean;
 }) {
   const badge = hostBadge(props.group.status);
@@ -197,10 +227,46 @@ function Group(props: {
             frame={props.frame}
             now={props.now}
             termWidth={props.termWidth}
+            selectedKey={props.selectedKey}
             showHost={props.showHost}
           />
         )}
       </For>
+    </box>
+  );
+}
+
+/** The drill-in detail pane — the selected row's repo opened to its live
+ *  `git status`: the repo·branch title with ahead/behind, the
+ *  staged·modified·untracked summary, and the changed-file list (the same
+ *  `subscribeRepoChange`→`getStatus` data the row's cell summarizes, R4.7). Enter
+ *  opens it, Esc closes it. Every child is a concrete element (OpenTUI rejects a
+ *  bare string under a box). */
+function DetailPane(props: { detail: () => GitDetailView }) {
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <text fg={SUBTLE}>{"─".repeat(48)}</text>
+      <box flexDirection="row">
+        <text fg={HEADER}>{props.detail().title}</text>
+        <text fg={SUBTLE}>
+          {props.detail().tracking ? `   ${props.detail().tracking}` : ""}
+        </text>
+      </box>
+      <text fg={TONE_COLOR.muted}>{props.detail().summary}</text>
+      <For
+        each={props.detail().files}
+        fallback={<text fg={TONE_COLOR.muted}>{""}</text>}
+      >
+        {(f) => (
+          <box flexDirection="row">
+            <text fg={TONE_COLOR[f.tone]}>{cell(f.code, 3)}</text>
+            <text fg={TONE_COLOR.plain}>{f.path}</text>
+          </box>
+        )}
+      </For>
+      <text fg={SUBTLE}>
+        {props.detail().more > 0 ? `  … +${props.detail().more} more` : ""}
+      </text>
     </box>
   );
 }
@@ -242,13 +308,23 @@ function Summary(props: { view: () => FleetView }) {
   );
 }
 
-/** The whole board. Pure paint over the projected `view` plus the two animation
- *  accessors — exported so the headless Bun render test drives it directly. */
+/** The whole board. Pure paint over the projected `view`, the two animation
+ *  accessors, and the selection state (`selectedKey`/`open`, defaulted off so the
+ *  headless render test can drive the board with or without a cursor) — exported
+ *  so the Bun render test drives it directly. */
 export function FleetBoard(props: {
   view: () => FleetView;
   frame: () => number;
   now: () => number;
   clock: () => string;
+  /** The selected row's stable key (`FleetRow.key`), or `null`/absent for no
+   *  selection. The cursor tracks identity, not a list index, so it survives both
+   *  a shrink and a reorder of the live row set without a separate clamp; the
+   *  board resolves it to a concrete row only for the drill-in pane. */
+  selectedKey?: () => string | null;
+  /** Whether the drill-in detail pane is open for the selected row; off by
+   *  default (the snapshot-style render tests don't drive selection). */
+  open?: () => boolean;
 }) {
   // Reactive terminal width — re-renders the rows (their `repo·branch` column
   // absorbs the slack) when the terminal is resized. `testRender({ width })`
@@ -271,6 +347,18 @@ export function FleetBoard(props: {
   // a row must carry its own host cell; in `host` mode the group header is the
   // host and the column would just be redundant.
   const showHost = () => props.view().mode !== "host";
+  // The selected key drives the cursor directly; each Row compares its own
+  // `key` against it. The drill-in pane is the only thing that needs the whole
+  // row, so resolve the key to a concrete row here, off the same flattened list
+  // the keyboard handler steps through — a stale/absent key simply matches no
+  // row (the pane shows nothing), never a wrong one.
+  const selectedKey = () => props.selectedKey?.() ?? null;
+  const selected = () => {
+    const key = selectedKey();
+    return key === null
+      ? undefined
+      : flattenRows(props.view()).find((r) => r.key === key);
+  };
   return (
     <box flexDirection="column" padding={1}>
       <text fg={TITLE}>
@@ -293,6 +381,7 @@ export function FleetBoard(props: {
                 frame={props.frame}
                 now={props.now}
                 termWidth={termWidth}
+                selectedKey={selectedKey}
                 showHost={true}
               />
             )}
@@ -309,12 +398,24 @@ export function FleetBoard(props: {
               frame={props.frame}
               now={props.now}
               termWidth={termWidth}
+              selectedKey={selectedKey}
               showHost={showHost()}
             />
           )}
         </For>
       )}
       <Summary view={props.view} />
+      {/* The drill-in pane for the selected row, when opened with Enter. `Show`
+          narrows the (possibly undefined) selected row to a concrete one before
+          projecting its detail — never an empty pane for an empty fleet. The
+          closed fallback is an empty `<text>` (never a bare string), since
+          OpenTUI rejects a raw string directly under a `<box>`. */}
+      <Show
+        when={(props.open?.() ?? false) ? selected() : undefined}
+        fallback={<text fg={SUBTLE}>{""}</text>}
+      >
+        {(row) => <DetailPane detail={() => gitDetail(row())} />}
+      </Show>
     </box>
   );
 }
@@ -337,6 +438,7 @@ export async function runFleetTui(args: {
       status: { kind: "connecting" },
       terminals: {},
       live: [],
+      gitStatuses: {},
     };
   }
   const [store, setStore] = createStore<Record<string, FleetHostState>>(seed);
@@ -355,15 +457,30 @@ export async function runFleetTui(args: {
     // The `activity` stream replaces the whole live set each frame — assign it
     // straight onto the host (the projection reads membership per row).
     setLive: (label, live) => setStore(label, "live", live),
-    // The link dropped — drop the host's now-stale rows and live set, keeping the
-    // seeded entry (so the unreachable header still renders and Solid's key set
-    // never trips). The projection then counts/animates/alerts on nothing for it.
+    // A repo's live working-tree status, keyed by repo root — the getStatus
+    // re-query a subscribeRepoChange pulse drove. Repaints the row's git cell
+    // (and the drill-in pane, if this repo is the selected one).
+    setGitStatus: (label, repoPath, status) =>
+      setStore(label, "gitStatuses", repoPath, status),
+    clearGitStatus: (label, repoPath) =>
+      setStore(
+        label,
+        "gitStatuses",
+        produce((gitStatuses) => {
+          delete gitStatuses[repoPath];
+        }),
+      ),
+    // The link dropped — drop the host's now-stale rows, live set, and git
+    // statuses, keeping the seeded entry (so the unreachable header still renders
+    // and Solid's key set never trips). The projection then counts/animates/
+    // alerts on nothing for it.
     clearHost: (label) =>
       setStore(
         label,
         produce((host) => {
           host.terminals = {};
           host.live = [];
+          host.gitStatuses = {};
         }),
       ),
   };
@@ -373,6 +490,47 @@ export async function runFleetTui(args: {
   function App() {
     const [now, setNow] = createSignal(Date.now());
     const [frame, setFrame] = createSignal(0);
+    // Selection state — the selected row's STABLE key (not a list index), and
+    // whether its repo's drill-in detail pane is open. Tracking the key means the
+    // cursor survives both a shrink and a reorder of the live row set with no
+    // clamp/wrap arithmetic of its own (`step` owns it). Pure view state: it reads
+    // the live store but never writes back, so it lives here, never in the
+    // orchestrator. `null` until the first ↑/↓ selects a row.
+    const [selectedKey, setSelectedKey] = createSignal<string | null>(null);
+    const [open, setOpen] = createSignal(false);
+    // The projection depends on the STORE only, never `now()` — so the 1s clock
+    // tick repaints just the recency cells (which read `now()` in the row) and
+    // the header clock, not this whole derivation. Defined before the keyboard
+    // handler so it can read the live rows for the step neighbour.
+    const view = createMemo(() =>
+      projectFleet(Object.values(store), args.mode),
+    );
+    // The single flattened row list — the keyboard handler steps over it and the
+    // board (via `selectedKey`) paints from it; one memo, one row order, so a ↑/↓
+    // can't disagree with what's on screen.
+    const rows = createMemo(() => flattenRows(view()));
+
+    // ↑/↓ move the selection cursor (wrapping) to the neighbour row's key, Enter
+    // opens the drill-in detail pane for the selected row, Esc closes it.
+    // `useKeyboard` self-manages its mount/cleanup; Ctrl-C is left untouched so
+    // `exitOnCtrlC` (the one quit, set in runtime.tsx) still fires.
+    useKeyboard((key) => {
+      switch (key.name) {
+        case "up":
+          setSelectedKey((k) => step(k, -1, rows()));
+          break;
+        case "down":
+          setSelectedKey((k) => step(k, 1, rows()));
+          break;
+        case "return":
+          setOpen(true);
+          break;
+        case "escape":
+          setOpen(false);
+          break;
+      }
+    });
+
     onMount(() => {
       // Two canonical timers: a 1s clock/recency tick and a faster animation
       // frame (spinner + alert breathe). Both started here, cleared on cleanup.
@@ -396,14 +554,17 @@ export async function runFleetTui(args: {
         fleet?.dispose();
       });
     });
-    // The projection depends on the STORE only, never `now()` — so the 1s clock
-    // tick repaints just the recency cells (which read `now()` in the row) and
-    // the header clock, not this whole derivation.
-    const view = createMemo(() =>
-      projectFleet(Object.values(store), args.mode),
-    );
     const clock = () => new Date(now()).toLocaleTimeString();
-    return <FleetBoard view={view} frame={frame} now={now} clock={clock} />;
+    return (
+      <FleetBoard
+        view={view}
+        frame={frame}
+        now={now}
+        clock={clock}
+        selectedKey={selectedKey}
+        open={open}
+      />
+    );
   }
 
   await runTui(() => <App />);
