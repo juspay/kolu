@@ -190,7 +190,15 @@ const CodeTab: Component<{
     },
   });
 
-  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  // A MEMO, not a plain accessor: `props.meta` is now a fresh object on every
+  // observation tick (the client join of authored + awareness), but the repo root
+  // changes rarely. The fs/git subscriptions key their input on this; a plain
+  // accessor would make `createReactiveSubscription`'s `on(input)` re-subscribe on
+  // every observation change, resetting the change-pulse's per-subscription `seq`
+  // to 0 before it can advance — so live updates would never fire. The memo's
+  // equals-gate keeps a stable identity across observation changes that leave the
+  // repo root untouched, so the pulse subscription persists and advances.
+  const repoPath = createMemo(() => props.meta?.git?.repoRoot ?? null);
 
   // History records repo-relative `{ mode, path }` locations with no repo
   // identity of their own, so a stack captured in repo A must not be replayed
