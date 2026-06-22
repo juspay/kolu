@@ -73,6 +73,7 @@ export {
   GitStatusOutputSchema,
   type GitWorkingTreeSummary,
   GitWorkingTreeSummarySchema,
+  type LocalGitStatus,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeNameSchema,

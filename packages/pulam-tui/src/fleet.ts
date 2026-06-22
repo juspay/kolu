@@ -20,7 +20,7 @@ import {
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   terminalWorkspaceSurface,
   type AwarenessValue,
-  type GitStatusOutput,
+  type LocalGitStatus,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
@@ -49,11 +49,12 @@ export interface FleetSink {
   setLive: (label: string, live: TerminalId[]) => void;
   /** The latest live working-tree status for a repo on this host, keyed by repo
    *  root path (shared across the repo's terminals) — the getStatus re-query a
-   *  `subscribeRepoChange` pulse drove (R4.7). */
+   *  `subscribeRepoChange` pulse drove (R4.7). The fleet requests `mode: "local"`
+   *  only, so this is the `local` arm of the status union. */
   setGitStatus: (
     label: string,
     repoPath: string,
-    status: GitStatusOutput,
+    status: LocalGitStatus,
   ) => void;
   /** Drop a repo's git status — its last terminal left, so nothing references it.
    *  Distinct from `clearHost` (which drops the whole host on a link drop): a
@@ -140,6 +141,15 @@ export class RepoWatchSet {
             { repoPath, mode: "local" },
             { signal },
           );
+          // We requested `mode: "local"`, so the result is the union's `local`
+          // arm. Assert it rather than degrade — a non-local result here is a
+          // contract violation (the discriminator we sent was ignored), which
+          // must SURFACE, never silently render as an empty git cell.
+          if (status.mode !== "local") {
+            throw new Error(
+              `getStatus(${repoPath}) on ${label} returned mode=${status.mode} for a local request`,
+            );
+          }
           // If the repo was released (last terminal left) while this re-query was
           // in flight, `release` already cleared it — don't re-add a stale status.
           if (signal.aborted) return;

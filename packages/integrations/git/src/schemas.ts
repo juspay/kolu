@@ -130,25 +130,44 @@ export const GitStatusInputSchema = z.object({
   mode: GitDiffModeSchema,
 });
 
-export const GitStatusOutputSchema = z.object({
-  files: z.array(GitChangedFileSchema),
-  /** Null in local mode. In branch mode it's the resolved base ref, or
-   *  null when the repo has no base to compare against (a remote-less repo
-   *  with no `origin`, #1244) — branch mode degrades to an empty diff there
-   *  rather than erroring. */
-  base: GitBaseRefSchema.nullable(),
-  /** Branch-tracking state (current branch + ahead/behind vs upstream).
-   *  Populated in `local` mode, `null` in `branch` mode. Added in
-   *  terminal-workspace contract 0.4 — pulam's fleet board reads it on each
-   *  `subscribeRepoChange` pulse to paint a row's live ahead/behind (R4.7).
-   *  Computed from the same `git status` the file list already reads, so it
-   *  costs no extra git call. Existing Code-tab consumers ignore it. */
-  branch: GitBranchStatusSchema.nullable(),
-  /** Working-tree section counts (staged · modified · untracked). Populated in
-   *  `local` mode, `null` in `branch` mode. */
-  workingTree: GitWorkingTreeSummarySchema.nullable(),
-});
+/** `getStatus`'s result, a discriminated union on `mode` so each variant carries
+ *  exactly the fields that apply — the illegal combinations a per-field-nullable
+ *  shape permitted (a local result with a null branch, a branch result with a
+ *  populated working tree) are now unrepresentable. The discriminator IS the key
+ *  the caller already passes in:
+ *
+ *  - `local` (working tree vs HEAD): always carries the branch-tracking header
+ *    (current branch + ahead/behind vs upstream) and the working-tree section
+ *    counts. Both added in terminal-workspace contract 0.4 — pulam's fleet board
+ *    reads them on each `subscribeRepoChange` pulse to paint a row's live
+ *    ahead/behind and the drill-in summary (R4.7), computed from the same `git
+ *    status` the file list already reads (no extra git call).
+ *  - `branch` (working tree vs `merge-base(origin/<default>)`): carries the
+ *    resolved base ref, or `null` when the repo has no base to compare against (a
+ *    remote-less repo with no `origin`, #1244 — branch mode degrades to an empty
+ *    diff there rather than erroring). The HEAD-vs-upstream tracking and the
+ *    working-tree counts don't apply here, so they're absent, not nulled. */
+export const GitStatusOutputSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("local"),
+    files: z.array(GitChangedFileSchema),
+    branch: GitBranchStatusSchema,
+    workingTree: GitWorkingTreeSummarySchema,
+  }),
+  z.object({
+    mode: z.literal("branch"),
+    files: z.array(GitChangedFileSchema),
+    base: GitBaseRefSchema.nullable(),
+  }),
+]);
 export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
+
+/** The `local`-mode arm of `GitStatusOutput` — the working-tree-vs-HEAD result,
+ *  with the branch-tracking header and the working-tree section counts both
+ *  guaranteed present (a consumer that only ever requests `mode: "local"`, like
+ *  pulam's fleet board, narrows to this so it reads `branch`/`workingTree`
+ *  without a per-read null guard). */
+export type LocalGitStatus = Extract<GitStatusOutput, { mode: "local" }>;
 
 export const GitDiffInputSchema = z.object({
   repoPath: z.string(),

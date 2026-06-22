@@ -605,10 +605,13 @@ describe("formatFleetJson", () => {
 
 // ─── Git status projections (R4.7) ───────────────────────────────────────────
 
-function makeStatus(over: Partial<GitStatusOutput> = {}): GitStatusOutput {
+/** A local-mode `GitStatusOutput` for tests (the only mode the fleet board reads
+ *  — `getStatus({ mode: "local" })`); `over` patches the local arm's fields. */
+type LocalStatus = Extract<GitStatusOutput, { mode: "local" }>;
+function makeStatus(over: Partial<LocalStatus> = {}): LocalStatus {
   return {
+    mode: "local",
     files: [],
-    base: null,
     branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
     workingTree: { staged: 0, modified: 0, untracked: 0 },
     ...over,
@@ -659,7 +662,7 @@ describe("gitCell", () => {
 });
 
 describe("gitDetail", () => {
-  const rowWith = (status: GitStatusOutput | undefined): FleetRow =>
+  const rowWith = (status: LocalStatus | undefined): FleetRow =>
     fleetRow("zest", id("t"), val({ git: gitInfo("/r") }), false, status);
 
   it("reads loading until the first pulse resolves", () => {

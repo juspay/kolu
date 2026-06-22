@@ -25,11 +25,7 @@ function changedFileEqual(a: GitChangedFile, b: GitChangedFile): boolean {
   return a.path === b.path && a.status === b.status && a.oldPath === b.oldPath;
 }
 
-function branchStatusEqual(
-  a: GitBranchStatus | null,
-  b: GitBranchStatus | null,
-): boolean {
-  if (a === null || b === null) return a === b;
+function branchStatusEqual(a: GitBranchStatus, b: GitBranchStatus): boolean {
   return (
     a.name === b.name &&
     a.upstream === b.upstream &&
@@ -39,10 +35,9 @@ function branchStatusEqual(
 }
 
 function workingTreeEqual(
-  a: GitWorkingTreeSummary | null,
-  b: GitWorkingTreeSummary | null,
+  a: GitWorkingTreeSummary,
+  b: GitWorkingTreeSummary,
 ): boolean {
-  if (a === null || b === null) return a === b;
   return (
     a.staged === b.staged &&
     a.modified === b.modified &&
@@ -69,17 +64,27 @@ export function gitStatusOutputEqual(
   a: GitStatusOutput,
   b: GitStatusOutput,
 ): boolean {
+  // The status is a discriminated union on `mode`; a mode change is a change.
+  if (a.mode !== b.mode) return false;
   if (!arrayEqual(a.files, b.files, changedFileEqual)) return false;
-  // `workingTree` is NOT derivable from `files[]` (it splits staged vs unstaged,
-  // which the collapsed file codes drop), and `branch` ahead/behind moves on a
-  // commit that leaves the file list untouched — so both must be compared here,
-  // or the watcher stream would fail to re-yield after a `git add` / `git commit`.
-  if (!branchStatusEqual(a.branch, b.branch)) return false;
-  if (!workingTreeEqual(a.workingTree, b.workingTree)) return false;
-  const ab = a.base;
-  const bb = b.base;
-  if (ab === null || bb === null) return ab === bb;
-  return ab.ref === bb.ref && ab.sha === bb.sha;
+  if (a.mode === "local" && b.mode === "local") {
+    // `workingTree` is NOT derivable from `files[]` (it splits staged vs
+    // unstaged, which the collapsed file codes drop), and `branch` ahead/behind
+    // moves on a commit that leaves the file list untouched — so both are
+    // compared here, or the watcher stream would fail to re-yield after a
+    // `git add` / `git commit`.
+    return (
+      branchStatusEqual(a.branch, b.branch) &&
+      workingTreeEqual(a.workingTree, b.workingTree)
+    );
+  }
+  if (a.mode === "branch" && b.mode === "branch") {
+    const ab = a.base;
+    const bb = b.base;
+    if (ab === null || bb === null) return ab === bb;
+    return ab.ref === bb.ref && ab.sha === bb.sha;
+  }
+  return false;
 }
 
 export function gitDiffOutputEqual(

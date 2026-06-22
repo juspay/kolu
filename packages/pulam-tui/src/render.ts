@@ -15,7 +15,7 @@
 import type {
   AwarenessValue,
   GitChangeStatus,
-  GitStatusOutput,
+  LocalGitStatus,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import type {
@@ -398,8 +398,9 @@ export interface FleetRow {
   /** The repo's full live status, or undefined until the first
    *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo).
    *  Carried for the drill-in detail pane; the row itself paints only the
-   *  compact `git` cell above. */
-  gitStatus?: GitStatusOutput;
+   *  compact `git` cell above. The fleet requests `mode: "local"` only, so this
+   *  is the `local` arm of the status union (branch + working-tree always set). */
+  gitStatus?: LocalGitStatus;
 }
 
 export function fleetRow(
@@ -407,7 +408,7 @@ export function fleetRow(
   id: TerminalId,
   v: AwarenessValue,
   live: boolean,
-  gitStatus?: GitStatusOutput,
+  gitStatus?: LocalGitStatus,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
   const repoName = v.git?.repoName ?? null;
@@ -683,7 +684,7 @@ function aheadBehindText(ahead: number, behind: number, sep = ""): string {
  *  a dirty tree the changed-file count — each suffixed with the branch's
  *  ahead/behind. Calm tones throughout: the fleet's colour budget is the agent
  *  urgency and the green live dot, not git churn. */
-export function gitCell(status: GitStatusOutput | undefined): DashCell {
+export function gitCell(status: LocalGitStatus | undefined): DashCell {
   if (!status) return { text: "", tone: "muted" };
   const ab = status.branch
     ? aheadBehindText(status.branch.ahead, status.branch.behind)

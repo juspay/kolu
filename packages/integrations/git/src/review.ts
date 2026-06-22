@@ -210,18 +210,18 @@ export async function getStatus(
   try {
     if (mode === "local") {
       const { files, branch, workingTree } = await getLocalStatus(repoPath);
-      return ok({ files, base: null, branch, workingTree });
+      return ok({ mode: "local", files, branch, workingTree });
     }
     // Branch mode compares HEAD against a merge-base, not the working tree, so
     // the working-tree section counts and the HEAD-vs-upstream tracking header
-    // don't apply — they're `null`, not zero (the no-fallback distinction: a
-    // field that doesn't apply differs from one that's empty).
+    // don't apply — the `branch` arm of the union simply doesn't carry them (the
+    // no-fallback distinction: a field that doesn't apply is absent, not nulled).
     const baseResult = await resolveBase(repoPath);
     if (!baseResult.ok) return baseResult;
     // No base to diff against (remote-less repo): nothing to show, not an
     // error — branch mode is meaningless here (#1244).
     if (baseResult.value === null)
-      return ok({ files: [], base: null, branch: null, workingTree: null });
+      return ok({ mode: "branch", files: [], base: null });
     const raw = await gitOutput(repoPath, [
       "diff",
       "--name-status",
@@ -229,10 +229,9 @@ export async function getStatus(
       baseResult.value.sha,
     ]);
     return ok({
+      mode: "branch",
       files: parseNameStatus(raw),
       base: baseResult.value,
-      branch: null,
-      workingTree: null,
     });
   } catch (e) {
     log?.error(

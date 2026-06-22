@@ -220,11 +220,12 @@ function recordingSink(): {
 }
 
 /** A `GitStatusOutput` for tests — a local-mode status with no changed files and
- *  the branch/working-tree headers present (override any field). */
-function makeStatus(over: Partial<GitStatusOutput> = {}): GitStatusOutput {
+ *  the branch/working-tree headers present (override any local-arm field). */
+type LocalStatus = Extract<GitStatusOutput, { mode: "local" }>;
+function makeStatus(over: Partial<LocalStatus> = {}): GitStatusOutput {
   return {
+    mode: "local",
     files: [],
-    base: null,
     branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
     workingTree: { staged: 0, modified: 0, untracked: 0 },
     ...over,
@@ -548,7 +549,10 @@ describe("startFleet", () => {
     // setGitStatus, host-labelled and keyed by repo root.
     const hit = gitSets.find(([l, r]) => l === "a" && r === repo);
     expect(hit).toBeDefined();
-    expect(hit?.[2].workingTree).toEqual({
+    const status = hit?.[2];
+    expect(status?.mode).toBe("local");
+    if (status?.mode !== "local") throw new Error("expected local-mode status");
+    expect(status.workingTree).toEqual({
       staged: 1,
       modified: 2,
       untracked: 3,
@@ -589,7 +593,10 @@ describe("RepoWatchSet", () => {
     await delay(20);
     const sets = gitSets.filter(([, r]) => r === "/r");
     expect(sets.length).toBeGreaterThanOrEqual(2); // snapshot + the pulse
-    expect(sets.at(-1)?.[2].workingTree?.untracked).toBe(1);
+    const last = sets.at(-1)?.[2];
+    expect(last?.mode).toBe("local");
+    if (last?.mode !== "local") throw new Error("expected local-mode status");
+    expect(last.workingTree.untracked).toBe(1);
     w.dispose();
   });
 

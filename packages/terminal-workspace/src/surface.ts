@@ -190,4 +190,5 @@ export type {
   GitChangeStatus,
   GitStatusOutput,
   GitWorkingTreeSummary,
+  LocalGitStatus,
 } from "kolu-git/schemas";

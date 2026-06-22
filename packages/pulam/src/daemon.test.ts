@@ -253,8 +253,10 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   // R4.7: local-mode getStatus also carries the branch tracking header and the
   // working-tree section counts (computed off the same `git status`), proven
   // over the real served link rather than only in kolu-git's unit tests.
-  expect(status.branch?.name).toBe(BRANCH);
-  expect(status.workingTree?.untracked ?? 0).toBeGreaterThanOrEqual(1); // note.txt
+  expect(status.mode).toBe("local");
+  if (status.mode !== "local") throw new Error("expected local-mode status");
+  expect(status.branch.name).toBe(BRANCH);
+  expect(status.workingTree.untracked).toBeGreaterThanOrEqual(1); // note.txt
 
   // ── R4.7: a working-tree change PULSES subscribeRepoChange, and re-querying
   //    getStatus reflects it — the {seq}+requery loop the fleet board's
@@ -274,7 +276,9 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
     mode: "local",
   });
   expect(after.files.some((f) => f.path === "fresh.txt")).toBe(true);
-  expect(after.workingTree?.untracked ?? 0).toBeGreaterThanOrEqual(2); // +fresh.txt
+  expect(after.mode).toBe("local");
+  if (after.mode !== "local") throw new Error("expected local-mode status");
+  expect(after.workingTree.untracked).toBeGreaterThanOrEqual(2); // +fresh.txt
   await iter.return?.(); // close the subscription before the kill below
 
   // ── kill the terminal → pulam reconciles it out of the collection ─

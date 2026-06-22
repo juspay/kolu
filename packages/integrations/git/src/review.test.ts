@@ -88,6 +88,8 @@ describe("getStatus branch mode — no resolvable base", () => {
     const result = await getStatus(repo, "branch");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.mode).toBe("branch");
+    if (result.value.mode !== "branch") return;
     expect(result.value.files).toEqual([]);
     expect(result.value.base).toBeNull();
   });
@@ -107,12 +109,15 @@ describe("getStatus branch mode — no resolvable base", () => {
     const result = await getStatus(repo, "branch");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.mode).toBe("branch");
+    if (result.value.mode !== "branch") return;
     expect(result.value.files).toEqual([]);
     expect(result.value.base).toBeNull();
     // Branch mode compares HEAD vs merge-base, so the working-tree section
-    // counts and the HEAD-vs-upstream header don't apply — null, not zeroed.
-    expect(result.value.branch).toBeNull();
-    expect(result.value.workingTree).toBeNull();
+    // counts and the HEAD-vs-upstream header don't apply — the `branch` arm of
+    // the union simply doesn't carry them (unrepresentable, not nulled).
+    expect("branch" in result.value).toBe(false);
+    expect("workingTree" in result.value).toBe(false);
   });
 
   it("still surfaces the actionable error when an origin remote exists but isn't fetched", async () => {
@@ -178,8 +183,11 @@ describe("getStatus local mode — branch tracking + working-tree counts (R4.7)"
     const result = await getStatus(repo, "local");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.mode).toBe("local");
+    if (result.value.mode !== "local") return;
 
-    expect(result.value.base).toBeNull(); // local mode never resolves a base
+    // Local mode never resolves a base — the `local` arm doesn't carry the field.
+    expect("base" in result.value).toBe(false);
     expect(result.value.branch).toEqual({
       name: "main",
       upstream: "origin/main",
@@ -212,6 +220,8 @@ describe("getStatus local mode — branch tracking + working-tree counts (R4.7)"
     const result = await getStatus(repo, "local");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.mode).toBe("local");
+    if (result.value.mode !== "local") return;
     expect(result.value.branch).toEqual({
       name: "work",
       upstream: null,
