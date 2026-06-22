@@ -406,6 +406,7 @@ const App: Component = () => {
             )}
           </Match>
           <Match when={mode().kind === "empty"}>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: the zero-terminal canvas surface is the same pointer-driven canvas widget as TerminalCanvas (which lives in biome's spatial-mouse-canvas a11y override) — double-click-to-create's keyboard equivalent is the ⌘K/⌘T palette it opens, so role/tabIndex/fake onKeyDown would claim a11y it doesn't deliver. Scoped inline because App.tsx is the composition root, not a dedicated canvas file that warrants a file-wide override. */}
             <div
               data-testid="canvas-container"
               class="relative flex-1 min-h-0 canvas-grid-bg"
