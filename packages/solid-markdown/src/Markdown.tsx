@@ -122,7 +122,8 @@ export function bindMarkdownLinks(
         handlers.onFootnote &&
         e.detail > 0 &&
         anchor.hasAttribute("data-md-footnote") &&
-        href?.startsWith("#")
+        href?.startsWith("#") &&
+        href.length > 1
       ) {
         const definition = el.querySelector(`#${CSS.escape(href.slice(1))}`);
         if (definition) {
