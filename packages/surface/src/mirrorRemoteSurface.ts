@@ -307,12 +307,14 @@ function buildProcedureForwarders(
  * once) — the settle is `await mirrorRemoteSurface(...).done`. Discarding the result
  * is NOT type-caught (no TS construct makes `await object` an error, so a rename
  * would not catch it either): a stale `await mirrorRemoteSurface(...)` keeps
- * COMPILING and silently no-ops. This is a LIVE hazard, not hypothetical — drishti
+ * COMPILING and silently no-ops. This was a LIVE hazard, not hypothetical — drishti
  * `master` still does `await mirrorRemoteSurface(...)` on its streaming sinks (the
  * #1497 shape it adopted in drishti PR #70). So the migration is mechanical, not
- * documentary: the surface→drishti merge-gate (`.claude/rules/surface.md`) holds the
- * kolu PR until the paired drishti PR audits that one call site (append `.done`),
- * adds the forwarded-procedure proof, and goes GREEN — exactly as #70 did for #1497.
+ * documentary, and now real: the paired drishti PR #71 (the surface→drishti
+ * merge-gate in `.claude/rules/surface.md`) audits that one call site to
+ * `await mirrorRemoteSurface(...).done`, pinned to this R7 revision; it typechecks
+ * and fmt-checks GREEN against the new `{ procedures, done }` API — exactly as #70
+ * did for #1497.
  * No back-compat thenable is offered: the fail-fast rule prefers a deliberate
  * per-site migration over a shim that hides the changed contract — and the handle's
  * non-thenable contract is pinned in CI by the "returns a non-thenable handle" test
