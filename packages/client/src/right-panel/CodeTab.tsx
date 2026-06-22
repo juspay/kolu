@@ -603,13 +603,19 @@ const CodeTab: Component<{
     // element + length and mints a fresh reference, matching the diff
     // branch's `.map()` below. See `createReactiveSubscription` /
     // `writeValue.ts` for the reconcile strategy.
-    if (view() === "browse") return [...(allPaths()?.paths ?? [])];
-    return status()?.files.map((f) => f.path) ?? [];
+    const out =
+      view() === "browse"
+        ? [...(allPaths()?.paths ?? [])]
+        : (status()?.files.map((f) => f.path) ?? []);
+    console.log(`FT-TP view=${view()} n=${out.length}`); // FT-DEBUG
+    return out;
   });
 
-  const treeSearch = createMemo(() =>
-    projectFileTreeSearch(treePaths(), searchQuery()),
-  );
+  const treeSearch = createMemo(() => {
+    const r = projectFileTreeSearch(treePaths(), searchQuery());
+    console.log(`FT-SEARCH n=${r.projectedPaths.length}`); // FT-DEBUG
+    return r;
+  });
 
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.

@@ -271,6 +271,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       [() => props.paths, () => props.expandPaths],
       ([paths, expandPaths]) => {
+        console.log(`FT-ON npaths=${paths.length}`); // FT-DEBUG
         safeApply(() => {
           if (!tree) {
             console.log(`FT-DIFF no-tree new=${paths.length}`); // FT-DEBUG
