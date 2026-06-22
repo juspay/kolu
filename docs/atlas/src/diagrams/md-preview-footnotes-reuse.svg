@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 392" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect x="0.5" y="0.5" width="819" height="391" rx="14" fill="#15171c" stroke="#2a2e37"/>
+
+  <!-- title -->
+  <text x="32" y="36" fill="#c7ccd6" font-weight="650" font-size="16">Footnote popups reuse the wikilink seam — no new package</text>
+
+  <!-- legend -->
+  <rect x="560" y="24" width="15" height="11" rx="3" fill="none" stroke="#6cc070" stroke-width="1.4"/>
+  <text x="580" y="34" fill="#8b929d" font-size="11.5">exists / reused</text>
+  <rect x="690" y="24" width="15" height="11" rx="3" fill="none" stroke="#d6a35c" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="710" y="34" fill="#8b929d" font-size="11.5">this plan</text>
+
+  <!-- trigger pill -->
+  <rect x="80" y="54" width="246" height="30" rx="15" fill="#182230" stroke="#6ea8e0" stroke-width="1.4"/>
+  <text x="203" y="73" text-anchor="middle" fill="#cfe0f5" font-weight="600" font-size="12">① reader clicks a [n] footnote marker</text>
+  <line x1="203" y1="84" x2="203" y2="100" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,94 L203,101 L209,94" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <!-- LEFT panel: @kolu/solid-markdown (flows downward) -->
+  <rect x="28" y="102" width="350" height="250" rx="12" fill="#12151a" stroke="#2a2e37"/>
+  <text x="46" y="126" fill="#c7ccd6" font-weight="650" font-size="14">@kolu/solid-markdown</text>
+  <text x="46" y="143" fill="#8b929d" font-size="10.5">the leaf — gains exactly one callback</text>
+
+  <rect x="46" y="152" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="60" y="173" fill="#c7ccd6" font-weight="600" font-size="12">bindInteractions · onClick</text>
+  <text x="60" y="190" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">delegated — links &amp; scroll already dispatch here</text>
+
+  <line x1="203" y1="202" x2="203" y2="212" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,206 L203,213 L209,206" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="46" y="212" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="60" y="233" fill="#c7ccd6" font-weight="600" font-size="12">querySelector('#md-footnote-n') → &lt;li&gt;</text>
+  <text x="60" y="250" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">the scroll branch's own lookup, reused</text>
+
+  <line x1="203" y1="262" x2="203" y2="272" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,266 L203,273 L209,266" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="46" y="272" width="314" height="60" rx="9" fill="#1d1a14" stroke="#7a5e34" stroke-width="1.1" stroke-dasharray="4 3"/>
+  <text x="60" y="294" fill="#e8c98f" font-weight="600" font-size="12.5">onFootnote(anchor, defNode)</text>
+  <text x="60" y="312" fill="#c7ccd6" font-size="10" font-family="ui-monospace, SFMono-Regular, monospace">NEW</text>
+  <text x="60" y="326" fill="#8b929d" font-size="10">the package's only added surface</text>
+
+  <!-- bridge: the callback fires outward to the host -->
+  <text x="410" y="298" text-anchor="middle" fill="#8b929d" font-size="9.5">callback</text>
+  <line x1="378" y1="304" x2="436" y2="304" stroke="#6ea8e0" stroke-width="1.6"/>
+  <path d="M436,298 L444,304 L436,310" fill="none" stroke="#6ea8e0" stroke-width="1.6"/>
+
+  <!-- RIGHT panel: client (flows upward — result bubbles up to the visible panel) -->
+  <rect x="442" y="102" width="350" height="250" rx="12" fill="#12151a" stroke="#2a2e37"/>
+  <text x="460" y="126" fill="#c7ccd6" font-weight="650" font-size="14">client</text>
+  <text x="460" y="143" fill="#8b929d" font-size="10.5">renders the overlay — as it does for wikilinks</text>
+
+  <rect x="460" y="152" width="314" height="60" rx="9" fill="#1d1a14" stroke="#7a5e34" stroke-width="1.1" stroke-dasharray="4 3"/>
+  <text x="474" y="174" fill="#e8c98f" font-weight="600" font-size="12.5">footnote popover panel</text>
+  <text x="474" y="192" fill="#c7ccd6" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">cloned &lt;li&gt; · ↩ back-refs stripped</text>
+  <text x="474" y="206" fill="#8b929d" font-size="9.5">inner links flow through host resolvers</text>
+
+  <line x1="617" y1="222" x2="617" y2="212" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M611,218 L617,211 L623,218" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="460" y="222" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="474" y="243" fill="#c7ccd6" font-weight="600" font-size="12">useAnchoredPopover + &lt;Portal&gt;</text>
+  <text x="474" y="260" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">the wikilink menu reuses this exact hook</text>
+
+  <line x1="617" y1="282" x2="617" y2="272" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M611,278 L617,271 L623,278" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="460" y="282" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="474" y="303" fill="#c7ccd6" font-weight="600" font-size="12">BrowseFileDispatcher</text>
+  <text x="474" y="320" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">already wires onNavigateWikilink</text>
+
+  <!-- caption -->
+  <text x="32" y="374" fill="#6b7280" font-size="10.5">Nothing new to install. The dependency arrow (client → @kolu/solid-markdown) is preserved — the overlay stays client-side, exactly as wikilink disambiguation does.</text>
+</svg>

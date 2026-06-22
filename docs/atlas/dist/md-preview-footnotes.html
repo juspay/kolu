@@ -1,0 +1,228 @@
+<!DOCTYPE html><html lang="en" data-theme="light"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Markdown preview: footnotes open in a click popover · the kolu Atlas</title><meta name="description" content="Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install."><meta name="generator" content="Astro v6.4.8"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/md-preview-footnotes.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Markdown preview: footnotes open in a click popover · the kolu Atlas"><meta property="og:description" content="Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/md-preview-footnotes.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-22T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Markdown preview: footnotes open in a click popover · the kolu Atlas"><meta name="twitter:description" content="Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper: #f6f7f9;--surface: #ffffff;--ink: #1a1c20;--ink-dim: #3f444b;--ink-muted: #6b7178;--ink-faint: #9aa0a6;--rule: #e3e6ea;--rule-soft: #eceef1;--amber: #b4690e;--amber-soft: #f0e2c8;--teal: #0b6478;--green: #1b7a3a;--gold: #8a5200;--alert: #b42318;--code-bg: #eef1f4;--sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0}.atlas-title{font-family:var(--serif);font-size:clamp(2.6rem,6vw,3.6rem);line-height:1.05;letter-spacing:-.01em;font-weight:600;margin:.6rem 0 0}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;font-family:var(--mono);font-size:.66rem;color:var(--ink-muted);margin:.7rem 0 0}.legend-item{display:inline-flex;align-items:center;gap:.4em}.legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.cat{margin:2.4rem 0 0}.cat-bug{--cat-color: var(--alert)}.cat-feature{--cat-color: var(--teal)}.cat-analysis{--cat-color: var(--gold)}.cat-reference{--cat-color: var(--ink-muted)}.cat-head{display:flex;align-items:baseline;gap:.55rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}.cat-bar{align-self:center;flex:none;width:9px;height:9px;border-radius:3px;background:var(--cat-color)}.cat-title{font-family:var(--serif);font-size:1.35rem;font-weight:600;color:var(--ink);letter-spacing:-.01em;margin:0}.cat-count{font-family:var(--mono);font-size:.7rem;color:var(--ink-faint)}.cat-blurb{margin-left:auto;font-size:.8rem;color:var(--ink-muted)}.cat .moc{margin-top:.55rem}.moc{list-style:none;margin:1.5rem 0 0;padding:0}.moc-sub{list-style:none;margin:.05rem 0 .2rem .55rem;padding-left:.8rem;border-left:1px solid var(--rule)}.row{display:flex;align-items:center;gap:.5rem;padding:.22rem .45rem;border-radius:6px;line-height:1.3}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{flex:none;width:7px;height:7px;border-radius:50%}.row-t{color:var(--ink);font-weight:600;font-size:.95rem;white-space:nowrap;flex:none}.row-d{color:var(--ink-muted);font-size:.84rem;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.row-rel{margin:.02rem 0 .18rem 1.55rem;font-family:var(--mono);font-size:.64rem;color:var(--ink-faint)}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;flex:none}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;color:var(--ink-muted)}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);font-size:clamp(2.1rem,5vw,3rem);line-height:1.08;letter-spacing:-.01em;font-weight:600;margin:1.6rem 0 0}.meta-row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-top:1.1rem}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{display:flex;justify-content:space-between;margin-top:4rem;padding-top:1.4rem;border-top:1px solid var(--rule)}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);font-size:1.6rem;color:var(--ink);font-weight:600;letter-spacing:-.01em;margin:2.6rem 0 .8rem}.prose h3{font-family:var(--serif);font-size:1.25rem;color:var(--ink);font-weight:600;margin:2rem 0 .6rem}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}.prose code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;margin:0 0 1.3rem}.prose pre code{background:none;border:0;padding:0;font-size:.82rem}.prose blockquote{margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem;border-left:3px solid var(--amber-soft);color:var(--ink-dim)}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{width:100%;border-collapse:collapse;font-size:.9rem;margin:0 0 1.4rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;padding:.55rem .7rem;border:1px solid var(--rule);vertical-align:top}.prose th{background:var(--rule-soft);font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}.pill[data-astro-cid-2qeywk4b]{display:inline-block;font-family:var(--mono);font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;padding:.1em .5em;border-radius:999px;vertical-align:middle}.backlinks[data-astro-cid-3hqllcy6]{margin:2.5rem 0 0;padding-top:1.25rem;border-top:1px solid var(--rule)}.backlinks-h[data-astro-cid-3hqllcy6]{margin:0 0 .7rem;font-family:var(--sans);font-size:.72rem;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}.backlinks-list[data-astro-cid-3hqllcy6]{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.45rem 1rem}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]{font-size:.92rem;color:var(--ink-dim);text-decoration:none;border-bottom:1px solid var(--rule)}.backlinks-list[data-astro-cid-3hqllcy6] a[data-astro-cid-3hqllcy6]:hover{color:var(--amber);border-color:var(--amber)}.toc[data-astro-cid-6t6zfk7k]{margin:1.8rem 0;padding:.9rem 1.1rem;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}.toc-title[data-astro-cid-6t6zfk7k]{margin:0 0 .5rem;font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted)}.toc-list[data-astro-cid-lht5lwky]{list-style:none;margin:0;padding:0}.toc-item[data-astro-cid-lht5lwky]{margin:.2rem 0}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{color:var(--ink-dim);text-decoration:none;font-size:.92rem}.toc-item[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]:hover{color:var(--amber)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky]{margin:.15rem 0 .35rem .2rem;padding-left:.8rem;border-left:1px solid var(--rule)}.toc-item[data-astro-cid-lht5lwky] .toc-list[data-astro-cid-lht5lwky] a[data-astro-cid-lht5lwky]{font-size:.85rem;color:var(--ink-muted)}.callout[data-astro-cid-mrmim4ef]{margin:1.4rem 0;padding:.85rem 1.1rem;border:1px solid var(--rule);border-left-width:3px;border-radius:8px;background:var(--surface)}.callout-title[data-astro-cid-mrmim4ef]{margin:0 0 .4rem;font-weight:650;font-size:.82rem;letter-spacing:.02em;color:var(--ink)}.callout-body[data-astro-cid-mrmim4ef]>:first-child{margin-top:0}.callout-body[data-astro-cid-mrmim4ef]>:last-child{margin-bottom:0}.callout-note[data-astro-cid-mrmim4ef]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-mrmim4ef]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-mrmim4ef]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-mrmim4ef]{border-left-color:#b8860b;background:#fbf6e8}.callout-danger[data-astro-cid-mrmim4ef]{border-left-color:var(--alert);background:#fcf0ef}.diagram[data-astro-cid-rhux3v4s]{margin:1.75rem 0;text-align:center}.diagram[data-astro-cid-rhux3v4s] svg{max-width:100%;height:auto}.diagram[data-astro-cid-rhux3v4s] figcaption[data-astro-cid-rhux3v4s]{margin-top:.5rem;font-size:.8rem;color:var(--faint, #7a8089);font-family:var(--sans, ui-sans-serif, system-ui)}</style></head> <body>  <article class="wrap"> <header> <a class="backlink" href="./index.html">← the Atlas</a> <h1 class="note-h1">Markdown preview: footnotes open in a click popover</h1> <div class="meta-row"> <span>Features</span><span class="meta-sep">·</span> <span>seedling</span> <span class="meta-sep">·</span><span>proposed</span>  <span class="meta-sep">·</span><time datetime="2026-06-22T00:00:00.000Z">JUN 22, 2026</time> </div> <p class="note-sub">Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install.</p> <nav class="toc" aria-label="Table of contents" data-astro-cid-6t6zfk7k><p class="toc-title" data-astro-cid-6t6zfk7k>Contents</p><ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#what-the-reader-sees" data-astro-cid-lht5lwky>What the reader sees</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#architecture--a-leaf-that-reuses-the-wikilink-seam" data-astro-cid-lht5lwky>Architecture — a leaf that reuses the wikilink seam</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#implementation--the-seams-in-order" data-astro-cid-lht5lwky>Implementation — the seams, in order</a> <ul class="toc-list" data-astro-cid-lht5lwky> <li class="toc-item" data-astro-cid-lht5lwky> <a href="#pr1--pin-the-contract" data-astro-cid-lht5lwky>PR1 — pin the contract</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#pr2--mint-the-marker-and-the-callback-the-packages-only-new-surface" data-astro-cid-lht5lwky>PR2 — mint the marker and the callback (the package’s only new surface)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#pr3--render-the-popover-in-the-client-reuse-useanchoredpopover" data-astro-cid-lht5lwky>PR3 — render the popover in the client (reuse useAnchoredPopover)</a>  </li><li class="toc-item" data-astro-cid-lht5lwky> <a href="#the-risks-that-bite" data-astro-cid-lht5lwky>The risks that bite</a>  </li> </ul> </li> </ul></nav> </header> <div class="prose"> <p>Plan of record · branch <code>md-footnote-popup</code>. The document preview already
+renders GFM footnotes (<code>marked-footnote</code>) — the reference is a superscript
+<code>[n]</code> that links to a definitions list at the very bottom. Reading one means
+scrolling down, reading, and scrolling back to where you were. This plan keeps
+that bottom list but adds a <strong>click popover</strong>: tap the marker, read the
+footnote in place, dismiss. It threads the <em>same</em> click seam the wikilink and
+relative-link previews already use, so it adds <strong>no dependency and no new
+package</strong>. Verdict: <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-2qeywk4b>~half a day, low–medium risk</span> (the half-step of
+risk is the popover-on-scroll decision in §3).</p>
+
+
+
+
+
+
+<h2 id="what-the-reader-sees">What the reader sees</h2>
+<p>A footnote marker becomes a button. Click (or tap) the small <code>[1]</code> and its
+definition opens in a card anchored just under the marker, where your eye
+already is. Click anywhere else, press <kbd>Esc</kbd>, or click the marker
+again, and it closes. The gesture is identical on a trackpad and on a phone —
+there is no hover step, so nothing is stranded on touch.</p>
+<div style="display:flex;gap:1rem;flex-wrap:wrap;margin:1.5rem 0"><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#b42318;background:#fdecea;border:1px solid #f3c9c4;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">today — scroll down, then back</span><div style="font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#3454d1;font-family:ui-sans-serif, system-ui;font-weight:600">[1]</sup>, which is why a cold start looks idle for a beat.</div><div style="margin:0.9rem 0;text-align:center;color:#b9b9c2;font-family:ui-sans-serif, system-ui;font-size:0.72rem;letter-spacing:0.08em">⌄   scroll past the whole document   ⌄</div><div style="border-top:1px solid #e2e2e6;padding-top:0.5rem;color:#6b7280;font-family:ui-sans-serif, system-ui;font-size:0.8rem"><strong style="font-size:0.85rem">Footnotes</strong><div style="margin-top:0.3rem">1. The settle gate waits for the first PTY frame. <span style="color:#3454d1">↩</span></div></div></div><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#3a2bb0;background:#eef0ff;border:1px solid #cdc4f5;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">this plan — click → popover</span><div style="position:relative;font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#5a3ff0;font-family:ui-sans-serif, system-ui;font-weight:600;outline:2px solid #c9bdf7;border-radius:3px;padding:0 2px">[1]</sup>, which is why a cold start looks idle for a beat.<div style="margin-top:0.55rem;width:min(100%, 320px);background:#ffffff;border:1px solid #d4cbff;border-radius:10px;box-shadow:0 8px 24px rgba(40,30,90,0.16);padding:0.7rem 0.85rem;font-family:ui-sans-serif, system-ui;font-size:0.82rem;color:#2a2a33;line-height:1.5"><span style="color:#6d4ed6;font-weight:700;margin-right:0.35rem">1</span>The settle gate waits for the first PTY frame — see<span style="color:#3454d1;text-decoration:underline;text-underline-offset:2px"> the daemon note</span>.<div style="margin-top:0.5rem;border-top:1px solid #efefef;padding-top:0.4rem;color:#9a9aa6;font-size:0.72rem">click outside · Esc to dismiss</div></div></div></div></div>
+<p>The details that matter to a reader:</p>
+<ul>
+<li><strong>The bottom “Footnotes” section stays exactly as it is.</strong> It is still the
+printable, copyable, screen-reader-navigable record of every note — and it is
+where the popover reads its content from. The popover is an <em>additional</em> way
+in, not a replacement.</li>
+<li><strong>Footnote bodies can be rich.</strong> A note may run to several paragraphs or carry
+a link, a <code>[[wikilink]]</code>, inline code, or an image. The panel renders the full
+body and scrolls if it is tall; any link inside it still opens the right way,
+because it rides the preview’s existing resolvers (relative links open the
+file, wikilinks resolve vault-wide, images load through the repo route).</li>
+<li><strong>The back-reference <code>↩</code> is unaffected.</strong> It still lives in the bottom section
+and still jumps back to the marker; it never opens a popover.</li>
+</ul>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef>  <div class="callout-body" data-astro-cid-mrmim4ef><p>Only the <strong>document</strong> preview is in scope — and that is by construction, not a
+limitation. The compact/inline chat slots strip the whole footnotes
+<code>&lt;section&gt;</code> during sanitization, so a footnote definition does not exist in
+their DOM and there is nothing to pop. The feature naturally no-ops there.</p></div> </aside>
+<h2 id="architecture--a-leaf-that-reuses-the-wikilink-seam">Architecture — a leaf that reuses the wikilink seam</h2>
+<figure class="diagram" data-astro-cid-rhux3v4s> <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 392" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect x="0.5" y="0.5" width="819" height="391" rx="14" fill="#15171c" stroke="#2a2e37"/>
+
+  <!-- title -->
+  <text x="32" y="36" fill="#c7ccd6" font-weight="650" font-size="16">Footnote popups reuse the wikilink seam — no new package</text>
+
+  <!-- legend -->
+  <rect x="560" y="24" width="15" height="11" rx="3" fill="none" stroke="#6cc070" stroke-width="1.4"/>
+  <text x="580" y="34" fill="#8b929d" font-size="11.5">exists / reused</text>
+  <rect x="690" y="24" width="15" height="11" rx="3" fill="none" stroke="#d6a35c" stroke-width="1.4" stroke-dasharray="4 3"/>
+  <text x="710" y="34" fill="#8b929d" font-size="11.5">this plan</text>
+
+  <!-- trigger pill -->
+  <rect x="80" y="54" width="246" height="30" rx="15" fill="#182230" stroke="#6ea8e0" stroke-width="1.4"/>
+  <text x="203" y="73" text-anchor="middle" fill="#cfe0f5" font-weight="600" font-size="12">① reader clicks a [n] footnote marker</text>
+  <line x1="203" y1="84" x2="203" y2="100" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,94 L203,101 L209,94" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <!-- LEFT panel: @kolu/solid-markdown (flows downward) -->
+  <rect x="28" y="102" width="350" height="250" rx="12" fill="#12151a" stroke="#2a2e37"/>
+  <text x="46" y="126" fill="#c7ccd6" font-weight="650" font-size="14">@kolu/solid-markdown</text>
+  <text x="46" y="143" fill="#8b929d" font-size="10.5">the leaf — gains exactly one callback</text>
+
+  <rect x="46" y="152" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="60" y="173" fill="#c7ccd6" font-weight="600" font-size="12">bindInteractions · onClick</text>
+  <text x="60" y="190" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">delegated — links &amp; scroll already dispatch here</text>
+
+  <line x1="203" y1="202" x2="203" y2="212" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,206 L203,213 L209,206" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="46" y="212" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="60" y="233" fill="#c7ccd6" font-weight="600" font-size="12">querySelector('#md-footnote-n') → &lt;li&gt;</text>
+  <text x="60" y="250" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">the scroll branch's own lookup, reused</text>
+
+  <line x1="203" y1="262" x2="203" y2="272" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M197,266 L203,273 L209,266" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="46" y="272" width="314" height="60" rx="9" fill="#1d1a14" stroke="#7a5e34" stroke-width="1.1" stroke-dasharray="4 3"/>
+  <text x="60" y="294" fill="#e8c98f" font-weight="600" font-size="12.5">onFootnote(anchor, defNode)</text>
+  <text x="60" y="312" fill="#c7ccd6" font-size="10" font-family="ui-monospace, SFMono-Regular, monospace">NEW</text>
+  <text x="60" y="326" fill="#8b929d" font-size="10">the package's only added surface</text>
+
+  <!-- bridge: the callback fires outward to the host -->
+  <text x="410" y="298" text-anchor="middle" fill="#8b929d" font-size="9.5">callback</text>
+  <line x1="378" y1="304" x2="436" y2="304" stroke="#6ea8e0" stroke-width="1.6"/>
+  <path d="M436,298 L444,304 L436,310" fill="none" stroke="#6ea8e0" stroke-width="1.6"/>
+
+  <!-- RIGHT panel: client (flows upward — result bubbles up to the visible panel) -->
+  <rect x="442" y="102" width="350" height="250" rx="12" fill="#12151a" stroke="#2a2e37"/>
+  <text x="460" y="126" fill="#c7ccd6" font-weight="650" font-size="14">client</text>
+  <text x="460" y="143" fill="#8b929d" font-size="10.5">renders the overlay — as it does for wikilinks</text>
+
+  <rect x="460" y="152" width="314" height="60" rx="9" fill="#1d1a14" stroke="#7a5e34" stroke-width="1.1" stroke-dasharray="4 3"/>
+  <text x="474" y="174" fill="#e8c98f" font-weight="600" font-size="12.5">footnote popover panel</text>
+  <text x="474" y="192" fill="#c7ccd6" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">cloned &lt;li&gt; · ↩ back-refs stripped</text>
+  <text x="474" y="206" fill="#8b929d" font-size="9.5">inner links flow through host resolvers</text>
+
+  <line x1="617" y1="222" x2="617" y2="212" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M611,218 L617,211 L623,218" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="460" y="222" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="474" y="243" fill="#c7ccd6" font-weight="600" font-size="12">useAnchoredPopover + &lt;Portal&gt;</text>
+  <text x="474" y="260" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">the wikilink menu reuses this exact hook</text>
+
+  <line x1="617" y1="282" x2="617" y2="272" stroke="#3a4150" stroke-width="1.5"/>
+  <path d="M611,278 L617,271 L623,278" fill="none" stroke="#3a4150" stroke-width="1.4"/>
+
+  <rect x="460" y="282" width="314" height="50" rx="9" fill="#161a20" stroke="#3f6b45" stroke-width="1"/>
+  <text x="474" y="303" fill="#c7ccd6" font-weight="600" font-size="12">BrowseFileDispatcher</text>
+  <text x="474" y="320" fill="#8b929d" font-size="9.5" font-family="ui-monospace, SFMono-Regular, monospace">already wires onNavigateWikilink</text>
+
+  <!-- caption -->
+  <text x="32" y="374" fill="#6b7280" font-size="10.5">Nothing new to install. The dependency arrow (client → @kolu/solid-markdown) is preserved — the overlay stays client-side, exactly as wikilink disambiguation does.</text>
+</svg>
+ <figcaption data-astro-cid-rhux3v4s>A footnote click threads the same three seams alerts and wikilinks already use. The package gains one callback; the client renders the overlay with the hook the wikilink-disambiguation menu already uses.</figcaption> </figure>
+<p>This is a <strong>leaf</strong>, not a new <code>@kolu/*</code> package. Apply the electricity test: a
+footnote popover hides only <em>bounded</em> logic — pair a marker to its definition
+<code>&lt;li&gt;</code> by id, then place a panel beside it. It hides no hard volatility —
+no transport, no reconnect, no persistence, no GPU-context loss — so it fails
+all three extraction tests. Nothing to receptacle; nothing to install.</p>
+<p><strong>The boundary it must respect is the dependency arrow.</strong> <code>@kolu/solid-markdown</code>
+depends only on <code>solid-js</code>, <code>marked*</code>, <code>dompurify</code>, <code>shiki</code>, <code>yaml</code>, and two
+tiny leaf utils — it has <em>zero</em> knowledge of the client app, of Corvu, or of
+<code>Portal</code>, and the arrow points outward (client → package). The package already
+hands hard, host-specific decisions back across that arrow rather than owning
+them: <code>onNavigateRelative</code> and <code>onNavigateWikilink</code> exist precisely because
+<em>resolving</em> a link is host volatility. <strong>Footnote popovers split along the same
+seam:</strong></p>
+<ul>
+<li><strong>Inside the package</strong> (<code>@kolu/solid-markdown</code>): the delegated <code>onClick</code> in
+<code>bindInteractions</code> already inspects every clicked anchor and already does the
+<code>el.querySelector(&#39;#…&#39;)</code> lookup that scrolls an in-page anchor into view. It
+grows one branch — recognise a footnote marker, find its definition node, and
+fire a <strong>new <code>onFootnote(anchor, definition)</code> callback</strong>. That callback is the
+package’s <em>entire</em> new surface.</li>
+<li><strong>Inside the client</strong> (<code>BrowseFileDispatcher</code>): the host catches <code>onFootnote</code>
+and renders the popover with <code>useAnchoredPopover</code> + <code>&lt;Portal&gt;</code> — the <em>exact</em>
+hook the wikilink-disambiguation menu already uses to anchor a panel to a
+clicked marker in this same preview. Overlay rendering — and any positioning
+library — stays on the client side of the arrow, where it already lives.</li>
+</ul>
+<p><strong>The verdict is contingent on the click model (§ the Architecture⇄Implementation
+loop).</strong> Because we open on <em>click</em>, the existing <code>useAnchoredPopover</code> fits with
+no new dependency — it is built for click-to-open, outside-click/Escape-dismiss
+panels. Had we chosen a <em>hover</em> hovercard, we would have needed hover-intent
+timing plus <code>floating-ui</code>-style <code>autoUpdate</code> scroll-tracking that
+<code>useAnchoredPopover</code> does not have, which would have pulled a positioning
+dependency (likely <code>@corvu/tooltip</code>) into play and pressured this boundary. The
+“leaf, no new package, no new dep” verdict <em>is</em> the click decision; a different
+trigger model would have produced a different shape.</p>
+<h2 id="implementation--the-seams-in-order">Implementation — the seams, in order</h2>
+<p>It threads the same render → sanitize → interact → host-overlay path that alerts
+(<code>data-md-alert</code>) and wikilinks (<code>data-md-wikilink</code>) already proved. Three PRs,
+test-first.</p>
+<h3 id="pr1--pin-the-contract">PR1 — pin the contract</h3>
+<p>DOMPurify is brutal on footnote markup: <code>class</code>, every <code>data-footnote-*</code>, and
+<code>aria-describedby</code> are all stripped, so the only thing that survives a forward
+reference is <code>&lt;sup&gt;&lt;a id=&quot;md-footnote-ref-1&quot; href=&quot;#md-footnote-1&quot;&gt;1&lt;/a&gt;&lt;/sup&gt;</code>
+(ids and <code>#</code>-hrefs get an <code>md-</code> namespace prefix). The whole feature stands on
+that shape, and <code>marked-footnote</code> is pinned only as <code>^1.2.4</code> — a minor bump
+could change the markup silently. So land a sanitize-level test
+(<code>packages/solid-markdown/src/sanitize.test.ts</code>, happy-dom) first: feed footnote
+HTML through <code>sanitizeHtml</code> and assert <code>id=&quot;md-footnote-1&quot;</code> + <code>href=&quot;#md-footnote-1&quot;</code>
+survive while <code>data-footnote-ref</code> / <code>aria-describedby</code> / <code>class</code> are gone. A
+markup change then fails loudly instead of quietly breaking the popover.</p>
+<h3 id="pr2--mint-the-marker-and-the-callback-the-packages-only-new-surface">PR2 — mint the marker and the callback (the package’s only new surface)</h3>
+<ul>
+<li><strong><code>render.ts</code> — <code>rewriteFootnotes(html)</code></strong>, a sibling of the existing
+<code>rewriteAlerts</code> (<code>render.ts:291</code>). It runs on the <em>pre-sanitize</em> string, where
+<code>marked-footnote</code>’s <code>class=&quot;footnote-ref&quot;</code> / <code>data-footnote-ref</code> markers still
+exist, and rewrites the forward-ref anchor to carry an allowlist-safe
+<code>data-md-footnote</code> attribute (the back-ref <code>↩</code> is deliberately <em>not</em> tagged).
+This is the same move alerts make, and it sidesteps the two traps of detecting
+the ref by structure after sanitization: a back-ref <code>↩</code> link also points at
+<code>#md-footnote-…</code>, and a heading literally titled “Footnote 1” would mint the
+same <code>id</code>. An explicit parser-minted marker is unambiguous.</li>
+<li><strong><code>sanitize.ts</code></strong> — add <code>data-md-footnote</code> to <code>DOCUMENT_ATTR</code> (one line, beside
+<code>data-md-wikilink</code> at <code>sanitize.ts:197</code>; security-reviewed, since it widens the
+allowlist).</li>
+<li><strong><code>Markdown.tsx</code> — <code>bindInteractions</code></strong> grows a footnote branch in <code>onClick</code>,
+placed <strong>before</strong> the generic <code>#</code>-anchor scroll branch (<code>Markdown.tsx:98</code>):
+<code>target.closest(&#39;[data-md-footnote]&#39;)</code> → resolve the definition via the same
+<code>el.querySelector(&#39;#&#39; + CSS.escape(…))</code> the scroll branch uses → <code>preventDefault</code>
+→ <code>props.onFootnote(anchor, definition)</code>. The back-ref <code>↩</code> keeps the existing
+scroll-up behaviour. Add the <code>onFootnote(anchor, definition)</code> prop (mirror
+<code>onNavigateWikilink</code>, <code>Markdown.tsx:153</code>).</li>
+</ul>
+<h3 id="pr3--render-the-popover-in-the-client-reuse-useanchoredpopover">PR3 — render the popover in the client (reuse <code>useAnchoredPopover</code>)</h3>
+<ul>
+<li><strong><code>solid-fileview/src/renderers/markdown.tsx</code></strong> — thread <code>onFootnote</code> through
+<code>MarkdownRenderer</code>’s props, mirroring <code>onNavigateWikilink</code> (<code>markdown.tsx:29</code>).</li>
+<li><strong><code>BrowseFileDispatcher.tsx</code></strong> — a <code>createSignal&lt;{ anchor, definition }&gt;()</code> set
+in <code>onFootnote</code> (mirror <code>wikiMenu</code>, <code>BrowseFileDispatcher.tsx:147</code>), and a
+<code>FootnotePopover</code> rendered via <code>&lt;Portal&gt;</code> + <code>useAnchoredPopover({ triggerRef: () =&gt; fn()?.anchor, anchor: &quot;bottom-start&quot;, flip: true, onDismiss })</code> — the same
+recipe as the <code>OptionMenu</code> disambiguation list (<code>BrowseFileDispatcher.tsx:462</code>).
+Panel content is <code>definition.cloneNode(true)</code> with <strong>every</strong> <code>a[href*=&quot;-ref-&quot;]</code>
+back-ref removed and the <code>id</code> stripped (a re-cited footnote has several <code>↩</code>, and
+the clone must not duplicate a live <code>id</code>); its already-sanitized <code>innerHTML</code> is
+re-injected and the same delegated click handling bound, so inner
+relative-links / wikilinks / images route through the host resolvers the
+preview already wires. Reuse <code>surface()</code> for chrome (as <code>OptionMenu</code> does) with
+a <code>max-height</code> + scroll for tall bodies.</li>
+</ul>
+<h3 id="the-risks-that-bite">The risks that bite</h3>
+<ul>
+<li><strong><code>useAnchoredPopover</code> doesn’t track scroll.</strong> It repositions only on
+open/trigger-change (<code>useAnchoredPopover.ts:135</code>), and the preview sits inside
+<em>nested</em> <code>overflow:auto</code> containers — so a panel anchored with <code>position:fixed</code>
+drifts off the marker as the reader scrolls, and <code>flip</code> is vertical-only (a
+marker near the right edge of the reading column can overflow). Decide one:
+<strong>dismiss-on-scroll</strong> (smallest, keeps the hook untouched — the likely first
+cut) or <strong>extend <code>useAnchoredPopover</code></strong> with a scroll/resize reposition. This is
+the low → low-medium risk bump in the verdict.</li>
+<li><strong>The comment overlay.</strong> The preview is wrapped in <code>CommentTextSurface</code> with a
+<code>MutationObserver</code> over its subtree; an <em>in-flow</em> popup would trip it. The
+<code>Portal</code>-to-body route avoids it entirely — which is what <code>useAnchoredPopover</code>
+already does, and another reason to reuse it rather than mount in place.</li>
+<li><strong>Touch + the drawer.</strong> Click-to-open already covers touch (no hover step). On
+mobile the right panel can mount inside a <code>@corvu/drawer</code> (<code>modal: true</code> sets
+<code>body { pointer-events: none }</code>); <code>useAnchoredPopover</code> already re-enables
+<code>pointer-events: auto</code> on its panel (<code>useAnchoredPopover.ts:154</code>), so the
+popover stays tappable there.</li>
+<li><strong>Nested footnotes.</strong> A footnote body can cite another footnote, so a marker
+can appear <em>inside</em> a popover. Keep it simple: markers inside a popover body are
+inert (they carry no live handler in the cloned subtree), rather than stacking
+popovers.</li>
+</ul> </div>  <footer class="note-foot"> <a class="backlink" href="./index.html">← the Atlas</a> <a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a> </footer> </article> </body></html>

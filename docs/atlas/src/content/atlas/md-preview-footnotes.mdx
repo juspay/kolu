@@ -1,0 +1,315 @@
+---
+title: "Markdown preview: footnotes open in a click popover"
+description: Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install.
+parents: [solid-fileview, feature]
+status: proposed
+maturity: seedling
+updated: 2026-06-22
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import reuse from "../../diagrams/md-preview-footnotes-reuse.svg?raw";
+
+Plan of record · branch `md-footnote-popup`. The document preview already
+renders GFM footnotes (`marked-footnote`) — the reference is a superscript
+`[n]` that links to a definitions list at the very bottom. Reading one means
+scrolling down, reading, and scrolling back to where you were. This plan keeps
+that bottom list but adds a **click popover**: tap the marker, read the
+footnote in place, dismiss. It threads the *same* click seam the wikilink and
+relative-link previews already use, so it adds **no dependency and no new
+package**. Verdict: <Pill>~half a day, low–medium risk</Pill> (the half-step of
+risk is the popover-on-scroll decision in §3).
+
+export const docText = {
+  fontFamily: "Georgia, 'Times New Roman', serif",
+  fontSize: "0.92rem",
+  lineHeight: 1.7,
+  color: "#1f2328",
+};
+
+export const Sup = ({ children, live }) => (
+  <sup
+    style={{
+      "font-size": "0.7em",
+      "vertical-align": "super",
+      color: live ? "#5a3ff0" : "#3454d1",
+      "font-family": "ui-sans-serif, system-ui",
+      "font-weight": 600,
+      ...(live
+        ? { outline: "2px solid #c9bdf7", "border-radius": "3px", padding: "0 2px" }
+        : {}),
+    }}
+  >
+    [{children}]
+  </sup>
+);
+
+export const Tag = ({ children, bg, fg, border }) => (
+  <span
+    style={{
+      display: "inline-block",
+      "font-family": "ui-sans-serif, system-ui",
+      "font-size": "0.72rem",
+      "font-weight": 600,
+      color: fg,
+      background: bg,
+      border: `1px solid ${border}`,
+      "border-radius": "999px",
+      padding: "0.1rem 0.6rem",
+      "margin-bottom": "0.6rem",
+    }}
+  >
+    {children}
+  </span>
+);
+
+export const Card = ({ children }) => (
+  <div
+    style={{
+      flex: "1 1 280px",
+      "min-width": "280px",
+      border: "1px solid #e2e2e6",
+      "border-radius": "12px",
+      padding: "1rem 1.1rem",
+      background: "#fbfbfd",
+    }}
+  >
+    {children}
+  </div>
+);
+
+export const ScrollPain = () => (
+  <Card>
+    <Tag bg="#fdecea" fg="#b42318" border="#f3c9c4">today — scroll down, then back</Tag>
+    <div style={docText}>
+      …the daemon promotes the surface only once it settles<Sup>1</Sup>, which is
+      why a cold start looks idle for a beat.
+    </div>
+    <div
+      style={{
+        margin: "0.9rem 0",
+        "text-align": "center",
+        color: "#b9b9c2",
+        "font-family": "ui-sans-serif, system-ui",
+        "font-size": "0.72rem",
+        "letter-spacing": "0.08em",
+      }}
+    >
+      ⌄ &nbsp; scroll past the whole document &nbsp; ⌄
+    </div>
+    <div
+      style={{
+        "border-top": "1px solid #e2e2e6",
+        "padding-top": "0.5rem",
+        color: "#6b7280",
+        "font-family": "ui-sans-serif, system-ui",
+        "font-size": "0.8rem",
+      }}
+    >
+      <strong style={{ "font-size": "0.85rem" }}>Footnotes</strong>
+      <div style={{ "margin-top": "0.3rem" }}>
+        1. The settle gate waits for the first PTY frame. <span style={{ color: "#3454d1" }}>↩</span>
+      </div>
+    </div>
+  </Card>
+);
+
+export const PopoverShot = () => (
+  <Card>
+    <Tag bg="#eef0ff" fg="#3a2bb0" border="#cdc4f5">this plan — click → popover</Tag>
+    <div style={{ position: "relative", ...docText }}>
+      …the daemon promotes the surface only once it settles<Sup live>1</Sup>,
+      which is why a cold start looks idle for a beat.
+      <div
+        style={{
+          "margin-top": "0.55rem",
+          width: "min(100%, 320px)",
+          background: "#ffffff",
+          border: "1px solid #d4cbff",
+          "border-radius": "10px",
+          "box-shadow": "0 8px 24px rgba(40,30,90,0.16)",
+          padding: "0.7rem 0.85rem",
+          "font-family": "ui-sans-serif, system-ui",
+          "font-size": "0.82rem",
+          color: "#2a2a33",
+          "line-height": 1.5,
+        }}
+      >
+        <span style={{ color: "#6d4ed6", "font-weight": 700, "margin-right": "0.35rem" }}>1</span>
+        The settle gate waits for the first PTY frame — see
+        <span style={{ color: "#3454d1", "text-decoration": "underline", "text-underline-offset": "2px" }}> the daemon note</span>.
+        <div
+          style={{
+            "margin-top": "0.5rem",
+            "border-top": "1px solid #efefef",
+            "padding-top": "0.4rem",
+            color: "#9a9aa6",
+            "font-size": "0.72rem",
+          }}
+        >
+          click outside · Esc to dismiss
+        </div>
+      </div>
+    </div>
+  </Card>
+);
+
+## What the reader sees
+
+A footnote marker becomes a button. Click (or tap) the small `[1]` and its
+definition opens in a card anchored just under the marker, where your eye
+already is. Click anywhere else, press <kbd>Esc</kbd>, or click the marker
+again, and it closes. The gesture is identical on a trackpad and on a phone —
+there is no hover step, so nothing is stranded on touch.
+
+<div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "1.5rem 0" }}>
+  <ScrollPain />
+  <PopoverShot />
+</div>
+
+The details that matter to a reader:
+
+- **The bottom "Footnotes" section stays exactly as it is.** It is still the
+  printable, copyable, screen-reader-navigable record of every note — and it is
+  where the popover reads its content from. The popover is an *additional* way
+  in, not a replacement.
+- **Footnote bodies can be rich.** A note may run to several paragraphs or carry
+  a link, a `[[wikilink]]`, inline code, or an image. The panel renders the full
+  body and scrolls if it is tall; any link inside it still opens the right way,
+  because it rides the preview's existing resolvers (relative links open the
+  file, wikilinks resolve vault-wide, images load through the repo route).
+- **The back-reference `↩` is unaffected.** It still lives in the bottom section
+  and still jumps back to the marker; it never opens a popover.
+
+<Callout>
+Only the **document** preview is in scope — and that is by construction, not a
+limitation. The compact/inline chat slots strip the whole footnotes
+`<section>` during sanitization, so a footnote definition does not exist in
+their DOM and there is nothing to pop. The feature naturally no-ops there.
+</Callout>
+
+## Architecture — a leaf that reuses the wikilink seam
+
+<Svg svg={reuse} caption="A footnote click threads the same three seams alerts and wikilinks already use. The package gains one callback; the client renders the overlay with the hook the wikilink-disambiguation menu already uses." />
+
+This is a **leaf**, not a new `@kolu/*` package. Apply the electricity test: a
+footnote popover hides only *bounded* logic — pair a marker to its definition
+`<li>` by id, then place a panel beside it. It hides no hard volatility —
+no transport, no reconnect, no persistence, no GPU-context loss — so it fails
+all three extraction tests. Nothing to receptacle; nothing to install.
+
+**The boundary it must respect is the dependency arrow.** `@kolu/solid-markdown`
+depends only on `solid-js`, `marked*`, `dompurify`, `shiki`, `yaml`, and two
+tiny leaf utils — it has *zero* knowledge of the client app, of Corvu, or of
+`Portal`, and the arrow points outward (client → package). The package already
+hands hard, host-specific decisions back across that arrow rather than owning
+them: `onNavigateRelative` and `onNavigateWikilink` exist precisely because
+*resolving* a link is host volatility. **Footnote popovers split along the same
+seam:**
+
+- **Inside the package** (`@kolu/solid-markdown`): the delegated `onClick` in
+  `bindInteractions` already inspects every clicked anchor and already does the
+  `el.querySelector('#…')` lookup that scrolls an in-page anchor into view. It
+  grows one branch — recognise a footnote marker, find its definition node, and
+  fire a **new `onFootnote(anchor, definition)` callback**. That callback is the
+  package's *entire* new surface.
+- **Inside the client** (`BrowseFileDispatcher`): the host catches `onFootnote`
+  and renders the popover with `useAnchoredPopover` + `<Portal>` — the *exact*
+  hook the wikilink-disambiguation menu already uses to anchor a panel to a
+  clicked marker in this same preview. Overlay rendering — and any positioning
+  library — stays on the client side of the arrow, where it already lives.
+
+**The verdict is contingent on the click model (§ the Architecture⇄Implementation
+loop).** Because we open on *click*, the existing `useAnchoredPopover` fits with
+no new dependency — it is built for click-to-open, outside-click/Escape-dismiss
+panels. Had we chosen a *hover* hovercard, we would have needed hover-intent
+timing plus `floating-ui`-style `autoUpdate` scroll-tracking that
+`useAnchoredPopover` does not have, which would have pulled a positioning
+dependency (likely `@corvu/tooltip`) into play and pressured this boundary. The
+"leaf, no new package, no new dep" verdict *is* the click decision; a different
+trigger model would have produced a different shape.
+
+## Implementation — the seams, in order
+
+It threads the same render → sanitize → interact → host-overlay path that alerts
+(`data-md-alert`) and wikilinks (`data-md-wikilink`) already proved. Three PRs,
+test-first.
+
+### PR1 — pin the contract
+
+DOMPurify is brutal on footnote markup: `class`, every `data-footnote-*`, and
+`aria-describedby` are all stripped, so the only thing that survives a forward
+reference is `<sup><a id="md-footnote-ref-1" href="#md-footnote-1">1</a></sup>`
+(ids and `#`-hrefs get an `md-` namespace prefix). The whole feature stands on
+that shape, and `marked-footnote` is pinned only as `^1.2.4` — a minor bump
+could change the markup silently. So land a sanitize-level test
+(`packages/solid-markdown/src/sanitize.test.ts`, happy-dom) first: feed footnote
+HTML through `sanitizeHtml` and assert `id="md-footnote-1"` + `href="#md-footnote-1"`
+survive while `data-footnote-ref` / `aria-describedby` / `class` are gone. A
+markup change then fails loudly instead of quietly breaking the popover.
+
+### PR2 — mint the marker and the callback (the package's only new surface)
+
+- **`render.ts` — `rewriteFootnotes(html)`**, a sibling of the existing
+  `rewriteAlerts` (`render.ts:291`). It runs on the *pre-sanitize* string, where
+  `marked-footnote`'s `class="footnote-ref"` / `data-footnote-ref` markers still
+  exist, and rewrites the forward-ref anchor to carry an allowlist-safe
+  `data-md-footnote` attribute (the back-ref `↩` is deliberately *not* tagged).
+  This is the same move alerts make, and it sidesteps the two traps of detecting
+  the ref by structure after sanitization: a back-ref `↩` link also points at
+  `#md-footnote-…`, and a heading literally titled "Footnote 1" would mint the
+  same `id`. An explicit parser-minted marker is unambiguous.
+- **`sanitize.ts`** — add `data-md-footnote` to `DOCUMENT_ATTR` (one line, beside
+  `data-md-wikilink` at `sanitize.ts:197`; security-reviewed, since it widens the
+  allowlist).
+- **`Markdown.tsx` — `bindInteractions`** grows a footnote branch in `onClick`,
+  placed **before** the generic `#`-anchor scroll branch (`Markdown.tsx:98`):
+  `target.closest('[data-md-footnote]')` → resolve the definition via the same
+  `el.querySelector('#' + CSS.escape(…))` the scroll branch uses → `preventDefault`
+  → `props.onFootnote(anchor, definition)`. The back-ref `↩` keeps the existing
+  scroll-up behaviour. Add the `onFootnote(anchor, definition)` prop (mirror
+  `onNavigateWikilink`, `Markdown.tsx:153`).
+
+### PR3 — render the popover in the client (reuse `useAnchoredPopover`)
+
+- **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
+  `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
+- **`BrowseFileDispatcher.tsx`** — a `createSignal<{ anchor, definition }>()` set
+  in `onFootnote` (mirror `wikiMenu`, `BrowseFileDispatcher.tsx:147`), and a
+  `FootnotePopover` rendered via `<Portal>` + `useAnchoredPopover({ triggerRef:
+  () => fn()?.anchor, anchor: "bottom-start", flip: true, onDismiss })` — the same
+  recipe as the `OptionMenu` disambiguation list (`BrowseFileDispatcher.tsx:462`).
+  Panel content is `definition.cloneNode(true)` with **every** `a[href*="-ref-"]`
+  back-ref removed and the `id` stripped (a re-cited footnote has several `↩`, and
+  the clone must not duplicate a live `id`); its already-sanitized `innerHTML` is
+  re-injected and the same delegated click handling bound, so inner
+  relative-links / wikilinks / images route through the host resolvers the
+  preview already wires. Reuse `surface()` for chrome (as `OptionMenu` does) with
+  a `max-height` + scroll for tall bodies.
+
+### The risks that bite
+
+- **`useAnchoredPopover` doesn't track scroll.** It repositions only on
+  open/trigger-change (`useAnchoredPopover.ts:135`), and the preview sits inside
+  *nested* `overflow:auto` containers — so a panel anchored with `position:fixed`
+  drifts off the marker as the reader scrolls, and `flip` is vertical-only (a
+  marker near the right edge of the reading column can overflow). Decide one:
+  **dismiss-on-scroll** (smallest, keeps the hook untouched — the likely first
+  cut) or **extend `useAnchoredPopover`** with a scroll/resize reposition. This is
+  the low → low-medium risk bump in the verdict.
+- **The comment overlay.** The preview is wrapped in `CommentTextSurface` with a
+  `MutationObserver` over its subtree; an *in-flow* popup would trip it. The
+  `Portal`-to-body route avoids it entirely — which is what `useAnchoredPopover`
+  already does, and another reason to reuse it rather than mount in place.
+- **Touch + the drawer.** Click-to-open already covers touch (no hover step). On
+  mobile the right panel can mount inside a `@corvu/drawer` (`modal: true` sets
+  `body { pointer-events: none }`); `useAnchoredPopover` already re-enables
+  `pointer-events: auto` on its panel (`useAnchoredPopover.ts:154`), so the
+  popover stays tappable there.
+- **Nested footnotes.** A footnote body can cite another footnote, so a marker
+  can appear *inside* a popover. Keep it simple: markers inside a popover body are
+  inert (they carry no live handler in the cloned subtree), rather than stacking
+  popovers.
