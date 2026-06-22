@@ -856,6 +856,13 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
+  // RWATCH-DEBUG (temporary): append browser console to a file (cucumber swallows
+  // stdout console.log, but a direct fs write survives) so a pu-box run can read it.
+  this.page.on("console", (msg) => {
+    try {
+      fs.appendFileSync("/tmp/rwatch.log", `[${msg.type()}] ${msg.text()}\n`);
+    } catch {}
+  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is
