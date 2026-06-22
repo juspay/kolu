@@ -1379,6 +1379,48 @@ Then(
   },
 );
 
+// ── Double-click to create ──
+
+When(
+  "I double-click the empty canvas background",
+  async function (this: KoluWorld) {
+    await waitForCanvas(this);
+    // Dispatch the dblclick directly on the container so its `target` IS the
+    // container — that's the "bare surface" the create handler guards on
+    // (`target === currentTarget`). Mirrors the wheel-over-background step.
+    await this.page.evaluate((sel: string) => {
+      const container = document.querySelector(sel) as HTMLElement | null;
+      if (!container) throw new Error("canvas-container not found");
+      container.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+      );
+    }, CANVAS_SELECTOR);
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I double-click canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    // Dispatch on the tile's inner element: the dblclick bubbles up to the
+    // canvas-container with `target !== currentTarget`, so the create guard
+    // must NOT fire — the negative case for the empty-surface affordance.
+    await this.page.evaluate(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        tile.dispatchEvent(
+          new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+        );
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+    );
+    await this.waitForFrame();
+  },
+);
+
 // ── Tile maximize ──
 
 When(

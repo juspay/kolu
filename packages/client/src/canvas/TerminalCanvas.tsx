@@ -441,6 +441,17 @@ const TerminalCanvas: Component<{
             "background-position": viewport.gridBgPosition(),
             "background-size": viewport.gridBgSize(),
           }}
+          // Double-click the bare surface to open the "new terminal" flow —
+          // the same `onCreate` the dock's `+` reaches, so the empty canvas
+          // is itself an affordance for spawning a terminal. Guarded to the
+          // background (`target === currentTarget`): a double-click that lands
+          // on a tile (its title bar already maximizes) or the minimap bubbles
+          // up here too, and only the bare surface should create. The watermark
+          // is `pointer-events-none`, so a double-click "over" it still targets
+          // this container — the empty surface.
+          onDblClick={(e) => {
+            if (e.target === e.currentTarget) props.onCreate();
+          }}
         >
           <Show when={props.watermark}>
             {(text) => <CanvasWatermark text={text()} />}
