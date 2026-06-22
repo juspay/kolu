@@ -955,9 +955,30 @@ const CodeTab: Component<{
                 )}
               </Match>
               <Match when={treeReady()}>
-                <Show
-                  when={treePaths().length > 0}
-                  fallback={
+                <div
+                  class="h-full w-full min-h-0"
+                  ref={(el) => {
+                    // Keyed on the drawer-hosted layouts (`!isDesktop()` —
+                    // phone + compact), NOT `isTouch`: the workaround is for
+                    // iOS native scroll failing to reach Pierre's shadow
+                    // scroller below the *portaled* drawer (see
+                    // pierreTouchScroll.ts). The desktop split hosts the tree
+                    // in the non-portaled Resizable panel where native scroll
+                    // works — attaching the driver there would preventDefault
+                    // working scroll.
+                    if (!isDesktop()) attachPierreTouchScroll(el);
+                  }}
+                >
+                  {/* Empty state shows alongside a STILL-MOUNTED tree, never a
+                      `<Show>` that unmounts FileTree on empty. Tearing the tree
+                      down on a live transition to zero files (the selected file
+                      rm'd, a commit clearing the diff) stranded @pierre/trees'
+                      web-component DOM under R8's async requery timing — the
+                      removed row lingered as a stale node. Keeping FileTree
+                      mounted lets its own incremental diff drop the file in place
+                      (the live-update path the change-pulse exists for) and
+                      sidesteps the unmount-teardown race entirely. */}
+                  <Show when={treePaths().length === 0}>
                     <div
                       class="px-2 py-4 text-fg-3/50 text-center"
                       data-testid="diff-empty"
@@ -972,21 +993,10 @@ const CodeTab: Component<{
                         return EMPTY_STATE[m];
                       })()}
                     </div>
-                  }
-                >
+                  </Show>
                   <div
-                    class="h-full w-full min-h-0"
-                    ref={(el) => {
-                      // Keyed on the drawer-hosted layouts (`!isDesktop()` —
-                      // phone + compact), NOT `isTouch`: the workaround is for
-                      // iOS native scroll failing to reach Pierre's shadow
-                      // scroller below the *portaled* drawer (see
-                      // pierreTouchScroll.ts). The desktop split hosts the tree
-                      // in the non-portaled Resizable panel where native scroll
-                      // works — attaching the driver there would preventDefault
-                      // working scroll.
-                      if (!isDesktop()) attachPierreTouchScroll(el);
-                    }}
+                    class="h-full w-full"
+                    classList={{ hidden: treePaths().length === 0 }}
                   >
                     <FileTree
                       paths={treeSearch().projectedPaths}
@@ -1019,7 +1029,7 @@ const CodeTab: Component<{
                       style={pierreTreesStyle}
                     />
                   </div>
-                </Show>
+                </div>
               </Match>
             </Switch>
           </Resizable.Panel>
