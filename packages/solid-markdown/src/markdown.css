@@ -483,6 +483,21 @@
   text-decoration: none;
   padding: 0 0.1em;
 }
+/* A clickable footnote marker (the forward ref, tagged `data-md-footnote` by
+ * the renderer) reads as a button that opens the note in place: a pointer
+ * cursor and a subtle `currentColor` hover tint, matching the stylesheet's
+ * theme-agnostic idiom. The back-ref ↩ in the bottom list is untagged and
+ * stays a plain jump link. */
+.kolu-md a[data-md-footnote] {
+  cursor: pointer;
+  padding: 0 0.15em;
+  border-radius: 3px;
+  transition: background-color 0.12s ease;
+}
+.kolu-md a[data-md-footnote]:hover {
+  text-decoration: none;
+  background: color-mix(in oklch, currentColor 14%, transparent);
+}
 .kolu-md section {
   padding-top: 0.5em;
   border-top: 1px solid var(--md-border);

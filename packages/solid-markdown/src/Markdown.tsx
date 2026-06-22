@@ -59,24 +59,29 @@ type LinkHandlers = {
    *  against the whole repo. `anchor` is the clicked element so the host can
    *  anchor a disambiguation menu to it when the target is ambiguous. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** A footnote forward-reference click — the host opens the definition in a
+   *  popover anchored to the marker. `anchor` is the clicked `[n]` marker;
+   *  `definition` is its resolved `<li>` in the bottom footnotes list. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 };
 
-/** Handle interactive bits inside the rendered Markdown — code-copy buttons,
- *  in-page anchors, and the two intercepted link kinds (`LinkHandlers`). (The
- *  preview is read-only; task-list checkboxes render as presentational state.)
+/** Own the click-dispatch over `.kolu-md` DOM: code-copy buttons, in-page
+ *  anchors, and the intercepted link kinds (`LinkHandlers`). This is the single
+ *  home for the `data-md-*` flag → host-handler mapping the renderer mints —
+ *  every consumer that renders sanitized Markdown DOM (the document preview, the
+ *  footnote popover) plugs into it instead of re-deriving the routing.
+ *
  *  Bound imperatively (not via JSX `onClick`) because these are delegated
  *  handlers over sanitizer-minted DOM, not declarative element interactions the
  *  a11y lint would expect a role for.
  *
- *  Each also stops the bubble so a nested control in a clickable host slot
- *  (dock card, switcher card) doesn't double-fire that slot's handler. */
-function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
-  const onPointerDown = (e: Event) => {
-    const target = e.target as Element | null;
-    if (target?.closest?.("a, [data-md-copy]")) {
-      e.stopPropagation();
-    }
-  };
+ *  Stops the anchor/copy bubble so a nested control in a clickable host slot
+ *  (dock card, switcher card) doesn't double-fire that slot's handler. The
+ *  cleanup is owned by the calling reactive scope (Solid `onCleanup`). */
+export function bindMarkdownLinks(
+  el: HTMLElement,
+  handlers: LinkHandlers,
+): void {
   const onClick = (e: MouseEvent) => {
     const target = e.target as Element | null;
     if (!target) return;
@@ -93,14 +98,57 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     if (anchor) {
       e.stopPropagation();
       const href = anchor.getAttribute("href");
-      // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
-      // the preview without navigating or writing the app's URL hash.
-      if (href?.startsWith("#") && href.length > 1) {
-        const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
-        if (landing) {
+      // Footnote forward refs (tagged `data-md-footnote` by the renderer) open
+      // the definition in a host popover instead of scrolling to the bottom
+      // list. This must come *before* the generic in-page-anchor branch below —
+      // a footnote ref's href is also an in-page `#md-footnote-…`, so without
+      // this it would just scroll. We resolve the definition the same way the
+      // scroll branch does (`querySelector` on the namespaced id) and hand the
+      // host the marker + definition node. Only when a handler is wired and the
+      // definition resolves: with no host overlay the ref falls through to the
+      // scroll branch, preserving the GitHub-style jump-to-definition (the
+      // popover is an additive host surface, not a replacement).
+      //
+      // Pointer-only by design (see LIMITATIONS.md): the popover has no keyboard
+      // focus/announcement relationship yet, so a *keyboard* activation of the
+      // focused marker (Enter/Space) must keep the accessible jump-to-definition
+      // instead of opening an unmanaged portal popover. A keyboard-synthesized
+      // `click` reports `detail === 0` (no pointer click-count); a real
+      // pointer/tap reports `detail >= 1`. So gate the popover on `detail > 0`
+      // and let a keyboard activation fall through to the in-page-anchor scroll
+      // branch below — which lands on the bottom-list definition, the accessible
+      // record. (Removing this gate is the keyboard-a11y follow-up.)
+      if (
+        handlers.onFootnote &&
+        e.detail > 0 &&
+        anchor.hasAttribute("data-md-footnote") &&
+        href?.startsWith("#") &&
+        href.length > 1
+      ) {
+        const definition = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+        if (definition) {
           e.preventDefault();
-          landing.scrollIntoView({ behavior: "smooth", block: "start" });
+          handlers.onFootnote(anchor as HTMLElement, definition as HTMLElement);
+          return;
         }
+      }
+      // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
+      // the preview without navigating or writing the app's URL hash. We
+      // `preventDefault` *unconditionally* — before checking whether the
+      // target exists — because an `href="#…"` is only ever a within-preview
+      // jump; letting the browser perform a real hash navigation against the
+      // app document is never the intent. This matters most when `el` is a
+      // *fragment* of the preview rather than the whole document: the footnote
+      // popover binds this dispatcher to a cloned `<li>` whose in-page targets
+      // (a nested footnote ref's `#md-footnote-…`, a `#heading` outside the
+      // note) live in the bottom list, not the clone — so the lookup misses.
+      // Without the unconditional suppress those would fall through to default
+      // navigation and change the app URL / scroll outside the preview from
+      // inside the popover. We still only scroll when the landing resolves.
+      if (href?.startsWith("#") && href.length > 1) {
+        e.preventDefault();
+        const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+        landing?.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
       // Wikilinks (`[[Note]]`, tagged by the renderer) resolve pathless across
@@ -126,11 +174,24 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     }
   };
   el.addEventListener("click", onClick);
+  onCleanup(() => el.removeEventListener("click", onClick));
+}
+
+/** Handle interactive bits inside the rendered Markdown: the click-dispatch
+ *  seam (`bindMarkdownLinks`) plus a `pointerdown` bubble-stop so a nested
+ *  control in a clickable host slot (dock card, switcher card) doesn't
+ *  double-fire that slot's handler on press. (The preview is read-only;
+ *  task-list checkboxes render as presentational state.) */
+function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
+  bindMarkdownLinks(el, handlers);
+  const onPointerDown = (e: Event) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.("a, [data-md-copy]")) {
+      e.stopPropagation();
+    }
+  };
   el.addEventListener("pointerdown", onPointerDown);
-  onCleanup(() => {
-    el.removeEventListener("click", onClick);
-    el.removeEventListener("pointerdown", onPointerDown);
-  });
+  onCleanup(() => el.removeEventListener("pointerdown", onPointerDown));
 }
 
 export const Markdown: Component<{
@@ -151,6 +212,12 @@ export const Markdown: Component<{
    *  disambiguation menu to it when the basename matches more than one file.
    *  Unwired ⇒ wikilinks are inert. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** Open a footnote definition in a host popover when its `[n]` marker is
+   *  clicked. `anchor` is the clicked marker; `definition` is its `<li>` in the
+   *  bottom footnotes list (the popover reads its content from there). Unwired
+   *  ⇒ a footnote ref keeps its default jump-to-definition scroll. Document
+   *  variant only. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -219,6 +286,7 @@ export const Markdown: Component<{
         bindInteractions(el, {
           onNavigateRelative: props.onNavigateRelative,
           onNavigateWikilink: props.onNavigateWikilink,
+          onFootnote: props.onFootnote,
         })
       }
       class="kolu-md"

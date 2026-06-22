@@ -2,7 +2,7 @@
 title: "Markdown preview: footnotes open in a click popover"
 description: Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install.
 parents: [solid-fileview, feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-22
 ---
@@ -13,13 +13,13 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import reuse from "../../diagrams/md-preview-footnotes-reuse.svg?raw";
 
-Plan of record · branch `md-footnote-popup`. The document preview already
+Shipped in <PrLink pr={1514} />. The document preview already
 renders GFM footnotes (`marked-footnote`) — the reference is a superscript
 `[n]` that links to a definitions list at the very bottom. Reading one means
-scrolling down, reading, and scrolling back to where you were. This plan keeps
+scrolling down, reading, and scrolling back to where you were. This change keeps
 that bottom list but adds a **click popover**: tap the marker, read the
 footnote in place, dismiss. It threads the *same* click seam the wikilink and
-relative-link previews already use, so it adds **no dependency and no new
+relative-link previews already use, so it added **no dependency and no new
 package**. Verdict: <Pill>~half a day, low risk</Pill> — the decisions below
 took the simplest branch at every fork (dismiss-on-scroll, click/tap only,
 `useAnchoredPopover` untouched).
@@ -193,10 +193,12 @@ The details that matter to a reader:
   file, wikilinks resolve vault-wide, images load through the repo route).
 - **The back-reference `↩` is unaffected.** It still lives in the bottom section
   and still jumps back to the marker; it never opens a popover.
-- **Click and tap only, for now.** Opening is a pointer gesture; keyboard
-  activation and a screen-reader relationship are a deliberate follow-up (see
-  §Implementation), because the bottom section already carries the accessible
-  record.
+- **Click and tap only, for now.** Opening is a pointer gesture: the
+  interception is gated on a pointer activation, so pressing **Enter** on a
+  focused marker keeps the old jump-to-definition scroll to the bottom section —
+  the accessible record — rather than opening an unmanaged popover. A
+  managed-focus popover with a screen-reader relationship is a deliberate
+  follow-up (see §Implementation).
 
 <Callout>
 Only the **document** preview is in scope — and that is by construction, not a
@@ -267,26 +269,36 @@ only.
 
 ### Package side — pin the contract, then one marker and one callback
 
-DOMPurify is brutal on footnote markup: `class`, every `data-footnote-*`, and
-`aria-describedby` are all stripped, so the only thing that survives a forward
-reference is `<sup><a id="md-footnote-ref-1" href="#md-footnote-1">1</a></sup>`
-(ids and `#`-hrefs get an `md-` namespace prefix). The whole feature stands on
-that shape, and `marked-footnote` is pinned only as `^1.2.4` — a minor bump
-could change the markup silently. So land a sanitize-level test
-(`packages/solid-markdown/src/sanitize.test.ts`, happy-dom) first: feed footnote
-HTML through `sanitizeHtml` and assert `id="md-footnote-1"` + `href="#md-footnote-1"`
-survive while `data-footnote-ref` / `aria-describedby` / `class` are gone. A
-markup change then fails loudly instead of quietly breaking the popover. With
-that pinned, three small changes mint the marker and route the click — the
-package's only new surface:
+DOMPurify is brutal on footnote markup. `marked-footnote@1.4.0` (the version
+`^1.2.4` actually resolves to) emits a forward ref as
+`<sup><a id="footnote-ref-1" href="#footnote-1" data-footnote-ref aria-describedby="footnote-label">1</a></sup>`
+— note there is **no `class`** on it (the plan's earlier "`class="footnote-ref"`"
+was wrong); the distinctive marker is the bare `data-footnote-ref` attribute, and
+the back-ref carries `data-footnote-backref`. The sanitizer strips `data-footnote-*`
+and `aria-describedby` and namespaces ids/`#`-hrefs with an `md-` prefix, so what
+survives is `<sup><a id="md-footnote-ref-1" href="#md-footnote-1" data-md-footnote>1</a></sup>`.
+
+The whole feature stands on that markup, and the version floats — so **pin the
+contract the way this package already does**: a *node* render test. `@kolu/solid-markdown`'s
+`vitest.config.ts` deliberately keeps a Node-only environment ("the sanitize
+layer is covered by the browser e2e suite, not here"), and `data-md-wikilink` /
+`data-md-alert` survival is e2e-covered, not unit — adding `happy-dom` (absent
+from the repo) just to unit-test sanitization would contradict that boundary. So
+the red-first test lives in `render.test.ts`: feed footnote markdown through
+`renderMarkdownToRawHtml` and assert `rewriteFootnotes` flags exactly the forward
+refs with `data-md-footnote` (the back-ref untagged, every re-cite tagged) — a
+`marked-footnote` bump that changed the marker then fails loudly. Marker→popover
+survival rides the e2e. With that pinned, three small changes mint the marker and
+route the click — the package's only new surface:
 
 - **`render.ts` — `rewriteFootnotes(html)`**, a sibling of the existing
-  `rewriteAlerts` (`render.ts:291`). It runs on the *pre-sanitize* string, where
-  `marked-footnote`'s `class="footnote-ref"` / `data-footnote-ref` markers still
-  exist, and rewrites the forward-ref anchor to carry an allowlist-safe
-  `data-md-footnote` attribute — a *bare flag* like `data-md-rel`, carrying no
+  `rewriteAlerts`. It runs on the *pre-sanitize* string, where
+  `marked-footnote`'s bare `data-footnote-ref` marker still
+  exists (the back-ref carries the distinct `data-footnote-backref`), and a
+  single regex stamps an allowlist-safe `data-md-footnote` flag on the forward-ref
+  anchor — a *bare flag* like `data-md-rel`, carrying no
   value; the definition is found from the anchor's own `href` (the back-ref `↩`
-  is deliberately *not* tagged).
+  is deliberately *not* tagged, since its `data-footnote-backref` never matches).
   This is the same move alerts make, and it sidesteps the two traps of detecting
   the ref by structure after sanitization: a back-ref `↩` link also points at
   `#md-footnote-…`, and a heading literally titled "Footnote 1" would mint the
@@ -335,13 +347,18 @@ package's only new surface:
     `max-height: min(50vh, 22rem)`, `overflow: auto`; reuse `surface()` for chrome
     (as `OptionMenu` does).
   - **Content.** `definition.cloneNode(true)`, then on the *clone* remove three
-    things: its `id` (the live `<li>` keeps its `id`, so the clone must not
-    duplicate it), **every** `a[href*="-ref-"]` back-ref (a re-cited footnote has
-    several `↩`), and the `data-md-footnote` flag from **any nested** ref markers
-    (so they are inert in the popover — see the nested-footnote risk). Re-inject
-    the clone's `innerHTML`. Images need no handling — `resolveImageSrc` already
-    ran on this node when the document was sanitized, so the clone carries
-    resolved `src`s.
+    things: **every** `id` — the root `<li>`'s *and* every descendant's (a rich
+    note body can hold a heading or raw allowed HTML the sanitizer minted an
+    `md-…` id on); the live nodes keep theirs, so a portalled clone that kept a
+    duplicate id would weaken the sanitizer's id-namespacing and make an in-page
+    `#md-…` lookup ambiguous. **Every** back-ref `↩` (keyed on the renderer's own
+    `data-md-footnote-backref` flag, not marked-footnote's `-ref-` id scheme — so
+    a `marked-footnote` bump fails loudly in `render.test.ts` rather than leaving
+    stray `↩` links), since a re-cited footnote has several. And the
+    `data-md-footnote` flag from **any nested** ref markers (so they are inert in
+    the popover — see the nested-footnote risk). Re-inject the clone's
+    `innerHTML`. Images need no handling — `resolveImageSrc` already ran on this
+    node when the document was sanitized, so the clone carries resolved `src`s.
   - **Inner links.** Bind one click listener on the popover panel that routes the
     *click-time* links only: `a[data-md-rel]` → the host's `onNavigateRelative`,
     `a[data-md-wikilink]` → `onNavigateWikilink` (the same handlers
@@ -352,11 +369,13 @@ package's only new surface:
   - **"See all ↓".** A footer link that calls
     `fn().definition.scrollIntoView({ behavior: "smooth", block: "start" })` on the
     **live** `<li>` (not the clone — the clone's `id` is gone), then `setFn(null)`.
-- **Out of scope (tracked follow-up):** keyboard activation and a screen-reader
-  relationship. Opening is pointer-only by decision; the bottom section remains
-  the accessible record. A follow-up can add Enter/Space-to-open on the focused
-  marker plus an `aria-details` link — note it in the PR description so it isn't
-  mistaken for an oversight.
+- **Out of scope (tracked follow-up):** a managed-focus popover with a
+  screen-reader relationship. Opening is pointer-only *by enforcement* — the
+  footnote branch is gated on `click.detail > 0`, so a keyboard activation
+  (Enter/Space) falls through to the in-page jump-to-definition scroll and lands
+  on the bottom section, which remains the accessible record. A follow-up can add
+  Enter/Space-to-*open* on the focused marker plus an `aria-details` link — note
+  it in the PR description so it isn't mistaken for an oversight.
 
 ### Sharp edges, and how each is handled
 
@@ -387,6 +406,21 @@ Each was a real trap; none is left open.
   `data-md-footnote` from those nested markers (Content step above) and the
   popover's click listener routes only `data-md-rel` / `data-md-wikilink` — so a
   nested marker is a plain, inert superscript. No popover stacking, no recursion.
+- **An in-page anchor inside the clone never escapes the preview.** The popover
+  binds the package's own click dispatcher to the cloned `<li>`, whose in-page
+  targets (a nested ref's `#md-footnote-…`, a `#heading` outside the note) live
+  in the bottom list, not the clone — so the in-clone lookup misses. The
+  in-page-anchor branch therefore `preventDefault`s **unconditionally** (before
+  the target lookup), so a miss can't fall through to a real browser hash
+  navigation that would change the app URL or scroll outside the preview from
+  inside the popover. It still only scrolls when the target resolves.
+- **Raw HTML can't spoof the marker.** `data-md-footnote` is allowlisted, so a
+  README's raw inline HTML could pre-seed it to opt an arbitrary anchor into the
+  host callback. Like the wikilink guard, the renderer strips any
+  document-authored `data-md-footnote*` token before re-minting it only beside
+  marked-footnote's own `data-footnote-ref` / `data-footnote-backref` — so the
+  marker only ever rides the parser's own refs (`render.test.ts` covers the
+  spoof; the e2e covers the popover behaviour).
 - **Content re-renders don't drop the handler.** The new branch lives in the
   delegated listener `bindInteractions` binds on the stable `.kolu-md` root, not on
   per-marker nodes. Editing the file re-runs the `html()` memo and swaps the

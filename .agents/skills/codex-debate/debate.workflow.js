@@ -234,9 +234,9 @@ Address EVERY finding, any severity (don't skip minors/nits):
   - disagree → leave the code, dispute it with a specific technical reason (cite file:line); disposition "disputed". Concede when codex is right.
   - partly → fix the valid part, explain the rest; disposition "partial".
 
-You may run the formatter on files you touched. ${
+You may run the formatter on files you touched. SELF-VERIFY before you claim "fixed": a fix you didn't run isn't a fix. Run the project's own fast static-check gate (its lint + typecheck task — e.g. \`just check\`/\`npm run lint\`; discover it from the repo, don't hand-roll one) over your edits and make it pass; only mark a finding "fixed" once the gate is green. Never claim a lint won't fire without running it — that's the exact "I watched it work" gap that lands a red tree on the next step. If the gate stays red after a genuine attempt, say so in the finding's detail rather than reporting a clean "fixed". ${
     doCommit
-      ? `Once you've addressed every finding AND you actually changed files, COMMIT this round's work yourself — the debate records one commit per round. Stage ONLY the files you changed (never \`git add -A\` or \`git add .\`) and commit with \`git -C ${repoPath}\`, subject \`fix: codex review — debate round ${round}\` and a body that summarizes your changes plus, briefly, codex's findings and how you dispositioned each. Do NOT push. Return the resulting SHA (\`git -C ${repoPath} rev-parse HEAD\`) in \`commitSha\`. If you changed no files, don't commit and leave \`commitSha\` empty.`
+      ? `Once you've addressed every finding AND you actually changed files (and the static-check gate is green), COMMIT this round's work yourself — the debate records one commit per round. Stage ONLY the files you changed (never \`git add -A\` or \`git add .\`) and commit with \`git -C ${repoPath}\`, subject \`fix: codex review — debate round ${round}\` and a body that summarizes your changes plus, briefly, codex's findings and how you dispositioned each. Do NOT push. Return the resulting SHA (\`git -C ${repoPath} rev-parse HEAD\`) in \`commitSha\`. If you changed no files, don't commit and leave \`commitSha\` empty.`
       : `Edit the working tree only — do NOT git add/commit/push; leave \`commitSha\` empty.`
   }
 

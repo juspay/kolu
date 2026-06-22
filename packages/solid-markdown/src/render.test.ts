@@ -191,6 +191,98 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[^1]");
   });
 
+  it("flags the forward ref with data-md-footnote and the back-ref with data-md-footnote-backref", () => {
+    // marked-footnote marks a forward reference with the bare `data-footnote-ref`
+    // attribute and the back-ref (↩) with `data-footnote-backref`; both are
+    // stripped by the sanitizer. rewriteFootnotes stamps allowlist-safe sibling
+    // flags — `data-md-footnote` on the forward ref (the host opens its
+    // definition in a popover) and `data-md-footnote-backref` on the back-ref
+    // (the popover strips these from its clone) — so each is recognisable after
+    // sanitization. This test pins BOTH contracts: a marked-footnote bump that
+    // changed either marker fails here loudly rather than silently breaking the
+    // popover (a dangling forward ref) or leaving stray ↩ links in it.
+    const out = html("body[^1] more\n\n[^1]: the note");
+    // The forward flag rides the forward ref (which still carries
+    // marked-footnote's own `data-footnote-ref`) and nothing else.
+    expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(1);
+    // The forward ref's href targets the definition <li> (`#footnote-1`); the
+    // host resolves the popover content from that landing id.
+    expect(out).toContain('href="#footnote-1"');
+    // The back-ref flag rides the back-ref (which still carries marked-footnote's
+    // own `data-footnote-backref`) — and the forward ref does NOT carry it.
+    expect(out).toMatch(
+      /<a data-md-footnote-backref [^>]*data-footnote-backref/,
+    );
+    expect(out.match(/data-md-footnote-backref/g)).toHaveLength(1);
+    expect(out).not.toMatch(/data-md-footnote [^>]*data-footnote-backref/);
+  });
+
+  it("tags every citation of a re-cited footnote, all pointing at one definition", () => {
+    // A footnote cited twice mints two forward refs (`footnote-ref-1` and
+    // `footnote-ref-1-2`), both linking to the single definition `#footnote-1`.
+    // Both citations carry the forward flag; the definition's two back-refs carry
+    // the back-ref flag, never the forward one. The `(?![-\w])` boundary keeps
+    // the forward count from matching the `data-md-footnote-backref` substring.
+    const out = html("a[^1] b[^1]\n\n[^1]: once");
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(2);
+    expect(
+      out.match(/data-md-footnote(?![-\w])[^>]*href="#footnote-1"/g),
+    ).toHaveLength(2);
+    expect(out).not.toMatch(
+      /data-md-footnote(?![-\w])[^>]*data-footnote-backref/,
+    );
+    // Both back-refs carry the back-ref flag and never the forward one.
+    expect(out.match(/data-md-footnote-backref/g)).toHaveLength(2);
+  });
+
+  it("does not let raw HTML spoof the footnote markers", () => {
+    // `data-md-footnote` is allowlisted, so a README's raw inline HTML could
+    // pre-seed it (bare or valued) to opt an arbitrary anchor into the host's
+    // footnote-popover callback. Like the wikilink guard, app-read data hooks
+    // must be parser-minted: rewriteFootnotes strips any document-authored
+    // `data-md-footnote*` token before re-minting, so a raw anchor that merely
+    // declared the marker carries none of it through.
+    const out = html(
+      'spoof <a data-md-footnote href="#md-footnote-1">x</a> ' +
+        '<a data-md-footnote-backref href="#y">y</a> ' +
+        '<a data-md-footnote="bogus" href="#z">z</a> ' +
+        // Single-quoted and unquoted spoof values must also be consumed whole,
+        // not leave a dangling `=val` welded onto the `<a` (the bug F6 caught).
+        "<a data-md-footnote='q' href=\"#q\">q</a> " +
+        '<a data-md-footnote=bare href="#b">b</a>',
+    );
+    expect(out).not.toContain("data-md-footnote");
+    // The anchors themselves survive intact (just without the spoofed markers);
+    // none collapsed into `<a=…` and none lost its href.
+    expect(out).not.toContain("<a=");
+    expect(out).toContain(">x</a>");
+    expect(out).toContain(">y</a>");
+    expect(out).toContain(">z</a>");
+    expect(out).toContain('href="#q"');
+    expect(out).toContain('href="#b"');
+  });
+
+  it("leaves prose that merely mentions the marker token untouched", () => {
+    // The spoof strip is scoped to anchor start tags, so a README that writes
+    // the literal `data-md-footnote` in plain text keeps its words — a global
+    // text regex would have deleted the token mid-sentence (the bug F6 caught).
+    const out = html("Set the data-md-footnote attribute to enable popovers.");
+    expect(out).toContain("Set the data-md-footnote attribute to enable");
+  });
+
+  it("keeps the parser's footnote markers even when raw HTML pre-seeded one", () => {
+    // The strip-then-remint must not collateral-damage a real footnote that
+    // shares the document with a spoof attempt: the genuine `[^1]` ref still
+    // ends up flagged exactly once.
+    const out = html(
+      'real[^1] and <a data-md-footnote href="#md-x">fake</a>\n\n[^1]: note',
+    );
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(1);
+    expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
+    expect(out).toContain(">fake</a>");
+  });
+
   it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
     const out = html("> [!WARNING]\n> be careful");
     expect(out).toContain('data-md-alert="warning"');
