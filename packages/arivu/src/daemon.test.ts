@@ -17,10 +17,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
-  arivuSurface,
+  terminalWorkspaceSurface,
   AwarenessValue,
   TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import {
   type UnixSocketConnection,
   unixSocketLink,
@@ -35,7 +35,7 @@ import { afterEach, expect, it } from "vitest";
 import { runArivuDaemon } from "./daemon.ts";
 
 type AwarenessClient = UnixSocketConnection<
-  typeof arivuSurface.contract
+  typeof terminalWorkspaceSurface.contract
 >["client"];
 
 // A no-op surface-daemon Logger for the in-process pty-host, and a silent pino
@@ -222,7 +222,7 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   await ready;
 
   // ── a surface client mirrors arivu's awareness ───────────────────
-  const conn = await unixSocketLink<typeof arivuSurface.contract>({
+  const conn = await unixSocketLink<typeof terminalWorkspaceSurface.contract>({
     socketPath: arivuSocket,
   });
   cleanups.push(() => conn.dispose());

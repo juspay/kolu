@@ -18,11 +18,11 @@
 
 import {
   type AwarenessValue,
-  arivuSurface,
+  terminalWorkspaceSurface,
   DEFAULT_VERSION,
   type TerminalId,
-} from "@kolu/arivu-contract";
-import { arivuSocketPath } from "@kolu/arivu-contract/socket";
+} from "@kolu/terminal-workspace/surface";
+import { arivuSocketPath } from "@kolu/terminal-workspace/socket";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import {
   type UnixSocketConnection,
@@ -42,7 +42,7 @@ import {
   bridgeKavalTaps,
   seedAwarenessValue,
   startAwareness,
-} from "@kolu/terminal-awareness";
+} from "@kolu/terminal-workspace";
 import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -149,7 +149,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
 
   // ── The served awareness surface — a keyed collection backed by a cache ──
   const cache = new Map<TerminalId, AwarenessValue>();
-  const fragment = implementSurface(arivuSurface, {
+  const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
@@ -179,7 +179,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
       },
     },
   });
-  const router = implement(arivuSurface.contract).router({
+  const router = implement(terminalWorkspaceSurface.contract).router({
     ...fragment.router,
     // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any,T> input type; the runtime shape is valid (the remote-process-monitor demo + kolu's server use the same cast).
   }) as any;
@@ -236,7 +236,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
     // this tap reuses its subscribe/abort/swallow-AbortError teardown rather than a
     // third hand-rolled copy. (The other per-terminal taps — cwd/title/command/
     // foreground — still ride `bridgeKavalTaps`'s `bridgeStream`; folding those onto
-    // the receptacle too would make the shared `@kolu/terminal-awareness` take a
+    // the receptacle too would make the shared `@kolu/terminal-workspace` take a
     // mirror dep, a larger consolidation left for later.)
     void mirrorRemoteSurface(
       ptyHostSurface,

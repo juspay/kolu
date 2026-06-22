@@ -4,7 +4,7 @@
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
  * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal sensor set** (`@kolu/terminal-awareness`) against the
+ * **runs the per-terminal sensor set** (`@kolu/terminal-workspace`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
@@ -27,7 +27,7 @@ import {
   type AwarenessSignals,
   type AwarenessSink,
   startAwareness,
-} from "@kolu/terminal-awareness";
+} from "@kolu/terminal-workspace";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {

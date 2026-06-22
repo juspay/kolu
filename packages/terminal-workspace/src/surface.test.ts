@@ -1,20 +1,22 @@
-import { seedAwarenessValue } from "@kolu/terminal-awareness";
-import { AwarenessValueSchema } from "@kolu/terminal-awareness/schema";
 import { describe, expect, it } from "vitest";
+import { seedAwarenessValue } from "./index.ts";
+import { AwarenessValueSchema } from "./schema.ts";
 import {
-  ARIVU_CONTRACT_VERSION,
-  arivuSurface,
   DEFAULT_VERSION,
+  TERMINAL_WORKSPACE_CONTRACT_VERSION,
+  terminalWorkspaceSurface,
   VersionSchema,
-} from "./index.ts";
+} from "./surface.ts";
 
-describe("arivu-contract", () => {
-  it("builds the awareness surface contract", () => {
-    expect(arivuSurface.contract).toBeTruthy();
+describe("terminal-workspace surface", () => {
+  it("builds the workspace surface contract", () => {
+    expect(terminalWorkspaceSurface.contract).toBeTruthy();
   });
 
   it("DEFAULT_VERSION carries this build's contract version and validates", () => {
-    expect(DEFAULT_VERSION.contractVersion).toBe(ARIVU_CONTRACT_VERSION);
+    expect(DEFAULT_VERSION.contractVersion).toBe(
+      TERMINAL_WORKSPACE_CONTRACT_VERSION,
+    );
     expect(VersionSchema.parse(DEFAULT_VERSION)).toEqual(DEFAULT_VERSION);
   });
 

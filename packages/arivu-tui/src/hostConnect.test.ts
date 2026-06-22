@@ -6,14 +6,14 @@
  * arivu's three volatile values (binary, env var, drvNoun) and a `probe` that
  * roundtrips the `version` cell (arivu has no `system.heartbeat`). The probe is
  * exercised against a REAL in-process arivu client (a `directLink` over the
- * served `arivuSurface`), and the returned `Connection` flows back unchanged.
+ * served `terminalWorkspaceSurface`), and the returned `Connection` flows back unchanged.
  */
 import {
   type AwarenessValue,
-  arivuSurface,
+  terminalWorkspaceSurface,
   DEFAULT_VERSION,
   type TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,
@@ -33,11 +33,11 @@ import { snapshotAwareness } from "./read.ts";
 /** A real in-process arivu surface client over a `directLink` — the awareness
  *  collection backed by a plain Map, the `version` cell at this build's default.
  *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
- *  the probe exercises a real `arivuSurface` round-trip in place of the ssh wire. */
+ *  the probe exercises a real `terminalWorkspaceSurface` round-trip in place of the ssh wire. */
 function makeInProcessArivuClient(
   cache = new Map<TerminalId, AwarenessValue>(),
 ) {
-  const { router } = implementSurface(arivuSurface, {
+  const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
@@ -61,7 +61,7 @@ function makeInProcessArivuClient(
       },
     },
   });
-  return directLink<typeof arivuSurface.contract>(router);
+  return directLink<typeof terminalWorkspaceSurface.contract>(router);
 }
 
 afterEach(() => vi.clearAllMocks());

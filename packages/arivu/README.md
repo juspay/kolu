@@ -5,7 +5,7 @@
 **terminal-awareness daemon**. It dials a running `kaval`, runs the awareness
 sensors — git branch · PR + checks · AI-agent state · foreground process — for
 every PTY kaval owns, and serves the result as one `awareness` collection: the
-[`@kolu/arivu-contract`](../arivu-contract) surface that
+[`@kolu/terminal-workspace/surface`](../terminal-workspace) surface that
 [`arivu-tui`](../arivu-tui) reads.
 
 Where kaval owns the PTYs, arivu derives _meaning_ over them — and adds **zero**
@@ -36,7 +36,7 @@ set per terminal as they come and go.
 
 ## One sensor library, two homes
 
-The sensor set lives in [`@kolu/terminal-awareness`](../terminal-awareness) and
+The sensor set lives in [`@kolu/terminal-workspace`](../terminal-workspace) and
 is **shared, not forked**: kolu-server runs it _in-process_ for local terminals
 (writing `terminalMetadata` directly); arivu runs the _same_ code as a separate
 process and publishes each terminal's `AwarenessValue` into the served

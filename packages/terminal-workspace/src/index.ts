@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-awareness` — the per-terminal awareness sensor set (git ·
+ * `@kolu/terminal-workspace` — the per-terminal awareness sensor set (git ·
  * PR · agent · foreground) plus the generic `AwarenessValue` schema it
  * produces, lifted out of kolu-server so a standalone daemon (`arivu`) and
  * kolu-server share ONE copy of the freshness-critical sensor code.

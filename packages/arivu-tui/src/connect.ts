@@ -8,7 +8,7 @@
  * stays transport-blind.
  */
 
-import type { arivuSurface } from "@kolu/arivu-contract";
+import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import {
   type UnixSocketConnection,
   unixSocketLink,
@@ -16,7 +16,7 @@ import {
 
 /** The contract-typed awareness client — identical whatever link backs it. */
 export type ArivuClient = UnixSocketConnection<
-  typeof arivuSurface.contract
+  typeof terminalWorkspaceSurface.contract
 >["client"];
 
 /** A live arivu connection: the client plus a `dispose` that tears the
@@ -30,5 +30,7 @@ export interface Connection {
  *  error (`ECONNREFUSED` for a dead/absent daemon, `ENOENT` for a missing
  *  path) so the caller can print an honest, actionable message. */
 export function connectArivu(socketPath: string): Promise<Connection> {
-  return unixSocketLink<typeof arivuSurface.contract>({ socketPath });
+  return unixSocketLink<typeof terminalWorkspaceSurface.contract>({
+    socketPath,
+  });
 }

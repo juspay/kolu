@@ -9,7 +9,10 @@
  * concept's generative side, not the module that paints it.
  */
 
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 
 /** A host's connection state in the fleet aggregate. `skew` carries both
  *  versions so the header can name the mismatch; `unreachable` carries why (the

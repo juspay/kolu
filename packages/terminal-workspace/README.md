@@ -1,4 +1,4 @@
-# @kolu/terminal-awareness
+# @kolu/terminal-workspace
 
 **Watch a terminal, know what it's working on.** Given one terminal's live
 signals — its working directory, title, foreground process, and the commands run
@@ -42,5 +42,5 @@ for git, the per-agent packages for agent state).
 and folds each result into the terminal metadata it serves to the browser.
 
 Two entry points keep the boundary clean: the default import pulls the sensors
-(they run on Node, alongside `kaval`); `@kolu/terminal-awareness/schema` is the
+(they run on Node, alongside `kaval`); `@kolu/terminal-workspace/schema` is the
 `AwarenessValue` schema alone — pure `zod`, safe to import from a browser bundle.

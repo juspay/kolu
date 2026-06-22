@@ -16,7 +16,7 @@
  * the `activity` stream publishes whole (snapshot-then-deltas) on every change.
  */
 
-import type { TerminalId } from "@kolu/arivu-contract";
+import type { TerminalId } from "@kolu/terminal-workspace/surface";
 
 /** Output quiet-period before a terminal reads as static again — matches kolu's
  *  `useTerminalActivity` IDLE_AFTER_MS, so the local dot and the remote dot

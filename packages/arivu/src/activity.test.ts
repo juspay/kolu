@@ -3,7 +3,7 @@
  * arivu's `activity` stream (the remote green dot). Pure: no daemon, no kaval.
  */
 
-import type { TerminalId } from "@kolu/arivu-contract";
+import type { TerminalId } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import { createActivityTracker, sameActivitySet } from "./activity.ts";
 

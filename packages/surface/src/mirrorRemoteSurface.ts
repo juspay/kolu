@@ -159,7 +159,7 @@ function requireEntry(
  *  of `surfaceClientRef(source, router)` or any `SurfaceClientOf<S>` for `client`;
  *  it is read structurally here.
  *
- *      await mirrorRemoteSurface(arivuSurface, client, {
+ *      await mirrorRemoteSurface(terminalWorkspaceSurface, client, {
  *        cells: { version: (v) => setSkew(!isContractVersionCompatible(v.contractVersion, OURS)) },
  *        collections: { awareness: { upsert, remove } },
  *        streams: { activity: { input: {}, onFrame: (live) => setLive(live) } },

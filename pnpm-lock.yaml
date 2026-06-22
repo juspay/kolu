@@ -27,15 +27,12 @@ importers:
 
   packages/arivu:
     dependencies:
-      '@kolu/arivu-contract':
-        specifier: workspace:*
-        version: link:../arivu-contract
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/terminal-awareness':
+      '@kolu/terminal-workspace':
         specifier: workspace:*
-        version: link:../terminal-awareness
+        version: link:../terminal-workspace
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
@@ -59,39 +56,17 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/arivu-contract:
-    dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@kolu/terminal-awareness':
-        specifier: workspace:*
-        version: link:../terminal-awareness
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
   packages/arivu-tui:
     dependencies:
-      '@kolu/arivu-contract':
-        specifier: workspace:*
-        version: link:../arivu-contract
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
       '@kolu/surface-nix-host':
         specifier: workspace:*
         version: link:../surface-nix-host
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
       '@opentui/core':
         specifier: ^0.4.1
         version: 0.4.1(typescript@5.9.3)(web-tree-sitter@0.25.10)
@@ -317,9 +292,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
-      '@kolu/terminal-awareness':
+      '@kolu/terminal-workspace':
         specifier: workspace:*
-        version: link:../terminal-awareness
+        version: link:../terminal-workspace
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
@@ -760,12 +735,12 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
-      '@kolu/terminal-awareness':
-        specifier: workspace:*
-        version: link:../terminal-awareness
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -1397,7 +1372,38 @@ importers:
         specifier: ^2.11.0
         version: 2.11.11(solid-js@1.9.11)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/terminal-awareness:
+  packages/terminal-protocol:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/terminal-themes:
+    dependencies:
+      '@xterm/xterm':
+        specifier: 6.1.0-beta.225
+        version: 6.1.0-beta.225
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+      nonempty:
+        specifier: workspace:*
+        version: link:../nonempty
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/terminal-workspace:
     dependencies:
       '@kolu/surface':
         specifier: workspace:*
@@ -1439,37 +1445,6 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/terminal-protocol:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/terminal-themes:
-    dependencies:
-      '@xterm/xterm':
-        specifier: 6.1.0-beta.225
-        version: 6.1.0-beta.225
-      neverthrow:
-        specifier: ^8.2.0
-        version: 8.2.0
-      nonempty:
-        specifier: workspace:*
-        version: link:../nonempty
-    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
