@@ -344,6 +344,14 @@ function fleetStateText(
  *  helpers verbatim — the PR/where/recency decisions are defined once. */
 export interface FleetRow {
   host: string;
+  /** A stable identity for this row across re-projections — the selection cursor
+   *  tracks this, not a bare list index (rows reorder as agents change urgency).
+   *  Computed once here, next to the (host, terminalId) keying the projection
+   *  already owns, so "how a fleet row is uniquely named" lives in ONE place
+   *  rather than being re-derived by a separate ` `-join in the view. The full
+   *  terminal id is unique within a host; the host disambiguates the rare
+   *  cross-host id collision; a NUL separator can't appear in either part. */
+  key: string;
   id: string;
   /** Output moving on this terminal right now — the `activity` stream's live
    *  membership. Drives the green dot. Pure projection input: the host carries a
@@ -385,6 +393,7 @@ export function fleetRow(
   const urgency = agentUrgency(v.agent);
   return {
     host,
+    key: `${host}\u0000${id}`,
     id: shortId(id),
     live,
     urgency,

@@ -98,14 +98,6 @@ function whereWidth(termWidth: number, showHost: boolean): number {
   return Math.max(MIN_WHERE, termWidth - 2 - fixed);
 }
 
-/** A stable identity for a row across re-projections — the selection cursor
- *  tracks this, not a bare list index (rows reorder as agents change state). The
- *  full terminal id is unique within a host; the host disambiguates the rare
- *  cross-host id collision the fleet already keys (host, terminalId) on. */
-function rowKey(r: FleetRow): string {
-  return `${r.host}\u0000${r.sortId}`;
-}
-
 /** The leading glyph for a row, animated for a working agent. */
 function rowGlyph(row: FleetRow, frame: number): string {
   if (row.urgency === "need") return NEED_GLYPH;
@@ -151,7 +143,7 @@ function Row(props: {
   showHost?: boolean;
 }) {
   const whereW = () => whereWidth(props.termWidth(), props.showHost ?? false);
-  const selected = () => props.selectedKey() === rowKey(props.row);
+  const selected = () => props.selectedKey() === props.row.key;
   return (
     <box flexDirection="row">
       {/* Selection cursor — ▸ on the highlighted row, blank otherwise. ↑/↓ move
@@ -357,7 +349,7 @@ export function FleetBoard(props: {
     rows()[clampSelection(props.sel?.() ?? 0, rows().length)];
   const selectedKey = () => {
     const r = selected();
-    return r ? rowKey(r) : null;
+    return r ? r.key : null;
   };
   return (
     <box flexDirection="column" padding={1}>
