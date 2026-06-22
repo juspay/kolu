@@ -179,7 +179,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
-    console.log(`FT-MOUNT npaths=${props.paths.length}`); // FT-DEBUG
+    console.log(
+      `FT-MOUNT npaths=${props.paths.length} sel=${props.selectedPath} selInPaths=${props.selectedPath ? props.paths.includes(props.selectedPath) : "-"}`,
+    ); // FT-DEBUG
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
     // and, crucially, for *every remount* the live fsListAll stream triggers
@@ -300,11 +302,18 @@ export const FileTree: Component<FileTreeProps> = (props) => {
                 .map((o) => o.path),
             );
             if (removed.size > 0) {
-              for (const p of tree.getSelectedPaths()) {
+              const sel = tree.getSelectedPaths();
+              console.log(
+                `FT-DESEL selected=${JSON.stringify(sel)} removed=${JSON.stringify([...removed])}`,
+              ); // FT-DEBUG
+              for (const p of sel) {
                 if (removed.has(p)) tree.getItem(p)?.deselect();
               }
             }
             tree.batch(fileOps);
+            console.log(
+              `FT-POST item(obsolete)=${!!tree.getItem("obsolete.txt")} sel=${JSON.stringify(tree.getSelectedPaths())}`,
+            ); // FT-DEBUG
             console.log(`FT-BATCH-OK n=${fileOps.length}`); // FT-DEBUG
           }
           // Pierre's `remove` promotes an emptied directory to an explicit
