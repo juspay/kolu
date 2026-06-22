@@ -57,28 +57,30 @@ const TerminalContent: Component<{
   const activeSubTab = () => panelState().activeSubTab;
   const focusTarget = () => panelState().focusTarget;
 
-  // Which pane the active-terminal cue marks, reusing the same `focusTarget`
-  // signal that routes keystrokes — no parallel "active pane" state. Only the
-  // focused tile's *open* split distinguishes its panes: the live pane is
-  // "active", the other "inactive" (it recedes via the `data-pane-focus` CSS
-  // rule). Undefined when collapsed or when this tile isn't focused, so no
-  // unfocused tile lights a pane.
+  // One owner for "which pane is live within this tile": only the focused tile's
+  // *open* split has a live pane (the `focusTarget` one), reusing the same
+  // signal that routes keystrokes — no parallel "active pane" state. Undefined
+  // when collapsed or when this tile isn't focused, so no unfocused tile lights
+  // a pane. The cue (`paneFocus`) and the keyboard routing (`shouldFocusSub`)
+  // below both read this, so they can't drift.
+  const livePane = () =>
+    props.focused && isExpanded() ? focusTarget() : undefined;
+
+  // Which pane the active-terminal cue marks: the live pane is "active", the
+  // other "inactive" (it recedes via the `data-pane-focus` CSS rule).
   const paneFocus = (
     pane: "main" | "sub",
   ): "active" | "inactive" | undefined =>
-    props.focused && isExpanded()
-      ? focusTarget() === pane
+    livePane() === undefined
+      ? undefined
+      : livePane() === pane
         ? "active"
-        : "inactive"
-      : undefined;
+        : "inactive";
 
   const shouldFocusMain = () =>
     props.focused && (!isExpanded() || focusTarget() === "main");
   const shouldFocusSub = (subId: TerminalId) =>
-    props.focused &&
-    isExpanded() &&
-    activeSubTab() === subId &&
-    focusTarget() === "sub";
+    livePane() === "sub" && activeSubTab() === subId;
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
