@@ -38,18 +38,9 @@ function changePulseSource(
 ): AsyncIterable<RepoChangePulse> {
   let seq = 0;
   return pollOnEvent<RepoChangePulse>({
-    read: () => {
-      log.error({ label, seq }, "RWATCH pulse read"); // RWATCH-DEBUG (temporary)
-      return Promise.resolve({ seq: seq++ });
-    },
+    read: () => Promise.resolve({ seq: seq++ }),
     isEqual: (a, b) => a.seq === b.seq,
-    install: (onEvent) => {
-      log.error({ label }, "RWATCH watcher install"); // RWATCH-DEBUG
-      return install(() => {
-        log.error({ label }, "RWATCH watcher fired"); // RWATCH-DEBUG
-        onEvent();
-      });
-    },
+    install,
     signal,
     onReadError: (err) =>
       log.error({ err }, `terminal-workspace: ${label} pulse read failed`),

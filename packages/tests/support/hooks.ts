@@ -740,13 +740,6 @@ AfterAll(async () => {
 });
 
 Before(async function (this: KoluWorld, scenario) {
-  // RWATCH-DEBUG (temporary): mark scenario boundaries in the page-console trace.
-  try {
-    fs.appendFileSync(
-      "/tmp/rwatch.log",
-      `\n##### SCENARIO: ${scenario.pickle.name} #####\n`,
-    );
-  } catch {}
   // Derive the scenario's file stem once, up front — the failure screenshot,
   // the evidence webm, the x11 grab, and the transcoded assets all key off the
   // same value, so it's computed here and read at every site below.
@@ -863,13 +856,6 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
-  // RWATCH-DEBUG (temporary): append browser console to a file (cucumber swallows
-  // stdout console.log, but a direct fs write survives) so a pu-box run can read it.
-  this.page.on("console", (msg) => {
-    try {
-      fs.appendFileSync("/tmp/rwatch.log", `[${msg.type()}] ${msg.text()}\n`);
-    } catch {}
-  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is

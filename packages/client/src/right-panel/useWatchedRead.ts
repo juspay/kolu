@@ -6,32 +6,33 @@
  * full re-read). R8 deletes those and composes `terminalWorkspaceSurface`, whose
  * fs/git are PROCEDURES (request → response) plus `subscribeRepoChange` /
  * `subscribeFileChange` watcher streams that carry a payload-free `{seq}` PULSE.
- * The consumer's job — what this primitive does — is "subscribe to the pulse,
- * re-query the procedure on every pulse (including the `{seq:0}` snapshot frame)."
- * The result is the SAME ergonomic shape the old `app.streams.X.use(...)` gave
- * (`value()` / `.pending()` / `.error()`), so the Code-tab call sites barely move.
+ * The consumer's job — what this primitive does — is "(re-)query the procedure on
+ * the input AND on every pulse, exposing the latest result." The result is the
+ * SAME ergonomic shape the old `app.streams.X.use(...)` gave (`value()` /
+ * `.pending()` / `.error()`), so the Code-tab call sites barely move.
  *
- * Driven by an explicit `createEffect` (not `createResource`): the effect tracks
- * `input()` AND the `pulse()`, so each new pulse re-runs the read — and it stores
- * the outcome in plain signals, so a rejected read (e.g. `git ls-files` in a bare
- * repo) lands on `error()`/`onError` and NEVER throws on read. A resource would
- * re-throw on `value()` and surface as an uncaught page error (the old
- * value-bearing stream routed such failures to its `onError` instead).
+ * Two seams, mirroring the old value-bearing stream's semantics:
+ *   - `on(input)` — the INPUT changed: reset the value (so a stale value can't be
+ *     read as fresh) and re-query. Resetting is what makes `pending()` honest.
+ *   - `on(pulse.seq)` — a change fired: re-query WITHOUT resetting, so the tile
+ *     keeps showing the current value while the fresh one loads (no flicker).
  *
- * This is the concrete "not byte-identical — a one-time client update" cost the
- * R8 plan names: the wire shape changed (stream → procedure+pulse), so the client
- * gains this one adapter instead of reading a value-bearing stream directly.
+ * `pending()` is DERIVED, not an imperative flag: it's true exactly when there is
+ * an input but no value (and no error) for it yet. Deriving it dodges an
+ * effect-ordering race a flag has — a consumer reading `pending()` during the same
+ * tick the input changed (e.g. the Code tab's diff→browse `openInCodeTab`
+ * resolution, which defers while `allPaths.pending()`) sees `true` because the
+ * value was just reset, regardless of whether this primitive's effect has run yet.
+ * A stale flag read `false` there and resolved against an empty list — the
+ * deterministic "browse content doesn't load after navigation" bug.
  */
 
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createSignal, on } from "solid-js";
 
 /** The subset of a surface stream's `.use(...)` accessor this primitive reads —
- *  the `{seq}` pulse value plus its pending/error flags. Typed to the monotonic
- *  `seq` (not `unknown`) deliberately: the surface subscription stores the frame
- *  in a `createStore` and writes it via `reconcile`, so a new pulse keeps the SAME
- *  object reference and mutates only `seq`. The consumer MUST track the nested
- *  `seq` field — reading the whole object would never re-notify (the bug that
- *  froze the Code tab's live updates while directLink, which iterates raw, worked). */
+ *  the `{seq}` pulse value plus its pending/error flags. Tracking the nested `seq`
+ *  (not the whole object) is required: the surface subscription reconciles the
+ *  frame in place, so only `seq` re-notifies. */
 export interface PulseAccessor {
   (): { seq: number } | undefined;
   pending: () => boolean;
@@ -57,56 +58,55 @@ export function useWatchedRead<I, O>(
 ): WatchedRead<O> {
   const [value, setValue] = createSignal<O | undefined>(undefined);
   const [error, setError] = createSignal<Error | undefined>(undefined);
-  const [pending, setPending] = createSignal(false);
 
-  createEffect(() => {
-    const i = input();
-    // Track the nested `seq` (NOT the whole pulse object) so a new `{seq}` — incl.
-    // the `{seq:0}` snapshot — re-runs the read. The surface subscription reconciles
-    // the frame in place, so the object reference is stable; only `seq` changes, and
-    // only a read OF `seq` re-notifies. This is the "requery on pulse" the composed
-    // surface's watcher streams exist for.
-    const _seq = pulse()?.seq;
-    console.log(
-      `RWATCH effect seq=${_seq} pErr=${pulse.error()?.message ?? "-"} in=${i ? JSON.stringify(i) : "null"}`,
-    );
-    if (!i) {
-      setValue(undefined);
-      setError(undefined);
-      setPending(false);
-      return;
-    }
-    let cancelled = false;
-    setPending(true);
-    // `.then(ok, err)` (not `await`/`throw`) so a rejected read is HANDLED here —
-    // it lands on `error()` + `onError`, never an unhandled rejection / page error.
+  // A monotonic token per query so a slow stale read (input/pulse moved on) can't
+  // clobber the fresh one — and a rejected read is HANDLED here, never an
+  // unhandled rejection / page error.
+  let token = 0;
+  function query(i: I): void {
+    const mine = ++token;
     void read(i).then(
       (out) => {
-        console.log(
-          `RWATCH ok seq=${_seq} cancelled=${cancelled} out=${JSON.stringify(out).slice(0, 100)}`,
-        );
-        if (cancelled) return;
+        if (mine !== token) return;
         setValue(() => out);
         setError(undefined);
-        setPending(false);
       },
       (err: unknown) => {
-        console.log(`RWATCH err seq=${_seq} ${(err as Error)?.message}`);
-        if (cancelled) return;
+        if (mine !== token) return;
         setError(err as Error);
-        setPending(false);
         opts?.onError?.(err as Error);
       },
     );
-    // A newer input/pulse supersedes an in-flight read — drop its result so a slow
-    // stale read can't clobber the fresh one.
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
+  }
+
+  // INPUT changed → reset (so `pending()` reads true while loading), then query.
+  createEffect(
+    on(input, (i) => {
+      token++; // abandon any in-flight read for the previous input
+      setValue(undefined);
+      setError(undefined);
+      if (i !== null) query(i);
+    }),
+  );
+
+  // PULSE fired → re-query WITHOUT resetting (the tile keeps its current value
+  // while the fresh one loads). `defer` skips the initial frame — the input effect
+  // already issued the first query.
+  createEffect(
+    on(
+      () => pulse()?.seq,
+      () => {
+        const i = input();
+        if (i !== null) query(i);
+      },
+      { defer: true },
+    ),
+  );
 
   const accessor = (() => value()) as WatchedRead<O>;
-  accessor.pending = () => pending() || pulse.pending();
+  // DERIVED: pending ⇔ there's an input but no value/error for it yet. Race-free.
+  accessor.pending = () =>
+    input() !== null && value() === undefined && error() === undefined;
   accessor.error = () => error() ?? pulse.error();
   return accessor;
 }
