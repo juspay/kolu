@@ -856,11 +856,6 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
-  // RWATCH-DEBUG (temporary): surface the Code-tab pulse/requery trace into the
-  // cucumber output so a CI run shows browser-side behaviour.
-  this.page.on("console", (msg) => {
-    if (msg.text().includes("RWATCH")) console.log(`[page] ${msg.text()}`);
-  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is

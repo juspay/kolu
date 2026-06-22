@@ -66,11 +66,7 @@ export function useWatchedRead<I, O>(
     // the frame in place, so the object reference is stable; only `seq` changes, and
     // only a read OF `seq` re-notifies. This is the "requery on pulse" the composed
     // surface's watcher streams exist for.
-    const _seq = pulse()?.seq;
-    // RWATCH-DEBUG (temporary): trace pulse advance + requery.
-    console.log(
-      `RWATCH effect seq=${_seq} pErr=${pulse.error()?.message ?? "-"} in=${i ? JSON.stringify(i) : "null"}`,
-    );
+    void pulse()?.seq;
     if (!i) {
       setValue(undefined);
       setError(undefined);
@@ -83,16 +79,12 @@ export function useWatchedRead<I, O>(
     // it lands on `error()` + `onError`, never an unhandled rejection / page error.
     void read(i).then(
       (out) => {
-        console.log(
-          `RWATCH ok seq=${_seq} cancelled=${cancelled} out=${JSON.stringify(out).slice(0, 120)}`,
-        );
         if (cancelled) return;
         setValue(() => out);
         setError(undefined);
         setPending(false);
       },
       (err: unknown) => {
-        console.log(`RWATCH err seq=${_seq} ${(err as Error)?.message}`);
         if (cancelled) return;
         setError(err as Error);
         setPending(false);
