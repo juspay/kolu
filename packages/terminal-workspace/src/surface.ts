@@ -79,9 +79,14 @@ export const FsReadFileTextOutputSchema = z.object({
   truncated: z.boolean(),
 });
 
-/** The terminal-workspace surface. Two volatility homes serve the SAME
- *  contract: in-process (kolu-server) and hosted by arivu (remote). The
- *  primitives differ only in KIND:
+/** The terminal-workspace surface — ARIVU's home today. R6 ships one fs/git
+ *  IMPL (`createTerminalWorkspaceEndpoint`) with two homes, NOT one surface both
+ *  serve: kolu-server (in-process) re-exposes the reads on `koluSurface`'s
+ *  value-bearing streams, while arivu (remote) serves them on THIS surface. The
+ *  two contract shapes are deliberately different (R8's remote kolu re-queries
+ *  procedures rather than streaming full diffs over the wire); the single shared
+ *  surface both homes serve is closed in R8 when kolu mirrors this surface whole
+ *  (via R7's total mirror). The primitives differ only in KIND:
  *   - the `awareness` collection (keyed current state) + `version` cell (a
  *     single current value) are the STATEFUL primitives;
  *   - `activity` is the FLOW primitive — the live "bytes moving right now" the

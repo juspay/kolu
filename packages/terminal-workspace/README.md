@@ -37,12 +37,27 @@ host owns everything else.
 collapses to an empty result). It was lifted out of `kolu-server` so there is
 **one** impl, not one per home.
 
-**One surface.** `terminalWorkspaceSurface` (`./surface`, browser-safe) is the
-single `@kolu/surface` both homes serve: the `awareness` collection + `version`
-cell + `activity` stream (the live "green dot" liveness), the `fs.*` / `git.*`
-read **procedures**, and the `subscribeRepoChange` / `subscribeFileChange`
-**watcher streams** (each a per-subscription change _pulse_ a consumer requeries
-on). `fsGitSurfaceDeps` (`./serveFsGit`) wires the endpoint onto it.
+**One fs/git impl, two homes.** R6 ships **one** fs/git impl
+(`createTerminalWorkspaceEndpoint`), not one surface both homes already serve.
+The two homes re-expose that one impl through two **deliberately different**
+contract shapes:
+
+- **kolu-server** (in-process) binds the impl to its local `TerminalEndpoint`
+  and re-exposes the reads on `koluSurface`'s **value-bearing streams** — each
+  stream yields the actual `GitStatusOutput` / `GitDiffOutput` /
+  `FsListAllOutput` / `FsReadFileOutput` and re-yields on change.
+- **arivu** (remote) serves them on `terminalWorkspaceSurface` (`./surface`,
+  browser-safe): the `fs.*` / `git.*` read **procedures** plus the
+  `subscribeRepoChange` / `subscribeFileChange` payload-free `{seq}` **pulse
+  watcher streams** a consumer requeries on. `fsGitSurfaceDeps`
+  (`./serveFsGit`) wires the endpoint onto it. The surface also carries the
+  `awareness` collection + `version` cell + `activity` stream (the live "green
+  dot" liveness).
+
+The two shapes can drift, and that's accepted for R6: the procedures+pulse
+split keeps R8's remote kolu re-querying rather than streaming full diffs over
+the wire. The single shared **surface** contract both homes serve arrives in
+**R8**, when kolu mirrors the workspace surface whole (via R7's total mirror).
 
 ## What it knows nothing about
 
@@ -59,7 +74,9 @@ git/fs, the per-agent packages for agent state).
 
 `kolu-server` embeds it (sensors in-process; fs/git bound to its local
 `TerminalEndpoint`; awareness folded into the terminal metadata it serves the
-browser). `arivu` serves the same surface remotely.
+browser, the reads re-exposed on `koluSurface`'s value-bearing streams). `arivu`
+serves the impl on `terminalWorkspaceSurface` remotely; the single surface both
+homes serve is closed in R8.
 
 ## Entry points
 
@@ -70,7 +87,7 @@ consumer:
 | --- | --- | --- |
 | `.` | Node | the sensors (`startAwareness`) + `AwarenessValue` |
 | `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
-| `./surface` | browser-safe | `terminalWorkspaceSurface` — the one surface definition |
+| `./surface` | browser-safe | `terminalWorkspaceSurface` — arivu's surface (kolu mirrors it in R8) |
 | `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
 | `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
 | `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |
