@@ -275,6 +275,16 @@ function applyLinkPolicy(anchor: Element, links: boolean): void {
     if (href === "#") return;
     anchor.removeAttribute("data-md-wikilink");
   }
+  // Footnote forward-ref marker (stamped by the renderer): trust it ONLY when
+  // the href points to a footnote definition (`#footnote-N` before
+  // namespacing). A raw HTML anchor carrying `data-md-footnote` with any other
+  // `#`-href is a spoof trying to open an arbitrary in-page element in a
+  // popover — strip the marker so it falls through to the normal in-page
+  // scroll. (Same guard as the wikilink check above.)
+  if (anchor.hasAttribute("data-md-footnote")) {
+    if (href?.startsWith("#footnote-")) return;
+    anchor.removeAttribute("data-md-footnote");
+  }
   const safe = href ? safeHref(href) : undefined;
   if (safe === undefined) {
     unwrap();
