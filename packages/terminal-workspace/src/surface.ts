@@ -174,3 +174,14 @@ export type ActivitySet = SF["streams"]["activity"]["Output"];
 // names so a consumer of the surface has one import for the surface AND its
 // value/key shapes.
 export type { AwarenessValue, TerminalId } from "./schema.ts";
+
+// Re-export the git/fs wire types the procedures carry, so a consumer (pulam-tui's
+// git-status view, kolu's Code tab) imports them from the surface without adding
+// `kolu-git` as a direct dependency — the surface already pulls them in.
+export type {
+  GitBaseRef,
+  GitChangeStatus,
+  GitChangedFile,
+  GitDiffMode,
+  GitStatusOutput,
+} from "kolu-git/schemas";

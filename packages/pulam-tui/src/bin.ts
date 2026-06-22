@@ -48,6 +48,8 @@ import {
   formatAwarenessJson,
   formatFleetJson,
 } from "./render.ts";
+import { formatGitStatusJson } from "./gitStatusRender.ts";
+import { snapshotGitStatus } from "./gitStatus.ts";
 
 const argv = cli({
   name: "pulam-tui",
@@ -123,6 +125,47 @@ const argv = cli({
           type: Boolean,
           description:
             "one-shot JSON [{ host, terminalId, ...awareness }] instead of the live board",
+          default: false,
+        },
+      },
+    }),
+    // `pulam-tui git-status` is the LIVE git-status view (R4.7): the first
+    // consumer of the surface's `subscribeRepoChange` `{seq}` watcher stream
+    // refreshing `git.getStatus`. Working tree (staged · modified · untracked)
+    // + branch (name · ahead/behind), repainting the instant the repo changes.
+    // Proves the pulse-then-requery shape over a real link before kolu's R8
+    // composes the same surface. `--repo <path>` is the repo on the pulam host.
+    command({
+      name: "git-status",
+      help: {
+        description:
+          "A LIVE git-status view for one repo: working tree (staged · modified · untracked) + branch (name · ahead/behind), repainting the instant the repo changes. The `subscribeRepoChange` pulse re-runs `git.getStatus` — the procedure-plus-pulse loop kolu's Code tab depends on. Flags go AFTER `git-status`.",
+      },
+      flags: {
+        repo: {
+          type: String,
+          description:
+            "the repo path on the pulam host (the machine pulam runs on). Required.",
+        },
+        socket: {
+          type: String,
+          description:
+            "the pulam socket to dial. Default: $XDG_RUNTIME_DIR/pulam/awareness.sock.",
+        },
+        host: {
+          type: String,
+          description:
+            "reach a remote pulam over ssh, provisioning it via Nix — e.g. --host nix@prod. Mutually exclusive with --socket.",
+        },
+        kaval: {
+          type: String,
+          description:
+            "with --host: the kaval pty-host socket the remote pulam should dial.",
+        },
+        json: {
+          type: Boolean,
+          description:
+            "one-shot machine-readable JSON instead of the live view",
           default: false,
         },
       },
@@ -266,6 +309,69 @@ async function runFleet(opts: {
   process.exit(0);
 }
 
+/** `pulam-tui git-status` — dial one pulam (local or remote), then either dump
+ *  one-shot JSON or run the live OpenTUI git-status view. The view subscribes
+ *  to `subscribeRepoChange` and re-queries `git.getStatus` on each `{seq}`
+ *  pulse — the procedure-plus-pulse loop R4.7 proves. */
+async function runGitStatus(opts: {
+  repo: string | undefined;
+  socket: string | undefined;
+  host: string | undefined;
+  kaval: string | undefined;
+  json: boolean | undefined;
+}): Promise<void> {
+  if (!opts.repo) {
+    fail(
+      "--repo <path> is required — the repo path on the pulam host (e.g. pulam-tui git-status --repo /home/srid/code/kolu).",
+    );
+  }
+  // --host / --socket are mutually exclusive (same as the bare dashboard).
+  if (opts.host !== undefined && opts.socket !== undefined) {
+    fail(
+      "--host and --socket are mutually exclusive: --host reaches a remote pulam over ssh, --socket dials a local one. Pass just one.",
+    );
+  }
+  if (opts.kaval !== undefined && opts.host === undefined) {
+    fail(
+      "--kaval only applies with --host (it picks which kaval the remote pulam dials).",
+    );
+  }
+  if (!opts.json && !process.stdout.isTTY) {
+    fail(
+      "stdout is not a TTY — pass --json for scriptable output (the git-status view needs an interactive terminal).",
+    );
+  }
+
+  const conn =
+    opts.host !== undefined
+      ? await connectHost(opts.host, opts.kaval)
+      : await connectLocal(opts.socket);
+
+  if (opts.json) {
+    const snap = await snapshotGitStatus(conn.client, opts.repo);
+    process.stdout.write(
+      `${formatGitStatusJson({
+        repoPath: opts.repo,
+        branch: snap.branch,
+        status: snap.local,
+        branchStatus: snap.branchMode,
+      })}\n`,
+    );
+    conn.dispose();
+    process.exit(0);
+  }
+
+  // Interactive: the live OpenTUI git-status view until Ctrl-C. The view holds
+  // the link (it needs the live `subscribeRepoChange` stream); dispose on exit.
+  try {
+    const { runGitStatusTui } = await import("./gitStatusView.tsx");
+    await runGitStatusTui({ client: conn.client, repoPath: opts.repo });
+  } finally {
+    conn.dispose();
+  }
+  process.exit(0);
+}
+
 async function main(): Promise<void> {
   // `pulam-tui fleet` is its own world (the live multi-host board); everything
   // below is the bare single-endpoint dashboard. Route fleet first. cleye merges
@@ -278,6 +384,22 @@ async function main(): Promise<void> {
       sshConfig: argv.flags.sshConfig ?? false,
       noLocal: argv.flags.noLocal ?? false,
       by: argv.flags.by ?? "host",
+      json: argv.flags.json,
+    });
+    return;
+  }
+
+  // `pulam-tui git-status` — the LIVE git-status view (R4.7). The first
+  // consumer of the surface's `subscribeRepoChange` `{seq}` stream refreshing
+  // `git.getStatus`. Same dial as the bare dashboard (one pulam, local or
+  // remote); the view subscribes to the watcher stream and re-queries on each
+  // pulse.
+  if (argv.command === "git-status") {
+    await runGitStatus({
+      repo: argv.flags.repo,
+      socket: argv.flags.socket,
+      host: argv.flags.host,
+      kaval: argv.flags.kaval,
       json: argv.flags.json,
     });
     return;
