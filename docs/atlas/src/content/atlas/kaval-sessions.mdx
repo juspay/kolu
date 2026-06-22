@@ -1,16 +1,14 @@
 ---
 title: Kaval sessions — dial daemons, multiplex the canvas
-description: A direction reframe for R-2 now kaval ships. Dial kavals as first-class endpoints — local over a unix socket, remote over ssh (provisioned via surface-nix-host) — with hosts auto-detected from ssh config. The same substrate supports either switching one kaval at a time (tmux-style) or multiplexing several on one canvas (per-tile piggybacks on its kaval); the canvas metaphor leans multiplex. First step — kaval-tui create, then --host (reach + provision in one PR).
+description: "The R3 branch of remote-terminals — remote-over-ssh. A kaval is a daemon you dial (local unix socket, remote ssh via surface-nix-host), so remote is never a second backend. The spike shipped (R3.1–R3.6): kaval-tui create + --host reach/provision, the warm path deduped and connection-multiplexed. The forward work — dialing remotes, the fold, the canvas — now lives in the parent remote-terminals R5–R9 roadmap."
 parents: [remote-terminals, feature]
 status: accepted
-maturity: seedling
-updated: 2026-06-15
+maturity: budding
+updated: 2026-06-21
 ---
 
-import D2 from "../../components/D2.astro";
 import Callout from "../../components/Callout.astro";
 import PrLink from "../../components/PrLink.astro";
-import Terminal from "../../components/Terminal.astro";
 import Pill from "../../components/Pill.astro";
 
 export const KavalCanvas = () => (
@@ -53,279 +51,64 @@ export const KavalCanvas = () => (
   </div>
 );
 
-export const ProcDiagram = () => (
-  <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 680 560" width="100%" role="img" aria-label="Process and host topology for P3. The LOCAL host runs the browser (packages/client) talking over ws to kolu-server, which holds the provider DAG plus fs and git watchers. An ssh seam (HostSession / stdioLink) crosses to the REMOTE prod host, which exposes one ssh endpoint: kolu-watcher (amber, re-runs fresh, P3) fronting kaval over a unix socket. kaval is the durable survivor (green) — it SURVIVES restarts while kolu-watcher re-runs fresh on the current build." style="min-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui">
-      <defs>
-        <marker id="kvsProc-ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M0,0 L7,3 L0,6 Z" fill="#3f444b" />
-        </marker>
-        <marker id="kvsProc-arSsh" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M0,0 L7,3 L0,6 Z" fill="#0D32B2" />
-        </marker>
-      </defs>
-
-      <text x="16" y="22" font-size="11" fill="#6b7178">colour = lifecycle ·</text>
-      <rect x="146" y="13" width="20" height="11" rx="2" fill="none" stroke="#9aa0aa" stroke-dasharray="5 4" />
-      <text x="171" y="22" font-size="11" fill="#6b7178">host</text>
-      <rect x="202" y="13" width="20" height="11" rx="2" fill="#ffffff" stroke="#1a1c20" />
-      <text x="227" y="22" font-size="11" fill="#6b7178">process</text>
-      <rect x="285" y="14.5" width="11" height="9" rx="1.5" fill="#E6F4EA" stroke="#15803D" />
-      <text x="301" y="22" font-size="11" fill="#6b7178">durable</text>
-      <rect x="354" y="14.5" width="11" height="9" rx="1.5" fill="#FBF1DC" stroke="#B45309" />
-      <text x="370" y="22" font-size="11" fill="#6b7178">re-runs fresh</text>
-      <text x="462" y="22" font-size="11" font-family="ui-monospace, monospace" fill="#1a1c20">packages/…</text>
-      <text x="538" y="22" font-size="11" fill="#6b7178">= package</text>
-
-      {/* ── LOCAL host ─────────────────────────────────────── */}
-      <rect x="8" y="34" width="664" height="186" rx="9" fill="#FBFBFE" stroke="#9aa0aa" stroke-dasharray="5 4" stroke-width="1.3" />
-      <text x="18" y="52" font-size="12.5" font-weight="700" fill="#4A5072">host · local  —  where kolu-server runs</text>
-
-      <rect x="22" y="64" width="168" height="146" rx="7" fill="#ffffff" stroke="#1a1c20" stroke-width="1.4" />
-      <rect x="22" y="64" width="168" height="22" rx="7" fill="#676C7E" />
-      <rect x="22" y="75" width="168" height="11" fill="#676C7E" />
-      <text x="32" y="79" font-size="11.5" font-weight="700" fill="#ffffff">process · browser</text>
-      <text x="32" y="108" font-size="11" font-family="ui-monospace, monospace" fill="#1a1c20">packages/client</text>
-      <text x="32" y="132" font-size="10" font-style="italic" fill="#6b7178">the canvas (SolidJS)</text>
-
-      <rect x="204" y="64" width="452" height="146" rx="7" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.6" />
-      <rect x="204" y="64" width="452" height="22" rx="7" fill="#0D32B2" />
-      <rect x="204" y="75" width="452" height="11" fill="#0D32B2" />
-      <text x="214" y="79" font-size="11.5" font-weight="700" fill="#ffffff">process · kolu-server</text>
-      <text x="214" y="106" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/server</text>
-      <text x="214" y="124" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface-daemon-supervisor</text>
-      <text x="214" y="142" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface-nix-host</text>
-      <text x="214" y="160" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/integrations/git</text>
-      <text x="214" y="186" font-size="10" font-style="italic" fill="#4A5072">local tiles: the provider DAG + fs/git watchers run HERE</text>
-
-      <line x1="190" y1="150" x2="204" y2="150" stroke="#3f444b" stroke-width="1.4" marker-end="url(#kvsProc-ar)" />
-      <text x="197" y="144" font-size="9.5" font-family="ui-monospace, monospace" fill="#3f444b" text-anchor="middle">ws</text>
-
-      {/* ── ssh seam (the labelled hop between hosts) ───────── */}
-      <line x1="290" y1="222" x2="174" y2="318" stroke="#0D32B2" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#kvsProc-arSsh)" />
-      <text x="486" y="252" font-size="11" font-weight="700" font-family="ui-monospace, monospace" fill="#0D32B2" text-anchor="middle">ssh · HostSession (stdioLink)</text>
-      <text x="486" y="269" font-size="9.5" fill="#4A5072" text-anchor="middle">pty-host proxied · fs/git · metadata</text>
-
-      {/* ── REMOTE host ────────────────────────────────────── */}
-      <rect x="8" y="306" width="664" height="248" rx="9" fill="#FBFBFE" stroke="#9aa0aa" stroke-dasharray="5 4" stroke-width="1.3" />
-      <text x="18" y="324" font-size="12.5" font-weight="700" fill="#4A5072">host · remote (prod)  —  one ssh endpoint: kolu-watcher, fronting kaval</text>
-
-      {/* kolu-watcher — re-runs fresh (amber) */}
-      <rect x="22" y="338" width="300" height="200" rx="7" fill="#FFFBF1" stroke="#B45309" stroke-width="1.6" />
-      <rect x="22" y="338" width="300" height="22" rx="7" fill="#B45309" />
-      <rect x="22" y="349" width="300" height="11" fill="#B45309" />
-      <text x="32" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · kolu-watcher  —  re-runs fresh  (P3)</text>
-      <text x="32" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/server   (R-1.6 provider DAG)</text>
-      <text x="32" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/integrations/git</text>
-      <text x="32" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#11203a">packages/surface</text>
-      <text x="32" y="446" font-size="10" font-style="italic" fill="#92400E">fronts kaval; runs the DAG + native fs/git;</text>
-      <text x="32" y="462" font-size="10" font-style="italic" fill="#92400E">serves pty-host + fs/git over ssh</text>
-
-      {/* kaval — durable · SURVIVES (green, the highlight) — soft halo */}
-      <rect x="375" y="333" width="286" height="210" rx="10" fill="none" stroke="#15803D" stroke-width="3.5" opacity="0.16" />
-      <rect x="380" y="338" width="276" height="200" rx="7" fill="#EAF6EC" stroke="#15803D" stroke-width="2.4" />
-      <rect x="380" y="338" width="276" height="22" rx="7" fill="#15803D" />
-      <rect x="380" y="349" width="276" height="11" fill="#15803D" />
-      <text x="390" y="353" font-size="11.5" font-weight="700" fill="#ffffff">process · kaval  —  durable · SURVIVES</text>
-      <text x="390" y="382" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/kaval</text>
-      <text x="390" y="400" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/surface-daemon</text>
-      <text x="390" y="418" font-size="11" font-family="ui-monospace, monospace" fill="#14532d">packages/terminal-protocol</text>
-      <text x="390" y="446" font-size="10" font-style="italic" fill="#166534">fds + OSC taps; single-instance</text>
-      <text x="390" y="462" font-size="10" font-style="italic" fill="#166534">pid-gate; serves a unix socket</text>
-      <text x="518" y="510" font-size="10.5" font-weight="700" fill="#15803D" text-anchor="middle">survives restarts ✓</text>
-
-      <line x1="322" y1="440" x2="380" y2="440" stroke="#3f444b" stroke-width="1.4" marker-end="url(#kvsProc-ar)" />
-      <text x="351" y="432" font-size="8.5" font-family="ui-monospace, monospace" fill="#3f444b" text-anchor="middle">unix socket</text>
-      <text x="351" y="454" font-size="8" fill="#6b7178" text-anchor="middle">taps + pty-host</text>
-    </svg>
-  </div>
-);
-
-**A reframe of [remote-terminals](remote-terminals.html)'s R-2, proposed now kaval ships.** Old R-2 made *remote* a heavyweight per-tile **backend** (a `RemoteTerminalBackend`, a parent-side screen mirror, a bespoke agent). This proposes a lighter substrate: **a kaval is a daemon you dial** — local over a unix socket, remote over ssh — and Kolu can put a tile on any kaval. Whether the canvas shows **one kaval at a time** (tmux-style switch) or **multiplexes several** (a tile per kaval, side by side) is a UI choice on the *same* substrate — and because kolu is a *canvas*, it leans multiplex.
+**The R3 branch of [remote-terminals](remote-terminals.html) — remote over ssh.** A kaval is **a daemon you dial** — local over a unix socket, remote over ssh — so remote is **not a second backend**. One backend, bound to an endpoint; location never complected in. Put a tile on any kaval. Whether the canvas **switches** one kaval at a time (tmux-style) or **multiplexes** several side by side is a UI choice on the *same* substrate — and because kolu is a *canvas*, it leans multiplex.
 
 <KavalCanvas />
 
-## The substrate — a kaval is a daemon you dial
+## One backend, bound to a dialed endpoint
 
-kolu-server already keys its pty-host endpoint + status by `hostId` (a `Map`, instantiated as one — `local` — today). This instantiates more keys: a registry of kaval endpoints, each reached by a driver — unix socket (local, shipped) or ssh stdio (`HostSession`, R-2's only new transport, the same closure shipped by `@kolu/surface-nix-host`).
-
-<D2
-  caption="One substrate. kolu-server holds a registry of kaval endpoints keyed by hostId; a tile resolves to its endpoint via the R-1 seam, and each endpoint is dialed by a driver (unix socket / ssh stdio). Switch keeps one endpoint live and swaps; multiplex keeps N live at once. Remote is just the ssh driver provisioning the same kaval closure."
-  code={`direction: down
-ui: "kolu canvas — a tile lives on a kaval\\n(local + ssh, switched or multiplexed)"
-server: "kolu-server" {
-  resolve: "per tile: resolveEndpoint(location) → its kaval endpoint"
-  registry: "endpoint registry — Map<hostId, endpoint>" {
-    epLocal: "local — unix socket"
-    epProd: "prod — ssh stdio (HostSession)"
-  }
-}
-kLocal: "kaval @ local — survives deploys"
-kProd: "kaval @ prod — provisioned + dialed (R-2)"
-ui -> server.resolve: "a tile's PTY"
-server.registry.epLocal -> kLocal: "dial unix socket"
-server.registry.epProd -> kProd: "ssh: nix copy --derivation → realise → dial"
-`}
-/>
-
-**There is one backend, not many** — and one backend means one *shape*, not one host. A backend is **three surfaces bound to an endpoint** — PTY · fs · git — and local vs remote is only the transport each is dialed over. The PTY surface already works this way (kaval at a unix socket since B2, or ssh stdio); fs and git extend the **same** pattern — served at the host, mirrored over the same `HostSession` link (`mirrorRemoteSurface`, the R-1.5 remote-process-monitor pattern). **No reach-over-ssh per op, no polling.**
+kolu-server keys its pty-host endpoint by `hostId` (one key today — `local`). R3 just instantiates more keys: a registry of kaval endpoints, each reached by a driver — unix socket (local, shipped) or ssh stdio (`HostSession`, the same closure `@kolu/surface-nix-host` ships). **One backend means one *shape*, not one host:** three surfaces bound to an endpoint — **PTY · fs · git** — local vs remote only the transport each is dialed over.
 
 | At the endpoint | local | remote — same `HostSession` link |
 | --- | --- | --- |
 | **PTY** — kaval (fds + OSC taps) | unix socket | ssh stdio |
-| **provider DAG + fs/git watchers** — run where the files are | in kolu-server | in **kolu-watcher** → stream metadata |
-| **Code-tab fs** — browse · read · *watch* | node fs (native) | remote fs surface · snapshot-then-delta |
+| **awareness — provider DAG + git watcher** | in kolu-server (in-process) | in **[arivu](arivu.html)** → mirrored + folded (R4) |
+| **Code-tab fs** — browse · read · watch | node fs (native) | a thin remote fs/git surface · snapshot-then-delta |
 
-The **awareness** providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so they are transport-free. kaval stays the durable survivor; **kolu-watcher** — a host-resident process running the provider DAG + fs/git — **re-runs fresh** (the #1031 line, now applied remote-side). *The `kolu-` prefix is honest: kolu-watcher runs kolu's own logic — it is coupled, kolu's soul — unlike the generic, kolu-agnostic kaval (which earns a standalone name).* So R-1's `TerminalBackend` *interface* — renamed `TerminalEndpoint` and shorn of its speculative resolver in **P0** (<PrLink pr={1364} />) — anticipated a second (remote) *implementation* the kaval model dissolves: not two backends, one backend whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` (B3.3) adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out for free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
+Awareness providers (cwd · title · foreground · command · agent-detection) are *tap-fed*, so transport-free. kaval stays the durable survivor; the **provider DAG is [arivu](arivu.html)** — the host-side awareness daemon, already shipped standalone and decoupled from kolu — dialed and folded in by R4. arivu is **ephemeral and re-provisioned each dial**, so its sensors are always re-derived from the current build (the #1031 "never serve stale detection" lesson, met by re-provisioning, not a kolu-coupled process). kaval itself is dialed **directly** over ssh via the shipped `frontDaemonOverStdio` (R3.4) — nothing fronts it. So R3.1's `TerminalEndpoint` rename anticipated a second *implementation* the kaval model dissolves: not two backends, one whose surfaces bind to an endpoint. Adding a kaval is **adoption you already shipped** — `adoptOrEnsure` adopts a live survivor's PTYs (else provisions + spawns), now run per endpoint — and multiple *local* kavals fall out free (kaval is namespaced per kolu-server port, `kaval-<port>/`, <PrLink pr={1313} />).
 
-## Switch or multiplex?
+**Switch or multiplex** is a later, reversible UI call the spike doesn't depend on. The lean is **multiplex**: switch is a *terminal-multiplexer* metaphor, but kolu is a *canvas* — "watch a local build beside a prod-ssh tile" is the point, not a corner case. The cost over switch is modest and clean — per-tile `location` returns, but *additively* (no `RemoteTerminalBackend`, no screen mirror — just which endpoint holds this tile's PTY), and the ChromeBar shows only the kavals this canvas actually has tiles on.
 
-The open question — and the same substrate answers either, so it is a **later, reversible** UI call that the spike below does not depend on:
+## The spike — kaval-tui dials local and ssh (R3.1–R3.6, shipped)
 
-| | switch (tmux-style) | multiplex (canvas) — leaning |
-| --- | --- | --- |
-| the canvas | one kaval in view | tiles span kavals |
-| per-tile `location` | unneeded | additive — the R-1 discriminator, finally used |
-| live endpoints | one, swapped | N concurrent |
-| host hint | one *current* pointer | a light per-tile tag; ChromeBar shows the *active* kavals |
-| why it fits kolu | simplest | the canvas is spatial + heterogeneous *by design* |
+[kaval-tui](pty-daemon-tui.html) is the minimal client — it proves the transport before any kolu UI, and because it and kolu-server dial the same socket through the same client, **the spike *is* the production driver**. Both halves landed.
 
-The lean is **multiplex**: tmux-switch is a *terminal-multiplexer* metaphor, but kolu is a *canvas* — "watch a local build beside a prod-ssh tile" is the point of a canvas, not a corner case. The cost over switch is modest and clean — per-tile `location` returns, but **additively** (no `RemoteTerminalBackend`, no screen mirror — just *which endpoint holds this tile's PTY*), and the ChromeBar shows only the kavals this canvas *actually has tiles on*.
+<Pill variant="ok">shipped</Pill> The full warm path, dialing a remote kaval:
 
-## Phases
+```
+$ kaval-tui list --host nix@prod
+  ↳ ssh nix@prod · nix copy --derivation → realise … kaval up
+  ↳ dialing the remote kaval over ssh stdio … connected · 0 terminals
+$ kaval-tui create --host nix@prod      → spawned a8f1…  plain shell on prod
+$ kaval-tui attach a8f1… --host nix@prod
+  ↳ ~/app on prod — remote PTY survives · detach/reattach anytime
+```
 
-| Phase | Ships | Note |
-| --- | --- | --- |
-| **P0** · backend cleanup <Pill variant="ok">shipped</Pill> <PrLink pr={1364} /> | collapsed R-1's anticipated backend polymorphism — a backend is **PTY · fs · git surfaces bound to an endpoint** (`TerminalEndpoint`, renamed from `TerminalBackend`; no `RemoteTerminalBackend`); byte-identical locally. The interface's own doc-comment is now the seam P3 fills with the remote impl | kolu-server only · landed · grounds P3 |
-| **P1** · `kaval-tui create` <Pill variant="ok">shipped</Pill> <PrLink pr={1370} /> | spawns a plain `$SHELL` (or a given command) and prints its id — the attach-needs-something prerequisite; thin over `terminal.spawn`, the whole input composed client-side (no kolu policy) | unblocks the `create → attach` half of the spike |
-| **P2** · `kaval-tui --host` <Pill variant="ok">shipped</Pill> <PrLink pr={1373} /> | **reach + provision in one PR** (ssh): provision the daemon's closure, run `kaval --stdio` — which fronts the *durable* daemon (adopt-or-start the host's kaval, relay the link to its unix socket) — and dial it as the same `ptyHostSurface` client, so a remote PTY survives the link (create on prod, attach later). ssh-config auto-detect deferred | **the spike** — *is* the production driver; validated on a `pu` box |
-| **P2.5** · upstream `frontDaemonOverStdio` <Pill variant="ok">shipped</Pill> <PrLink pr={1374} /> | extracted P2's `kaval --stdio` durable-fronting bridge (`stdioBridge.ts`) into **`@kolu/surface-daemon`** as `frontDaemonOverStdio` — the **durable counterpart to `@kolu/surface`'s `serveOverStdio`** (ephemeral per-link agent ↔ a gate-held daemon fronted over ssh-stdio): a contract-agnostic relay + adopt-or-spawn, parameterized by socket path + daemon-spawn command | landed right after #1373, while the bridge was fresh — homes the durable transport as a library primitive before P3's remote pair builds on it. The **drishti companion** is a *verified-compatible kolu-pin bump* (drishti CI green against the new surface-daemon API) — not a durable-observer rewrite; see the note below |
-| **P2.7** · skip redundant provisioning <Pill variant="ok">shipped</Pill> <PrLink pr={1377} /> | `surface-nix-host` re-ships the closure on **every** dial — a warm, already-provisioned host still runs `nix copy --derivation` → realise → pin (the copy reports **"copying 0 paths"**, the realise rebuilds nothing, the pin re-points an identical root). Make the shared `provisionAgent` **ask nix whether the closure is already realisable on the host in one cheap round-trip that doubles as the pin**, falling through to the full copy only on a miss — keyed on store-realisability, not the dangle-prone GC root | one internal change to the **shared** ensure verb, so **drishti**'s `process-monitor-agent` provisioning gets the same warm-skip free; same signature ⇒ not API-facing ⇒ no drishti PR compelled |
-| **P2.8** · multiplex the ssh connections <Pill variant="ok">shipped</Pill> <PrLink pr={1378} /> | P2.7 cut the warm path's *work* (≈5 ssh ops → 3) but each survivor was still a separate ssh handshake — nothing reused the tunnel. Now **one** connection is shared across the arch probe, the provision check, and the agent dial via ssh **`ControlMaster=auto`/`ControlPersist`**, added as `-o` flags to the existing `SSH_OPT_PAIRS` single-source-of-truth in `host.ts` (**no `~/.ssh/config` touch**; a kolu-private `%C`-addressed `ControlPath`), plus an in-memory per-host arch cache. Warm dial → one handshake + near-instant channels | the deferred "per-connection villain" P2.7 named; the master-lifecycle edges (stale sockets, multi-process contention, keepalive-governs-the-tunnel) are all delegated to ssh's `auto` — no `-O exit` teardown that would defeat the cross-invocation warmth |
-| **P3** · kolu dials remotes | N-endpoint registry + the ssh driver; the remote pair — kaval + **kolu-watcher** (provider DAG + fs/git surface) — mirrored over the `HostSession` link; `location` additive on records | builds on P0 + P2 · carries the remote seams (`composeSpawnInput` inversion · paste/upload `PRECONDITION_FAILED` guard · `drvPath` via `resolveSystem`) |
-| **P4** · the canvas UI + validate | build **multiplex** (the lean) — active-kaval strip (local always present), per-tile host hint, ssh-config picker — then **validate the feel** (does N-at-once beat tmux-switch in daily use?); fall back to switch if it doesn't earn its keep | the granularity call lands **and is validated** here |
-**P1–P2 — the spike — in detail.** [kaval-tui](pty-daemon-tui.html) is the minimal client; it proves the transport before any Kolu UI, and because it and kolu-server dial the same socket through the same client, the spike **is** the production driver. P1 (`create`) and P2 (`--host`) have both landed (<PrLink pr={1370} /> · <PrLink pr={1373} />); the prose below reads as the record for both.
+| Phase | What shipped |
+| --- | --- |
+| **R3.1** · backend cleanup <PrLink pr={1364} /> | collapsed the speculative `TerminalBackend`/`getTerminalBackendFor(location)` dispatch into one **`TerminalEndpoint`** (renamed, byte-identical) — remote becomes a transport, not a second backend. Its doc-comment is the seam the parent's R8 fills |
+| **R3.2** · `kaval-tui create` <PrLink pr={1370} /> | spawns a plain `$SHELL` (or `create -- htop -d 5`) and prints the id — a fresh daemon needs something to attach to. Thin over `terminal.spawn` (spawn is fully-specified; the caller composes `{argv, env, initFiles}`, no kolu policy). `--json` for scripts |
+| **R3.3** · `kaval-tui --host` <PrLink pr={1373} /> | **reach + provision in one PR** (ssh). One `getHostSession` both provisions (`nix copy --derivation` → realise → pin) and dials over ssh `stdioLink`, handing back the same `ptyHostSurface` client the unix socket speaks. The one daemon-side addition — `kaval --stdio` — **fronts the durable daemon** (adopt-or-start the host's kaval, raw-byte-relay the link to its unix socket), so a remote PTY survives the link. ssh-config auto-detect deferred |
+| **R3.4** · upstream `frontDaemonOverStdio` <PrLink pr={1374} /> | homed R3.3's durable-fronting bridge in **`@kolu/surface-daemon`** as `frontDaemonOverStdio` — the **durable counterpart to `serveOverStdio`** ("`dtach`/`abduco` for any surface daemon, over ssh"): a contract-agnostic relay + adopt-or-spawn, parameterized by socket path + spawn command. kaval's `--stdio` became a thin call into it |
+| **R3.5** · skip redundant provisioning <PrLink pr={1377} /> | a warm host re-ran the full `nix copy → realise → pin` (copy reports *"copying 0 paths"*). `provisionAgent` now tries the cheap realise+pin **first** (instant when the closure is present, doubles as the presence check), falling through to the full copy only on a miss — keyed on store-realisability, not the dangle-prone GC root. Internal to the shared ensure verb, so **drishti** gets the warm-skip free |
+| **R3.6** · multiplex ssh connections <PrLink pr={1378} /> | the warm path still opened **3** separate ssh handshakes (arch probe · provision check · agent dial). One shared connection via `ControlMaster=auto`/`ControlPersist`, added as `-o` flags to the existing `SSH_OPT_PAIRS` (no `~/.ssh/config` touch; a kolu-private `%C` `ControlPath`), plus a per-host arch cache. Warm dial → one handshake + near-instant channels |
 
-<Terminal title="kaval-tui · ssh nix@prod (provision + dial)" lines={[
-  "$ kaval-tui list --host nix@prod",
-  "  ↳ ssh nix@prod · nix copy --derivation → realise … kaval up",
-  "  ↳ dialing the remote kaval over ssh stdio … connected · 0 terminals",
-  "",
-  "$ kaval-tui create --host nix@prod",
-  "  ↳ spawned a8f1…  plain shell on prod",
-  "$ kaval-tui attach a8f1… --host nix@prod",
-  "  ↳ ~/app on prod — remote PTY survives · detach/reattach anytime",
-]} />
-
-- **`kaval-tui create`** *(prereq · shipped <PrLink pr={1370} />)* — spawns a **plain `$SHELL`** (or a given command, `create -- htop -d 5`): a thin subcommand over the `terminal.spawn` RPC (B0 made spawn fully-specified — the caller supplies the whole `{argv, env, initFiles}`, the host derives nothing — and the tests carry the minimal `spawnInput()`). It prints the new id and exits without attaching (`--json` for scripts); `kaval-tui` is now `list` / `create` / `snapshot` / `attach`, with `kill` the one deferred verb. A freshly-provisioned remote kaval has **zero** terminals, so `create` comes first.
-- **`kaval-tui --host <ssh>`** *(reach + provision · shipped <PrLink pr={1373} />)* — one `getHostSession(…)` from `@kolu/surface-nix-host` both provisions (`nix copy --derivation` → realise → pin) **and** dials over ssh `stdioLink`, handing back a client of the *same* `ptyHostSurface` contract the unix socket speaks. The one daemon-side addition is `kaval --stdio`: rather than serve a throwaway in-process host per link, it **fronts the durable daemon** — adopt-or-start the host's kaval (pid-gated, single-instance) and raw-byte-relay the ssh link to its unix socket — so a remote PTY survives the link. The per-arch kaval `.drv` is baked into the kaval-tui Nix wrapper (`KAVAL_AGENT_DRVS_JSON`) so `--host` ships the right build cross-arch. Both transport halves were already proven in the remote-process-monitor example — no new transport invented.
-
-<Callout kind="note" title="The spike is the substrate — and it doesn't depend on switch-vs-multiplex">
-ssh <em>reach</em> + provision is the one genuinely-new transport, shared by both granularities and R-2's biggest unknown. Proving it in kaval-tui builds the production driver and lets real feedback <em>settle</em> switch-vs-multiplex later — so it is the right validation step even though the canvas model isn't finalized. (P0 was independent kolu-server cleanup; it landed first, <PrLink pr={1364} />, without waiting on the spike.)
+<Callout kind="note" title="ssh reach is the one genuinely-new transport">
+ssh <em>reach + provision</em> is R3's biggest unknown, shared by both granularities. Proving it in kaval-tui builds the production driver and lets real feedback settle switch-vs-multiplex later — the right validation step even before the canvas model is final. (R3.1 was independent kolu-server cleanup; it landed first, without waiting on the spike.) The durable-fronting bridge (R3.4) is a <em>different primitive</em> from the ephemeral remote-agent <code>serveOverStdio</code> serves — mini-ci, remote-process-monitor, and drishti all <em>re-run fresh</em> per link; the durable bridge proxies a <em>separate, gate-held</em> daemon (the mosh/tmux/<code>dtach</code> lineage, generalized to any surface daemon). drishti's companion is a <em>verified-compatible pin bump</em>, not a durable-observer rewrite — drishti's <code>/proc</code> snapshot rebuilds in ~2s by design, so durability fights its nothing-on-the-remote identity.
 </Callout>
 
-### Pick-up anchors
+**Measured warm path** (real ssh, median of 7, the exact opts the code emits). Three round-trips; multiplexing turns 2 of the 3 handshakes into channel reuse, so the saving scales with distance:
 
-Concrete hooks — every path below is verified against the tree. Both phases live in **`packages/kaval-tui/src/main.ts`** (a [cleye](pty-daemon-tui.html) CLI: `command()` entries in a `commands` array, dispatched by a closed `if (argv.command === …)` chain) and call the **already-complete** `terminal.spawn` / surface contract — neither needs a contract bump. Both are now the record of what landed.
-
-**P1 · `kaval-tui create`** <Pill variant="ok">shipped</Pill> <PrLink pr={1370} /> — the thin spawn, as it landed:
-
-| Concern | Where it landed |
-| --- | --- |
-| subcommand + dispatch | the `create` `command()` beside `list`/`snapshot`/`attach` and the `else if (argv.command === "create")` arm (`main.ts` `cmdCreate`) |
-| the call | `conn.client.surface.terminal.spawn(input)` → `{ id, pid, cwd }`; the existing `PtyTuiClient` (`connect.ts`) exposed it — **no client change** |
-| input shape | `PtyHostSpawnInput` (`packages/kaval/src/ptyHostSurface.ts`) — `{ argv, cwd, env, initFiles }`. *Thin path:* `argv` is the command, else `[$SHELL]` falling back to `DEFAULT_SPAWN_SHELL`, with `initFiles: []` — deliberately **not** kolu-server's policy compose (`composeSpawnInput`, `packages/server/src/ptyHost/index.ts`), which layers env + shell-init for the rich client. Composed by the pure `buildCreateInput` in `packages/kaval-tui/src/create.ts` |
-| minimal shape it shares | the in-tree `spawnInput()` helpers — `packages/kaval/src/contractCorpus.testlib.ts` and `packages/kaval-tui/src/attach.test.ts` (the latter delegates to `buildCreateInput`, so the test shape can't drift) |
-| the resolved calls | positional `[command...]` (a plain `$SHELL` by default, the command after `--`), **no** auto-attach (print the id and exit — the `attach with …` hint to stderr), and `--json` → `{ id, pid, cwd }` for scripts |
-
-**P2 · `kaval-tui --host <ssh>`** <Pill variant="ok">shipped</Pill> <PrLink pr={1373} /> — reach + provision, as it landed:
-
-| Concern | Where it landed |
-| --- | --- |
-| the flag | `--host` beside `socketFlag` (now spread as `endpointFlags`) on every subcommand; **mutually exclusive** with `--socket`, guarded in `main()` |
-| connect branch | `connectPtyHostViaHost` (`packages/kaval-tui/src/hostConnect.ts`) returns the **same `Connection` shape** the unix path does, so every `cmd*()` — including P1's `create` — consumes it unchanged. `markConnected()` after the first RPC disarms the 30s connect-watchdog so a long `attach` isn't reaped |
-| dial + provision | `getHostSession<typeof ptyHostSurface.contract>({ host, binary: "kaval", resolveDrvPath })` → `provisionAgent` (`nix copy --derivation` → realise → pin GC root) **then** `stdioLink` over `ssh … kaval --stdio`. `session.pin()` for the client; `session.destroy()` for `dispose` |
-| **durable fronting** | `kaval --stdio` (`packages/kaval/src/stdioBridge.ts`) — the one daemon-side addition. Adopt-or-start the host's durable kaval (pid-gated) and **raw-byte-relay** the ssh link to its unix socket (identical peer framing, no decode), so `create`→`attach` survive across links. After P2.5 (<PrLink pr={1374} />) the kaval shim is a thin composition — it imports `@kolu/surface-daemon`'s `frontDaemonOverStdio` + `socketPath`; the **generic relay** (`packages/surface-daemon/src/frontDaemonOverStdio.ts`) is the one that's contract-blind `node:*`-only, which is what keeps the daemon-closure allow-list intact (`buildId.closure.test.ts` — `@kolu/surface-daemon` is a hashed root, so the shim's edge into it is in-closure, not an external) |
-| arch → drvPath | `resolveSystem(host)` feeds a per-system `{ system → kaval .drv }` map baked into the kaval-tui Nix wrapper (`KAVAL_AGENT_DRVS_JSON`; built in `flake.nix`, baked in `default.nix`); `openssh`/`nix` on the wrapper PATH for the provision |
-| open call | ssh-config host auto-detect (the *"from ssh config"* nicety) was **deferred** — not load-bearing for the spike |
-
-**P2.5 — the durable stdio front, upstreamed.** <Pill variant="ok">shipped</Pill> <PrLink pr={1374} /> P2's `kaval --stdio` bridge (`packages/kaval/src/stdioBridge.ts`) was a member of a real class — **a remote, in-process *stateful session* that must outlive any one client link** (detach → reattach hits the same live state), reached over ssh-stdio: the mosh / tmux / `dtach` / `abduco` lineage, generalized from *a PTY* to *any `@kolu/surface` daemon*. It is a **different primitive** from the ephemeral remote-agent the library already serves — `mini-ci`, `remote-process-monitor`, and drishti all **re-run fresh** per link, which `@kolu/surface`'s `serveOverStdio` covers (there the `--stdio` process *is* the server) — whereas the durable bridge is a **contract-agnostic proxy** fronting a *separate, gate-held* daemon. So, right after #1373 merged while it was fresh, it's homed as a named library concept rather than left to ossify as kaval-private before P3's remote pair builds on the same transport:
-
-- **Where:** **`@kolu/surface-daemon`** (the durable-daemon spine: `acquirePidGate` + `daemonMain`) gains **`frontDaemonOverStdio`** — the **durable counterpart to `serveOverStdio`** — making surface-daemon "`dtach`/`abduco` for any surface daemon, reachable over ssh." (Not `surface-nix-host`, the client/dial side; not a new package.) kaval's `--stdio` became a thin call into it.
-- **Shape:** the generic core is a byte relay + adopt-or-spawn, parameterized by socket path + daemon-spawn command. kaval is the first consumer; the anticipated next ones — a **survivable CI run** (mini-ci's durable evolution) and a remote REPL/kernel — should guide the parameterization so it doesn't over-fit kaval.
-- **Carry the invariants** the kaval bridge encodes: the single-process `node --import <loader>` re-exec (so `SIGTERM` reaches the daemon, not a swallowing `tsx` fork), the `{ end: false }` stdout relay, the final post-deadline connect attempt, and `env: process.env` inheritance.
-- **The drishti companion — a verified-compatible pin bump, not a durability rewrite.** `surface.md`'s drishti mandate scopes to `surface`/`surface-app`/`surface-nix-host`, **not** `surface-daemon` (which drishti doesn't consume), so no PR is compelled. The companion ships as a courtesy: bump drishti's kolu pin to this commit and confirm its CI stays green against the new API. Making drishti's *observer* durable over `frontDaemonOverStdio` was considered and **set aside** — the state a user notices (metric history) is already *parent*-held (not agent-held), the per-link reset is a ~2s first-tick rate-baseline warmup on an ssh-respawn only, and a surviving daemon + socket + gate on every host fights drishti's *nothing-installed-on-the-remote* identity. Durability earns its keep for irreplaceable state (kaval's live PTY fds); drishti's `/proc` snapshot rebuilds in 2s by design.
-
-**P2.7 — skip redundant provisioning.** <Pill variant="ok">shipped</Pill> <PrLink pr={1377} /> Reproduced against a `pu` box: `kaval-tui list --host` run twice in a row re-provisions on the **second** call too — `nix copy --derivation` prints **"copying 0 paths"**, the realise rebuilds nothing, the pin re-points an identical GC root. `provisionAgent` (`packages/surface-nix-host/src/nixCopy.ts`) runs copy → realise → pin **unconditionally**, and `HostSession.spawn` calls it on every dial, so a warm host pays the full ~30s provision — roughly half of it (copy + realise + pin) provably wasted — just to list its terminals. The fix keeps the function's job — *ensure the agent's closure is realised + pinned on the host* — but reaches that postcondition with less work:
-
-<D2
-  caption="provisionAgent gains a warm fast-path: try the cheap realise+pin FIRST (nix makes it instant when the closure is already on the host, and it doubles as the presence check + the GC-root refresh); only fall through to the full nix-copy when nix reports the closure isn't there. Keyed on nix's own store-realisability — not on reading the moving-result GC root, which can dangle past a store GC or a box reimage."
-  code={`direction: down
-ensure: "provisionAgent(host, drv) — the one 'ensure' verb\\nkaval --stdio AND drishti both dial it"
-probe: "1 ssh · nix-store --realise <drv> --add-root … --indirect\\ninstant when the closure is already present"
-warm: "WARM — present: repin + return out\\nDONE · copy skipped (1 ssh)"
-cold: "COLD — drv absent on host\\nnix copy --derivation → realise → pin"
-ensure -> probe
-probe -> warm: "ok"
-probe -> cold: "fast-fail → fall through"
-`}
-/>
-
-- **Where, and why drishti benefits.** The change is **internal to `surface-nix-host`'s `provisionAgent`** — the single ensure verb that **both** kaval's `kaval --stdio` and **drishti**'s `process-monitor-agent` dial. So drishti's remote provisioning gets the identical warm-skip with **zero drishti code**. Same signature + same returned out-path ⇒ not API-facing ⇒ `surface.md` compels no companion PR; drishti just speeds up on its next kolu pin.
-- **Presence, not the symlink.** The skip is keyed on **nix's own store-realisability** of the closure (an instant no-op realise when present), *not* on `readlink`-ing the moving-result GC root — that root is an indirect symlink that can survive an out-of-band store GC or a box reimage and resolve to a path that no longer exists, which would skip provisioning and then dial a **missing binary**. Guards stay load-bearing: a miss / absent-root / mismatched result *falls through* to the full provision (never errors, never blind-skips), and the new probe's transport failures reuse the existing `network`/`remote` classification so a roaming host can't burn the reconnect give-up budget.
-- **The boundary.** The check stays **inline** in `provisionAgent`: not a new exported `isProvisioned` helper (that would split the atomic *ensure* verb and push a check-then-act race onto every consumer), and not lifted into `HostSession.spawn` (that would complect session-lifecycle with provisioning internals — and drishti's consumer, which never touches `HostSession`, wouldn't benefit).
-- **Deferred — noted, not smuggled in.** The deeper villain is **~5s per ssh connection** (nothing multiplexes); each surviving round-trip still pays it. **ssh `ControlMaster`/`ControlPersist`** — one shared connection across probe + dial, helping *cold and warm* alike — is the orthogonal follow-up, on its own PR with socket-lifecycle tests. The per-dial arch probe (`resolveSystem`) is a second redundant round-trip that multiplexing incidentally cheapens. A local on-disk "provisioned" cache is **rejected** — a third source of truth with remote-GC / reimage / hostname-reuse staleness; the one cheap nix probe is always-correct.
-
-**P2.8 — multiplex the ssh connections.** <Pill variant="ok">shipped</Pill> <PrLink pr={1378} /> P2.7 removed the redundant *work*, but the warm path still opened **three separate ssh connections** — the arch probe (`resolveSystem`), the provision check (P2.7's `nix-store --realise` probe), and the agent dial (`ssh … kaval --stdio`) — each paying its own handshake because nothing reused the tunnel. That per-connection cost, not the work, became the dominant warm-path latency. The fix is ssh connection multiplexing, and it needs **no change to the user's `~/.ssh/config`**: every ssh kolu spawns already draws its options from one place — `SSH_OPT_PAIRS` in `host.ts`, rendered into both the `-o` argv (`SSH_COMMON_OPTS`) and the `NIX_SSHOPTS` env that `nix copy`'s own ssh reads — so the `ControlMaster` opts are just rendered alongside them (kept in their own `controlMaster.ts` module since, unlike the static keepalive policy, the `ControlPath` is env-derived and its dir is a side effect).
-
-<D2
-  caption="One ssh ControlMaster tunnel, three riders. The first op (the arch probe) opens the master; ControlPersist keeps it warm so the provision check and the agent dial ride it as near-instant channels instead of fresh ~5s handshakes. All via -o flags on the commands kolu already spawns — the ControlPath is a kolu-private socket, never ~/.ssh."
-  code={`direction: down
-dial: "kaval-tui --host — one dial"
-master: "ssh ControlMaster — ONE tunnel\\n(opened by the first op; ControlPersist keeps it warm)"
-probe: "arch probe · resolveSystem"
-prov: "provision check · nix-store --realise (P2.7)"
-agent: "agent dial · kaval --stdio"
-dial -> master: "-o ControlMaster=auto\\n+ a kolu-private ControlPath"
-master -> probe: "channel ~50ms"
-master -> prov: "channel ~50ms"
-master -> agent: "channel ~50ms"
-`}
-/>
-
-- **One tunnel, three riders.** `ControlMaster=auto` + `ControlPersist` means the first ssh (the arch probe) opens the master and the provision check + agent dial ride it as near-instant channels (a multiplexed channel vs a full handshake — measured below). The `ControlPath` is a **kolu-private** socket — reusing `getRuntimeSocketPath` (the same per-user convention as the pty-host socket, never `~/.ssh`): `$XDG_RUNTIME_DIR/kolu-ssh/%C` on systemd Linux, else the `/tmp/kolu-ssh-$UID/%C` fallback (macOS / non-systemd) — created `0700` and verified owner-only — addressed by `%C` (ssh's host+port+user hash) to stay under the ~104-char unix-socket limit and whitespace-free, per the existing `SSH_OPT_PAIRS` contract. Multiplexing is **additive**: if the dir can't be made private (or the path would carry whitespace, which would corrupt the word-split `NIX_SSHOPTS`), the control opts silently drop and ssh connects un-multiplexed — correctness never depends on the master.
-- **Cache the arch probe too.** A host's nix-system doesn't change between dials, so `resolveSystem` is now memoized per host for the process — the second redundant round-trip P2.7 left alone. A *failed* probe isn't cached, so a transient-unreachable host re-probes next dial rather than serving a poisoned cache. (No on-disk cache — that would be a third source of truth with reimage/hostname-reuse staleness.)
-- **The lifecycle edges, resolved by leaning on `auto`.** Why it wasn't folded into P2.7: a shared master has a real correctness surface — stale control sockets after an unclean master death, multiple `kaval-tui` processes contending on one socket, and the keepalive (`ServerAliveInterval`/`CountMax`) now governing the whole tunnel. Each is delegated to ssh's own `ControlMaster=auto`: a stale master makes the next connect fall back to a fresh direct connection (one un-multiplexed dial, then it re-masters — correctness-complete), and contention is benign because both processes target the same `%C` socket and ssh's atomic bind picks one master. The decisive call (locked by a unit test): **no `ssh -O exit` teardown** — with cross-invocation `ControlPersist` (~10m) it would kill the very master the next `kaval-tui` within minutes was meant to ride. A proactive `ssh -O check && rm` recovery was rejected too: it re-adds a round-trip and races ssh's atomic bind (TOCTOU). `nix copy`'s ssh-ng fork rides the master via the same control opts in `NIX_SSHOPTS`.
-
-**Measured** (real ssh, median of 7, the exact keepalive + `ControlMaster` opts the code emits). The warm path issues **3** ssh round-trips; multiplexing turns 2 of the 3 handshakes into channel reuse. The per-connection saving is the host's handshake latency, so it scales with distance:
-
-| host | fresh handshake | multiplexed channel | warm-path ssh cost: **before** (3×handshake) → **after** (1 handshake + 2 channels) |
+| host | fresh handshake | multiplexed channel | warm-path ssh: **before** → **after** |
 | --- | --- | --- | --- |
 | linux pu box (kolu-ci-1, Tailscale) | **5.42 s** | **0.70 s** | **16.3 s → 6.8 s** (2.4×) |
 | darwin (rasam, Tailscale WAN) | **2.89 s** | **0.48 s** | **8.7 s → 3.9 s** (2.25×) |
 
-*(This isolates the ssh-connection portion of a warm dial — the only thing P2.8 changes; the realise probe's own remote work is unchanged from P2.7.)*
+## What's next — in the parent roadmap
 
-## The remote process model (P3)
+Dialing remotes, folding in awareness + fs/git, and the multiplex canvas now live as the linear **R5–R9** roadmap in the parent [remote-terminals](remote-terminals.html) note — including arivu growing an **fs/git surface** (R6). This note is the shipped spike (R3.1–R3.6).
 
-**kaval and kolu-watcher are two separate processes** — forced, not incidental. kaval is the durable survivor (it must outlive deploys); **kolu-watcher** (provider DAG + fs/git) re-runs fresh (it must be the current build's code — the #1031 line); **one process cannot be both.** Locally that role isn't even a separate process — the DAG + fs/git watchers run *inside* `kolu-server` (`local.ts`: *"the DAG runs HERE, in kolu-server"*), with kaval the separate daemon. Remotely, `kolu-server` isn't on the host, so it splits out as its own **kolu-watcher** process beside kaval.
+## History
 
-And because **kaval serves a *unix socket*** (`serveOverUnixSocket`), reaching it over the network needs a remote *stdio* endpoint — and a `HostSession` is one ssh subprocess per host. So the remote host exposes **one** ssh endpoint — **kolu-watcher**: `kolu-server` dials it over one `HostSession` `stdioLink`, and kolu-watcher locally **fronts kaval** (its unix socket) for PTY attach/control + taps while serving its own fs/git + metadata surface (`mirrorRemoteSurface`). The closure is shipped first via `provisionAgent` (`nix copy --derivation` → remote `realise` → pin a GC root). The diagram shows all three boundaries — **host** (dashed), **process** (boxed), **package** (`packages/…`):
-
-<ProcDiagram />
-
-**If the host already has a kaval running, it is adopted** — the same generic `adoptOrEnsure` spine (`endpoint.ts`), per endpoint, that the local boot uses. A duplicate is impossible by construction: a second launch hits the pid-gate's atomic `link(2)` EEXIST, liveness-probes the holder (`kill(pid,0)`), and exits 0 ("yielding to the live instance") **without binding a socket** — the running daemon is never disturbed. Re-provisioning is idempotent (`nix realise` no-ops if the closure is already present; an older build coexists and the moving GC root migrates to the new one). On dial:
-
-| the remote kaval is… | kolu does |
-| --- | --- |
-| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
-| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in (older `startedAt`) |
-| live · a build behind | adopt **+** the B3.4 "update pending" nudge (an orthogonal axis) |
-| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError`, no retry |
-| unreachable (bad dial) | bounded retry, then **degraded — never killed** (a bad dial can't cost live PTYs) |
-
-**One kaval per remote host, adopted.** Dialing a host *joins* its kaval — you reconnect to "the prod terminals" — and never clobbers it. The local per-port key (`kaval-<port>/`, <PrLink pr={1313} />), which isolates two dev servers under always-recycle, isn't needed across ssh: a remote host runs **one** shared kaval and dials *adopt* it (the table above), so two reconnects join the same terminals rather than racing to kill them. *(The pid-gate is host-local — pid + filesystem on that host — not a cross-host or cross-container lock.)*
-
-## Status
-
-**Accepted (the approach); P0 + P1 + P2 shipped.** R-2 in [remote-terminals](remote-terminals.html) is committed to this kaval-endpoint substrate — *one* backend, no complecting. **P0 (backend cleanup) landed** (<PrLink pr={1364} />): the `TerminalEndpoint` interface is now the live seam, its own doc-comment naming P3's remote transport. **P1 (`kaval-tui create`) landed** (<PrLink pr={1370} />): the spike's `create → attach` half works locally. **P2 (`kaval-tui --host`) landed** (<PrLink pr={1373} />): the genuinely-new ssh reach + provision works end to end, with the remote daemon durable behind `kaval --stdio`. **P2.5 landed** (spun out of P2's review, right after #1373) — upstreamed `kaval --stdio`'s durable-fronting bridge to **`@kolu/surface-daemon`** as `frontDaemonOverStdio`, the durable counterpart to `serveOverStdio` (the drishti companion is a *verified-compatible pin bump*, not a durable-observer rewrite — that was assessed and set aside as illusory benefit + an identity conflict). **P2.7 (skip redundant provisioning) shipped** (<PrLink pr={1377} />) — a warm-host fast-path in `surface-nix-host`'s shared `provisionAgent` so kaval *and* drishti stop re-shipping an already-present closure on every dial. **P2.8 (multiplex the ssh connections) shipped** (<PrLink pr={1378} />) — shares one ssh tunnel (`ControlMaster=auto`, no user config) across the warm path's three round-trips + caches the arch probe, the deferred per-connection-cost follow-up P2.7 named (measured ~2.3–2.4× on the warm dial's ssh cost). **Next is P3 (kolu dials remotes)** — the N-endpoint registry reusing this same `getHostSession` driver — and **P4** builds **multiplex** and validates the feel against tmux-switch, the one reversible call, made on real use, not up front.
+- **2026-06** — the spike shipped R3.1→R3.6 end to end: backend cleanup (<PrLink pr={1364} />), `kaval-tui create` (<PrLink pr={1370} />), `--host` reach + provision (<PrLink pr={1373} />), `frontDaemonOverStdio` upstreamed to `@kolu/surface-daemon` (<PrLink pr={1374} />), warm-skip provisioning (<PrLink pr={1377} />), ssh `ControlMaster` multiplexing (<PrLink pr={1378} />). The spike is the production driver.
+- **Renumbered to the one R1–R9 tree** (2026-06-21) — this note is **R3**; was a local `P0…P4` scheme, now gone (git holds the old labels). the awareness fold is the parent's **R8**, and **R4** is [arivu](arivu.html) (the awareness daemon); the foundation seam is **R1**.

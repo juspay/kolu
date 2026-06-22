@@ -1,135 +1,203 @@
 ---
 title: Remote terminals over SSH
-description: The phased master plan for kolu#951 — remote terminals over SSH. The foundation is shipped — the TerminalEndpoint seam (R-1), the @kolu/surface framework + @kolu/surface-nix-host (R-1.5), the shared provider engine (R-1.6), and local PTY daemonization (R-4, the kaval daemon — terminals survive a deploy). What remains is the ssh transport + ChromeBar host switcher (R-2) then network-blip resilience (R-3). The end state is multi-host — 1 local + N ssh-remote kaval daemons, all surviving and reattachable, switchable from the ChromeBar.
+description: The skeleton plan for kolu#951 — remote terminals over SSH, as one R1–R9 phase tree. R1–R4 shipped (foundation · local kaval survivor · the remote-ssh spike · the standalone arivu awareness daemon); the remaining work R5–R9 is a linear roadmap defined in this note. Build logs live in the child notes — pty-daemon (R2), kaval-sessions (R3), arivu (R4).
 parents: [feature]
 status: accepted
 maturity: budding
-updated: 2026-06-19
+updated: 2026-06-21
 ---
 
-import D2 from "../../components/D2.astro";
 import Callout from "../../components/Callout.astro";
-import Pill from "../../components/Pill.astro";
 import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
+import Svg from "../../components/Svg.astro";
+import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
-**The master plan for <Issue n={951} /> — remote terminals over SSH**, shipped as phases on different volatility axes. **The foundation is done:** R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), R-1.6 (<PrLink pr={1004} />), and **R-4 — local PTY daemonization — are all on master.** R-4 is the big one: the long-lived survivor is **kaval** (Tamil *kāval*, watch/guard), a standalone PTY daemon kolu spawns and supervises, and **local terminals now survive a kolu deploy** — process, scrollback, and a running agent all reattach. Its design and full build history (A1 → A2 → B0 → B1 → B2 → B3.1–B3.4, the currency nudge last in <PrLink pr={1353} />) live in its own note, [pty-daemon](pty-daemon.html). R-4 was deliberately **re-sequenced before R-2/R-3** — a whole-plan `/lowy` pass showed that building the multi-client survivor *once* collapses R-2 + R-3 from ~1860 to ~740 LoC combined. **Two phases remain:** R-2 adds the ssh transport against the same backend; R-3 closes the network-blip resilience loop.
+**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon. **What remains (R5–R9) is one linear roadmap, defined in this note**: harden reconnect, grow `@kolu/terminal-workspace` (one surface — awareness + fs/git — two homes), dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
 
-**The end state is multi-host:** every host — the local machine and each ssh remote — runs the *same* hashed kaval daemon (one process entry, single-instance pid-gate included), and kolu-server keys its pty-host endpoint + status by `hostId` (a map of one — `local` — today, host-count-agnostic by construction). The user switches hosts from the ChromeBar — *kinda like tmux sessions* — and kolu reattaches to local **and** remote daemons after a server restart or a network blip. R-4's redo baked the host-count-agnostic shapes in (hostId-keyed status collection, per-host endpoint lifecycle, id-keyed whole-record adoption, and the `HostLocation` discriminator on the terminal endpoint — the `getTerminalBackendFor` resolver was later collapsed into `TerminalEndpoint` and the dispatch inlined by <PrLink pr={1364} />); **R-2 then adds the ssh *driver* as an additive sibling of R-4's local driver — never a retrofit.**
+export const PAL = { bg: "#0f1117", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
-_Migrated + heavily compressed from the 208 KB `docs/plans/remote-terminals.html` monolith (Zed v1.5.0, `3a81f8e9`, was the studied reference; the file:line citation list lives in git history). Cf. [Ghostex vs. kolu remote-terminals](ghostex-vs-remote-terminals.html) and [herdr vs. kolu](herdr-vs-kolu.html)._
+export const HostPill = ({ name, active, dot }) => (
+  <span style={`display:inline-flex;align-items:center;gap:.45ch;padding:.16rem .6rem;border-radius:6px;font-size:.82em;${active ? `background:rgba(126,198,153,.13);color:${PAL.txt};border:1px solid rgba(126,198,153,.4)` : `color:${PAL.dim};border:1px solid transparent`}`}>
+    {dot && <span class="rt-blink" style={`width:7px;height:7px;border-radius:50%;background:${PAL.green};display:inline-block`}></span>}
+    {name}
+  </span>
+);
 
-## Phases at a glance
+export const Tile = ({ host, repo, branch, pr, agent, state, kind, remote }) => {
+  const c = kind === "need" ? PAL.amber : kind === "work" ? PAL.cyan : PAL.dim;
+  const glyph = kind === "need" ? "●" : kind === "work" ? "◜" : "○";
+  return (
+    <div style={`background:#151823;border:1px solid ${kind === "need" ? "rgba(230,162,60,.5)" : "#222838"};border-radius:8px;padding:.5rem .6rem;display:flex;flex-direction:column;gap:.32rem;min-width:0`}>
+      <div style="display:flex;align-items:center;gap:.5ch;font-size:.78em">
+        <span style={`color:${remote ? PAL.violet : PAL.dim};font-weight:600`}>{host}</span>
+        {remote && <span style={`color:${PAL.violet};border:1px solid rgba(167,139,250,.45);border-radius:4px;padding:0 .4ch;font-size:.85em`}>ssh</span>}
+        <span class="rt-blink" style={`margin-left:auto;width:7px;height:7px;border-radius:50%;background:${PAL.green};display:inline-block`}></span>
+      </div>
+      <div style={`color:${PAL.txt};font-size:.9em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`}>{repo} <span style={`color:${PAL.sub}`}>· {branch}</span>{pr && <span style={`color:${PAL.sub}`}> {pr}</span>}</div>
+      <div style="display:flex;align-items:center;gap:.5ch;font-size:.8em">
+        <span class={kind === "work" ? "rt-spin" : kind === "need" ? "rt-blink" : ""} style={`color:${c}`}>{glyph}</span>
+        <span style={`color:${PAL.sub}`}>{agent}</span>
+        <span style={`color:${c};margin-left:auto`}>{state}</span>
+      </div>
+    </div>
+  );
+};
 
-<D2
-  caption="The multi-host end state. Every host runs the same hashed kaval daemon; kolu-server keys its pty-host endpoint + status by hostId behind one driver seam — the local driver (R-4, shipped) spawns + supervises; the ssh driver (R-2) reaches + provisions the same closure. The TerminalEndpoint seam is the only place that pattern-matches on location — the dispatch is now inlined (no standalone resolver)."
-  code={`direction: down
-browser: "browser (SolidJS client) — ChromeBar host switcher"
-server: "kolu-server — restarts every deploy" {
-  endpoints: "pty-host endpoint + status, keyed by hostId" {
-    localdrv: "local driver (R-4 ✓) — spawn · supervise · adopt"
-    sshdrv: "ssh driver (R-2) — HostSession reach · .drv-ship provision"
-  }
-  backend: "TerminalEndpoint seam + awareness sensors (fresh each deploy)"
-}
-localhost: "this machine" {
-  pty: "kaval daemon — SURVIVES deploys ✓"
-}
-remote: "remote ssh host xN" {
-  pty: "the same kaval daemon — SURVIVES blips + deploys"
-}
-browser -> server.backend: "WebSocket (oRPC)"
-server.endpoints.localdrv -> localhost.pty: "unix socket"
-server.endpoints.sshdrv -> remote.pty: "ssh stdio (stdioLink)"
-`}
-/>
+export const RemoteCanvas = () => (
+  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;box-shadow:0 10px 34px rgba(0,0,0,.4);max-width:44rem">
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:#0b0d12;border-bottom:1px solid #222838">
+      <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56;display:inline-block"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+      <span style="margin-left:.4rem;color:#8b94a6">kolu</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.4rem;padding:.45rem .7rem;background:#0d0f15;border-bottom:1px solid #1c2231">
+      <span style="color:#5b6678;font-size:.78em;margin-right:.15rem">hosts</span>
+      <HostPill name="local" active dot />
+      <HostPill name="nix@prod" active dot />
+      <HostPill name="staging" />
+      <span style="margin-left:.15rem;color:#3f4858">+ host</span>
+      <span style="margin-left:auto;color:#5b6678;font-size:.78em">⟳ live</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem;padding:.6rem">
+      <Tile host="local" repo="kolu" branch="master" agent="codex" state="working" kind="work" />
+      <Tile host="nix@prod" remote repo="kolu" branch="feat/dial-ssh" pr="#1412 ✓" agent="claude" state="awaiting you" kind="need" />
+      <Tile host="nix@prod" remote repo="infra" branch="deploy" agent="—" state="working" kind="work" />
+      <Tile host="local" repo="notes" branch="main" agent="claude" state="idle" kind="idle" />
+    </div>
+  </div>
+);
 
-| Phase | Gist | User-facing change | Status |
-| --- | --- | --- | --- |
-| **R-1** | Server spine collapses around one `TerminalEndpoint` interface; the `meta/*.ts` orchestrators dissolve into `LocalTerminalEndpoint` (both renamed by <PrLink pr={1364} /> after R-1 shipped). | None — byte-identical refactor. | <Pill variant="done">shipped</Pill> <PrLink pr={981} /> |
-| **R-1.5** | `@kolu/surface` grows the stdio + loopback links, peer-server, and in-memory pub/sub; new `@kolu/surface-nix-host` (ssh `HostSession` + `.drv`-provisioning). Validated by the remote-process-monitor demo. | None — framework capability. | <Pill variant="done">shipped</Pill> <PrLink pr={984} /> |
-| **R-1.6** | The per-terminal provider DAG extracts into the `@kolu/terminal-awareness` package (sensors) behind `AwarenessSink`, entry `startAwareness` (moved out of kolu-server by <PrLink pr={1413} />) — one engine, two future hosts. | None — byte-identical refactor. | <Pill variant="done">shipped</Pill> <PrLink pr={1004} /> |
-| **R-4** | Local PTYs move into **kaval**, a standalone surviving daemon kolu spawns + supervises; the survival chain (adoption + the currency nudge) lands. **Owned by [pty-daemon](pty-daemon.html)** — A1–B3.4, all on master. | Local terminals survive a kolu-server restart — replaces tmux/zmx, closes <Issue n={671} />. | <Pill variant="done">shipped</Pill> |
-| **R-2** | Remote via the **kaval-endpoint approach** — one backend bound to a dialed endpoint (no `RemoteTerminalEndpoint`); the ssh driver reaches + provisions the *same* kaval closure, and the canvas **multiplexes** local + ssh kavals. See [kaval-sessions](kaval-sessions.html). | Remote terminals on the canvas, beside local ones. | <Pill variant="todo">next</Pill> |
-| **R-3** | Close the **overflow-recovery loop** (a slow-subscriber drop must re-attach for a fresh snapshot, not freeze); persist `remoteSessionId`. The reattach + handshake machinery itself shipped with R-4. | Remote terminals survive network blips with full scrollback. | <Pill variant="todo">last</Pill> |
+<style>{`
+  .rt-blink { animation: rtblink 1.8s ease-in-out infinite; }
+  @keyframes rtblink { 0%, 100% { opacity: 1 } 50% { opacity: .45 } }
+  .rt-spin { display:inline-block; animation: rtspin 1.1s linear infinite; transform-origin: 50% 54%; }
+  @keyframes rtspin { to { transform: rotate(360deg) } }
+`}</style>
 
-## Volatility axes — the two that the remaining phases extend
+## User-facing description
 
-Lowy's question — what changes for its own reasons, and is each axis isolated to one module? R-4 closed out the two axes it owned (where the PTY process runs + how a host's daemon is supervised/restarted — now detailed in [pty-daemon](pty-daemon.html)'s own axes table). The **two cross-phase axes R-2 and R-3 still hang on**:
+<RemoteCanvas />
 
-| Axis | Encapsulated by |
+You switch hosts from the **ChromeBar** — *kinda like tmux sessions* — and a remote host's terminals sit on the canvas **beside** your local ones. A remote tile wears an `ssh` badge and carries the *same* live awareness a local tile does — git branch/dirty, PR status, agent state, and a **green dot** when it's moving bytes — and it survives a network blip or a kolu-server deploy with full scrollback. One local host is always present; remotes are added on demand, auto-detected from your ssh config.
+
+## Architecture-level changes
+
+<Svg svg={arch} caption="The multi-host shape. Every host runs the same hashed kaval daemon; kolu-server keys its terminal endpoint by hostId behind one TerminalEndpoint seam. The local driver (R2, shipped) spawns + supervises a kaval over a unix socket; the ssh driver (R8) reaches + provisions the same kaval closure over ssh stdio; the fold (R8) mirrors a host-side arivu's awareness + fs/git. Local awareness runs in-process; only remote crosses a process boundary." />
+
+**One endpoint, bound to a dialed kaval.** A kaval is a daemon you *dial* — local over a unix socket, remote over ssh — so remote is **not a second backend**. There is *one* `TerminalEndpoint`, bound to a `HostLocation`-resolved kaval endpoint (`{kind:"local"}` today, `{kind:"remote",host}` in R8). That resolver is the **sole** place a tile maps to its kaval; everything downstream talks to the backend and never asks "which kind?". No `RemoteTerminalEndpoint` — R8 adds the ssh *driver* as an additive sibling of R2's local driver, never a retrofit.
+
+Two volatility axes stay open (R1/R2 closed the rest):
+
+| Axis — changes for its own reason | Encapsulated by |
 | --- | --- |
-| Where a terminal's state lives (this machine vs an SSH host) | **One** endpoint bound to a `HostLocation`-resolved **kaval endpoint** — `{ kind: "local" }` today, `{ kind: "remote", host }` in R-2 (no second endpoint implementation — R-2 confirms the kaval-endpoint approach, [kaval-sessions](kaval-sessions.html)). The location resolver is the **sole** place that maps a tile to its kaval; everything downstream talks to the backend and never asks "which kind?". |
-| How the backend reaches its agent (transport, framing, reconnect) | `HostSession` + `@kolu/surface/links/stdio` — unix-socket/loopback today, ssh in R-2, mTLS-over-TCP conceivable later. |
+| Where a terminal's state lives — this machine vs an ssh host | the `HostLocation`-resolved kaval endpoint — one impl + a discriminator, not a second backend |
+| How the backend reaches its agent — transport · framing · reconnect | `HostSession` + `@kolu/surface/links/stdio` — unix socket today, ssh in R8 |
 
-Hickey's complement: the single-`TerminalEndpoint` cut keeps **zero domain knowledge crossing the transport boundary** — the agent runs the unmodified providers and the boundary just ships their output. An earlier draft's per-domain remote providers (`RemoteGitInfoProvider`, …) were each a transport adapter wearing a domain costume; the seam dissolved them.
+**Zero domain knowledge crosses the transport** (Hickey's cut): the agent runs the unmodified sensors and the boundary ships their *values*. An earlier per-domain design (`RemoteGitInfoProvider`, …) was transport adapters wearing domain costumes; the single-endpoint seam dissolved them.
 
-## The foundation — what shipped (R-1 · R-1.5 · R-1.6 · R-4)
-
-### R-1 — the TerminalEndpoint seam <PrLink pr={981} />
-
-A `TerminalEndpoint` is *the per-terminal world a terminal lives in*: what process owns the PTY, what filesystem the Code tab reads, where the git watcher and agent detectors observe. The interface (`packages/common/src/terminalEndpoint.ts`): `spawnPty` / `attach` / `killTerminal` (+ `killAllTerminals`) plus `fs` and `git` sub-surfaces. Invariants that carry forward: **kill convergence** (`killTerminal` is the sole termination path — no `dispose()`); **snapshot-then-delta on every stream** (what makes reconnect transparent); **the backend owns its filesystem**; **sync shadow entry, async I/O** (the instant-tile UX). `LocalTerminalEndpoint` absorbed every `meta/*.ts` orchestrator; the `getTerminalBackendFor(location)` resolver was deleted and the dispatch inlined by <PrLink pr={1364} />.
-
-### R-1.5 — @kolu/surface gaps + @kolu/surface-nix-host <PrLink pr={984} />
-
-Closed the framework's browser-coupling gaps generically: the **stdio link** (base64+newline framing over a `Readable`/`Writable` pair), the **loopback pair**, the **peer server** (`serveOverStdio`), and the **in-memory pub/sub family** (`inMemoryChannelByName` is load-bearing — without name-dedupe, publish and subscribe land on different channels and every delta is lost). The new `@kolu/surface-nix-host` package extracted the wholly-generic remote machinery R-2 consumes whole: `HostSession<C>` (one ref-counted ssh subprocess per host, state machine, reconnect), `provisionAgent` (`nix copy --derivation` + remote realise — ships the *derivation*, so a darwin parent drives a linux remote with no cross-builder), `resolveSystem` (the nix-system probe), `mirrorRemoteCollection` (since graduated into `@kolu/surface`'s `mirrorRemoteSurface` — the per-primitive mirror), `waitForNextClient`. The falsifiability gate was the **remote-process-monitor demo** — the same three-tier shape R-2 will have, exercising stdio-over-ssh, snapshot-then-delta across a network hop, and deferred heartbeat surviving multi-minute cold realisation.
-
-### R-1.6 — the shared provider engine <PrLink pr={1004} />
-
-The per-terminal provider DAG (agent detectors, git/PR watchers, command tracker, foreground observer) moved out of `LocalTerminalEndpoint` into the `@kolu/terminal-awareness` package (`sensors.ts`, entry `startAwareness`), parameterized over `AwarenessSink` so the same engine runs on kolu-server *and* a future remote agent (extracted from kolu-server by <PrLink pr={1413} />). The type-fence is load-bearing: writing a live field through `updateServerMetadata` is a compile error, so the `terminals:dirty` autosave firehose can't be reintroduced by a new provider.
-
-### R-4 — kaval, the surviving daemon <Pill variant="done">shipped · A1–B3.4</Pill>
-
-Local PTYs moved into **kaval**, a standalone hashed daemon kolu spawns and supervises over a unix socket. A kolu-server restart re-runs the *cheap* layer (the providers) fresh against the *surviving* PTYs, so detection is never stale while the terminals persist — only a rare wire-contract change forces terminal loss. The full arc — the spawn-policy inversion (B0), the kaval binary + client (B1), the topology flip with the honest degraded state (B2), and the survival chain (B3.1 refactor → B3.2 supervised restart → B3.3 adoption → B3.4 currency nudge) — plus the #1034 postmortem that constrains it, all live in **[pty-daemon](pty-daemon.html)**. What matters to *this* plan is what R-4 left behind for R-2/R-3: a hostId-keyed endpoint + status model, id-keyed whole-record adoption, the per-connect `system.version` handshake, and B0's fully-specified `spawn {argv, env, initFiles}` + `system.info` wire — every one of them shaped host-count-agnostic.
-
-## What's next — R-2 then R-3
-
-<Callout kind="note" title="R-2 confirmed — the kaval-endpoint approach">
-R-2 follows [kaval-sessions](kaval-sessions.html): a kaval is a daemon you **dial** (local socket or ssh), so remote is **not a second backend** — *one* backend bound to an endpoint, never complected with location. The canvas **multiplexes** kavals (local + ssh, side by side); the one new transport is the ssh driver (reach + provision via `@kolu/surface-nix-host`), proven first in `kaval-tui` (`create` → `--host`). The P0–P4 phases and the switch-vs-multiplex granularity live in the child note.
+<Callout kind="warn" title="The awareness fold is domain logic, not electricity">
+R8's fold merges each remote `AwarenessValue` into the **co-owned** `terminalMetadata` entry and **splits** it across the persisted/live fence — `pr·agent·foreground` through the quiet live mutator, `cwd·git·lastAgentCommand·lastActivityAt` through the one that arms autosave. Lose the split and you either re-arm the agent-firehose (a perf regression) or stop persisting. It speaks the whole terminal domain *and* the autosave fence, so it stays **inline in kolu-server** — never a `@kolu/*` package.
 </Callout>
 
-Everything before R-2 is shipped, so the remaining work is narrow and additive. R-4 and `@kolu/surface-nix-host` already paid for the hard parts:
+**Already paid for, so R5–R9 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (the per-primitive mirror). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R8 is a driver + fold behind shipped seams; R7 completes the surface mirror; R6 grows arivu's fs/git; R5 is one wire signal.
 
-<Callout kind="note" title="What R-4 + R-1.5 already paid for (so R-2/R-3 shrank)">
-- **The endpoint topology** — hostId-keyed endpoint + status and id-keyed whole-record adoption, with the `HostLocation` discriminator on the endpoint (the dispatch is now inlined, no standalone resolver). R-2 adds the `{ kind: "remote", host }` arm, the `(host, id)` join, and a persisted `location` field — a *second key*, not a topology.
-- **The supervisor spine** — `@kolu/surface-daemon-supervisor` (endpoint state machine, `waitForPidGone`, composed restart, `adoptOrEnsure`), generic over `<C, I>`, zero kolu deps, host-count-agnostic.
-- **The version handshake** — `isContractVersionCompatible` against `system.version` on *every* connect, raising a typed skew error (never an import-time throw). R-2 originally owned this; R-4 shipped it.
-- **B0's remote-ready wire** — fully-specified `spawn {argv, env, initFiles}` + `system.info → {shell, home, platform, rcDir}` (contract 3.0), so spawn policy is computable for a host that isn't kolu's own machine and rcfiles land on a disk kolu's hands can't reach.
-- **The reattach machinery** — `adoptOrEnsure` + `reconcile` + `adoptTerminal` (whole-record, schema-key round-trip test). "Reattach to local *and* remote daemons" is half-built; the remote half is a sibling driver.
-- **surface-nix-host whole** — `HostSession`, `provisionAgent`, `resolveSystem`; plus `@kolu/surface`'s `mirrorRemoteSurface` (the per-primitive mirror, which subsumed the old `mirrorRemoteCollection`). No bespoke transport to write.
-</Callout>
+## Implementation details
 
-**R-2 — remote terminals, the kaval-endpoint way** (confirmed; see [kaval-sessions](kaval-sessions.html)). A kaval is a dialed endpoint, so remote is **not a second backend**: *one* backend bound to an endpoint, never complected with location — **P0** collapses R-1's anticipated second implementation. The one genuinely-new piece is the **ssh driver** — reach + provision of the *same* kaval closure via `@kolu/surface-nix-host` — proven first in `kaval-tui` (`create` → `--host`, hosts auto-detected from ssh config). The canvas then **multiplexes** kavals: a tile per kaval, local always present, remotes on demand. The **P0–P4** phases, the remote-only seams (the `composeSpawnInput` `cleanEnv()`→`system.info` inversion, the paste/upload `PRECONDITION_FAILED` guard, the `drvPath` resolver via `resolveSystem`), and the switch-vs-multiplex call all live in the child note.
+The whole epic as one tree — **R1–R4 shipped, R5–R9 remain**. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child-note build logs, and the five remaining phases to their own `###` section just below on this page.
 
-### R-2 awareness — host-side arivu + the kolu fold
+export const PT_C = { ship: "#15803d", prog: "#b45309", last: "#64748b", txt: "#1f2937", sub: "#6b7280", line: "#cbd5e1" };
 
-R-2 puts remote terminals on the canvas, but a remote tile is **blind** until kolu learns each remote terminal's awareness — git branch/dirty, PR status, agent detection, foreground. That awareness is produced host-side by **arivu** (the standalone ephemeral awareness daemon — see [arivu](arivu.html)), and kolu **mirrors + folds** it in. This is the *awareness half* of R-2: it has **no standalone user-facing value on its own** — without it, remote tiles render but show no agent/git/PR state. (arivu the daemon, the `arivu-tui` viewer, and the multi-host `arivu-tui fleet` dashboard are arivu's own consumers and ship independently of kolu; the fold below is kolu's consumer of the same served surface.)
+export const PtRow = ({ d, g, c, l, m, h }) => (
+  <div style={`display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:${d * 1.6}rem`}>
+    <span style={`color:${PT_C[c]};width:1.2ch;flex:none;text-align:center`}>{g}</span>
+    <span style={`color:${PT_C.txt};font-weight:${d === 0 ? 600 : 400}`}>{l}</span>
+    <span style={`color:${PT_C.sub};margin-left:auto;white-space:nowrap;font-size:.92em`}>
+      {h ? <a href={h} style={`color:${PT_C.sub};text-decoration:underline;text-decoration-color:${PT_C.line};text-underline-offset:2px`}>{m}</a> : m}
+    </span>
+  </div>
+);
 
-**The shape.** kolu-server dials a *remote* `arivu` over a **long-lived `HostSession`** (a variant carrying `session`/`onState` for process lifetime + reconnect — **not** arivu-tui's one-shot `Connection`), mirrors the `awareness` collection with `mirrorRemoteSurface`'s `awareness` collection sink, and **folds** each `AwarenessValue` upsert into the co-owned `terminalMetadata` entry across the persisted/live fence (`cwd·git·lastAgentCommand·lastActivityAt` → `updateServerMetadata`; `pr·agent·foreground` → `updateServerLiveMetadata`), stamping `location={kind:"remote",hostId}` from the dial-list. A `version` handshake gates incompatible hosts into re-provision. The closure→frame reification is **already done** — arivu P1c's `makeAwarenessSink` publishes a serialized `AwarenessValue` slice and the framework frames it — so this is purely the kolu-side consumer.
+export const PT = [
+  { d: 0, g: "✓", c: "ship", l: "R1 · Foundation — seam · framework · engine", m: "#981·984·1004" },
+  { d: 0, g: "✓", c: "ship", l: "R2 · kaval — local PTY survival", m: "→ pty-daemon", h: "pty-daemon.html" },
+  { d: 1, g: "✓", c: "ship", l: "R2.1–R2.5 · inversion → door → survival → inventory", m: "#1292…1458" },
+  { d: 0, g: "✓", c: "ship", l: "R3 · the remote-ssh spike", m: "→ kaval-sessions", h: "kaval-sessions.html" },
+  { d: 1, g: "✓", c: "ship", l: "R3.1–R3.6 · kaval-tui dials local + ssh", m: "#1364…1378" },
+  { d: 0, g: "✓", c: "ship", l: "R4 · arivu — the awareness daemon", m: "→ arivu", h: "arivu.html" },
+  { d: 1, g: "✓", c: "ship", l: "R4.1–R4.5 · sensors → daemon → --host → fleet", m: "#1413…1497" },
+  { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop", m: "next · defined ↓", h: "#r5" },
+  { d: 0, g: "○", c: "prog", l: "R6 · terminal-workspace — one surface (awareness + fs/git)", m: "defined ↓", h: "#r6" },
+  { d: 0, g: "○", c: "prog", l: "R7 · complete mirrorRemoteSurface (total dual) + arivu-tui proof", m: "defined ↓", h: "#r7" },
+  { d: 0, g: "○", c: "prog", l: "R8 · kolu dials remotes + the fold", m: "needs R6·R7 ↓", h: "#r8" },
+  { d: 0, g: "○", c: "last", l: "R9 · canvas multiplex + validate", m: "defined ↓", h: "#r9" },
+];
 
-<Callout kind="warn" title="The mirror is a fold, not a write — and that's structural, not incidental">
-`terminalMetadata`'s entry is **one mutable object** that publishes the *whole* record — server fields **and** kolu-owned client fields (theme/layout) **and** the host-stamped `location`. So an arriving awareness slice can never whole-value-replace the entry (that would clobber the client's theme/layout and the location). It must be **merged in and split** across the persisted-vs-live fence: the live subset (`pr·agent·foreground`) through the quiet mutator, the persisted subset (`cwd·git·lastAgentCommand·lastActivityAt`) through the one that arms autosave. Lose that split and you either re-arm the ~150 ms agent firehose (a perf regression) or silently stop persisting. This fold is **irreducible kolu domain logic** — it exists because `terminalMetadata` is co-owned, it speaks the whole terminal domain + the autosave fence, and no generic mirror can absorb it. It stays inline in kolu-server — *not* electricity.
-</Callout>
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto">
+  <div style="color:#64748b;font-size:.82em;letter-spacing:.04em;margin-bottom:.5rem">REMOTE TERMINALS OVER SSH · #951</div>
+  {PT.map((r, i) => <PtRow key={i} {...r} />)}
+</div>
 
-**The four irreducible costs** — all remote-only, none dissolvable, and that confinement is the point:
+The shipped branches **R1–R4** are detailed in their child notes (and the PRs above). What follows is the **roadmap of remaining work — each defined here.** **R5 · R6 · R7 are independent — do them in any order; R8 needs R6 + R7; R9 needs R8.**
 
-1. **Closure → frame reification** — the host hooks-impl applies each `mutate` to its own record, then emits the resulting slice value as a snapshot/delta frame (a wire carries values, not closures). Shipped in arivu P1c; the sensors are untouched.
-2. **The fold + persisted/live fence**, re-applied kolu-side on every remote upsert (see the callout). Frames must carry the split, or it degrades to runtime discipline.
-3. **Freshness / semantic version-skew** — the deepest. In-process local sensors are always current; a remote host runs a provisioned, possibly-stale binary. A version handshake catches *shape* skew, not *semantic* drift (a new agent state an old parser never emits). Bounded by re-provision-on-dial + arivu's ephemerality, but only re-provisioning truly closes it.
-4. **`location` stamped kolu-side** at the fold — a small permanent special-case at the seam.
+<a id="r5"></a>
 
-**Why it is gated on R-2.** The fold has nothing to fold *into* until R-2 ships remote terminals on the canvas — `{kind:"remote"}` is constructed nowhere today (only in docstrings), and there is no `RemoteTerminalEndpoint` / dispatch. Until R-2's remote tile exists, this could only land the mirror+fold *mechanics* against a synthetic entry. So it composes with R-2's ssh driver: R-2 reaches + provisions the kaval daemon for the *terminal*; this dials arivu on the same host for the *awareness* of that terminal.
+### R5 — overflow-recovery loop
 
-**Open decisions** (defaults in **bold**): the persisted/live split carried by **a static field→half map applied kolu-side** (thinner wire) vs per-frame tags; **one `arivu` per host** (mirrors kaval's per-host socket) vs per-session; **staleKey-gated re-provision** (kaval's existing behavior) vs always-on-dial for the tightest semantic currency. If the long-lived dial needs a new exported `@kolu/surface-nix-host` accessor (e.g. `onState`), that is an API change → a mandatory **drishti mirror PR**.
+~130 LoC w/ tests; the next step. kaval sheds a slow attach subscriber by *ending* its iterator, today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` reset), distinct from PTY-exit. **Ships independently of the remote work**: a slow subscriber is reproducible on the *local* socket, so it is CI-testable today, and the fix hardens the attach contract for *both* transports — a clean prerequisite for the remote reconnect R8 leans on. [herdr vs kolu](herdr-vs-kolu.html) flagged the same gap.
 
-**Graduation shipped — `mirrorRemoteSurface`** (<PrLink pr={1497} />). `mirrorRemoteSurface` — the spec-driven dual of `implementSurface` that drives every primitive of a served surface into caller-supplied **sinks** — has now landed in `@kolu/surface` as the one public mirror (`mirrorRemoteCollection` demoted to its private per-key engine). The `remote-process-monitor` demo deleted its hand-rolled bridge loop onto it, and the R-2 fold below consumes it too. The trigger arrived exactly as predicted: arivu grew a real **`activity` stream** (the remote green dot — see [arivu](arivu.html)), the second stream-bearing consumer the graduation was waiting for. It still does **not** dissolve the fold — that stays irreducible domain logic; the fold just mirrors via `mirrorRemoteSurface`'s `awareness` collection sink instead of a bare `mirrorRemoteCollection`.
+<a id="r6"></a>
 
-**R-3 — close the overflow-recovery loop** <Pill variant="todo">~130 LoC w/ tests</Pill>. The one genuinely-remaining, local-testable item against master. kaval's bounded channel sheds a slow attach subscriber by *ending* its iterator — today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and silently freezes scrollback (`onOverflow` exists on the channel but is **unwired**). The fix threads a typed "overflow → re-attach" signal through the attach contract so the client re-attaches for a *fresh snapshot* (reusing the existing `onRetry` xterm/scroll-lock reset), distinct from PTY-exit. *Everything else R-3 once owned already landed:* the reattach machinery and the `system.version` handshake shipped with R-4; `remoteSessionId` persistence (an additive `ServerPersistedTerminalFieldsSchema` field) and host-picker pre-warm are inert until R-2's ssh driver consumes them and fold into R-2; the `--refresh` force-fresh-eval hack lived only in the discarded #994 prototype, so there is nothing to retire against master. *(Open question: whether an overflow-drop is reachable on the local socket at all, or only meaningfully across an ssh hop — if the latter, R-3 collapses to an R-2 companion. [herdr vs. kolu](herdr-vs-kolu.html) independently flagged the same missing overflow-vs-exit distinction.)*
+### R6 — `@kolu/terminal-workspace`: one library, one surface, two homes
+
+The host-side library that knows a terminal's working directory becomes **`@kolu/terminal-workspace`** — the shipped `@kolu/terminal-awareness` (R4.1) grown to cover fs/git too, run *in-process* locally (kolu) and hosted by *arivu* remotely: the same two homes the sensors already proved. It serves **one `@kolu/surface` surface**; the primitives differ only in *kind*:
+
+- `awareness` (collection) + `activity` (stream) — the derived status badge + the green-dot liveness. **Shipped.**
+- `fsListAll` · `fsReadFile` · `gitStatus` · `gitDiff` (procedures) + `subscribeRepoChange` / `FileChange` (watcher streams) — the Code tab's raw reads + live deltas. **New in R6**, lifted from kolu-server's `localEndpoint` (a thin wrapper over `kolu-git` + `serve-dir`) into the shared library.
+
+This kills the duplication wart: without it, arivu would **reimplement** fs/git and kolu would carry *two* fs/git impls (its own local, arivu's remote). Instead there is **one** — in-process locally, via arivu remotely. Only the thin fs/git wrapper moves; the terminal-endpoint *orchestration* around it (spawn · adopt · the registry) stays kolu's and gets a remote impl in R8. (One surface; R8 mirrors it whole — via R7's total mirror — folding the `awareness` collection into `terminalMetadata` and *forwarding* the fs/git procedures. Nothing is folded into `AwarenessValue` — procedures were never part of it.)
+
+<a id="r7"></a>
+
+### R7 — complete `mirrorRemoteSurface` to a total dual
+
+`mirrorRemoteSurface` is the consume-side **dual of `implementSurface`** — and a dual must mirror *every* primitive its producer wires. `implementSurface` wires procedures too, but the mirror's `SurfaceSink` carries only `cells`/`collections`/`streams`/`events`: a **leaky half-mirror**, harmless only because every surface mirrored so far had **zero procedures**. R7 closes the gap: the mirror maps **every** primitive by its kind — streaming state → a **sink** (the consumer folds/aggregates), procedures → a **forwarding stub** (a local call runs on the remote and returns; nothing copied). Then `mirrorRemoteSurface(remote)` yields a **local surface that *is* the remote one** — `serve ∘ mirror ≈ identity`, the location-transparency the whole epic rests on. A `@kolu/surface` change → the **drishti merge-gate**.
+
+**Proven by drishti — the canonical external second consumer.** [drishti](https://github.com/srid/drishti) is the browser ↔ Bun ↔ ssh process-monitor that already mirrors per-host *process* surfaces (the graduation that first proved `@kolu/surface` is electricity), and it is **read-only today**. R7's proof is drishti gaining a **"Kill process"** action — the first *forwarded procedure* on a mirrored surface, exercised end-to-end (browser → Bun → ssh → remote agent → `kill(pid)`), **zero kolu**, riding the same drishti gate every `@kolu/surface` change already passes. Because that proof lives entirely in drishti's own surface, **R7 stands alone — it needs neither R6 nor kolu**; R8 then consumes a *proven* total mirror for arivu's fs/git, not a speculative one.
+
+<a id="r8"></a>
+
+### R8 — kolu dials remotes + the fold
+
+The linchpin — it **needs R6** (the shared fs/git library) **and R7** (the total mirror). kolu-server gains the **N-endpoint registry + the ssh driver** — the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location` — reusing the *same* `getHostSession` the spike (R3) built. It dials the host's **kaval** for the PTY (via the shipped `frontDaemonOverStdio`) → a remote tile; and dials its **arivu** over a *long-lived* `HostSession`, **mirroring the whole `terminal-workspace` surface** (R7) into one local handle. Because the mirror is total, kolu binds the remote `TerminalEndpoint` to that single handle and runs the **same** logic as against the in-process local surface — never asking "which kind?":
+
+- the `awareness` collection + `activity` stream are subscribed into kolu's **sink**, which *folds* each `AwarenessValue` into the tile's co-owned `terminalMetadata` across the persisted/live fence (see the callout) and lights the **green dot**;
+- the fs/git **procedures** (`fsReadFile`/`gitDiff` + the watcher deltas) are **forwarded** on demand for the Code tab.
+
+`location` is co-owned with `terminalMetadata`, persisted kolu-side, re-validated on reconnect against the remote kaval's live `cwd`. (Paste/upload is a `TerminalEndpoint` concern — served behind the same seam with the `PRECONDITION_FAILED` guard — not awareness, not fs/git.) The result: a remote terminal as capable as a local one — PTY, awareness badge, green dot, working Code tab. The shape is the **lead diagram** above.
+
+**Adoption — a dial joins, never clobbers.** If the host already runs a kaval it is **adopted** (the same `adoptOrEnsure` spine the local boot uses); a duplicate is impossible by construction (the pid-gate's atomic `link(2)` EEXIST). On dial:
+
+| the remote kaval is… | kolu does |
+| --- | --- |
+| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
+| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in |
+| live · a build behind | adopt **+** an "update pending" nudge (orthogonal) |
+| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError` |
+| unreachable (bad dial) | bounded retry, then **degraded — never killed** |
+
+One kaval per remote host: dialing *joins* its terminals ("the prod terminals"), never racing to kill them.
+
+<a id="r9"></a>
+
+### R9 — canvas multiplex + validate
+
+The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. The granularity call lands here, validated, not up front.
 
 ## History
 
-- **2026-05-26 → 28:** R-1 (<PrLink pr={981} />), R-1.5 (<PrLink pr={984} />), R-1.6 (<PrLink pr={1004} />) shipped — the seam, the framework gaps + `@kolu/surface-nix-host`, and the shared provider engine. The earlier hand-rolled-stdio R-2 exploration (<PrLink pr={976} />) closed as wrong-altitude; the #994 ssh prototype (working remote terminals, 46 commits, never merged) seeded the design and was superseded by this carve.
-- **R-4 re-sequenced before R-2/R-3** (the `/lowy` collapse insight) and split into its own note. Its full build history — R4a/R4b, the #1010 local-daemon and #994 remote prototypes, the #1031/#1034 production postmortems, the kaval reframing, and B0 → B3.4 — lives in **[pty-daemon](pty-daemon.html)**, not here.
-- **Multi-host direction amended** (2026-06-11): the end state is 1 local + N ssh-remote kaval daemons, host-switched in the ChromeBar; R-4's redo bakes the host-count-agnostic shapes so R-2 retrofits nothing.
-- **This revamp** (2026-06-14): compacted now that R-4 ships the whole survival chain — the prototype retros, process lessons, and R-4-internal volatility axes moved to their real owner ([pty-daemon](pty-daemon.html)) — and R-2/R-3 re-scoped against master (R-2 = a driver behind a shipped seam; R-3 = the overflow-recovery loop, the rest folding into R-2).
-- **Awareness fold** (formerly arivu's P2b + the `mirrorRemoteSurface` P3) moved here from [arivu](arivu.html) — 2026-06-19.
+- **2026-05-26 → 28** — R1 shipped: the `TerminalEndpoint` seam (<PrLink pr={981} />), the framework gaps + `@kolu/surface-nix-host` (<PrLink pr={984} />), and the shared sensor engine (<PrLink pr={1004} />).
+- **R2 re-sequenced before R3/R5** — a whole-plan `/lowy` pass showed that building the multi-client survivor *once* collapses the later phases; R2 split into [pty-daemon](pty-daemon.html) and shipped end-to-end (R2.1 → R2.5), closing <Issue n={671} /> (terminals survive a deploy).
+- **Multi-host end state** set 2026-06-11: 1 local + N ssh kavals, host-switched in the ChromeBar; R2's redo baked the host-count-agnostic shapes (hostId-keyed status, the `HostLocation` discriminator) so R3 retrofits nothing.
+- **Renumbered to one R1–R9 tree** (2026-06-21) — shipped branches R1–R4 (was `R-1`/`R-1.5`/`R-4`/`R-2`/`R-3` + colliding child `P`/`B` schemes), and the remaining work lifted out of the child notes into a **linear R5–R9 roadmap defined here** (so the forward plan lives in one place; fs/git joins awareness in one library, `@kolu/terminal-workspace`, as its own phase R6; completing `mirrorRemoteSurface` to a total dual got its own phase R7 — proven via drishti's "Kill process" action, so it stands alone, before kolu's fold (R8) depends on it). Git holds the old labels. Cf. [ghostex vs kolu](ghostex-vs-remote-terminals.html), [herdr vs kolu](herdr-vs-kolu.html), [kaval vs zmosh](kaval-vs-zmosh.html).

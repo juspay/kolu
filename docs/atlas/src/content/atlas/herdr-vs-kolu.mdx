@@ -1,6 +1,6 @@
 ---
 title: herdr vs. kolu — what to adopt
-description: A shipped Rust agent-multiplexer (herdr) makes the same first-party-owns-the-PTYs bet kolu's remote-terminals plan chose — so it's a reference implementation of R-4 Phase B, not a competitor. One handoff-discipline borrow, several validations; of the two gaps it surfaced, native resume now ships (juspay/kolu#1495) and resize arbitration remains open. Claims fact-checked against both codebases.
+description: A shipped Rust agent-multiplexer (herdr) makes the same first-party-owns-the-PTYs bet kolu's remote-terminals plan chose — so it's a reference implementation of R2.4, not a competitor. One handoff-discipline borrow, several validations; of the two gaps it surfaced, native resume now ships (juspay/kolu#1495) and resize arbitration remains open. Claims fact-checked against both codebases.
 parents: [analysis]
 maturity: budding
 updated: 2026-06-19
@@ -15,7 +15,7 @@ import PrLink from "../../components/PrLink.astro";
 *A study of [ogulcancelik/herdr](https://github.com/ogulcancelik/herdr) (cloned @ HEAD) read through kolu's remote-terminals plan (<Issue n={951} /> and the `pty-daemon` / `kaval-tui` / `chrome-bar` docs). Sibling to the* **Ghostex vs. kolu remote-terminals** *analysis. Every load-bearing claim below was fact-checked against both codebases — herdr citations all verified; three kolu-side claims were corrected (noted inline).* <Pill variant="new">13-agent workflow + adversarial critique</Pill>
 
 <Callout kind="warn" title="Headline">
-herdr makes the **same bet kolu chose**: a first-party process owns every PTY, with thin clients attaching over a unix socket. That is the opposite of Ghostex (external mux owns PTY lifetime) — so **herdr sits on kolu's side of that line and is a shipped, battle-tested implementation of exactly the problems R-4 Phase B is about to build**: survival across restart, transactional recovery, lazy snapshot-attach, even live fd handoff. Ghostex told us the seam is *natural*; herdr shows us the *mechanism* for the survivor we already decided to build. Two of kolu's plans — **kaval-tui** and **agents-orchestrate-kolu** — are essentially herdr, already shipped. The highest-value output is two ideas the plans didn't cover — and one of them, **native agent-session resume**, kolu now ships too (juspay/kolu#1495 adopted herdr's injection-safe by-id model). That leaves **multi-client resize arbitration** as the standing gap: kolu has no arbiter today — resize is last-write-wins, so two differently-sized web clients already thrash; kaval-tui attach, now shipped, drives the PTY from its own terminal size and only sharpens the mismatch.
+herdr makes the **same bet kolu chose**: a first-party process owns every PTY, with thin clients attaching over a unix socket. That is the opposite of Ghostex (external mux owns PTY lifetime) — so **herdr sits on kolu's side of that line and is a shipped, battle-tested implementation of exactly the problems R2.4 is about to build**: survival across restart, transactional recovery, lazy snapshot-attach, even live fd handoff. Ghostex told us the seam is *natural*; herdr shows us the *mechanism* for the survivor we already decided to build. Two of kolu's plans — **kaval-tui** and **agents-orchestrate-kolu** — are essentially herdr, already shipped. The highest-value output is two ideas the plans didn't cover — and one of them, **native agent-session resume**, kolu now ships too (juspay/kolu#1495 adopted herdr's injection-safe by-id model). That leaves **multi-client resize arbitration** as the standing gap: kolu has no arbiter today — resize is last-write-wins, so two differently-sized web clients already thrash; kaval-tui attach, now shipped, drives the PTY from its own terminal size and only sharpens the mismatch.
 </Callout>
 
 Both projects are **AGPL-3.0-or-later**, so herdr's open-source code is license-compatible with kolu — porting is permitted under the AGPL's terms, not blocked. The reason most recommendations are *techniques and design* rather than verbatim code is the stack gap (herdr is Rust; kolu is TypeScript/SolidJS), not licensing.
@@ -25,7 +25,7 @@ herdr is a ~107K-LOC **Rust TUI agent multiplexer**: one binary, a long-lived ba
 ## The architectural contrast
 
 <D2
-  caption="Module correspondence. SOLID edges = herdr validates a decision kolu already made, or a direct borrow. DASHED edges = a gap or an explicit non-goal. herdr owns one long-lived server; kolu's R-4 inverts the survivor to kaval (the package renamed from @kolu/pty-host in B1) while the provider DAG runs fresh in kolu-server."
+  caption="Module correspondence. SOLID edges = herdr validates a decision kolu already made, or a direct borrow. DASHED edges = a gap or an explicit non-goal. herdr owns one long-lived server; kolu's R2 inverts the survivor to kaval (the package renamed from @kolu/pty-host in R2.2) while the provider DAG runs fresh in kolu-server."
   code={`
 direction: down
 
@@ -38,12 +38,12 @@ herdr: "herdr — Rust TUI multiplexer (first-party server owns the PTYs)" {
   fg: "foreground_client_id — shared geometry (server/headless.rs)"
 }
 
-kolu: "kolu — SolidJS web ADE (R-4: kaval is the survivor)" {
+kolu: "kolu — SolidJS web ADE (R2: kaval is the survivor)" {
   ptyhost: "kaval (node-pty + @xterm/headless mirror)"
   server2: "kolu-server — provider DAG, runs fresh"
   surface: "@kolu/surface (oRPC links: ws / stdio / direct)"
   tui: "kaval-tui (raw client) — shipped: list / snapshot / attach (spawn/kill = Phase 3, planned)"
-  recovery: "Phase B recovery (capture -> drain -> respawn) — planned"
+  recovery: "R2.4 recovery (capture -> drain -> respawn) — planned"
 }
 
 herdr.server -> kolu.ptyhost: "validates: thin survivor owns PTYs (A2)"
@@ -61,38 +61,38 @@ herdr.fg -> kolu.tui: "GAP: resize arbitration (G2)" {
 
 | Concern | **herdr** | **kolu (built + planned)** |
 | --- | --- | --- |
-| Who owns PTY lifetime | First-party long-lived **server** owns every master fd; clients are stateless front-ends. | **Same bet.** R-4 makes `kaval` the thin survivor; the volatile provider DAG runs fresh in kolu-server. |
-| Survive restart | Server outlives clients; full restart restores from a snapshot; `resume_agents_on_restore` respawns agents. | kaval-tui = client detach/reattach; Phase B = daemon survives `systemctl restart` via cgroup-escape + reattach-by-id. The <Issue n={1034} /> hazard lives here. |
-| Recovery on owner restart | **Transactional**: old owner stays alive and re-binds sockets until the new one acks; one bool gates who may signal children; injected-failure tested. | Phase B's composed `captureSession → drainTerminals → respawn → finalize` with `waitForPidGone` — designed to never repeat the "kill-then-pray" loss. |
+| Who owns PTY lifetime | First-party long-lived **server** owns every master fd; clients are stateless front-ends. | **Same bet.** R2 makes `kaval` the thin survivor; the volatile provider DAG runs fresh in kolu-server. |
+| Survive restart | Server outlives clients; full restart restores from a snapshot; `resume_agents_on_restore` respawns agents. | kaval-tui = client detach/reattach; R2.4 = daemon survives `systemctl restart` via cgroup-escape + reattach-by-id. The <Issue n={1034} /> hazard lives here. |
+| Recovery on owner restart | **Transactional**: old owner stays alive and re-binds sockets until the new one acks; one bool gates who may signal children; injected-failure tested. | R2.4's composed `captureSession → drainTerminals → respawn → finalize` with `waitForPidGone` — designed to never repeat the "kill-then-pray" loss. |
 | Late / lazy attach | A **live screen snapshot**, never a byte replay: reset baseline → re-render the live emulator into one full frame. | **Same:** `ptyHost.ts` subscribes then serializes a `snapshot \| delta` union (~4KB). |
 | Renderer | Server diffs a cell-grid → ANSI. No web terminal. | Raw VT → `xterm.js` in the browser; the headless mirror is for snapshot + taps only. |
 
 ## Architecture — what to adopt
 
-<Callout kind="good" title="A1 · Transactional handoff discipline → Phase B recovery">
+<Callout kind="good" title="A1 · Transactional handoff discipline → R2.4 recovery">
 <Pill variant="good">high</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr's restart is choreographed: the **old owner stays alive and re-binds its sockets until the new one acks `owned`**, and **exactly one boolean** (`preserve_processes_on_drop`) decides who may signal children — so a failed migration is a structural no-op and double-kill is impossible. Tested with *injected import failures*. *(herdr src/pane.rs:555 (flag), :689-702 (Drop); server/headless.rs:734-828; tests/live_handoff.rs:1279,:1359,:1442.)*
 
 Borrow the **discipline, not the mechanism**: make "who may kill these PTYs" a single structural flag (kolu's `killAndUnwatch` ordering is already that shape) and write the injected-respawn-failure test **RED first**. One adaptation: herdr's rollback *resurrects* the old process; kolu's forced path *kills* the daemon, so kolu's rollback analog is **restore-from-snapshot** (`setSavedSession` winning the autosave-cancel race), not resurrect.
 </Callout>
 
 <Callout kind="good" title="A2 · Thin-survivor + single-owner kill invariant">
-<Pill variant="good">high</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr holds PTYs in a registry *outside* AppState; client detach never touches it. *(herdr runtime_registry.rs:11; pane.rs:555,:689-702.)* This independently confirms R-4's correction over <Issue n={1031} />. kolu already has the right shape — `teardownProviders` aborts the exit tap *before* the kill so an intentional kill can't double-publish `terminalExit`, over a module-scoped long-lived registry. *(verified: packages/server/src/terminalEndpoint/local.ts:535,:558-563; terminal-registry.ts:33.)* Make the single-ownership bit explicit so a kolu-server restart can never reach the daemon's PTYs — the win is the audit property (one flag, one owner), since Node has no `Drop`.
+<Pill variant="good">high</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr holds PTYs in a registry *outside* AppState; client detach never touches it. *(herdr runtime_registry.rs:11; pane.rs:555,:689-702.)* This independently confirms R2's correction over <Issue n={1031} />. kolu already has the right shape — `teardownProviders` aborts the exit tap *before* the kill so an intentional kill can't double-publish `terminalExit`, over a module-scoped long-lived registry. *(verified: packages/server/src/terminalEndpoint/local.ts:535,:558-563; terminal-registry.ts:33.)* Make the single-ownership bit explicit so a kolu-server restart can never reach the daemon's PTYs — the win is the audit property (one flag, one owner), since Node has no `Drop`.
 </Callout>
 
 <Callout kind="good" title="A3 · Snapshot-on-attach — promote to an invariant test">
-<Pill variant="good">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr brings a connecting client current from the *live emulator screen*, never by replaying history (reset baseline → one full frame). *(herdr render_stream.rs:31-36; headless.rs:1639.)* kolu does the same — `attach()` subscribes *before* it serializes, both synchronously, so each chunk lands in exactly one of snapshot/deltas. *(verified: packages/kaval/src/ptyHost.ts:501-509.)* Add an invariant test (subscribe-during-burst sees no gap/overlap), and cap R-3 migration-only replay at a small bound like herdr's 8KB/pane. **The keyboard-protocol question (G3) was answered in <PrLink pr={1255} />:** `@kolu/terminal-protocol`'s `SNAPSHOT_TTY_RESET` is the reciprocal of SerializeAddon 0.14.x's mode vocabulary (alt-screen, mouse, bracketed paste; kitty keyboard is *not* serialized by 0.14.x — audit on every xterm bump).
+<Pill variant="good">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr brings a connecting client current from the *live emulator screen*, never by replaying history (reset baseline → one full frame). *(herdr render_stream.rs:31-36; headless.rs:1639.)* kolu does the same — `attach()` subscribes *before* it serializes, both synchronously, so each chunk lands in exactly one of snapshot/deltas. *(verified: packages/kaval/src/ptyHost.ts:501-509.)* Add an invariant test (subscribe-during-burst sees no gap/overlap), and cap R5 migration-only replay at a small bound like herdr's 8KB/pane. **The keyboard-protocol question (G3) was answered in <PrLink pr={1255} />:** `@kolu/terminal-protocol`'s `SNAPSHOT_TTY_RESET` is the reciprocal of SerializeAddon 0.14.x's mode vocabulary (alt-screen, mouse, bracketed paste; kitty keyboard is *not* serialized by 0.14.x — audit on every xterm bump).
 </Callout>
 
-<Callout kind="warn" title="A4 · Two-axis honest-state → B's DaemonStatus / DegradedCanvas">
-<Pill variant="todo">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr never renders a dead link as emptiness — a disconnect reason of `detached` maps to a "run `herdr …` to reattach" hint, and per-client render baselines are tracked independently. *(herdr src/client/mod.rs:226-241.)* (The `getDaemonHandle`-throws / `daemonStatusSnapshot`-never-throws split is *kolu's own planned-B vocabulary* — not yet built, not herdr code; herdr's contribution is the principle.) A third independent system reaching the pane⟂session split kolu committed to from Ghostex — adopt the two-axis shape literally with `disconnected → pty UNKNOWN-grey` (never a false green), and add herdr's inline-recovery-action detail.
+<Callout kind="warn" title="A4 · Two-axis honest-state → R2.4's DaemonStatus / DegradedCanvas">
+<Pill variant="todo">medium</Pill> <Pill variant="new">direct</Pill> &nbsp; herdr never renders a dead link as emptiness — a disconnect reason of `detached` maps to a "run `herdr …` to reattach" hint, and per-client render baselines are tracked independently. *(herdr src/client/mod.rs:226-241.)* (The `getDaemonHandle`-throws / `daemonStatusSnapshot`-never-throws split is *kolu's own planned-R2.4 vocabulary* — not yet built, not herdr code; herdr's contribution is the principle.) A third independent system reaching the pane⟂session split kolu committed to from Ghostex — adopt the two-axis shape literally with `disconnected → pty UNKNOWN-grey` (never a false green), and add herdr's inline-recovery-action detail.
 </Callout>
 
 <Callout kind="warn" title="A5 · kaval-tui = CLI-is-the-API, over a stable socket path">
-<Pill variant="warn">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's CLI subcommands are tiny 1:1 wrappers that write one typed request; the client-protocol socket path is *derived* from the API socket path (one override configures both) and chmod'd `0600`. *(herdr socket_paths.rs:50-66,:12; ipc.rs:78-82.)* kaval-tui resolved its socket path the herdr way in Phase 1 (<PrLink pr={1084} />): `getPtyHostSocketPath` defaults to `$XDG_RUNTIME_DIR/kolu/pty-host.sock` (else `/tmp/kolu-$UID/pty-host.sock`), so `kaval-tui list` finds the server without its pid and B's daemon retargets with no contract change. kolu's UUID terminal ids *(verified: ptyHost.ts:27,:281 `randomUUID`)* are **strictly better** than herdr's recycled compact ids, so do *not* import herdr's "ids compact, re-read them" warning.
+<Pill variant="warn">medium</Pill> <Pill variant="warn">adapt</Pill> &nbsp; herdr's CLI subcommands are tiny 1:1 wrappers that write one typed request; the client-protocol socket path is *derived* from the API socket path (one override configures both) and chmod'd `0600`. *(herdr socket_paths.rs:50-66,:12; ipc.rs:78-82.)* kaval-tui resolved its socket path the herdr way in Phase 1 (<PrLink pr={1084} />): `getPtyHostSocketPath` defaults to `$XDG_RUNTIME_DIR/kolu/pty-host.sock` (else `/tmp/kolu-$UID/pty-host.sock`), so `kaval-tui list` finds the server without its pid and R2.4's daemon retargets with no contract change. kolu's UUID terminal ids *(verified: ptyHost.ts:27,:281 `randomUUID`)* are **strictly better** than herdr's recycled compact ids, so do *not* import herdr's "ids compact, re-read them" warning.
 </Callout>
 
 <Callout kind="danger" title="A7 · SCM_RIGHTS live fd-passing — explicit NON-GOAL">
-<Pill variant="bad">drop</Pill> <Pill variant="bad">category-mismatch</Pill> &nbsp; herdr passes live master fds via `sendmsg`/`recvmsg` ancillary messages because *its whole server restarts*. *(herdr server/handoff.rs:370-454,:26 `MAX_FDS_PER_HANDOFF=64`; handoff_runtime.rs:5-21.)* kolu inverts this: kaval **is** the survivor and stays alive across a deploy, so there is no fd to move on the common path. node-pty exposes no master-fd handle. It would matter *only* for upgrading the daemon binary itself — which the cgroup-survival design deliberately makes rare. **Write it down as a named non-goal** so a future contributor who reads this note doesn't reintroduce the <Issue n={1034} /> race for marginal benefit. (A6 remote-over-SSH: borrow herdr's reattach-hint UX, not the transport. The earlier "C1 pool-key leak" R-2 blocker is **stale** — `hostSession.ts:735` already keys on `(host, binary)` with `.drv` excluded, fixed <Issue n={1054} />.)
+<Pill variant="bad">drop</Pill> <Pill variant="bad">category-mismatch</Pill> &nbsp; herdr passes live master fds via `sendmsg`/`recvmsg` ancillary messages because *its whole server restarts*. *(herdr server/handoff.rs:370-454,:26 `MAX_FDS_PER_HANDOFF=64`; handoff_runtime.rs:5-21.)* kolu inverts this: kaval **is** the survivor and stays alive across a deploy, so there is no fd to move on the common path. node-pty exposes no master-fd handle. It would matter *only* for upgrading the daemon binary itself — which the cgroup-survival design deliberately makes rare. **Write it down as a named non-goal** so a future contributor who reads this note doesn't reintroduce the <Issue n={1034} /> race for marginal benefit. (A6 remote-over-SSH: borrow herdr's reattach-hint UX, not the transport. The earlier "C1 pool-key leak" R8 blocker is **stale** — `hostSession.ts:735` already keys on `(host, binary)` with `.drv` excluded, fixed <Issue n={1054} />.)
 </Callout>
 
 ## UX — what to adopt
@@ -128,20 +128,20 @@ The two highest-leverage herdr ideas the plans never covered. One — native ses
 
 - **Two-tier persistence + privacy:** herdr splits structural `session.json` (always written, no bytes) from opt-in, deletable `session-history.json` (scrollback). kolu's `@xterm/headless` snapshot is live-memory only, so a *cold* daemon restart loses all scrollback. Decide whether an opt-in scrollback-to-disk tier is wanted.
 - **Keyboard-protocol / alt-screen preservation:** herdr carries kitty-keyboard / bracketed-paste bytes across migration because the child won't re-emit them. Resolved by <PrLink pr={1255} />: `@kolu/terminal-protocol` (`snapshotReset.ts`, `bracketedPaste.ts`) enumerates and resets exactly the modes `SerializeAddon` emits — remaining caveat: an xterm/serialize upgrade that starts serializing kitty-keyboard must extend the reset. (Pairs with A3.)
-- **Control ⟂ data channel invariant:** herdr keeps a reliable unbounded control channel separate from the droppable render channel. kolu drops the whole subscriber on overflow *(channel.ts:120-130, ends the iterator with no overflow-vs-exit distinction)*. Make "control-plane events never ride the droppable substrate" explicit, and for R-3 emit a distinguishable `overflow` vs `exit` frame.
+- **Control ⟂ data channel invariant:** herdr keeps a reliable unbounded control channel separate from the droppable render channel. kolu drops the whole subscriber on overflow *(channel.ts:120-130, ends the iterator with no overflow-vs-exit distinction)*. Make "control-plane events never ride the droppable substrate" explicit, and for R5 emit a distinguishable `overflow` vs `exit` frame.
 - **Retryable-error working-hold:** herdr treats provider 5xx/overload as continued *Working* with a grace before flipping, so transient API failures don't flicker the pane to done. kolu has no equivalent.
 - **Non-interactive TTY-guard for kaval-tui:** herdr hard-requires an interactive TTY for destructive prompts. kaval-tui runs agent-driven and in CI — attach (with its `~.` escape) already hard-requires a TTY (shipped in Phase 2: non-tty fails loud, pointing at `snapshot`); define the equivalent contract for `kill`/`spawn` before Phase 3.
 </Callout>
 
 ## What to do next
 
-1. **Phase B, now (low risk):** adopt the transactional handoff *discipline* (A1), the single-owner kill invariant (A2), the snapshot invariant test (A3), the two-axis honest-state + inline-recovery-hint (A4). Add the SCM_RIGHTS non-goal note (A7).
+1. **R2.4, now (low risk):** adopt the transactional handoff *discipline* (A1), the single-owner kill invariant (A2), the snapshot invariant test (A3), the two-axis honest-state + inline-recovery-hint (A4). Add the SCM_RIGHTS non-goal note (A7).
 2. **Close G2 (multi-client resize arbitration)** — Phase 2 shipped with documented last-resize-wins; an arbiter (and the size-change tap `attach.ts` already names) is still open.
 3. **kaval-tui:** A5's socket path and G3's attach TTY-guard shipped (<PrLink pr={1084} />, <PrLink pr={1255} />); carry the non-tty contract forward to Phase 3's `kill`/`spawn`.
 4. **UX:** ship the attention rollup with `Done = unseen` (U1), keeping `unread`-bytes distinct from turn-finished; fold the navigator into the palette (U3).
 5. **G1 (native `--resume`) shipped** (<Issue n={1495} />): the live `agent.sessionId` is persisted as a `{ kind, id }` ref and replayed by id on wake/restore — the clearest adoptable, now done.
-6. **U2's `blocked` signal:** <Issue n={905} /> shipped (screen-scrape `awaiting_user`) — remaining: map `awaiting_user` into the U1 rollup as Blocked. **Later:** R-2 reattach-hint UX (A6).
+6. **U2's `blocked` signal:** <Issue n={905} /> shipped (screen-scrape `awaiting_user`) — remaining: map `awaiting_user` into the U1 rollup as Blocked. **Later:** R8 reattach-hint UX (A6).
 
 ---
 
-*Net: herdr is the reference implementation for the survivor kolu already chose to build — most of its architecture **validates** R-4 rather than redirecting it, with one battle-tested checklist to harden Phase B (A1) and one explicit non-goal to write down (A7). The durable surprises were two gaps it surfaced: native session resume (now shipped by exact id, juspay/kolu#1495) and multi-client resize arbitration (still latent in an already-endorsed feature).*
+*Net: herdr is the reference implementation for the survivor kolu already chose to build — most of its architecture **validates** R2 rather than redirecting it, with one battle-tested checklist to harden R2.4 (A1) and one explicit non-goal to write down (A7). The durable surprises were two gaps it surfaced: native session resume (now shipped by exact id, juspay/kolu#1495) and multi-client resize arbitration (still latent in an already-endorsed feature).*
