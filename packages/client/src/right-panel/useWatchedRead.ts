@@ -26,9 +26,14 @@
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 
 /** The subset of a surface stream's `.use(...)` accessor this primitive reads —
- *  the pulse value plus its pending/error flags. */
+ *  the `{seq}` pulse value plus its pending/error flags. Typed to the monotonic
+ *  `seq` (not `unknown`) deliberately: the surface subscription stores the frame
+ *  in a `createStore` and writes it via `reconcile`, so a new pulse keeps the SAME
+ *  object reference and mutates only `seq`. The consumer MUST track the nested
+ *  `seq` field — reading the whole object would never re-notify (the bug that
+ *  froze the Code tab's live updates while directLink, which iterates raw, worked). */
 export interface PulseAccessor {
-  (): unknown;
+  (): { seq: number } | undefined;
   pending: () => boolean;
   error: () => Error | undefined;
 }
@@ -56,9 +61,12 @@ export function useWatchedRead<I, O>(
 
   createEffect(() => {
     const i = input();
-    // Track the pulse so a new `{seq}` (incl. the `{seq:0}` snapshot) re-runs the
-    // read — the "requery on pulse" the composed surface's watcher streams exist for.
-    pulse();
+    // Track the nested `seq` (NOT the whole pulse object) so a new `{seq}` — incl.
+    // the `{seq:0}` snapshot — re-runs the read. The surface subscription reconciles
+    // the frame in place, so the object reference is stable; only `seq` changes, and
+    // only a read OF `seq` re-notifies. This is the "requery on pulse" the composed
+    // surface's watcher streams exist for.
+    void pulse()?.seq;
     if (!i) {
       setValue(undefined);
       setError(undefined);

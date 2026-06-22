@@ -11,23 +11,25 @@
 
 import { ORPCError } from "@orpc/server";
 import type {
-  ActiveTerminal,
+  KoluActiveTerminal,
   SleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
+import { awarenessFor } from "./terminalEndpoint/workspaceSurface.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
- *  the active arm, mutated in place by the owning endpoint's providers and
- *  published via the `terminalMetadata` collection from
- *  `terminalEndpoint/metadata.ts`; `handle` is the abstract control surface
- *  (write / resize / screen state — NO `dispose()`, the endpoint's
+ *  kolu's AUTHORED active arm (location + chrome + `state` — NO observed fields),
+ *  published via the `terminalMetadata` collection. The terminal's OBSERVED state
+ *  (cwd/git/pr/agent/foreground) lives in the in-process awareness store
+ *  (`workspaceSurface`), read through `awarenessFor(id)`. `handle` is the abstract
+ *  control surface (write / resize / screen state — NO `dispose()`, the endpoint's
  *  `killTerminal` is the sole termination path). */
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
-  meta: ActiveTerminal;
+  meta: KoluActiveTerminal;
   handle: TerminalHandle;
 }
 
@@ -110,19 +112,15 @@ export const activeTerminalCount = (): number => {
   return n;
 };
 
-/** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.meta.agent` — the agent detectors inside
- *  `LocalTerminalEndpoint` (driven by `claudeCodeAdapter` from
- *  `kolu-claude-code`) set it on session match and clear it on
- *  teardown. Exported for diagnostics. */
+/** Number of terminals currently hosting a Claude Code session. Read through the
+ *  OBSERVATION seam (`awarenessFor`) — the agent is observed state now, not held
+ *  on kolu's record; the agent detectors publish it into the awareness store. A
+ *  sleeping terminal has no live observation, so it never counts. Exported for
+ *  diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
-  for (const entry of terminals.values()) {
-    if (
-      entry.meta.state === "active" &&
-      entry.meta.agent?.kind === "claude-code"
-    )
-      n++;
+  for (const [id, entry] of terminals) {
+    if (entry.handle && awarenessFor(id)?.agent?.kind === "claude-code") n++;
   }
   return n;
 }

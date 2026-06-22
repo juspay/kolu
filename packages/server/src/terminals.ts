@@ -17,6 +17,7 @@
 
 import {
   type InitialTerminalMetadata,
+  restoreSeedsFromAwareness,
   type RightPanelPerTerminalState,
   type SavedTerminal,
   SavedTerminalSchema,
@@ -39,6 +40,7 @@ import {
 } from "./terminalEndpoint/local.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import { awarenessFor } from "./terminalEndpoint/workspaceSurface.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
@@ -72,12 +74,20 @@ export {
  *  created. */
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
-    ([id, entry]): SavedTerminal =>
-      // The registry now holds the `Terminal` union, so project each entry
-      // through the SAVED discriminated union: an active entry strips its live
-      // overlay onto the active arm, a sleeping entry carries its persisted base
-      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
-      SavedTerminalSchema.parse({ ...entry.meta, id }),
+    ([id, entry]): SavedTerminal => {
+      // R8: kolu's authored record carries no observed fields, so for an ACTIVE
+      // terminal SAMPLE the restore-seeds (cwd/git/lastAgentCommand/agentSession/
+      // lastActivityAt) from the live observation here — a one-shot snapshot, the
+      // only place kolu persists the observation. A SLEEPING terminal has no live
+      // observation (forgotten at sleep) but already froze those seeds onto its
+      // record, so the spread alone suffices.
+      const obs = entry.handle ? awarenessFor(id) : undefined;
+      return SavedTerminalSchema.parse({
+        ...(obs ? restoreSeedsFromAwareness(obs) : {}),
+        ...entry.meta,
+        id,
+      });
+    },
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

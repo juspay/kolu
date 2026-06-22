@@ -27,13 +27,15 @@ import {
   type AwarenessRecord,
   type AwarenessSignals,
   type AwarenessSink,
+  seedAwarenessValue,
   startAwareness,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
-  ActiveTerminal,
+  AwarenessValue,
+  KoluActiveTerminal,
   SavedActiveTerminal,
   SavedSleepingTerminal,
   SleepingTerminal,
@@ -41,7 +43,10 @@ import type {
   TerminalInfo,
 } from "kolu-common/surface";
 import {
+  authoredActiveFromRecord,
+  awarenessSeedFromRecord,
   LOCAL_LOCATION,
+  restoreSeedsFromAwareness,
   SavedSleepingTerminalSchema,
   SleepingTerminalSchema,
   TerminalIdSchema,
@@ -69,12 +74,9 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
-import {
-  createMetadata,
-  publishTerminalState,
-  updateServerLiveMetadata,
-  updateServerMetadata,
-} from "./metadata.ts";
+import { createMetadata, publishTerminalState } from "./metadata.ts";
+import { awarenessFor, forgetAwareness } from "./workspaceSurface.ts";
+import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -90,6 +92,14 @@ function emitTerminalsDirty(): void {
  *  collection instead. */
 function emitTerminalListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
+}
+
+/** Publish a terminal's current OBSERVATION into the in-process awareness
+ *  collection (the store `awarenessFor` reads), pushing to subscribers. Clones so
+ *  a later in-place sensor mutation can't alias the stored value. The lifecycle
+ *  seeds through this; the sensors thereafter publish via their `AwarenessSink`. */
+function publishAwareness(id: TerminalId, value: AwarenessValue): void {
+  workspaceSurfaceCtx.collections.awareness.upsert(id, { ...value });
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
@@ -242,18 +252,37 @@ export function bridgeStream<T>(
   })();
 }
 
-/** Wire the awareness sink to kolu-server's metadata + activity surfaces.
- *  `record.meta` IS `entry.meta` (same object), so a sensor mutating its
- *  record is publishing kolu-server state directly. */
+/** The per-terminal awareness sink — kolu-server's local home of the sensor
+ *  write path, now the SAME shape as `arivu`'s: the sensors mutate a private
+ *  `record.meta` (an `AwarenessValue`, NOT kolu's record) and the sink publishes
+ *  it into the in-process `terminalWorkspaceSurface.awareness` collection. kolu's
+ *  own `entry.meta` is never touched — the observation has its own home, so the
+ *  old two-writer fence on `entry.meta` is gone.
+ *
+ *  Persisted-observation writes (`updateServerMetadata`: cwd/git/lastAgentCommand/
+ *  lastActivityAt) ALSO arm the session autosave — these are kolu's restore-seeds,
+ *  sampled from the observation at save time. Live writes (`updateServerLiveMetadata`:
+ *  pr/agent/foreground) only publish: they're re-derived on wake, never persisted,
+ *  so the ~150 ms agent firehose never reaches kolu's autosave. (The apply-and-publish
+ *  contract from `@kolu/terminal-workspace`: mutate `record.meta` synchronously
+ *  FIRST so the sensors read their own prior state back.) */
 function makeAwarenessSink(
-  entry: ActiveTerminalProcess,
+  record: AwarenessRecord,
   id: TerminalId,
+  entry: ActiveTerminalProcess,
 ): AwarenessSink {
+  const publish = (meta: AwarenessValue): void =>
+    workspaceSurfaceCtx.collections.awareness.upsert(id, { ...meta });
   return {
-    updateServerMetadata: (_record, mutate) =>
-      updateServerMetadata(entry, id, mutate),
-    updateServerLiveMetadata: (_record, mutate) =>
-      updateServerLiveMetadata(entry, id, mutate),
+    updateServerMetadata: (_record, mutate) => {
+      mutate(record.meta);
+      publish(record.meta);
+      emitTerminalsDirty();
+    },
+    updateServerLiveMetadata: (_record, mutate) => {
+      mutate(record.meta);
+      publish(record.meta);
+    },
     trackRecentRepo,
     trackRecentAgent,
     // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
@@ -281,79 +310,67 @@ interface TerminalLifecycle {
  *  so it stays null until the title tap fires. */
 function liveForeground(
   liveEntry: PtyHostListEntry,
-): ActiveTerminal["foreground"] {
+): AwarenessValue["foreground"] {
   return liveEntry.foregroundProcess
     ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
     : null;
 }
 
-/** The whole-record adoption mapping (B3.3): a `SavedActiveTerminal`'s persisted
- *  fields become a live `ActiveTerminal` as a UNIT — `createMetadata` seeds the
- *  live-field defaults (pr/agent re-derived by the sensors against the
- *  surviving taps), then the persisted record is spread on **whole**, never
- *  reconstructed field-by-field (the #1275 lossy-adoption class that dropped
- *  `parentId` and `lastAgentCommand`). Pure + exported so the class is closed by
- *  a schema-key round-trip test: a new persisted field rides the spread for free;
- *  a field-by-field rewrite that dropped one would fail it. `id` is the registry
- *  key, not a `meta` field, so it is split off.
- *
- *  The LIVE daemon snapshot (`liveEntry`) is the authority for `cwd` and
- *  `foreground` (F2): kaval's `cwd`/`title` taps do NOT replay a snapshot on
- *  subscribe, so a `cd` that happened while kolu-server was down — or after the
- *  last 500ms-debounced autosave — would otherwise leave the adopted tile pinned
- *  to the stale SAVED cwd until the next OSC 7, and the boot's
- *  `saveSession(snapshotSession())` would persist that stale value back over the
- *  live truth. The survivor's listed `cwd` wins; the git sensor re-resolves
- *  against it on start. */
+/** What a terminal is BORN with: kolu's AUTHORED active arm (`entry.meta`) +
+ *  the initial OBSERVED `AwarenessValue` to seed the in-process awareness store.
+ *  The lifecycle builders (`adoptedMeta`/`orphanMeta`/`wakeMeta`) split a record
+ *  into these two halves; the spawn path registers the authored arm and seeds the
+ *  store with the awareness — never one co-owned record. */
+export interface ActiveSeed {
+  authored: KoluActiveTerminal;
+  awareness: AwarenessValue;
+}
+
+/** The whole-record adoption mapping (B3.3): a `SavedActiveTerminal` splits into
+ *  its AUTHORED arm (chrome + location, schema-stripped so a new field rides
+ *  through — the #1275 round-trip class stays closed) and its OBSERVED seed. The
+ *  LIVE daemon snapshot (`liveEntry`) is the authority for `cwd`/`foreground`
+ *  (F2): a `cd` while kolu-server was down isn't in the saved record, so the
+ *  survivor's listed cwd wins and the git sensor re-resolves against it; the saved
+ *  git/lastAgentCommand/agentSession ride as the initial observation. */
 export function adoptedMeta(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): ActiveTerminal {
-  const { id: _id, ...persisted } = record;
+): ActiveSeed {
   return {
-    ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
-    ...persisted,
-    cwd: liveEntry.cwd,
-    foreground: liveForeground(liveEntry),
+    authored: authoredActiveFromRecord(record),
+    awareness: {
+      ...awarenessSeedFromRecord(record),
+      cwd: liveEntry.cwd,
+      foreground: liveForeground(liveEntry),
+    },
   };
 }
 
-/** Metadata for an ORPHAN survivor (B3.3): a live PTY the daemon still owns with
- *  NO saved record (F1). A create that never reached the 500ms-debounced autosave
- *  before the restart is the common case — exactly the redeploy window this
- *  feature protects — so the PTY is ADOPTED (never reaped), seeded entirely from
- *  the live daemon snapshot. Client-persisted chrome (theme/layout/intent) that
- *  never made it to disk is gone, but the live shell and its scrollback survive,
- *  which is the headline guarantee; the sensors re-derive git/agent/pr from the
- *  surviving taps. */
-export function orphanMeta(liveEntry: PtyHostListEntry): ActiveTerminal {
+/** Seed for an ORPHAN survivor (B3.3): a live PTY the daemon still owns with NO
+ *  saved record (F1). Adopted (never reaped), seeded entirely from the live daemon
+ *  snapshot; client chrome that never reached disk is gone, but the shell + its
+ *  scrollback survive, and the sensors re-derive git/agent/pr from the taps. */
+export function orphanMeta(liveEntry: PtyHostListEntry): ActiveSeed {
   return {
-    ...createMetadata(liveEntry.cwd, LOCAL_LOCATION),
-    foreground: liveForeground(liveEntry),
+    authored: createMetadata(LOCAL_LOCATION),
+    awareness: {
+      ...seedAwarenessValue(liveEntry.cwd),
+      foreground: liveForeground(liveEntry),
+    },
   };
 }
 
-/** The WAKE mapping — the inverse of the sleeping flip: a sleeping terminal's
- *  persisted base becomes a fresh live `ActiveTerminal`. `createMetadata` seeds
- *  the live-field defaults (pr/agent/foreground re-derived by the sensors on the
- *  re-spawned PTY), then the persisted base is spread WHOLE — theme, layout,
- *  intent, git, and crucially `lastAgentCommand` all ride through, never
- *  reconstructed field-by-field (the #1275 lossy class, and the BUG-B class that
- *  stripped the agent on the discarded first cut) — and `state` flips to active.
- *  Pure + exported so a schema-key round-trip test pins that no persisted key is
- *  dropped on wake. The `location` rides the base, so a future remote terminal
- *  wakes against its own host. */
-export function wakeMeta(sleeping: SleepingTerminal): ActiveTerminal {
-  // Drop the sleeping-only discriminant fields (`sleptAt` and the frozen `pr`
-  // snapshot) so neither rides onto the active arm — the active arm never carries
-  // `sleptAt`, and the live `pr` is re-resolved by the re-spawned PTY's sensor
-  // (`createMetadata` re-seeds it to `{ kind: "pending" }`), so the stale snapshot
-  // must NOT ride back over that fresh resolution.
-  const { state: _state, sleptAt: _sleptAt, pr: _pr, ...persisted } = sleeping;
+/** The WAKE mapping — the inverse of the sleeping flip. The frozen dormant
+ *  snapshot (cwd/git/lastAgentCommand/agentSession) re-seeds the observation; the
+ *  live overlay (pr/agent/foreground) is re-derived by the re-spawned PTY's
+ *  sensors (the stale sleeping `pr` is dropped). The authored chrome rides through
+ *  whole (schema-stripped), `state` flips to active, and `location` rides the arm
+ *  so a future remote terminal wakes against its own host. */
+export function wakeMeta(sleeping: SleepingTerminal): ActiveSeed {
   return {
-    ...createMetadata(persisted.cwd, persisted.location),
-    ...persisted,
-    state: "active",
+    authored: authoredActiveFromRecord(sleeping),
+    awareness: awarenessSeedFromRecord(sleeping),
   };
 }
 
@@ -381,7 +398,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // this synchronous path cannot see). Seed with the caller's cwd or empty,
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
-    const meta: ActiveTerminal = { ...createMetadata(cwd, LOCAL_LOCATION) };
+    const meta: KoluActiveTerminal = createMetadata(LOCAL_LOCATION);
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
@@ -389,10 +406,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.subPanel) meta.subPanel = initial.subPanel;
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
     if (initial?.intent) meta.intent = initial.intent;
+    // The OBSERVED seed — the spawn cwd (corrected to the resolved cwd in
+    // `spawnAndWire`) plus the restore-threaded recency, so a restored terminal
+    // keeps its sort order before its sensors re-derive it.
+    const awareness: AwarenessValue = { ...seedAwarenessValue(cwd) };
     if (initial?.lastActivityAt !== undefined)
-      meta.lastActivityAt = initial.lastActivityAt;
+      awareness.lastActivityAt = initial.lastActivityAt;
 
-    return this.registerActiveAndSpawn(id, meta, opts);
+    return this.registerActiveAndSpawn(id, meta, opts, awareness);
   }
 
   /** Register a fresh ACTIVE sync-shadow entry under `id` (proxy handle + the
@@ -411,8 +432,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  the unwind is a plain unregister as before. */
   private registerActiveAndSpawn(
     id: TerminalId,
-    meta: ActiveTerminal,
+    meta: KoluActiveTerminal,
     opts: PtySpawnOpts,
+    seedAwareness: AwarenessValue,
   ): TerminalInfo {
     const tlog = log.child({ terminal: id });
     const prior = getTerminal(id);
@@ -423,6 +445,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       handle: proxy,
     };
     registerTerminal(id, entry);
+    // Seed the observation store so `awarenessFor(id)` is present from birth — a
+    // save armed before the sensors start still finds a cwd to persist, and the
+    // browser has a badge to paint.
+    publishAwareness(id, seedAwareness);
     emitTerminalsDirty();
     emitTerminalListChanged();
 
@@ -442,17 +468,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
   adoptTerminal(
     id: TerminalId,
-    meta: ActiveTerminal,
+    seed: ActiveSeed,
     liveEntry: PtyHostListEntry,
   ): void {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
-      meta,
+      meta: seed.authored,
       handle: proxy,
     };
     registerTerminal(id, entry);
+    // Seed the observation store from the survivor's snapshot before the sensors
+    // start (the live pr/agent/foreground re-derive against the surviving taps).
+    publishAwareness(id, seed.awareness);
     // The PTY already exists on the survivor — release the handle's queued /
     // awaited verbs at the live pid with no spawn RPC (the sole structural
     // difference from `spawnAndWire`).
@@ -547,10 +576,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
-    // Seed the authoritative resolved cwd before starting the sensor set (the git
-    // watcher reads `record.meta.cwd` at start).
-    updateServerMetadata(entry, id, (m) => {
-      m.cwd = res.cwd;
+    // Correct the seeded observation to the spawn's authoritative resolved cwd
+    // before the sensors start (the git sensor re-resolves off `record.meta.cwd`).
+    publishAwareness(id, {
+      ...(awarenessFor(id) ?? seedAwarenessValue(res.cwd)),
+      cwd: res.cwd,
     });
 
     // Phase 2 — post-spawn wiring. The PTY now exists and the host owns it, so
@@ -648,23 +678,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
     };
+    // The sensors own a PRIVATE `AwarenessValue` (a copy of the seeded
+    // observation), NOT kolu's `entry.meta` — they mutate + publish it into the
+    // awareness store via the sink. So kolu's record is never co-written.
     const record: AwarenessRecord = {
       pid,
-      meta: entry.meta,
+      meta: { ...(awarenessFor(id) ?? seedAwarenessValue("")) },
       currentAgent: null,
     };
-    const sink = makeAwarenessSink(entry, id);
+    const sink = makeAwarenessSink(record, id, entry);
 
-    // Bridge the raw VT taps onto the awareness signals. cwd also lands on
-    // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
-    // `signals.cwd` to re-resolve git).
+    // Bridge the raw VT taps onto the awareness signals. cwd lands on the
+    // observation (the bridge owns `record.meta.cwd`) AND arms the autosave (cwd is
+    // a restore-seed, sampled at save) — `updateServerMetadata` does both. The git
+    // sensor reads `signals.cwd` to re-resolve git.
     // Fire-and-forget: the abort signal owns teardown, so the returned Promise
     // is intentionally not awaited (only the inventory reconciler awaits it).
     void bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
       (msg) => {
-        updateServerMetadata(entry, id, (m) => {
+        sink.updateServerMetadata(record, (m) => {
           m.cwd = msg.cwd;
         });
         signals.cwd.publish(msg.cwd);
@@ -737,6 +771,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!entry) return;
     log.child({ terminal: id }).info({ exitCode }, "exited");
     this.teardownSensors(id);
+    forgetAwareness(id);
     cleanupTerminalScratch(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
     unregisterTerminal(id);
@@ -760,6 +795,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // double-publish `terminalExit`. The kill RPC's response drives client
     // cleanup instead.
     this.teardownSensors(id);
+    forgetAwareness(id);
     try {
       await ptyHostClient.surface.terminal.kill({ id });
     } catch (err) {
@@ -784,25 +820,26 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   beginSleep(id: TerminalId): boolean {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
+    // SAMPLE the live observation before stopping the sensors — it FREEZES onto
+    // the dormant snapshot (cwd/git/pr the tile shows; lastAgentCommand/agentSession
+    // for wake-resume). The live `pr` is frozen; `agent`/`foreground` are dropped by
+    // the schema parse. After this, the observation is gone (sensors down), so the
+    // dormant snapshot is kolu's AUTHORED record — there is no awareness entry to
+    // co-own. Wake re-seeds the observation from these frozen seeds.
+    const obs = awarenessFor(id) ?? seedAwarenessValue("");
     this.teardownSensors(id);
-    // Flip the active entry to the sleeping arm IN PLACE. The persisted base
-    // (cwd / git / lastAgentCommand / theme / intent / …) rides the `...entry.meta`
-    // spread, and the live `pr` overlay is FROZEN onto the sleeping arm because
-    // `SleepingTerminalSchema` declares `pr` (see `SleepingDiscriminantSchema`),
-    // so the parse KEEPS it — while the rest of the live overlay (`agent` /
-    // `foreground`), absent from the sleeping schema, is stripped by the same
-    // parse. The dormant tile reads cwd / branch / pr off this snapshot; wake
-    // re-spawns and resumes the OBSERVED `lastAgentCommand` (the PR sensor
-    // re-resolves live).
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: SleepingTerminalSchema.parse({
+        ...restoreSeedsFromAwareness(obs),
         ...entry.meta,
         state: "sleeping",
         sleptAt: Date.now(),
+        pr: obs.pr,
       }),
     };
     registerTerminal(id, sleeping);
+    forgetAwareness(id);
     publishTerminalState(sleeping, id);
     emitTerminalListChanged();
     log
@@ -850,15 +887,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // observed (e.g. a `nix run …#agent` wrapper, whose head token is `nix`) is
     // NOT resumed on wake — it wakes to a bare shell, by design (juspay/kolu#1492).
     const resumeCommand = resumeFormFor(entry.meta);
-    const meta = wakeMeta(entry.meta);
+    const seed = wakeMeta(entry.meta);
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
-    return this.registerActiveAndSpawn(id, meta, {
-      cwd: meta.cwd,
-      parentId: meta.parentId,
-      resumeCommand: resumeCommand ?? undefined,
-    });
+    return this.registerActiveAndSpawn(
+      id,
+      seed.authored,
+      {
+        cwd: seed.awareness.cwd,
+        parentId: seed.authored.parentId,
+        resumeCommand: resumeCommand ?? undefined,
+      },
+      seed.awareness,
+    );
   }
 
   /** Discard a SLEEPING terminal: remove its record. There is no PTY to kill —
@@ -885,7 +927,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       log.error({ err }, "pty-host killAll failed; draining anyway");
     }
     const entries = drainTerminals();
-    for (const entry of entries) cleanupTerminalScratch(entry.info.id);
+    for (const entry of entries) {
+      cleanupTerminalScratch(entry.info.id);
+      forgetAwareness(entry.info.id);
+    }
     emitTerminalListChanged();
   }
 

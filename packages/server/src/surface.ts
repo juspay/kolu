@@ -53,7 +53,6 @@ import type {
 import {
   bytesToWholeMB,
   type koluSurface,
-  projectKoluFields,
   surfaces,
 } from "kolu-common/surface";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
@@ -225,19 +224,20 @@ const koluDeps: Omit<
 
   collections: {
     terminalMetadata: {
-      // R8: project the internal record to kolu's OWN fields — the awareness
-      // overlay rides `terminalWorkspaceSurface.awareness`, joined client-side.
+      // R8: `entry.meta` IS kolu's authored record now (no observed fields), so it
+      // rides the wire directly — the observation lives on
+      // `terminalWorkspaceSurface.awareness`, joined client-side.
       readAll: () => {
         const map = new Map<string, KoluTerminalFields>();
         for (const info of listTerminals()) {
           const term = getTerminal(info.id);
-          if (term) map.set(info.id, projectKoluFields(term.meta));
+          if (term) map.set(info.id, term.meta);
         }
         return map;
       },
       readOne: (key) => {
         const term = getTerminal(key as string);
-        return term ? projectKoluFields(term.meta) : undefined;
+        return term ? term.meta : undefined;
       },
       // Server-internal collection: clients can't write. The `upsert`/
       // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`

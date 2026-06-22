@@ -141,4 +141,24 @@ describe("terminalWorkspaceSurface served over directLink", () => {
     );
     expect(first).toEqual({ seq: 0 });
   });
+
+  // The live update the Code tab leans on: after the snapshot frame, an actual
+  // working-tree change must push a fresh pulse over the link so a consumer
+  // re-queries. Exercises the REAL kolu-git watcher end-to-end through directLink
+  // (not the fake-callback unit above), since the e2e live-update failures pointed
+  // at the served watcher, not the client requery.
+  it("pushes a {seq:1} pulse over the link on a real working-tree change", async () => {
+    const stream = await makeClient().surface.subscribeRepoChange.get({
+      repoPath: repo,
+    });
+    const it = stream[Symbol.asyncIterator]();
+    expect((await it.next()).value).toEqual({ seq: 0 });
+
+    // The second pull begins awaiting the next frame; THEN mutate the tree so the
+    // watcher is already installed when the change lands (no install-vs-change race).
+    const next = it.next();
+    await new Promise((r) => setTimeout(r, 50));
+    fs.writeFileSync(`${repo}/a.txt`, "one\ntwo\nthree\n");
+    expect((await next).value).toEqual({ seq: 1 });
+  });
 });

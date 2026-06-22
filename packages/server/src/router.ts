@@ -42,6 +42,7 @@ import {
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import { awarenessFor } from "./terminalEndpoint/workspaceSurface.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
   createTerminal,
@@ -260,17 +261,21 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        const term = requireActiveTerminal(input.id);
-        const agent = term.meta.agent;
-        if (!agent) {
+        requireActiveTerminal(input.id);
+        // The agent/cwd/git/pr are OBSERVED state — read them off the observation
+        // seam, not kolu's record (R8). R9 reads a remote terminal's observation
+        // through the same `awarenessFor`.
+        const obs = awarenessFor(input.id);
+        if (!obs?.agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = term.meta.cwd;
-        const repoName = term.meta.git?.repoName ?? null;
-        const prInfo = prValue(term.meta.pr);
+        const agent = obs.agent;
+        const cwd = obs.cwd;
+        const repoName = obs.git?.repoName ?? null;
+        const prInfo = prValue(obs.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;

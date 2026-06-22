@@ -1,11 +1,13 @@
 /**
- * Publish-routing tests for the metadata update helpers.
+ * Tests for kolu's AUTHORED-metadata helpers.
  *
- * Guards against the firehose regressing: persisted-field writers MUST
- * fire `terminals:dirty`; live-field writers MUST NOT. Without this,
- * a future contributor who routes a new persisted field through
- * `updateServerLiveMetadata` (or vice versa) silently breaks autosave
- * cadence — either over-saving or losing data on restart.
+ * R8 removed the server-persisted/live FENCE (`updateServerMetadata` /
+ * `updateServerLiveMetadata`): kolu no longer co-owns the observation, so there
+ * is no two-writer record to fence. The sensors write the observation through
+ * their own `AwarenessSink` (where the cwd write — and only it — arms the
+ * autosave); the ~150 ms agent firehose never reaches kolu. What's left here:
+ * `createMetadata` (authored birth) and `updateClientMetadata` (client chrome
+ * writes, which DO arm the autosave).
  */
 
 import { LOCAL_LOCATION } from "kolu-common/surface";
@@ -17,30 +19,14 @@ import {
   noopSurfaceCtxForTest,
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
-import {
-  __resetWorkspaceSurfaceCtxForTest,
-  noopWorkspaceSurfaceCtxForTest,
-  setWorkspaceSurfaceCtx,
-} from "../workspaceSurfaceCtx.ts";
-import {
-  updateClientMetadata,
-  updateServerLiveMetadata,
-  updateServerMetadata,
-} from "./metadata.ts";
+import { createMetadata, updateClientMetadata } from "./metadata.ts";
 
 function fakeTerminal(): ActiveTerminalProcess {
   return {
     info: { id: "term-pub-test", pid: 0 },
-    meta: {
-      state: "active",
-      cwd: "/tmp",
-      git: null,
-      location: LOCAL_LOCATION,
-      pr: { kind: "pending" },
-      agent: null,
-      foreground: null,
-      lastActivityAt: 0,
-    },
+    // R8: the registry record is AUTHORED only — location + chrome + state. The
+    // observation (cwd/git/pr/agent/foreground) lives in the awareness store.
+    meta: { state: "active", location: LOCAL_LOCATION, themeName: "rose" },
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as ActiveTerminalProcess["handle"],
   };
@@ -49,24 +35,14 @@ function fakeTerminal(): ActiveTerminalProcess {
 let dirtyCount: number;
 let stopWatch: () => void;
 
-/** Yield to the event loop so the channel's async iterator (started by
- *  `consume`) can receive any queued publishes. The publisher pipeline
- *  is async end-to-end (`publish` returns a Promise; the consume IIFE
- *  awaits via `for await`), so a synchronous read of `dirtyCount`
- *  immediately after `updateServerMetadata` will see the pre-event
- *  count. Two `setImmediate` ticks cover both legs of the pipe. */
+/** Yield to the event loop so the channel's async iterator can drain. */
 async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 beforeEach(async () => {
-  // surface.ts is not imported by this test module; supply a no-op ctx
-  // so calls to publishSnapshot (via surfaceCtx.collections…upsert) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
-  // R8: publishSnapshot also pushes the awareness projection through the
-  // workspace ctx, so the publish path needs both registered.
-  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -74,94 +50,30 @@ beforeEach(async () => {
     },
     onError: () => {},
   });
-  // Let `consume`'s async IIFE reach its first `for await` before any
-  // test publishes; otherwise the first publish races the subscribe.
   await settle();
 });
 
 afterEach(() => {
-  // Each test gets a fresh subscriber; without this, prior subscribers
-  // keep firing into the shared `dirtyCount` and bystander tests see
-  // inflated counts.
   stopWatch?.();
   __resetSurfaceCtxForTest();
-  __resetWorkspaceSurfaceCtxForTest();
 });
 
-describe("metadata publish routing", () => {
-  it("updateServerMetadata fires terminals:dirty (cwd is persisted)", async () => {
-    const entry = fakeTerminal();
-    updateServerMetadata(entry, "term-pub-test", (m) => {
-      m.cwd = "/new/cwd";
-    });
-    await settle();
-    expect(dirtyCount).toBe(1);
+describe("authored metadata helpers", () => {
+  it("createMetadata returns the AUTHORED active arm — location + state, no observation", () => {
+    const meta = createMetadata(LOCAL_LOCATION) as Record<string, unknown>;
+    expect(meta).toEqual({ location: LOCAL_LOCATION, state: "active" });
+    // none of the observed fields are seeded onto kolu's record
+    for (const k of ["cwd", "git", "pr", "agent", "foreground"])
+      expect(meta[k]).toBeUndefined();
   });
 
-  it("updateClientMetadata fires terminals:dirty (every client field is persisted)", async () => {
+  it("updateClientMetadata writes a chrome field and arms the autosave", async () => {
     const entry = fakeTerminal();
     updateClientMetadata(entry, "term-pub-test", (m) => {
-      m.themeName = "dracula";
+      m.intent = "ship it";
     });
+    expect(entry.meta.intent).toBe("ship it");
     await settle();
     expect(dirtyCount).toBe(1);
-  });
-
-  it("updateServerLiveMetadata does NOT fire terminals:dirty (agent stream is live)", async () => {
-    const entry = fakeTerminal();
-    updateServerLiveMetadata(entry, "term-pub-test", (m) => {
-      m.agent = {
-        kind: "claude-code",
-        state: "thinking",
-        sessionId: "sess-A",
-        model: null,
-        summary: "tick",
-        taskProgress: null,
-        workflow: null,
-        contextTokens: null,
-        startedAt: null,
-      };
-    });
-    await settle();
-    expect(dirtyCount).toBe(0);
-  });
-
-  it("updateServerLiveMetadata called repeatedly stays silent (the firehose case)", async () => {
-    const entry = fakeTerminal();
-    for (let i = 0; i < 50; i += 1) {
-      updateServerLiveMetadata(entry, "term-pub-test", (m) => {
-        m.foreground = { name: "claude", title: `tick ${i}` };
-      });
-    }
-    await settle();
-    expect(dirtyCount).toBe(0);
-  });
-
-  // Type-fence assertions — these are the structural guarantee that the
-  // firehose can't grow back. If any of these `@ts-expect-error` lines
-  // start compiling, the fence is broken and a future write site can
-  // silently re-firehose live writes through the persisting path (or
-  // vice versa). Test runtime is irrelevant; the assertion is at type
-  // check.
-  it("type fence: live fields cannot be written through updateServerMetadata", () => {
-    const entry = fakeTerminal();
-    updateServerMetadata(entry, "term-pub-test", (m) => {
-      // @ts-expect-error — `agent` is live, not persisted.
-      m.agent = null;
-      // @ts-expect-error — `pr` is live, not persisted.
-      m.pr = { kind: "pending" };
-      // @ts-expect-error — `foreground` is live, not persisted.
-      m.foreground = null;
-    });
-  });
-
-  it("type fence: persisted fields cannot be written through updateServerLiveMetadata", () => {
-    const entry = fakeTerminal();
-    updateServerLiveMetadata(entry, "term-pub-test", (m) => {
-      // @ts-expect-error — `cwd` is persisted, not live.
-      m.cwd = "/tmp";
-      // @ts-expect-error — `lastActivityAt` is persisted, not live.
-      m.lastActivityAt = 0;
-    });
   });
 });

@@ -1,22 +1,22 @@
 /**
- * R8 — kolu-server's IN-PROCESS implementation of `terminalWorkspaceSurface`.
+ * R8 — kolu-server's IN-PROCESS implementation of `terminalWorkspaceSurface`,
+ * and the in-process OBSERVATION store behind it.
  *
- * R6 shipped one fs/git IMPL (`createTerminalWorkspaceEndpoint`) with two homes
- * but two different contract SHAPES. R8 closes that: kolu-server now serves the
- * whole `terminalWorkspaceSurface` itself — the same surface arivu serves
- * remotely — as a member of the surface it serves the browser. This module
- * builds the server-only deps for that member: the awareness collection, the
- * activity stream, the version handshake, and the fs/git procedures + watcher
- * streams (off the SAME endpoint instance R6 already bound for the in-process
- * `TerminalEndpoint`).
+ * A terminal is two things, and they were never one record:
+ *   - AUTHORED state (kolu writes, durable) — location, theme/layout chrome,
+ *     lifecycle (active/sleeping + the frozen dormant snapshot). Lives on the
+ *     registry's `entry.meta` and rides `koluSurface.terminalMetadata`.
+ *   - OBSERVED state (the sensors derive, ephemeral, never persisted) — cwd,
+ *     git, pr, agent, foreground. Lives HERE, in the in-process `awareness`
+ *     store, served on `terminalWorkspaceSurface.awareness` (in-process locally;
+ *     a remote host's is mirrored in R9).
  *
- * The PER-TERMINAL DISPATCH SEAM is `awarenessFor` / `awarenessAll`: given a
- * terminal, they answer "who serves this terminal's awareness?". Today every
- * terminal is local, so they project the in-process registry record. R9 adds the
- * remote arm — a `{ kind: "remote", hostId }` terminal's awareness comes off that
- * host's mirror — at THIS one seam; the surface, its wire, and the client join
- * are unchanged. That is the whole point of doing R8 before R9: the remote dial
- * becomes a backing swap here, not a second data path.
+ * kolu no longer HOLDS a copy of the observation folded into its record — it
+ * READS the observation through one seam, `awarenessFor(id)` / `awarenessAll()`.
+ * Today they read this local store; R9 swaps the backing for a host's mirror
+ * behind the same synchronous signature. That is the whole point of composing
+ * the surface in R8 before dialing in R9: the remote dial is a backing swap, not
+ * a second data path.
  */
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
@@ -31,30 +31,47 @@ import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "@kolu/terminal-workspace/endpoint";
-import { activeArm, projectAwareness } from "kolu-common/surface";
 import type { Logger } from "pino";
-import { getTerminal, listTerminals } from "../terminal-registry.ts";
 
-/** Project one terminal's live awareness, or `undefined` when it has none —
- *  absent, or sleeping (a sleeping terminal's PTY is released, so there is no
- *  live sensor; its frozen cwd/git/pr ride kolu's own `terminalMetadata` arm,
- *  not this collection). THE DISPATCH SEAM (single-terminal arm). R9 adds:
- *  `if (location.kind === "remote") return remoteMirror(location.hostId).awareness.get(id)`. */
-function awarenessFor(id: TerminalId): AwarenessValue | undefined {
-  const term = getTerminal(id);
-  const live = activeArm(term?.meta);
-  return live ? projectAwareness(live) : undefined;
+// ── The in-process observation store ──────────────────────────────────────
+//
+// One undivided `AwarenessValue` per LIVE terminal — the sensors' home. The
+// sensor sink writes through `workspaceSurfaceCtx.collections.awareness.upsert`,
+// which lands here (the collection's `upsert` dep below) AND pushes to
+// subscribers; `awarenessFor`/`awarenessAll` read it back. A sleeping terminal
+// has no live sensor, so it has NO entry here — its last-observed cwd/git/pr are
+// frozen onto kolu's own sleeping record instead (authored snapshot).
+const awareness = new Map<TerminalId, AwarenessValue>();
+
+/** Read one terminal's live observation, or `undefined` (absent / sleeping).
+ *  THE OBSERVATION SEAM (single-terminal arm). The three server-side observation
+ *  readers — transcript export, the Claude-session count, the iframe-preview
+ *  route — go through this rather than reaching into kolu's record. R9 reads a
+ *  remote terminal's value off its mirror here; the signature is unchanged. */
+export function awarenessFor(id: TerminalId): AwarenessValue | undefined {
+  return awareness.get(id);
 }
 
-/** Project EVERY live terminal's awareness — the collection snapshot a fresh
- *  subscriber reads. THE DISPATCH SEAM (whole-set arm); local-only today. */
-function awarenessAll(): Map<TerminalId, AwarenessValue> {
-  const map = new Map<TerminalId, AwarenessValue>();
-  for (const info of listTerminals()) {
-    const value = awarenessFor(info.id);
-    if (value) map.set(info.id, value);
-  }
-  return map;
+/** Read every live terminal's observation — the collection snapshot a fresh
+ *  subscriber reads, and the whole-set arm of the seam. Local-only today. */
+export function awarenessAll(): Map<TerminalId, AwarenessValue> {
+  return new Map(awareness);
+}
+
+/** Write a terminal's observation into the store — the single store mutator. In
+ *  production the surface collection's `upsert` dep (below) routes here, so a
+ *  `workspaceSurfaceCtx.collections.awareness.upsert` lands here AND pushes to
+ *  subscribers; unit tests call it directly to seed an observation without the
+ *  full surface wired. */
+export function setAwareness(id: TerminalId, value: AwarenessValue): void {
+  awareness.set(id, value);
+}
+
+/** Drop a terminal's observation — on exit / kill / sleep (the sensors stop, so
+ *  the live value is gone; a slept terminal's last values freeze onto its record).
+ *  Mirrors how `arivu` removes a departed terminal from its served collection. */
+export function forgetAwareness(id: TerminalId): void {
+  awareness.delete(id);
 }
 
 /** Build the server-only deps for the composed `terminalWorkspaceSurface`,
@@ -73,16 +90,15 @@ export function buildWorkspaceSurfaceDeps(
       version: { store: inMemoryStore(DEFAULT_VERSION) },
     },
     collections: {
-      // Server-internal collection (mirrors `terminalMetadata`): `readAll`/
-      // `readOne` project the registry through the dispatch seam; `upsert`/`remove`
-      // are no-ops because the publish path (`metadata.ts`) calls
-      // `workspaceSurfaceCtx.collections.awareness.upsert(id, value)` to PUSH to
-      // subscribers — the registry, not this collection, is the store.
+      // The observation store IS this collection's backing: `readAll`/`readOne`
+      // read the map; `upsert`/`remove` write it AND (through the ctx) push to
+      // subscribers. The sensor sink is the sole writer (via
+      // `workspaceSurfaceCtx.collections.awareness.upsert`).
       awareness: {
         readAll: awarenessAll,
         readOne: (key) => awarenessFor(key as TerminalId),
-        upsert: () => {},
-        remove: () => {},
+        upsert: (key, value) => setAwareness(key as TerminalId, value),
+        remove: (key) => forgetAwareness(key as TerminalId),
       },
     },
     streams: {

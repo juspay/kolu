@@ -54,7 +54,7 @@ import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { getTerminal } from "./terminal-registry.ts";
+import { awarenessFor } from "./terminalEndpoint/workspaceSurface.ts";
 import {
   activeTerminalCount,
   countActiveClaudeSessions,
@@ -261,12 +261,10 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
     return c.text("raw request target unavailable", 500);
   const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
-  // The one kolu binding: which directory this terminal serves. Kept as the
-  // git repo root for now (behavior-preserving — the browse tree, git-status
-  // decoration, and diff are all repo-relative); switching the injected root
-  // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
-  // because it's a browse-model/decoration product decision, not this refactor.
-  const root = getTerminal(terminalId)?.meta.git?.repoRoot;
+  // The one kolu binding: which directory this terminal serves. The repo root is
+  // OBSERVED state (R8) — read it off the observation seam (`awarenessFor`), not
+  // kolu's record. (R9: a remote terminal's root comes through the same seam.)
+  const root = awarenessFor(terminalId)?.git?.repoRoot;
   if (!root) return c.text("terminal has no repo", 404);
 
   // The agnostic receptacle owns range/content-type/the lexical guard and

@@ -39,7 +39,6 @@ import {
   AwarenessLiveFieldsSchema,
   AwarenessPersistedFieldsSchema,
   type AwarenessValue,
-  AwarenessValueSchema,
   PrResultSchema,
   seedAwarenessValue,
   TerminalIdSchema,
@@ -80,6 +79,7 @@ export {
 export type {
   AgentInfo,
   AgentKind,
+  AwarenessValue,
   ClaudeCodeInfo,
   CodexInfo,
   Foreground,
@@ -1074,64 +1074,76 @@ export function activePr(
   return arm ? prValue(arm.pr) : null;
 }
 
-// ── R8: project / join across the dissolved fold ──────────────────────────
+// ── R8: compose authored + observed (client), sample restore-seeds (server) ──
 //
-// The server holds ONE record per terminal internally (the full `TerminalMetadata`
-// the sensors mutate, sessions persist, sleep/wake flip). R8 splits only the WIRE:
-// `projectKoluFields` feeds the `terminalMetadata` collection (kolu's own fields)
-// and `projectAwareness` feeds `terminalWorkspaceSurface.awareness` (the live
-// overlay). The browser does the inverse — `joinTerminalMetadata` — reconstructing
-// the full record from the two collections by terminal id. So the merge that used
-// to be a server-side fold is now a pure client-side join; the server just publishes
-// each half. (R9: a remote terminal's awareness half comes off the mirror instead
-// of the local projection, same join.)
+// A terminal is two surfaces, never one record: kolu's AUTHORED fields
+// (`KoluTerminalFields`, on `koluSurface.terminalMetadata`) and the sensors'
+// OBSERVED `AwarenessValue` (on `terminalWorkspaceSurface.awareness`). The
+// browser COMPOSES them at render (`joinTerminalMetadata`); the server SAMPLES a
+// few observed fields into kolu's durable record at save time
+// (`restoreSeedsFromAwareness`). Neither is a split-then-rejoin of one held
+// record — kolu reads the observation through the `awarenessFor` seam rather than
+// holding a copy of it.
 
-/** The kolu-owned half of a record — the `terminalMetadata` collection wire. The
- *  active arm drops the awareness overlay; the sleeping arm is already kolu's own
- *  frozen snapshot, so it passes through whole. */
-export function projectKoluFields(m: TerminalMetadata): KoluTerminalFields {
-  if (m.state === "sleeping") return m;
-  const {
-    location,
-    themeName,
-    parentId,
-    canvasLayout,
-    subPanel,
-    rightPanel,
-    intent,
-  } = m;
+/** Compose the full render record from kolu's AUTHORED fields + the terminal's
+ *  live `AwarenessValue` (both keyed by the same id) — the genuine join of the two
+ *  surfaces, done in the browser. A sleeping entry is already complete (its
+ *  cwd/git/pr are kolu's frozen dormant snapshot, no live half to join). For an
+ *  active entry whose observation hasn't arrived yet — the legitimate first-paint
+ *  window, observation streams in after lifecycle — seed the awareness defaults so
+ *  the tile paints its chrome immediately and fills its badge when the snapshot lands. */
+export function joinTerminalMetadata(
+  authored: KoluTerminalFields,
+  awareness: AwarenessValue | undefined,
+): TerminalMetadata {
+  if (authored.state === "sleeping") return authored;
   return {
-    state: "active",
-    location,
-    ...(themeName !== undefined && { themeName }),
-    ...(parentId !== undefined && { parentId }),
-    ...(canvasLayout !== undefined && { canvasLayout }),
-    ...(subPanel !== undefined && { subPanel }),
-    ...(rightPanel !== undefined && { rightPanel }),
-    ...(intent !== undefined && { intent }),
+    ...seedAwarenessValue(awareness?.cwd ?? ""),
+    ...awareness,
+    ...authored,
   };
 }
 
-/** The awareness half of an ACTIVE record — the `terminalWorkspaceSurface.awareness`
- *  wire. `AwarenessValueSchema.parse` strips the kolu-owned keys (location · chrome
- *  · `state`), leaving exactly the generic `AwarenessValue`. Sleeping terminals
- *  have no live awareness, so this is only published for active terminals. */
-export function projectAwareness(m: ActiveTerminal): AwarenessValue {
-  return AwarenessValueSchema.parse(m);
+/** The persisted RESTORE-SEEDS sampled from a live observation at session-save
+ *  time — cwd (re-spawn dir), the git cache (dormant display before re-resolve),
+ *  `lastAgentCommand` + `agentSession` (wake-resume), `lastActivityAt` (recency).
+ *  kolu authors these as a one-shot snapshot of the observation; it does NOT hold
+ *  the live overlay (pr/agent/foreground), which is re-derived on wake. `.parse`
+ *  strips the live half, leaving exactly `AwarenessPersistedFields`. */
+export function restoreSeedsFromAwareness(
+  awareness: AwarenessValue,
+): z.infer<typeof AwarenessPersistedFieldsSchema> {
+  return AwarenessPersistedFieldsSchema.parse(awareness);
 }
 
-/** The browser's inverse of the split: rebuild the full `TerminalMetadata` from
- *  kolu's own fields + the live `AwarenessValue` (keyed by the same terminal id).
- *  A sleeping entry is already complete. For an active entry whose awareness half
- *  hasn't arrived yet — the first-paint flicker the plan calls out — seed the
- *  awareness defaults so the tile renders chrome immediately and fills its badge
- *  the instant the awareness snapshot lands. */
-export function joinTerminalMetadata(
-  kolu: KoluTerminalFields,
-  awareness: AwarenessValue | undefined,
-): TerminalMetadata {
-  if (kolu.state === "sleeping") return kolu;
-  return { ...seedAwarenessValue(awareness?.cwd ?? ""), ...awareness, ...kolu };
+/** The inverse seam: rebuild a live `AwarenessValue` from persisted restore-seeds
+ *  (cold restore / wake / adopt), with the live half (pr/agent/foreground) at its
+ *  "not yet resolved" defaults — the sensors re-derive it against the freshly
+ *  re-spawned or adopted PTY. So a woken terminal shows its last-known cwd/branch
+ *  immediately, then its live badge fills in. */
+export function awarenessFromSeeds(
+  seeds: z.infer<typeof AwarenessPersistedFieldsSchema>,
+): AwarenessValue {
+  return { ...seedAwarenessValue(seeds.cwd), ...seeds };
+}
+
+/** Strip a saved / sleeping record to kolu's AUTHORED active arm — location +
+ *  chrome + `state: "active"`, dropping the observed fields (they re-seed the
+ *  awareness store separately). Schema-driven, so a NEW client-persisted field
+ *  rides through for free — the #1275 lossy-adoption class stays closed. */
+export function authoredActiveFromRecord(
+  rec: SavedTerminal | TerminalMetadata,
+): KoluActiveTerminal {
+  return KoluActiveTerminalSchema.parse({ ...rec, state: "active" });
+}
+
+/** Extract the OBSERVED restore-seeds from a saved / sleeping record (which froze
+ *  them at save / sleep) and rebuild a live `AwarenessValue` to seed the store on
+ *  adopt / wake — the live half re-derived by the sensors. */
+export function awarenessSeedFromRecord(
+  rec: SavedTerminal | TerminalMetadata,
+): AwarenessValue {
+  return awarenessFromSeeds(AwarenessPersistedFieldsSchema.parse(rec));
 }
 
 // ── Saved-terminal backfills (legacy → current shape) ─────────────────

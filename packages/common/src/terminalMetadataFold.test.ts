@@ -1,28 +1,38 @@
 /**
- * R8 — the dissolved fold's correctness, pinned as a round-trip.
+ * R8 — the two-surface model's correctness, pinned as a round-trip.
  *
- * R8 splits one internal record onto two surfaces (kolu's own fields +
- * `AwarenessValue`) and rebuilds it on the client by id. The invariant that
- * makes that safe: `join(projectKolu(m), projectAwareness(m)) === m` for an
- * active record, and a sleeping record passes through both ways unchanged (it has
- * no live awareness half). If a future field lands on the wrong base, this test
- * fails rather than silently dropping it across the wire.
+ * A terminal is kolu's AUTHORED record (`KoluTerminalFields`) + the sensors'
+ * OBSERVED `AwarenessValue`, never one held record. These pin the seams:
+ *   - the browser COMPOSES the two at render (`joinTerminalMetadata`);
+ *   - the server SAMPLES restore-seeds from the observation at save
+ *     (`restoreSeedsFromAwareness`) and rebuilds them on wake (`awarenessFromSeeds`);
+ *   - a saved/sleeping record SPLITS into authored + observed
+ *     (`authoredActiveFromRecord` / `awarenessSeedFromRecord`) — schema-driven, so a
+ *     new field rides through (the #1275 lossy-adoption class stays closed).
  */
 
 import { describe, expect, it } from "vitest";
 import {
-  type ActiveTerminal,
+  type AwarenessValue,
+  authoredActiveFromRecord,
+  awarenessFromSeeds,
+  awarenessSeedFromRecord,
   joinTerminalMetadata,
+  type KoluActiveTerminal,
   LOCAL_LOCATION,
-  projectAwareness,
-  projectKoluFields,
+  restoreSeedsFromAwareness,
+  type SavedActiveTerminal,
   type SleepingTerminal,
 } from "./surface.ts";
 
-const active: ActiveTerminal = {
+const authored: KoluActiveTerminal = {
   state: "active",
   location: LOCAL_LOCATION,
-  // awareness half
+  themeName: "rose",
+  intent: "fix the auth race",
+};
+
+const observed: AwarenessValue = {
   cwd: "/work/repo",
   git: {
     repoRoot: "/work/repo",
@@ -39,9 +49,6 @@ const active: ActiveTerminal = {
   pr: { kind: "pending" },
   agent: null,
   foreground: null,
-  // kolu half
-  themeName: "rose",
-  intent: "fix the auth race",
 };
 
 const sleeping: SleepingTerminal = {
@@ -51,7 +58,6 @@ const sleeping: SleepingTerminal = {
   git: null,
   lastActivityAt: 200,
   sleptAt: 999,
-  // a FROZEN pr snapshot — the dormant tile's data, kolu-owned
   pr: {
     kind: "ok",
     value: {
@@ -66,58 +72,71 @@ const sleeping: SleepingTerminal = {
   themeName: "rose",
 };
 
-describe("R8 project / join — the dissolved fold reconstructs losslessly", () => {
-  it("active: join(projectKolu, projectAwareness) === the original record", () => {
-    const rebuilt = joinTerminalMetadata(
-      projectKoluFields(active),
-      projectAwareness(active),
-    );
-    expect(rebuilt).toEqual(active);
+describe("R8 compose / sample — the two surfaces, never one record", () => {
+  it("active: join(authored, observed) yields the full render record", () => {
+    const full = joinTerminalMetadata(authored, observed);
+    expect(full.state).toBe("active");
+    // authored half
+    expect((full as { themeName?: string }).themeName).toBe("rose");
+    expect(full.location).toEqual(LOCAL_LOCATION);
+    // observed half
+    const arm = full as typeof full & AwarenessValue;
+    expect(arm.cwd).toBe("/work/repo");
+    expect(arm.git?.branch).toBe("main");
+    expect(arm.lastAgentCommand).toBe("claude --model sonnet");
   });
 
-  it("projectKolu drops the awareness overlay from an active record", () => {
-    const kolu = projectKoluFields(active) as Record<string, unknown>;
-    expect(kolu.state).toBe("active");
-    expect(kolu.location).toEqual(LOCAL_LOCATION);
-    expect(kolu.themeName).toBe("rose");
-    // none of the awareness fields ride kolu's half
-    for (const k of [
-      "cwd",
-      "git",
-      "pr",
-      "agent",
-      "foreground",
-      "lastActivityAt",
-    ])
-      expect(kolu[k]).toBeUndefined();
+  it("sleeping: passes through unchanged (cwd/git/pr are its frozen snapshot)", () => {
+    expect(joinTerminalMetadata(sleeping, undefined)).toEqual(sleeping);
   });
 
-  it("projectAwareness carries only the generic awareness value", () => {
-    const a = projectAwareness(active) as Record<string, unknown>;
-    expect(a.cwd).toBe("/work/repo");
-    expect(a.pr).toEqual({ kind: "pending" });
-    // none of kolu's own fields leak onto the awareness wire
-    for (const k of ["location", "state", "themeName", "intent"])
-      expect(a[k]).toBeUndefined();
+  it("first-paint flicker: an active terminal whose observation hasn't arrived seeds defaults", () => {
+    const full = joinTerminalMetadata(
+      authored,
+      undefined,
+    ) as KoluActiveTerminal & AwarenessValue;
+    expect(full.state).toBe("active");
+    expect(full.themeName).toBe("rose"); // chrome paints immediately…
+    expect(full.cwd).toBe(""); // …badge shows seeded "not yet resolved" until observed
+    expect(full.pr).toEqual({ kind: "pending" });
+    expect(full.git).toBeNull();
   });
 
-  it("sleeping: passes through both directions unchanged (no live awareness half)", () => {
-    expect(projectKoluFields(sleeping)).toEqual(sleeping);
-    expect(
-      joinTerminalMetadata(projectKoluFields(sleeping), undefined),
-    ).toEqual(sleeping);
+  it("restore-seeds round-trip: awarenessFromSeeds ∘ restoreSeedsFromAwareness", () => {
+    const seeds = restoreSeedsFromAwareness(observed);
+    // the persisted half only — no live overlay
+    expect(seeds).not.toHaveProperty("pr");
+    expect(seeds).not.toHaveProperty("agent");
+    expect(seeds.cwd).toBe("/work/repo");
+    // rebuilt observation: seeds back + live defaults
+    const rebuilt = awarenessFromSeeds(seeds);
+    expect(rebuilt.cwd).toBe("/work/repo");
+    expect(rebuilt.git?.branch).toBe("main");
+    expect(rebuilt.pr).toEqual({ kind: "pending" });
+    expect(rebuilt.agent).toBeNull();
   });
 
-  it("first-paint flicker: an active terminal whose awareness half hasn't arrived seeds defaults", () => {
-    const rebuilt = joinTerminalMetadata(projectKoluFields(active), undefined);
-    expect(rebuilt.state).toBe("active");
-    // chrome paints immediately…
-    expect((rebuilt as ActiveTerminal).themeName).toBe("rose");
-    // …and the badge shows the seeded "not yet resolved" awareness until the
-    // awareness snapshot lands (cwd empty, PR pending).
-    const arm = rebuilt as ActiveTerminal;
-    expect(arm.cwd).toBe("");
-    expect(arm.pr).toEqual({ kind: "pending" });
-    expect(arm.git).toBeNull();
+  it("a saved record splits into authored (no observed) + observed seed", () => {
+    const saved: SavedActiveTerminal = {
+      id: "11111111-1111-4111-8111-111111111111",
+      state: "active",
+      location: LOCAL_LOCATION,
+      themeName: "rose",
+      intent: "fix it",
+      cwd: "/work/repo",
+      git: null,
+      lastActivityAt: 7,
+      lastAgentCommand: "codex",
+    };
+    const a = authoredActiveFromRecord(saved) as Record<string, unknown>;
+    expect(a.themeName).toBe("rose");
+    expect(a.location).toEqual(LOCAL_LOCATION);
+    for (const k of ["cwd", "git", "pr", "agent", "lastAgentCommand"])
+      expect(a[k]).toBeUndefined(); // observed stripped from the authored arm
+
+    const seed = awarenessSeedFromRecord(saved);
+    expect(seed.cwd).toBe("/work/repo");
+    expect(seed.lastAgentCommand).toBe("codex");
+    expect(seed.pr).toEqual({ kind: "pending" }); // live half re-derived
   });
 });

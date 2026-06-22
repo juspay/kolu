@@ -1,5 +1,6 @@
 import type { PtyHostListEntry } from "kaval";
 import {
+  joinTerminalMetadata,
   type SavedActiveTerminal,
   SavedActiveTerminalSchema,
 } from "kolu-common/surface";
@@ -74,7 +75,11 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
   it("adoptedMeta carries every persisted field through verbatim", () => {
     // Use a live entry whose cwd MATCHES the saved record so this test isolates
     // the whole-record carry-through; the live-cwd-wins case is asserted below.
-    const meta = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
+    // R8: the record splits into AUTHORED + OBSERVED halves — rejoin them (the
+    // browser's `joinTerminalMetadata`) and assert the union carries every
+    // persisted key, regardless of which half each rode.
+    const seed = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
+    const meta = joinTerminalMetadata(seed.authored, seed.awareness);
     for (const key of Object.keys(SavedActiveTerminalSchema.shape)) {
       if (key === "id") continue; // `id` is the registry key, not a `meta` field
       expect(meta[key as keyof typeof meta]).toEqual(
@@ -83,49 +88,52 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     }
   });
 
-  it("seeds the live fields at their defaults (the providers re-derive them)", () => {
-    const meta = adoptedMeta(sentinel, liveEntry());
-    // The live fields are NOT persisted: adoption seeds `createMetadata`'s
-    // defaults, and the provider DAG re-derives them against the surviving taps
-    // (the freshness guarantee — never a stale carried-over value).
-    expect(meta.pr).toEqual({ kind: "pending" });
-    expect(meta.agent).toBeNull();
-    expect(meta.foreground).toBeNull();
+  it("seeds the live fields at their defaults (the sensors re-derive them)", () => {
+    const { awareness } = adoptedMeta(sentinel, liveEntry());
+    // The live fields are NOT persisted: adoption seeds the observation's defaults,
+    // and the sensors re-derive them against the surviving taps (the freshness
+    // guarantee — never a stale carried-over value).
+    expect(awareness.pr).toEqual({ kind: "pending" });
+    expect(awareness.agent).toBeNull();
+    expect(awareness.foreground).toBeNull();
   });
 
   it("the LIVE daemon cwd wins over the stale SAVED cwd (F2)", () => {
     // The shell cd'd while kolu-server was down (or after the last debounced
     // autosave). kaval's cwd tap does NOT replay a snapshot, so the saved cwd
     // would otherwise stick and be re-persisted over the live truth. The live
-    // `list` entry's cwd is the authority.
-    const meta = adoptedMeta(sentinel, liveEntry({ cwd: "/moved/since/save" }));
-    expect(meta.cwd).toBe("/moved/since/save");
-    expect(meta.cwd).not.toBe(sentinel.cwd);
+    // `list` entry's cwd is the authority — it seeds the observation.
+    const { awareness } = adoptedMeta(
+      sentinel,
+      liveEntry({ cwd: "/moved/since/save" }),
+    );
+    expect(awareness.cwd).toBe("/moved/since/save");
+    expect(awareness.cwd).not.toBe(sentinel.cwd);
   });
 
   it("seeds foreground from the live snapshot's foregroundProcess (F2)", () => {
-    const meta = adoptedMeta(
+    const { awareness } = adoptedMeta(
       sentinel,
       liveEntry({ foregroundProcess: "vim", title: "vim file.ts" }),
     );
-    expect(meta.foreground).toEqual({ name: "vim", title: "vim file.ts" });
+    expect(awareness.foreground).toEqual({ name: "vim", title: "vim file.ts" });
   });
 });
 
 describe("orphanMeta — adopting a live PTY with no saved record (F1)", () => {
   it("seeds entirely from the live daemon snapshot", () => {
-    const meta = orphanMeta(
+    const { awareness } = orphanMeta(
       liveEntry({ cwd: "/orphan/cwd", foregroundProcess: "claude" }),
     );
-    expect(meta.cwd).toBe("/orphan/cwd");
-    expect(meta.foreground).toEqual({ name: "claude", title: null });
-    // Live fields the providers re-derive start at their defaults.
-    expect(meta.pr).toEqual({ kind: "pending" });
-    expect(meta.agent).toBeNull();
-    expect(meta.lastActivityAt).toBe(0);
+    expect(awareness.cwd).toBe("/orphan/cwd");
+    expect(awareness.foreground).toEqual({ name: "claude", title: null });
+    // Live fields the sensors re-derive start at their defaults.
+    expect(awareness.pr).toEqual({ kind: "pending" });
+    expect(awareness.agent).toBeNull();
+    expect(awareness.lastActivityAt).toBe(0);
   });
 
   it("null foreground when the daemon reports no foreground process", () => {
-    expect(orphanMeta(liveEntry()).foreground).toBeNull();
+    expect(orphanMeta(liveEntry()).awareness.foreground).toBeNull();
   });
 });
