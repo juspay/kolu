@@ -95,6 +95,7 @@ const FootnotePopover: Component<{
   onNavigateRelative: (href: string) => void;
   onNavigateWikilink: (target: string, anchor: HTMLElement) => void;
 }> = (props) => {
+  let panelEl: HTMLElement | undefined;
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.fn()?.anchor,
     open: () => props.fn() !== null,
@@ -104,10 +105,18 @@ const FootnotePopover: Component<{
     panelMinWidth: 320,
   });
 
+  // Dismiss on scroll — but NOT when the scroll originates from inside the
+  // popover's own overflow:auto content (a long footnote body scrolls the
+  // panel, not the document). Scroll events don't bubble, but the capture
+  // phase catches them on document, so filter by target.
   createEventListener(
     () => (props.fn() ? document : undefined),
     "scroll",
-    props.onDismiss,
+    (e: Event) => {
+      if (panelEl && e.target instanceof Node && panelEl.contains(e.target))
+        return;
+      props.onDismiss();
+    },
     { capture: true },
   );
 
@@ -133,12 +142,21 @@ const FootnotePopover: Component<{
         <Portal>
           <div
             ref={(el: HTMLElement) => {
+              panelEl = el;
               panelRef(el);
               createEventListener(el, "click", (e: MouseEvent) => {
                 const target = e.target as Element;
                 const anchor = target.closest("a");
                 if (!anchor) return;
                 const href = anchor.getAttribute("href");
+                // In-page anchors inside the popover content (e.g. nested
+                // footnote refs after data-md-footnote is stripped from the
+                // clone) must not update the URL hash or trigger a native
+                // scroll — preventDefault like bindInteractions does.
+                if (href?.startsWith("#") && href.length > 1) {
+                  e.preventDefault();
+                  return;
+                }
                 if (anchor.hasAttribute("data-md-wikilink")) {
                   e.preventDefault();
                   const wlTarget = anchor.getAttribute("data-md-wikilink");

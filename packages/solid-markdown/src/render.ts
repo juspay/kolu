@@ -314,12 +314,12 @@ function rewriteAlerts(html: string): string {
 function rewriteFootnotes(html: string): string {
   return html
     .replace(
-      /\bdata-footnote-ref(?=\s|>)/g,
-      "data-md-footnote data-footnote-ref",
+      /(["\s])data-footnote-ref(?=\s|>)/g,
+      "$1data-md-footnote data-footnote-ref",
     )
     .replace(
-      /\bdata-footnote-backref(?=\s|>)/g,
-      "data-md-backref data-footnote-backref",
+      /(["\s])data-footnote-backref(?=\s|>)/g,
+      "$1data-md-backref data-footnote-backref",
     );
 }
 
