@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The multi-host shape for remote terminals. The browser drives kolu-server over one WebSocket. kolu-server holds the TerminalEndpoint seam keyed by hostId, behind which sit three drivers — the shipped local driver (R2), the remaining ssh driver (R8), and the remaining fold (R8). On this machine a local kaval daemon owns the PTYs and survives deploys, with awareness run in-process. Each remote ssh host runs the same kaval daemon plus an arivu daemon hosting the terminal-workspace surface (awareness + R6 fs/git) over ssh. Green = shipped, amber = remaining.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The multi-host shape for remote terminals. The browser drives kolu-server over one WebSocket. kolu-server holds the TerminalEndpoint seam keyed by hostId, behind which sit three drivers — the shipped local driver (R2), the remaining ssh driver (R9), and the remaining mirror (R9). On this machine a local kaval daemon owns the PTYs and survives deploys, with awareness run in-process. Each remote ssh host runs the same kaval daemon plus an arivu daemon hosting the terminal-workspace surface (awareness + R6 fs/git) over ssh. Green = shipped, amber = remaining.">
   <defs>
     <marker id="rt-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#15803D"/>
@@ -52,9 +52,9 @@
 
   <!-- legend -->
   <rect class="rt-green-box" x="566" y="22" width="14" height="14" rx="3"/>
-  <text class="rt-sub" x="586" y="33">shipped — R1 · R2</text>
+  <text class="rt-sub" x="586" y="33">shipped — R1 · R2 · R6</text>
   <rect class="rt-amber-box" x="566" y="42" width="14" height="14" rx="3"/>
-  <text class="rt-sub" x="586" y="53">remaining — R3 · R4 · R5</text>
+  <text class="rt-sub" x="586" y="53">remaining — R5 · R8 · R9</text>
 
   <!-- ================= browser ================= -->
   <rect class="rt-cli-box" x="290" y="74" width="240" height="48" rx="10"/>
@@ -82,7 +82,7 @@
   <!-- ssh driver (remaining) -->
   <rect class="rt-amber-box" x="312" y="232" width="196" height="80" rx="10"/>
   <rect class="rt-pill-a" x="324" y="244" width="26" height="17" rx="8.5"/>
-  <text class="rt-pill-tx" x="337" y="256" text-anchor="middle">R8</text>
+  <text class="rt-pill-tx" x="337" y="256" text-anchor="middle">R9</text>
   <text class="rt-amber-t" x="358" y="257">ssh driver</text>
   <text class="rt-amber-s" x="324" y="280">reach · provision · multiplex</text>
   <text class="rt-amber-s rt-mono" x="324" y="297">surface-nix-host</text>
@@ -90,9 +90,9 @@
   <!-- awareness + fs/git fold (remaining) -->
   <rect class="rt-amber-box" x="528" y="232" width="200" height="80" rx="10"/>
   <rect class="rt-pill-a" x="540" y="244" width="26" height="17" rx="8.5"/>
-  <text class="rt-pill-tx" x="553" y="256" text-anchor="middle">R8</text>
-  <text class="rt-amber-t" x="574" y="257">the fold</text>
-  <text class="rt-amber-s" x="540" y="280">mirror arivu · split fence</text>
+  <text class="rt-pill-tx" x="553" y="256" text-anchor="middle">R9</text>
+  <text class="rt-amber-t" x="574" y="257">the mirror</text>
+  <text class="rt-amber-s" x="540" y="280">mirror arivu's surface</text>
   <text class="rt-amber-s rt-mono" x="540" y="297">awareness + fs/git</text>
 
   <!-- ================= host tier ================= -->
