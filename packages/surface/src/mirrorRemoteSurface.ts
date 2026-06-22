@@ -265,10 +265,15 @@ function buildProcedureForwarders(
   >;
   const out: Record<string, Record<string, ProcedureFn>> = {};
   for (const [nsKey, procs] of Object.entries(spec.procedures ?? {})) {
+    // Capture only THIS namespace's client entry, not the whole `client.surface`,
+    // so a stub never pins every other namespace's client alive for its lifetime
+    // (the stubs outlive the build). The entry is fixed for the client, so reading
+    // it once here is identical to the lazy per-call lookup.
+    const nsClient = surfaceNs[nsKey];
     const verbs: Record<string, ProcedureFn> = {};
     for (const verb of Object.keys(procs)) {
       verbs[verb] = async (input, callOpts) => {
-        const fn = surfaceNs[nsKey]?.[verb];
+        const fn = nsClient?.[verb];
         if (typeof fn !== "function") {
           throw new ClientSurfaceMismatchError(
             `a forwarding stub was built for procedure "${nsKey}.${verb}" but the client has no such entry`,
