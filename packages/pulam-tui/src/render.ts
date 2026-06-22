@@ -686,9 +686,9 @@ function aheadBehindText(ahead: number, behind: number, sep = ""): string {
  *  urgency and the green live dot, not git churn. */
 export function gitCell(status: LocalGitStatus | undefined): DashCell {
   if (!status) return { text: "", tone: "muted" };
-  const ab = status.branch
-    ? aheadBehindText(status.branch.ahead, status.branch.behind)
-    : "";
+  // The `local` arm always carries the branch header, so read it directly — no
+  // null guard for a state this consumer structurally can't receive.
+  const ab = aheadBehindText(status.branch.ahead, status.branch.behind);
   const changed = status.files.length;
   if (changed === 0) {
     return { text: ab ? `✓ ${ab}` : "✓", tone: "muted" };
@@ -758,16 +758,19 @@ export function gitDetail(row: FleetRow): GitDetailView {
   if (!status) {
     return { title, tracking: "", summary: "loading…", files: [], more: 0 };
   }
-  const tracking = status.branch
-    ? aheadBehindText(status.branch.ahead, status.branch.behind, " ")
-    : "";
+  // The `local` arm always carries the branch header and the working-tree
+  // counts, so read both directly — no null arm for a state this consumer
+  // structurally can't receive.
+  const tracking = aheadBehindText(
+    status.branch.ahead,
+    status.branch.behind,
+    " ",
+  );
   const wt = status.workingTree;
   const summary =
-    wt === null
-      ? DASH
-      : wt.staged + wt.modified + wt.untracked === 0
-        ? "clean working tree"
-        : `staged ${wt.staged} · modified ${wt.modified} · untracked ${wt.untracked}`;
+    wt.staged + wt.modified + wt.untracked === 0
+      ? "clean working tree"
+      : `staged ${wt.staged} · modified ${wt.modified} · untracked ${wt.untracked}`;
   const shown = status.files.slice(0, GIT_DETAIL_FILE_CAP);
   const files: GitDetailFile[] = shown.map((f) => ({
     code: f.status,
