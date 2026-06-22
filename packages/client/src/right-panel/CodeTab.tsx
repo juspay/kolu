@@ -496,6 +496,9 @@ const CodeTab: Component<{
         return { req, repo: repoPath(), paths, isPending };
       },
       ({ req, repo, paths, isPending }) => {
+        console.log(
+          `RWATCH resolve hasReq=${!!req} consumed=${consumedRequest === req} repo=${repo} reqRepo=${req?.repoRoot} view=${view()} target=${req?.targetMode} isPending=${isPending} paths=${paths.length}`,
+        );
         if (!req) return;
         if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
