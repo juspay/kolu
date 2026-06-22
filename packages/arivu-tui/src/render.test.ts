@@ -1,4 +1,7 @@
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import type { FleetHostState } from "./fleetTypes.ts";
 import {

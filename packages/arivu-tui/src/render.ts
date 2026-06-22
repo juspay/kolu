@@ -12,7 +12,10 @@
  * raw `AwarenessValue` (every deep field) for scripts.
  */
 
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import type {
   FleetHostState,
   FleetHostStatus,

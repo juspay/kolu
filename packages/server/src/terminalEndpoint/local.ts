@@ -4,7 +4,7 @@
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
  * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal sensor set** (`@kolu/terminal-awareness`) against the
+ * **runs the per-terminal sensor set** (`@kolu/terminal-workspace`) against the
  * pty-host's raw tap streams (cwd · title · command-run · foreground).
  *
  * Why route through the contract rather than call `PtyHost` directly: the
@@ -16,9 +16,10 @@
  * one host, and nothing in this file changes for it. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
- * `TerminalEndpoint.fs/git` stay on this side — the local surfaces shell out to
- * `kolu-git` directly; a remote endpoint (P3) mirrors the same surfaces over the
- * link.
+ * `TerminalEndpoint.fs/git` bind to the host-side wrapper lifted into
+ * `@kolu/terminal-workspace` (R6) — `createTerminalWorkspaceEndpoint` shells out
+ * to `kolu-git` for this machine; a remote endpoint (R8) mirrors the same
+ * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
 import { inMemoryChannel } from "@kolu/surface/server";
@@ -27,7 +28,8 @@ import {
   type AwarenessSignals,
   type AwarenessSink,
   startAwareness,
-} from "@kolu/terminal-awareness";
+} from "@kolu/terminal-workspace";
+import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
@@ -48,23 +50,8 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  TerminalEndpointFs,
-  TerminalEndpointGit,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
-import {
-  type FsListAllOutput,
-  type GitDiffOutput,
-  type GitStatusOutput,
-  getDiff,
-  getStatus,
-  listAll,
-  readFile,
-  statFileMtimeMs,
-  subscribeFileChange,
-  subscribeRepoChange,
-} from "kolu-git";
-import type { GitDiffMode } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
@@ -82,7 +69,6 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
-import { unwrapGit } from "../unwrapGit.ts";
 import {
   createMetadata,
   publishTerminalState,
@@ -107,33 +93,11 @@ function emitTerminalListChanged(): void {
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
-
-const localFs: TerminalEndpointFs = {
-  async listAll(repoPath: string): Promise<FsListAllOutput> {
-    return { paths: unwrapGit(await listAll(repoPath, log)) };
-  },
-  async readFile(repoPath, filePath) {
-    return unwrapGit(await readFile(repoPath, filePath, log));
-  },
-  async statFileMtimeMs(repoPath, filePath) {
-    return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));
-  },
-  subscribeRepoChange(repoPath, onChange) {
-    return subscribeRepoChange(repoPath, onChange, log);
-  },
-  subscribeFileChange(repoPath, filePath, onChange) {
-    return subscribeFileChange(repoPath, filePath, onChange, log);
-  },
-};
-
-const localGit: TerminalEndpointGit = {
-  async getStatus(repoPath, mode: GitDiffMode): Promise<GitStatusOutput> {
-    return unwrapGit(await getStatus(repoPath, mode, log));
-  },
-  async getDiff(repoPath, filePath, mode, oldPath): Promise<GitDiffOutput> {
-    return unwrapGit(await getDiff(repoPath, filePath, mode, log, oldPath));
-  },
-};
+// The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-workspace`
+// (R6) so kolu (here, in-process) and arivu (remote) drive ONE impl. This
+// endpoint binds that impl to its `TerminalEndpoint`; the surface streams in
+// `surface.ts` read it off `localEndpoint.fs/git` byte-identically.
+const { fs: localFs, git: localGit } = createTerminalWorkspaceEndpoint(log);
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 

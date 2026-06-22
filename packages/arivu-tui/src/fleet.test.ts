@@ -8,10 +8,10 @@
  */
 
 import {
-  ARIVU_CONTRACT_VERSION,
+  TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type AwarenessValue,
   type TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import type { Connection } from "./connect.ts";
 import { type FleetSink, snapshotFleet, startFleet } from "./fleet.ts";
@@ -48,7 +48,7 @@ interface Fake {
 
 /** A fake arivu connection whose `awareness.keys` yields one snapshot then stays
  *  open (so the host reads as live) until `dropLink()` / `dispose()` ends it. The
- *  client always exposes EVERY `arivuSurface` entry — exactly like the real
+ *  client always exposes EVERY `terminalWorkspaceSurface` entry — exactly like the real
  *  oRPC router client `connectArivu`/`connectArivuViaHost` build, so a supplied
  *  sink never hits `mirrorRemoteSurface`'s client/surface-mismatch guard for a
  *  primitive a real client would still have. */
@@ -68,7 +68,10 @@ function fakeConn(opts: {
     surface: {
       version: {
         get: async () =>
-          once({ contractVersion: opts.version ?? ARIVU_CONTRACT_VERSION }),
+          once({
+            contractVersion:
+              opts.version ?? TERMINAL_WORKSPACE_CONTRACT_VERSION,
+          }),
       },
       awareness: {
         keys: async () =>
@@ -279,7 +282,7 @@ describe("startFleet", () => {
       "x",
       {
         kind: "skew",
-        localVersion: ARIVU_CONTRACT_VERSION,
+        localVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
         hostVersion: "9.9",
       },
     ]);
@@ -447,7 +450,7 @@ describe("snapshotFleet", () => {
     // is visible WITH its rows, not dumped as if fully compatible.
     expect(snap?.kind).toBe("skew");
     expect(snap?.kind === "skew" && snap.localVersion).toBe(
-      ARIVU_CONTRACT_VERSION,
+      TERMINAL_WORKSPACE_CONTRACT_VERSION,
     );
     expect(snap?.kind === "skew" && snap.hostVersion).toBe("9.9");
     expect(snap?.kind === "skew" && snap.entries[0]?.[0]).toBe("t1");

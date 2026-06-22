@@ -28,7 +28,7 @@
  * a terminal's metadata becomes visible".
  */
 
-import { seedAwarenessValue } from "@kolu/terminal-awareness";
+import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import { prValue } from "anyforge/schemas";
 import {
   type ActiveTerminal,
@@ -62,7 +62,7 @@ export function createMetadata(
   cwd: string,
   location: HostLocation,
 ): ActiveTerminal {
-  // The generic awareness seed is owned by @kolu/terminal-awareness (beside the
+  // The generic awareness seed is owned by @kolu/terminal-workspace (beside the
   // schema it produces); kolu layers only its own `location` on top. One seed,
   // shared with `arivu` — see `seedAwarenessValue`. `state: "active"` is the
   // discriminant the awareness seed deliberately doesn't carry (the awareness

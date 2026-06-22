@@ -7,7 +7,7 @@
  * ever — the merge + persisted/live split is a kolu-side, remote-only concern
  * (P2). The daemon owns one undivided value per terminal.
  *
- * The load-bearing rule from `@kolu/terminal-awareness`'s `AwarenessSink`
+ * The load-bearing rule from `@kolu/terminal-workspace`'s `AwarenessSink`
  * docstring: mutate `record.meta` **synchronously** before publishing — the
  * sensors read `record.meta` back as their own prior state (the agent-command
  * dedup, the publish-if-changed gate, the recency bump). A sink that published
@@ -20,7 +20,7 @@ import type {
   AwarenessRecord,
   AwarenessSink,
   AwarenessValue,
-} from "@kolu/terminal-awareness";
+} from "@kolu/terminal-workspace";
 
 export interface AwarenessSinkDeps {
   /** The per-terminal record the sensors mutate and read back. Captured here,

@@ -10,9 +10,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/arivu-contract": "workspace:*",
     "@kolu/surface": "workspace:*",
-    "@kolu/terminal-awareness": "workspace:*",
+    "@kolu/terminal-workspace": "workspace:*",
     "@orpc/server": "^1.13.13",
     "kaval": "workspace:*",
     "pino": "^10.3.1"

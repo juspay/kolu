@@ -43,11 +43,9 @@
  */
 
 import type {
-  FsListAllOutput,
-  GitDiffMode,
-  GitDiffOutput,
-  GitStatusOutput,
-} from "kolu-git/schemas";
+  TerminalEndpointFs,
+  TerminalEndpointGit,
+} from "@kolu/terminal-workspace/endpoint";
 import type {
   InitialTerminalMetadata,
   TerminalId,
@@ -116,36 +114,10 @@ export interface TerminalHandle {
   ): Promise<string>;
 }
 
-/** Filesystem operations scoped to an endpoint's host machine. Returns
- *  already-unwrapped values; implementations throw `ORPCError` on
- *  failure so consumers don't repeat error-unwrapping at every call
- *  site. */
-export interface TerminalEndpointFs {
-  listAll(repoPath: string): Promise<FsListAllOutput>;
-  readFile(
-    repoPath: string,
-    filePath: string,
-  ): Promise<{ content: string; truncated: boolean }>;
-  statFileMtimeMs(repoPath: string, filePath: string): Promise<number>;
-  subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
-  subscribeFileChange(
-    repoPath: string,
-    filePath: string,
-    onChange: () => void,
-  ): () => void;
-}
-
-/** Git operations scoped to an endpoint's host machine. Same unwrap
- *  contract as `TerminalEndpointFs`. */
-export interface TerminalEndpointGit {
-  getStatus(repoPath: string, mode: GitDiffMode): Promise<GitStatusOutput>;
-  getDiff(
-    repoPath: string,
-    filePath: string,
-    mode: GitDiffMode,
-    oldPath?: string,
-  ): Promise<GitDiffOutput>;
-}
+// `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
+// — now live in `@kolu/terminal-workspace/endpoint`, beside the one impl both
+// kolu (in-process) and arivu (remote) drive (R6). The composite below imports
+// them; a future remote endpoint implements them from the same home.
 
 /** Per-terminal world — the three surfaces (PTY · fs · git) bound to an
  *  endpoint. Local today; P3 binds the same shape to a remote kaval. */

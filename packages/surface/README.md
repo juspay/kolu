@@ -649,22 +649,28 @@ const bClient = directLink<typeof projected.surface.contract>(router);
 
 ## Mirror a remote surface into local sinks: `mirrorRemoteSurface`
 
-`projectSurface` *re-serves* A as a new surface B. `mirrorRemoteSurface` does the other thing a consumer of a remote surface needs: it **drives A's primitives into local sinks** — the consume-side **dual of `implementSurface`**. `implementSurface(surface, deps)` walks a spec and wires the *produce* side (server handlers that yield on demand); `mirrorRemoteSurface(surface, client, sink)` walks the *same* spec and wires the *consume* side (subscribe each primitive through a live client, push every frame into a caller-supplied callback). In pipes/conduit terms, `implementSurface` builds a Source and `mirrorRemoteSurface` connects it to a `SurfaceSink` and runs it.
+`projectSurface` *re-serves* A as a new surface B. `mirrorRemoteSurface` does the other thing a consumer of a remote surface needs: it **drives A's primitives into a local handle** — the consume-side **dual of `implementSurface`**. `implementSurface(surface, deps)` walks a spec and wires the *produce* side (server handlers that yield on demand); `mirrorRemoteSurface(surface, client, sink)` walks the *same* spec and wires the *consume* side. It's a **total** dual — it mirrors *every* primitive the producer wires, by kind: **streaming state** (cells/collections/streams/events) is PUSH, subscribed and folded into a caller-supplied **`SurfaceSink`**; a **procedure** is PULL (a local call runs on the remote and returns), so it comes back as a **forwarding stub** on the return alongside `done`. Hence the return is `{ procedures, done }`, not a bare promise:
 
 ```ts
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 
-await mirrorRemoteSurface(arivuSurface, client, {
+const { procedures, done } = mirrorRemoteSurface(terminalWorkspaceSurface, client, {
   collections: { awareness: { upsert, remove } },          // keyed map → your store
   streams:     { activity:  { input: {}, onFrame: setLive } }, // a flow → a callback
-  // cells:    { version:   (v) => … }, events: { … }       // each kind, one call
+  // cells:    { version:   (v) => … }, events: { … }       // each streaming kind, one call
 }, { signal, log });
+
+await procedures.terminal.kill({ id });  // a procedure → forwarded to the remote, returns its result
+await done;                              // resolves when every subscription settles (link closed)
 ```
 
-- One call mirrors a **cell, a collection, a stream, and an event** together, instead of a consumer hand-stitching `<coll>.keys`+`<coll>.get`, a separate `<cell>.get` read, and a separate `<stream>.get` loop. The per-key collection bridge that *was* `@kolu/surface-nix-host`'s public `mirrorRemoteCollection` is now the **private** `mirrorCollection` engine inside it — consumers use `mirrorRemoteSurface` only ("you don't sell half a house").
-- Each `SurfaceSink<S>` entry is **optional** — a primitive is subscribed iff a sink is supplied (the R-2 awareness fold is intended to want only the collection; the fleet board, today, wants the collection + the stream). The sink does **not** re-serve the surface (that's `projectSurface`): a sink can fold frames anywhere — the `arivu-tui` fleet board keys every host's terminals into one `(host, id)` store; kolu's R-2 fold is intended to merge each upsert into its co-owned `terminalMetadata` (a planned/drishti consumer, not yet wired in this repo). Interception is the common case.
-- Lives at the **`@kolu/surface/mirror`** subpath (it imports the server layer's abort helpers), and resolves when every subscription settles — over one shared link, the cue that the link closed.
-- **Two failures are distinct, both fail-fast where it matters.** An *upstream* per-primitive error (a remote stream blip) is logged and the subscription settles — one bad stream must not reject the whole mirror. But a *sink* failure (your `onFrame`/`upsert`/`remove` throws — a bug in your local fold) is **not** an upstream blip: it **rejects** the whole mirror so the broken fold surfaces, never logged-and-swallowed (the no-fallback rule — a caught error can't collapse to a quietly-resolved mirror). And supplying a sink for a primitive the **client** doesn't expose is a client/surface mismatch — it throws synchronously (fail-fast), where *omitting* a sink is the tolerated "no interest" path.
+> **Breaking change (R7, kolu #1505).** `mirrorRemoteSurface` used to return `Promise<void>` (the #1497 graduation shape) — you would `await mirrorRemoteSurface(...)` to wait for the mirror to settle. It now returns the **plain handle** `{ procedures, done }`. A bare `await mirrorRemoteSurface(...)` therefore **no longer waits** (you'd be awaiting a non-thenable object, which resolves immediately) — the settle is `await mirrorRemoteSurface(...).done`. This is not type-caught when the result is discarded — and a rename wouldn't catch it either, since no TypeScript construct makes `await object` an error — so a stale `await mirrorRemoteSurface(...)` keeps compiling and silently no-ops. That was a **live** hazard: drishti `master` still does `await mirrorRemoteSurface(...)` on its streaming sinks (the #1497 shape it adopted in [drishti PR #70](https://github.com/srid/drishti/pull/70)). The migration is therefore mechanical, not documentary, and now real: the paired [drishti PR #71](https://github.com/srid/drishti/pull/71) — the [surface→drishti merge-gate](../../.claude/rules/surface.md) — audits that call site to `await mirrorRemoteSurface(...).done` and pins drishti's kolu source to this R7 revision; its **full CI is green** against the new `{ procedures, done }` API — all 18 odu nodes (every lane on both `aarch64-darwin` and `x86_64-linux`), exactly the lane set #70 passed for #1497. No back-compat thenable is provided on purpose — the fail-fast rule prefers a deliberate per-site migration over a shim that silently preserves the old await, and the handle's non-thenable contract is pinned in CI by a unit test so the shim can't creep back.
+
+- One call mirrors a **cell, a collection, a stream, an event, AND every procedure** together, instead of a consumer hand-stitching `<coll>.keys`+`<coll>.get`, a separate `<cell>.get` read, a `<stream>.get` loop, and a hand-written procedure relay. The per-key collection bridge that *was* `@kolu/surface-nix-host`'s public `mirrorRemoteCollection` is now the **private** `mirrorCollection` engine inside it — consumers use `mirrorRemoteSurface` only ("you don't sell half a house").
+- Each `SurfaceSink<S>` **streaming** entry is **optional** — a primitive is subscribed iff a sink is supplied (the R-2 awareness fold is intended to want only the collection; the fleet board, today, wants the collection + the stream). The sink does **not** re-serve the surface (that's `projectSurface`): a sink can fold frames anywhere — the `arivu-tui` fleet board keys every host's terminals into one `(host, id)` store; kolu's R-2 fold is intended to merge each upsert into its co-owned `terminalMetadata` (a planned/drishti consumer, not yet wired in this repo). Interception is the common case.
+- **Procedures are total, not opt-in.** A forwarding stub has no standing cost (it's a typed passthrough to `client.surface.<ns>.<verb>`), so `.procedures` always carries *every* procedure the surface wires — `{}` if it has none. The stubs are bound to the `client` you passed, so a stub is live for that client's lifetime; over a reconnecting transport that hands out a fresh client per spawn, forward through whatever yields the *current* client. A stub matches the **surface client's** verb shape — `(input, { signal? })`, the same as `client.surface.<ns>.<verb>` — *not* `implementSurface`'s handler shape, whose procedures take a single `{ input, ctx, signal }` opts object. So re-serving a mirror wraps each stub in a one-line handler: `double: ({ input, signal }) => procedures.math.double(input, { signal })`. Grafted that way, `serve ∘ mirror ≈ identity` — the location-transparency remote terminals rests on.
+- Lives at the **`@kolu/surface/mirror`** subpath (it imports the server layer's abort helpers). The returned `done` settles when every subscription settles — over one shared link, the cue that the link closed.
+- **Three failures are distinct, each fail-fast where it matters.** An *upstream* per-primitive error (a remote stream blip) is logged and the subscription settles — one bad stream must not reject the whole mirror. A *sink* failure (your `onFrame`/`upsert`/`remove` throws — a bug in your local fold) is **not** an upstream blip: it **rejects `done`** so the broken fold surfaces, never logged-and-swallowed (the no-fallback rule — a caught error can't collapse to a quietly-resolved mirror). Supplying a sink for a primitive the **client** doesn't expose is a client/surface mismatch — it rejects `done` (fail-fast), where *omitting* a sink is the tolerated "no interest" path. And calling a procedure stub the client doesn't expose **rejects** with the same mismatch error (at call time, never a silent `undefined`).
 
 ### See also: `@kolu/surface-mcp`
 
@@ -807,12 +813,20 @@ deriveEvent(upstream, map): EventHandlerDeps<I, T>                     // → ev
 The consume-side dual of `implementSurface` — drive a remote surface's primitives into local sinks. See [Mirror a remote surface into local sinks](#mirror-a-remote-surface-into-local-sinks-mirrorremotesurface) above. (Imports the server layer for its abort helpers, so it's *not* on the browser-safe root.)
 
 ```ts
-mirrorRemoteSurface(sourceSurface, client, sink, { signal?, log? }): Promise<void>
-  // walks sourceSurface.spec; for each primitive the sink opts into, subscribes via
-  // `client` and pushes frames to the sink callback. Resolves when all subscriptions
-  // settle (link closed / aborted). `client` is any SurfaceClientOf<S> (read structurally).
+mirrorRemoteSurface(sourceSurface, client, sink, { signal?, log? }): MirroredSurface<S>
+  // walks sourceSurface.spec. Streaming primitives the sink opts into are subscribed via
+  // `client` and pushed to the sink callback; EVERY procedure is returned as a forwarding
+  // stub. `client` is any SurfaceClientOf<S> (read structurally).
 
-// SurfaceSink<S> — every entry OPTIONAL (a primitive is mirrored iff a sink is given):
+// MirroredSurface<S> — the total dual of implementSurface's { router, ctx }:
+//   procedures   ProcedureForwarders<S> — one stub per <ns>.<verb> (`{}` if none).
+//                procedures.<ns>.<verb>(input, { signal? }?) → Promise<output>, forwarded
+//                to the remote. Available synchronously; bound to `client`.
+//   done         Promise<void> — settles when all subscriptions settle (link closed /
+//                aborted). Rejects on a sink throw or a client/surface mismatch.
+
+// SurfaceSink<S> — every STREAMING entry OPTIONAL (mirrored iff a sink is given);
+// procedures are NOT in the sink (they're PULL, returned as stubs above):
 //   cells:       { <k>: (value) => void }
 //   collections: { <k>: { upsert: (key, value) => void; remove: (key) => void } }
 //   streams:     { <k>: { input; onFrame: (frame) => void } }

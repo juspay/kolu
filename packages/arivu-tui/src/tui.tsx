@@ -22,7 +22,10 @@
  * when stdout is a TTY.
  */
 
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 import { HEADER, TITLE, TONE_COLOR } from "./palette.ts";
 import { cell, type DashRow, dashRows } from "./render.ts";

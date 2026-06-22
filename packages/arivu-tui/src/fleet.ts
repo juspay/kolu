@@ -17,11 +17,11 @@
  */
 
 import {
-  ARIVU_CONTRACT_VERSION,
-  arivuSurface,
+  TERMINAL_WORKSPACE_CONTRACT_VERSION,
+  terminalWorkspaceSurface,
   type AwarenessValue,
   type TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
@@ -80,7 +80,7 @@ async function probeContractVersion(
     // is compatible, not skew. A lower minor or a major mismatch is skew.
     skewed: !isContractVersionCompatible(
       version.contractVersion,
-      ARIVU_CONTRACT_VERSION,
+      TERMINAL_WORKSPACE_CONTRACT_VERSION,
     ),
   };
 }
@@ -162,7 +162,11 @@ async function runHost(
     opts.sink.setStatus(
       host.label,
       skewed
-        ? { kind: "skew", localVersion: ARIVU_CONTRACT_VERSION, hostVersion }
+        ? {
+            kind: "skew",
+            localVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
+            hostVersion,
+          }
         : { kind: "connected" },
     );
 
@@ -172,7 +176,7 @@ async function runHost(
     // dispose on purpose, the box went away, so flip the header to unreachable
     // while the other hosts keep updating (the negative-proof path).
     await mirrorRemoteSurface(
-      arivuSurface,
+      terminalWorkspaceSurface,
       conn.client,
       {
         collections: {
@@ -189,7 +193,7 @@ async function runHost(
         },
       },
       { log: opts.log },
-    );
+    ).done;
     // The mirror returned → every subscription settled (the link closed;
     // `mirrorRemoteSurface` swallows its own per-stream errors). The box went
     // away: flip the header AND drop its now-stale rows + live set unless we tore
@@ -249,7 +253,7 @@ export function snapshotFleet(
           return {
             label: host.label,
             kind: "skew",
-            localVersion: ARIVU_CONTRACT_VERSION,
+            localVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
             hostVersion,
             entries,
           };

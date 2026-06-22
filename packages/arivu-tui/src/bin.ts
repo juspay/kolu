@@ -35,8 +35,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ARIVU_CONTRACT_VERSION } from "@kolu/arivu-contract";
-import { arivuSocketPath } from "@kolu/arivu-contract/socket";
+import { TERMINAL_WORKSPACE_CONTRACT_VERSION } from "@kolu/terminal-workspace/surface";
+import { arivuSocketPath } from "@kolu/terminal-workspace/socket";
 import { cli, command } from "cleye";
 import { type Connection, connectArivu } from "./connect.ts";
 import { type FleetConnector, snapshotFleet } from "./fleet.ts";
@@ -51,7 +51,7 @@ import {
 
 const argv = cli({
   name: "arivu-tui",
-  version: ARIVU_CONTRACT_VERSION,
+  version: TERMINAL_WORKSPACE_CONTRACT_VERSION,
   help: {
     description:
       "A dashboard of what every terminal is in (repo·branch · PR · agent · foreground), read from a running `arivu` (start it with `arivu`, which needs a running kaval). `--json` dumps it for scripts; `--host <ssh>` reads a remote machine over ssh.",

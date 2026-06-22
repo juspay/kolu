@@ -13,14 +13,14 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
-  arivuSurface,
+  terminalWorkspaceSurface,
   AwarenessValue,
   TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import {
   type UnixSocketConnection,
   unixSocketLink,
@@ -35,7 +35,7 @@ import { afterEach, expect, it } from "vitest";
 import { runArivuDaemon } from "./daemon.ts";
 
 type AwarenessClient = UnixSocketConnection<
-  typeof arivuSurface.contract
+  typeof terminalWorkspaceSurface.contract
 >["client"];
 
 // A no-op surface-daemon Logger for the in-process pty-host, and a silent pino
@@ -222,7 +222,7 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   await ready;
 
   // ── a surface client mirrors arivu's awareness ───────────────────
-  const conn = await unixSocketLink<typeof arivuSurface.contract>({
+  const conn = await unixSocketLink<typeof terminalWorkspaceSurface.contract>({
     socketPath: arivuSocket,
   });
   cleanups.push(() => conn.dispose());
@@ -238,6 +238,18 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   // The PR field is present (pending or, lacking an origin remote, resolved as
   // absent/unavailable) — we only assert it exists, not gh's verdict.
   expect(value.pr.kind).toBeTruthy();
+
+  // ── R6: arivu serves the workspace fs/git too, over the SAME socket ──
+  // The second home of @kolu/terminal-workspace: the Code tab's fs/git reads
+  // (and R8's remote kolu) are answered by arivu, not just awareness.
+  writeFileSync(join(repo, "note.txt"), "hi\n");
+  const listed = await conn.client.surface.fs.listAll({ repoPath: repo });
+  expect(listed.paths).toContain("note.txt");
+  const status = await conn.client.surface.git.getStatus({
+    repoPath: repo,
+    mode: "local",
+  });
+  expect(Array.isArray(status.files)).toBe(true);
 
   // ── kill the terminal → arivu reconciles it out of the collection ─
   await ptyHost.client.surface.terminal.kill({ id });

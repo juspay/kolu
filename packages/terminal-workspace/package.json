@@ -1,5 +1,5 @@
 {
-  "name": "@kolu/terminal-awareness",
+  "name": "@kolu/terminal-workspace",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -9,7 +9,11 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    "./schema": "./src/schema.ts",
+    "./surface": "./src/surface.ts",
+    "./endpoint": "./src/endpoint.ts",
+    "./serveFsGit": "./src/serveFsGit.ts",
+    "./socket": "./src/socket.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,6 +21,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "kaval": "workspace:*",

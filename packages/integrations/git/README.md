@@ -12,7 +12,7 @@ type GitResult<T> = { ok: true; value: T } | { ok: false; error: GitError };
 
 `GitError` is a discriminated union on `code`: `NOT_A_REPO`, `BASE_BRANCH_NOT_FOUND`, `WORKTREE_NAME_COLLISION`, `PATH_ESCAPES_ROOT`, `GIT_FAILED`.
 
-The server unwraps results at the RPC boundary via `unwrapGit()` in `router.ts`, mapping error codes to `ORPCError` statuses. This package has **zero dependency on oRPC**.
+Callers unwrap results at the RPC boundary via `unwrapGit()` — the boundary helper now lives in `@kolu/terminal-workspace/endpoint` (it maps `GitError` codes to `ORPCError` statuses); kolu-server imports it in `router.ts` for its remaining git RPCs. This package has **zero dependency on oRPC**.
 
 ## Logger injection
 

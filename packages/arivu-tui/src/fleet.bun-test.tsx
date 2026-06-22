@@ -14,7 +14,10 @@
  * to the buffer, so liveness-over-time is proven there, not here.
  */
 
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import { expect, test } from "bun:test";
 import { testRender } from "@opentui/solid";
 import { FleetBoard } from "./fleet.tsx";

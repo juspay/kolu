@@ -82,11 +82,10 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
-      ./packages/terminal-awareness
+      ./packages/terminal-workspace
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
-      ./packages/arivu-contract
       ./packages/arivu
       ./packages/arivu-tui
       ./packages/server
@@ -442,13 +441,13 @@ let
     agentDrvsJson = kavalAgentDrvsJson;
   };
 
-  # arivu (arivu plan P1c): the standalone terminal-awareness daemon. Dials a
+  # arivu (arivu plan P1c): the standalone terminal-workspace daemon. Dials a
   # running kaval as a plain ptyHostSurface client, runs the awareness sensors
   # (git · PR · agent · foreground) for every PTY kaval owns, and serves the
   # result as one `awareness` collection that arivu-tui reads — zero kolu-server
   # involvement. Ephemeral: owns no PTYs, holds no gate, recomputes from now on
   # every start. Runs from the SAME built workspace closure as `kolu` (so kaval
-  # + @kolu/surface + @kolu/terminal-awareness resolve identically).
+  # + @kolu/surface + @kolu/terminal-workspace resolve identically).
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
   # single-process loader form delivers SIGTERM to the daemon so its socket
