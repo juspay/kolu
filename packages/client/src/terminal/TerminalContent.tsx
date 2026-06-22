@@ -57,6 +57,21 @@ const TerminalContent: Component<{
   const activeSubTab = () => panelState().activeSubTab;
   const focusTarget = () => panelState().focusTarget;
 
+  // Which pane the active-terminal cue marks, reusing the same `focusTarget`
+  // signal that routes keystrokes — no parallel "active pane" state. Only the
+  // focused tile's *open* split distinguishes its panes: the live pane is
+  // "active", the other "inactive" (it recedes via the `data-pane-focus` CSS
+  // rule). Undefined when collapsed or when this tile isn't focused, so no
+  // unfocused tile lights a pane.
+  const paneFocus = (
+    pane: "main" | "sub",
+  ): "active" | "inactive" | undefined =>
+    props.focused && isExpanded()
+      ? focusTarget() === pane
+        ? "active"
+        : "inactive"
+      : undefined;
+
   const shouldFocusMain = () =>
     props.focused && (!isExpanded() || focusTarget() === "main");
   const shouldFocusSub = (subId: TerminalId) =>
@@ -107,7 +122,13 @@ const TerminalContent: Component<{
         onSizesChange={handleSizesChange}
         class="flex-1 min-h-0"
       >
-        <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+        <Resizable.Panel
+          as="div"
+          class="min-h-0 overflow-hidden"
+          minSize={0.2}
+          data-pane="main"
+          data-pane-focus={paneFocus("main")}
+        >
           <Terminal
             terminalId={props.terminalId}
             visible={props.visible}
@@ -155,6 +176,8 @@ const TerminalContent: Component<{
           collapsedSize={0}
           onCollapse={() => subPanel.collapsePanel(props.terminalId)}
           onExpand={() => subPanel.expandPanel(props.terminalId)}
+          data-pane="sub"
+          data-pane-focus={paneFocus("sub")}
         >
           <Show when={isExpanded()}>
             <SubPanelTabBar

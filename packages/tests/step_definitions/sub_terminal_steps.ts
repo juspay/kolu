@@ -168,6 +168,34 @@ Then(
 );
 
 Then(
+  "the {word} pane should be the active pane",
+  async function (this: KoluWorld, pane: string) {
+    await this.page.waitForFunction(
+      (p) =>
+        document.querySelector(
+          `[data-pane="${p}"][data-pane-focus="active"]`,
+        ) !== null,
+      pane,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the {word} pane should be receded",
+  async function (this: KoluWorld, pane: string) {
+    await this.page.waitForFunction(
+      (p) =>
+        document.querySelector(
+          `[data-pane="${p}"][data-pane-focus="inactive"]`,
+        ) !== null,
+      pane,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the active tile should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     const badge = this.page.locator(

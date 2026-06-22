@@ -126,6 +126,15 @@ Feature: Sub-terminals
     Then the resize handle should be visible
     And there should be no page errors
 
+  Scenario: Active pane is distinguished in a split
+    When I create a sub-terminal via command palette
+    Then the sub pane should be the active pane
+    And the main pane should be receded
+    When I click the main terminal
+    Then the main pane should be the active pane
+    And the sub pane should be receded
+    And there should be no page errors
+
   Scenario: Dock row surfaces sub-terminal count
     When I create a sub-terminal via command palette
     Then the active dock row should show sub-terminal count 1

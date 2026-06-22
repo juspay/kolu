@@ -385,6 +385,23 @@ body {
   opacity: 0.4;
 }
 
+/* Active-terminal cue inside a split tile: the pane that does NOT hold keyboard
+ * focus recedes, so the live one stands out at a glance. `data-pane-focus` is
+ * set in TerminalContent only on the *focused* tile's open split, reusing the
+ * same `focusTarget` signal that routes keystrokes — never a parallel flag.
+ * Opacity only: the pane's box never changes size, so xterm never refits its
+ * grid (the canvas tile-aura above paints without reflow for the same reason). */
+[data-pane-focus="inactive"] {
+  opacity: 0.4;
+}
+/* A cross-fade as focus moves between panes (not vestibular motion); under
+ * reduced-motion the change is instant. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-pane-focus] {
+    transition: opacity 120ms ease;
+  }
+}
+
 /* Inset highlight: marks the pill as ALSO the active terminal when
  * the border is already busy showing agent state. Sits inside the
  * pill so it doesn't compete with the outer animated ring. */
