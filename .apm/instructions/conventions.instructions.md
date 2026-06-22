@@ -12,6 +12,7 @@ applyTo: "**"
 - Use `/be` to take a task end-to-end: interview → setup → implement (test-first) → draft PR → review gauntlet (lens-debate → codex-debate → simplify → code-police) → ship (CI + evidence) → done. One interview up front, autonomous after.
 - Run `just fmt` (formatting) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
+- **Never write a raw control byte into source — emit the escape.** When a string needs a control character (a NUL `\0` separator, or any non-printable), write the **escape sequence** the language understands (` ` / `\x00` in TS/JS, `\0` in a regex), never the literal byte. A single raw NUL turns the whole file *binary*: git renders it as `Bin … -> … bytes` instead of a text diff, so PR review and codex/lens reviewers can't read the change, and it must be hand-repaired (e.g. `python3 -c 'p="f.ts";open(p,"wb").write(open(p,"rb").read().replace(b"\x00",b"\\u0000"))'`) before CI passes. This has bitten distinct agents on distinct files (main loop *and* a lens-apply subagent) — treat "intended an escape, emitted the byte" as a real failure mode, not a typo. If unsure a file you touched is clean, scan before committing: `for f in $(git diff --name-only); do perl -0777 -ne 'print "'"$f"': ", tr/\0//, " NUL\n" if tr/\0//' "$f"; done`.
 
 ## Design philosophy
 
