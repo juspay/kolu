@@ -311,6 +311,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
               }
             }
             tree.batch(fileOps);
+            if (removed.size > 0) {
+              tree.resetPaths(paths); // FT-DEBUG: does a rebuild repaint?
+              console.log(`FT-RESET n=${paths.length}`); // FT-DEBUG
+            }
             console.log(
               `FT-POST item(obsolete)=${!!tree.getItem("obsolete.txt")} sel=${JSON.stringify(tree.getSelectedPaths())}`,
             ); // FT-DEBUG
