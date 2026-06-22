@@ -409,6 +409,19 @@ const App: Component = () => {
             <div
               data-testid="canvas-container"
               class="relative flex-1 min-h-0 canvas-grid-bg"
+              // Double-click the bare welcome surface to open the "New terminal"
+              // flow — the SAME `onCreate` the populated canvas (TerminalCanvas)
+              // and the dock's `+` reach, so the affordance is identical whether
+              // you have zero terminals or many. Guarded to the background
+              // (`target === currentTarget`): EmptyState's wrapper is
+              // `pointer-events-none` over its bare area (its card is
+              // `pointer-events-auto`) and the watermark is `pointer-events-none`,
+              // so a double-click on empty space targets THIS container; a
+              // double-click on the welcome/restore card or the dock targets that
+              // element instead (`target !== currentTarget`) and is left alone.
+              onDblClick={(e) => {
+                if (e.target === e.currentTarget) dockPalette.onCreate();
+              }}
             >
               <CanvasWatermark text={appTitle()} />
               {/* The Dock stays mounted at zero terminals (desktop only) so its
