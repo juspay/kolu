@@ -232,13 +232,16 @@ dependency (likely `@corvu/tooltip`) into play and pressured this boundary. The
 "leaf, no new package, no new dep" verdict *is* the click decision; a different
 trigger model would have produced a different shape.
 
-## Implementation — the seams, in order
+## Implementation — one PR, threading the existing seams
 
-It threads the same render → sanitize → interact → host-overlay path that alerts
-(`data-md-alert`) and wikilinks (`data-md-wikilink`) already proved. Three PRs,
-test-first.
+One PR, built test-first — the change is small because it is almost entirely
+*wiring into* seams that already exist. It threads the same render → sanitize →
+interact → host-overlay path that alerts (`data-md-alert`) and wikilinks
+(`data-md-wikilink`) already proved, so there is nothing to stage across
+releases: the package gains one callback and the client renders one panel, in
+the same diff.
 
-### PR1 — pin the contract
+### Package side — pin the contract, then one marker and one callback
 
 DOMPurify is brutal on footnote markup: `class`, every `data-footnote-*`, and
 `aria-describedby` are all stripped, so the only thing that survives a forward
@@ -249,9 +252,9 @@ could change the markup silently. So land a sanitize-level test
 (`packages/solid-markdown/src/sanitize.test.ts`, happy-dom) first: feed footnote
 HTML through `sanitizeHtml` and assert `id="md-footnote-1"` + `href="#md-footnote-1"`
 survive while `data-footnote-ref` / `aria-describedby` / `class` are gone. A
-markup change then fails loudly instead of quietly breaking the popover.
-
-### PR2 — mint the marker and the callback (the package's only new surface)
+markup change then fails loudly instead of quietly breaking the popover. With
+that pinned, three small changes mint the marker and route the click — the
+package's only new surface:
 
 - **`render.ts` — `rewriteFootnotes(html)`**, a sibling of the existing
   `rewriteAlerts` (`render.ts:291`). It runs on the *pre-sanitize* string, where
@@ -273,7 +276,7 @@ markup change then fails loudly instead of quietly breaking the popover.
   scroll-up behaviour. Add the `onFootnote(anchor, definition)` prop (mirror
   `onNavigateWikilink`, `Markdown.tsx:153`).
 
-### PR3 — render the popover in the client (reuse `useAnchoredPopover`)
+### Client side — render the popover (reuse `useAnchoredPopover`)
 
 - **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
   `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
