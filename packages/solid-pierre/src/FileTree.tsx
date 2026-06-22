@@ -295,20 +295,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
           ];
           expandDirs(tree, toOpen);
-          // Force the Preact view to reconcile from the controller's *current*
-          // model after a content change. Pierre re-renders its view off a
-          // `controller.subscribe` callback that SWALLOWS the first emit after
-          // every (re)subscribe as an "initial snapshot"; its view re-subscribes
-          // whenever its layout deps change (`initialViewportHeight`, …), which
-          // the surrounding fs/git churn triggers, so a `batch`'s emit lands in
-          // that window and is dropped — the model updates but the row lingers in
-          // the DOM (R8's change-pulse delivery hit this; master's value-bearing
-          // stream dodged it via a full remount). `render` reconciles into the
-          // same wrapper off the live controller state, so the DOM always matches
-          // the batch while expansion/selection/scroll (controller-held) survive.
-          if (fileOps.length > 0 || dirOps.length > 0) {
-            tree.render({ containerWrapper: container });
-          }
         }, props.onError);
       },
       { defer: true },

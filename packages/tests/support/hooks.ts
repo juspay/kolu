@@ -856,13 +856,6 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
-  this.page.on("console", (msg) => {
-    if (msg.text().includes("PIERRE_EMIT")) {
-      try {
-        fs.appendFileSync("/tmp/pierre.log", "PIERRE_EMIT\n");
-      } catch {}
-    }
-  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is
