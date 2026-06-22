@@ -1,0 +1,249 @@
+---
+title: Distinguish the Active Terminal in a Split
+description: When a tile is split into two stacked terminals, nothing marks which pane your keystrokes go to. Recede the pane that does NOT have focus so the live one stands out — driven by the focus signal the split already tracks, no new state.
+parents: [feature]
+status: accepted
+maturity: seedling
+updated: 2026-06-22
+---
+
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import Cite from "../../components/Cite.astro";
+import Svg from "../../components/Svg.astro";
+import PrLink from "../../components/PrLink.astro";
+import flow from "../../diagrams/split-active-pane-flow.svg?raw";
+
+Split a tile and you get two stacked terminals — a main pane on top, a sub-panel
+below. You click into one, you start typing… and nothing on screen tells you
+which one is listening. The split already *knows* — it routes your keystrokes to
+the right pane — but it keeps the secret to itself. This note graduates the
+Sundry item **"Distinguish the active terminal in a split"** into a plan: surface
+that hidden signal as a quiet visual cue.
+
+export const SfStyles = () => (
+  <style>{`
+  .sf-board{background:#0c0c0e;border:1px solid #27272c;border-radius:12px;padding:1.1rem 1rem .9rem;margin:1.2rem 0;--sf-accent:#5a9ea0;--sf-repo:#5b6470}
+  .sf-lead{font:600 .68rem/1 ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;margin:0 0 .9rem .1rem}
+  .sf-row{display:flex;gap:1.1rem;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .sf-cell{display:flex;flex-direction:column;gap:.55rem;align-items:center}
+  .sf-cap{font:600 .64rem/1.35 ui-sans-serif,system-ui;color:#8b929d;text-align:center;max-width:13rem}
+  .sf-cap b{color:#c7ccd6}
+
+  .sf-tile{width:218px;border-radius:9px;border:1.5px solid var(--sf-repo);background:#0e0e10;overflow:hidden;display:flex;flex-direction:column;font:11px/1.45 ui-monospace,monospace}
+  .sf-titlebar{display:flex;align-items:center;gap:.4rem;padding:.32rem .5rem;background:rgba(228,228,232,.05);border-bottom:1px solid rgba(228,228,232,.07)}
+  .sf-dot{width:7px;height:7px;border-radius:50%;background:var(--sf-repo);flex:none}
+  .sf-name{font-weight:600;color:#9aa0aa;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sf-ctrls{color:#4b5563;letter-spacing:.18em;font-size:9px}
+  .sf-pane{position:relative;padding:.5rem .6rem;color:#aab0ba}
+  .sf-main{min-height:60px}
+  .sf-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sf-dim{color:#6b7280}
+  .sf-cur{color:#cfd3da}
+  .sf-seam{height:1px;background:rgba(228,228,232,.08)}
+  .sf-sub{position:relative}
+  .sf-tabbar{display:flex;gap:.3rem;padding:.3rem .5rem;background:#0b0b0d;border-bottom:1px solid #1c1c20}
+  .sf-tab{padding:.05rem .45rem;border-radius:4px;color:#6b7280;font-size:10px}
+  .sf-tab-on{background:#1f1f23;color:#cfd3da;font-weight:600}
+  .sf-subbody{padding:.5rem .6rem;min-height:34px;color:#aab0ba}
+
+  /* the chosen cue (recede) dims the OTHER pane; rail/ring shown only as the design record */
+  .sf-recede.sf-active-main .sf-sub{opacity:.4}
+  .sf-recede.sf-active-sub  .sf-main{opacity:.4}
+  .sf-rail.sf-active-main .sf-main{box-shadow:inset 2px 0 0 var(--sf-accent)}
+  .sf-rail.sf-active-sub  .sf-sub {box-shadow:inset 2px 0 0 var(--sf-accent)}
+  .sf-ring.sf-active-main .sf-main{box-shadow:inset 0 0 0 1.5px color-mix(in oklch,var(--sf-accent) 60%,transparent)}
+  .sf-ring.sf-active-sub  .sf-sub {box-shadow:inset 0 0 0 1.5px color-mix(in oklch,var(--sf-accent) 60%,transparent)}
+  `}</style>
+);
+
+export const SplitTile = (props) => (
+  <div class={`sf-tile sf-${props.cue ?? "none"} sf-active-${props.active}`}>
+    <div class="sf-titlebar">
+      <span class="sf-dot" /><span class="sf-name">argh · claude</span>
+      <span class="sf-ctrls">▢ ✕</span>
+    </div>
+    <div class="sf-pane sf-main">
+      <div class="sf-line">$ npm test</div>
+      <div class="sf-line sf-dim">PASS · 12 passed</div>
+      <div class="sf-line">$ <span class="sf-cur">▏</span></div>
+    </div>
+    <div class="sf-seam" />
+    <div class="sf-sub">
+      <div class="sf-tabbar">
+        <span class="sf-tab sf-tab-on">server</span>
+        <span class="sf-tab">logs</span>
+      </div>
+      <div class="sf-subbody">
+        <div class="sf-line">$ vite dev</div>
+        <div class="sf-line sf-dim">ready in 240 ms</div>
+      </div>
+    </div>
+  </div>
+);
+
+<SfStyles />
+
+## User-facing description
+
+The pane that does **not** have focus **recedes** — it dims so the live pane it's
+sitting next to reads as the foreground. A glance answers "where do my keystrokes
+land?" without reading anything, and the receded terminal's output stays legible
+enough to keep half an eye on.
+
+<div class="sf-board">
+  <div class="sf-lead">Today vs. proposed — the same split, focus on the sub-panel</div>
+  <div class="sf-row">
+    <div class="sf-cell">
+      <SplitTile active="sub" cue="none" />
+      <div class="sf-cap"><b>Today</b> — both panes equally bright. Which one is typing into? You can't tell.</div>
+    </div>
+    <div class="sf-cell">
+      <SplitTile active="sub" cue="recede" />
+      <div class="sf-cap"><b>Proposed</b> — the inactive main pane recedes; the focused sub-panel stays forward.</div>
+    </div>
+  </div>
+</div>
+
+The recede *follows* focus. Click the main pane and it brightens while the
+sub-panel steps back; click into the split and they swap — the same motion you
+already make, now mirrored on screen.
+
+<div class="sf-board">
+  <div class="sf-lead">Whichever pane has focus stays forward; the other recedes</div>
+  <div class="sf-row">
+    <div class="sf-cell">
+      <SplitTile active="main" cue="recede" />
+      <div class="sf-cap"><b>Main pane focused</b> — sub-panel recedes.</div>
+    </div>
+    <div class="sf-cell">
+      <SplitTile active="sub" cue="recede" />
+      <div class="sf-cap"><b>Sub-panel focused</b> — main pane recedes.</div>
+    </div>
+  </div>
+</div>
+
+It shows only inside the **tile you're working in** and only while the split is
+**open** — a collapsed split has just one terminal, so there's nothing to
+distinguish. The active sub-*tab* already has its own highlight in the tab bar;
+this is the missing, coarser signal: **main vs. sub**.
+
+### Languages considered
+
+Three quiet, static languages were weighed; **recede** was chosen. All reuse the
+same idea (mark focus without motion), so `prefers-reduced-motion` needs no
+special case beyond making the change instant.
+
+<div class="sf-board">
+  <div class="sf-lead">The three languages weighed — main focused in each</div>
+  <div class="sf-row">
+    <div class="sf-cell">
+      <SplitTile active="main" cue="recede" />
+      <div class="sf-cap"><b>C · Recede the other</b> <Pill variant="ok">chosen</Pill><br />Dim the inactive pane. The strongest "which one is live?" read; touches no chrome.</div>
+    </div>
+    <div class="sf-cell">
+      <SplitTile active="main" cue="rail" />
+      <div class="sf-cap"><b>A · Edge rail</b><br />A teal bar on the active pane's edge. Smallest footprint, but a thin line is easy to miss.</div>
+    </div>
+    <div class="sf-cell">
+      <SplitTile active="main" cue="ring" />
+      <div class="sf-cap"><b>B · Inset ring</b><br />An accent ring around the active pane. Clear, but boxes in the xterm grid.</div>
+    </div>
+  </div>
+</div>
+
+<Callout kind="note" title="Why recede">
+Reducing one pane's presence is the loudest "the other one is live" signal of the
+three — it works on the whole pane, not a 2px edge you can miss (**A**), and never
+draws a box around the terminal grid (**B**). It does overlap the canvas's
+parked-tile dim conceptually, but they can't actually stack: the recede only fires
+on the *focused* tile, and a focused tile is never parked — so its opacity is
+always a clean ×0.4 of full, never of an already-dimmed tile.
+</Callout>
+
+## Architecture-level changes
+
+There is almost nothing structural to change — and that's the point. The split
+**already tracks which pane has focus**: `focusTarget: "main" | "sub"` lives in the
+per-tile `useSubPanel` store and is read on every keystroke to route input. It's
+client-only state (only the split *layout* — `collapsed`, `panelSize` — is
+server-persisted; on restore `focusTarget` is reseeded locally, see
+<Cite file="packages/client/src/terminal/useSessionRestore.ts" lines="282" />).
+The work is to *render* that existing in-session signal, not to invent a new one.
+
+<Svg svg={flow} caption="One existing signal drives the cue. focusTarget already exists; TerminalContent already gates on whether the tile is focused and the split expanded. We add only the last hop: tag each pane with data-pane-focus and let a Tailwind data-variant recede the inactive one." />
+
+- **Reuse the source of truth, don't fork it.** The cue reads `focusTarget` — the
+  same field that routes keystrokes (<Cite file="packages/client/src/terminal/useSubPanel.ts" />).
+  A parallel "which pane looks active" flag, or a CSS `:focus-within` shortcut that
+  re-derives the same fact a second way, would be two sources that can disagree.
+  One signal, two consumers (input routing + the cue).
+- **A presentational leaf, not electricity.** This hides no hard volatility
+  (transport, reconnect, GPU-context loss) — it's a bounded bit of styling inside
+  the terminal module. It stays in `TerminalContent` (Tailwind classes on the
+  panel, no separate stylesheet rule); it earns no `@kolu/*` package.
+- **No knob, no fallback.** The cue is always on whenever a split is open and
+  focused — no preference toggle (an override is a defect, not a feature) and no
+  degraded path. It either reflects `focusTarget` or, if that signal were ever
+  absent, the split itself would already be broken upstream.
+- **Dim, never reflow.** The cue is `opacity` on the inactive pane — a compositor
+  property that changes no box size. That matters: any size change to a pane forces
+  xterm to refit its grid and resize the PTY. Opacity costs zero layout (the canvas
+  tile-aura paints without reflow for the same reason).
+
+## Implementation details
+
+Small and contained — one component gains a derived flag and a pair of Tailwind
+data-variant classes, and the Sundry row graduates to this note.
+
+1. **Tag each pane** in <Cite file="packages/client/src/terminal/TerminalContent.tsx" />.
+   It already computes `shouldFocusMain()` / `shouldFocusSub()` from
+   `props.focused`, `isExpanded()`, and `focusTarget()` — the cue keys off the same
+   conditions. A `paneFocus(pane)` helper returns `"active" | "inactive" |
+   undefined`, written to a `data-pane-focus` attribute on each of the two
+   `Resizable.Panel`s (plus a stable `data-pane="main" | "sub"` so the pane is
+   addressable from tests). `undefined` when collapsed or when the tile isn't
+   focused, so no background tile lights a pane.
+2. **Recede the inactive pane** — Tailwind data-variant classes on the same
+   `Resizable.Panel` (no custom CSS, per the repo's Tailwind-only styling rule):
+   `data-[pane-focus=inactive]:opacity-40` for the recede, plus
+   `motion-safe:transition-opacity motion-safe:duration-[120ms]` for the
+   cross-fade. `motion-safe:` is Tailwind's `prefers-reduced-motion: no-preference`
+   variant, so reduced-motion gets the change instantly.
+3. **Graduate the Sundry item** — remove the row from
+   <Cite file="docs/atlas/src/content/atlas/sundry.mdx" /> (per its own
+   "Graduating an item" rule) and leave a one-line pointer here.
+4. **Docs + changelog** — this note is the design of record; add an `Added` line to
+   the changelog. No README/marketing surface lists split-pane focus behaviour, so
+   the doc-sync is this note plus the changelog.
+
+**Test (feature, so test-first):** an e2e scenario in
+<Cite file="packages/tests/features/sub-terminal.feature" /> that opens a split,
+checks the sub-panel is active and the main pane receded, then moves focus and
+checks they swap — asserting on `data-pane` + `data-pane-focus` *and* the rendered
+opacity it drives (so deleting the recede class would fail the test, not just the
+marker flip), reusing the existing split/sub-terminal steps
+(<Cite file="packages/tests/step_definitions/sub_terminal_steps.ts" />).
+
+**Risks, and why they're small**
+
+- *xterm refit on a layout change* — avoided by construction: the cue is `opacity`,
+  not a border or size change, so no pane box changes dimensions.
+- *Compounding with the canvas parked-tile dim* — can't happen: the recede only
+  fires on the focused tile, which is never parked, so opacity is always ×0.4 of a
+  full-strength tile.
+- *Mobile* — `TerminalContent` is shared by the canvas and the mobile tile view, so
+  the cue appears in both with no extra work; evidence covers the mobile layout.
+
+### Scope — focused tile only
+
+The cue shows only in the tile you're in (`props.focused`), keeping the canvas calm
+and removing any "is the dim = a parked tile?" ambiguity for tiles you're not
+working in. Revisit if an always-on version (read every split's pending pane at a
+glance) proves more useful in practice.
+
+---
+
+*Status: `accepted` — design of record; the chosen treatment is **C · recede the
+inactive pane**. In review in <PrLink pr={1509} /> (status flips to `implemented`
+on merge).*

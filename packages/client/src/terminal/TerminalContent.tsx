@@ -19,6 +19,14 @@ import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
 
+// Active-terminal cue, shared by both split panes: the pane that does NOT hold
+// keyboard focus recedes so the live one stands out. Opacity only — the pane's
+// box never resizes, so xterm never refits its grid; `motion-safe` cross-fades
+// the change while reduced-motion gets it instantly. The `data-pane-focus`
+// attribute (driven by `paneFocus`/`livePane`) selects which pane it dims.
+const RECEDE_INACTIVE_PANE =
+  "data-[pane-focus=inactive]:opacity-40 motion-safe:transition-opacity motion-safe:duration-[120ms]";
+
 const TerminalContent: Component<{
   terminalId: TerminalId;
   /** Whether this terminal is "active" — controls focus, fit, viewport
@@ -57,13 +65,30 @@ const TerminalContent: Component<{
   const activeSubTab = () => panelState().activeSubTab;
   const focusTarget = () => panelState().focusTarget;
 
+  // One owner for "which pane is live within this tile": only the focused tile's
+  // *open* split has a live pane (the `focusTarget` one), reusing the same
+  // signal that routes keystrokes — no parallel "active pane" state. Undefined
+  // when collapsed or when this tile isn't focused, so no unfocused tile lights
+  // a pane. The cue (`paneFocus`) and the keyboard routing (`shouldFocusSub`)
+  // below both read this, so they can't drift.
+  const livePane = () =>
+    props.focused && isExpanded() ? focusTarget() : undefined;
+
+  // Which pane the active-terminal cue marks: the live pane is "active", the
+  // other "inactive" (which `RECEDE_INACTIVE_PANE` dims).
+  const paneFocus = (
+    pane: "main" | "sub",
+  ): "active" | "inactive" | undefined =>
+    livePane() === undefined
+      ? undefined
+      : livePane() === pane
+        ? "active"
+        : "inactive";
+
   const shouldFocusMain = () =>
     props.focused && (!isExpanded() || focusTarget() === "main");
   const shouldFocusSub = (subId: TerminalId) =>
-    props.focused &&
-    isExpanded() &&
-    activeSubTab() === subId &&
-    focusTarget() === "sub";
+    livePane() === "sub" && activeSubTab() === subId;
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
@@ -107,7 +132,13 @@ const TerminalContent: Component<{
         onSizesChange={handleSizesChange}
         class="flex-1 min-h-0"
       >
-        <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+        <Resizable.Panel
+          as="div"
+          class={`min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
+          minSize={0.2}
+          data-pane="main"
+          data-pane-focus={paneFocus("main")}
+        >
           <Terminal
             terminalId={props.terminalId}
             visible={props.visible}
@@ -149,12 +180,14 @@ const TerminalContent: Component<{
 
         <Resizable.Panel
           as="div"
-          class="min-h-0 overflow-hidden flex flex-col"
+          class={`min-h-0 overflow-hidden flex flex-col ${RECEDE_INACTIVE_PANE}`}
           minSize={0}
           collapsible
           collapsedSize={0}
           onCollapse={() => subPanel.collapsePanel(props.terminalId)}
           onExpand={() => subPanel.expandPanel(props.terminalId)}
+          data-pane="sub"
+          data-pane-focus={paneFocus("sub")}
         >
           <Show when={isExpanded()}>
             <SubPanelTabBar
