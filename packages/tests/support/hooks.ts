@@ -740,6 +740,13 @@ AfterAll(async () => {
 });
 
 Before(async function (this: KoluWorld, scenario) {
+  // RWATCH-DEBUG (temporary): mark scenario boundaries in the page-console trace.
+  try {
+    fs.appendFileSync(
+      "/tmp/rwatch.log",
+      `\n##### SCENARIO: ${scenario.pickle.name} #####\n`,
+    );
+  } catch {}
   // Derive the scenario's file stem once, up front — the failure screenshot,
   // the evidence webm, the x11 grab, and the transcoded assets all key off the
   // same value, so it's computed here and read at every site below.
