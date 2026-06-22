@@ -14,6 +14,8 @@ import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
+import { formatMB, readJsHeap } from "./ui/memory";
+import { kavalMemoryDisplay, serverRssBytes } from "./ui/useMemoryUsage";
 import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -42,45 +44,6 @@ function browserFacts() {
   };
 }
 
-/** Single source of truth for byte-count display across the dialog.
- *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
- *  callers may parse programmatically). `formatMB` returns a display string
- *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
- *  "0.0 MB" obscures more than it communicates. Every byte render in this
- *  module goes through these two; evolving the granularity is one edit. */
-function bytesToMB(bytes: number): number {
-  return Math.round((bytes / 1_048_576) * 10) / 10;
-}
-function formatMB(bytes: number): string {
-  if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytesToMB(bytes).toFixed(1)} MB`;
-}
-
-/** `performance.memory` is Chromium-only and missing from the DOM type
- *  definitions — isolate the narrow cast here so the snapshot memo stays
- *  free of it. Returns null on non-Chromium browsers. */
-function readJsHeap(): {
-  usedMB: number;
-  totalMB: number;
-  limitMB: number;
-} | null {
-  const mem = (
-    performance as {
-      memory?: {
-        usedJSHeapSize: number;
-        totalJSHeapSize: number;
-        jsHeapSizeLimit: number;
-      };
-    }
-  ).memory;
-  if (!mem) return null;
-  return {
-    usedMB: bytesToMB(mem.usedJSHeapSize),
-    totalMB: bytesToMB(mem.totalJSHeapSize),
-    limitMB: bytesToMB(mem.jsHeapSizeLimit),
-  };
-}
-
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
@@ -97,6 +60,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         activeId: props.activeId,
         terminalCount: getDiagnostics().length,
         jsHeap: readJsHeap(),
+        // Server + kaval RSS ride the `processMemory` cell (the same source the
+        // rail reads). `kavalRss` is the honest three-way: the byte figure when
+        // a live daemon answered, `"error"` when a believed-connected daemon's
+        // poll failed, or `null` (no daemon to measure) — so the snapshot never
+        // conflates a failed poll with no-data. Read through the SHARED
+        // `kavalMemoryDisplay` derivation (which folds in the connected-now gate),
+        // so the dialog and the rail can't drift on what kaval memory to show.
+        serverRss: serverRssBytes() ?? null,
+        kavalRss: ((d) =>
+          d === null ? null : d.kind === "ok" ? d.rssBytes : "error")(
+          kavalMemoryDisplay(),
+        ),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
         // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
@@ -227,6 +202,25 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   </span>
                 </Row>
               )}
+            </Show>
+            <Show when={snapshot().session.serverRss}>
+              {(rss) => (
+                <Row label="Server RSS">
+                  <span class="font-mono text-fg">{formatMB(rss())}</span>
+                </Row>
+              )}
+            </Show>
+            <Show when={snapshot().session.kavalRss !== null}>
+              <Row label="kaval RSS">
+                <span class="font-mono text-fg">
+                  {(() => {
+                    const rss = snapshot().session.kavalRss;
+                    return rss === "error"
+                      ? "poll failed"
+                      : formatMB(rss as number);
+                  })()}
+                </span>
+              </Row>
             </Show>
             <Row label="DOM">
               <span class="font-mono text-fg">

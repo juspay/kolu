@@ -46,10 +46,15 @@ import type {
   ActivityFeed,
   KoluBuildInfo,
   Preferences,
+  ProcessMemory,
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { type koluSurface, surfaces } from "kolu-common/surface";
+import {
+  bytesToWholeMB,
+  type koluSurface,
+  surfaces,
+} from "kolu-common/surface";
 import {
   type FsReadFileOutput,
   fsListAllOutputEqual,
@@ -100,6 +105,52 @@ const activityFeedStore: CellStore<ActivityFeed> = confStore<ActivityFeed>(
 );
 const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
+
+// ── processMemory cell: live metric, in-memory backing + whole-MB dedup ──
+//
+// Defined here beside the cell entry (mirroring `terminalList`), not in
+// `memorySampler.ts`: the cell's storage shape and dedup predicate are the
+// surface layer's concern. The sampler only reads+publishes via the injected
+// `publish` (→ `surfaceCtx.cells.processMemory.set` → `set` below).
+
+/** The whole-MB rail figure of the kaval reading, plus its discriminant — a
+ *  comparison key that distinguishes `absent`/`error`/`ok@N MB` from each other,
+ *  so the dedup never folds an `error` state into an `absent` one (or vice
+ *  versa). `ok` carries its whole-MB figure (the rail's granularity) so a sub-MB
+ *  wobble within `ok` still dedups. Built on the shared {@link bytesToWholeMB} so
+ *  the dedup boundary and the client's rendered figure are one computation. */
+function kavalMemoryKey(m: ProcessMemory["kavalMemory"]): string {
+  return m.status === "ok" ? `ok:${bytesToWholeMB(m.rssBytes)}` : m.status;
+}
+
+/** Two readouts are equal when they render the same whole-MB rail figures AND the
+ *  same kaval state — the cell's `equals`, so a sub-MB RSS wobble never
+ *  re-publishes, but a state transition (absent → error, ok → absent) always
+ *  does. */
+export function processMemoryMbEqual(
+  a: ProcessMemory,
+  b: ProcessMemory,
+): boolean {
+  return (
+    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
+    kavalMemoryKey(a.kavalMemory) === kavalMemoryKey(b.kavalMemory)
+  );
+}
+
+/** In-memory backing for the `processMemory` cell. The sampler writes through
+ *  `surfaceCtx.cells.processMemory.set` (→ `set` here, then publish); a fresh
+ *  subscription reads the latest via `get`. No persistence — a live metric has
+ *  no on-disk slot, mirroring the `terminalList` cell. */
+let currentProcessMemory: ProcessMemory = {
+  serverRssBytes: 0,
+  kavalMemory: { status: "absent" },
+};
+const memoryCellStore = {
+  get: (): ProcessMemory => currentProcessMemory,
+  set: (value: ProcessMemory): void => {
+    currentProcessMemory = value;
+  },
+};
 
 // ── kolu's own-surface implementation deps (concretely typed) ───────────
 //
@@ -167,6 +218,14 @@ const koluDeps: Omit<
     terminalList: {
       // Live registry; the in-memory store has no persistent slot.
       store: { get: () => listTerminals(), set: () => {} },
+    },
+    processMemory: {
+      // Live metric; the in-memory store has no persistent slot. The sampler
+      // (`memorySampler.ts`) is the sole writer via `surfaceCtx.cells.
+      // processMemory.set`. `equals` dedups at whole-MB granularity so a sub-MB
+      // RSS wobble never re-publishes to every connected client.
+      store: memoryCellStore,
+      equals: processMemoryMbEqual,
     },
   },
 
