@@ -108,8 +108,19 @@ export function bindMarkdownLinks(
       // definition resolves: with no host overlay the ref falls through to the
       // scroll branch, preserving the GitHub-style jump-to-definition (the
       // popover is an additive host surface, not a replacement).
+      //
+      // Pointer-only by design (see LIMITATIONS.md): the popover has no keyboard
+      // focus/announcement relationship yet, so a *keyboard* activation of the
+      // focused marker (Enter/Space) must keep the accessible jump-to-definition
+      // instead of opening an unmanaged portal popover. A keyboard-synthesized
+      // `click` reports `detail === 0` (no pointer click-count); a real
+      // pointer/tap reports `detail >= 1`. So gate the popover on `detail > 0`
+      // and let a keyboard activation fall through to the in-page-anchor scroll
+      // branch below — which lands on the bottom-list definition, the accessible
+      // record. (Removing this gate is the keyboard-a11y follow-up.)
       if (
         handlers.onFootnote &&
+        e.detail > 0 &&
         anchor.hasAttribute("data-md-footnote") &&
         href?.startsWith("#")
       ) {
@@ -121,13 +132,22 @@ export function bindMarkdownLinks(
         }
       }
       // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
-      // the preview without navigating or writing the app's URL hash.
+      // the preview without navigating or writing the app's URL hash. We
+      // `preventDefault` *unconditionally* — before checking whether the
+      // target exists — because an `href="#…"` is only ever a within-preview
+      // jump; letting the browser perform a real hash navigation against the
+      // app document is never the intent. This matters most when `el` is a
+      // *fragment* of the preview rather than the whole document: the footnote
+      // popover binds this dispatcher to a cloned `<li>` whose in-page targets
+      // (a nested footnote ref's `#md-footnote-…`, a `#heading` outside the
+      // note) live in the bottom list, not the clone — so the lookup misses.
+      // Without the unconditional suppress those would fall through to default
+      // navigation and change the app URL / scroll outside the preview from
+      // inside the popover. We still only scroll when the landing resolves.
       if (href?.startsWith("#") && href.length > 1) {
+        e.preventDefault();
         const landing = el.querySelector(`#${CSS.escape(href.slice(1))}`);
-        if (landing) {
-          e.preventDefault();
-          landing.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+        landing?.scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }
       // Wikilinks (`[[Note]]`, tagged by the renderer) resolve pathless across

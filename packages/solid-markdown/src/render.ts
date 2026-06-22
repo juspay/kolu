@@ -314,14 +314,30 @@ function rewriteAlerts(html: string): string {
  *  a back-ref (whose href is also `#md-footnote-…`) — or a heading literally
  *  titled "Footnote 1" minting the same id — for a marker, and couples the host
  *  to marked-footnote's id scheme. The forward ref's definition is found
- *  post-sanitize from the anchor's own `href`. */
+ *  post-sanitize from the anchor's own `href`.
+ *
+ *  Spoof guard (mirrors the wikilink policy): `data-md-footnote` is in the
+ *  document allowlist, so a README's *raw* inline HTML could pre-seed
+ *  `<a data-md-footnote href="#md-…">` to opt an arbitrary same-page anchor into
+ *  the host's footnote-popover callback. App-read data hooks must be
+ *  parser-minted, not document-authored — so strip any pre-existing
+ *  `data-md-footnote*` token from every anchor *first*, then re-mint it only
+ *  beside marked-footnote's own `data-footnote-ref` / `data-footnote-backref`.
+ *  Net: the markers only ever ride the parser's own footnote refs, never a raw
+ *  anchor that merely declared them. */
 function rewriteFootnotes(html: string): string {
-  return html
-    .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
-    .replace(
-      /<a (?=[^>]*\bdata-footnote-backref\b)/g,
-      "<a data-md-footnote-backref ",
-    );
+  return (
+    html
+      // Drop document-authored markers before re-minting (see the spoof guard
+      // above). `\s*` swallows any value (`data-md-footnote="x"`) too, so a
+      // valued spoof can't survive as a leftover attribute.
+      .replace(/\s+data-md-footnote(?:-backref)?(?:="[^"]*")?/g, "")
+      .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
+      .replace(
+        /<a (?=[^>]*\bdata-footnote-backref\b)/g,
+        "<a data-md-footnote-backref ",
+      )
+  );
 }
 
 // The soft-break setting and the raw-HTML toggle are the axes that vary the

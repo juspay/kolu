@@ -72,7 +72,12 @@ export const FootnotePopover: Component<{
 
   // The popover body: a cleaned clone of the definition `<li>`. Three removals,
   // on the *clone* only (never the live node the bottom list still shows):
-  //   - its `id` — the live `<li>` keeps it, so the clone must not duplicate it;
+  //   - every `id` — the root `<li>`'s *and* every descendant's (a rich note
+  //     body can hold a heading or raw allowed HTML that the sanitizer minted an
+  //     `md-…` id on). The live nodes keep their ids, so the portalled clone
+  //     must strip all of them: a duplicate id would weaken the sanitizer's
+  //     id-namespacing guarantee and make an in-page `#md-…` lookup ambiguous
+  //     (two matches across the live doc + the clone).
   //   - every back-ref ↩ (flagged `data-md-footnote-backref` by the renderer; a
   //     re-cited note has several) — a "jump back to the marker" link is
   //     meaningless inside the popover. We key on the package's own structural
@@ -88,6 +93,8 @@ export const FootnotePopover: Component<{
     if (!def) return "";
     const clone = def.cloneNode(true) as HTMLElement;
     clone.removeAttribute("id");
+    for (const withId of clone.querySelectorAll("[id]"))
+      withId.removeAttribute("id");
     for (const back of clone.querySelectorAll("a[data-md-footnote-backref]"))
       back.remove();
     for (const nested of clone.querySelectorAll("[data-md-footnote]"))

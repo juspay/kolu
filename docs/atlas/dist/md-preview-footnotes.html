@@ -40,10 +40,12 @@ because it rides the preview’s existing resolvers (relative links open the
 file, wikilinks resolve vault-wide, images load through the repo route).</li>
 <li><strong>The back-reference <code>↩</code> is unaffected.</strong> It still lives in the bottom section
 and still jumps back to the marker; it never opens a popover.</li>
-<li><strong>Click and tap only, for now.</strong> Opening is a pointer gesture; keyboard
-activation and a screen-reader relationship are a deliberate follow-up (see
-§Implementation), because the bottom section already carries the accessible
-record.</li>
+<li><strong>Click and tap only, for now.</strong> Opening is a pointer gesture: the
+interception is gated on a pointer activation, so pressing <strong>Enter</strong> on a
+focused marker keeps the old jump-to-definition scroll to the bottom section —
+the accessible record — rather than opening an unmanaged popover. A
+managed-focus popover with a screen-reader relationship is a deliberate
+follow-up (see §Implementation).</li>
 </ul>
 <aside class="callout callout-note" data-astro-cid-mrmim4ef>  <div class="callout-body" data-astro-cid-mrmim4ef><p>Only the <strong>document</strong> preview is in scope — and that is by construction, not a
 limitation. The compact/inline chat slots strip the whole footnotes
@@ -250,13 +252,18 @@ shift).</li>
 <code>max-height: min(50vh, 22rem)</code>, <code>overflow: auto</code>; reuse <code>surface()</code> for chrome
 (as <code>OptionMenu</code> does).</li>
 <li><strong>Content.</strong> <code>definition.cloneNode(true)</code>, then on the <em>clone</em> remove three
-things: its <code>id</code> (the live <code>&lt;li&gt;</code> keeps its <code>id</code>, so the clone must not
-duplicate it), <strong>every</strong> <code>a[href*=&quot;-ref-&quot;]</code> back-ref (a re-cited footnote has
-several <code>↩</code>), and the <code>data-md-footnote</code> flag from <strong>any nested</strong> ref markers
-(so they are inert in the popover — see the nested-footnote risk). Re-inject
-the clone’s <code>innerHTML</code>. Images need no handling — <code>resolveImageSrc</code> already
-ran on this node when the document was sanitized, so the clone carries
-resolved <code>src</code>s.</li>
+things: <strong>every</strong> <code>id</code> — the root <code>&lt;li&gt;</code>’s <em>and</em> every descendant’s (a rich
+note body can hold a heading or raw allowed HTML the sanitizer minted an
+<code>md-…</code> id on); the live nodes keep theirs, so a portalled clone that kept a
+duplicate id would weaken the sanitizer’s id-namespacing and make an in-page
+<code>#md-…</code> lookup ambiguous. <strong>Every</strong> back-ref <code>↩</code> (keyed on the renderer’s own
+<code>data-md-footnote-backref</code> flag, not marked-footnote’s <code>-ref-</code> id scheme — so
+a <code>marked-footnote</code> bump fails loudly in <code>render.test.ts</code> rather than leaving
+stray <code>↩</code> links), since a re-cited footnote has several. And the
+<code>data-md-footnote</code> flag from <strong>any nested</strong> ref markers (so they are inert in
+the popover — see the nested-footnote risk). Re-inject the clone’s
+<code>innerHTML</code>. Images need no handling — <code>resolveImageSrc</code> already ran on this
+node when the document was sanitized, so the clone carries resolved <code>src</code>s.</li>
 <li><strong>Inner links.</strong> Bind one click listener on the popover panel that routes the
 <em>click-time</em> links only: <code>a[data-md-rel]</code> → the host’s <code>onNavigateRelative</code>,
 <code>a[data-md-wikilink]</code> → <code>onNavigateWikilink</code> (the same handlers
@@ -269,11 +276,13 @@ export that slice from <code>@kolu/solid-markdown</code> and call it here.</li>
 <strong>live</strong> <code>&lt;li&gt;</code> (not the clone — the clone’s <code>id</code> is gone), then <code>setFn(null)</code>.</li>
 </ul>
 </li>
-<li><strong>Out of scope (tracked follow-up):</strong> keyboard activation and a screen-reader
-relationship. Opening is pointer-only by decision; the bottom section remains
-the accessible record. A follow-up can add Enter/Space-to-open on the focused
-marker plus an <code>aria-details</code> link — note it in the PR description so it isn’t
-mistaken for an oversight.</li>
+<li><strong>Out of scope (tracked follow-up):</strong> a managed-focus popover with a
+screen-reader relationship. Opening is pointer-only <em>by enforcement</em> — the
+footnote branch is gated on <code>click.detail &gt; 0</code>, so a keyboard activation
+(Enter/Space) falls through to the in-page jump-to-definition scroll and lands
+on the bottom section, which remains the accessible record. A follow-up can add
+Enter/Space-to-<em>open</em> on the focused marker plus an <code>aria-details</code> link — note
+it in the PR description so it isn’t mistaken for an oversight.</li>
 </ul>
 <h3 id="sharp-edges-and-how-each-is-handled">Sharp edges, and how each is handled</h3>
 <p>Each was a real trap; none is left open.</p>
@@ -303,6 +312,21 @@ footnote, so a ref marker can appear <em>inside</em> a popover. The clone strips
 <code>data-md-footnote</code> from those nested markers (Content step above) and the
 popover’s click listener routes only <code>data-md-rel</code> / <code>data-md-wikilink</code> — so a
 nested marker is a plain, inert superscript. No popover stacking, no recursion.</li>
+<li><strong>An in-page anchor inside the clone never escapes the preview.</strong> The popover
+binds the package’s own click dispatcher to the cloned <code>&lt;li&gt;</code>, whose in-page
+targets (a nested ref’s <code>#md-footnote-…</code>, a <code>#heading</code> outside the note) live
+in the bottom list, not the clone — so the in-clone lookup misses. The
+in-page-anchor branch therefore <code>preventDefault</code>s <strong>unconditionally</strong> (before
+the target lookup), so a miss can’t fall through to a real browser hash
+navigation that would change the app URL or scroll outside the preview from
+inside the popover. It still only scrolls when the target resolves.</li>
+<li><strong>Raw HTML can’t spoof the marker.</strong> <code>data-md-footnote</code> is allowlisted, so a
+README’s raw inline HTML could pre-seed it to opt an arbitrary anchor into the
+host callback. Like the wikilink guard, the renderer strips any
+document-authored <code>data-md-footnote*</code> token before re-minting it only beside
+marked-footnote’s own <code>data-footnote-ref</code> / <code>data-footnote-backref</code> — so the
+marker only ever rides the parser’s own refs (<code>render.test.ts</code> covers the
+spoof; the e2e covers the popover behaviour).</li>
 <li><strong>Content re-renders don’t drop the handler.</strong> The new branch lives in the
 delegated listener <code>bindInteractions</code> binds on the stable <code>.kolu-md</code> root, not on
 per-marker nodes. Editing the file re-runs the <code>html()</code> memo and swaps the

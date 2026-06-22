@@ -236,6 +236,37 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out.match(/data-md-footnote-backref/g)).toHaveLength(2);
   });
 
+  it("does not let raw HTML spoof the footnote markers", () => {
+    // `data-md-footnote` is allowlisted, so a README's raw inline HTML could
+    // pre-seed it (bare or valued) to opt an arbitrary anchor into the host's
+    // footnote-popover callback. Like the wikilink guard, app-read data hooks
+    // must be parser-minted: rewriteFootnotes strips any document-authored
+    // `data-md-footnote*` token before re-minting, so a raw anchor that merely
+    // declared the marker carries none of it through.
+    const out = html(
+      'spoof <a data-md-footnote href="#md-footnote-1">x</a> ' +
+        '<a data-md-footnote-backref href="#y">y</a> ' +
+        '<a data-md-footnote="bogus" href="#z">z</a>',
+    );
+    expect(out).not.toContain("data-md-footnote");
+    // The anchors themselves survive (just without the spoofed markers).
+    expect(out).toContain(">x</a>");
+    expect(out).toContain(">y</a>");
+    expect(out).toContain(">z</a>");
+  });
+
+  it("keeps the parser's footnote markers even when raw HTML pre-seeded one", () => {
+    // The strip-then-remint must not collateral-damage a real footnote that
+    // shares the document with a spoof attempt: the genuine `[^1]` ref still
+    // ends up flagged exactly once.
+    const out = html(
+      'real[^1] and <a data-md-footnote href="#md-x">fake</a>\n\n[^1]: note',
+    );
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(1);
+    expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
+    expect(out).toContain(">fake</a>");
+  });
+
   it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
     const out = html("> [!WARNING]\n> be careful");
     expect(out).toContain('data-md-alert="warning"');

@@ -81,9 +81,15 @@ Obsidian extensions. Listed for completeness; low priority.
 - Footnote a11y metadata (`aria-*`, the visually-hidden label) is stripped.
 - **Footnote popover is pointer-only.** A footnote forward-ref is flagged
   (`data-md-footnote`) so the host can open its definition in a click/tap
-  popover anchored to the marker; keyboard activation and a screen-reader
-  `aria-details` relationship are a tracked follow-up. The bottom footnotes list
-  stays the accessible record.
+  popover anchored to the marker. The interception is gated on a *pointer*
+  activation (`click.detail > 0`): a **keyboard** activation (Enter/Space on the
+  focused marker) falls through to the in-page jump-to-definition scroll instead,
+  landing on the bottom footnotes list — the accessible record. Full keyboard
+  semantics (a managed-focus popover with an `aria-details` relationship) are a
+  tracked follow-up. The marker (`data-md-footnote`) is parser-minted, never
+  honoured on a raw README anchor that merely declared it — the renderer strips
+  any document-authored `data-md-footnote*` before re-minting (the same spoof
+  guard the wikilink marker uses).
 - **Task lists are read-only.** Checkboxes render with their `[x]`/`[ ]` state
   but are `disabled` (presentational) — the preview never writes a toggle back
   to the file, the way GitHub renders a README's task list.
