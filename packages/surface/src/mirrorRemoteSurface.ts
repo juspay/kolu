@@ -300,14 +300,19 @@ function buildProcedureForwarders(
  *      await procedures.terminal.kill({ id });  // forwarded to the remote
  *      await done;                              // resolves when the link closes
  *
- * BREAKING (R7): this used to return `Promise<void>`, so the settle was `await
- * mirrorRemoteSurface(...)`. It now returns the plain handle `{ procedures, done }`,
- * so a bare `await mirrorRemoteSurface(...)` no longer waits (await on a non-thenable
- * resolves at once) — the settle is `await mirrorRemoteSurface(...).done`. Discarding
- * the result is NOT type-caught (no TS construct makes `await object` an error, so a
- * rename would not catch it either), so a migrating consumer (drishti) must audit
- * every call site and append `.done`; that migration rides the surface→drishti
- * merge-gate (`.claude/rules/surface.md`), where drishti's own CI is the backstop.
+ * BREAKING (R7, kolu #1505): this used to return `Promise<void>` (the #1497
+ * graduation shape), so the settle was `await mirrorRemoteSurface(...)`. It now
+ * returns the plain handle `{ procedures, done }`, so a bare `await
+ * mirrorRemoteSurface(...)` no longer waits (await on a non-thenable resolves at
+ * once) — the settle is `await mirrorRemoteSurface(...).done`. Discarding the result
+ * is NOT type-caught (no TS construct makes `await object` an error, so a rename
+ * would not catch it either): a stale `await mirrorRemoteSurface(...)` keeps
+ * COMPILING and silently no-ops. This is a LIVE hazard, not hypothetical — drishti
+ * `master` still does `await mirrorRemoteSurface(...)` on its streaming sinks (the
+ * #1497 shape it adopted in drishti PR #70). So the migration is mechanical, not
+ * documentary: the surface→drishti merge-gate (`.claude/rules/surface.md`) holds the
+ * kolu PR until the paired drishti PR audits that one call site (append `.done`),
+ * adds the forwarded-procedure proof, and goes GREEN — exactly as #70 did for #1497.
  * No back-compat thenable is offered: the fail-fast rule prefers a deliberate
  * per-site migration over a shim that hides the changed contract — and the handle's
  * non-thenable contract is pinned in CI by the "returns a non-thenable handle" test
