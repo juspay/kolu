@@ -26,3 +26,14 @@ Feature: Mobile sub-terminals
     And I swipe left on the mobile tile view
     Then the sub-terminal screen should contain "mobile-sub-marker"
     And there should be no page errors
+
+  @mobile
+  Scenario: Active pane is distinguished in a split on mobile
+    # Same recede cue as desktop, under the mobile viewport: the pane without
+    # focus dims. Fill both panes so the recede reads on real output.
+    When I create a sub-terminal via command palette
+    And I run "ls -la /" in the sub-terminal
+    And I run "ls -la /usr"
+    Then the main pane should be the active pane
+    And the sub pane should be receded
+    And there should be no page errors

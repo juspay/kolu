@@ -130,9 +130,15 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the sub pane should be the active pane
     And the main pane should be receded
-    When I click the main terminal
+    # Fill both panes so the recede is visible on real output, then move focus
+    # back and forth — the inactive pane (with content) recedes each way.
+    When I run "ls -la /" in the sub-terminal
+    And I run "ls -la /usr"
     Then the main pane should be the active pane
     And the sub pane should be receded
+    When I run "echo back-in-sub" in the sub-terminal
+    Then the sub pane should be the active pane
+    And the main pane should be receded
     And there should be no page errors
 
   Scenario: Dock row surfaces sub-terminal count
