@@ -18,6 +18,7 @@
  * stdout is a TTY (the `--json` path never touches the renderer).
  */
 
+import type { GitChangedFile } from "@kolu/terminal-workspace/surface";
 import { useTerminalDimensions } from "@opentui/solid";
 import { createMemo, createSignal, For, onCleanup, onMount } from "solid-js";
 import {
@@ -29,57 +30,42 @@ import {
 import {
   fileCell,
   projectGitStatus,
-  statusGlyph,
+  type GitStatusSection,
   type GitStatusView,
 } from "./gitStatusRender.ts";
-import { HEADER, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
+import type { FieldTone } from "./render.ts";
+import { SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
 import { runTui } from "./runtime.tsx";
 
 /** One file row: the status glyph (toned by its group) + the path. The path
- *  fills the terminal's remaining width so long paths stay readable. */
+ *  fills the terminal's remaining width so long paths stay readable. The
+ *  status code IS the glyph — `GitChangeStatus` is already a single letter
+ *  (`M`, `A`, `?`, …), so no mapping function is needed. */
 function FileRow(props: {
-  file: { path: string; status: string; oldPath?: string };
-  tone: string;
+  file: GitChangedFile;
+  tone: FieldTone;
   termWidth: () => number;
 }) {
   const pathWidth = () => Math.max(20, props.termWidth() - 4);
+  const color = TONE_COLOR[props.tone];
   return (
     <box flexDirection="row">
-      <text
-        fg={
-          TONE_COLOR[props.tone as keyof typeof TONE_COLOR] ?? TONE_COLOR.plain
-        }
-      >
-        {`  ${statusGlyph(props.file.status as never)}  `}
-      </text>
-      <text
-        fg={
-          TONE_COLOR[props.tone as keyof typeof TONE_COLOR] ?? TONE_COLOR.plain
-        }
-      >
-        {fileCell(props.file.path, pathWidth())}
-      </text>
+      <text fg={color}>{`  ${props.file.status}  `}</text>
+      <text fg={color}>{fileCell(props.file.path, pathWidth())}</text>
     </box>
   );
 }
 
 /** One section: a header (label + count) and its file rows. */
 function Section(props: {
-  section: {
-    label: string;
-    tone: string;
-    files: { path: string; status: string; oldPath?: string }[];
-  };
+  section: GitStatusSection;
   termWidth: () => number;
 }) {
   const count = () => props.section.files.length;
+  const color = TONE_COLOR[props.section.tone];
   return (
     <box flexDirection="column" marginTop={1}>
-      <text
-        fg={TONE_COLOR[props.section.tone as keyof typeof TONE_COLOR] ?? HEADER}
-      >
-        {`${props.section.label} (${count()})`}
-      </text>
+      <text fg={color}>{`${props.section.label} (${count()})`}</text>
       <For each={props.section.files}>
         {(file) => (
           <FileRow
@@ -139,7 +125,7 @@ export async function runGitStatusTui(args: {
 }): Promise<void> {
   const [update, setUpdate] = createSignal<GitStatusUpdate>({
     local: null,
-    branch: null,
+    branchMode: null,
     seq: 0,
     error: null,
   });
@@ -154,13 +140,10 @@ export async function runGitStatusTui(args: {
       onCleanup(() => clearInterval(id));
     });
 
-    // The view is projected from the latest update + branch name. The `seq`
-    // counter in the title is the liveness proof — it increments on each repo
-    // change, proving the pulse-then-requery loop is alive.
     const view = createMemo(() =>
       projectGitStatus(
         update().local,
-        update().branch,
+        update().branchMode,
         branch(),
         args.repoPath,
         update().seq,
@@ -173,9 +156,6 @@ export async function runGitStatusTui(args: {
     );
   }
 
-  // Start the data layer after importing the view (the view is Bun-only; the
-  // data layer is transport-only and runs under Node too). The branch name is
-  // read once from the awareness collection.
   const snap = await snapshotGitStatus(args.client, args.repoPath).catch(
     () => ({
       branch: null,
@@ -187,7 +167,7 @@ export async function runGitStatusTui(args: {
   if (snap.local !== null) {
     setUpdate({
       local: snap.local,
-      branch: snap.branchMode,
+      branchMode: snap.branchMode,
       seq: 0,
       error: null,
     });
@@ -197,7 +177,6 @@ export async function runGitStatusTui(args: {
     client: args.client,
     repoPath: args.repoPath,
     sink: { onStatus: setUpdate },
-    log: () => {},
   });
 
   try {

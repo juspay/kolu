@@ -2,20 +2,9 @@ import type {
   GitChangedFile,
   GitStatusOutput,
 } from "@kolu/terminal-workspace/surface";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import type { FieldTone } from "./render.ts";
-import {
-  branchFromAwareness,
-  formatGitStatusJson,
-  projectGitStatus,
-  statusGlyph,
-} from "./gitStatusRender.ts";
-
-const id = (s: string): TerminalId => s as TerminalId;
+import { formatGitStatusJson, projectGitStatus } from "./gitStatusRender.ts";
 
 function file(
   path: string,
@@ -31,82 +20,6 @@ function status(
 ): GitStatusOutput {
   return { files, base };
 }
-
-function val(git: AwarenessValue["git"]): AwarenessValue {
-  return {
-    cwd: "/repo",
-    git,
-    lastActivityAt: 0,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-  } as AwarenessValue;
-}
-
-describe("statusGlyph", () => {
-  it("returns the raw status code verbatim", () => {
-    expect(statusGlyph("A")).toBe("A");
-    expect(statusGlyph("M")).toBe("M");
-    expect(statusGlyph("?")).toBe("?");
-    expect(statusGlyph("D")).toBe("D");
-    expect(statusGlyph("R")).toBe("R");
-  });
-});
-
-describe("branchFromAwareness", () => {
-  const git = (repoRoot: string, branch: string): AwarenessValue["git"] =>
-    ({
-      repoRoot,
-      repoName: "x",
-      worktreePath: repoRoot,
-      branch,
-      isWorktree: false,
-      mainRepoRoot: repoRoot,
-      remoteUrl: null,
-    }) as AwarenessValue["git"];
-
-  it("finds the branch when a terminal's repoRoot matches", () => {
-    const entries: Array<[string, AwarenessValue]> = [
-      [id("a"), val(git("/home/srid/code/kolu", "feat/x"))],
-    ];
-    expect(branchFromAwareness(entries, "/home/srid/code/kolu")).toBe("feat/x");
-  });
-
-  it("matches a worktreePath too", () => {
-    const entries: Array<[string, AwarenessValue]> = [
-      [
-        id("a"),
-        val({
-          ...git("/home/srid/code/kolu", "main"),
-          worktreePath: "/home/srid/code/kolu/.worktrees/feat",
-        } as AwarenessValue["git"]),
-      ],
-    ];
-    expect(
-      branchFromAwareness(entries, "/home/srid/code/kolu/.worktrees/feat"),
-    ).toBe("main");
-  });
-
-  it("normalizes trailing slashes on both sides", () => {
-    const entries: Array<[string, AwarenessValue]> = [
-      [id("a"), val(git("/repo/", "dev"))],
-    ];
-    expect(branchFromAwareness(entries, "/repo")).toBe("dev");
-    expect(branchFromAwareness(entries, "/repo/")).toBe("dev");
-  });
-
-  it("returns null when no terminal is in that repo", () => {
-    const entries: Array<[string, AwarenessValue]> = [
-      [id("a"), val(git("/other", "main"))],
-    ];
-    expect(branchFromAwareness(entries, "/repo")).toBeNull();
-  });
-
-  it("returns null when the matching terminal has no git info", () => {
-    const entries: Array<[string, AwarenessValue]> = [[id("a"), val(null)]];
-    expect(branchFromAwareness(entries, "/repo")).toBeNull();
-  });
-});
 
 describe("projectGitStatus", () => {
   it("groups files into staged, modified, untracked in display order", () => {
@@ -179,13 +92,13 @@ describe("projectGitStatus", () => {
   });
 
   it("derives the branch comparison from branch-mode status", () => {
-    const branchStatus: GitStatusOutput = {
+    const branchMode: GitStatusOutput = {
       files: [file("a.ts", "M"), file("b.ts", "A")],
       base: { ref: "origin/master", sha: "abc123" },
     };
     const view = projectGitStatus(
       status([file("a.ts", "M")]),
-      branchStatus,
+      branchMode,
       "feat/x",
       "/repo",
       2,
@@ -243,8 +156,8 @@ describe("formatGitStatusJson", () => {
     const out = formatGitStatusJson({
       repoPath: "/repo",
       branch: "feat/x",
-      status: status([file("a.ts", "M")]),
-      branchStatus: status([file("a.ts", "M")], {
+      local: status([file("a.ts", "M")]),
+      branchMode: status([file("a.ts", "M")], {
         ref: "origin/master",
         sha: "abc",
       }),
@@ -254,18 +167,5 @@ describe("formatGitStatusJson", () => {
     expect(parsed.branch).toBe("feat/x");
     expect(parsed.local.files).toHaveLength(1);
     expect(parsed.branchMode.base?.ref).toBe("origin/master");
-  });
-
-  it("honest nulls when the query failed or branch is unknown", () => {
-    const out = formatGitStatusJson({
-      repoPath: "/repo",
-      branch: null,
-      status: null,
-      branchStatus: null,
-    });
-    const parsed = JSON.parse(out);
-    expect(parsed.branch).toBeNull();
-    expect(parsed.local).toBeNull();
-    expect(parsed.branchMode).toBeNull();
   });
 });

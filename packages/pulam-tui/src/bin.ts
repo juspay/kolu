@@ -309,6 +309,26 @@ async function runFleet(opts: {
   process.exit(0);
 }
 
+/** Validate the shared `--host` / `--socket` / `--kaval` flags. Used by both the
+ *  bare `pulam-tui` dashboard and the `git-status` subcommand so the two
+ *  validation sites can't drift. */
+function validateEndpointFlags(opts: {
+  host: string | undefined;
+  socket: string | undefined;
+  kaval: string | undefined;
+}): void {
+  if (opts.host !== undefined && opts.socket !== undefined) {
+    fail(
+      "--host and --socket are mutually exclusive: --host reaches a remote pulam over ssh, --socket dials a local one. Pass just one.",
+    );
+  }
+  if (opts.kaval !== undefined && opts.host === undefined) {
+    fail(
+      "--kaval only applies with --host (it picks which kaval the remote pulam dials). For a local pulam, point pulam itself at the kaval when you start it.",
+    );
+  }
+}
+
 /** `pulam-tui git-status` — dial one pulam (local or remote), then either dump
  *  one-shot JSON or run the live OpenTUI git-status view. The view subscribes
  *  to `subscribeRepoChange` and re-queries `git.getStatus` on each `{seq}`
@@ -325,17 +345,7 @@ async function runGitStatus(opts: {
       "--repo <path> is required — the repo path on the pulam host (e.g. pulam-tui git-status --repo /home/srid/code/kolu).",
     );
   }
-  // --host / --socket are mutually exclusive (same as the bare dashboard).
-  if (opts.host !== undefined && opts.socket !== undefined) {
-    fail(
-      "--host and --socket are mutually exclusive: --host reaches a remote pulam over ssh, --socket dials a local one. Pass just one.",
-    );
-  }
-  if (opts.kaval !== undefined && opts.host === undefined) {
-    fail(
-      "--kaval only applies with --host (it picks which kaval the remote pulam dials).",
-    );
-  }
+  validateEndpointFlags(opts);
   if (!opts.json && !process.stdout.isTTY) {
     fail(
       "stdout is not a TTY — pass --json for scriptable output (the git-status view needs an interactive terminal).",
@@ -353,8 +363,8 @@ async function runGitStatus(opts: {
       `${formatGitStatusJson({
         repoPath: opts.repo,
         branch: snap.branch,
-        status: snap.local,
-        branchStatus: snap.branchMode,
+        local: snap.local,
+        branchMode: snap.branchMode,
       })}\n`,
     );
     conn.dispose();
@@ -405,20 +415,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  // --host reaches a remote pulam over ssh; --socket a local one. They name two
-  // different daemons, so passing both is a usage error, not a precedence puzzle.
-  if (argv.flags.host !== undefined && argv.flags.socket !== undefined) {
-    fail(
-      "--host and --socket are mutually exclusive: --host reaches a remote pulam over ssh, --socket dials a local one. Pass just one.",
-    );
-  }
-  // --kaval only travels over the --host dial (it picks which kaval the remote
-  // pulam reads); without --host there is no remote pulam to point at.
-  if (argv.flags.kaval !== undefined && argv.flags.host === undefined) {
-    fail(
-      "--kaval only applies with --host (it picks which kaval the remote pulam dials). For a local pulam, point pulam itself at the kaval when you start it.",
-    );
-  }
+  validateEndpointFlags({
+    host: argv.flags.host,
+    socket: argv.flags.socket,
+    kaval: argv.flags.kaval,
+  });
   // The OpenTUI renderer owns the terminal; a pipe has no TTY to own. So a piped
   // run must ask for the scriptable form explicitly rather than silently degrade
   // — fail loud before we even dial.

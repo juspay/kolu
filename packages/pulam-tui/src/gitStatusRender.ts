@@ -18,7 +18,6 @@ import type {
   GitChangedFile,
   GitStatusOutput,
 } from "@kolu/terminal-workspace/surface";
-import type { AwarenessValue } from "@kolu/terminal-workspace/surface";
 import { cell, sanitize, type FieldTone } from "./render.ts";
 
 const DASH = "—";
@@ -88,38 +87,9 @@ const GROUP_ORDER: readonly StatusGroupName[] = [
   "untracked",
 ];
 
-/** The one-letter status glyph the view paints beside each file. Matches the
- *  raw `GitChangeStatus` code — no transformation, so a new code surfaces
- *  verbatim rather than being silently mapped. */
-export function statusGlyph(status: GitChangeStatus): string {
-  return status;
-}
-
 /** Derive the repo name from an absolute path — the last path component. */
 function repoNameFromPath(repoPath: string): string {
   return sanitize(repoPath.replace(/\/+$/, "").split("/").pop() || repoPath);
-}
-
-/** Find the branch name for `repoPath` by matching against the awareness
- *  collection's `git` fields. A terminal whose `git.repoRoot` or
- *  `git.worktreePath` equals `repoPath` carries the branch. Returns null when
- *  no terminal is in that repo (the branch is still unknown from awareness). */
-export function branchFromAwareness(
-  entries: Array<[string, AwarenessValue]>,
-  repoPath: string,
-): string | null {
-  const normalized = repoPath.replace(/\/+$/, "");
-  for (const [, v] of entries) {
-    const git = v.git;
-    if (!git) continue;
-    if (
-      git.repoRoot.replace(/\/+$/, "") === normalized ||
-      git.worktreePath.replace(/\/+$/, "") === normalized
-    ) {
-      return sanitize(git.branch) || null;
-    }
-  }
-  return null;
 }
 
 /** Group `GitChangedFile[]` into the three working-tree sections, in display
@@ -147,14 +117,14 @@ function groupFiles(files: GitChangedFile[]): GitStatusSection[] {
  *  surfaces it rather than collapsing to an empty screen. */
 export function projectGitStatus(
   localStatus: GitStatusOutput | null,
-  branchStatus: GitStatusOutput | null,
+  branchModeStatus: GitStatusOutput | null,
   branch: string | null,
   repoPath: string,
   seq: number,
   error: string | null,
 ): GitStatusView {
   const sections = localStatus !== null ? groupFiles(localStatus.files) : [];
-  const branchComparison = deriveBranchComparison(branchStatus);
+  const branchComparison = deriveBranchComparison(branchModeStatus);
   return {
     repoName: repoNameFromPath(repoPath),
     branch,
@@ -169,30 +139,30 @@ export function projectGitStatus(
  *  it. Null when branch mode had no base (a remote-less repo) or when the
  *  status hasn't been queried yet. */
 function deriveBranchComparison(
-  branchStatus: GitStatusOutput | null,
+  branchModeStatus: GitStatusOutput | null,
 ): BranchComparison | null {
-  if (!branchStatus || !branchStatus.base) return null;
+  if (!branchModeStatus || !branchModeStatus.base) return null;
   return {
-    ref: sanitize(branchStatus.base.ref) || DASH,
-    fileCount: branchStatus.files.length,
+    ref: sanitize(branchModeStatus.base.ref) || DASH,
+    fileCount: branchModeStatus.files.length,
   };
 }
 
-/** `--json` — a flat object with the repo path, branch, and the local-mode
- *  status (files + base), for scripting. Honest `null` fields when the query
- *  failed or the branch is unknown, never an empty-object collapse. */
+/** `--json` — a flat object with the repo path, branch, and the two status
+ *  modes, for scripting. Arg names align with `snapshotGitStatus`'s return
+ *  shape so the call site needs no manual rename. */
 export function formatGitStatusJson(args: {
   repoPath: string;
   branch: string | null;
-  status: GitStatusOutput | null;
-  branchStatus: GitStatusOutput | null;
+  local: GitStatusOutput;
+  branchMode: GitStatusOutput;
 }): string {
   return JSON.stringify(
     {
       repoPath: args.repoPath,
       branch: args.branch,
-      local: args.status,
-      branchMode: args.branchStatus,
+      local: args.local,
+      branchMode: args.branchMode,
     },
     null,
     2,

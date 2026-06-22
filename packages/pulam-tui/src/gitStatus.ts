@@ -24,7 +24,6 @@ import type {
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import type { ArivuClient } from "./connect.ts";
-import { branchFromAwareness } from "./gitStatusRender.ts";
 import { snapshotAwareness } from "./read.ts";
 
 /** One live update: the two status modes, the pulse counter, and any error
@@ -33,7 +32,7 @@ import { snapshotAwareness } from "./read.ts";
  *  empty screen. */
 export interface GitStatusUpdate {
   local: GitStatusOutput | null;
-  branch: GitStatusOutput | null;
+  branchMode: GitStatusOutput | null;
   seq: number;
   error: string | null;
 }
@@ -48,13 +47,30 @@ export interface GitStatusHandle {
   dispose: () => void;
 }
 
-/** The branch name resolved from the awareness collection, plus the awareness
- *  entries themselves (the view may re-derive the branch if a terminal's git
- *  info changes). Read once at startup — the branch name is slow-changing
- *  (kolu's sensors resolve it from cwd), and R4.7's proof is the *git status*
- *  pulse, not the awareness collection's liveness. */
-export interface BranchInfo {
-  branch: string | null;
+/** Find the branch name for `repoPath` by matching against the awareness
+ *  collection's `git` fields. A terminal whose `git.repoRoot` or
+ *  `git.worktreePath` equals `repoPath` carries the branch. Returns null when
+ *  no terminal is in that repo (the branch is still unknown from awareness).
+ *  A pure data-derivation function over awareness entries — lives in the data
+ *  layer, not the projection layer, so the data→render dependency arrow
+ *  points the right way (mirrors `fleet.ts` not importing from `render.ts`). */
+export function branchFromAwareness(
+  entries: Array<[string, AwarenessValue]>,
+  repoPath: string,
+): string | null {
+  const normalized = repoPath.replace(/\/+$/, "");
+  for (const [, v] of entries) {
+    const git = v.git;
+    if (!git) continue;
+    if (
+      git.repoRoot.replace(/\/+$/, "") === normalized ||
+      git.worktreePath.replace(/\/+$/, "") === normalized
+    ) {
+      const branch = git.branch.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+      return branch || null;
+    }
+  }
+  return null;
 }
 
 /** Subscribe to `subscribeRepoChange({ repoPath })` and re-query `git.getStatus`
@@ -72,7 +88,6 @@ export function startGitStatus(opts: {
   client: ArivuClient;
   repoPath: string;
   sink: GitStatusSink;
-  log?: (line: string) => void;
 }): GitStatusHandle {
   const abort = new AbortController();
   void (async () => {
@@ -89,7 +104,7 @@ export function startGitStatus(opts: {
       if (!abort.signal.aborted) {
         opts.sink.onStatus({
           local: null,
-          branch: null,
+          branchMode: null,
           seq: 0,
           error: (err as Error).message,
         });
@@ -109,13 +124,12 @@ async function requery(
     client: ArivuClient;
     repoPath: string;
     sink: GitStatusSink;
-    log?: (line: string) => void;
   },
   seq: number,
   signal: AbortSignal,
 ): Promise<void> {
   let local: GitStatusOutput | null = null;
-  let branch: GitStatusOutput | null = null;
+  let branchMode: GitStatusOutput | null = null;
   let error: string | null = null;
   try {
     local = await opts.client.surface.git.getStatus({
@@ -127,7 +141,7 @@ async function requery(
   }
   if (signal.aborted) return;
   try {
-    branch = await opts.client.surface.git.getStatus({
+    branchMode = await opts.client.surface.git.getStatus({
       repoPath: opts.repoPath,
       mode: "branch",
     });
@@ -135,28 +149,29 @@ async function requery(
     if (error === null) error = (err as Error).message;
   }
   if (signal.aborted) return;
-  opts.sink.onStatus({ local, branch, seq, error });
+  opts.sink.onStatus({ local, branchMode, seq, error });
 }
 
 /** One-shot: read the awareness collection (for the branch name) and the
  *  `git.getStatus` procedures (both modes), without subscribing to the watcher
- *  stream. Used by `--json` and to seed the view before the first pulse. */
+ *  stream. Used by `--json` and to seed the view before the first pulse.
+ *  Query failures propagate (the fail-fast rule: a caught error must surface,
+ *  never collapse to null). The awareness read is best-effort (a failure means
+ *  the branch name is unknown, not that the git status is). */
 export async function snapshotGitStatus(
   client: ArivuClient,
   repoPath: string,
 ): Promise<{
   branch: string | null;
-  local: GitStatusOutput | null;
-  branchMode: GitStatusOutput | null;
+  local: GitStatusOutput;
+  branchMode: GitStatusOutput;
 }> {
   const [entries, local, branchMode] = await Promise.all([
     snapshotAwareness(client).catch(
       () => [] as Array<[TerminalId, AwarenessValue]>,
     ),
-    client.surface.git.getStatus({ repoPath, mode: "local" }).catch(() => null),
-    client.surface.git
-      .getStatus({ repoPath, mode: "branch" })
-      .catch(() => null),
+    client.surface.git.getStatus({ repoPath, mode: "local" }),
+    client.surface.git.getStatus({ repoPath, mode: "branch" }),
   ]);
   return {
     branch: branchFromAwareness(entries, repoPath),
