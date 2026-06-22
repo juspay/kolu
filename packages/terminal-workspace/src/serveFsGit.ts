@@ -43,7 +43,7 @@ function changePulseSource(
     install,
     signal,
     onReadError: (err) =>
-      log.warn({ err }, `terminal-workspace: ${label} pulse read failed`),
+      log.error({ err }, `terminal-workspace: ${label} pulse read failed`),
   });
 }
 
