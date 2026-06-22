@@ -288,13 +288,24 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             `FT-DIFF applied=${appliedPaths.length} new=${paths.length} fileOps=${fileOps.length} ops=${JSON.stringify(fileOps).slice(0, 120)}`,
           ); // FT-DEBUG
           if (fileOps.length > 0) {
-            try {
-              tree.batch(fileOps);
-              console.log(`FT-BATCH-OK n=${fileOps.length}`); // FT-DEBUG
-            } catch (e) {
-              console.log(`FT-BATCH-ERR ${(e as Error)?.message}`); // FT-DEBUG
-              throw e;
+            // Pierre's `remove` silently no-ops on a node that is currently
+            // SELECTED, leaving it as a stale row. Deselect any selected path
+            // this batch removes BEFORE the batch, so a removed selected file
+            // (e.g. the open file `rm`'d) actually detaches. The host clears its
+            // own `selectedPath` too, but that can land after this batch under
+            // the change-pulse's async delivery — so the guard lives here.
+            const removed = new Set(
+              fileOps
+                .filter((o) => o.type === "remove")
+                .map((o) => o.path),
+            );
+            if (removed.size > 0) {
+              for (const p of tree.getSelectedPaths()) {
+                if (removed.has(p)) tree.getItem(p)?.deselect();
+              }
             }
+            tree.batch(fileOps);
+            console.log(`FT-BATCH-OK n=${fileOps.length}`); // FT-DEBUG
           }
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
