@@ -163,12 +163,20 @@ function orDash(value: string | null | undefined): string {
   return value ? sanitize(value) || DASH : DASH;
 }
 
-/** `repo·branch` for the dashboard's "where" — each half sanitized (repo names
- *  come from fs paths, branches from git, so both can carry control bytes that
- *  would corrupt the table), or a dash when the terminal isn't in a git repo.
- *  Shared by the single-host table (`dashRow`) and the fleet row (`fleetRow`). */
-function repoBranchText(git: AwarenessValue["git"]): string {
-  return git ? `${orDash(git.repoName)}·${orDash(git.branch)}` : DASH;
+/** `repo·branch` from the raw repo/branch source — each half sanitized (repo
+ *  names come from fs paths, branches from git, so both can carry control bytes
+ *  that would corrupt the table), or a dash when the terminal isn't in a git repo
+ *  (both `null`). The ONE place this heading is formatted: the compact `where`
+ *  cell, the single-host table, and the drill-in pane's title all call it over
+ *  the same source, so the compact-cell and detail-heading formatting are two
+ *  reads of one rule rather than one reading the other's output. */
+function repoBranchText(
+  repoName: string | null,
+  branch: string | null,
+): string {
+  return repoName === null && branch === null
+    ? DASH
+    : `${orDash(repoName)}·${orDash(branch)}`;
 }
 
 /** Semantic colour hint for a cell — the renderer owns the palette, this owns
@@ -245,7 +253,10 @@ export function dashRow(
 ): DashRow {
   return {
     id: { text: shortId(id), tone: "plain" },
-    repoBranch: { text: repoBranchText(v.git), tone: "plain" },
+    repoBranch: {
+      text: repoBranchText(v.git?.repoName ?? null, v.git?.branch ?? null),
+      tone: "plain",
+    },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     agent: { text: agentValue(v.agent), tone: agentTone(v.agent) },
     foreground: { text: orDash(v.foreground?.name), tone: "plain" },
@@ -368,6 +379,14 @@ export interface FleetRow {
    *  stable tiebreak so a flat/grouped fleet list orders identically every
    *  paint regardless of host-iteration order. */
   sortId: string;
+  /** The raw repo name / branch (each `null` when the terminal isn't in a git
+   *  repo), straight off the awareness `git` fields. The compact `where` cell and
+   *  the drill-in pane's title are two INDEPENDENT formattings of these one
+   *  source (both via `repoBranchText`) — the detail heading does not read the
+   *  compact cell's already-truncated/joined output, so a change to one cell's
+   *  width or separator can't silently move the other. */
+  repoName: string | null;
+  branch: string | null;
   agent: DashCell;
   where: DashCell;
   pr: DashCell;
@@ -391,6 +410,8 @@ export function fleetRow(
   gitStatus?: GitStatusOutput,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
+  const repoName = v.git?.repoName ?? null;
+  const branch = v.git?.branch ?? null;
   return {
     host,
     key: `${host}\u0000${id}`,
@@ -399,11 +420,13 @@ export function fleetRow(
     urgency,
     activeAt: v.lastActivityAt,
     sortId: id,
+    repoName,
+    branch,
     agent: {
       text: v.agent ? agentShortName(v.agent.kind) : DASH,
       tone: "plain",
     },
-    where: { text: repoBranchText(v.git), tone: "plain" },
+    where: { text: repoBranchText(repoName, branch), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
       text: fleetStateText(urgency, v.agent),
@@ -725,7 +748,11 @@ export const GIT_DETAIL_FILE_CAP = 20;
  *  reads as "loading…", never a clean/empty tree — the no-fallback distinction
  *  between "not known yet" and "known to be clean". */
 export function gitDetail(row: FleetRow): GitDetailView {
-  const title = row.where.text;
+  // Derive the heading from the raw repo/branch source via the shared
+  // `repoBranchText`, NOT from the compact row's already-truncated `where.text`:
+  // the roomy pane and the compact cell are two independent formattings of one
+  // source, so neither's width budget drives the other's heading.
+  const title = repoBranchText(row.repoName, row.branch);
   const status = row.gitStatus;
   if (!status) {
     return { title, tracking: "", summary: "loading…", files: [], more: 0 };

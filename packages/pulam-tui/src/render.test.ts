@@ -665,6 +665,12 @@ describe("gitDetail", () => {
   it("reads loading until the first pulse resolves", () => {
     expect(gitDetail(rowWith(undefined)).summary).toBe("loading…");
   });
+  it("titles the pane from the raw repo·branch source, not the compact cell", () => {
+    // The detail heading is formatted from the row's raw `repoName`/`branch`
+    // (via the shared `repoBranchText`), independent of the compact `where`
+    // cell's width/truncation — so it reads the full repo·branch regardless.
+    expect(gitDetail(rowWith(undefined)).title).toBe("repo·main");
+  });
   it("summarizes the working tree and lists changed files", () => {
     const d = gitDetail(
       rowWith(
