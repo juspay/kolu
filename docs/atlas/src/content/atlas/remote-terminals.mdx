@@ -13,7 +13,7 @@ import Issue from "../../components/Issue.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
-**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon. **What remains (R5–R8) is one linear roadmap, defined in this note**: harden reconnect, grow `@kolu/terminal-workspace` (one surface — awareness + fs/git — two homes), dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
+**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon. **What remains (R5–R9) is one linear roadmap, defined in this note**: harden reconnect, grow `@kolu/terminal-workspace` (one surface — awareness + fs/git — two homes), dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
 
 export const PAL = { bg: "#0f1117", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
@@ -101,11 +101,11 @@ Two volatility axes stay open (R1/R2 closed the rest):
 R8's fold merges each remote `AwarenessValue` into the **co-owned** `terminalMetadata` entry and **splits** it across the persisted/live fence — `pr·agent·foreground` through the quiet live mutator, `cwd·git·lastAgentCommand·lastActivityAt` through the one that arms autosave. Lose the split and you either re-arm the agent-firehose (a perf regression) or stop persisting. It speaks the whole terminal domain *and* the autosave fence, so it stays **inline in kolu-server** — never a `@kolu/*` package.
 </Callout>
 
-**Already paid for, so R5–R8 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (the per-primitive mirror). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R8 is a driver + fold behind shipped seams; R7 completes the surface mirror; R6 grows arivu's fs/git; R5 is one wire signal.
+**Already paid for, so R5–R9 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (the per-primitive mirror). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R8 is a driver + fold behind shipped seams; R7 completes the surface mirror; R6 grows arivu's fs/git; R5 is one wire signal.
 
 ## Implementation details
 
-The whole epic as one tree — **R1–R4 shipped, R5–R8 remain**. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child-note build logs, and the four remaining phases to their own `###` section just below on this page.
+The whole epic as one tree — **R1–R4 shipped, R5–R9 remain**. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child-note build logs, and the five remaining phases to their own `###` section just below on this page.
 
 export const PT_C = { ship: "#15803d", prog: "#b45309", last: "#64748b", txt: "#1f2937", sub: "#6b7280", line: "#cbd5e1" };
 
