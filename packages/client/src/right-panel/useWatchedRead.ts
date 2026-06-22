@@ -17,6 +17,17 @@
  *   - `on(pulse.seq)` — a change fired: re-query WITHOUT resetting, so the tile
  *     keeps showing the current value while the fresh one loads (no flicker).
  *
+ * The value lands in a `createStore` written via `reconcile` — NOT a `createSignal`
+ * reassigned wholesale. This is load-bearing, and matches the framework's
+ * `writeWrappedValue` (`createReactiveSubscription`'s strategy): the watcher fires a
+ * pulse on every debounced fs event, so a wholesale reassign would mint a fresh
+ * object reference on EVERY pulse — including the (common) no-change ones — and
+ * re-render the whole Pierre file tree each time. Under the pulse churn of a busy
+ * repo that flood of full re-renders races the tree's DOM (a removed-then-reselected
+ * file lingers). `reconcile` mutates only the fields that actually changed and is a
+ * no-op when the re-query returns an identical result, so the tree re-renders only
+ * on a real change — exactly what the old streams gave it.
+ *
  * `pending()` is DERIVED, not an imperative flag: it's true exactly when there is
  * an input but no value (and no error) for it yet. Deriving it dodges an
  * effect-ordering race a flag has — a consumer reading `pending()` during the same
@@ -27,7 +38,8 @@
  * deterministic "browse content doesn't load after navigation" bug.
  */
 
-import { type Accessor, createEffect, createSignal, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 /** The subset of a surface stream's `.use(...)` accessor this primitive reads —
  *  the `{seq}` pulse value plus its pending/error flags. Tracking the nested `seq`
@@ -56,8 +68,22 @@ export function useWatchedRead<I, O>(
   pulse: PulseAccessor,
   opts?: { onError?: (err: Error) => void },
 ): WatchedRead<O> {
-  const [value, setValue] = createSignal<O | undefined>(undefined);
-  const [error, setError] = createSignal<Error | undefined>(undefined);
+  // The value + error live in ONE store (wrapped in `{ v, err }` so `reconcile`
+  // works on any `O` shape, exactly like the framework's `{ v: T }` wrapper).
+  const [store, setStore] = createStore<{
+    v: O | undefined;
+    err: Error | undefined;
+  }>({ v: undefined, err: undefined });
+
+  // Fine-grained write: reconcile objects/arrays in place (no-op on no change),
+  // assign primitives. Mirrors `@kolu/surface`'s `writeWrappedValue`.
+  function writeValue(next: O): void {
+    if (next !== null && typeof next === "object") {
+      setStore("v", reconcile(next as Record<string, unknown>) as O);
+    } else {
+      setStore("v", () => next);
+    }
+  }
 
   // A monotonic token per query so a slow stale read (input/pulse moved on) can't
   // clobber the fresh one — and a rejected read is HANDLED here, never an
@@ -67,17 +93,13 @@ export function useWatchedRead<I, O>(
     const mine = ++token;
     void read(i).then(
       (out) => {
-        console.log(
-          `RW3 ok mine=${mine} cur=${token} out=${JSON.stringify(out).slice(0, 90)}`,
-        );
         if (mine !== token) return;
-        setValue(() => out);
-        setError(undefined);
+        writeValue(out);
+        setStore("err", undefined);
       },
       (err: unknown) => {
-        console.log(`RW3 err mine=${mine} cur=${token} ${(err as Error)?.message}`);
         if (mine !== token) return;
-        setError(err as Error);
+        setStore("err", () => err as Error);
         opts?.onError?.(err as Error);
       },
     );
@@ -87,8 +109,7 @@ export function useWatchedRead<I, O>(
   createEffect(
     on(input, (i) => {
       token++; // abandon any in-flight read for the previous input
-      setValue(undefined);
-      setError(undefined);
+      setStore({ v: undefined, err: undefined });
       if (i !== null) query(i);
     }),
   );
@@ -99,21 +120,18 @@ export function useWatchedRead<I, O>(
   createEffect(
     on(
       () => pulse()?.seq,
-      (seq) => {
+      () => {
         const i = input();
-        console.log(
-          `RW3 pulse seq=${seq} in=${i ? JSON.stringify(i) : "null"} pErr=${pulse.error()?.message ?? "-"}`,
-        );
         if (i !== null) query(i);
       },
       { defer: true },
     ),
   );
 
-  const accessor = (() => value()) as WatchedRead<O>;
+  const accessor = (() => store.v) as WatchedRead<O>;
   // DERIVED: pending ⇔ there's an input but no value/error for it yet. Race-free.
   accessor.pending = () =>
-    input() !== null && value() === undefined && error() === undefined;
-  accessor.error = () => error() ?? pulse.error();
+    input() !== null && store.v === undefined && store.err === undefined;
+  accessor.error = () => store.err ?? pulse.error();
   return accessor;
 }

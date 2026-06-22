@@ -636,16 +636,9 @@ const CodeTab: Component<{
         const sk = slotKey();
         const isPending = isDiffView() ? statusPending() : allPaths.pending();
         const paths = treePaths();
-        const r = { s, sk, pathExists: !s || isPending || paths.includes(s) };
-        console.log(
-          `RW3 member-track s=${s} pending=${isPending} npaths=${paths.length} pe=${r.pathExists}`,
-        );
-        return r;
+        return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
       (cur, prev) => {
-        console.log(
-          `RW3 member-body s=${cur.s} pe=${cur.pathExists} skΔ=${!!(prev && prev.sk !== cur.sk)} clear=${!!(cur.s && !cur.pathExists)}`,
-        );
         if (prev && prev.sk !== cur.sk) return;
         if (cur.s && !cur.pathExists) select(view(), null, { record: false });
       },
