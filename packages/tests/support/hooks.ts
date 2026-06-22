@@ -856,13 +856,6 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
-  this.page.on("console", (msg) => {
-    if (msg.text().includes("RW2")) {
-      try {
-        fs.appendFileSync("/tmp/rwatch.log", `${msg.text()}\n`);
-      } catch {}
-    }
-  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is

@@ -496,10 +496,6 @@ const CodeTab: Component<{
         return { req, repo: repoPath(), paths, isPending };
       },
       ({ req, repo, paths, isPending }) => {
-        if (req)
-          console.log(
-            `RW2 gate consumed=${consumedRequest === req} view=${view()} target=${req.targetMode} isPending=${isPending} paths=${paths.length} repoMatch=${repo === req.repoRoot}`,
-          );
         if (!req) return;
         if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
