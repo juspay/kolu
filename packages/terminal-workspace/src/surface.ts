@@ -35,8 +35,11 @@ import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
  *  re-provision via `isContractVersionCompatible`. `0.2 → 0.3` adds the fs/git
  *  procedures + the two watcher streams (additive): a `0.2` daemon a `0.3`
  *  viewer dials reads as `skew` because it can't serve them, which is exactly
- *  the gate's job. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "0.3";
+ *  the gate's job. `0.3 → 0.4` grows `git.getStatus`'s output with the branch
+ *  tracking header (ahead/behind) + working-tree section counts (additive) —
+ *  pulam's fleet board reads them live on each `subscribeRepoChange` pulse
+ *  (R4.7); a `0.3` daemon reads as `skew` to a `0.4` viewer that expects them. */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "0.4";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -152,7 +155,9 @@ export const terminalWorkspaceSurface = defineSurface({
     },
     /** Git reads scoped to a repo on the serving host. */
     git: {
-      /** Changed files vs the diff base for `mode`. */
+      /** Changed files vs the diff base for `mode`, plus (in `local` mode) the
+       *  branch tracking header (ahead/behind) and working-tree section counts
+       *  the fleet board paints live (R4.7). */
       getStatus: { input: GitStatusInputSchema, output: GitStatusOutputSchema },
       /** Unified diff hunks for one file vs the diff base for `mode`. */
       getDiff: { input: GitDiffInputSchema, output: GitDiffOutputSchema },
@@ -174,3 +179,15 @@ export type ActivitySet = SF["streams"]["activity"]["Output"];
 // names so a consumer of the surface has one import for the surface AND its
 // value/key shapes.
 export type { AwarenessValue, TerminalId } from "./schema.ts";
+
+// The git-status shapes `git.getStatus` returns — re-exported so a viewer or
+// remote-kolu consumer reads the surface AND the types its procedures return
+// from this one module, never reaching past the surface into kolu-git directly
+// (the same one-import discipline the value/key re-export above keeps).
+export type {
+  GitBranchStatus,
+  GitChangedFile,
+  GitChangeStatus,
+  GitStatusOutput,
+  GitWorkingTreeSummary,
+} from "kolu-git/schemas";

@@ -1,5 +1,6 @@
 import type {
   AwarenessValue,
+  GitStatusOutput,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
@@ -9,10 +10,17 @@ import {
   agentStatusLabel,
   agentTone,
   agentUrgency,
+  clampSelection,
   dashRow,
   dashRows,
+  flattenRows,
+  type FleetRow,
+  fleetRow,
   formatAwarenessJson,
   formatFleetJson,
+  gitCell,
+  gitDetail,
+  moveSelection,
   prTone,
   projectFleet,
   relativeTime,
@@ -208,12 +216,14 @@ function host(
   status: FleetHostState["status"],
   terminals: Record<string, AwarenessValue>,
   live: string[] = [],
+  gitStatuses: FleetHostState["gitStatuses"] = {},
 ): FleetHostState {
   return {
     label,
     status,
     terminals: terminals as FleetHostState["terminals"],
     live,
+    gitStatuses,
   };
 }
 
@@ -591,5 +601,165 @@ describe("formatFleetJson", () => {
         skew: { localVersion: "0.1", hostVersion: "9.9" },
       },
     ]);
+  });
+});
+
+// ─── Git status projections (R4.7) ───────────────────────────────────────────
+
+function makeStatus(over: Partial<GitStatusOutput> = {}): GitStatusOutput {
+  return {
+    files: [],
+    base: null,
+    branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
+    workingTree: { staged: 0, modified: 0, untracked: 0 },
+    ...over,
+  };
+}
+
+function gitInfo(repoRoot: string): AwarenessValue["git"] {
+  return {
+    repoRoot,
+    repoName: "repo",
+    worktreePath: repoRoot,
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: repoRoot,
+    remoteUrl: null,
+  };
+}
+
+describe("gitCell", () => {
+  it("is blank for an unresolved status (no pulse yet)", () => {
+    expect(gitCell(undefined)).toEqual({ text: "", tone: "muted" });
+  });
+  it("shows a check for a clean tree", () => {
+    expect(gitCell(makeStatus()).text).toBe("✓");
+  });
+  it("shows the changed-file count for a dirty tree", () => {
+    const s = makeStatus({
+      files: [
+        { path: "a", status: "M" },
+        { path: "b", status: "?" },
+      ],
+    });
+    expect(gitCell(s).text).toBe("✎2");
+  });
+  it("appends ahead/behind when the branch diverges", () => {
+    const s = makeStatus({
+      files: [{ path: "a", status: "M" }],
+      branch: { name: "x", upstream: "origin/x", ahead: 2, behind: 1 },
+    });
+    expect(gitCell(s).text).toBe("✎1 ↑2↓1");
+  });
+  it("shows ahead/behind even on a clean tree", () => {
+    const s = makeStatus({
+      branch: { name: "x", upstream: "origin/x", ahead: 3, behind: 0 },
+    });
+    expect(gitCell(s).text).toBe("✓ ↑3");
+  });
+});
+
+describe("gitDetail", () => {
+  const rowWith = (status: GitStatusOutput | undefined): FleetRow =>
+    fleetRow("zest", id("t"), val({ git: gitInfo("/r") }), false, status);
+
+  it("reads loading until the first pulse resolves", () => {
+    expect(gitDetail(rowWith(undefined)).summary).toBe("loading…");
+  });
+  it("summarizes the working tree and lists changed files", () => {
+    const d = gitDetail(
+      rowWith(
+        makeStatus({
+          files: [
+            { path: "x.ts", status: "M" },
+            { path: "n.ts", status: "A" },
+            { path: "u.md", status: "?" },
+          ],
+          workingTree: { staged: 1, modified: 1, untracked: 1 },
+          branch: {
+            name: "feat",
+            upstream: "origin/feat",
+            ahead: 2,
+            behind: 0,
+          },
+        }),
+      ),
+    );
+    expect(d.summary).toBe("staged 1 · modified 1 · untracked 1");
+    expect(d.tracking).toBe("↑2");
+    expect(d.files.map((f) => f.code)).toEqual(["M", "A", "?"]);
+    expect(d.more).toBe(0);
+  });
+  it("reads 'clean working tree' for no changes", () => {
+    expect(gitDetail(rowWith(makeStatus())).summary).toBe("clean working tree");
+  });
+  it("caps the file list and reports the overflow count", () => {
+    const files = Array.from({ length: 25 }, (_, i) => ({
+      path: `f${i}`,
+      status: "?" as const,
+    }));
+    const d = gitDetail(
+      rowWith(
+        makeStatus({
+          files,
+          workingTree: { staged: 0, modified: 0, untracked: 25 },
+        }),
+      ),
+    );
+    expect(d.files).toHaveLength(20);
+    expect(d.more).toBe(5);
+  });
+});
+
+describe("selection reducers", () => {
+  it("moveSelection wraps at both ends", () => {
+    expect(moveSelection(0, -1, 3)).toBe(2);
+    expect(moveSelection(2, 1, 3)).toBe(0);
+    expect(moveSelection(0, 1, 3)).toBe(1);
+    expect(moveSelection(5, 1, 0)).toBe(0); // empty list → pinned at 0
+  });
+  it("clampSelection keeps the cursor in range when rows shrink", () => {
+    expect(clampSelection(5, 3)).toBe(2);
+    expect(clampSelection(-1, 3)).toBe(0);
+    expect(clampSelection(0, 0)).toBe(0);
+  });
+});
+
+describe("flattenRows", () => {
+  it("concatenates group rows (host/agent) and returns the flat list (needs)", () => {
+    const states = [
+      host("a", { kind: "connected" }, { [id("a1")]: val({}) }),
+      host("b", { kind: "connected" }, { [id("b1")]: val({}) }),
+    ];
+    expect(flattenRows(projectFleet(states, "host"))).toHaveLength(2);
+    expect(flattenRows(projectFleet(states, "needs"))).toHaveLength(2);
+  });
+});
+
+describe("projectFleet — git status join", () => {
+  it("joins each terminal to its repo status by repo root, shared across repo mates", () => {
+    const status = makeStatus({
+      files: [{ path: "x", status: "M" }],
+      branch: { name: "m", upstream: null, ahead: 1, behind: 0 },
+    });
+    const states = [
+      host(
+        "zest",
+        { kind: "connected" },
+        {
+          [id("t1")]: val({ git: gitInfo("/repo") }),
+          [id("t2")]: val({ git: gitInfo("/repo") }), // same repo
+        },
+        [],
+        { "/repo": status },
+      ),
+    ];
+    const rows = flattenRows(projectFleet(states, "host"));
+    expect(rows).toHaveLength(2);
+    // Both terminals in /repo carry the same per-repo status + cell.
+    for (const r of rows) {
+      expect(r.git.text).toBe("✎1 ↑1");
+      expect(r.gitStatus).toBe(status);
+    }
   });
 });

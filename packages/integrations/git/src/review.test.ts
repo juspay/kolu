@@ -109,6 +109,10 @@ describe("getStatus branch mode — no resolvable base", () => {
     if (!result.ok) return;
     expect(result.value.files).toEqual([]);
     expect(result.value.base).toBeNull();
+    // Branch mode compares HEAD vs merge-base, so the working-tree section
+    // counts and the HEAD-vs-upstream header don't apply — null, not zeroed.
+    expect(result.value.branch).toBeNull();
+    expect(result.value.workingTree).toBeNull();
   });
 
   it("still surfaces the actionable error when an origin remote exists but isn't fetched", async () => {
@@ -129,6 +133,96 @@ describe("getStatus branch mode — no resolvable base", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe("BASE_BRANCH_NOT_FOUND");
+  });
+});
+
+describe("getStatus local mode — branch tracking + working-tree counts (R4.7)", () => {
+  let repo: string;
+  let remote: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-local-"));
+    remote = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-remote-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(remote, { recursive: true, force: true });
+  });
+
+  it("reports ahead/behind vs upstream and staged·modified·untracked counts", async () => {
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "one\n");
+    await git.add("tracked.txt");
+    await git.commit("init");
+
+    // A bare local remote, pushed with -u so HEAD tracks origin/main.
+    await simpleGit().raw(["init", "--bare", remote]);
+    await git.addRemote("origin", remote);
+    await git.raw(["push", "-u", "origin", "main"]);
+
+    // One commit AHEAD of the upstream, then a working tree with one of each
+    // section: a staged-new file, an unstaged edit, and an untracked file.
+    fs.writeFileSync(path.join(repo, "committed.txt"), "x\n");
+    await git.add("committed.txt");
+    await git.commit("ahead by one");
+    fs.writeFileSync(path.join(repo, "staged.txt"), "s\n");
+    await git.add("staged.txt");
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "one\ntwo\n"); // unstaged edit
+    fs.writeFileSync(path.join(repo, "untracked.txt"), "u\n");
+
+    const result = await getStatus(repo, "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.base).toBeNull(); // local mode never resolves a base
+    expect(result.value.branch).toEqual({
+      name: "main",
+      upstream: "origin/main",
+      ahead: 1,
+      behind: 0,
+    });
+    expect(result.value.workingTree).toEqual({
+      staged: 1, // staged.txt (index A)
+      modified: 1, // tracked.txt (working-tree M, unstaged)
+      untracked: 1, // untracked.txt
+    });
+    // The file list still carries every changed path (drill-in source).
+    const paths = result.value.files.map((f) => f.path);
+    expect(paths).toEqual(
+      expect.arrayContaining(["staged.txt", "tracked.txt", "untracked.txt"]),
+    );
+  });
+
+  it("reports a null upstream and zero ahead/behind when no branch is tracked", async () => {
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.checkoutLocalBranch("work");
+    fs.writeFileSync(path.join(repo, "a.txt"), "one\n");
+    await git.add("a.txt");
+    await git.commit("init");
+    fs.writeFileSync(path.join(repo, "b.txt"), "untracked\n");
+
+    const result = await getStatus(repo, "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.branch).toEqual({
+      name: "work",
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+    });
+    expect(result.value.workingTree).toEqual({
+      staged: 0,
+      modified: 0,
+      untracked: 1,
+    });
   });
 });
 

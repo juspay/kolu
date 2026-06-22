@@ -93,6 +93,38 @@ export const GitBaseRefSchema = z.object({
 });
 export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
 
+/** Branch-tracking state — the `git status -b` header: the current branch, its
+ *  upstream (null when none is configured), and how far HEAD is ahead/behind
+ *  that upstream. A working-tree concept (HEAD vs its upstream), so `getStatus`
+ *  returns it only in `local` mode and `null` in `branch` mode (where the
+ *  comparison is HEAD-vs-merge-base, not HEAD-vs-upstream). `name` is null on a
+ *  detached HEAD; `ahead`/`behind` are 0 when there is no upstream to track. */
+export const GitBranchStatusSchema = z.object({
+  name: z.string().nullable(),
+  upstream: z.string().nullable(),
+  ahead: z.number().int().nonnegative(),
+  behind: z.number().int().nonnegative(),
+});
+export type GitBranchStatus = z.infer<typeof GitBranchStatusSchema>;
+
+/** The three `git status` working-tree buckets, as counts. Deliberately NOT a
+ *  derivation of `files[]`: that list collapses each file to ONE code
+ *  (working-tree column with index fallback), so staging a modified file
+ *  (`git add`) moves it from `modified` to `staged` WITHOUT changing its
+ *  collapsed code. These counts therefore carry information `files[]` cannot
+ *  reconstruct — which is exactly why they participate in `gitStatusOutputEqual`
+ *  (so a `git add` re-yields the watcher stream). `local` mode only; `null` in
+ *  `branch` mode. */
+export const GitWorkingTreeSummarySchema = z.object({
+  /** Files with a staged (index-vs-HEAD) change. */
+  staged: z.number().int().nonnegative(),
+  /** Files with an unstaged (working-tree-vs-index) change. */
+  modified: z.number().int().nonnegative(),
+  /** Untracked, non-ignored files. */
+  untracked: z.number().int().nonnegative(),
+});
+export type GitWorkingTreeSummary = z.infer<typeof GitWorkingTreeSummarySchema>;
+
 export const GitStatusInputSchema = z.object({
   repoPath: z.string(),
   mode: GitDiffModeSchema,
@@ -105,6 +137,16 @@ export const GitStatusOutputSchema = z.object({
    *  with no `origin`, #1244) — branch mode degrades to an empty diff there
    *  rather than erroring. */
   base: GitBaseRefSchema.nullable(),
+  /** Branch-tracking state (current branch + ahead/behind vs upstream).
+   *  Populated in `local` mode, `null` in `branch` mode. Added in
+   *  terminal-workspace contract 0.4 — pulam's fleet board reads it on each
+   *  `subscribeRepoChange` pulse to paint a row's live ahead/behind (R4.7).
+   *  Computed from the same `git status` the file list already reads, so it
+   *  costs no extra git call. Existing Code-tab consumers ignore it. */
+  branch: GitBranchStatusSchema.nullable(),
+  /** Working-tree section counts (staged · modified · untracked). Populated in
+   *  `local` mode, `null` in `branch` mode. */
+  workingTree: GitWorkingTreeSummarySchema.nullable(),
 });
 export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
 

@@ -26,12 +26,14 @@ import { err, type GitResult, ok } from "./errors.ts";
 import { assertRealpathUnder, resolveUnder } from "./safe-path.ts";
 import {
   type GitBaseRef,
+  type GitBranchStatus,
   type GitChangedFile,
   type GitChangeStatus,
   GitChangeStatusSchema,
   type GitDiffMode,
   type GitDiffOutput,
   type GitStatusOutput,
+  type GitWorkingTreeSummary,
 } from "./schemas.ts";
 import { detectDefaultBranch } from "./worktree.ts";
 
@@ -133,12 +135,25 @@ export function parseNameStatus(raw: string): GitChangedFile[] {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** A porcelain status column carries a real change unless it's unmodified
+ *  (" ") or untracked ("?") — the predicate the staged/modified counts share. */
+function isTrackedChange(column: string): boolean {
+  return column !== " " && column !== "?";
+}
+
 /**
- * Working-tree status vs HEAD — the local-mode file list. Returns one
- * entry per modified, added, deleted, renamed, copied, conflicted, or
- * untracked file. Ignored files are excluded.
+ * Working-tree status vs HEAD — the whole `local`-mode result, read from a
+ * single `git status` call: the file list (one entry per modified, added,
+ * deleted, renamed, copied, conflicted, or untracked file; ignored files
+ * excluded), the branch-tracking header, and the staged/modified/untracked
+ * section counts. simple-git already parses all three off `git status
+ * --porcelain --branch`; the latter two were discarded before R4.7.
  */
-async function getLocalStatus(repoPath: string): Promise<GitChangedFile[]> {
+async function getLocalStatus(repoPath: string): Promise<{
+  files: GitChangedFile[];
+  branch: GitBranchStatus;
+  workingTree: GitWorkingTreeSummary;
+}> {
   const git = simpleGit(repoPath);
   const status = await git.status();
 
@@ -159,7 +174,27 @@ async function getLocalStatus(repoPath: string): Promise<GitChangedFile[]> {
     if (!seen.has(p)) seen.set(p, { path: p, status: "?" });
   }
 
-  return [...seen.values()].sort((a, b) => a.path.localeCompare(b.path));
+  // The two porcelain columns answer different questions: the index column
+  // ("staged") and the working-tree column ("modified") move independently as
+  // `git add`/edit shuffle a file between them, so each is counted from its own
+  // column rather than from the collapsed `files[]` code above.
+  const branch: GitBranchStatus = {
+    name: status.current,
+    upstream: status.tracking,
+    ahead: status.ahead,
+    behind: status.behind,
+  };
+  const workingTree: GitWorkingTreeSummary = {
+    staged: status.files.filter((f) => isTrackedChange(f.index)).length,
+    modified: status.files.filter((f) => isTrackedChange(f.working_dir)).length,
+    untracked: status.not_added.length,
+  };
+
+  return {
+    files: [...seen.values()].sort((a, b) => a.path.localeCompare(b.path)),
+    branch,
+    workingTree,
+  };
 }
 
 /**
@@ -174,20 +209,31 @@ export async function getStatus(
 ): Promise<GitResult<GitStatusOutput>> {
   try {
     if (mode === "local") {
-      return ok({ files: await getLocalStatus(repoPath), base: null });
+      const { files, branch, workingTree } = await getLocalStatus(repoPath);
+      return ok({ files, base: null, branch, workingTree });
     }
+    // Branch mode compares HEAD against a merge-base, not the working tree, so
+    // the working-tree section counts and the HEAD-vs-upstream tracking header
+    // don't apply — they're `null`, not zero (the no-fallback distinction: a
+    // field that doesn't apply differs from one that's empty).
     const baseResult = await resolveBase(repoPath);
     if (!baseResult.ok) return baseResult;
     // No base to diff against (remote-less repo): nothing to show, not an
     // error — branch mode is meaningless here (#1244).
-    if (baseResult.value === null) return ok({ files: [], base: null });
+    if (baseResult.value === null)
+      return ok({ files: [], base: null, branch: null, workingTree: null });
     const raw = await gitOutput(repoPath, [
       "diff",
       "--name-status",
       "-z",
       baseResult.value.sha,
     ]);
-    return ok({ files: parseNameStatus(raw), base: baseResult.value });
+    return ok({
+      files: parseNameStatus(raw),
+      base: baseResult.value,
+      branch: null,
+      workingTree: null,
+    });
   } catch (e) {
     log?.error(
       { err: e instanceof Error ? e.message : String(e), repoPath, mode },

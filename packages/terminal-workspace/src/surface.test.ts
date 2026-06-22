@@ -47,11 +47,13 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("bumped the contract to 0.3 — additive, so it gates an OLDER daemon as skew", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("0.3");
-    // A 0.3 daemon serves a 0.2 viewer (the fs/git additions are backward-compatible)…
-    expect(isContractVersionCompatible("0.3", "0.2")).toBe(true);
-    // …but a 0.2 daemon can't serve a 0.3 consumer's fs/git needs — the dial re-provisions.
-    expect(isContractVersionCompatible("0.2", "0.3")).toBe(false);
+  it("bumped the contract to 0.4 — additive, so it gates an OLDER daemon as skew", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("0.4");
+    // A 0.4 daemon serves a 0.3 viewer (the getStatus branch/working-tree
+    // additions are backward-compatible — older viewers ignore them)…
+    expect(isContractVersionCompatible("0.4", "0.3")).toBe(true);
+    // …but a 0.3 daemon can't serve a 0.4 consumer's branch/ahead-behind needs —
+    // the dial gates it as skew and re-provisions.
+    expect(isContractVersionCompatible("0.3", "0.4")).toBe(false);
   });
 });

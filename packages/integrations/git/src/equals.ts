@@ -14,13 +14,40 @@
 import type {
   FsListAllOutput,
   FsReadFileOutput,
+  GitBranchStatus,
   GitChangedFile,
   GitDiffOutput,
   GitStatusOutput,
+  GitWorkingTreeSummary,
 } from "./schemas.ts";
 
 function changedFileEqual(a: GitChangedFile, b: GitChangedFile): boolean {
   return a.path === b.path && a.status === b.status && a.oldPath === b.oldPath;
+}
+
+function branchStatusEqual(
+  a: GitBranchStatus | null,
+  b: GitBranchStatus | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.name === b.name &&
+    a.upstream === b.upstream &&
+    a.ahead === b.ahead &&
+    a.behind === b.behind
+  );
+}
+
+function workingTreeEqual(
+  a: GitWorkingTreeSummary | null,
+  b: GitWorkingTreeSummary | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.staged === b.staged &&
+    a.modified === b.modified &&
+    a.untracked === b.untracked
+  );
 }
 
 function arrayEqual<T>(
@@ -43,6 +70,12 @@ export function gitStatusOutputEqual(
   b: GitStatusOutput,
 ): boolean {
   if (!arrayEqual(a.files, b.files, changedFileEqual)) return false;
+  // `workingTree` is NOT derivable from `files[]` (it splits staged vs unstaged,
+  // which the collapsed file codes drop), and `branch` ahead/behind moves on a
+  // commit that leaves the file list untouched — so both must be compared here,
+  // or the watcher stream would fail to re-yield after a `git add` / `git commit`.
+  if (!branchStatusEqual(a.branch, b.branch)) return false;
+  if (!workingTreeEqual(a.workingTree, b.workingTree)) return false;
   const ab = a.base;
   const bb = b.base;
   if (ab === null || bb === null) return ab === bb;

@@ -14,6 +14,8 @@
 
 import type {
   AwarenessValue,
+  GitChangeStatus,
+  GitStatusOutput,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import type {
@@ -362,6 +364,15 @@ export interface FleetRow {
   where: DashCell;
   pr: DashCell;
   state: DashCell;
+  /** The compact live working-tree cell — a changed-file count + the branch's
+   *  ahead/behind, painted from the repo's latest `git.getStatus` (R4.7). Blank
+   *  while the first pulse is still in flight; a check when the tree is clean. */
+  git: DashCell;
+  /** The repo's full live status, or undefined until the first
+   *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo).
+   *  Carried for the drill-in detail pane; the row itself paints only the
+   *  compact `git` cell above. */
+  gitStatus?: GitStatusOutput;
 }
 
 export function fleetRow(
@@ -369,6 +380,7 @@ export function fleetRow(
   id: TerminalId,
   v: AwarenessValue,
   live: boolean,
+  gitStatus?: GitStatusOutput,
 ): FleetRow {
   const urgency = agentUrgency(v.agent);
   return {
@@ -388,6 +400,8 @@ export function fleetRow(
       text: fleetStateText(urgency, v.agent),
       tone: URGENCY[urgency].tone,
     },
+    git: gitCell(gitStatus),
+    gitStatus,
     // Recency is NOT pre-formatted here: it's the one cell that changes with the
     // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and
     // formatting it in the row keeps the 1s clock tick from re-running this whole
@@ -512,9 +526,17 @@ export function projectFleet(
   const allRows: Array<{ key: string; row: FleetRow }> = states.flatMap((s) => {
     const host = sanitize(s.label);
     const liveSet = new Set(s.live);
+    // Join each terminal to its repo's live git status (keyed by repo root, not
+    // terminal — the working-tree answer is shared by every terminal in a repo).
     return sortedEntries(s.terminals).map(([id, v]) => ({
       key: s.label,
-      row: fleetRow(host, id, v, liveSet.has(id)),
+      row: fleetRow(
+        host,
+        id,
+        v,
+        liveSet.has(id),
+        v.git ? s.gitStatuses[v.git.repoRoot] : undefined,
+      ),
     }));
   });
 
@@ -605,4 +627,148 @@ export function formatFleetJson(snaps: FleetSnapshot[]): string {
     }
   }
   return JSON.stringify(rows, null, 2);
+}
+
+// ─── Git status (R4.7) ───────────────────────────────────────────────────────
+//
+// The fleet board's live working-tree view: each row carries a compact cell
+// (changed count + ahead/behind), and a selected row drills into a detail pane
+// (the branch tracking header, the staged·modified·untracked summary, and the
+// changed-file list). All pure projection over `GitStatusOutput` — `fleet.ts`
+// runs the subscribeRepoChange→getStatus loop that fills it, `fleet.tsx` paints
+// what these return.
+
+/** Ahead/behind as a compact `↑a↓b` (omitting a zero side), or "" when level or
+ *  untracked. `sep` spaces the two arrows apart in the roomier detail pane. */
+function aheadBehindText(ahead: number, behind: number, sep = ""): string {
+  const up = ahead > 0 ? `↑${ahead}` : "";
+  const down = behind > 0 ? `↓${behind}` : "";
+  return up && down ? `${up}${sep}${down}` : up || down;
+}
+
+/** The compact per-row working-tree cell. Undefined status (first pulse still in
+ *  flight, or a terminal not in a repo) paints blank; a clean tree a calm check;
+ *  a dirty tree the changed-file count — each suffixed with the branch's
+ *  ahead/behind. Calm tones throughout: the fleet's colour budget is the agent
+ *  urgency and the green live dot, not git churn. */
+export function gitCell(status: GitStatusOutput | undefined): DashCell {
+  if (!status) return { text: "", tone: "muted" };
+  const ab = status.branch
+    ? aheadBehindText(status.branch.ahead, status.branch.behind)
+    : "";
+  const changed = status.files.length;
+  if (changed === 0) {
+    return { text: ab ? `✓ ${ab}` : "✓", tone: "muted" };
+  }
+  const dirty = `✎${changed}`;
+  return { text: ab ? `${dirty} ${ab}` : dirty, tone: "plain" };
+}
+
+/** Tone for one changed file's status code: added green, deleted/conflict red,
+ *  modified/type-changed amber, untracked dim, rename/copy calm. Exhaustive over
+ *  the closed `GitChangeStatus` enum so a new code forces a decision here. */
+function gitStatusTone(code: GitChangeStatus): FieldTone {
+  switch (code) {
+    case "A":
+      return "pass";
+    case "D":
+    case "U":
+      return "fail";
+    case "M":
+    case "T":
+      return "pending";
+    case "?":
+      return "muted";
+    case "R":
+    case "C":
+      return "plain";
+    default: {
+      const _exhaustive: never = code;
+      return _exhaustive;
+    }
+  }
+}
+
+/** One changed file in the drill-in list. */
+export interface GitDetailFile {
+  code: string;
+  path: string;
+  tone: FieldTone;
+}
+
+/** The drill-in detail pane as plain data: the repo·branch title, the ahead/
+ *  behind tracking, a one-line working-tree summary, and the changed-file list
+ *  (capped, with a count of any overflow). `fleet.tsx` paints it; vitest tests
+ *  it. */
+export interface GitDetailView {
+  title: string;
+  tracking: string;
+  summary: string;
+  files: GitDetailFile[];
+  more: number;
+}
+
+/** How many changed files the detail pane lists before collapsing the rest into
+ *  a "+N more" line — a pane, not a full `git status`, so it stays bounded. */
+export const GIT_DETAIL_FILE_CAP = 20;
+
+/** Project a selected row to its detail pane. An unresolved status (no pulse yet)
+ *  reads as "loading…", never a clean/empty tree — the no-fallback distinction
+ *  between "not known yet" and "known to be clean". */
+export function gitDetail(row: FleetRow): GitDetailView {
+  const title = row.where.text;
+  const status = row.gitStatus;
+  if (!status) {
+    return { title, tracking: "", summary: "loading…", files: [], more: 0 };
+  }
+  const tracking = status.branch
+    ? aheadBehindText(status.branch.ahead, status.branch.behind, " ")
+    : "";
+  const wt = status.workingTree;
+  const summary =
+    wt === null
+      ? DASH
+      : wt.staged + wt.modified + wt.untracked === 0
+        ? "clean working tree"
+        : `staged ${wt.staged} · modified ${wt.modified} · untracked ${wt.untracked}`;
+  const shown = status.files.slice(0, GIT_DETAIL_FILE_CAP);
+  const files: GitDetailFile[] = shown.map((f) => ({
+    code: f.status,
+    path: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path,
+    tone: gitStatusTone(f.status),
+  }));
+  return {
+    title,
+    tracking,
+    summary,
+    files,
+    more: status.files.length - shown.length,
+  };
+}
+
+/** The rows in visual top-to-bottom order — the order the board paints and the
+ *  selection cursor steps through: groups concatenated in their painted order,
+ *  or the flat `needs` list as-is. The one flattening both the keyboard handler
+ *  (for the row count) and the board (for the cursor identity) share, so a ↑/↓
+ *  step always lands on the row that visually follows. */
+export function flattenRows(view: FleetView): FleetRow[] {
+  return view.mode === "needs" ? view.flat : view.groups.flatMap((g) => g.rows);
+}
+
+/** Move a selection cursor by `delta` over `count` rows, wrapping at the ends so
+ *  ↓ past the last row lands back on the first. `count === 0` pins it at 0. */
+export function moveSelection(
+  current: number,
+  delta: number,
+  count: number,
+): number {
+  if (count <= 0) return 0;
+  return (((current + delta) % count) + count) % count;
+}
+
+/** Clamp a selection cursor into `[0, count)` — applied when the live row count
+ *  shrinks under a held selection so it can never point past the last row. */
+export function clampSelection(current: number, count: number): number {
+  if (count <= 0) return 0;
+  return Math.min(Math.max(0, current), count - 1);
 }

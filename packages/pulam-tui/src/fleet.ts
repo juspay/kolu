@@ -20,12 +20,13 @@ import {
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   terminalWorkspaceSurface,
   type AwarenessValue,
+  type GitStatusOutput,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import type { Connection } from "./connect.ts";
+import type { ArivuClient, Connection } from "./connect.ts";
 import type { FleetHost } from "./hosts.ts";
 import { snapshotAwareness } from "./read.ts";
 import type { FleetHostStatus, FleetSnapshot } from "./fleetTypes.ts";
@@ -46,12 +47,124 @@ export interface FleetSink {
    *  `activity` stream's current frame) — drives the live green dot. Replaces the
    *  host's live set each frame (snapshot-then-deltas). */
   setLive: (label: string, live: TerminalId[]) => void;
+  /** The latest live working-tree status for a repo on this host, keyed by repo
+   *  root path (shared across the repo's terminals) — the getStatus re-query a
+   *  `subscribeRepoChange` pulse drove (R4.7). */
+  setGitStatus: (
+    label: string,
+    repoPath: string,
+    status: GitStatusOutput,
+  ) => void;
+  /** Drop a repo's git status — its last terminal left, so nothing references it.
+   *  Distinct from `clearHost` (which drops the whole host on a link drop): a
+   *  repo can stop being watched while the host stays up. */
+  clearGitStatus: (label: string, repoPath: string) => void;
   /** Drop every mirrored row and the live set for this host, leaving only its
    *  status. Called when the link closes/fails: the mirrored data is now STALE
    *  (the box is gone), so it must not keep being counted, animated, or alerted
    *  on. The no-fallback rule — an `unreachable` host shows its header, never a
    *  frozen snapshot of `working`/`awaiting you` rows from before it died. */
   clearHost: (label: string) => void;
+}
+
+/** Owns the per-repo "subscribe to `{seq}` pulses → re-query `getStatus` → push
+ *  the result into the sink" loops for ONE host, ref-counted by repo root so N
+ *  terminals in a repo share one subscription and the last to leave tears it
+ *  down. The hard volatility (watcher backend, reconnect) already lives upstream
+ *  in the surface stream + `mirrorRemoteSurface`; this is just the bounded
+ *  consumer-side lifecycle the fleet board needs (R4.7) — start a watch on a
+ *  repo's first terminal, abort it on the last, and abort everything when the
+ *  host's link drops (`dispose`). Solid-free, so it's unit-tested with a fake
+ *  client; `fleet.tsx` never sees it. Exported only for that unit test. */
+export class RepoWatchSet {
+  private readonly refs = new Map<string, number>();
+  private readonly stops = new Map<string, () => void>();
+
+  constructor(
+    private readonly deps: {
+      client: ArivuClient;
+      label: string;
+      sink: FleetSink;
+      log: (line: string) => void;
+    },
+  ) {}
+
+  /** A terminal entered `repoPath`: start its watch loop on the 0→1 transition. */
+  retain(repoPath: string): void {
+    const n = (this.refs.get(repoPath) ?? 0) + 1;
+    this.refs.set(repoPath, n);
+    if (n === 1) this.stops.set(repoPath, this.watch(repoPath));
+  }
+
+  /** A terminal left `repoPath`: stop the loop + drop its status on the 1→0
+   *  transition (a still-referenced repo keeps watching). */
+  release(repoPath: string): void {
+    const n = (this.refs.get(repoPath) ?? 0) - 1;
+    if (n > 0) {
+      this.refs.set(repoPath, n);
+      return;
+    }
+    this.refs.delete(repoPath);
+    this.stops.get(repoPath)?.();
+    this.stops.delete(repoPath);
+    this.deps.sink.clearGitStatus(this.deps.label, repoPath);
+  }
+
+  /** Abort every watch loop — the host's link closed or the board quit.
+   *  Idempotent. */
+  dispose(): void {
+    for (const stop of this.stops.values()) stop();
+    this.stops.clear();
+    this.refs.clear();
+  }
+
+  private watch(repoPath: string): () => void {
+    const abort = new AbortController();
+    void this.run(repoPath, abort.signal);
+    return () => abort.abort();
+  }
+
+  private async run(repoPath: string, signal: AbortSignal): Promise<void> {
+    const { client, label, sink, log } = this.deps;
+    try {
+      // Each pulse — including the `{seq:0}` snapshot at subscribe — re-queries
+      // getStatus. The pulse is a payload-free change signal, so the procedure
+      // is the source of truth: this IS the pulse-plus-requery loop kolu's
+      // remote Code tab will run, exercised end-to-end over a real link (R4.7).
+      for await (const _pulse of await client.surface.subscribeRepoChange.get(
+        { repoPath },
+        { signal },
+      )) {
+        try {
+          const status = await client.surface.git.getStatus(
+            { repoPath, mode: "local" },
+            { signal },
+          );
+          // If the repo was released (last terminal left) while this re-query was
+          // in flight, `release` already cleared it — don't re-add a stale status.
+          if (signal.aborted) return;
+          sink.setGitStatus(label, repoPath, status);
+        } catch (err) {
+          // A transient getStatus failure (a git lock mid-rebase, say) must not
+          // tear down a long-lived subscription — the next pulse retries, and
+          // the last good status stays put rather than collapsing to empty.
+          log(
+            `pulam-tui: getStatus(${repoPath}) on ${label} failed: ${(err as Error).message}`,
+          );
+        }
+      }
+    } catch (err) {
+      // The subscription ended: an intentional abort (release/dispose) or the
+      // host's link dropping (handled by the host's clearHost). Either way just
+      // stop — surfaced via log when it wasn't our own abort, never a silent
+      // collapse to an empty board.
+      if (!signal.aborted) {
+        log(
+          `pulam-tui: subscribeRepoChange(${repoPath}) on ${label} ended: ${(err as Error).message}`,
+        );
+      }
+    }
+  }
 }
 
 export interface FleetHandle {
@@ -143,6 +256,41 @@ async function runHost(
   }
   conns.push(conn);
 
+  // The per-repo git-status watcher set for this host (R4.7), driven off the
+  // awareness deltas below: a terminal entering a repo retains a watch, leaving
+  // it releases one (ref-counted, so repo mates share a single subscription),
+  // and the whole set is aborted when the host's link drops.
+  const watches = new RepoWatchSet({
+    client: conn.client,
+    label: host.label,
+    sink: opts.sink,
+    log: opts.log,
+  });
+  const repoOf = new Map<TerminalId, string>();
+  const onAwarenessUpsert = (id: TerminalId, value: AwarenessValue): void => {
+    opts.sink.upsert(host.label, id, value);
+    // Reconcile this terminal's repo membership: a terminal whose cwd moved can
+    // switch repos, so release the old watch before retaining the new one.
+    const next = value.git?.repoRoot ?? null;
+    const prev = repoOf.get(id) ?? null;
+    if (prev === next) return;
+    if (prev !== null) watches.release(prev);
+    if (next !== null) {
+      repoOf.set(id, next);
+      watches.retain(next);
+    } else {
+      repoOf.delete(id);
+    }
+  };
+  const onAwarenessRemove = (id: TerminalId): void => {
+    opts.sink.remove(host.label, id);
+    const prev = repoOf.get(id);
+    if (prev !== undefined) {
+      watches.release(prev);
+      repoOf.delete(id);
+    }
+  };
+
   // Everything AFTER the dial is wrapped per host: the dial succeeded, but the
   // version probe or the mirror's first roundtrip can still reject (a link that
   // came up then dropped, a half-open socket). A rejection here must NOT escape
@@ -181,8 +329,8 @@ async function runHost(
       {
         collections: {
           awareness: {
-            upsert: (id, value) => opts.sink.upsert(host.label, id, value),
-            remove: (id) => opts.sink.remove(host.label, id),
+            upsert: onAwarenessUpsert,
+            remove: onAwarenessRemove,
           },
         },
         streams: {
@@ -194,6 +342,10 @@ async function runHost(
       },
       { log: opts.log },
     ).done;
+    // The host's link settled — abort every per-repo git-status watch too. Their
+    // streams ride the same link (so they're ending anyway), but dispose stops
+    // any still mid-requery and clears the ref counts.
+    watches.dispose();
     // The mirror returned → every subscription settled (the link closed;
     // `mirrorRemoteSurface` swallows its own per-stream errors). The box went
     // away: flip the header AND drop its now-stale rows + live set unless we tore
@@ -208,9 +360,12 @@ async function runHost(
     }
   } catch (err) {
     // The post-dial path threw — the version probe rejected, or the mirror's
-    // own setup did. Same contract as a failed dial: this host is unreachable,
-    // its stale rows are cleared, the others are untouched. (A throw before any
-    // upsert leaves nothing to clear; clearing is idempotent either way.)
+    // own setup did. Stop any git-status watches that started, then surface the
+    // host as unreachable.
+    watches.dispose();
+    // Same contract as a failed dial: this host is unreachable, its stale rows
+    // are cleared, the others are untouched. (A throw before any upsert leaves
+    // nothing to clear; clearing is idempotent either way.)
     if (!isDisposed()) {
       opts.sink.clearHost(host.label);
       opts.sink.setStatus(host.label, {
