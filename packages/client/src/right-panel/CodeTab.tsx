@@ -617,6 +617,11 @@ const CodeTab: Component<{
     return r;
   });
 
+  // FT-DEBUG: independent eager subscriber to treePaths — does the memo notify?
+  createEffect(() => console.log(`FT-WATCH tp=${treePaths().length}`));
+  // FT-DEBUG: independent eager subscriber to the exact Show `when` expression.
+  createEffect(() => console.log(`FT-SHOW when=${treePaths().length > 0}`));
+
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
   // Gate on the relevant stream's `pending()` — when the gitStatus / fsList
