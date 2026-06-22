@@ -105,12 +105,23 @@ export function useWatchedRead<I, O>(
     );
   }
 
-  // INPUT changed → reset (so `pending()` reads true while loading), then query.
+  // INPUT changed → re-query. Clear the value ONLY when standing down (input
+  // null): a non-null reload keeps the prior value in place so a consumer that
+  // gates a mount on this value (e.g. CodeTab's `treeReady`/`<Match>`) doesn't
+  // flap to undefined and unmount+remount its Pierre tree mid-update. That
+  // remount churn renders stale paths and then loses the diff's repaint, so a
+  // file removed by the change-pulse lingered as a stale DOM row. `pending()`
+  // stays honest for the open-path gate because the value is still `undefined`
+  // arriving from the null (diff-mode) state — the only place that gate runs.
   createEffect(
     on(input, (i) => {
       token++; // abandon any in-flight read for the previous input
-      setStore({ v: undefined, err: undefined });
-      if (i !== null) query(i);
+      if (i === null) {
+        setStore({ v: undefined, err: undefined });
+        return;
+      }
+      setStore("err", undefined);
+      query(i);
     }),
   );
 
