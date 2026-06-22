@@ -15,8 +15,7 @@ import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
 import { formatMB, readJsHeap } from "./ui/memory";
-import { localDaemonStatus } from "./kaval/useDaemonStatus";
-import { kavalMemory, serverRssBytes } from "./ui/useMemoryUsage";
+import { kavalMemoryDisplay, serverRssBytes } from "./ui/useMemoryUsage";
 import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -63,24 +62,16 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         jsHeap: readJsHeap(),
         // Server + kaval RSS ride the `processMemory` cell (the same source the
         // rail reads). `kavalRss` is the honest three-way: the byte figure when
-        // a live daemon answered, `null` for `absent` (no daemon to measure), or
-        // the literal `"error"` when a believed-connected daemon's poll failed —
-        // so the diagnostic snapshot never conflates a failed poll with no-data.
-        // Gated on the daemon being connected RIGHT NOW — same as the rail
-        // (IdentityRail's KavalMemReadout): `daemonStatus` flips the instant the
-        // daemon leaves connected, but the cell's kaval figure only clears on the
-        // next 5s sampler tick, so reading it raw would show stale RSS for a
-        // daemon that is no longer live.
+        // a live daemon answered, `"error"` when a believed-connected daemon's
+        // poll failed, or `null` (no daemon to measure) — so the snapshot never
+        // conflates a failed poll with no-data. Read through the SHARED
+        // `kavalMemoryDisplay` derivation (which folds in the connected-now gate),
+        // so the dialog and the rail can't drift on what kaval memory to show.
         serverRss: serverRssBytes() ?? null,
-        kavalRss:
-          localDaemonStatus()?.state !== "connected"
-            ? null
-            : ((m) =>
-                m.status === "ok"
-                  ? m.rssBytes
-                  : m.status === "error"
-                    ? "error"
-                    : null)(kavalMemory()),
+        kavalRss: ((d) =>
+          d === null ? null : d.kind === "ok" ? d.rssBytes : "error")(
+          kavalMemoryDisplay(),
+        ),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
         // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze

@@ -13,6 +13,7 @@
 
 import type { KavalMemory } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { localDaemonStatus } from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import { app } from "../wire";
 import { readJsHeapUsedBytes } from "./memory";
@@ -29,11 +30,35 @@ export function serverRssBytes(): number | null {
 }
 
 /** The kaval daemon's memory as its honest three-way state, or `absent` before
- *  the first server yield — the rail treats "no figure yet" the same as "no
- *  daemon", but keeps the `error` state (a believed-connected daemon whose poll
- *  failed) distinct so a failed RPC never renders identically to "no daemon". */
-export function kavalMemory(): KavalMemory {
+ *  the first server yield. Internal — consumers read {@link kavalMemoryDisplay},
+ *  which folds in the connected-now gate so the rail and dialog can't drift. */
+function kavalMemory(): KavalMemory {
   return sub.value()?.kavalMemory ?? { status: "absent" };
+}
+
+/** The kaval daemon's memory projected for DISPLAY — the single source of truth
+ *  for "what do we show for kaval memory", shared by the rail and the Diagnostic
+ *  dialog so neither re-derives (and drifts on) the same two concerns:
+ *
+ *   1. **The connected-NOW gate.** `daemonStatus` flips the instant the daemon
+ *      leaves `connected`, but the `processMemory` cell's kaval figure only
+ *      clears on the next 5 s sampler tick — so a raw read would show a stale MB
+ *      for a daemon that's already gone. Gating on the live state hides it at once.
+ *   2. **The three-way unwrap.** `ok` → the byte figure; `error` (a believed-
+ *      connected daemon whose poll failed) → a distinct marker so it never reads
+ *      as "no daemon"; `absent` / not-connected → nothing.
+ *
+ *  Returns `{ kind: "ok", rssBytes }`, `{ kind: "error" }`, or `null` (show
+ *  nothing). */
+export function kavalMemoryDisplay():
+  | { kind: "ok"; rssBytes: number }
+  | { kind: "error" }
+  | null {
+  if (localDaemonStatus()?.state !== "connected") return null;
+  const m = kavalMemory();
+  if (m.status === "ok") return { kind: "ok", rssBytes: m.rssBytes };
+  if (m.status === "error") return { kind: "error" };
+  return null;
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

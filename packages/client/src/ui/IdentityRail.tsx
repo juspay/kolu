@@ -42,7 +42,7 @@ import { clientStale, StaleBadge } from "./StaleBadge";
 import Tip from "./Tip";
 import {
   clientHeapUsedBytes,
-  kavalMemory,
+  kavalMemoryDisplay,
   serverRssBytes,
 } from "./useMemoryUsage";
 
@@ -82,41 +82,39 @@ const MemReadout: Component<{
   </Show>
 );
 
-/** The kaval column's memory readout — the honest three-way `KavalMemory`,
- *  gated on the daemon being connected RIGHT NOW (so a daemon that just went
- *  away clears its figure immediately, rather than showing a stale MB until the
- *  next 5s sampler tick). `ok` renders the MB figure; `error` (a believed-
- *  connected daemon whose poll failed) renders a distinct `mem ?` chip so a
- *  failed poll never looks identical to "no daemon"; `absent` renders nothing. */
-const KavalMemReadout: Component<{ connected: boolean }> = (props) => (
-  <Show when={props.connected}>
-    <Switch>
-      <Match
-        when={(() => {
-          const m = kavalMemory();
-          return m.status === "ok" ? m : false;
-        })()}
-      >
-        {(ok) => (
-          <MemReadout
-            bytes={ok().rssBytes}
-            testid="kaval-memory"
-            tip="kaval daemon memory (resident set size)"
-          />
-        )}
-      </Match>
-      <Match when={kavalMemory().status === "error"}>
-        <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
-          <span
-            data-testid="kaval-memory-error"
-            class="tabular-nums text-[10px] text-warning"
-          >
-            mem ?
-          </span>
-        </Tip>
-      </Match>
-    </Switch>
-  </Show>
+/** The kaval column's memory readout, from the shared {@link kavalMemoryDisplay}
+ *  derivation (which folds in the connected-now gate + the three-way unwrap, so
+ *  this and the Diagnostic dialog read one source). `ok` renders the MB figure;
+ *  `error` (a believed-connected daemon whose poll failed) renders a distinct
+ *  `mem ?` chip so a failed poll never looks identical to "no daemon"; `null`
+ *  (not connected / absent) renders nothing. */
+const KavalMemReadout: Component = () => (
+  <Switch>
+    <Match
+      when={(() => {
+        const d = kavalMemoryDisplay();
+        return d?.kind === "ok" ? d : false;
+      })()}
+    >
+      {(ok) => (
+        <MemReadout
+          bytes={ok().rssBytes}
+          testid="kaval-memory"
+          tip="kaval daemon memory (resident set size)"
+        />
+      )}
+    </Match>
+    <Match when={kavalMemoryDisplay()?.kind === "error"}>
+      <Tip label="kaval daemon memory poll failed — the daemon reports connected but didn't answer its memory probe">
+        <span
+          data-testid="kaval-memory-error"
+          class="tabular-nums text-[10px] text-warning"
+        >
+          mem ?
+        </span>
+      </Tip>
+    </Match>
+  </Switch>
 );
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
@@ -226,7 +224,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
             </Show>
           )}
         </Show>
-        <KavalMemReadout connected={daemon()?.state === "connected"} />
+        <KavalMemReadout />
         {/* B3.4: the running daemon is a build behind what the server would spawn.
             A passive amber chip — the column's own click opens the dialog where
             the running-vs-expected detail and the restart live. */}
