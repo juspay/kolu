@@ -603,24 +603,13 @@ const CodeTab: Component<{
     // element + length and mints a fresh reference, matching the diff
     // branch's `.map()` below. See `createReactiveSubscription` /
     // `writeValue.ts` for the reconcile strategy.
-    const out =
-      view() === "browse"
-        ? [...(allPaths()?.paths ?? [])]
-        : (status()?.files.map((f) => f.path) ?? []);
-    console.log(`FT-TP view=${view()} n=${out.length}`); // FT-DEBUG
-    return out;
+    if (view() === "browse") return [...(allPaths()?.paths ?? [])];
+    return status()?.files.map((f) => f.path) ?? [];
   });
 
-  const treeSearch = createMemo(() => {
-    const r = projectFileTreeSearch(treePaths(), searchQuery());
-    console.log(`FT-SEARCH n=${r.projectedPaths.length}`); // FT-DEBUG
-    return r;
-  });
-
-  // FT-DEBUG: independent eager subscriber to treePaths — does the memo notify?
-  createEffect(() => console.log(`FT-WATCH tp=${treePaths().length}`));
-  // FT-DEBUG: independent eager subscriber to the exact Show `when` expression.
-  createEffect(() => console.log(`FT-SHOW when=${treePaths().length > 0}`));
+  const treeSearch = createMemo(() =>
+    projectFileTreeSearch(treePaths(), searchQuery()),
+  );
 
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.

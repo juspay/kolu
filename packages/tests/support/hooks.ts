@@ -740,12 +740,6 @@ AfterAll(async () => {
 });
 
 Before(async function (this: KoluWorld, scenario) {
-  try {
-    fs.appendFileSync(
-      `/tmp/ft-w${workerId}.log`,
-      `\n##### ${scenario.pickle.name} #####\n`,
-    );
-  } catch {}
   // Derive the scenario's file stem once, up front — the failure screenshot,
   // the evidence webm, the x11 grab, and the transcoded assets all key off the
   // same value, so it's computed here and read at every site below.
@@ -862,13 +856,6 @@ Before(async function (this: KoluWorld, scenario) {
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
-  this.page.on("console", (msg) => {
-    if (msg.text().includes("FT-")) {
-      try {
-        fs.appendFileSync(`/tmp/ft-w${workerId}.log`, `${msg.text()}\n`);
-      } catch {}
-    }
-  });
 
   // KOLU_X11CAP: start grabbing the Xvfb framebuffer now. x11grab runs off its
   // own 30 fps clock independent of Chrome's paint speed, so the recording is

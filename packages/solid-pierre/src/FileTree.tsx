@@ -179,9 +179,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
-    console.log(
-      `FT-MOUNT npaths=${props.paths.length} sel=${props.selectedPath} selInPaths=${props.selectedPath ? props.paths.includes(props.selectedPath) : "-"}`,
-    ); // FT-DEBUG
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
     // and, crucially, for *every remount* the live fsListAll stream triggers
@@ -269,57 +266,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // below reveals the picked row imperatively instead; we read `selectedPath`
   // untracked only so a genuine paths/expandPaths change reveals the current
   // selection.
-  // FT-DEBUG: bare reactive read of props.paths — does the prop update in scope?
-  createEffect(() => {
-    const p = props.paths;
-    console.log(`FT-PROPS npaths=${p.length}`);
-  });
-
   createEffect(
     on(
       [() => props.paths, () => props.expandPaths],
       ([paths, expandPaths]) => {
-        console.log(`FT-ON npaths=${paths.length}`); // FT-DEBUG
         safeApply(() => {
-          if (!tree) {
-            console.log(`FT-DIFF no-tree new=${paths.length}`); // FT-DEBUG
-            return;
-          }
+          if (!tree) return;
           const fileOps = pathDiffOperations(appliedPaths, paths);
-          console.log(
-            `FT-DIFF applied=${appliedPaths.length} new=${paths.length} fileOps=${fileOps.length} ops=${JSON.stringify(fileOps).slice(0, 120)}`,
-          ); // FT-DEBUG
-          if (fileOps.length > 0) {
-            // Pierre's `remove` silently no-ops on a node that is currently
-            // SELECTED, leaving it as a stale row. Deselect any selected path
-            // this batch removes BEFORE the batch, so a removed selected file
-            // (e.g. the open file `rm`'d) actually detaches. The host clears its
-            // own `selectedPath` too, but that can land after this batch under
-            // the change-pulse's async delivery — so the guard lives here.
-            const removed = new Set(
-              fileOps
-                .filter((o) => o.type === "remove")
-                .map((o) => o.path),
-            );
-            if (removed.size > 0) {
-              const sel = tree.getSelectedPaths();
-              console.log(
-                `FT-DESEL selected=${JSON.stringify(sel)} removed=${JSON.stringify([...removed])}`,
-              ); // FT-DEBUG
-              for (const p of sel) {
-                if (removed.has(p)) tree.getItem(p)?.deselect();
-              }
-            }
-            tree.batch(fileOps);
-            if (removed.size > 0) {
-              tree.resetPaths(paths); // FT-DEBUG: does a rebuild repaint?
-              console.log(`FT-RESET n=${paths.length}`); // FT-DEBUG
-            }
-            console.log(
-              `FT-POST item(obsolete)=${!!tree.getItem("obsolete.txt")} sel=${JSON.stringify(tree.getSelectedPaths())}`,
-            ); // FT-DEBUG
-            console.log(`FT-BATCH-OK n=${fileOps.length}`); // FT-DEBUG
-          }
+          if (fileOps.length > 0) tree.batch(fileOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
           // so the file removals above would otherwise strand a filter's
