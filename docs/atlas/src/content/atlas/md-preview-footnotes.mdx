@@ -311,8 +311,6 @@ package's only new surface:
 
 - **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
   `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
-- **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
-  `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
   Nothing else changes here.
 - **`BrowseFileDispatcher.tsx`** — owns the popover, because it already defines the
   preview's resolvers (`onNavigateRelative` / `onNavigateWikilink` /
@@ -336,20 +334,33 @@ package's only new surface:
   - **Size.** Panel `width: min(360px, calc(100vw - 2rem))`,
     `max-height: min(50vh, 22rem)`, `overflow: auto`; reuse `surface()` for chrome
     (as `OptionMenu` does).
-  - **Content.** `definition.cloneNode(true)` with **every** `a[href*="-ref-"]`
-    back-ref removed and the `id` stripped (a re-cited footnote has several `↩`,
-    and the clone must not duplicate a live `id`); re-inject its already-sanitized
-    `innerHTML` and bind the same delegated click handling, so inner
-    relative-links / wikilinks / images route through the host resolvers.
-  - **"See all ↓".** A footer link that `scrollIntoView`s the matching
-    `#md-footnote-n` `<li>` in the bottom section, then `setFn(null)`.
+  - **Content.** `definition.cloneNode(true)`, then on the *clone* remove three
+    things: its `id` (the live `<li>` keeps its `id`, so the clone must not
+    duplicate it), **every** `a[href*="-ref-"]` back-ref (a re-cited footnote has
+    several `↩`), and the `data-md-footnote` flag from **any nested** ref markers
+    (so they are inert in the popover — see the nested-footnote risk). Re-inject
+    the clone's `innerHTML`. Images need no handling — `resolveImageSrc` already
+    ran on this node when the document was sanitized, so the clone carries
+    resolved `src`s.
+  - **Inner links.** Bind one click listener on the popover panel that routes the
+    *click-time* links only: `a[data-md-rel]` → the host's `onNavigateRelative`,
+    `a[data-md-wikilink]` → `onNavigateWikilink` (the same handlers
+    `BrowseFileDispatcher` already passes to the preview). External links keep the
+    `target="_blank"` the sanitizer stamped, so they need no handler. This is the
+    ~10-line relative/wikilink slice of `bindInteractions`; if duplication grates,
+    export that slice from `@kolu/solid-markdown` and call it here.
+  - **"See all ↓".** A footer link that calls
+    `fn().definition.scrollIntoView({ behavior: "smooth", block: "start" })` on the
+    **live** `<li>` (not the clone — the clone's `id` is gone), then `setFn(null)`.
 - **Out of scope (tracked follow-up):** keyboard activation and a screen-reader
   relationship. Opening is pointer-only by decision; the bottom section remains
   the accessible record. A follow-up can add Enter/Space-to-open on the focused
   marker plus an `aria-details` link — note it in the PR description so it isn't
   mistaken for an oversight.
 
-### The risks that bite
+### Sharp edges, and how each is handled
+
+Each was a real trap; none is left open.
 
 - **`useAnchoredPopover` doesn't track scroll — and that is fine, because we
   dismiss on scroll.** The hook repositions only on open/trigger-change
@@ -361,16 +372,24 @@ package's only new surface:
   shift), so a marker near the right edge could overflow; the `panelMinWidth: 320`
   left-clamp handles it. (Follow-the-marker re-anchoring was considered and
   declined — it is the only thing that would have touched the shared hook.)
-- **The comment overlay.** The preview is wrapped in `CommentTextSurface` with a
-  `MutationObserver` over its subtree; an *in-flow* popup would trip it. The
-  `Portal`-to-body route avoids it entirely — which is what `useAnchoredPopover`
-  already does, and another reason to reuse it rather than mount in place.
+- **The comment overlay — handled by the `Portal` route.** The preview is wrapped
+  in `CommentTextSurface` with a `MutationObserver` over its subtree, so an
+  *in-flow* popup would trip it. We mount the panel through `<Portal>` to
+  `document.body` (what `useAnchoredPopover` already expects), so it lives outside
+  the watched subtree and never perturbs comment anchoring.
 - **Touch + the drawer.** Click-to-open already covers touch (no hover step). On
   mobile the right panel can mount inside a `@corvu/drawer` (`modal: true` sets
   `body { pointer-events: none }`); `useAnchoredPopover` already re-enables
   `pointer-events: auto` on its panel (`useAnchoredPopover.ts:154`), so the
   popover stays tappable there.
-- **Nested footnotes.** A footnote body can cite another footnote, so a marker
-  can appear *inside* a popover. Keep it simple: markers inside a popover body are
-  inert (they carry no live handler in the cloned subtree), rather than stacking
-  popovers.
+- **Nested footnotes — made inert by the clone.** A footnote body can cite another
+  footnote, so a ref marker can appear *inside* a popover. The clone strips
+  `data-md-footnote` from those nested markers (Content step above) and the
+  popover's click listener routes only `data-md-rel` / `data-md-wikilink` — so a
+  nested marker is a plain, inert superscript. No popover stacking, no recursion.
+- **Content re-renders don't drop the handler.** The new branch lives in the
+  delegated listener `bindInteractions` binds on the stable `.kolu-md` root, not on
+  per-marker nodes. Editing the file re-runs the `html()` memo and swaps the
+  element's `innerHTML` in place — the root element (and its `ref`-bound listener)
+  is not remounted — so the footnote branch keeps firing with no re-binding,
+  exactly as the existing link/scroll branches do today.
