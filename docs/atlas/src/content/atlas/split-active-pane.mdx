@@ -17,10 +17,9 @@ import flow from "../../diagrams/split-active-pane-flow.svg?raw";
 Split a tile and you get two stacked terminals — a main pane on top, a sub-panel
 below. You click into one, you start typing… and nothing on screen tells you
 which one is listening. The split already *knows* — it routes your keystrokes to
-the right pane and even restores that choice across sessions — but it keeps the
-secret to itself. This note graduates the Sundry item **"Distinguish the active
-terminal in a split"** into a plan: surface that hidden signal as a quiet visual
-cue.
+the right pane — but it keeps the secret to itself. This note graduates the
+Sundry item **"Distinguish the active terminal in a split"** into a plan: surface
+that hidden signal as a quiet visual cue.
 
 export const SfStyles = () => (
   <style>{`
@@ -166,11 +165,13 @@ always a clean ×0.4 of full, never of an already-dimmed tile.
 
 There is almost nothing structural to change — and that's the point. The split
 **already tracks which pane has focus**: `focusTarget: "main" | "sub"` lives in the
-per-tile `useSubPanel` store, is read on every keystroke to route input, and is
-even persisted for session restore. The work is to *render* that existing signal,
-not to invent a new one.
+per-tile `useSubPanel` store and is read on every keystroke to route input. It's
+client-only state (only the split *layout* — `collapsed`, `panelSize` — is
+server-persisted; on restore `focusTarget` is reseeded locally, see
+<Cite file="packages/client/src/terminal/useSessionRestore.ts" lines="282" />).
+The work is to *render* that existing in-session signal, not to invent a new one.
 
-<Svg svg={flow} caption="One existing signal drives the cue. focusTarget already exists; TerminalContent already gates on whether the tile is focused and the split expanded. We add only the last hop: tag each pane with data-pane-focus and let CSS recede the inactive one." />
+<Svg svg={flow} caption="One existing signal drives the cue. focusTarget already exists; TerminalContent already gates on whether the tile is focused and the split expanded. We add only the last hop: tag each pane with data-pane-focus and let a Tailwind data-variant recede the inactive one." />
 
 - **Reuse the source of truth, don't fork it.** The cue reads `focusTarget` — the
   same field that routes keystrokes (<Cite file="packages/client/src/terminal/useSubPanel.ts" />).
@@ -179,8 +180,8 @@ not to invent a new one.
   One signal, two consumers (input routing + the cue).
 - **A presentational leaf, not electricity.** This hides no hard volatility
   (transport, reconnect, GPU-context loss) — it's a bounded bit of styling inside
-  the terminal module. It stays in `TerminalContent` + the global stylesheet; it
-  earns no `@kolu/*` package.
+  the terminal module. It stays in `TerminalContent` (Tailwind classes on the
+  panel, no separate stylesheet rule); it earns no `@kolu/*` package.
 - **No knob, no fallback.** The cue is always on whenever a split is open and
   focused — no preference toggle (an override is a defect, not a feature) and no
   degraded path. It either reflects `focusTarget` or, if that signal were ever
@@ -192,8 +193,8 @@ not to invent a new one.
 
 ## Implementation details
 
-Small and contained — one component gains a derived flag, the stylesheet gains a
-rule, and the Sundry row graduates to this note.
+Small and contained — one component gains a derived flag and a pair of Tailwind
+data-variant classes, and the Sundry row graduates to this note.
 
 1. **Tag each pane** in <Cite file="packages/client/src/terminal/TerminalContent.tsx" />.
    It already computes `shouldFocusMain()` / `shouldFocusSub()` from
@@ -203,11 +204,12 @@ rule, and the Sundry row graduates to this note.
    `Resizable.Panel`s (plus a stable `data-pane="main" | "sub"` so the pane is
    addressable from tests). `undefined` when collapsed or when the tile isn't
    focused, so no background tile lights a pane.
-2. **Recede the inactive pane** in <Cite file="packages/client/src/index.css" /> —
-   `[data-pane-focus="inactive"] { opacity: 0.4 }`, sitting beside the canvas
-   tile-aura rules it mirrors. A `prefers-reduced-motion: no-preference` guard adds
-   a short opacity cross-fade for everyone else; reduced-motion gets the change
-   instantly.
+2. **Recede the inactive pane** — Tailwind data-variant classes on the same
+   `Resizable.Panel` (no custom CSS, per the repo's Tailwind-only styling rule):
+   `data-[pane-focus=inactive]:opacity-40` for the recede, plus
+   `motion-safe:transition-opacity motion-safe:duration-[120ms]` for the
+   cross-fade. `motion-safe:` is Tailwind's `prefers-reduced-motion: no-preference`
+   variant, so reduced-motion gets the change instantly.
 3. **Graduate the Sundry item** — remove the row from
    <Cite file="docs/atlas/src/content/atlas/sundry.mdx" /> (per its own
    "Graduating an item" rule) and leave a one-line pointer here.
@@ -217,9 +219,10 @@ rule, and the Sundry row graduates to this note.
 
 **Test (feature, so test-first):** an e2e scenario in
 <Cite file="packages/tests/features/sub-terminal.feature" /> that opens a split,
-checks the sub-panel is active and the main pane receded, then clicks the main
-pane and checks they swap — asserting on `data-pane` + `data-pane-focus`, reusing
-the existing split/sub-terminal steps
+checks the sub-panel is active and the main pane receded, then moves focus and
+checks they swap — asserting on `data-pane` + `data-pane-focus` *and* the rendered
+opacity it drives (so deleting the recede class would fail the test, not just the
+marker flip), reusing the existing split/sub-terminal steps
 (<Cite file="packages/tests/step_definitions/sub_terminal_steps.ts" />).
 
 **Risks, and why they're small**

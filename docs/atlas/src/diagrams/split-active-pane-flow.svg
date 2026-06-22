@@ -38,5 +38,5 @@
   <text x="687" y="97" fill="#9aa0aa" font-size="11" text-anchor="middle">dim the inactive</text>
   <text x="687" y="112" fill="#6b7280" font-size="10.5" text-anchor="middle">opacity 0.4</text>
 
-  <text x="24" y="148" fill="#6b7280" font-size="10.5">Reuses the per-tile focus signal already persisted for session restore; CSS-only, opacity on the inactive pane — its box never changes size, so xterm never refits.</text>
+  <text x="24" y="148" fill="#6b7280" font-size="10.5">Reuses the per-tile focus signal that already routes keystrokes; opacity on the inactive pane — its box never changes size, so xterm never refits.</text>
 </svg>

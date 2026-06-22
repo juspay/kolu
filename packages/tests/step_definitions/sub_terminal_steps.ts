@@ -167,14 +167,21 @@ Then(
   },
 );
 
+// Assert both the internal marker AND the rendered opacity it drives, so the
+// cue can't be silently broken (rule deleted / class typo'd) while the marker
+// still flips. Transitions are forced to 0s in tests (hooks.ts), so opacity is
+// settled, not mid-fade. The active pane is full strength (1); the receded one
+// is the 0.4 the Tailwind `data-[pane-focus=inactive]:opacity-40` paints.
 Then(
   "the {word} pane should be the active pane",
   async function (this: KoluWorld, pane: string) {
     await this.page.waitForFunction(
-      (p) =>
-        document.querySelector(
+      (p) => {
+        const el = document.querySelector(
           `[data-pane="${p}"][data-pane-focus="active"]`,
-        ) !== null,
+        );
+        return el !== null && getComputedStyle(el).opacity === "1";
+      },
       pane,
       { timeout: POLL_TIMEOUT },
     );
@@ -185,10 +192,12 @@ Then(
   "the {word} pane should be receded",
   async function (this: KoluWorld, pane: string) {
     await this.page.waitForFunction(
-      (p) =>
-        document.querySelector(
+      (p) => {
+        const el = document.querySelector(
           `[data-pane="${p}"][data-pane-focus="inactive"]`,
-        ) !== null,
+        );
+        return el !== null && getComputedStyle(el).opacity === "0.4";
+      },
       pane,
       { timeout: POLL_TIMEOUT },
     );

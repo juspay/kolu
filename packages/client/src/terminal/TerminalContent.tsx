@@ -126,7 +126,14 @@ const TerminalContent: Component<{
       >
         <Resizable.Panel
           as="div"
-          class="min-h-0 overflow-hidden"
+          // Active-terminal cue: the pane that does NOT hold keyboard focus
+          // recedes (opacity), so the live one stands out at a glance.
+          // `data-pane-focus` carries the `focusTarget` signal that also routes
+          // keystrokes (see `paneFocus`/`livePane` above) — never a parallel
+          // flag. Opacity only, so the box never resizes and xterm never refits
+          // its grid; `motion-safe` cross-fades the change, reduced-motion gets
+          // it instantly.
+          class="min-h-0 overflow-hidden data-[pane-focus=inactive]:opacity-40 motion-safe:transition-opacity motion-safe:duration-[120ms]"
           minSize={0.2}
           data-pane="main"
           data-pane-focus={paneFocus("main")}
@@ -172,7 +179,9 @@ const TerminalContent: Component<{
 
         <Resizable.Panel
           as="div"
-          class="min-h-0 overflow-hidden flex flex-col"
+          // Active-terminal cue — mirror of the main pane above; see that
+          // comment for why opacity (not size) and why `data-pane-focus`.
+          class="min-h-0 overflow-hidden flex flex-col data-[pane-focus=inactive]:opacity-40 motion-safe:transition-opacity motion-safe:duration-[120ms]"
           minSize={0}
           collapsible
           collapsedSize={0}
