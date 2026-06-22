@@ -19,10 +19,7 @@
  * becomes a backing swap here, not a second data path.
  */
 
-import {
-  type ImplementSurfaceDeps,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import {
   type AwarenessValue,
   DEFAULT_VERSION,

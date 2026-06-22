@@ -134,7 +134,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     () => ({ repoPath: props.repoPath, filePath: props.filePath }),
     async (i): Promise<FsReadFileOutput> => {
       if (isBinaryPreviewable(i.filePath)) {
-        const mtimeMs = await terminalWorkspace.rpc.surface.fs.statFileMtimeMs(i);
+        const mtimeMs =
+          await terminalWorkspace.rpc.surface.fs.statFileMtimeMs(i);
         return {
           kind: "binary",
           url: `${buildTerminalFileUrl(props.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,

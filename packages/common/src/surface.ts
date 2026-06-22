@@ -397,9 +397,10 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
  *  `terminalWorkspaceSurface.awareness`, joined client-side). The R8 shrink of
  *  the old `ActiveTerminalSchema` (which merged the awareness base + live
  *  overlay). */
-export const KoluActiveTerminalSchema = ClientPersistedTerminalFieldsSchema.merge(
-  z.object({ location: HostLocationSchema }),
-).merge(ActiveDiscriminantSchema);
+export const KoluActiveTerminalSchema =
+  ClientPersistedTerminalFieldsSchema.merge(
+    z.object({ location: HostLocationSchema }),
+  ).merge(ActiveDiscriminantSchema);
 
 /** The shrunk `terminalMetadata` collection value: kolu's own fields only. Active
  *  = kolu chrome + location; sleeping = the unchanged frozen snapshot. The full
@@ -1086,8 +1087,15 @@ export function activePr(
  *  frozen snapshot, so it passes through whole. */
 export function projectKoluFields(m: TerminalMetadata): KoluTerminalFields {
   if (m.state === "sleeping") return m;
-  const { location, themeName, parentId, canvasLayout, subPanel, rightPanel, intent } =
-    m;
+  const {
+    location,
+    themeName,
+    parentId,
+    canvasLayout,
+    subPanel,
+    rightPanel,
+    intent,
+  } = m;
   return {
     state: "active",
     location,

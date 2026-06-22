@@ -33,6 +33,21 @@ vi.mock("../wire", () => ({
       },
     },
   },
+  // R8: the join also reads the awareness half off the composed
+  // terminalWorkspace surface. These tests drive the kolu half (the
+  // `terminalMetadata` mock above) and assert on the id-set memo, so the
+  // awareness half is a constant empty collection — `joinTerminalMetadata`
+  // then seeds the overlay defaults and kolu's fields ride through.
+  terminalWorkspace: {
+    collections: {
+      awareness: {
+        use: () => ({
+          keys: () => [] as TerminalId[],
+          byKey: () => undefined,
+        }),
+      },
+    },
+  },
 }));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {

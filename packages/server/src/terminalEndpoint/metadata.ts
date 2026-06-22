@@ -108,7 +108,10 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
   // fields ride `koluSurface.terminalMetadata`; the live `AwarenessValue` (active
   // terminals only) rides the composed `terminalWorkspaceSurface.awareness`. The
   // browser joins them by id at render — the dissolved server-side fold.
-  surfaceCtx.collections.terminalMetadata.upsert(terminalId, projectKoluFields(m));
+  surfaceCtx.collections.terminalMetadata.upsert(
+    terminalId,
+    projectKoluFields(m),
+  );
   if (live) {
     workspaceSurfaceCtx.collections.awareness.upsert(
       terminalId,
