@@ -65,22 +65,23 @@ type LinkHandlers = {
   onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 };
 
-/** Handle interactive bits inside the rendered Markdown — code-copy buttons,
- *  in-page anchors, and the two intercepted link kinds (`LinkHandlers`). (The
- *  preview is read-only; task-list checkboxes render as presentational state.)
+/** Own the click-dispatch over `.kolu-md` DOM: code-copy buttons, in-page
+ *  anchors, and the intercepted link kinds (`LinkHandlers`). This is the single
+ *  home for the `data-md-*` flag → host-handler mapping the renderer mints —
+ *  every consumer that renders sanitized Markdown DOM (the document preview, the
+ *  footnote popover) plugs into it instead of re-deriving the routing.
+ *
  *  Bound imperatively (not via JSX `onClick`) because these are delegated
  *  handlers over sanitizer-minted DOM, not declarative element interactions the
  *  a11y lint would expect a role for.
  *
- *  Each also stops the bubble so a nested control in a clickable host slot
- *  (dock card, switcher card) doesn't double-fire that slot's handler. */
-function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
-  const onPointerDown = (e: Event) => {
-    const target = e.target as Element | null;
-    if (target?.closest?.("a, [data-md-copy]")) {
-      e.stopPropagation();
-    }
-  };
+ *  Stops the anchor/copy bubble so a nested control in a clickable host slot
+ *  (dock card, switcher card) doesn't double-fire that slot's handler. The
+ *  cleanup is owned by the calling reactive scope (Solid `onCleanup`). */
+export function bindMarkdownLinks(
+  el: HTMLElement,
+  handlers: LinkHandlers,
+): void {
   const onClick = (e: MouseEvent) => {
     const target = e.target as Element | null;
     if (!target) return;
@@ -152,11 +153,24 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     }
   };
   el.addEventListener("click", onClick);
+  onCleanup(() => el.removeEventListener("click", onClick));
+}
+
+/** Handle interactive bits inside the rendered Markdown: the click-dispatch
+ *  seam (`bindMarkdownLinks`) plus a `pointerdown` bubble-stop so a nested
+ *  control in a clickable host slot (dock card, switcher card) doesn't
+ *  double-fire that slot's handler on press. (The preview is read-only;
+ *  task-list checkboxes render as presentational state.) */
+function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
+  bindMarkdownLinks(el, handlers);
+  const onPointerDown = (e: Event) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.("a, [data-md-copy]")) {
+      e.stopPropagation();
+    }
+  };
   el.addEventListener("pointerdown", onPointerDown);
-  onCleanup(() => {
-    el.removeEventListener("click", onClick);
-    el.removeEventListener("pointerdown", onPointerDown);
-  });
+  onCleanup(() => el.removeEventListener("pointerdown", onPointerDown));
 }
 
 export const Markdown: Component<{

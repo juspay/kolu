@@ -14,6 +14,7 @@
  *  only routes the click. */
 
 import { createEventListener } from "@solid-primitives/event-listener";
+import { bindMarkdownLinks } from "@kolu/solid-markdown";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
@@ -34,12 +35,10 @@ export const FootnotePopover: Component<{
   /** Route an Obsidian-style `[[wikilink]]` clicked inside the footnote body. */
   onNavigateWikilink: (target: string, anchor: HTMLElement) => void;
 }> = (props) => {
-  // Captured panel + body elements: the panel to exclude its own scroll from
-  // the dismiss, the body to delegate inner-link clicks off (imperatively, like
-  // the preview's own `bindInteractions`, so the a11y lint isn't asked to treat
-  // sanitizer-minted anchors as declarative element interactions).
+  // Captured panel element, to exclude its own scroll from the dismiss. The
+  // body's inner-link clicks are delegated through the package's own seam
+  // (`bindMarkdownLinks`, bound on the body ref below) — see the comment there.
   const [panelEl, setPanelEl] = createSignal<HTMLElement>();
-  const [bodyEl, setBodyEl] = createSignal<HTMLElement>();
 
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.target()?.anchor,
@@ -70,28 +69,6 @@ export const FootnotePopover: Component<{
     },
     { capture: true },
   );
-
-  // Route the footnote body's own links the way the preview does: relative +
-  // wikilink through the host resolvers; an external link keeps the sanitizer's
-  // `target="_blank"` and needs no handler. We don't dismiss here — a navigation
-  // remounts the keyed Code-tab subtree (which unmounts this popover), and not
-  // dismissing first lets an ambiguous `[[wikilink]]` anchor its disambiguation
-  // menu to the clicked anchor before that remount.
-  createEventListener(bodyEl, "click", (e) => {
-    const a = (e.target as Element | null)?.closest("a");
-    if (!a) return;
-    const wikilink = a.getAttribute("data-md-wikilink");
-    if (wikilink !== null) {
-      e.preventDefault();
-      if (wikilink) props.onNavigateWikilink(wikilink, a as HTMLElement);
-      return;
-    }
-    if (a.hasAttribute("data-md-rel")) {
-      e.preventDefault();
-      const href = a.getAttribute("href");
-      if (href) props.onNavigateRelative(href);
-    }
-  });
 
   // The popover body: a cleaned clone of the definition `<li>`. Three removals,
   // on the *clone* only (never the live node the bottom list still shows):
@@ -130,9 +107,26 @@ export const FootnotePopover: Component<{
           style={{ ...panelStyle(), ...chrome.style }}
         >
           {/* The note body, styled by the shared `.kolu-md` stylesheet so its
-              links/code/lists read exactly as they do in the document. */}
+              links/code/lists read exactly as they do in the document. Its
+              links route through the package's own click-dispatch seam — the one
+              function that owns the `data-md-*` flag → host-handler mapping over
+              `.kolu-md` DOM — so a footnote body routes links (and code-copy +
+              in-page anchors) exactly as the document does, with no host-side
+              copy of the routing. We pass no `onFootnote`: nested ref markers
+              are de-flagged in `body()` below, so a footnote-citing-a-footnote
+              renders an inert superscript here (no popover-on-popover). We don't
+              dismiss on navigate — a navigation remounts the keyed Code-tab
+              subtree (which unmounts this popover), and the seam only
+              `preventDefault`s + resolves, so an ambiguous `[[wikilink]]` can
+              anchor its disambiguation menu to the clicked anchor before that
+              remount. */}
           <div
-            ref={setBodyEl}
+            ref={(el) =>
+              bindMarkdownLinks(el, {
+                onNavigateRelative: props.onNavigateRelative,
+                onNavigateWikilink: props.onNavigateWikilink,
+              })
+            }
             class="kolu-md min-h-0 flex-1 overflow-auto p-3 text-fg"
             innerHTML={body()}
           />
