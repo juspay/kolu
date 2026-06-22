@@ -179,6 +179,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   const fileSet = createMemo(() => new Set(props.paths));
 
   onMount(() => {
+    console.log(`FT-MOUNT npaths=${props.paths.length}`); // FT-DEBUG
     // A directory reveal can be standing when this tree mounts — both for a
     // folder clicked from a diff view (mounts us with the request already set)
     // and, crucially, for *every remount* the live fsListAll stream triggers
@@ -271,8 +272,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       [() => props.paths, () => props.expandPaths],
       ([paths, expandPaths]) => {
         safeApply(() => {
-          if (!tree) return;
+          if (!tree) {
+            console.log(`FT-DIFF no-tree new=${paths.length}`); // FT-DEBUG
+            return;
+          }
           const fileOps = pathDiffOperations(appliedPaths, paths);
+          console.log(
+            `FT-DIFF applied=${appliedPaths.length} new=${paths.length} fileOps=${fileOps.length}`,
+          ); // FT-DEBUG
           if (fileOps.length > 0) tree.batch(fileOps);
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
