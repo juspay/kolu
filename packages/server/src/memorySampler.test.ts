@@ -135,6 +135,37 @@ describe("sampleMemoryOnce", () => {
     expect(calls).toBe(2);
   });
 
+  it("clears the guard on a REJECTING poll without an unobserved rejection", async () => {
+    // F6: the guard's cleanup must be its own consumed handler, not a stored
+    // `p.finally(...)` branch — otherwise a rejecting poll leaves an unhandled
+    // rejection. We assert (a) the caller sees the rejection, (b) the guard
+    // clears so the next call polls afresh, and (c) no unhandledRejection fires.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown): void => {
+      unhandled.push(err);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const boom = new Error("poll blew up");
+      let calls = 0;
+      const guarded = guardOverlap(() => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(boom);
+        return Promise.resolve(7 * MB);
+      });
+      // The caller observes the rejection of the FIRST poll.
+      await expect(guarded()).rejects.toBe(boom);
+      // The guard cleared on rejection, so the next call polls afresh.
+      await expect(guarded()).resolves.toBe(7 * MB);
+      expect(calls).toBe(2);
+      // Give any stray microtask/task a chance to surface, then assert none did.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("bounds a wedged poll with a timeout and reports `error`", async () => {
     vi.useFakeTimers();
     try {

@@ -97,9 +97,20 @@ export function guardOverlap(
   return () => {
     if (inFlight) return Promise.reject(KAVAL_POLL_BUSY);
     const p = poll();
-    inFlight = p.finally(() => {
-      inFlight = undefined;
-    });
+    inFlight = p;
+    // Clear the guard the instant the poll settles. This is its OWN consumed
+    // handler — NOT chained off `p` and stored — so a rejecting poll can't leave
+    // an unobserved branch that surfaces as an unhandled rejection. The caller
+    // observes `p`'s rejection (via `withTimeout`); this handler only does the
+    // bookkeeping, swallowing nothing the caller doesn't already see.
+    void p.then(
+      () => {
+        inFlight = undefined;
+      },
+      () => {
+        inFlight = undefined;
+      },
+    );
     return p;
   };
 }
