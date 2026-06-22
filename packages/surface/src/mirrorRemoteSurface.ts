@@ -299,6 +299,14 @@ function buildProcedureForwarders(
  *      }, { signal, log });
  *      await procedures.terminal.kill({ id });  // forwarded to the remote
  *      await done;                              // resolves when the link closes
+ *
+ * BREAKING (R7): this used to return `Promise<void>`, so the settle was `await
+ * mirrorRemoteSurface(...)`. It now returns the plain handle `{ procedures, done }`,
+ * so a bare `await mirrorRemoteSurface(...)` no longer waits (await on a non-thenable
+ * resolves at once) — the settle is `await mirrorRemoteSurface(...).done`. Discarding
+ * the result is NOT type-caught, so a migrating consumer (drishti) must audit every
+ * call site and append `.done`. No back-compat thenable is offered: the fail-fast rule
+ * prefers a deliberate per-site migration over a shim that hides the changed contract.
  */
 export function mirrorRemoteSurface<S extends SurfaceSpec>(
   source: Surface<S>,
