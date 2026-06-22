@@ -956,7 +956,7 @@ const CodeTab: Component<{
               </Match>
               <Match when={treeReady()}>
                 <div
-                  class="h-full w-full min-h-0"
+                  class="relative h-full w-full min-h-0"
                   ref={(el) => {
                     // Keyed on the drawer-hosted layouts (`!isDesktop()` —
                     // phone + compact), NOT `isTouch`: the workaround is for
@@ -980,7 +980,7 @@ const CodeTab: Component<{
                       sidesteps the unmount-teardown race entirely. */}
                   <Show when={treePaths().length === 0}>
                     <div
-                      class="px-2 py-4 text-fg-3/50 text-center"
+                      class="absolute inset-x-0 top-0 z-10 bg-bg-1 px-2 py-4 text-fg-3/50 text-center"
                       data-testid="diff-empty"
                     >
                       {(() => {
@@ -994,10 +994,7 @@ const CodeTab: Component<{
                       })()}
                     </div>
                   </Show>
-                  <div
-                    class="h-full w-full"
-                    classList={{ hidden: treePaths().length === 0 }}
-                  >
+                  <div class="h-full w-full">
                     <FileTree
                       paths={treeSearch().projectedPaths}
                       gitStatus={treeGitStatus()}
