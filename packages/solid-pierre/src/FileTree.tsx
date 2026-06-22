@@ -267,6 +267,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // below reveals the picked row imperatively instead; we read `selectedPath`
   // untracked only so a genuine paths/expandPaths change reveals the current
   // selection.
+  // FT-DEBUG: bare reactive read of props.paths — does the prop update in scope?
+  createEffect(() => {
+    const p = props.paths;
+    console.log(`FT-PROPS npaths=${p.length}`);
+  });
+
   createEffect(
     on(
       [() => props.paths, () => props.expandPaths],
