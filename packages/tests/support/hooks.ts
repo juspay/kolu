@@ -890,6 +890,11 @@ Before(async function (this: KoluWorld, scenario) {
 // VP9 webm + poster). A long clip at 3200×1800 takes well over Cucumber's 70s
 // default, so give it room.
 After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
+  if (scenario.result?.status === Status.FAILED) {
+    try {
+      fs.appendFileSync("/tmp/e2e-fails.log", `${scenario.pickle.name}\n`);
+    } catch {}
+  }
   // Screenshot on failure
   if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(
