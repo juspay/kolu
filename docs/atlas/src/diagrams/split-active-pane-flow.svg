@@ -1,0 +1,42 @@
+<svg viewBox="0 0 780 168" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, sans-serif">
+  <rect x="8" y="8" width="764" height="152" rx="12" fill="#0c0c0e" stroke="#1f1f23" />
+  <text x="24" y="32" fill="#8b929d" font-size="13" font-weight="600">How the cue is driven — one existing signal, no new state</text>
+
+  <!-- Stage 1 -->
+  <rect x="24" y="56" width="156" height="68" rx="8" fill="#161618" stroke="#27272c" />
+  <text x="102" y="80" fill="#5a9ea0" font-size="12.5" font-weight="600" text-anchor="middle">focusTarget</text>
+  <text x="102" y="97" fill="#9aa0aa" font-size="11" text-anchor="middle">"main" | "sub"</text>
+  <text x="102" y="112" fill="#6b7280" font-size="10.5" text-anchor="middle">useSubPanel store</text>
+
+  <!-- arrow 1 -->
+  <line x1="180" y1="90" x2="214" y2="90" stroke="#4b5563" stroke-width="1.5" />
+  <polygon points="214,90 206,86 206,94" fill="#4b5563" />
+
+  <!-- Stage 2 -->
+  <rect x="214" y="56" width="176" height="68" rx="8" fill="#161618" stroke="#27272c" />
+  <text x="302" y="80" fill="#c7ccd6" font-size="12.5" font-weight="600" text-anchor="middle">TerminalContent</text>
+  <text x="302" y="97" fill="#9aa0aa" font-size="11" text-anchor="middle">gate: focused &amp;&amp; expanded</text>
+  <text x="302" y="112" fill="#6b7280" font-size="10.5" text-anchor="middle">→ pick the active pane</text>
+
+  <!-- arrow 2 -->
+  <line x1="390" y1="90" x2="424" y2="90" stroke="#4b5563" stroke-width="1.5" />
+  <polygon points="424,90 416,86 416,94" fill="#4b5563" />
+
+  <!-- Stage 3 -->
+  <rect x="424" y="56" width="160" height="68" rx="8" fill="#161618" stroke="#27272c" />
+  <text x="504" y="80" fill="#c7ccd6" font-size="12.5" font-weight="600" text-anchor="middle">data-pane-active</text>
+  <text x="504" y="97" fill="#9aa0aa" font-size="11" text-anchor="middle">on the live pane</text>
+  <text x="504" y="112" fill="#6b7280" font-size="10.5" text-anchor="middle">main pane / sub-panel</text>
+
+  <!-- arrow 3 -->
+  <line x1="584" y1="90" x2="618" y2="90" stroke="#4b5563" stroke-width="1.5" />
+  <polygon points="618,90 610,86 610,94" fill="#4b5563" />
+
+  <!-- Stage 4 -->
+  <rect x="618" y="56" width="138" height="68" rx="8" fill="#10201f" stroke="#5a9ea0" />
+  <text x="687" y="80" fill="#5a9ea0" font-size="12.5" font-weight="600" text-anchor="middle">accent cue</text>
+  <text x="687" y="97" fill="#9aa0aa" font-size="11" text-anchor="middle">CSS overlay</text>
+  <text x="687" y="112" fill="#6b7280" font-size="10.5" text-anchor="middle">--color-accent</text>
+
+  <text x="24" y="148" fill="#6b7280" font-size="10.5">Reuses the per-tile focus signal already persisted for session restore; CSS-only, painted over the terminal like the canvas tile-aura — no reflow.</text>
+</svg>
