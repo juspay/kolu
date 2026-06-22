@@ -15,7 +15,7 @@
 
 import { createEventListener } from "@solid-primitives/event-listener";
 import { bindMarkdownLinks } from "@kolu/solid-markdown";
-import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -35,10 +35,12 @@ export const FootnotePopover: Component<{
   /** Route an Obsidian-style `[[wikilink]]` clicked inside the footnote body. */
   onNavigateWikilink: (target: string, anchor: HTMLElement) => void;
 }> = (props) => {
-  // Captured panel element, to exclude its own scroll from the dismiss. The
-  // body's inner-link clicks are delegated through the package's own seam
-  // (`bindMarkdownLinks`, bound on the body ref below) — see the comment there.
-  const [panelEl, setPanelEl] = createSignal<HTMLElement>();
+  // Captured panel element, to exclude its own scroll from the dismiss. A plain
+  // `let` (not a signal) — it's only read synchronously inside the scroll
+  // listener, never in a reactive context. The body's inner-link clicks are
+  // delegated through the package's own seam (`bindMarkdownLinks`, bound on the
+  // body ref below) — see the comment there.
+  let panelEl: HTMLElement | undefined;
 
   const { panelRef, panelStyle } = useAnchoredPopover({
     triggerRef: () => props.target()?.anchor,
@@ -63,8 +65,8 @@ export const FootnotePopover: Component<{
     () => (props.target() ? document : undefined),
     "scroll",
     (e) => {
-      const el = panelEl();
-      if (el && e.target instanceof Node && el.contains(e.target)) return;
+      if (panelEl && e.target instanceof Node && panelEl.contains(e.target))
+        return;
       props.onDismiss();
     },
     { capture: true },
@@ -109,7 +111,7 @@ export const FootnotePopover: Component<{
       <Portal>
         <div
           ref={(el) => {
-            setPanelEl(el);
+            panelEl = el;
             panelRef(el);
           }}
           data-testid="footnote-popover"
