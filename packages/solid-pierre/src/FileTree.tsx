@@ -285,9 +285,17 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           }
           const fileOps = pathDiffOperations(appliedPaths, paths);
           console.log(
-            `FT-DIFF applied=${appliedPaths.length} new=${paths.length} fileOps=${fileOps.length}`,
+            `FT-DIFF applied=${appliedPaths.length} new=${paths.length} fileOps=${fileOps.length} ops=${JSON.stringify(fileOps).slice(0, 120)}`,
           ); // FT-DEBUG
-          if (fileOps.length > 0) tree.batch(fileOps);
+          if (fileOps.length > 0) {
+            try {
+              tree.batch(fileOps);
+              console.log(`FT-BATCH-OK n=${fileOps.length}`); // FT-DEBUG
+            } catch (e) {
+              console.log(`FT-BATCH-ERR ${(e as Error)?.message}`); // FT-DEBUG
+              throw e;
+            }
+          }
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
           // so the file removals above would otherwise strand a filter's
