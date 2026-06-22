@@ -40,7 +40,13 @@ function changePulseSource(
   return pollOnEvent<RepoChangePulse>({
     read: () => Promise.resolve({ seq: seq++ }),
     isEqual: (a, b) => a.seq === b.seq,
-    install,
+    install: (onEvent) => {
+      log.error({ label }, "RW3 install"); // RW3-DEBUG
+      return install(() => {
+        log.error({ label, seq }, "RW3 fired"); // RW3-DEBUG
+        onEvent();
+      });
+    },
     signal,
     onReadError: (err) =>
       log.error({ err }, `terminal-workspace: ${label} pulse read failed`),

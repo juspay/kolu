@@ -67,11 +67,15 @@ export function useWatchedRead<I, O>(
     const mine = ++token;
     void read(i).then(
       (out) => {
+        console.log(
+          `RW3 ok mine=${mine} cur=${token} out=${JSON.stringify(out).slice(0, 90)}`,
+        );
         if (mine !== token) return;
         setValue(() => out);
         setError(undefined);
       },
       (err: unknown) => {
+        console.log(`RW3 err mine=${mine} cur=${token} ${(err as Error)?.message}`);
         if (mine !== token) return;
         setError(err as Error);
         opts?.onError?.(err as Error);
@@ -95,8 +99,11 @@ export function useWatchedRead<I, O>(
   createEffect(
     on(
       () => pulse()?.seq,
-      () => {
+      (seq) => {
         const i = input();
+        console.log(
+          `RW3 pulse seq=${seq} in=${i ? JSON.stringify(i) : "null"} pErr=${pulse.error()?.message ?? "-"}`,
+        );
         if (i !== null) query(i);
       },
       { defer: true },
