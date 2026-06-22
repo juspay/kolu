@@ -449,7 +449,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // save armed before the sensors start still finds a cwd to persist, and the
     // browser has a badge to paint.
     publishAwareness(id, seedAwareness);
-    emitTerminalsDirty();
+    // Push the authored snapshot to `terminalMetadata` (this also arms the
+    // autosave). The collection's `upsert` is a no-op that only PUSHES to
+    // subscribers, so a state change reaches the client ONLY through this call.
+    // A WAKE flips the registry's `entry.meta` to active on the SAME id the sleep
+    // last pushed as sleeping; without this push the client stays at that stale
+    // sleeping record (`isLive` false → the dormant body never gives way to the
+    // live xterm). Fresh spawns push their birth record here too.
+    publishTerminalState(entry, id);
     emitTerminalListChanged();
 
     void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
