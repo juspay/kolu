@@ -95,7 +95,11 @@ export function guardOverlap(
 ): () => Promise<number> {
   let inFlight: Promise<number> | undefined;
   return () => {
-    if (inFlight) return Promise.reject(KAVAL_POLL_BUSY);
+    // Presence check, not a truthiness-of-Promise mistake: a poll is in flight
+    // iff we're still holding its (unsettled) promise. `!== undefined` says that
+    // explicitly so the intent reads as "another poll is running", never "await
+    // this" (biome's noMisusedPromises).
+    if (inFlight !== undefined) return Promise.reject(KAVAL_POLL_BUSY);
     const p = poll();
     inFlight = p;
     // Clear the guard the instant the poll settles. This is its OWN consumed
