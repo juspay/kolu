@@ -887,7 +887,7 @@ After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
     try {
       fs.appendFileSync(
         "/tmp/e2e-fails.log",
-        `### ${scenario.pickle.name}\n${scenario.result?.message?.slice(0, 600) ?? ""}\n\n`,
+        `### ${scenario.pickle.name}\n${scenario.result?.message?.slice(0, 400) ?? ""}\nPAGE-ERRORS: ${JSON.stringify(this.errors ?? []).slice(0, 600)}\n\n`,
       );
     } catch {}
   }
