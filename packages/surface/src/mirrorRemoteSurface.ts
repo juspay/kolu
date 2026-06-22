@@ -56,6 +56,25 @@ import type {
 import type { SurfaceClientLike } from "./project";
 import { isAbortReason, iterateUntilAborted } from "./server";
 
+// ── ClientSurfaceMismatchError ──────────────────────────────────────────
+
+/** One name for one invariant: a primitive/procedure the caller wired has no
+ *  matching entry on the `client`, so the client is wrong or incompatible. Every
+ *  mismatch site — the eager streaming-setup checks (`requireEntry`, the
+ *  collection `keys`-verb check) and the lazy per-procedure stub — throws this,
+ *  so the same fault reaches a consumer through one shared type regardless of
+ *  which channel (`done` vs a stub call) delivers it. The `what` clause names the
+ *  specific entry that's missing; the rest of the sentence is fixed here so the
+ *  contract lives in one place. */
+export class ClientSurfaceMismatchError extends Error {
+  constructor(what: string) {
+    super(
+      `mirrorRemoteSurface: ${what} — wrong or incompatible client (client/surface mismatch).`,
+    );
+    this.name = "ClientSurfaceMismatchError";
+  }
+}
+
 // ── SurfaceSink — the consume-side algebra ──────────────────────────────
 
 /** Per-primitive consumers for `mirrorRemoteSurface`, typed off the source
@@ -215,8 +234,8 @@ function requireEntry(
 ): EntryClient {
   const entry = ns[key];
   if (!entry || typeof entry.get !== "function") {
-    throw new Error(
-      `mirrorRemoteSurface: a sink was supplied for ${kind} "${key}" but the client has no such entry — wrong or incompatible client (client/surface mismatch).`,
+    throw new ClientSurfaceMismatchError(
+      `a sink was supplied for ${kind} "${key}" but the client has no such entry`,
     );
   }
   return entry;
@@ -251,8 +270,8 @@ function buildProcedureForwarders(
       verbs[verb] = async (input, callOpts) => {
         const fn = surfaceNs[nsKey]?.[verb];
         if (typeof fn !== "function") {
-          throw new Error(
-            `mirrorRemoteSurface: a forwarding stub was built for procedure "${nsKey}.${verb}" but the client has no such entry — wrong or incompatible client (client/surface mismatch).`,
+          throw new ClientSurfaceMismatchError(
+            `a forwarding stub was built for procedure "${nsKey}.${verb}" but the client has no such entry`,
           );
         }
         return fn(input, callOpts);
@@ -365,8 +384,8 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const entry = requireEntry(ns, key, "collection");
       // A collection MUST expose `keys` — a `get`-only entry can't be a collection.
       if (!entry.keys) {
-        throw new Error(
-          `mirrorRemoteSurface: client entry "${key}" is missing the "keys" verb — it cannot serve the "${key}" collection (client/surface mismatch).`,
+        throw new ClientSurfaceMismatchError(
+          `client entry "${key}" is missing the "keys" verb — it cannot serve the "${key}" collection`,
         );
       }
       const keysFn = entry.keys;

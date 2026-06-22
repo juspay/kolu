@@ -11,7 +11,10 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
-import { mirrorRemoteSurface } from "./mirrorRemoteSurface";
+import {
+  ClientSurfaceMismatchError,
+  mirrorRemoteSurface,
+} from "./mirrorRemoteSurface";
 import { type Channel, implementSurface, inMemoryChannel } from "./server";
 
 const testSurface = defineSurface({
@@ -396,6 +399,12 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     await expect(mirror.procedures.math.double({ x: 1 })).rejects.toThrow(
       /client\/surface mismatch/,
     );
+    // The lazy procedure channel and the eager streaming channel throw the SAME
+    // type, so a consumer can `instanceof`-discriminate the one fault regardless
+    // of which promise delivered it.
+    await expect(
+      mirror.procedures.math.double({ x: 1 }),
+    ).rejects.toBeInstanceOf(ClientSurfaceMismatchError);
   });
 
   it("exposes an empty procedures map for a surface with no procedures", () => {
