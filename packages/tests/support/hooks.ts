@@ -885,7 +885,10 @@ Before(async function (this: KoluWorld, scenario) {
 After({ timeout: 300_000 }, async function (this: KoluWorld, scenario) {
   if (scenario.result?.status === Status.FAILED) {
     try {
-      fs.appendFileSync("/tmp/e2e-fails.log", `${scenario.pickle.name}\n`);
+      fs.appendFileSync(
+        "/tmp/e2e-fails.log",
+        `### ${scenario.pickle.name}\n${scenario.result?.message?.slice(0, 600) ?? ""}\n\n`,
+      );
     } catch {}
   }
   // Screenshot on failure
