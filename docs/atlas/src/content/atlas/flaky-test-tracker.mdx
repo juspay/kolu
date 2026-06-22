@@ -3,7 +3,7 @@ title: Flaky Test Tracker
 description: A backlog of flaky tests — e2e (Cucumber + Playwright) and unit (vitest). Drop a row when you hit one; an agent clears the queue from time to time.
 parents: [reference]
 maturity: seedling
-updated: 2026-06-20
+updated: 2026-06-22
 ---
 
 import Pill from "../../components/Pill.astro";
@@ -35,9 +35,9 @@ _Queue clear — the eight below were fixed in <PrLink pr={1440} /> (struck = do
 | ~~Close sub-terminal via tab close button (`sub-terminal.feature:107`)~~ | `e2e@x86_64-linux` | `sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close) | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
 | ~~Scroll on terminal does not pan the canvas (`canvas.feature:161`)~~ | `e2e@aarch64-darwin` | tile-centering pan raced the recorded baseline → `canvas transform changed unexpectedly` | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
 | ~~Tile chrome shows task progress when Claude has tasks (`claude-code.feature:77`)~~ | `e2e@aarch64-darwin` | appended-transcript fs event dropped → task progress `3/5` never showed | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
-| ~~arivu daemon — dials a kaval, serves awareness (`daemon.test.ts`)~~ | `unit@x86_64-linux` | `waitFor` didn't catch a transient oRPC stream error from the live awareness collection → test threw (vitest, no retry) | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
+| ~~pulam daemon — dials a kaval, serves awareness (`daemon.test.ts`)~~ | `unit@x86_64-linux` | `waitFor` didn't catch a transient oRPC stream error from the live awareness collection → test threw (vitest, no retry) | <PrLink pr={1440} /> | <Pill variant="ok">fixed</Pill> | <PrLink pr={1440} /> |
 | createPtyHost — routes write() to the child and lists live PTYs (`kaval/src/ptyHost.test.ts:373`) | `unit@aarch64-darwin` | `Test timed out in 5000ms` — a real-PTY spawn-then-write test stalled past the 5s default on the darwin box; the linux lane passed the same SHA, and the PR touches no `packages/kaval` file (single-node rerun green) | <PrLink pr={1497} /> | <Pill variant="new">open</Pill> | — |
-| Sub-terminal keeps keyboard focus after close (`sub-terminal.feature`, `sub_terminal_steps.ts:132`) | `e2e@aarch64-darwin` | `the sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close); the same flake fixed for the linux lane in <PrLink pr={1440} /> recurring on the loaded darwin box (472/473 scenarios passed), unrelated to the PR's surface/arivu changes | <PrLink pr={1497} /> | <Pill variant="new">open</Pill> | — |
+| Sub-terminal keeps keyboard focus after close (`sub-terminal.feature`, `sub_terminal_steps.ts:132`) | `e2e@aarch64-darwin` | `the sub-terminal should have keyboard focus` — `waitForFunction` timeout (focus not restored after close); the same flake fixed for the linux lane in <PrLink pr={1440} /> recurring on the loaded darwin box (472/473 scenarios passed), unrelated to the PR's surface/pulam changes | <PrLink pr={1497} /> | <Pill variant="new">open</Pill> | — |
 
 ## Logging a flake
 

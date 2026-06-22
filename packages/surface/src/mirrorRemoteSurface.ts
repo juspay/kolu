@@ -20,7 +20,7 @@
  *
  * The sink does NOT have to re-serve the surface (that is `projectSurface`'s job —
  * "a server that's a client"). A sink can fold the frames anywhere: the
- * `arivu-tui` fleet board keys every host's terminals into one `(host, id)` Solid
+ * `pulam-tui` fleet board keys every host's terminals into one `(host, id)` Solid
  * store; kolu's R-2 fold is intended to merge each awareness upsert into its own
  * co-owned `terminalMetadata` (a planned/drishti consumer, not yet wired in this
  * repo). So the sink is per-primitive *callbacks*, never a fixed local ctx —

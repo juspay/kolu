@@ -16,8 +16,8 @@
  * client-persisted UI fields — themeName / parentId / canvasLayout / … — on
  * top of that; those are NOT on `TerminalServerMetadata`, the server write
  * fence.) So the awareness value is not carved out of kolu's record — kolu's
- * record extends this generic base. That inversion is what lets `arivu` (the
- * standalone daemon) and `arivu-tui` (the viewer) reuse the sensors with zero
+ * record extends this generic base. That inversion is what lets `pulam` (the
+ * standalone daemon) and `pulam-tui` (the viewer) reuse the sensors with zero
  * dependency on any kolu-app package.
  *
  * The persisted-vs-live partition is the same write fence the sensors honor
@@ -176,7 +176,7 @@ export const AwarenessLiveFieldsSchema = z.object({
 export type AwarenessLiveFields = z.infer<typeof AwarenessLiveFieldsSchema>;
 
 /** The whole generic awareness value — persisted half ∪ live half. kolu's
- *  `TerminalServerMetadata` is this plus `location`; `arivu` serves exactly
+ *  `TerminalServerMetadata` is this plus `location`; `pulam` serves exactly
  *  this over the wire. */
 export const AwarenessValueSchema = AwarenessPersistedFieldsSchema.merge(
   AwarenessLiveFieldsSchema,
@@ -188,7 +188,7 @@ export type AwarenessValue = z.infer<typeof AwarenessValueSchema>;
  *  no agent, no foreground, recency at 0). The sensors fill it in from now.
  *
  *  Owned HERE, beside the schema that defines its shape, so every consumer
- *  shares one seed: `arivu`'s daemon seeds a watched terminal with it, and
+ *  shares one seed: `pulam`'s daemon seeds a watched terminal with it, and
  *  kolu's `createMetadata` spreads it under the kolu-only `location`. A new
  *  awareness field then has exactly one seed value to set. */
 export function seedAwarenessValue(cwd: string): AwarenessValue {

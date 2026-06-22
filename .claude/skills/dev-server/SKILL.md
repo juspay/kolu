@@ -145,7 +145,7 @@ you can't resolve a PID by port, leave the process.
 
 **Any background process *you* spawned — capture its PID at spawn and kill *that*
 exact PID, never re-resolve it.** This applies beyond the dev server: a kaval /
-arivu dialer you start for evidence capture, an ssh-tunnelled daemon, anything
+pulam dialer you start for evidence capture, an ssh-tunnelled daemon, anything
 backgrounded with `&`. Record `$!` the instant you launch it
 (`nohup … & PID=$!; echo "$PID" >> .dev-server/spawned.pids`) and kill by `$PID`.
 A re-resolved `pgrep`/`pkill` can only *guess* which match is yours and will pick

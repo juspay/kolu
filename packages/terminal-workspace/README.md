@@ -7,7 +7,7 @@ running and whether it's _working_ or _waiting on you_, the foreground process)
 **and** serves the **fs/git reads** the Code tab needs (the file tree, a file's
 contents, git status + diffs, and live change notifications). It runs in two
 homes off one codebase: **in-process** in `kolu-server` (local terminals) and
-**hosted by `arivu`** over ssh (remote ones) — the same two homes the sensors
+**hosted by `pulam`** over ssh (remote ones) — the same two homes the sensors
 already proved.
 
 ## What it does
@@ -46,7 +46,7 @@ contract shapes:
   and re-exposes the reads on `koluSurface`'s **value-bearing streams** — each
   stream yields the actual `GitStatusOutput` / `GitDiffOutput` /
   `FsListAllOutput` / `FsReadFileOutput` and re-yields on change.
-- **arivu** (remote) serves them on `terminalWorkspaceSurface` (`./surface`,
+- **pulam** (remote) serves them on `terminalWorkspaceSurface` (`./surface`,
   browser-safe): the `fs.*` / `git.*` read **procedures** plus the
   `subscribeRepoChange` / `subscribeFileChange` payload-free `{seq}` **pulse
   watcher streams** a consumer requeries on. `fsGitSurfaceDeps`
@@ -74,7 +74,7 @@ git/fs, the per-agent packages for agent state).
 
 `kolu-server` embeds it (sensors in-process; fs/git bound to its local
 `TerminalEndpoint`; awareness folded into the terminal metadata it serves the
-browser, the reads re-exposed on `koluSurface`'s value-bearing streams). `arivu`
+browser, the reads re-exposed on `koluSurface`'s value-bearing streams). `pulam`
 serves the impl on `terminalWorkspaceSurface` remotely; the single surface both
 homes serve is closed in R8.
 
@@ -87,7 +87,7 @@ consumer:
 | --- | --- | --- |
 | `.` | Node | the sensors (`startAwareness`) + `AwarenessValue` |
 | `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
-| `./surface` | browser-safe | `terminalWorkspaceSurface` — arivu's surface (kolu mirrors it in R8) |
+| `./surface` | browser-safe | `terminalWorkspaceSurface` — pulam's surface (kolu mirrors it in R8) |
 | `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
 | `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
 | `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |

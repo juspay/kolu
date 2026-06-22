@@ -1,7 +1,7 @@
 /**
  * `@kolu/terminal-workspace/endpoint` — the host-side fs/git wrapper, lifted out
  * of kolu-server's `localEndpoint` (R6) so it has ONE home both kolu (in-process)
- * and arivu (remote) drive. A thin layer over `kolu-git`: it unwraps each
+ * and pulam (remote) drive. A thin layer over `kolu-git`: it unwraps each
  * `GitResult` into a value or a thrown `ORPCError` (fail-fast — a git error
  * surfaces, never collapses to an empty result), and adapts the watcher
  * callbacks. The terminal-endpoint ORCHESTRATION around it (spawn · adopt · the
@@ -107,7 +107,7 @@ export function unwrapGit<T>(result: GitResult<T>): T {
 /** The host-side fs/git endpoint — shell out to `kolu-git` on this machine. One
  *  impl, two faces: kolu-server binds it to its in-process `TerminalEndpoint`,
  *  and `serveFsGit` exposes it on the `terminalWorkspaceSurface` (procedures +
- *  watcher streams) that arivu serves and R8 mirrors. `log` is injected — the
+ *  watcher streams) that pulam serves and R8 mirrors. `log` is injected — the
  *  package's lone host coupling, never a fallback knob. */
 export function createTerminalWorkspaceEndpoint(log: Logger): {
   fs: TerminalEndpointFs;

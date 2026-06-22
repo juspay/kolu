@@ -2,7 +2,7 @@
  * `@kolu/terminal-workspace/serveFsGit` — FACE B of the lifted fs/git wrapper:
  * the `implementSurface` deps that expose `createTerminalWorkspaceEndpoint`'s
  * one impl on the `terminalWorkspaceSurface` as procedures + watcher streams.
- * arivu spreads these alongside its `awareness`/`activity`/`version` deps so the
+ * pulam spreads these alongside its `awareness`/`activity`/`version` deps so the
  * remote home serves the SAME fs/git the in-process home (kolu-server) does.
  *
  * The fs/git reads map 1:1 to procedures (request → response, location-

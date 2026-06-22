@@ -1,0 +1,4 @@
+# Local-dev only: register @opentui/solid's babel-preset-solid JSX transform at
+# load time so `bun run src/bin.ts` is reactive. The Nix BUILD path runs the same
+# transform once at build time instead — see packages/pulam-tui/build.ts for why.
+preload = ["@opentui/solid/preload"]

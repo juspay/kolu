@@ -1,7 +1,7 @@
 /**
  * `@kolu/terminal-workspace` — the host-side terminal WORKSPACE library, run in
  * two homes off one codebase: in-process in kolu-server (local terminals) and
- * hosted by `arivu` over ssh (remote ones). Lifted out of kolu-server so both
+ * hosted by `pulam` over ssh (remote ones). Lifted out of kolu-server so both
  * homes share ONE copy of the freshness-critical code. Its entry points
  * (the export map is the boundary — node-only code never reaches a browser
  * consumer):
@@ -11,10 +11,10 @@
  *  - `./endpoint` — `createTerminalWorkspaceEndpoint`, the host-side fs/git
  *    wrapper over `kolu-git` the Code tab reads.
  *  - `./surface` — `terminalWorkspaceSurface`, the browser-safe served surface
- *    (awareness + fs/git) arivu serves and a remote kolu mirrors in R8.
+ *    (awareness + fs/git) pulam serves and a remote kolu mirrors in R8.
  *  - `./serveFsGit` — `fsGitSurfaceDeps`, the deps wiring the endpoint onto the
  *    surface.
- *  - `./socket` — the well-known arivu rendezvous socket path.
+ *  - `./socket` — the well-known pulam rendezvous socket path.
  *
  * The package names no kolu-app package: its lone host coupling — a logger —
  * is injected as a `startAwareness` parameter. Consumers that only need the
@@ -24,6 +24,6 @@
 export * from "./sensors.ts";
 export * from "./schema.ts";
 // The kaval-dial bridge — taps → `AwarenessSignals`. Only the standalone
-// `arivu` daemon needs it (kolu-server builds its channels in-process); it
+// `pulam` daemon needs it (kolu-server builds its channels in-process); it
 // lives here so there is one copy of the transport adapter, not a fork.
 export * from "./kavalChannels.ts";

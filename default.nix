@@ -36,12 +36,12 @@
   # threaded in here. Defaults to "{}" for a bare `nix-build default.nix` (no
   # --host map; --host then fails with a clear "run from the Nix wrapper" error).
 , kavalAgentDrvsJson ? "{}"
-  # Per-system `{ system → arivu .drv }` map, baked onto the arivu-tui wrapper as
-  # ARIVU_AGENT_DRVS_JSON so `arivu-tui --host <ssh>` can ship the target-arch
-  # arivu DAEMON derivation (provisionAgent copies+realises it on the remote).
+  # Per-system `{ system → pulam .drv }` map, baked onto the pulam-tui wrapper as
+  # PULAM_AGENT_DRVS_JSON so `pulam-tui --host <ssh>` can ship the target-arch
+  # pulam DAEMON derivation (provisionAgent copies+realises it on the remote).
   # Built across all systems in flake.nix and threaded in here, exactly like
   # kavalAgentDrvsJson. Defaults to "{}" for a bare `nix-build default.nix`.
-, arivuAgentDrvsJson ? "{}"
+, pulamAgentDrvsJson ? "{}"
 }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -86,8 +86,8 @@ let
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
-      ./packages/arivu
-      ./packages/arivu-tui
+      ./packages/pulam
+      ./packages/pulam-tui
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -399,8 +399,8 @@ let
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
   # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
-  # remote. kaval-tui is the sole consumer today — arivu-tui re-platformed to Bun
-  # in arivu P3 PR1 (its own wrapper below) and no longer shares this shape. The
+  # remote. kaval-tui is the sole consumer today — pulam-tui re-platformed to Bun
+  # in pulam P3 PR1 (its own wrapper below) and no longer shares this shape. The
   # factory still earns its keep as kaval-tui's home and the template a future
   # tsx-based `--host` CLI would reuse: name, entrypoint, and the per-system
   # `{ system → agent .drv }` map env var are the only volatile axes. The map is
@@ -441,10 +441,10 @@ let
     agentDrvsJson = kavalAgentDrvsJson;
   };
 
-  # arivu (arivu plan P1c): the standalone terminal-workspace daemon. Dials a
+  # pulam (plan P1c): the standalone terminal-workspace daemon. Dials a
   # running kaval as a plain ptyHostSurface client, runs the awareness sensors
   # (git · PR · agent · foreground) for every PTY kaval owns, and serves the
-  # result as one `awareness` collection that arivu-tui reads — zero kolu-server
+  # result as one `awareness` collection that pulam-tui reads — zero kolu-server
   # involvement. Ephemeral: owns no PTYs, holds no gate, recomputes from now on
   # every start. Runs from the SAME built workspace closure as `kolu` (so kaval
   # + @kolu/surface + @kolu/terminal-workspace resolve identically).
@@ -454,61 +454,61 @@ let
   # teardown runs (the same reason kaval's bin uses it). The sensors shell out
   # to `git` (git context) and the pinned `gh` (KOLU_GH_BIN — PR resolution),
   # so both are on PATH / in the env, exactly as kolu's own wrapper carries them.
-  arivu = pkgs.runCommand "arivu"
+  pulam = pkgs.runCommand "pulam"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "arivu";
+      meta.mainProgram = "pulam";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/arivu \
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/pulam \
       --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
-      --add-flags "${kolu}/packages/arivu/src/bin.ts" \
+      --add-flags "${kolu}/packages/pulam/src/bin.ts" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # arivu-tui (arivu plan P1c + P2; re-platformed to Bun in P3 PR1): the
-  # terminal-side viewer that dials a running arivu's awareness socket and
+  # pulam-tui (pulam plan P1c + P2; re-platformed to Bun in P3 PR1): the
+  # terminal-side viewer that dials a running pulam's awareness socket and
   # lists/watches what each terminal IS IN (branch · PR · agent · foreground).
   # A pure surface CLIENT, so it needs no git/gh and no state dir.
   #
   # Unlike kaval-tui (still tsx, via mkAgentTuiWrapper above), the viewer runs
-  # under **Bun** — the contained, deliberate runtime split arivu P3 needs: PR1
+  # under **Bun** — the contained, deliberate runtime split pulam P3 needs: PR1
   # stood up the Bun runtime; PR2a compiles the OpenTUI/Solid bundle (dist/bin.js)
-  # in the `arivuTuiBuilt` tree and runs it. The Bun-ness is one wrapper, one
-  # binary: the daemon (`arivu`, below) and the rest of kolu stay Node, so the Bun
-  # runtime never crosses ssh. See packages/arivu-tui/nix.
+  # in the `pulamTuiBuilt` tree and runs it. The Bun-ness is one wrapper, one
+  # binary: the daemon (`pulam`, below) and the rest of kolu stay Node, so the Bun
+  # runtime never crosses ssh. See packages/pulam-tui/nix.
   #
   # LD_LIBRARY_PATH below carries libstdc++ for @opentui/core's native dlopen —
-  # see packages/arivu-tui/build.ts for why that one package stays native.
+  # see packages/pulam-tui/build.ts for why that one package stays native.
   #
-  # P2's `--host <ssh>` still rides this wrapper: ARIVU_AGENT_DRVS_JSON carries
-  # the per-system `{ system → arivu .drv }` map so the viewer can ship the
-  # target-arch arivu DAEMON derivation to a remote (the daemon stays Node).
+  # P2's `--host <ssh>` still rides this wrapper: PULAM_AGENT_DRVS_JSON carries
+  # the per-system `{ system → pulam .drv }` map so the viewer can ship the
+  # target-arch pulam DAEMON derivation to a remote (the daemon stays Node).
   # openssh + nix are on PATH for that provision (the same `nix copy` /
   # `nix-store` path mkAgentTuiWrapper documents); nodejs is NOT — Bun replaces
   # it, and the viewer spawns no node locally.
-  arivu-tui =
+  pulam-tui =
     let
       # bun2nix via npins (NOT a flake input) — see nix/bun2nix.nix. Forced only
       # here (the daemon-drvPath import in flake.nix and a bare `nix-build
       # default.nix` never touch this attr), so `nix develop` cold eval and the
       # Node build paths never realise bun2nix's transitive nodes.
       b2n = import ./nix/bun2nix.nix { inherit pkgs; };
-      arivuTuiBuilt = pkgs.callPackage ./packages/arivu-tui/nix {
+      pulamTuiBuilt = pkgs.callPackage ./packages/pulam-tui/nix {
         bun2nix = b2n;
         koluSrc = src;
       };
     in
-    pkgs.runCommand "arivu-tui"
+    pkgs.runCommand "pulam-tui"
       {
         nativeBuildInputs = [ pkgs.makeWrapper ];
-        meta.mainProgram = "arivu-tui";
+        meta.mainProgram = "pulam-tui";
       } ''
       mkdir -p $out/bin
-      makeWrapper ${pkgs.bun}/bin/bun $out/bin/arivu-tui \
-        --add-flags "${arivuTuiBuilt.entryPath}" \
-        --set ARIVU_AGENT_DRVS_JSON '${arivuAgentDrvsJson}' \
+      makeWrapper ${pkgs.bun}/bin/bun $out/bin/pulam-tui \
+        --add-flags "${pulamTuiBuilt.entryPath}" \
+        --set PULAM_AGENT_DRVS_JSON '${pulamAgentDrvsJson}' \
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]} \
         --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}
     '';
@@ -558,5 +558,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui arivu arivu-tui koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui pulam pulam-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

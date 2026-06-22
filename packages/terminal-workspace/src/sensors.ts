@@ -98,7 +98,7 @@ export interface AwarenessRecord {
 }
 
 /** Per-terminal signals the sensors subscribe to. The host (kolu-server's
- *  local endpoint, or `arivu`) creates a fresh in-memory channel of each kind
+ *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
 export interface AwarenessSignals {
@@ -132,7 +132,7 @@ export interface AwarenessSignals {
  *  and decides recency off `record.meta.lastActivityAt`, and the foreground
  *  sensor's own `published` mirror assumes the write landed. A sink that
  *  type-checks but publishes to a collection WITHOUT mutating `record.meta`
- *  (a plausible mistake for an extracted-package consumer like `arivu`) would
+ *  (a plausible mistake for an extracted-package consumer like `pulam`) would
  *  silently defeat every one of those dedup/transition gates — repeated
  *  commands re-published, agent state re-emitted each tick, recency
  *  double-bumped. kolu-server's `makeAwarenessSink` satisfies this because its

@@ -162,7 +162,7 @@ describe("buildAgentCommand", () => {
     const { args } = buildAgentCommand({
       host: "localhost",
       agentPath: "/nix/store/x-agent",
-      binary: "arivu",
+      binary: "pulam",
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
     expect(args).toEqual([
@@ -176,7 +176,7 @@ describe("buildAgentCommand", () => {
     const { args } = buildAgentCommand({
       host: "bob.example",
       agentPath: "/nix/store/x-agent",
-      binary: "arivu",
+      binary: "pulam",
       // A value with a space + a single quote would re-split / break the remote
       // command line unquoted; the quoting must make it one literal token. A
       // safe bare word like `--kaval` is left unquoted by `shellQuoteArg` (the

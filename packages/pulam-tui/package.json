@@ -1,0 +1,28 @@
+{
+  "name": "pulam-tui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/bin.ts",
+    "build": "bun build.ts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:render": "bun test ./src/tui.bun-test.tsx ./src/fleet.bun-test.tsx"
+  },
+  "dependencies": {
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-nix-host": "workspace:*",
+    "@kolu/terminal-workspace": "workspace:*",
+    "@opentui/core": "^0.4.1",
+    "@opentui/solid": "^0.4.1",
+    "cleye": "^2.3.0",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.0"
+  }
+}

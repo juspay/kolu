@@ -387,6 +387,39 @@ Feature: Canvas workspace
     Then exactly 3 canvas tiles should use the webgl renderer
     And there should be no page errors
 
+  Scenario: Double-clicking the bare background of a populated canvas opens the new-terminal palette
+    # The bare canvas surface is itself an affordance for creating a terminal:
+    # a double-click on it opens the command palette pre-drilled into the
+    # "New terminal" group — the same surface the dock's + button reaches.
+    Then there should be 1 canvas tile
+    When I double-click the empty canvas background
+    Then the command palette should be visible
+    And the palette breadcrumb should show "New terminal"
+    And there should be no page errors
+
+  Scenario: Double-clicking the zero-terminal welcome canvas opens the new-terminal palette
+    # The first-run / closed-everything welcome canvas is a SEPARATE render
+    # branch from the populated canvas (App.tsx's `empty` Match, not
+    # TerminalCanvas), so the create gesture must be wired there too — this is
+    # the path a brand-new user actually hits. Close the only terminal to reach
+    # the true zero-terminal state, then double-click the bare welcome surface.
+    Then there should be 1 canvas tile
+    When I close the active terminal via command palette
+    Then the empty state tip should be visible
+    When I double-click the empty canvas background
+    Then the command palette should be visible
+    And the palette breadcrumb should show "New terminal"
+    And there should be no page errors
+
+  Scenario: Double-clicking a terminal tile does not open the new-terminal palette
+    # The create affordance is the bare surface only — a double-click that lands
+    # inside a tile (selecting a word, or the title bar's maximize) must never
+    # spawn the palette.
+    Then there should be 1 canvas tile
+    When I double-click canvas tile 1
+    Then the command palette should not be visible
+    And there should be no page errors
+
   Scenario: Double-clicking the title bar maximizes the tile
     Given I create a terminal
     Then there should be 2 canvas tiles

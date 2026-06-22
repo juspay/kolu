@@ -94,7 +94,7 @@ function emitTerminalListChanged(): void {
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
 // The thin wrapper over `kolu-git` was lifted to `@kolu/terminal-workspace`
-// (R6) so kolu (here, in-process) and arivu (remote) drive ONE impl. This
+// (R6) so kolu (here, in-process) and pulam (remote) drive ONE impl. This
 // endpoint binds that impl to its `TerminalEndpoint`; the surface streams in
 // `surface.ts` read it off `localEndpoint.fs/git` byte-identically.
 const { fs: localFs, git: localGit } = createTerminalWorkspaceEndpoint(log);

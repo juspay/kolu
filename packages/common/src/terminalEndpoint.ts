@@ -116,7 +116,7 @@ export interface TerminalHandle {
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
 // — now live in `@kolu/terminal-workspace/endpoint`, beside the one impl both
-// kolu (in-process) and arivu (remote) drive (R6). The composite below imports
+// kolu (in-process) and pulam (remote) drive (R6). The composite below imports
 // them; a future remote endpoint implements them from the same home.
 
 /** Per-terminal world — the three surfaces (PTY · fs · git) bound to an

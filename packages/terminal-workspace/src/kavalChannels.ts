@@ -1,11 +1,11 @@
 /**
  * Bridge a `kaval` PTY-host client's raw tap streams onto the
  * `AwarenessSignals` the sensor set consumes — the connective tissue the
- * standalone `arivu` daemon needs and kolu-server does NOT.
+ * standalone `pulam` daemon needs and kolu-server does NOT.
  *
  * kolu-server builds the same four in-memory channels inline in its local
  * endpoint (`terminalEndpoint/local.ts`), feeding them from its *in-process*
- * pty-host. `arivu` instead *dials* kaval over a socket and feeds the channels
+ * pty-host. `pulam` instead *dials* kaval over a socket and feeds the channels
  * from the wire — identical sensor set, different transport. That single
  * difference is exactly why this bridge lives here (one copy, reused) rather
  * than being duplicated in the daemon: `startAwareness` is transport-agnostic,
@@ -15,7 +15,7 @@
  * Pure plumbing: it subscribes each `ptyHostSurface` stream and republishes
  * onto the matching channel until `signal` aborts. It does NOT touch the
  * record or the sink — keeping the persisted-cwd write (a host concern) where
- * the host wants it (see `arivu`'s daemon, which adds it as its own channel
+ * the host wants it (see `pulam`'s daemon, which adds it as its own channel
  * consumer, mirroring local.ts). The git→PR sensor-to-sensor wire is internal
  * to `startAwareness`, so it is not one of these channels.
  */
