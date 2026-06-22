@@ -95,11 +95,17 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   };
 
   return (
+    // The wrapper fills the empty canvas to center the card, but its bare
+    // area is `pointer-events-none` so a double-click on empty space falls
+    // through to the canvas-container's double-click-to-create gesture (the
+    // container guards on `target === currentTarget`). The card itself is
+    // `pointer-events-auto`, so its buttons/toggles stay clickable and a
+    // double-click on the card never reaches the create handler.
     <div
       data-testid="empty-state"
-      class="flex items-center justify-center h-full"
+      class="flex items-center justify-center h-full pointer-events-none"
     >
-      <div class={`${chrome.class} p-5 max-w-md w-full`}>
+      <div class={`${chrome.class} p-5 max-w-md w-full pointer-events-auto`}>
         {/* The bird's-eye welcome — desktop only (no mobile welcome, by design). */}
         <Show when={showsWelcome()}>
           <div class="mb-5 pb-5 border-b border-edge">
