@@ -73,8 +73,11 @@ export const FootnotePopover: Component<{
   // The popover body: a cleaned clone of the definition `<li>`. Three removals,
   // on the *clone* only (never the live node the bottom list still shows):
   //   - its `id` — the live `<li>` keeps it, so the clone must not duplicate it;
-  //   - every back-ref ↩ (`href` carries `-ref-`; a re-cited note has several) —
-  //     a "jump back to the marker" link is meaningless inside the popover;
+  //   - every back-ref ↩ (flagged `data-md-footnote-backref` by the renderer; a
+  //     re-cited note has several) — a "jump back to the marker" link is
+  //     meaningless inside the popover. We key on the package's own structural
+  //     flag, not marked-footnote's id scheme, so a marked-footnote bump fails
+  //     loudly in render.test.ts rather than silently leaving stray ↩ links.
   //   - the `data-md-footnote` flag on any *nested* ref marker, so a footnote
   //     that cites another footnote renders an inert superscript here (no
   //     popover-on-popover, no recursion).
@@ -85,7 +88,7 @@ export const FootnotePopover: Component<{
     if (!def) return "";
     const clone = def.cloneNode(true) as HTMLElement;
     clone.removeAttribute("id");
-    for (const back of clone.querySelectorAll('a[href*="-ref-"]'))
+    for (const back of clone.querySelectorAll("a[data-md-footnote-backref]"))
       back.remove();
     for (const nested of clone.querySelectorAll("[data-md-footnote]"))
       nested.removeAttribute("data-md-footnote");

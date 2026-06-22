@@ -195,12 +195,16 @@ const DOCUMENT_ATTR = [
   // entry. The link policy keys on it to route the click to the pathless
   // wikilink resolver instead of the directory-relative one.
   "data-md-wikilink",
-  // The footnote marker the renderer (`rewriteFootnotes`) stamps on a forward
-  // reference. Like `data-md-wikilink`, only the parser can distinguish a
-  // forward ref from its back-ref, so the flag is minted pre-sanitize and must
-  // survive DOMPurify (which strips marked-footnote's own `class`/`data-footnote-*`
-  // markers). The client keys on it to open the definition in a popover.
+  // The footnote markers the renderer (`rewriteFootnotes`) stamps on the two
+  // anchor kinds: `data-md-footnote` on a forward reference, and the sibling
+  // `data-md-footnote-backref` on the ↩ back-ref. Like `data-md-wikilink`, only
+  // the parser can distinguish a forward ref from its back-ref, so both flags
+  // are minted pre-sanitize and must survive DOMPurify (which strips
+  // marked-footnote's own `class`/`data-footnote-*` markers). The client keys on
+  // the forward flag to open the definition in a popover and on the back-ref
+  // flag to strip ↩ links from the popover clone.
   "data-md-footnote",
+  "data-md-footnote-backref",
 ];
 const INTENT_ATTR = ["href", "title"];
 

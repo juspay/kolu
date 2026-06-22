@@ -297,27 +297,31 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
-/** Flag every footnote *forward reference* with an allowlist-safe
- *  `data-md-footnote` attribute, so the client can recognise the marker after
- *  the sanitizer strips marked-footnote's own markers (`class`,
- *  `data-footnote-*` and `aria-describedby` are all dropped). Same move alerts
- *  make above.
+/** Flag both footnote anchor kinds with allowlist-safe `data-md-footnote*`
+ *  attributes, so the client can recognise each after the sanitizer strips
+ *  marked-footnote's own markers (`class`, `data-footnote-*` and
+ *  `aria-describedby` are all dropped). Same move alerts make above.
  *
- *  marked-footnote emits a forward ref as
+ *  marked-footnote emits a *forward* ref as
  *  `<sup><a … data-footnote-ref aria-describedby="footnote-label">n</a></sup>`
- *  and the back-ref (↩) as `<a … data-footnote-backref>`. The bare
- *  `data-footnote-ref` attribute is unique to forward refs — so we stamp the
- *  flag on those and leave the back-ref untouched (it keeps scrolling up, never
- *  pops). Tagging here, on the parser's own output, is unambiguous; detecting
- *  the ref structurally *after* sanitization would mistake a back-ref (whose
- *  href is also `#md-footnote-…`) — or a heading literally titled "Footnote 1"
- *  minting the same id — for a marker. The definition is found post-sanitize
- *  from the anchor's own `href`. */
+ *  and the *back*-ref (↩) as `<a … data-footnote-backref>`. The bare
+ *  `data-footnote-ref` / `data-footnote-backref` attributes uniquely tell the
+ *  two apart — so we stamp `data-md-footnote` on the forward ref (the host opens
+ *  its definition in a popover) and a sibling `data-md-footnote-backref` on the
+ *  back-ref (the popover strips these from its clone — a "jump to marker" link
+ *  is meaningless inside the note). Tagging here, on the parser's own output, is
+ *  unambiguous; detecting either structurally *after* sanitization would mistake
+ *  a back-ref (whose href is also `#md-footnote-…`) — or a heading literally
+ *  titled "Footnote 1" minting the same id — for a marker, and couples the host
+ *  to marked-footnote's id scheme. The forward ref's definition is found
+ *  post-sanitize from the anchor's own `href`. */
 function rewriteFootnotes(html: string): string {
-  return html.replace(
-    /<a (?=[^>]*\bdata-footnote-ref\b)/g,
-    "<a data-md-footnote ",
-  );
+  return html
+    .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
+    .replace(
+      /<a (?=[^>]*\bdata-footnote-backref\b)/g,
+      "<a data-md-footnote-backref ",
+    );
 }
 
 // The soft-break setting and the raw-HTML toggle are the axes that vary the

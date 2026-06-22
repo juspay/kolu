@@ -191,37 +191,49 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[^1]");
   });
 
-  it("flags only the forward-ref anchor with data-md-footnote", () => {
+  it("flags the forward ref with data-md-footnote and the back-ref with data-md-footnote-backref", () => {
     // marked-footnote marks a forward reference with the bare `data-footnote-ref`
     // attribute and the back-ref (↩) with `data-footnote-backref`; both are
-    // stripped by the sanitizer. rewriteFootnotes stamps an allowlist-safe
-    // `data-md-footnote` flag on the forward ref *only*, so the click seam can
-    // recognise the marker after sanitization. This test pins that contract —
-    // a marked-footnote bump that changed the marker would fail here loudly
-    // rather than silently breaking the popover.
+    // stripped by the sanitizer. rewriteFootnotes stamps allowlist-safe sibling
+    // flags — `data-md-footnote` on the forward ref (the host opens its
+    // definition in a popover) and `data-md-footnote-backref` on the back-ref
+    // (the popover strips these from its clone) — so each is recognisable after
+    // sanitization. This test pins BOTH contracts: a marked-footnote bump that
+    // changed either marker fails here loudly rather than silently breaking the
+    // popover (a dangling forward ref) or leaving stray ↩ links in it.
     const out = html("body[^1] more\n\n[^1]: the note");
-    // The flag rides the forward ref (which still carries marked-footnote's own
-    // `data-footnote-ref`) and nothing else.
+    // The forward flag rides the forward ref (which still carries
+    // marked-footnote's own `data-footnote-ref`) and nothing else.
     expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
-    expect(out.match(/data-md-footnote/g)).toHaveLength(1);
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(1);
     // The forward ref's href targets the definition <li> (`#footnote-1`); the
     // host resolves the popover content from that landing id.
     expect(out).toContain('href="#footnote-1"');
-    // The back-ref exists and stays untagged — it keeps scrolling up, never pops.
-    expect(out).toContain("data-footnote-backref");
-    expect(out).not.toMatch(/data-md-footnote[^>]*data-footnote-backref/);
+    // The back-ref flag rides the back-ref (which still carries marked-footnote's
+    // own `data-footnote-backref`) — and the forward ref does NOT carry it.
+    expect(out).toMatch(
+      /<a data-md-footnote-backref [^>]*data-footnote-backref/,
+    );
+    expect(out.match(/data-md-footnote-backref/g)).toHaveLength(1);
+    expect(out).not.toMatch(/data-md-footnote [^>]*data-footnote-backref/);
   });
 
   it("tags every citation of a re-cited footnote, all pointing at one definition", () => {
     // A footnote cited twice mints two forward refs (`footnote-ref-1` and
     // `footnote-ref-1-2`), both linking to the single definition `#footnote-1`.
-    // Both citations must be tagged; the definition's two back-refs must not be.
+    // Both citations carry the forward flag; the definition's two back-refs carry
+    // the back-ref flag, never the forward one. The `(?![-\w])` boundary keeps
+    // the forward count from matching the `data-md-footnote-backref` substring.
     const out = html("a[^1] b[^1]\n\n[^1]: once");
-    expect(out.match(/data-md-footnote/g)).toHaveLength(2);
-    expect(out.match(/data-md-footnote[^>]*href="#footnote-1"/g)).toHaveLength(
-      2,
+    expect(out.match(/data-md-footnote(?![-\w])/g)).toHaveLength(2);
+    expect(
+      out.match(/data-md-footnote(?![-\w])[^>]*href="#footnote-1"/g),
+    ).toHaveLength(2);
+    expect(out).not.toMatch(
+      /data-md-footnote(?![-\w])[^>]*data-footnote-backref/,
     );
-    expect(out).not.toMatch(/data-md-footnote[^>]*data-footnote-backref/);
+    // Both back-refs carry the back-ref flag and never the forward one.
+    expect(out.match(/data-md-footnote-backref/g)).toHaveLength(2);
   });
 
   it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
