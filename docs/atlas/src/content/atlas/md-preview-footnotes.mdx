@@ -20,8 +20,9 @@ scrolling down, reading, and scrolling back to where you were. This plan keeps
 that bottom list but adds a **click popover**: tap the marker, read the
 footnote in place, dismiss. It threads the *same* click seam the wikilink and
 relative-link previews already use, so it adds **no dependency and no new
-package**. Verdict: <Pill>~half a day, low–medium risk</Pill> (the half-step of
-risk is the popover-on-scroll decision in §3).
+package**. Verdict: <Pill>~half a day, low risk</Pill> — the decisions below
+took the simplest branch at every fork (dismiss-on-scroll, click/tap only,
+`useAnchoredPopover` untouched).
 
 export const docText = {
   fontFamily: "Georgia, 'Times New Roman', serif",
@@ -146,11 +147,15 @@ export const PopoverShot = () => (
             "margin-top": "0.5rem",
             "border-top": "1px solid #efefef",
             "padding-top": "0.4rem",
+            display: "flex",
+            "justify-content": "space-between",
+            "align-items": "center",
             color: "#9a9aa6",
             "font-size": "0.72rem",
           }}
         >
-          click outside · Esc to dismiss
+          <span>click outside · scroll to dismiss</span>
+          <span style={{ color: "#6d4ed6" }}>see all ↓</span>
         </div>
       </div>
     </div>
@@ -159,9 +164,10 @@ export const PopoverShot = () => (
 
 ## What the reader sees
 
-A footnote marker becomes a button. Click (or tap) the small `[1]` and its
-definition opens in a card anchored just under the marker, where your eye
-already is. Click anywhere else, press <kbd>Esc</kbd>, or click the marker
+A footnote marker becomes a button. Click (or tap) the small `[1]` — the marker
+carries a pointer cursor and a subtle hover highlight so it reads as clickable —
+and its definition opens in a card anchored just under the marker, where your
+eye already is. Click anywhere else, scroll the document, or click the marker
 again, and it closes. The gesture is identical on a trackpad and on a phone —
 there is no hover step, so nothing is stranded on touch.
 
@@ -176,6 +182,10 @@ The details that matter to a reader:
   printable, copyable, screen-reader-navigable record of every note — and it is
   where the popover reads its content from. The popover is an *additional* way
   in, not a replacement.
+- **The popover keeps a "see all ↓" link.** A small footer link scrolls to the
+  matching entry in the bottom section and closes the popover — today's
+  scroll-to-definition, preserved as a deliberate secondary path for readers who
+  want the whole list.
 - **Footnote bodies can be rich.** A note may run to several paragraphs or carry
   a link, a `[[wikilink]]`, inline code, or an image. The panel renders the full
   body and scrolls if it is tall; any link inside it still opens the right way,
@@ -183,6 +193,10 @@ The details that matter to a reader:
   file, wikilinks resolve vault-wide, images load through the repo route).
 - **The back-reference `↩` is unaffected.** It still lives in the bottom section
   and still jumps back to the marker; it never opens a popover.
+- **Click and tap only, for now.** Opening is a pointer gesture; keyboard
+  activation and a screen-reader relationship are a deliberate follow-up (see
+  §Implementation), because the bottom section already carries the accessible
+  record.
 
 <Callout>
 Only the **document** preview is in scope — and that is by construction, not a
@@ -241,6 +255,16 @@ interact → host-overlay path that alerts (`data-md-alert`) and wikilinks
 releases: the package gains one callback and the client renders one panel, in
 the same diff.
 
+<Callout>
+**Decisions locked — build-ready.** Open on **click / tap only** (keyboard +
+screen-reader relationship are a tracked follow-up). **Dismiss on scroll**, so
+the shared `useAnchoredPopover` stays untouched. The popover keeps a **"see
+all ↓"** link to the bottom section. The marker gets a **pointer-cursor + hover
+highlight** affordance and **no tip**. Detection is a parser-minted
+**`data-md-footnote`** flag (not structural). Scope is the **document** preview
+only.
+</Callout>
+
 ### Package side — pin the contract, then one marker and one callback
 
 DOMPurify is brutal on footnote markup: `class`, every `data-footnote-*`, and
@@ -260,7 +284,9 @@ package's only new surface:
   `rewriteAlerts` (`render.ts:291`). It runs on the *pre-sanitize* string, where
   `marked-footnote`'s `class="footnote-ref"` / `data-footnote-ref` markers still
   exist, and rewrites the forward-ref anchor to carry an allowlist-safe
-  `data-md-footnote` attribute (the back-ref `↩` is deliberately *not* tagged).
+  `data-md-footnote` attribute — a *bare flag* like `data-md-rel`, carrying no
+  value; the definition is found from the anchor's own `href` (the back-ref `↩`
+  is deliberately *not* tagged).
   This is the same move alerts make, and it sidesteps the two traps of detecting
   the ref by structure after sanitization: a back-ref `↩` link also points at
   `#md-footnote-…`, and a heading literally titled "Footnote 1" would mint the
@@ -275,34 +301,66 @@ package's only new surface:
   → `props.onFootnote(anchor, definition)`. The back-ref `↩` keeps the existing
   scroll-up behaviour. Add the `onFootnote(anchor, definition)` prop (mirror
   `onNavigateWikilink`, `Markdown.tsx:153`).
+- **`markdown.css`** — the discoverability affordance: give
+  `.kolu-md [data-md-footnote]` a `cursor: pointer` and a subtle hover highlight
+  (a `color-mix` tint, matching the stylesheet's `currentColor` idiom) so the
+  marker reads as clickable. No tip is registered (the marker styling carries
+  it).
 
 ### Client side — render the popover (reuse `useAnchoredPopover`)
 
 - **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
   `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
-- **`BrowseFileDispatcher.tsx`** — a `createSignal<{ anchor, definition }>()` set
-  in `onFootnote` (mirror `wikiMenu`, `BrowseFileDispatcher.tsx:147`), and a
+- **`solid-fileview/src/renderers/markdown.tsx`** — thread `onFootnote` through
+  `MarkdownRenderer`'s props, mirroring `onNavigateWikilink` (`markdown.tsx:29`).
+  Nothing else changes here.
+- **`BrowseFileDispatcher.tsx`** — owns the popover, because it already defines the
+  preview's resolvers (`onNavigateRelative` / `onNavigateWikilink` /
+  `resolveImageSrc`) and can hand the same ones to the popover's inner links. A
+  `createSignal<{ anchor, definition } | null>()`
+  set in `onFootnote` (mirror `wikiMenu`, `BrowseFileDispatcher.tsx:147`), and a
   `FootnotePopover` rendered via `<Portal>` + `useAnchoredPopover({ triggerRef:
-  () => fn()?.anchor, anchor: "bottom-start", flip: true, onDismiss })` — the same
-  recipe as the `OptionMenu` disambiguation list (`BrowseFileDispatcher.tsx:462`).
-  Panel content is `definition.cloneNode(true)` with **every** `a[href*="-ref-"]`
-  back-ref removed and the `id` stripped (a re-cited footnote has several `↩`, and
-  the clone must not duplicate a live `id`); its already-sanitized `innerHTML` is
-  re-injected and the same delegated click handling bound, so inner
-  relative-links / wikilinks / images route through the host resolvers the
-  preview already wires. Reuse `surface()` for chrome (as `OptionMenu` does) with
-  a `max-height` + scroll for tall bodies.
+  () => fn()?.anchor, open: () => fn() != null, onDismiss: () => setFn(null),
+  anchor: "bottom-start", flip: true, panelMinWidth: 320 })` — the same recipe as
+  the `OptionMenu` disambiguation list (`BrowseFileDispatcher.tsx:462`). Concrete
+  decisions baked in:
+  - **Toggle.** If `onFootnote` fires for the marker that is already open, close
+    instead of reopening (compare `anchor` identity).
+  - **Dismiss on scroll.** While open, attach a capture-phase `scroll` listener on
+    `document` (`createEventListener(() => fn() ? document : undefined, "scroll",
+    () => setFn(null), { capture: true })`) so a scroll in *either* nested
+    `overflow:auto` ancestor closes it. `useAnchoredPopover` is used **unchanged**.
+  - **Right-edge fit.** Passing `panelMinWidth: 320` lets the hook's existing
+    left-clamp keep a marker-near-the-edge panel on-screen (it has no horizontal
+    shift).
+  - **Size.** Panel `width: min(360px, calc(100vw - 2rem))`,
+    `max-height: min(50vh, 22rem)`, `overflow: auto`; reuse `surface()` for chrome
+    (as `OptionMenu` does).
+  - **Content.** `definition.cloneNode(true)` with **every** `a[href*="-ref-"]`
+    back-ref removed and the `id` stripped (a re-cited footnote has several `↩`,
+    and the clone must not duplicate a live `id`); re-inject its already-sanitized
+    `innerHTML` and bind the same delegated click handling, so inner
+    relative-links / wikilinks / images route through the host resolvers.
+  - **"See all ↓".** A footer link that `scrollIntoView`s the matching
+    `#md-footnote-n` `<li>` in the bottom section, then `setFn(null)`.
+- **Out of scope (tracked follow-up):** keyboard activation and a screen-reader
+  relationship. Opening is pointer-only by decision; the bottom section remains
+  the accessible record. A follow-up can add Enter/Space-to-open on the focused
+  marker plus an `aria-details` link — note it in the PR description so it isn't
+  mistaken for an oversight.
 
 ### The risks that bite
 
-- **`useAnchoredPopover` doesn't track scroll.** It repositions only on
-  open/trigger-change (`useAnchoredPopover.ts:135`), and the preview sits inside
-  *nested* `overflow:auto` containers — so a panel anchored with `position:fixed`
-  drifts off the marker as the reader scrolls, and `flip` is vertical-only (a
-  marker near the right edge of the reading column can overflow). Decide one:
-  **dismiss-on-scroll** (smallest, keeps the hook untouched — the likely first
-  cut) or **extend `useAnchoredPopover`** with a scroll/resize reposition. This is
-  the low → low-medium risk bump in the verdict.
+- **`useAnchoredPopover` doesn't track scroll — and that is fine, because we
+  dismiss on scroll.** The hook repositions only on open/trigger-change
+  (`useAnchoredPopover.ts:135`), and the preview sits inside *nested*
+  `overflow:auto` containers, so a panel anchored with `position:fixed` would
+  drift off the marker as the reader scrolls. **Decided:** close the popover on
+  scroll (the capture-phase listener above), so the hook is used unchanged and
+  there is no drift — reopen with a click. `flip` is vertical-only (no horizontal
+  shift), so a marker near the right edge could overflow; the `panelMinWidth: 320`
+  left-clamp handles it. (Follow-the-marker re-anchoring was considered and
+  declined — it is the only thing that would have touched the shared hook.)
 - **The comment overlay.** The preview is wrapped in `CommentTextSurface` with a
   `MutationObserver` over its subtree; an *in-flow* popup would trip it. The
   `Portal`-to-body route avoids it entirely — which is what `useAnchoredPopover`

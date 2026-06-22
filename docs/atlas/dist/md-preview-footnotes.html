@@ -5,8 +5,9 @@ scrolling down, reading, and scrolling back to where you were. This plan keeps
 that bottom list but adds a <strong>click popover</strong>: tap the marker, read the
 footnote in place, dismiss. It threads the <em>same</em> click seam the wikilink and
 relative-link previews already use, so it adds <strong>no dependency and no new
-package</strong>. Verdict: <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-2qeywk4b>~half a day, low–medium risk</span> (the half-step of
-risk is the popover-on-scroll decision in §3).</p>
+package</strong>. Verdict: <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-2qeywk4b>~half a day, low risk</span> — the decisions below
+took the simplest branch at every fork (dismiss-on-scroll, click/tap only,
+<code>useAnchoredPopover</code> untouched).</p>
 
 
 
@@ -14,18 +15,23 @@ risk is the popover-on-scroll decision in §3).</p>
 
 
 <h2 id="what-the-reader-sees">What the reader sees</h2>
-<p>A footnote marker becomes a button. Click (or tap) the small <code>[1]</code> and its
-definition opens in a card anchored just under the marker, where your eye
-already is. Click anywhere else, press <kbd>Esc</kbd>, or click the marker
+<p>A footnote marker becomes a button. Click (or tap) the small <code>[1]</code> — the marker
+carries a pointer cursor and a subtle hover highlight so it reads as clickable —
+and its definition opens in a card anchored just under the marker, where your
+eye already is. Click anywhere else, scroll the document, or click the marker
 again, and it closes. The gesture is identical on a trackpad and on a phone —
 there is no hover step, so nothing is stranded on touch.</p>
-<div style="display:flex;gap:1rem;flex-wrap:wrap;margin:1.5rem 0"><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#b42318;background:#fdecea;border:1px solid #f3c9c4;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">today — scroll down, then back</span><div style="font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#3454d1;font-family:ui-sans-serif, system-ui;font-weight:600">[1]</sup>, which is why a cold start looks idle for a beat.</div><div style="margin:0.9rem 0;text-align:center;color:#b9b9c2;font-family:ui-sans-serif, system-ui;font-size:0.72rem;letter-spacing:0.08em">⌄   scroll past the whole document   ⌄</div><div style="border-top:1px solid #e2e2e6;padding-top:0.5rem;color:#6b7280;font-family:ui-sans-serif, system-ui;font-size:0.8rem"><strong style="font-size:0.85rem">Footnotes</strong><div style="margin-top:0.3rem">1. The settle gate waits for the first PTY frame. <span style="color:#3454d1">↩</span></div></div></div><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#3a2bb0;background:#eef0ff;border:1px solid #cdc4f5;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">this plan — click → popover</span><div style="position:relative;font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#5a3ff0;font-family:ui-sans-serif, system-ui;font-weight:600;outline:2px solid #c9bdf7;border-radius:3px;padding:0 2px">[1]</sup>, which is why a cold start looks idle for a beat.<div style="margin-top:0.55rem;width:min(100%, 320px);background:#ffffff;border:1px solid #d4cbff;border-radius:10px;box-shadow:0 8px 24px rgba(40,30,90,0.16);padding:0.7rem 0.85rem;font-family:ui-sans-serif, system-ui;font-size:0.82rem;color:#2a2a33;line-height:1.5"><span style="color:#6d4ed6;font-weight:700;margin-right:0.35rem">1</span>The settle gate waits for the first PTY frame — see<span style="color:#3454d1;text-decoration:underline;text-underline-offset:2px"> the daemon note</span>.<div style="margin-top:0.5rem;border-top:1px solid #efefef;padding-top:0.4rem;color:#9a9aa6;font-size:0.72rem">click outside · Esc to dismiss</div></div></div></div></div>
+<div style="display:flex;gap:1rem;flex-wrap:wrap;margin:1.5rem 0"><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#b42318;background:#fdecea;border:1px solid #f3c9c4;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">today — scroll down, then back</span><div style="font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#3454d1;font-family:ui-sans-serif, system-ui;font-weight:600">[1]</sup>, which is why a cold start looks idle for a beat.</div><div style="margin:0.9rem 0;text-align:center;color:#b9b9c2;font-family:ui-sans-serif, system-ui;font-size:0.72rem;letter-spacing:0.08em">⌄   scroll past the whole document   ⌄</div><div style="border-top:1px solid #e2e2e6;padding-top:0.5rem;color:#6b7280;font-family:ui-sans-serif, system-ui;font-size:0.8rem"><strong style="font-size:0.85rem">Footnotes</strong><div style="margin-top:0.3rem">1. The settle gate waits for the first PTY frame. <span style="color:#3454d1">↩</span></div></div></div><div style="flex:1 1 280px;min-width:280px;border:1px solid #e2e2e6;border-radius:12px;padding:1rem 1.1rem;background:#fbfbfd"><span style="display:inline-block;font-family:ui-sans-serif, system-ui;font-size:0.72rem;font-weight:600;color:#3a2bb0;background:#eef0ff;border:1px solid #cdc4f5;border-radius:999px;padding:0.1rem 0.6rem;margin-bottom:0.6rem">this plan — click → popover</span><div style="position:relative;font-family:Georgia, 'Times New Roman', serif;font-size:0.92rem;line-height:1.7;color:#1f2328">…the daemon promotes the surface only once it settles<sup style="font-size:0.7em;vertical-align:super;color:#5a3ff0;font-family:ui-sans-serif, system-ui;font-weight:600;outline:2px solid #c9bdf7;border-radius:3px;padding:0 2px">[1]</sup>, which is why a cold start looks idle for a beat.<div style="margin-top:0.55rem;width:min(100%, 320px);background:#ffffff;border:1px solid #d4cbff;border-radius:10px;box-shadow:0 8px 24px rgba(40,30,90,0.16);padding:0.7rem 0.85rem;font-family:ui-sans-serif, system-ui;font-size:0.82rem;color:#2a2a33;line-height:1.5"><span style="color:#6d4ed6;font-weight:700;margin-right:0.35rem">1</span>The settle gate waits for the first PTY frame — see<span style="color:#3454d1;text-decoration:underline;text-underline-offset:2px"> the daemon note</span>.<div style="margin-top:0.5rem;border-top:1px solid #efefef;padding-top:0.4rem;display:flex;justify-content:space-between;align-items:center;color:#9a9aa6;font-size:0.72rem"><span>click outside · scroll to dismiss</span><span style="color:#6d4ed6">see all ↓</span></div></div></div></div></div>
 <p>The details that matter to a reader:</p>
 <ul>
 <li><strong>The bottom “Footnotes” section stays exactly as it is.</strong> It is still the
 printable, copyable, screen-reader-navigable record of every note — and it is
 where the popover reads its content from. The popover is an <em>additional</em> way
 in, not a replacement.</li>
+<li><strong>The popover keeps a “see all ↓” link.</strong> A small footer link scrolls to the
+matching entry in the bottom section and closes the popover — today’s
+scroll-to-definition, preserved as a deliberate secondary path for readers who
+want the whole list.</li>
 <li><strong>Footnote bodies can be rich.</strong> A note may run to several paragraphs or carry
 a link, a <code>[[wikilink]]</code>, inline code, or an image. The panel renders the full
 body and scrolls if it is tall; any link inside it still opens the right way,
@@ -33,6 +39,10 @@ because it rides the preview’s existing resolvers (relative links open the
 file, wikilinks resolve vault-wide, images load through the repo route).</li>
 <li><strong>The back-reference <code>↩</code> is unaffected.</strong> It still lives in the bottom section
 and still jumps back to the marker; it never opens a popover.</li>
+<li><strong>Click and tap only, for now.</strong> Opening is a pointer gesture; keyboard
+activation and a screen-reader relationship are a deliberate follow-up (see
+§Implementation), because the bottom section already carries the accessible
+record.</li>
 </ul>
 <aside class="callout callout-note" data-astro-cid-mrmim4ef>  <div class="callout-body" data-astro-cid-mrmim4ef><p>Only the <strong>document</strong> preview is in scope — and that is by construction, not a
 limitation. The compact/inline chat slots strip the whole footnotes
@@ -156,6 +166,13 @@ interact → host-overlay path that alerts (<code>data-md-alert</code>) and wiki
 (<code>data-md-wikilink</code>) already proved, so there is nothing to stage across
 releases: the package gains one callback and the client renders one panel, in
 the same diff.</p>
+<aside class="callout callout-note" data-astro-cid-mrmim4ef>  <div class="callout-body" data-astro-cid-mrmim4ef><p><strong>Decisions locked — build-ready.</strong> Open on <strong>click / tap only</strong> (keyboard +
+screen-reader relationship are a tracked follow-up). <strong>Dismiss on scroll</strong>, so
+the shared <code>useAnchoredPopover</code> stays untouched. The popover keeps a <strong>“see
+all ↓”</strong> link to the bottom section. The marker gets a <strong>pointer-cursor + hover
+highlight</strong> affordance and <strong>no tip</strong>. Detection is a parser-minted
+<strong><code>data-md-footnote</code></strong> flag (not structural). Scope is the <strong>document</strong> preview
+only.</p></div> </aside>
 <h3 id="package-side--pin-the-contract-then-one-marker-and-one-callback">Package side — pin the contract, then one marker and one callback</h3>
 <p>DOMPurify is brutal on footnote markup: <code>class</code>, every <code>data-footnote-*</code>, and
 <code>aria-describedby</code> are all stripped, so the only thing that survives a forward
@@ -174,7 +191,9 @@ package’s only new surface:</p>
 <code>rewriteAlerts</code> (<code>render.ts:291</code>). It runs on the <em>pre-sanitize</em> string, where
 <code>marked-footnote</code>’s <code>class=&quot;footnote-ref&quot;</code> / <code>data-footnote-ref</code> markers still
 exist, and rewrites the forward-ref anchor to carry an allowlist-safe
-<code>data-md-footnote</code> attribute (the back-ref <code>↩</code> is deliberately <em>not</em> tagged).
+<code>data-md-footnote</code> attribute — a <em>bare flag</em> like <code>data-md-rel</code>, carrying no
+value; the definition is found from the anchor’s own <code>href</code> (the back-ref <code>↩</code>
+is deliberately <em>not</em> tagged).
 This is the same move alerts make, and it sidesteps the two traps of detecting
 the ref by structure after sanitization: a back-ref <code>↩</code> link also points at
 <code>#md-footnote-…</code>, and a heading literally titled “Footnote 1” would mint the
@@ -189,33 +208,66 @@ placed <strong>before</strong> the generic <code>#</code>-anchor scroll branch (
 → <code>props.onFootnote(anchor, definition)</code>. The back-ref <code>↩</code> keeps the existing
 scroll-up behaviour. Add the <code>onFootnote(anchor, definition)</code> prop (mirror
 <code>onNavigateWikilink</code>, <code>Markdown.tsx:153</code>).</li>
+<li><strong><code>markdown.css</code></strong> — the discoverability affordance: give
+<code>.kolu-md [data-md-footnote]</code> a <code>cursor: pointer</code> and a subtle hover highlight
+(a <code>color-mix</code> tint, matching the stylesheet’s <code>currentColor</code> idiom) so the
+marker reads as clickable. No tip is registered (the marker styling carries
+it).</li>
 </ul>
 <h3 id="client-side--render-the-popover-reuse-useanchoredpopover">Client side — render the popover (reuse <code>useAnchoredPopover</code>)</h3>
 <ul>
 <li><strong><code>solid-fileview/src/renderers/markdown.tsx</code></strong> — thread <code>onFootnote</code> through
 <code>MarkdownRenderer</code>’s props, mirroring <code>onNavigateWikilink</code> (<code>markdown.tsx:29</code>).</li>
-<li><strong><code>BrowseFileDispatcher.tsx</code></strong> — a <code>createSignal&lt;{ anchor, definition }&gt;()</code> set
-in <code>onFootnote</code> (mirror <code>wikiMenu</code>, <code>BrowseFileDispatcher.tsx:147</code>), and a
-<code>FootnotePopover</code> rendered via <code>&lt;Portal&gt;</code> + <code>useAnchoredPopover({ triggerRef: () =&gt; fn()?.anchor, anchor: &quot;bottom-start&quot;, flip: true, onDismiss })</code> — the same
-recipe as the <code>OptionMenu</code> disambiguation list (<code>BrowseFileDispatcher.tsx:462</code>).
-Panel content is <code>definition.cloneNode(true)</code> with <strong>every</strong> <code>a[href*=&quot;-ref-&quot;]</code>
-back-ref removed and the <code>id</code> stripped (a re-cited footnote has several <code>↩</code>, and
-the clone must not duplicate a live <code>id</code>); its already-sanitized <code>innerHTML</code> is
-re-injected and the same delegated click handling bound, so inner
-relative-links / wikilinks / images route through the host resolvers the
-preview already wires. Reuse <code>surface()</code> for chrome (as <code>OptionMenu</code> does) with
-a <code>max-height</code> + scroll for tall bodies.</li>
+<li><strong><code>solid-fileview/src/renderers/markdown.tsx</code></strong> — thread <code>onFootnote</code> through
+<code>MarkdownRenderer</code>’s props, mirroring <code>onNavigateWikilink</code> (<code>markdown.tsx:29</code>).
+Nothing else changes here.</li>
+<li><strong><code>BrowseFileDispatcher.tsx</code></strong> — owns the popover, because it already defines the
+preview’s resolvers (<code>onNavigateRelative</code> / <code>onNavigateWikilink</code> /
+<code>resolveImageSrc</code>) and can hand the same ones to the popover’s inner links. A
+<code>createSignal&lt;{ anchor, definition } | null&gt;()</code>
+set in <code>onFootnote</code> (mirror <code>wikiMenu</code>, <code>BrowseFileDispatcher.tsx:147</code>), and a
+<code>FootnotePopover</code> rendered via <code>&lt;Portal&gt;</code> + <code>useAnchoredPopover({ triggerRef: () =&gt; fn()?.anchor, open: () =&gt; fn() != null, onDismiss: () =&gt; setFn(null), anchor: &quot;bottom-start&quot;, flip: true, panelMinWidth: 320 })</code> — the same recipe as
+the <code>OptionMenu</code> disambiguation list (<code>BrowseFileDispatcher.tsx:462</code>). Concrete
+decisions baked in:
+<ul>
+<li><strong>Toggle.</strong> If <code>onFootnote</code> fires for the marker that is already open, close
+instead of reopening (compare <code>anchor</code> identity).</li>
+<li><strong>Dismiss on scroll.</strong> While open, attach a capture-phase <code>scroll</code> listener on
+<code>document</code> (<code>createEventListener(() =&gt; fn() ? document : undefined, &quot;scroll&quot;, () =&gt; setFn(null), { capture: true })</code>) so a scroll in <em>either</em> nested
+<code>overflow:auto</code> ancestor closes it. <code>useAnchoredPopover</code> is used <strong>unchanged</strong>.</li>
+<li><strong>Right-edge fit.</strong> Passing <code>panelMinWidth: 320</code> lets the hook’s existing
+left-clamp keep a marker-near-the-edge panel on-screen (it has no horizontal
+shift).</li>
+<li><strong>Size.</strong> Panel <code>width: min(360px, calc(100vw - 2rem))</code>,
+<code>max-height: min(50vh, 22rem)</code>, <code>overflow: auto</code>; reuse <code>surface()</code> for chrome
+(as <code>OptionMenu</code> does).</li>
+<li><strong>Content.</strong> <code>definition.cloneNode(true)</code> with <strong>every</strong> <code>a[href*=&quot;-ref-&quot;]</code>
+back-ref removed and the <code>id</code> stripped (a re-cited footnote has several <code>↩</code>,
+and the clone must not duplicate a live <code>id</code>); re-inject its already-sanitized
+<code>innerHTML</code> and bind the same delegated click handling, so inner
+relative-links / wikilinks / images route through the host resolvers.</li>
+<li><strong>“See all ↓”.</strong> A footer link that <code>scrollIntoView</code>s the matching
+<code>#md-footnote-n</code> <code>&lt;li&gt;</code> in the bottom section, then <code>setFn(null)</code>.</li>
+</ul>
+</li>
+<li><strong>Out of scope (tracked follow-up):</strong> keyboard activation and a screen-reader
+relationship. Opening is pointer-only by decision; the bottom section remains
+the accessible record. A follow-up can add Enter/Space-to-open on the focused
+marker plus an <code>aria-details</code> link — note it in the PR description so it isn’t
+mistaken for an oversight.</li>
 </ul>
 <h3 id="the-risks-that-bite">The risks that bite</h3>
 <ul>
-<li><strong><code>useAnchoredPopover</code> doesn’t track scroll.</strong> It repositions only on
-open/trigger-change (<code>useAnchoredPopover.ts:135</code>), and the preview sits inside
-<em>nested</em> <code>overflow:auto</code> containers — so a panel anchored with <code>position:fixed</code>
-drifts off the marker as the reader scrolls, and <code>flip</code> is vertical-only (a
-marker near the right edge of the reading column can overflow). Decide one:
-<strong>dismiss-on-scroll</strong> (smallest, keeps the hook untouched — the likely first
-cut) or <strong>extend <code>useAnchoredPopover</code></strong> with a scroll/resize reposition. This is
-the low → low-medium risk bump in the verdict.</li>
+<li><strong><code>useAnchoredPopover</code> doesn’t track scroll — and that is fine, because we
+dismiss on scroll.</strong> The hook repositions only on open/trigger-change
+(<code>useAnchoredPopover.ts:135</code>), and the preview sits inside <em>nested</em>
+<code>overflow:auto</code> containers, so a panel anchored with <code>position:fixed</code> would
+drift off the marker as the reader scrolls. <strong>Decided:</strong> close the popover on
+scroll (the capture-phase listener above), so the hook is used unchanged and
+there is no drift — reopen with a click. <code>flip</code> is vertical-only (no horizontal
+shift), so a marker near the right edge could overflow; the <code>panelMinWidth: 320</code>
+left-clamp handles it. (Follow-the-marker re-anchoring was considered and
+declined — it is the only thing that would have touched the shared hook.)</li>
 <li><strong>The comment overlay.</strong> The preview is wrapped in <code>CommentTextSurface</code> with a
 <code>MutationObserver</code> over its subtree; an <em>in-flow</em> popup would trip it. The
 <code>Portal</code>-to-body route avoids it entirely — which is what <code>useAnchoredPopover</code>
