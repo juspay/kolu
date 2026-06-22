@@ -1,7 +1,4 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { directLink } from "@kolu/surface/links/direct";
 import {
@@ -16,6 +13,7 @@ import {
   type TerminalEndpointFs,
   type TerminalEndpointGit,
 } from "./endpoint.ts";
+import { makeTempRepo } from "./gitRepo.testlib.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
 import {
   DEFAULT_VERSION,
@@ -94,20 +92,6 @@ describe("fsGitSurfaceDeps watcher pulses", () => {
 
 // ── The served surface end-to-end over an in-process directLink, with the REAL
 //    endpoint against a temp git repo.
-function mkTempRepo(): string {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-serve-"));
-  const git = (...args: string[]) =>
-    execFileSync("git", args, { cwd: repo, stdio: "pipe" });
-  git("init", "-q");
-  git("config", "user.email", "test@example.com");
-  git("config", "user.name", "Test");
-  fs.writeFileSync(path.join(repo, "a.txt"), "one\n");
-  git("add", "a.txt");
-  git("commit", "-q", "-m", "init");
-  fs.writeFileSync(path.join(repo, "a.txt"), "one\ntwo\n");
-  return repo;
-}
-
 function makeClient() {
   const deps = fsGitSurfaceDeps(createTerminalWorkspaceEndpoint(log), log);
   const { router } = implementSurface(terminalWorkspaceSurface, {
@@ -134,7 +118,7 @@ function makeClient() {
 describe("terminalWorkspaceSurface served over directLink", () => {
   let repo: string;
   beforeEach(() => {
-    repo = mkTempRepo();
+    repo = makeTempRepo();
   });
   afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
