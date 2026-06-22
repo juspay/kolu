@@ -10,7 +10,7 @@
  * `PreferencesSchema` / `TerminalMetadataSchema` / `ActivityFeedSchema` are
  * composed from — splitting them across files would just re-fragment the same
  * domain. The generic awareness sub-schemas (agent + PR sub-types, foreground,
- * terminal identity) are OWNED by `@kolu/terminal-awareness/schema` (P1a) and
+ * terminal identity) are OWNED by `@kolu/terminal-workspace/schema` (P1a) and
  * re-exported below; kolu's terminal-field schemas EXTEND that base rather than
  * declare it.
  *
@@ -40,7 +40,7 @@ import {
   AwarenessPersistedFieldsSchema,
   PrResultSchema,
   TerminalIdSchema,
-} from "@kolu/terminal-awareness/schema";
+} from "@kolu/terminal-workspace/schema";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import {
@@ -55,10 +55,10 @@ import {
 } from "kolu-git/schemas";
 import { z } from "zod";
 
-// ── Re-exports — the awareness domain moved to @kolu/terminal-awareness (P1a) ──
+// ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
 // The generic awareness value (terminal identity, agent status, PR resolution,
-// foreground) is OWNED by `@kolu/terminal-awareness/schema` now. kolu-common
+// foreground) is OWNED by `@kolu/terminal-workspace/schema` now. kolu-common
 // EXTENDS that base — adding `location` and the client/UI fields below — and
 // re-exports the moved symbols so existing `kolu-common/surface` import sites
 // are unchanged: the schema home inverted, the consumers didn't move.
@@ -71,7 +71,7 @@ export {
   prUnavailableReason,
   prUnavailableSource,
   reasonForSource,
-} from "@kolu/terminal-awareness/schema";
+} from "@kolu/terminal-workspace/schema";
 export type {
   AgentInfo,
   AgentKind,
@@ -82,7 +82,7 @@ export type {
   PrResult,
   PrUnavailableSource,
   TerminalId,
-} from "@kolu/terminal-awareness/schema";
+} from "@kolu/terminal-workspace/schema";
 export { TerminalIdSchema };
 
 export const CanvasLayoutSchema = z.object({
@@ -194,7 +194,7 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
  *
  * This is kolu's EXTENSION of the generic `AwarenessPersistedFieldsSchema`
  * (cwd · git · lastAgentCommand · lastActivityAt, owned by
- * `@kolu/terminal-awareness`): the awareness base plus the one kolu-specific
+ * `@kolu/terminal-workspace`): the awareness base plus the one kolu-specific
  * field, `location`. The schema home inverted in P1a — kolu's record is built
  * ON TOP of the awareness value, not the other way around.
  *
@@ -262,7 +262,7 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * schemas, it round-trips through disk as-is.
  *
  * Identical to the generic `AwarenessLiveFieldsSchema` (pr · agent ·
- * foreground, owned by `@kolu/terminal-awareness`): no kolu-specific field
+ * foreground, owned by `@kolu/terminal-workspace`): no kolu-specific field
  * rides the live half (`location` is persisted, not live), so kolu aliases the
  * awareness live schema directly rather than re-declaring it.
  *
@@ -318,7 +318,7 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // union; any consumer that touches a live field must first narrow
 // `state === "active"` — the compiler refuses a live field on the bare union, so
 // a sleeping terminal can sit on the canvas yet never be an input/WebGL target.
-// The awareness schemas in `@kolu/terminal-awareness` stay FLAT: the union is
+// The awareness schemas in `@kolu/terminal-workspace` stay FLAT: the union is
 // recomposed HERE, and `state` never crosses the awareness wire (arivu/kaval
 // never see a sleeping arm).
 

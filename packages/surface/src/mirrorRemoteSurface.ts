@@ -297,7 +297,7 @@ function buildProcedureForwarders(
  *  `surfaceClientRef(source, router)` or any `SurfaceClientOf<S>` for `client`; it
  *  is read structurally here.
  *
- *      const { procedures, done } = mirrorRemoteSurface(arivuSurface, client, {
+ *      const { procedures, done } = mirrorRemoteSurface(terminalWorkspaceSurface, client, {
  *        cells: { version: (v) => setSkew(!isContractVersionCompatible(v.contractVersion, OURS)) },
  *        collections: { awareness: { upsert, remove } },
  *        streams: { activity: { input: {}, onFrame: (live) => setLive(live) } },

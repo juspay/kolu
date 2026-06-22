@@ -9,9 +9,10 @@
 # network in the sandbox), and `@kolu/*` is HYDRATED from kolu's own source
 # after `bun install`, never bun-installed.
 #
-# Why hydrate (not a bun workspace): the viewer reaches @kolu/arivu-contract,
-# @kolu/surface and @kolu/surface-nix-host, and arivu-contract pulls in
-# @kolu/terminal-awareness's ZOD-ONLY `/schema` entry. But terminal-awareness's
+# Why hydrate (not a bun workspace): the viewer reaches
+# @kolu/terminal-workspace/{surface,socket}, @kolu/surface and
+# @kolu/surface-nix-host, and the workspace surface pulls in
+# @kolu/terminal-workspace's ZOD-ONLY `/schema` entry. But terminal-workspace's
 # full manifest declares anyagent/anyforge/kaval/kolu-* (node-pty and the whole
 # sensor spine). A bun workspace would try to resolve that entire manifest;
 # hydrating the SOURCE sidesteps it — only what the viewer actually imports at
@@ -42,8 +43,8 @@ let
   # packages/`. This is the COMPLETE runtime set the viewer resolves under Bun,
   # established empirically (`bun src/bin.ts list` reaches its socket-connect
   # step with every module resolved): the @kolu/surface stack, plus the
-  # vendor-neutral schema packages `@kolu/arivu-contract` composes
-  # `AwarenessValue` from — `terminal-awareness/schema` pulls anyforge/kolu-git/
+  # vendor-neutral schema packages `@kolu/terminal-workspace/surface` composes
+  # `AwarenessValue` from — `terminal-workspace/schema` pulls anyforge/kolu-git/
   # kolu-{github,claude-code,codex,opencode}'s `/schemas`, and those agent
   # schemas pull `anyagent`'s barrel. Each is reached only through a zod-only
   # `/schemas` (or anyagent's light index) entry, so their heavy `.` deps
@@ -52,10 +53,9 @@ let
   # manifest. Integration packages live under packages/integrations/<dir> with a
   # name that differs from the dir, so this is a map, not a flat list.
   koluPackages = {
-    "@kolu/arivu-contract" = "arivu-contract";
     "@kolu/surface" = "surface";
     "@kolu/surface-nix-host" = "surface-nix-host";
-    "@kolu/terminal-awareness" = "terminal-awareness";
+    "@kolu/terminal-workspace" = "terminal-workspace";
     "@kolu/shell-quote" = "shell-quote";
     "anyagent" = "integrations/anyagent";
     "anyforge" = "integrations/anyforge";

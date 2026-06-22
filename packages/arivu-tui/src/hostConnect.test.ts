@@ -6,14 +6,14 @@
  * arivu's three volatile values (binary, env var, drvNoun) and a `probe` that
  * roundtrips the `version` cell (arivu has no `system.heartbeat`). The probe is
  * exercised against a REAL in-process arivu client (a `directLink` over the
- * served `arivuSurface`), and the returned `Connection` flows back unchanged.
+ * served `terminalWorkspaceSurface`), and the returned `Connection` flows back unchanged.
  */
 import {
   type AwarenessValue,
-  arivuSurface,
+  terminalWorkspaceSurface,
   DEFAULT_VERSION,
   type TerminalId,
-} from "@kolu/arivu-contract";
+} from "@kolu/terminal-workspace/surface";
 import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,
@@ -30,14 +30,20 @@ import { dialAgentOnce } from "@kolu/surface-nix-host";
 import { connectArivuViaHost } from "./hostConnect.ts";
 import { snapshotAwareness } from "./read.ts";
 
+/** A stub for the fs/git primitives this probe never exercises: it asserts loud
+ *  if a host-connect test ever reaches a workspace read, rather than faking one. */
+function unusedInProbe(name: string): never {
+  throw new Error(`${name} not exercised by the host-connect probe`);
+}
+
 /** A real in-process arivu surface client over a `directLink` — the awareness
  *  collection backed by a plain Map, the `version` cell at this build's default.
  *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
- *  the probe exercises a real `arivuSurface` round-trip in place of the ssh wire. */
+ *  the probe exercises a real `terminalWorkspaceSurface` round-trip in place of the ssh wire. */
 function makeInProcessArivuClient(
   cache = new Map<TerminalId, AwarenessValue>(),
 ) {
-  const { router } = implementSurface(arivuSurface, {
+  const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
@@ -51,17 +57,36 @@ function makeInProcessArivuClient(
         },
       },
     },
-    // The probe only reads the `version` cell; a minimal empty `activity` source
-    // satisfies `implementSurface`'s "a dep per stream" requirement.
+    // The probe only reads the `version` cell, but `implementSurface` wires a dep
+    // per declared stream + procedure, so the full R6 surface is stubbed here:
+    // `activity` yields an empty set and the fs/git watchers + reads are never
+    // exercised by a host-connect probe.
     streams: {
       activity: {
         source: async function* (): AsyncGenerator<TerminalId[]> {
           yield [];
         },
       },
+      subscribeRepoChange: {
+        source: async function* (): AsyncGenerator<{ seq: number }> {},
+      },
+      subscribeFileChange: {
+        source: async function* (): AsyncGenerator<{ seq: number }> {},
+      },
+    },
+    procedures: {
+      fs: {
+        listAll: () => unusedInProbe("fs.listAll"),
+        readFile: () => unusedInProbe("fs.readFile"),
+        statFileMtimeMs: () => unusedInProbe("fs.statFileMtimeMs"),
+      },
+      git: {
+        getStatus: () => unusedInProbe("git.getStatus"),
+        getDiff: () => unusedInProbe("git.getDiff"),
+      },
     },
   });
-  return directLink<typeof arivuSurface.contract>(router);
+  return directLink<typeof terminalWorkspaceSurface.contract>(router);
 }
 
 afterEach(() => vi.clearAllMocks());

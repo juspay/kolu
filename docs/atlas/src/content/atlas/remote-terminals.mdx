@@ -1,6 +1,6 @@
 ---
 title: Remote terminals over SSH
-description: The skeleton plan for kolu#951 — remote terminals over SSH, as one R1–R9 phase tree. R1–R4 shipped (foundation · local kaval survivor · the remote-ssh spike · the standalone arivu awareness daemon), and R7 is code complete early (mirrorRemoteSurface is now a total dual, procedures forwarded — paired drishti PR #71 open with full CI green, the merge-gate satisfied); the remaining work R5·R6·R8·R9 is a linear roadmap defined in this note. Build logs live in the child notes — pty-daemon (R2), kaval-sessions (R3), arivu (R4).
+description: The skeleton plan for kolu#951 — remote terminals over SSH, as one R1–R9 phase tree. R1–R4 shipped (foundation · local kaval survivor · the remote-ssh spike · the standalone arivu awareness daemon), R6 shipped (the @kolu/terminal-workspace library — one fs/git impl, two homes; the surface is arivu's until R8) and R7 shipped (mirrorRemoteSurface is now a total dual, procedures forwarded); the remaining work R5·R8·R9 is a linear roadmap defined in this note. Build logs live in the child notes — pty-daemon (R2), kaval-sessions (R3), arivu (R4).
 parents: [feature]
 status: accepted
 maturity: budding
@@ -13,7 +13,7 @@ import Issue from "../../components/Issue.astro";
 import Svg from "../../components/Svg.astro";
 import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
-**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, and the standalone arivu awareness daemon — and **R7 shipped early** (the surface mirror is now a total dual, procedures included; it stood alone, needing neither R6 nor kolu). **What remains (R5 · R6 · R8 · R9) is one linear roadmap, defined in this note**: harden reconnect, grow `@kolu/terminal-workspace` (one surface — awareness + fs/git — two homes), dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
+**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4, R6 and R7 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, the standalone arivu awareness daemon, `@kolu/terminal-workspace` (one fs/git impl, two homes; the surface is arivu's until R8), and the total-dual surface mirror (procedures forwarded). **What remains (R5 · R8 · R9) is one linear roadmap, defined in this note**: harden reconnect, dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [arivu](arivu.html) (R4).
 
 export const PAL = { bg: "#0f1117", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
@@ -105,7 +105,7 @@ R8's fold merges each remote `AwarenessValue` into the **co-owned** `terminalMet
 
 ## Implementation details
 
-The whole epic as one tree — **R1–R4 shipped, R5–R9 remain**. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child-note build logs, and the five remaining phases to their own `###` section just below on this page.
+The whole epic as one tree — **R1–R4 + R6 shipped; R5 · R7–R9 remain**. Each underlined row jumps to where that phase is **defined**: the shipped branches to their child-note build logs, and the remaining phases to their own `###` section just below on this page.
 
 export const PT_C = { ship: "#15803d", prog: "#b45309", last: "#64748b", txt: "#1f2937", sub: "#6b7280", line: "#cbd5e1" };
 
@@ -128,7 +128,7 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "R4 · arivu — the awareness daemon", m: "→ arivu", h: "arivu.html" },
   { d: 1, g: "✓", c: "ship", l: "R4.1–R4.5 · sensors → daemon → --host → fleet", m: "#1413…1497" },
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop", m: "next · defined ↓", h: "#r5" },
-  { d: 0, g: "○", c: "prog", l: "R6 · terminal-workspace — one surface (awareness + fs/git)", m: "defined ↓", h: "#r6" },
+  { d: 0, g: "✓", c: "ship", l: "R6 · terminal-workspace — one fs/git impl, two homes (surface arivu's until R8)", m: "#1506", h: "#r6" },
   { d: 0, g: "✓", c: "ship", l: "R7 · mirrorRemoteSurface → total dual (procedures forwarded)", m: "#1505", h: "#r7" },
   { d: 0, g: "○", c: "prog", l: "R8 · kolu dials remotes + the fold", m: "needs R6·R7 ↓", h: "#r8" },
   { d: 0, g: "○", c: "last", l: "R9 · canvas multiplex + validate", m: "defined ↓", h: "#r9" },
@@ -139,7 +139,7 @@ export const PT = [
   {PT.map((r, i) => <PtRow key={i} {...r} />)}
 </div>
 
-The shipped branches **R1–R4** are detailed in their child notes (and the PRs above); **R7 shipped early** (it stood alone — neither R6 nor kolu). What follows is the **roadmap of remaining work — each defined here.** **R5 · R6 are independent — do them in any order; R8 needs R6 + R7 (✓); R9 needs R8.**
+The shipped branches **R1–R4** are detailed in their child notes (and the PRs above); **R6** (<PrLink pr={1506} />) and **R7** (<PrLink pr={1505} />) shipped against this note. What follows is the **roadmap of remaining work — each defined here.** **R5 is independent; R8 needs R6 + R7 (both ✓); R9 needs R8.**
 
 <a id="r5"></a>
 
@@ -149,14 +149,14 @@ The shipped branches **R1–R4** are detailed in their child notes (and the PRs 
 
 <a id="r6"></a>
 
-### R6 — `@kolu/terminal-workspace`: one library, one surface, two homes
+### R6 — `@kolu/terminal-workspace`: one library, one fs/git impl, two homes
 
-The host-side library that knows a terminal's working directory becomes **`@kolu/terminal-workspace`** — the shipped `@kolu/terminal-awareness` (R4.1) grown to cover fs/git too, run *in-process* locally (kolu) and hosted by *arivu* remotely: the same two homes the sensors already proved. It serves **one `@kolu/surface` surface**; the primitives differ only in *kind*:
+**Shipped** — <PrLink pr={1506} />. The host-side library that knows a terminal's working directory becomes **`@kolu/terminal-workspace`** — the shipped `@kolu/terminal-awareness` (R4.1) grown to cover fs/git too, run *in-process* locally (kolu) and hosted by *arivu* remotely: the same two homes the sensors already proved. R6 ships **one fs/git impl** (`createTerminalWorkspaceEndpoint`), *not* one surface both homes already serve — the two homes re-expose that one impl through two **deliberately different** contract shapes:
 
-- `awareness` (collection) + `activity` (stream) — the derived status badge + the green-dot liveness. **Shipped.**
-- `fsListAll` · `fsReadFile` · `gitStatus` · `gitDiff` (procedures) + `subscribeRepoChange` / `FileChange` (watcher streams) — the Code tab's raw reads + live deltas. **New in R6**, lifted from kolu-server's `localEndpoint` (a thin wrapper over `kolu-git` + `serve-dir`) into the shared library.
+- `awareness` (collection) + `activity` (stream) — the derived status badge + the green-dot liveness, served on `terminalWorkspaceSurface`. **Shipped.**
+- the Code tab's fs/git reads (`listAll` · `readFile` · `getStatus` · `getDiff` + repo/file change watching) — **new in R6**, lifted from kolu-server's `localEndpoint` (a thin wrapper over `kolu-git` + `serve-dir`) into the shared library. kolu-server (in-process) re-exposes them on `koluSurface`'s **value-bearing streams**; arivu (remote) serves them on `terminalWorkspaceSurface` as **procedures + `{seq}` pulse watcher streams** a consumer requeries on.
 
-This kills the duplication wart: without it, arivu would **reimplement** fs/git and kolu would carry *two* fs/git impls (its own local, arivu's remote). Instead there is **one** — in-process locally, via arivu remotely. Only the thin fs/git wrapper moves; the terminal-endpoint *orchestration* around it (spawn · adopt · the registry) stays kolu's and gets a remote impl in R8. (One surface; R8 mirrors it whole — via R7's total mirror — folding the `awareness` collection into `terminalMetadata` and *forwarding* the fs/git procedures. Nothing is folded into `AwarenessValue` — procedures were never part of it.)
+This kills the duplication wart: without it, arivu would **reimplement** fs/git and kolu would carry *two* fs/git impls (its own local, arivu's remote). Instead there is **one** — in-process locally, via arivu remotely. Only the thin fs/git wrapper moves; the terminal-endpoint *orchestration* around it (spawn · adopt · the registry) stays kolu's and gets a remote impl in R8. The single shared **surface** both homes serve is *not* yet true — it arrives in **R8**, which mirrors `terminalWorkspaceSurface` whole (via R7's total mirror), folding the `awareness` collection into `terminalMetadata` and *forwarding* the fs/git procedures. Until then the two contract shapes are kept deliberately distinct (R8's remote kolu re-queries procedures rather than streaming full diffs over the wire). Nothing is folded into `AwarenessValue` — procedures were never part of it.
 
 <a id="r7"></a>
 
@@ -201,4 +201,5 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 - **R2 re-sequenced before R3/R5** — a whole-plan `/lowy` pass showed that building the multi-client survivor *once* collapses the later phases; R2 split into [pty-daemon](pty-daemon.html) and shipped end-to-end (R2.1 → R2.5), closing <Issue n={671} /> (terminals survive a deploy).
 - **Multi-host end state** set 2026-06-11: 1 local + N ssh kavals, host-switched in the ChromeBar; R2's redo baked the host-count-agnostic shapes (hostId-keyed status, the `HostLocation` discriminator) so R3 retrofits nothing.
 - **Renumbered to one R1–R9 tree** (2026-06-21) — shipped branches R1–R4 (was `R-1`/`R-1.5`/`R-4`/`R-2`/`R-3` + colliding child `P`/`B` schemes), and the remaining work lifted out of the child notes into a **linear R5–R9 roadmap defined here** (so the forward plan lives in one place; fs/git joins awareness in one library, `@kolu/terminal-workspace`, as its own phase R6; completing `mirrorRemoteSurface` to a total dual got its own phase R7 — proven via drishti's "Kill process" action, so it stands alone, before kolu's fold (R8) depends on it). Git holds the old labels. Cf. [ghostex vs kolu](ghostex-vs-remote-terminals.html), [herdr vs kolu](herdr-vs-kolu.html), [kaval vs zmosh](kaval-vs-zmosh.html).
-- **R7 code complete** (2026-06-21, <PrLink pr={1505} />) — `mirrorRemoteSurface` returns `{ procedures, done }`: streaming primitives fold into the sink as before, every procedure comes back as a forwarding stub (`procedures.<ns>.<verb>(input)` → runs on the remote, returns). `serve ∘ mirror ≈ identity` is pinned by an in-repo unit test. The breaking return-shape change rides `surface.md`'s drishti merge-gate: the paired [drishti PR #71](https://github.com/srid/drishti/pull/71) (audits drishti's `await mirrorRemoteSurface(...)` → `.done` and pins drishti's kolu source to this R7 revision) is **open and gates the merge** — its full CI is green against the new API (all 18 odu nodes — every lane on both `aarch64-darwin` and `x86_64-linux`), the same gate [#70](https://github.com/srid/drishti/pull/70) passed for #1497. R8's fold consumes the total mirror now that gate is green.
+- **R6 shipped** (2026-06-21) — `@kolu/terminal-awareness` grew into `@kolu/terminal-workspace`: **one** thin fs/git wrapper (`createTerminalWorkspaceEndpoint`) lifted out of kolu-server's `localEndpoint`, re-exposed through **two deliberately different contract shapes** — kolu-server keeps it in-process on `koluSurface`'s value-bearing streams, while `arivu` serves it on `terminalWorkspaceSurface` as fs/git read procedures + `{seq}` change-pulse watcher streams (that surface's contract `0.2 → 0.3`). One impl, not one shared surface — the single surface both homes serve is mirrored by kolu in R8. `@kolu/arivu-contract` retired into the library. Done ahead of R5 (the phases are independent). <PrLink pr={1506} />
+- **R7 shipped** (2026-06-21, <PrLink pr={1505} />) — `mirrorRemoteSurface` returns `{ procedures, done }`: streaming primitives fold into the sink as before, every procedure comes back as a forwarding stub (`procedures.<ns>.<verb>(input)` → runs on the remote, returns). `serve ∘ mirror ≈ identity` is pinned by an in-repo unit test. The breaking return-shape change rode `surface.md`'s drishti merge-gate: the paired [drishti PR #71](https://github.com/srid/drishti/pull/71) (audited drishti's `await mirrorRemoteSurface(...)` → `.done` and pinned drishti's kolu source to this R7 revision) went green across all 18 odu nodes (every lane on both `aarch64-darwin` and `x86_64-linux`), the same gate [#70](https://github.com/srid/drishti/pull/70) passed for #1497. R8's fold consumes the total mirror.

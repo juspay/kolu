@@ -4,9 +4,13 @@
 [`kaval`](../kaval), _watch/guard_, and `odu`, _run_) is the standalone
 **terminal-awareness daemon**. It dials a running `kaval`, runs the awareness
 sensors — git branch · PR + checks · AI-agent state · foreground process — for
-every PTY kaval owns, and serves the result as one `awareness` collection: the
-[`@kolu/arivu-contract`](../arivu-contract) surface that
-[`arivu-tui`](../arivu-tui) reads.
+every PTY kaval owns, and serves the
+[`@kolu/terminal-workspace/surface`](../terminal-workspace) surface: the
+`awareness` collection + `version` cell + live `activity` stream, plus (added in
+R6) the Code tab's `fs.*` / `git.*` read procedures and their
+`subscribeRepoChange` / `subscribeFileChange` change-pulse watcher streams.
+[`arivu-tui`](../arivu-tui) today consumes only the awareness/activity side; the
+fs/git surface is what a remote kolu-server mirrors in R8.
 
 Where kaval owns the PTYs, arivu derives _meaning_ over them — and adds **zero**
 awareness/git/gh logic to kaval, dialing it as a plain `ptyHostSurface` client
@@ -15,7 +19,7 @@ exactly like kaval-tui.
 ```
 arivu                      dial the discovered kaval, serve on arivu's socket
 arivu --kaval PATH         dial a kaval at an explicit socket
-arivu --socket PATH        serve the awareness surface on an explicit socket
+arivu --socket PATH        serve the workspace surface on an explicit socket
 arivu --stdio [--kaval P]  serve over stdin/stdout (what an ssh dial speaks to)
 ```
 
@@ -36,7 +40,7 @@ set per terminal as they come and go.
 
 ## One sensor library, two homes
 
-The sensor set lives in [`@kolu/terminal-awareness`](../terminal-awareness) and
+The sensor set lives in [`@kolu/terminal-workspace`](../terminal-workspace) and
 is **shared, not forked**: kolu-server runs it _in-process_ for local terminals
 (writing `terminalMetadata` directly); arivu runs the _same_ code as a separate
 process and publishes each terminal's `AwarenessValue` into the served

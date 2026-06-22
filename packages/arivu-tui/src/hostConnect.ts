@@ -8,7 +8,7 @@
  * The reach + provision + supervise + one-shot-dial composition is
  * `@kolu/surface-nix-host`'s `dialAgentOnce`: it resolves the daemon's `.drv`
  * for the host's arch, ships it (`nix copy --derivation` → realise), runs
- * `ssh <host> arivu --stdio`, speaks `arivuSurface` over that child's stdio, and
+ * `ssh <host> arivu --stdio`, speaks `terminalWorkspaceSurface` over that child's stdio, and
  * proves the link with the caller's `probe` before flipping the connect watchdog
  * off. arivu's `--stdio` mode (built in P1c) is the serve seam the ssh dial
  * speaks to — the remote arivu dials the remote kaval locally and recomputes
@@ -38,12 +38,12 @@
  * only build-config delta is hydrating the new zero-dep leaf `@kolu/shell-quote`
  * that `surface-nix-host` now imports. See the kolu PR body's merge-gate bullet.
  */
-import type { arivuSurface } from "@kolu/arivu-contract";
+import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 
-type ArivuContract = typeof arivuSurface.contract;
+type ArivuContract = typeof terminalWorkspaceSurface.contract;
 
 /** The per-system `{ system → arivu daemon .drv }` map env var, baked by the
  *  `arivu-tui` Nix wrapper (`mkAgentTuiWrapper` in default.nix). Named ONCE as a

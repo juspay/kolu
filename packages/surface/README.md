@@ -654,7 +654,7 @@ const bClient = directLink<typeof projected.surface.contract>(router);
 ```ts
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 
-const { procedures, done } = mirrorRemoteSurface(arivuSurface, client, {
+const { procedures, done } = mirrorRemoteSurface(terminalWorkspaceSurface, client, {
   collections: { awareness: { upsert, remove } },          // keyed map → your store
   streams:     { activity:  { input: {}, onFrame: setLive } }, // a flow → a callback
   // cells:    { version:   (v) => … }, events: { … }       // each streaming kind, one call

@@ -4,7 +4,10 @@
  * real arivu over a real socket with no tty (see the integration test).
  */
 
-import type { AwarenessValue, TerminalId } from "@kolu/arivu-contract";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import type { ArivuClient } from "./connect.ts";
 
