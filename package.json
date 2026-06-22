@@ -27,6 +27,9 @@
       "@anthropic-ai/sdk": "^0.91.1",
       "@xterm/xterm": "6.1.0-beta.225",
       "@xterm/addon-webgl": "0.20.0-beta.224"
+    },
+    "patchedDependencies": {
+      "@pierre/trees@1.0.0-beta.4": "patches/@pierre__trees@1.0.0-beta.4.patch"
     }
   }
 }

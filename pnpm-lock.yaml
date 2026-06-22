@@ -21,6 +21,11 @@ overrides:
 
 packageExtensionsChecksum: sha256-GuGZA8jCJUaUE/saX+uezWes2nMASx9CFDTN3Aun/K8=
 
+patchedDependencies:
+  '@pierre/trees@1.0.0-beta.4':
+    hash: ae4e6de94e5bb826d76310850133172b5a55319c1c41e659cb00acea37021435
+    path: patches/@pierre__trees@1.0.0-beta.4.patch
+
 importers:
 
   .: {}
@@ -170,7 +175,7 @@ importers:
         version: 1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
-        version: 1.0.0-beta.4(react@19.2.5)
+        version: 1.0.0-beta.4(patch_hash=ae4e6de94e5bb826d76310850133172b5a55319c1c41e659cb00acea37021435)(react@19.2.5)
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)
@@ -962,7 +967,7 @@ importers:
         version: 1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
-        version: 1.0.0-beta.4(react@19.2.5)
+        version: 1.0.0-beta.4(patch_hash=ae4e6de94e5bb826d76310850133172b5a55319c1c41e659cb00acea37021435)(react@19.2.5)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -5721,7 +5726,7 @@ snapshots:
       react: 19.2.5
       shiki: 4.2.0
 
-  '@pierre/trees@1.0.0-beta.4(react@19.2.5)':
+  '@pierre/trees@1.0.0-beta.4(patch_hash=ae4e6de94e5bb826d76310850133172b5a55319c1c41e659cb00acea37021435)(react@19.2.5)':
     dependencies:
       preact: 11.0.0-beta.0
       preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
