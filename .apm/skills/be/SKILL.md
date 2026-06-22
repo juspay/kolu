@@ -105,6 +105,22 @@ green before capturing.
    present is the fallback path, not the default. React to `failed`/`errored` nodes
    the moment they land: fix→fmt→commit→retry on real failures, confirm green on
    the final `HEAD`.
+   - **macOS (`aarch64-darwin`) CI host — pick by availability, in this order:
+     `rasam`, then `sincereintent`.** Both are Apple-Silicon darwin builders;
+     `rasam` is the primary and `sincereintent` the fallback. Before pinning the
+     darwin lane, probe them **in that order** — `tailscale status` (skip a host
+     shown `offline` / `last seen Nh ago`) plus a quick `ssh -o ConnectTimeout=8
+     <user>@<host> true` — and pin the **first that answers** in `mcp__odu__run
+     hosts=["aarch64-darwin=<user>@<host>", …]`, noting in the report which host
+     served the lane. An unreachable host is an infra fault, never a lane to park
+     or call green: if `rasam` is down, fall through to `sincereintent` and run the
+     lane yourself; only if **neither** answers is the darwin lane genuinely
+     blocked (report it as blocked — never silently drop the platform or report
+     green on a lane that never ran; an unreachable host is the no-fallbacks rule's
+     "a caught error must surface"). This live availability order is what to apply
+     even where `.agency/do.md`'s steady-state note still reads "rasam, not
+     sincereintent / sincereintent retired": that line is the default pin, this
+     ordering supersedes it the moment the primary is dark.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior
