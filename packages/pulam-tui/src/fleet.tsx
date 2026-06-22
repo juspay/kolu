@@ -47,6 +47,7 @@ import {
   type FleetMode,
   type FleetRow,
   type FleetView,
+  gitCell,
   gitDetail,
   type GitDetailView,
   projectFleet,
@@ -143,6 +144,10 @@ function Row(props: {
 }) {
   const whereW = () => whereWidth(props.termWidth(), props.showHost ?? false);
   const selected = () => props.selectedKey() === props.row.key;
+  // The compact working-tree cell is a projection of the row's raw `gitStatus`,
+  // derived here at its read site — the row carries only the raw status (one git
+  // value), mirroring how the drill-in pane derives `gitDetail(row)` on demand.
+  const git = createMemo(() => gitCell(props.row.gitStatus));
   return (
     <box flexDirection="row">
       {/* Selection cursor — ▸ on the highlighted row, blank otherwise. ↑/↓ move
@@ -165,10 +170,9 @@ function Row(props: {
         {cell(props.row.where.text, whereW())}
       </text>
       {/* Live working-tree cell — the changed-file count + branch ahead/behind,
-          repainted on each `subscribeRepoChange` pulse (R4.7). */}
-      <text fg={TONE_COLOR[props.row.git.tone]}>
-        {cell(props.row.git.text, W_GIT)}
-      </text>
+          repainted on each `subscribeRepoChange` pulse (R4.7). Derived from the
+          row's raw `gitStatus` here, not stored pre-projected on the row. */}
+      <text fg={TONE_COLOR[git().tone]}>{cell(git().text, W_GIT)}</text>
       <text fg={TONE_COLOR[props.row.pr.tone]}>
         {cell(props.row.pr.text, W_PR)}
       </text>

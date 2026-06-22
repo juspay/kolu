@@ -391,15 +391,13 @@ export interface FleetRow {
   where: DashCell;
   pr: DashCell;
   state: DashCell;
-  /** The compact live working-tree cell — a changed-file count + the branch's
-   *  ahead/behind, painted from the repo's latest `git.getStatus` (R4.7). Blank
-   *  while the first pulse is still in flight; a check when the tree is clean. */
-  git: DashCell;
   /** The repo's full live status, or undefined until the first
-   *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo).
-   *  Carried for the drill-in detail pane; the row itself paints only the
-   *  compact `git` cell above. The fleet requests `mode: "local"` only, so this
-   *  is the `local` arm of the status union (branch + working-tree always set). */
+   *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo). The
+   *  ONE git value on the row: both the compact working-tree cell (`gitCell`) and
+   *  the drill-in pane (`gitDetail`) are projections of it, derived at their read
+   *  sites — the row no longer also stores the pre-projected cell, so the two
+   *  can't desync. The fleet requests `mode: "local"` only, so this is the
+   *  `local` arm of the status union (branch + working-tree always set). */
   gitStatus?: LocalGitStatus;
 }
 
@@ -433,7 +431,6 @@ export function fleetRow(
       text: fleetStateText(urgency, v.agent),
       tone: URGENCY[urgency].tone,
     },
-    git: gitCell(gitStatus),
     gitStatus,
     // Recency is NOT pre-formatted here: it's the one cell that changes with the
     // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and

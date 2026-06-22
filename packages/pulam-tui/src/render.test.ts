@@ -784,9 +784,10 @@ describe("projectFleet — git status join", () => {
     ];
     const rows = flattenRows(projectFleet(states, "host"));
     expect(rows).toHaveLength(2);
-    // Both terminals in /repo carry the same per-repo status + cell.
+    // Both terminals in /repo carry the same raw per-repo status; the compact
+    // cell is derived from it at the read site (no stored copy on the row).
     for (const r of rows) {
-      expect(r.git.text).toBe("✎1 ↑1");
+      expect(gitCell(r.gitStatus).text).toBe("✎1 ↑1");
       expect(r.gitStatus).toBe(status);
     }
   });
