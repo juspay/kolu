@@ -59,6 +59,10 @@ type LinkHandlers = {
    *  against the whole repo. `anchor` is the clicked element so the host can
    *  anchor a disambiguation menu to it when the target is ambiguous. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** A footnote forward-reference click — the host opens the definition in a
+   *  popover anchored to the marker. `anchor` is the clicked `[n]` marker;
+   *  `definition` is its resolved `<li>` in the bottom footnotes list. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 };
 
 /** Handle interactive bits inside the rendered Markdown — code-copy buttons,
@@ -93,6 +97,28 @@ function bindInteractions(el: HTMLElement, handlers: LinkHandlers): void {
     if (anchor) {
       e.stopPropagation();
       const href = anchor.getAttribute("href");
+      // Footnote forward refs (tagged `data-md-footnote` by the renderer) open
+      // the definition in a host popover instead of scrolling to the bottom
+      // list. This must come *before* the generic in-page-anchor branch below —
+      // a footnote ref's href is also an in-page `#md-footnote-…`, so without
+      // this it would just scroll. We resolve the definition the same way the
+      // scroll branch does (`querySelector` on the namespaced id) and hand the
+      // host the marker + definition node. Only when a handler is wired and the
+      // definition resolves: with no host overlay the ref falls through to the
+      // scroll branch, preserving the GitHub-style jump-to-definition (the
+      // popover is an additive host surface, not a replacement).
+      if (
+        handlers.onFootnote &&
+        anchor.hasAttribute("data-md-footnote") &&
+        href?.startsWith("#")
+      ) {
+        const definition = el.querySelector(`#${CSS.escape(href.slice(1))}`);
+        if (definition) {
+          e.preventDefault();
+          handlers.onFootnote(anchor as HTMLElement, definition as HTMLElement);
+          return;
+        }
+      }
       // In-page anchors (TOC, footnotes — namespaced `#md-…`) scroll within
       // the preview without navigating or writing the app's URL hash.
       if (href?.startsWith("#") && href.length > 1) {
@@ -151,6 +177,12 @@ export const Markdown: Component<{
    *  disambiguation menu to it when the basename matches more than one file.
    *  Unwired ⇒ wikilinks are inert. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** Open a footnote definition in a host popover when its `[n]` marker is
+   *  clicked. `anchor` is the clicked marker; `definition` is its `<li>` in the
+   *  bottom footnotes list (the popover reads its content from there). Unwired
+   *  ⇒ a footnote ref keeps its default jump-to-definition scroll. Document
+   *  variant only. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
   const isDocument = () => variant() === "document";
@@ -219,6 +251,7 @@ export const Markdown: Component<{
         bindInteractions(el, {
           onNavigateRelative: props.onNavigateRelative,
           onNavigateWikilink: props.onNavigateWikilink,
+          onFootnote: props.onFootnote,
         })
       }
       class="kolu-md"

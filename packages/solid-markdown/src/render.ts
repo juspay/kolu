@@ -297,6 +297,29 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
+/** Flag every footnote *forward reference* with an allowlist-safe
+ *  `data-md-footnote` attribute, so the client can recognise the marker after
+ *  the sanitizer strips marked-footnote's own markers (`class`,
+ *  `data-footnote-*` and `aria-describedby` are all dropped). Same move alerts
+ *  make above.
+ *
+ *  marked-footnote emits a forward ref as
+ *  `<sup><a … data-footnote-ref aria-describedby="footnote-label">n</a></sup>`
+ *  and the back-ref (↩) as `<a … data-footnote-backref>`. The bare
+ *  `data-footnote-ref` attribute is unique to forward refs — so we stamp the
+ *  flag on those and leave the back-ref untouched (it keeps scrolling up, never
+ *  pops). Tagging here, on the parser's own output, is unambiguous; detecting
+ *  the ref structurally *after* sanitization would mistake a back-ref (whose
+ *  href is also `#md-footnote-…`) — or a heading literally titled "Footnote 1"
+ *  minting the same id — for a marker. The definition is found post-sanitize
+ *  from the anchor's own `href`. */
+function rewriteFootnotes(html: string): string {
+  return html.replace(
+    /<a (?=[^>]*\bdata-footnote-ref\b)/g,
+    "<a data-md-footnote ",
+  );
+}
+
 // The soft-break setting and the raw-HTML toggle are the axes that vary the
 // parser, so cache one configured instance per (breaks, rawHtml). Rendering is
 // synchronous, so a shared instance is safe; the cache just avoids rebuilding
@@ -331,5 +354,5 @@ export function renderMarkdownToRawHtml(
   const { yaml, body } = splitFrontMatter(markdown);
   const meta =
     (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
-  return meta + rewriteAlerts(inst.parse(body) as string);
+  return meta + rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
 }

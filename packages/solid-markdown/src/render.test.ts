@@ -191,6 +191,39 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     expect(out).not.toContain("[^1]");
   });
 
+  it("flags only the forward-ref anchor with data-md-footnote", () => {
+    // marked-footnote marks a forward reference with the bare `data-footnote-ref`
+    // attribute and the back-ref (↩) with `data-footnote-backref`; both are
+    // stripped by the sanitizer. rewriteFootnotes stamps an allowlist-safe
+    // `data-md-footnote` flag on the forward ref *only*, so the click seam can
+    // recognise the marker after sanitization. This test pins that contract —
+    // a marked-footnote bump that changed the marker would fail here loudly
+    // rather than silently breaking the popover.
+    const out = html("body[^1] more\n\n[^1]: the note");
+    // The flag rides the forward ref (which still carries marked-footnote's own
+    // `data-footnote-ref`) and nothing else.
+    expect(out).toMatch(/<a data-md-footnote [^>]*data-footnote-ref/);
+    expect(out.match(/data-md-footnote/g)).toHaveLength(1);
+    // The forward ref's href targets the definition <li> (`#footnote-1`); the
+    // host resolves the popover content from that landing id.
+    expect(out).toContain('href="#footnote-1"');
+    // The back-ref exists and stays untagged — it keeps scrolling up, never pops.
+    expect(out).toContain("data-footnote-backref");
+    expect(out).not.toMatch(/data-md-footnote[^>]*data-footnote-backref/);
+  });
+
+  it("tags every citation of a re-cited footnote, all pointing at one definition", () => {
+    // A footnote cited twice mints two forward refs (`footnote-ref-1` and
+    // `footnote-ref-1-2`), both linking to the single definition `#footnote-1`.
+    // Both citations must be tagged; the definition's two back-refs must not be.
+    const out = html("a[^1] b[^1]\n\n[^1]: once");
+    expect(out.match(/data-md-footnote/g)).toHaveLength(2);
+    expect(out.match(/data-md-footnote[^>]*href="#footnote-1"/g)).toHaveLength(
+      2,
+    );
+    expect(out).not.toMatch(/data-md-footnote[^>]*data-footnote-backref/);
+  });
+
   it("rewrites GitHub alert blockquotes to a data-md-alert attribute", () => {
     const out = html("> [!WARNING]\n> be careful");
     expect(out).toContain('data-md-alert="warning"');

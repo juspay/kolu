@@ -79,6 +79,11 @@ Obsidian extensions. Listed for completeness; low priority.
 - Inline raw tags outside the allowlist (`<q>`, `<cite>`, `<var>`, `<ruby>`,
   `<time>`, `<wbr>`) and raw `<ol type>` / `<colgroup style>` are dropped.
 - Footnote a11y metadata (`aria-*`, the visually-hidden label) is stripped.
+- **Footnote popover is pointer-only.** A footnote forward-ref is flagged
+  (`data-md-footnote`) so the host can open its definition in a click/tap
+  popover anchored to the marker; keyboard activation and a screen-reader
+  `aria-details` relationship are a tracked follow-up. The bottom footnotes list
+  stays the accessible record.
 - **Task lists are read-only.** Checkboxes render with their `[x]`/`[ ]` state
   but are `disabled` (presentational) — the preview never writes a toggle back
   to the file, the way GitHub renders a README's task list.
