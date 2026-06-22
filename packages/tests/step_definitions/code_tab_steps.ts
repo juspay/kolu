@@ -1178,6 +1178,127 @@ When(
   },
 );
 
+// ── Footnote popover ──
+// Click a footnote forward-ref marker (`[n]`) in the rendered preview. The
+// marker is the `sup a[data-md-footnote]` the renderer flags; clicking it opens
+// the definition popover anchored to the marker (or toggles it closed). Like the
+// other preview links it must never open a browser tab — arm a popup watch.
+When(
+  "I click footnote marker {string}",
+  async function (this: KoluWorld, label: string) {
+    const marker = this.page
+      .locator(
+        `[data-testid="browse-preview-markdown"] sup a[data-md-footnote]`,
+      )
+      .filter({ hasText: label });
+    await marker.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popped = this.page
+      .waitForEvent("popup", { timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    await marker.first().click();
+    if (await popped) {
+      throw new Error(
+        `Clicking footnote marker "${label}" opened a new browser tab; it must ` +
+          `open the definition popover in place instead`,
+      );
+    }
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the footnote popover should be visible",
+  async function (this: KoluWorld) {
+    const pop = this.page.locator('[data-testid="footnote-popover"]');
+    await pop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the footnote popover should not be visible",
+  async function (this: KoluWorld) {
+    const pop = this.page.locator('[data-testid="footnote-popover"]');
+    await pop.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the footnote popover should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const pop = this.page.locator('[data-testid="footnote-popover"]');
+    const text = (await pop.textContent({ timeout: POLL_TIMEOUT })) ?? "";
+    if (!text.includes(expected)) {
+      throw new Error(
+        `footnote popover did not contain "${expected}"; text: ${JSON.stringify(text)}`,
+      );
+    }
+  },
+);
+
+// The popover never carries the back-ref ↩ (stripped from its clone) and the
+// ↩ char must not leak; also scopes element assertions to the popover subtree.
+Then(
+  "the footnote popover should render a {string} element",
+  async function (this: KoluWorld, selector: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        !!document.querySelector(`[data-testid="footnote-popover"] ${sel}`),
+      selector,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the footnote popover should not render a {string} element",
+  async function (this: KoluWorld, selector: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        document.querySelectorAll(`[data-testid="footnote-popover"] ${sel}`)
+          .length === 0,
+      selector,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I click the footnote popover see-all link",
+  async function (this: KoluWorld) {
+    const link = this.page.locator('[data-testid="footnote-popover-see-all"]');
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await link.click();
+    await this.waitForFrame();
+  },
+);
+
+// Click a repo-relative anchor INSIDE the footnote popover body. The popover is
+// portalled to document.body (outside the preview subtree), so this can't reuse
+// the preview-scoped relative-link step — it scopes to the popover instead. Like
+// the preview, the click must open the file in-app, never a new browser tab.
+When(
+  "I click the repo-relative link {string} in the footnote popover",
+  async function (this: KoluWorld, href: string) {
+    const link = this.page.locator(
+      `[data-testid="footnote-popover"] a[href="${href}"]`,
+    );
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const popped = this.page
+      .waitForEvent("popup", { timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    await link.click();
+    if (await popped) {
+      throw new Error(
+        `Clicking the popover link "${href}" opened a new browser tab; it must ` +
+          `open the file in the Code tab instead`,
+      );
+    }
+    await this.waitForFrame();
+  },
+);
+
 // Tailwind v4's preflight resets `list-style: none` app-wide, so the rendered
 // preview must re-declare list markers or every list renders unmarked. Assert
 // the computed marker is actually disc/decimal, not the reset `none` — a plain

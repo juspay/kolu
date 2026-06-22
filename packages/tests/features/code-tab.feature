@@ -1244,6 +1244,53 @@ Feature: Code tab (review + browse)
     # The task checkbox renders read-only (presentational, disabled).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
 
+  # The footnote popover: clicking a `[n]` marker opens its definition in a
+  # dismissible card anchored to the marker (instead of scrolling to the bottom
+  # list). This exercises the whole interactive path the render tests can't
+  # reach — open, toggle-close, dismiss, the "see all" fallback, and the inner
+  # links (a relative link routes in-app; a nested footnote ref is inert; an
+  # in-page anchor must NOT navigate the app out of the preview). The `[^big]`
+  # body links to a sibling doc and cites a second footnote, so the popover
+  # holds a routable relative link AND an inert nested marker.
+  Scenario: Markdown preview opens a footnote definition in a click popover
+    When I run "rm -rf /tmp/kolu-md-fnpop && git init /tmp/kolu-md-fnpop && cd /tmp/kolu-md-fnpop"
+    And I run "printf '# Guide Doc\n\nFootnote target reached.\n' > guide.md"
+    And I run "printf '# Doc\n\nclaim[^big] and more[^two]\n\n[^big]: see [the guide](guide.md) and also[^two]\n\n[^two]: a second note\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    # The bottom footnotes section still renders (the accessible record).
+    And the markdown preview should render a "section" element
+    And the markdown preview should render a "sup a[data-md-footnote]" element
+    # Open the first footnote's popover by clicking its marker.
+    When I click footnote marker "1"
+    Then the footnote popover should be visible
+    And the footnote popover should contain "the guide"
+    # The body's relative link survives as an in-app `data-md-rel` anchor (not a
+    # bogus new-tab navigation), and the nested footnote ref is de-flagged —
+    # inert, no popover-on-popover.
+    And the footnote popover should render a "a[data-md-rel]" element
+    And the footnote popover should not render a "a[data-md-footnote]" element
+    # The back-ref ↩ is stripped from the clone.
+    And the footnote popover should not render a "a[data-md-footnote-backref]" element
+    # Clicking the same marker again toggles it closed.
+    When I click footnote marker "1"
+    Then the footnote popover should not be visible
+    # Reopen, then the "see all ↓" footer scrolls to the bottom list and closes.
+    When I click footnote marker "1"
+    Then the footnote popover should be visible
+    When I click the footnote popover see-all link
+    Then the footnote popover should not be visible
+    # A relative link inside the popover body opens the file IN the app (the
+    # same front door the document body uses), never a new tab.
+    When I click footnote marker "1"
+    Then the footnote popover should be visible
+    When I click the repo-relative link "guide.md" in the footnote popover
+    Then the file "guide.md" should be selected in the file browser
+    And the markdown preview should contain "Footnote target reached"
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle

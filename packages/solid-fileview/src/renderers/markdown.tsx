@@ -27,6 +27,10 @@ export type MarkdownRendererProps = {
    *  target pathless across the repo and anchors a disambiguation menu to the
    *  clicked `anchor` when the basename is ambiguous. */
   onNavigateWikilink?: (target: string, anchor: HTMLElement) => void;
+  /** Open a footnote definition in a host popover when its `[n]` marker is
+   *  clicked (see `@kolu/solid-markdown`'s `onFootnote`). The host anchors the
+   *  popover to the clicked `anchor` and renders the `definition` <li>. */
+  onFootnote?: (anchor: HTMLElement, definition: HTMLElement) => void;
 };
 
 export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
@@ -41,6 +45,7 @@ export const MarkdownRenderer: Component<MarkdownRendererProps> = (props) => (
         resolveImageSrc={props.resolveImageSrc}
         onNavigateRelative={props.onNavigateRelative}
         onNavigateWikilink={props.onNavigateWikilink}
+        onFootnote={props.onFootnote}
       />
     </div>
   </div>

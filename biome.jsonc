@@ -190,9 +190,11 @@
     },
     {
       // Spatial-mouse canvas widgets: the minimap (drag-to-pan, click
-      // empty space to recenter, drag tile rectangles to rearrange) and
-      // the canvas tile wrapper (mousedown to focus, drag-to-rearrange)
-      // are inherently pointer-driven. Synthetic `role="button"` +
+      // empty space to recenter, drag tile rectangles to rearrange), the
+      // canvas tile wrapper (mousedown to focus, drag-to-rearrange), and
+      // the canvas surface itself (wheel/middle-drag to pan, double-click
+      // the empty background to open the New terminal palette) are
+      // inherently pointer-driven. Synthetic `role="button"` +
       // `tabIndex={0}` + a fake `onKeyDown` would *claim* keyboard
       // accessibility without delivering it — worse than no claim.
       //
@@ -200,10 +202,12 @@
       // command palette (⌘K, fuzzy search), the pill tree (sidebar,
       // arrow-key tree nav), and the ⌘1..9 / ⌘J shortcuts. Those are
       // the canonical a11y entry points for tile selection; the canvas
-      // is the visual layer they drive.
+      // is the visual layer they drive. (Double-click-to-create opens the
+      // very same ⌘K palette, so its keyboard equivalent already exists.)
       "includes": [
         "packages/client/src/canvas/CanvasMinimap.tsx",
-        "packages/client/src/canvas/CanvasTile.tsx"
+        "packages/client/src/canvas/CanvasTile.tsx",
+        "packages/client/src/canvas/TerminalCanvas.tsx"
       ],
       "linter": {
         "rules": {

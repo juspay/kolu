@@ -297,6 +297,59 @@ function rewriteAlerts(html: string): string {
     .replace(/<p class="markdown-alert-title"\s*>/g, "<p data-md-alert-title>");
 }
 
+/** Flag both footnote anchor kinds with allowlist-safe `data-md-footnote*`
+ *  attributes, so the client can recognise each after the sanitizer strips
+ *  marked-footnote's own markers (`class`, `data-footnote-*` and
+ *  `aria-describedby` are all dropped). Same move alerts make above.
+ *
+ *  marked-footnote emits a *forward* ref as
+ *  `<sup><a … data-footnote-ref aria-describedby="footnote-label">n</a></sup>`
+ *  and the *back*-ref (↩) as `<a … data-footnote-backref>`. The bare
+ *  `data-footnote-ref` / `data-footnote-backref` attributes uniquely tell the
+ *  two apart — so we stamp `data-md-footnote` on the forward ref (the host opens
+ *  its definition in a popover) and a sibling `data-md-footnote-backref` on the
+ *  back-ref (the popover strips these from its clone — a "jump to marker" link
+ *  is meaningless inside the note). Tagging here, on the parser's own output, is
+ *  unambiguous; detecting either structurally *after* sanitization would mistake
+ *  a back-ref (whose href is also `#md-footnote-…`) — or a heading literally
+ *  titled "Footnote 1" minting the same id — for a marker, and couples the host
+ *  to marked-footnote's id scheme. The forward ref's definition is found
+ *  post-sanitize from the anchor's own `href`.
+ *
+ *  Spoof guard (mirrors the wikilink policy): `data-md-footnote` is in the
+ *  document allowlist, so a README's *raw* inline HTML could pre-seed
+ *  `<a data-md-footnote href="#md-…">` to opt an arbitrary same-page anchor into
+ *  the host's footnote-popover callback. App-read data hooks must be
+ *  parser-minted, not document-authored — so strip any pre-existing
+ *  `data-md-footnote*` token from every anchor *first*, then re-mint it only
+ *  beside marked-footnote's own `data-footnote-ref` / `data-footnote-backref`.
+ *  Net: the markers only ever ride the parser's own footnote refs, never a raw
+ *  anchor that merely declared them. */
+// Strip every `data-md-footnote*` attribute from an anchor start tag, in any
+// HTML attribute-value form — bare (`data-md-footnote`), double-/single-quoted
+// (`data-md-footnote="x"`, `='x'`), and unquoted (`data-md-footnote=x`). Scoped
+// to the tag's attribute span only: it never sees text nodes, so prose that
+// merely mentions `data-md-footnote` is untouched, and an unquoted spoof value
+// is consumed whole rather than leaving a dangling `=x` welded onto `<a`.
+const DOC_FOOTNOTE_ATTR =
+  /\s+data-md-footnote(?:-backref)?(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?/g;
+
+function rewriteFootnotes(html: string): string {
+  return (
+    html
+      // Drop document-authored markers before re-minting (see the spoof guard
+      // above), but only inside anchor start tags — a global text strip would
+      // corrupt prose containing the literal token and mangle unquoted spoof
+      // attributes. Match the whole `<a …>` open tag and clean its attributes.
+      .replace(/<a\b[^>]*>/g, (tag) => tag.replace(DOC_FOOTNOTE_ATTR, ""))
+      .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
+      .replace(
+        /<a (?=[^>]*\bdata-footnote-backref\b)/g,
+        "<a data-md-footnote-backref ",
+      )
+  );
+}
+
 // The soft-break setting and the raw-HTML toggle are the axes that vary the
 // parser, so cache one configured instance per (breaks, rawHtml). Rendering is
 // synchronous, so a shared instance is safe; the cache just avoids rebuilding
@@ -331,5 +384,5 @@ export function renderMarkdownToRawHtml(
   const { yaml, body } = splitFrontMatter(markdown);
   const meta =
     (opts.frontMatter ?? true) && yaml !== null ? renderFrontMatter(yaml) : "";
-  return meta + rewriteAlerts(inst.parse(body) as string);
+  return meta + rewriteFootnotes(rewriteAlerts(inst.parse(body) as string));
 }

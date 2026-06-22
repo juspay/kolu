@@ -64,6 +64,7 @@ import { OptionMenu } from "../ui/OptionMenu";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
+import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
 
@@ -178,6 +179,36 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       label: path,
     })),
   );
+
+  // A repo-relative link resolves against the previewed doc's own directory
+  // (GitHub-style), then opens through the same front door terminal `path:line`
+  // links use — so a miss surfaces a toast and any file type opens, not a bogus
+  // new tab (#1161). Named (not inlined on the preview) so the footnote popover
+  // routes a relative link in a note body through the exact same resolver.
+  const onNavigateRelative = (href: string) => {
+    const path = resolveLinkHref(props.filePath, href);
+    // The anchor is tagged `data-md-rel` (so the click was already
+    // preventDefault'd) yet didn't resolve to a repo path — a traversal that
+    // escapes the repo root, or a fragment/query-only href. Surface it rather
+    // than no-op silently, so a dead link isn't indistinguishable from a live one.
+    if (path === null) {
+      toast.error(`Can't open link: ${href}`);
+      return;
+    }
+    openPreviewPath(path);
+  };
+
+  // ── Footnote popover ───────────────────────────────────────────────
+  // A `[n]` marker click (routed across the `@kolu/solid-markdown` seam by
+  // `onFootnote`) opens the matching definition in a popover anchored to the
+  // marker, instead of scrolling to the bottom "Footnotes" list. The bottom list
+  // stays as-is; the popover reads its content from there. Clicking the marker
+  // that's already open toggles it closed.
+  const [footnote, setFootnote] = createSignal<FootnoteTarget | null>(null);
+  const onFootnote = (anchor: HTMLElement, definition: HTMLElement) =>
+    setFootnote((cur) =>
+      cur?.anchor === anchor ? null : { anchor, definition },
+    );
 
   // The comment address space a view exposes — the single axis this seam
   // decides on (see the header):
@@ -374,24 +405,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
               resolveImageSrc={(src) =>
                 resolveMarkdownImageSrc(props.terminalId, props.filePath, src)
               }
-              onNavigateRelative={(href) => {
-                // A repo-relative link resolves against the previewed doc's own
-                // directory (GitHub-style), then opens through the same front
-                // door terminal `path:line` links use — so a miss surfaces a
-                // toast and any file type opens, not a bogus new tab (#1161).
-                const path = resolveLinkHref(props.filePath, href);
-                // The anchor is tagged `data-md-rel` (so the click was already
-                // preventDefault'd) yet didn't resolve to a repo path — a
-                // traversal that escapes the repo root, or a fragment/query-only
-                // href. Surface it rather than no-op silently, so a dead link
-                // isn't indistinguishable from a working one.
-                if (path === null) {
-                  toast.error(`Can't open link: ${href}`);
-                  return;
-                }
-                openPreviewPath(path);
-              }}
+              onNavigateRelative={onNavigateRelative}
               onNavigateWikilink={onNavigateWikilink}
+              onFootnote={onFootnote}
             />,
           )}
         </div>
@@ -471,6 +487,17 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         maxHeight={280}
         truncate
         flip
+      />
+      {/* Footnote popover: the clicked `[n]` marker's definition, anchored to
+       *  the marker. Reuses the same anchored-panel scaffold as the wikilink
+       *  menu above; its inner links route through the preview's own resolvers
+       *  (relative + wikilink), so a link in a note body opens just like one in
+       *  the body text. */}
+      <FootnotePopover
+        target={footnote}
+        onDismiss={() => setFootnote(null)}
+        onNavigateRelative={onNavigateRelative}
+        onNavigateWikilink={onNavigateWikilink}
       />
     </>
   );

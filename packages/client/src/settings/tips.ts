@@ -90,6 +90,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
   },
   {
+    id: "amb-canvas-dblclick-create",
+    text: "Double-click an empty spot on the canvas to open the New terminal menu — no need to reach for the dock's + or a shortcut",
+  },
+  {
     id: "amb-chrome-maximize",
     text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the maximize toggle in the header, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
   },
