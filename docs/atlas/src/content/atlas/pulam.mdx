@@ -220,8 +220,6 @@ So the split is narrow and deliberate: **`arivu-tui` alone** becomes a Bun binar
 </Callout>
 
 <a id="r46"></a>
-<a id="r47"></a>
-<a id="r48"></a>
 
 ## R4.6–R4.8 — the forward roadmap: what *pulam* proves before kolu's R8
 
@@ -230,14 +228,32 @@ The discipline that built this epic: **every hard primitive graduates through a 
 | Phase | Ships | …and the gate it is for kolu |
 | --- | --- | --- |
 | **R4.6 · rename** <Pill>refactor</Pill> | arivu → **pulam** — the daemon, `pulam-tui`, this note; the package stays `@kolu/terminal-workspace`. Behaviour-preserving; green CI is the proof. *The immediate next step — deliberately just the rename.* | clears the "knowing" misnomer before new surface area is born under it |
-| **R4.7 · fs/git in `pulam-tui`** <Pill variant="ok">feature</Pill> | the TUI grows a **live Code view** — the first consumer of the surface's fs/git **streams** (`subscribeRepoChange` / `subscribeFileChange` `{seq}` pulses + the read procedures), repainting on a file edit (verified by raw-PTY capture, never directLink). | the server `source`-arm `{seq}` **shape**, end-to-end and observable — answers "is the shape sound?" |
-| **R4.8 · `pulam-web`** <Pill variant="ok">feature</Pill> | the **browser twin** of pulam-tui — a [drishti](electricity.html)-shaped browser ↔ Bun app reading pulam's surface over **`websocketLink` + `surfaceClient`** (the awareness fleet + a live Code tab), shipped **with** a hermetic `@kolu/surface` test: `implementSurfaces → websocketLink → surfaceClient.streams.<k>.use()` asserting frame N+1 ≠ N. | **kolu's exact failing leg** — ws + surfaceClient + Solid reconcile + source-arm `{seq}` — proven kolu-free, console *visible* |
+| **[R4.7](#r47) · live `git status` in `pulam-tui`** <Pill variant="ok">feature</Pill> | the TUI grows a **live git-status view** — working tree (staged · modified · untracked) + branch (name · ahead/behind), refreshed by `subscribeRepoChange`'s `{seq}` pulse re-running `git.getStatus`. The first consumer of the surface's fs/git **stream**; *no file content* — the pulse-plus-requery loop is the whole proof. Raw-PTY capture, never directLink. | the server `source`-arm `{seq}` **shape**, end-to-end and observable — "is the shape sound?" |
+| **[R4.8](#r48) · `pulam-web`** <Pill variant="ok">feature</Pill> | the **browser twin** — a [drishti](electricity.html)-shaped browser ↔ Bun app reading pulam's surface over **`websocketLink` + `surfaceClient`** (the awareness fleet + the *same* live git-status view), shipped **with** a hermetic `@kolu/surface` test: `implementSurfaces → websocketLink → surfaceClient.streams.<k>.use()` asserting frame N+1 ≠ N. | **kolu's exact failing leg** — ws + surfaceClient + Solid reconcile + source-arm `{seq}` — proven kolu-free, console *visible* |
 
 **Why a *web* twin, when the TUI sufficed for the glance view.** pulam-tui rides `stdioLink` + mirror sinks, so it structurally *cannot* exercise the leg kolu fails on: browser `websocketLink` → `surfaceClient` → Solid `reconcile`. pulam-web *is* that leg, minus kolu — it reads the **same** surface the **same** way kolu's browser will. So it is not a prettier dashboard (that would be the ceremony the fleet-board callout warned against); it is the standalone proof of **kolu's own consumption shape**. Only once R4.7 (shape) and R4.8 (transport) are green does kolu's **[R8b](remote-terminals.html#r8)** compose the surface — now a backing-swap onto twice-proven electricity, not a speculative one.
 
+<a id="r47"></a>
+
+### R4.7 — `pulam-tui`: a live `git status` view (proving the `{seq}` shape)
+
+`pulam-tui` already shows each terminal's branch + dirty flag — but from the **`awareness` collection**, the primitive R4.5 already proved. R4.7 consumes the *other* arm of the surface, the one kolu's Code tab needs and **nothing has exercised**: the **`subscribeRepoChange` `{seq}` watcher stream** refreshing the **`git.getStatus` procedure**. The view is deliberately thin — **live `git status`: working tree (staged · modified · untracked) and branch (name · ahead/behind)**, repainting the instant the repo changes. *No file content, no diff* — `git status` alone drives the exact procedure-plus-pulse loop kolu fails on, so it is the whole proof; rendering file bodies would add surface, not evidence.
+
+It runs over `stdioLink` (the TUI's transport), so R4.7 answers one question: **does the `{seq}` source-arm stream + requery survive a real link, end to end?** Verified by raw-PTY capture — frame N+1 ≠ frame N on a `touch` / `git add` — *never directLink* (the in-process path that masked the bug). If it is live here, the *shape* is sound, and the only unknown left is kolu's browser transport — which is R4.8.
+
+<a id="r48"></a>
+
+### R4.8 — `pulam-web`: the browser twin (kolu's `ws + surfaceClient` leg)
+
+`pulam-web` is `pulam-tui` rendered in a browser instead of a terminal: a [drishti](electricity.html)-shaped browser ↔ Bun app that reads pulam's surface over **`websocketLink` + `surfaceClient`** and shows the awareness fleet + the **same live `git status` view** R4.7 built. The renderer swaps (Solid → web vs Solid → OpenTUI); the surface, the schema, and the `{seq}`-pulse-plus-`getStatus` loop are identical.
+
+This is the phase that matters for kolu, because it is **kolu's exact failing leg, minus kolu**: browser → `websocketLink` → `surfaceClient` → Solid `reconcile`, consuming a `source`-arm `{seq}` stream. If git status updates live in `pulam-web` when a file changes, the leg is proven and kolu's [R8b](remote-terminals.html#r8) is a backing-swap onto it. If it *doesn't*, the bug reproduces **here** — in a build with a visible console and a non-ephemeral server log, exactly the observability kolu's e2e sandbox denied. Either way pulam-web ends the guessing (it may even show the simplest fix is the value-bearing poll-shape stream `koluSurface` already proved — a fork R4.8 resolves with evidence, not a guess).
+
+It ships **with** a hermetic `@kolu/surface` test as the deterministic CI guard: `implementSurfaces` (≥ 2 sibling surfaces) → `websocketLink` → `surfaceClient.streams.<k>.use()`, asserting a watcher's frame N+1 ≠ N. The unit test is the in-repo proof; pulam-web is the real second consumer that proves it is *electricity*, not just a green assertion.
+
 ## History
 
-- **Forward roadmap branched in** (2026-06-22) — arivu is renamed **pulam** (புலம் — *field* + *sense*) in [R4.6](#r46) (kept small: just the rename), and two graduation gates for kolu's remote-terminals R8 land as standalone pulam features — **[R4.7](#r47)** gives `pulam-tui` a live fs/git Code view (the first consumer of the surface's `{seq}` streams), and **[R4.8](#r48)** ships `pulam-web` (the browser twin) to prove the ws + `surfaceClient` + reconcile leg kolu's R8b depends on. Branched from [remote-terminals](remote-terminals.html) after a prototype (<PrLink pr={1510} />) validated the awareness one-writer-per-fact compose but stuck on that un-graduated stream-transport primitive.
+- **Forward roadmap branched in** (2026-06-22) — arivu is renamed **pulam** (புலம் — *field* + *sense*) in [R4.6](#r46) (kept small: just the rename), and two graduation gates for kolu's remote-terminals R8 land as standalone pulam features — **[R4.7](#r47)** gives `pulam-tui` a live `git status` view (the first consumer of the surface's `{seq}` stream — no file content needed), and **[R4.8](#r48)** ships `pulam-web` (the browser twin) to prove the ws + `surfaceClient` + reconcile leg kolu's R8b depends on. Branched from [remote-terminals](remote-terminals.html) after a prototype (<PrLink pr={1510} />) validated the awareness one-writer-per-fact compose but stuck on that un-graduated stream-transport primitive.
 - The standalone story shipped end-to-end R4.1–R4.5: extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity. Supersedes two closed plans (<PrLink pr={1398} />, <PrLink pr={1409} />) that kept awareness *inside* kolu and split hairs over an in-process compose-vs-serve boundary this design dissolves by moving the producer into a daemon.
 - **R4.4 → `dialAgentOnce`** — the gauntlet lifted the shared one-shot dial into `@kolu/surface-nix-host`; kaval-tui and arivu-tui are now thin wrappers over one primitive (paired drishti pin-bump merge-gate).
 - **R4.5.3 as-built** — the board is always live (`--json` is the one-shot); a dropped one-shot dial flips a host to `unreachable` rather than reconnecting (long-lived reconnect stays remote-terminals R9 / `HostSession`); host discovery is `--host` + a small `~/.ssh/config` enumerator (no new dep). Gauntlet + dogfooding added `--kaval <host>=<socket>` pinning, a responsive `repo·branch` layout, the `--host` stderr-bleed fix (`onLog` sink), and a darwin `bun install --backend=copyfile` fix.
