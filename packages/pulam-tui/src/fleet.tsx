@@ -41,7 +41,6 @@ import { HEADER, HOST, LIVE, SUBTLE, TITLE, TONE_COLOR } from "./palette.ts";
 import type { FleetHostState, FleetHostStatus } from "./fleetTypes.ts";
 import {
   cell,
-  clampSelection,
   type FieldTone,
   flattenRows,
   type FleetGroup,
@@ -50,9 +49,9 @@ import {
   type FleetView,
   gitDetail,
   type GitDetailView,
-  moveSelection,
   projectFleet,
   relativeTime,
+  step,
 } from "./render.ts";
 import { runTui } from "./runtime.tsx";
 
@@ -306,7 +305,7 @@ function Summary(props: { view: () => FleetView }) {
 }
 
 /** The whole board. Pure paint over the projected `view`, the two animation
- *  accessors, and the selection state (`sel`/`open`, defaulted off so the
+ *  accessors, and the selection state (`selectedKey`/`open`, defaulted off so the
  *  headless render test can drive the board with or without a cursor) — exported
  *  so the Bun render test drives it directly. */
 export function FleetBoard(props: {
@@ -314,8 +313,11 @@ export function FleetBoard(props: {
   frame: () => number;
   now: () => number;
   clock: () => string;
-  /** The selection cursor index over `flattenRows(view)`; defaults to 0. */
-  sel?: () => number;
+  /** The selected row's stable key (`FleetRow.key`), or `null`/absent for no
+   *  selection. The cursor tracks identity, not a list index, so it survives both
+   *  a shrink and a reorder of the live row set without a separate clamp; the
+   *  board resolves it to a concrete row only for the drill-in pane. */
+  selectedKey?: () => string | null;
   /** Whether the drill-in detail pane is open for the selected row; off by
    *  default (the snapshot-style render tests don't drive selection). */
   open?: () => boolean;
@@ -341,15 +343,17 @@ export function FleetBoard(props: {
   // a row must carry its own host cell; in `host` mode the group header is the
   // host and the column would just be redundant.
   const showHost = () => props.view().mode !== "host";
-  // The selected row — clamped into the live row set (which shrinks as terminals
-  // leave) so the cursor never points past the end, and reduced to a stable key
-  // each Row compares itself against.
-  const rows = createMemo(() => flattenRows(props.view()));
-  const selected = () =>
-    rows()[clampSelection(props.sel?.() ?? 0, rows().length)];
-  const selectedKey = () => {
-    const r = selected();
-    return r ? r.key : null;
+  // The selected key drives the cursor directly; each Row compares its own
+  // `key` against it. The drill-in pane is the only thing that needs the whole
+  // row, so resolve the key to a concrete row here, off the same flattened list
+  // the keyboard handler steps through — a stale/absent key simply matches no
+  // row (the pane shows nothing), never a wrong one.
+  const selectedKey = () => props.selectedKey?.() ?? null;
+  const selected = () => {
+    const key = selectedKey();
+    return key === null
+      ? undefined
+      : flattenRows(props.view()).find((r) => r.key === key);
   };
   return (
     <box flexDirection="column" padding={1}>
@@ -482,31 +486,37 @@ export async function runFleetTui(args: {
   function App() {
     const [now, setNow] = createSignal(Date.now());
     const [frame, setFrame] = createSignal(0);
-    // Selection state — the cursor index over the flattened row list, and whether
-    // its repo's drill-in detail pane is open. Pure view state: it reads the live
-    // store but never writes back, so it lives here, never in the orchestrator.
-    const [sel, setSel] = createSignal(0);
+    // Selection state — the selected row's STABLE key (not a list index), and
+    // whether its repo's drill-in detail pane is open. Tracking the key means the
+    // cursor survives both a shrink and a reorder of the live row set with no
+    // clamp/wrap arithmetic of its own (`step` owns it). Pure view state: it reads
+    // the live store but never writes back, so it lives here, never in the
+    // orchestrator. `null` until the first ↑/↓ selects a row.
+    const [selectedKey, setSelectedKey] = createSignal<string | null>(null);
     const [open, setOpen] = createSignal(false);
     // The projection depends on the STORE only, never `now()` — so the 1s clock
     // tick repaints just the recency cells (which read `now()` in the row) and
     // the header clock, not this whole derivation. Defined before the keyboard
-    // handler so it can read the live row count for the wrap-around.
+    // handler so it can read the live rows for the step neighbour.
     const view = createMemo(() =>
       projectFleet(Object.values(store), args.mode),
     );
+    // The single flattened row list — the keyboard handler steps over it and the
+    // board (via `selectedKey`) paints from it; one memo, one row order, so a ↑/↓
+    // can't disagree with what's on screen.
     const rows = createMemo(() => flattenRows(view()));
 
-    // ↑/↓ move the selection cursor (wrapping), Enter opens the drill-in detail
-    // pane for the selected row, Esc closes it. `useKeyboard` self-manages its
-    // mount/cleanup; Ctrl-C is left untouched so `exitOnCtrlC` (the one quit, set
-    // in runtime.tsx) still fires.
+    // ↑/↓ move the selection cursor (wrapping) to the neighbour row's key, Enter
+    // opens the drill-in detail pane for the selected row, Esc closes it.
+    // `useKeyboard` self-manages its mount/cleanup; Ctrl-C is left untouched so
+    // `exitOnCtrlC` (the one quit, set in runtime.tsx) still fires.
     useKeyboard((key) => {
       switch (key.name) {
         case "up":
-          setSel((i) => moveSelection(i, -1, rows().length));
+          setSelectedKey((k) => step(k, -1, rows()));
           break;
         case "down":
-          setSel((i) => moveSelection(i, 1, rows().length));
+          setSelectedKey((k) => step(k, 1, rows()));
           break;
         case "return":
           setOpen(true);
@@ -547,7 +557,7 @@ export async function runFleetTui(args: {
         frame={frame}
         now={now}
         clock={clock}
-        sel={sel}
+        selectedKey={selectedKey}
         open={open}
       />
     );

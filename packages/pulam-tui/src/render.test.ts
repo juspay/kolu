@@ -10,7 +10,6 @@ import {
   agentStatusLabel,
   agentTone,
   agentUrgency,
-  clampSelection,
   dashRow,
   dashRows,
   flattenRows,
@@ -20,11 +19,11 @@ import {
   formatFleetJson,
   gitCell,
   gitDetail,
-  moveSelection,
   prTone,
   projectFleet,
   relativeTime,
   shortId,
+  step,
 } from "./render.ts";
 
 /** A seed awareness value; `over` patches the fields a case cares about. The
@@ -711,17 +710,37 @@ describe("gitDetail", () => {
   });
 });
 
-describe("selection reducers", () => {
-  it("moveSelection wraps at both ends", () => {
-    expect(moveSelection(0, -1, 3)).toBe(2);
-    expect(moveSelection(2, 1, 3)).toBe(0);
-    expect(moveSelection(0, 1, 3)).toBe(1);
-    expect(moveSelection(5, 1, 0)).toBe(0); // empty list → pinned at 0
+describe("step (identity-based selection cursor)", () => {
+  // Three rows in visual order, each with its own stable key.
+  const rows = (...keys: string[]): FleetRow[] =>
+    keys.map((k) => ({ key: k }) as FleetRow);
+  const r = rows("a", "b", "c");
+
+  it("moves to the neighbour's key and wraps at both ends", () => {
+    expect(step("a", 1, r)).toBe("b");
+    expect(step("b", 1, r)).toBe("c");
+    expect(step("c", 1, r)).toBe("a"); // ↓ past the last wraps to the first
+    expect(step("a", -1, r)).toBe("c"); // ↑ before the first wraps to the last
   });
-  it("clampSelection keeps the cursor in range when rows shrink", () => {
-    expect(clampSelection(5, 3)).toBe(2);
-    expect(clampSelection(-1, 3)).toBe(0);
-    expect(clampSelection(0, 0)).toBe(0);
+
+  it("resolves a null/stale key to row 0 (clamp is automatic)", () => {
+    expect(step(null, 1, r)).toBe("b"); // null → index 0, then +1
+    expect(step(null, -1, r)).toBe("c"); // null → index 0, then -1 wraps
+    expect(step("gone", 1, r)).toBe("b"); // a key no row carries → index 0, +1
+  });
+
+  it("returns null for an empty list (no row to name)", () => {
+    expect(step("a", 1, [])).toBe(null);
+    expect(step(null, 1, [])).toBe(null);
+  });
+
+  it("follows the selected row through a REORDER, not a position", () => {
+    // The live row set reorders (an agent's urgency changed): the SAME terminal
+    // "b" is now first. An index cursor pinned at index 1 would step from a
+    // different row; tracking the key steps from b's new neighbour regardless.
+    const reordered = rows("b", "c", "a");
+    expect(step("b", 1, reordered)).toBe("c"); // still steps from b, now at 0
+    expect(step("b", -1, reordered)).toBe("a"); // ↑ from b wraps to the last (a)
   });
 });
 

@@ -764,20 +764,26 @@ export function flattenRows(view: FleetView): FleetRow[] {
   return view.mode === "needs" ? view.flat : view.groups.flatMap((g) => g.rows);
 }
 
-/** Move a selection cursor by `delta` over `count` rows, wrapping at the ends so
- *  ↓ past the last row lands back on the first. `count === 0` pins it at 0. */
-export function moveSelection(
-  current: number,
+/** Step the selection from `currentKey` by `delta` over `rows` (in visual order),
+ *  returning the neighbour's stable key with wrap — ↓ past the last row lands on
+ *  the first, ↑ before the first on the last. Tracking identity rather than an
+ *  index means the cursor survives both a shrink AND a reorder of the live row
+ *  set: a missing or stale `currentKey` (the selected terminal left, or never
+ *  matched) resolves to position 0, so clamping is automatic and there is no
+ *  separate clamp/move split. An empty list has no row to name → `null`. */
+export function step(
+  currentKey: string | null,
   delta: number,
-  count: number,
-): number {
-  if (count <= 0) return 0;
-  return (((current + delta) % count) + count) % count;
-}
-
-/** Clamp a selection cursor into `[0, count)` — applied when the live row count
- *  shrinks under a held selection so it can never point past the last row. */
-export function clampSelection(current: number, count: number): number {
-  if (count <= 0) return 0;
-  return Math.min(Math.max(0, current), count - 1);
+  rows: FleetRow[],
+): string | null {
+  if (rows.length === 0) return null;
+  // A stale/absent key resolves to index 0 (`indexOf` → -1, normalized below),
+  // which is the clamp the old `clampSelection` performed — but here it falls
+  // out of the same arithmetic instead of a second reducer.
+  const current = Math.max(
+    0,
+    rows.findIndex((r) => r.key === currentKey),
+  );
+  const next = (((current + delta) % rows.length) + rows.length) % rows.length;
+  return rows[next]?.key ?? null;
 }
