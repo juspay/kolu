@@ -1,8 +1,20 @@
 /**
- * `@kolu/terminal-workspace` — the per-terminal awareness sensor set (git ·
- * PR · agent · foreground) plus the generic `AwarenessValue` schema it
- * produces, lifted out of kolu-server so a standalone daemon (`arivu`) and
- * kolu-server share ONE copy of the freshness-critical sensor code.
+ * `@kolu/terminal-workspace` — the host-side terminal WORKSPACE library, run in
+ * two homes off one codebase: in-process in kolu-server (local terminals) and
+ * hosted by `arivu` over ssh (remote ones). Lifted out of kolu-server so both
+ * homes share ONE copy of the freshness-critical code. Its entry points
+ * (the export map is the boundary — node-only code never reaches a browser
+ * consumer):
+ *  - `.` — the per-terminal awareness sensor set (git · PR · agent ·
+ *    foreground) + the generic `AwarenessValue` schema it produces.
+ *  - `./schema` — the browser-safe `AwarenessValue` zod schema alone.
+ *  - `./endpoint` — `createTerminalWorkspaceEndpoint`, the host-side fs/git
+ *    wrapper over `kolu-git` the Code tab reads.
+ *  - `./surface` — `terminalWorkspaceSurface`, the browser-safe served surface
+ *    (awareness + fs/git) arivu serves and a remote kolu mirrors in R8.
+ *  - `./serveFsGit` — `fsGitSurfaceDeps`, the deps wiring the endpoint onto the
+ *    surface.
+ *  - `./socket` — the well-known arivu rendezvous socket path.
  *
  * The package names no kolu-app package: its lone host coupling — a logger —
  * is injected as a `startAwareness` parameter. Consumers that only need the
