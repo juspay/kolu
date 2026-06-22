@@ -35,6 +35,8 @@ import {
   activeArm,
   type HostLocation,
   type LiveTerminalFields,
+  projectAwareness,
+  projectKoluFields,
   prUnavailableReason,
   type ServerPersistedTerminalFields,
   type TerminalClientMetadata,
@@ -42,6 +44,7 @@ import {
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
+import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 import type {
   ActiveTerminalProcess,
   TerminalProcess,
@@ -101,7 +104,17 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
     },
     "metadata publish",
   );
-  surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
+  // R8: publish the two projections of the one internal record. kolu's own
+  // fields ride `koluSurface.terminalMetadata`; the live `AwarenessValue` (active
+  // terminals only) rides the composed `terminalWorkspaceSurface.awareness`. The
+  // browser joins them by id at render — the dissolved server-side fold.
+  surfaceCtx.collections.terminalMetadata.upsert(terminalId, projectKoluFields(m));
+  if (live) {
+    workspaceSurfaceCtx.collections.awareness.upsert(
+      terminalId,
+      projectAwareness(live),
+    );
+  }
 }
 
 function publishSnapshotAndDirty(

@@ -14,6 +14,7 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
+import { joinTerminalMetadata } from "kolu-common/surface";
 import type {
   TerminalId,
   TerminalInfo,
@@ -21,7 +22,7 @@ import type {
 } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { app } from "../wire";
+import { app, terminalWorkspace } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -51,13 +52,30 @@ export function sameTerminalIdOrder(
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
 }) {
+  const keys = () => deps.list()?.map((t) => t.id) ?? [];
+
+  // R8: the fold dissolved — the full record is now a CLIENT-SIDE JOIN of two
+  // collections by terminal id. `meta` carries kolu's own fields (theme · layout ·
+  // location · chrome) off `koluSurface`; `awareness` carries the live overlay
+  // (cwd · git · pr · agent · foreground) off the composed
+  // `terminalWorkspaceSurface`. Both are keyed by the same terminal id.
   const meta = app.collections.terminalMetadata.use({
-    keys: () => deps.list()?.map((t) => t.id) ?? [],
+    keys,
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
+  const awareness = terminalWorkspace.collections.awareness.use({
+    keys,
+    onError: (err) => toast.error(`Awareness error: ${err.message}`),
+  });
 
+  /** The joined record downstream renders off, reconstructed from the two halves
+   *  (the inverse of the server's old fold). Until an active terminal's awareness
+   *  half arrives, `joinTerminalMetadata` seeds the overlay defaults so the tile
+   *  paints its chrome immediately — the first-paint flicker the plan calls out. */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return meta.byKey(id)?.();
+    const kolu = meta.byKey(id)?.();
+    if (!kolu) return undefined;
+    return joinTerminalMetadata(kolu, awareness.byKey(id)?.());
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---

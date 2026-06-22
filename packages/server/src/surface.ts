@@ -45,31 +45,25 @@ import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
   KoluBuildInfo,
+  KoluTerminalFields,
   Preferences,
   ProcessMemory,
   SavedSession,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
   type koluSurface,
+  projectKoluFields,
   surfaces,
 } from "kolu-common/surface";
-import {
-  type FsReadFileOutput,
-  fsListAllOutputEqual,
-  fsReadFileOutputEqual,
-  gitDiffOutputEqual,
-  gitStatusOutputEqual,
-} from "kolu-git";
-import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
-import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
+import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
+import { buildWorkspaceSurfaceDeps } from "./terminalEndpoint/workspaceSurface.ts";
 import {
   getTerminal,
   listTerminals,
@@ -231,17 +225,19 @@ const koluDeps: Omit<
 
   collections: {
     terminalMetadata: {
+      // R8: project the internal record to kolu's OWN fields — the awareness
+      // overlay rides `terminalWorkspaceSurface.awareness`, joined client-side.
       readAll: () => {
-        const map = new Map<string, TerminalMetadata>();
+        const map = new Map<string, KoluTerminalFields>();
         for (const info of listTerminals()) {
           const term = getTerminal(info.id);
-          if (term) map.set(info.id, term.meta);
+          if (term) map.set(info.id, projectKoluFields(term.meta));
         }
         return map;
       },
       readOne: (key) => {
         const term = getTerminal(key as string);
-        return term ? term.meta : undefined;
+        return term ? projectKoluFields(term.meta) : undefined;
       },
       // Server-internal collection: clients can't write. The `upsert`/
       // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
@@ -263,67 +259,12 @@ const koluDeps: Omit<
     },
   },
 
-  streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint.
-    // P3 adds remote-endpoint impls behind the same TerminalEndpointFs /
-    // TerminalEndpointGit seam — this block reads them off `localEndpoint`
-    // and never names a host.
-    gitStatus: {
-      read: async (input) =>
-        localEndpoint.git.getStatus(input.repoPath, input.mode),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: gitStatusOutputEqual,
-    },
-    gitDiff: {
-      read: async (input) =>
-        localEndpoint.git.getDiff(
-          input.repoPath,
-          input.filePath,
-          input.mode,
-          input.oldPath,
-        ),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: gitDiffOutputEqual,
-    },
-    fsListAll: {
-      read: async (input) => localEndpoint.fs.listAll(input.repoPath),
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
-      isEqual: fsListAllOutputEqual,
-    },
-    fsReadFile: {
-      read: async (input): Promise<FsReadFileOutput> => {
-        if (isBinaryPreviewable(input.filePath)) {
-          const mtimeMs = await localEndpoint.fs.statFileMtimeMs(
-            input.repoPath,
-            input.filePath,
-          );
-          return {
-            kind: "binary",
-            url: buildIframePreviewUrl(
-              input.terminalId,
-              input.filePath,
-              mtimeMs,
-            ),
-          };
-        }
-        const { content, truncated } = await localEndpoint.fs.readFile(
-          input.repoPath,
-          input.filePath,
-        );
-        return { kind: "text", content, truncated };
-      },
-      install: (input, cb) =>
-        localEndpoint.fs.subscribeFileChange(
-          input.repoPath,
-          input.filePath,
-          cb,
-        ),
-      isEqual: fsReadFileOutputEqual,
-    },
-  },
+  // R8: the fs/git value-bearing streams are GONE from koluSurface. The composed
+  // `terminalWorkspaceSurface` (below) serves those reads as procedures + change-
+  // pulse watcher streams, off the SAME `localEndpoint.fs/git` impl — one impl,
+  // and now one surface. The binary-preview/iframe-URL orchestration that lived
+  // in the old `fsReadFile` handler moves to the client (it builds the kolu HTTP
+  // route URL from `fs.statFileMtimeMs`).
 
   events: {
     terminalExit: {
@@ -374,10 +315,10 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
-      // Default subsequent-read error handler for poll-shape streams.
-      // All four Kolu streams (gitStatus, gitDiff, fsListAll, fsReadFile)
-      // log transient read failures the same way; per-stream overrides
-      // are absent so this fires for every poll-shape stream.
+      // Default subsequent-read error handler for poll-shape streams, shared
+      // across every composed surface. R8 moved kolu's fs/git off koluSurface, so
+      // the poll-shape streams that fire this now live on `terminalWorkspaceSurface`
+      // (the `{seq}` change-pulse watchers); the sink is unchanged.
       onStreamReadError: (err, info) =>
         log.error(
           { err: err instanceof Error ? err.message : String(err), ...info },
@@ -425,6 +366,17 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
       kolu: koluDeps,
+
+      // ── R8: the composed terminal-workspace surface (sibling under
+      // `terminalWorkspace`) — awareness + activity + version + the fs/git
+      // procedures/watchers, served IN-PROCESS off the same endpoint instance the
+      // local `TerminalEndpoint` uses. The per-terminal dispatch seam inside
+      // (`awarenessFor`/`awarenessAll`) is local-only today; R9 points it at a
+      // remote host's mirror.
+      terminalWorkspace: buildWorkspaceSurfaceDeps(
+        { fs: localEndpoint.fs, git: localEndpoint.git },
+        log,
+      ),
     },
   );
 
@@ -433,3 +385,7 @@ export const surfaceRouter = surfaceRouterFragment;
 // surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
 // driven by the runtime-fired cell `.connect`, not by domain code.
 setSurfaceCtx(surfaceCtxBuilt.kolu);
+// R8: the sensors also publish the awareness half of each record onto the
+// composed `terminalWorkspace` surface, so register its ctx too. `metadata.ts`
+// pushes through `workspaceSurfaceCtx.collections.awareness.upsert(id, value)`.
+setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);

@@ -38,22 +38,27 @@ import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
   AwarenessLiveFieldsSchema,
   AwarenessPersistedFieldsSchema,
+  type AwarenessValue,
+  AwarenessValueSchema,
   PrResultSchema,
+  seedAwarenessValue,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
+// R8: kolu-server composes the terminal-workspace surface as a member of the
+// surface it serves the browser, beside `koluSurface` + `surfaceApp`. Importing
+// it here (the one browser-safe source of which surfaces exist) is what lets
+// `composeSurfaceContracts` / `surfaceClients` / `implementSurfaces` all see the
+// third key. No cycle — terminal-workspace imports nothing from kolu-common.
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
-import {
-  FsListAllInputSchema,
-  FsListAllOutputSchema,
-  FsReadFileInputSchema,
-  FsReadFileOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-} from "kolu-git/schemas";
 import { z } from "zod";
+// R8: the fs/git read schemas (GitStatusInput/Output, …) no longer ride
+// `koluSurface` — those reads moved to `terminalWorkspaceSurface` as procedures
+// + change-pulse watcher streams (R6 defined them there). kolu-server composes
+// that surface now, so the client requeries the procedures rather than reading
+// kolu's own value-bearing streams. The schemas live in `kolu-git/schemas`,
+// imported by `terminal-workspace/surface`, so this file no longer needs them.
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
@@ -371,6 +376,41 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   SleepingTerminalSchema,
 ]);
 
+// ── R8: kolu's OWN fields — the shrunk `terminalMetadata` collection wire ──
+//
+// R8 dissolves the server-side fold: the browser reads `awareness` straight off
+// `terminalWorkspaceSurface.awareness` (the live `AwarenessValue` — cwd · git ·
+// pr · agent · foreground · …) and joins it BY TERMINAL ID at render with kolu's
+// OWN fields (theme · layout · `location` · the rest of the client-persisted
+// chrome) carried here. So the `terminalMetadata` collection's WIRE shape shrinks
+// to exactly the fields kolu owns — the awareness overlay leaves the wire.
+//
+// Only the ACTIVE arm shrinks. A SLEEPING terminal has NO live sensor (its PTY is
+// released), so its cwd · git · frozen `pr` were always a kolu-side FROZEN
+// snapshot (kaval/arivu never see a sleeping arm — the awareness collection
+// carries active terminals only). The sleeping arm is therefore unchanged:
+// `SleepingTerminalSchema` already IS kolu's own frozen record, so the dormant
+// tile keeps reading cwd · branch · PR off it with no awareness join.
+
+/** The active arm as kolu OWNS it — the client-persisted chrome + `location` +
+ *  the `active` discriminant, with NO awareness overlay (that rides
+ *  `terminalWorkspaceSurface.awareness`, joined client-side). The R8 shrink of
+ *  the old `ActiveTerminalSchema` (which merged the awareness base + live
+ *  overlay). */
+export const KoluActiveTerminalSchema = ClientPersistedTerminalFieldsSchema.merge(
+  z.object({ location: HostLocationSchema }),
+).merge(ActiveDiscriminantSchema);
+
+/** The shrunk `terminalMetadata` collection value: kolu's own fields only. Active
+ *  = kolu chrome + location; sleeping = the unchanged frozen snapshot. The full
+ *  `TerminalMetadata` (the internal registry record + the client's render type)
+ *  is reconstructed by joining an active entry with its `AwarenessValue` — see
+ *  `joinTerminalMetadata`. */
+export const KoluTerminalFieldsSchema = z.discriminatedUnion("state", [
+  KoluActiveTerminalSchema,
+  SleepingTerminalSchema,
+]);
+
 /** Client-owned metadata supplied at create time. Seeded onto the new
  *  terminal's `meta` before the first `terminal.list` yield, so session
  *  restore can't race the canvas default-cascade effect (#642).
@@ -556,6 +596,10 @@ export type LiveTerminalFields = z.infer<typeof LiveTerminalFieldsSchema>;
 export type ActiveTerminal = z.infer<typeof ActiveTerminalSchema>;
 /** The sleeping arm of the `Terminal` sum — persisted base + `sleptAt`. */
 export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
+/** R8: kolu's own half of a terminal record — the shrunk `terminalMetadata`
+ *  collection wire (no awareness overlay on the active arm). */
+export type KoluTerminalFields = z.infer<typeof KoluTerminalFieldsSchema>;
+export type KoluActiveTerminal = z.infer<typeof KoluActiveTerminalSchema>;
 export type ServerPersistedTerminalFields = z.infer<
   typeof ServerPersistedTerminalFieldsSchema
 >;
@@ -909,7 +953,9 @@ export const koluSurface = defineSurface({
      *  call `upsert` on this collection directly. */
     terminalMetadata: {
       keySchema: TerminalIdSchema,
-      schema: TerminalMetadataSchema,
+      // R8: the wire shape is kolu's OWN fields only — the awareness overlay
+      // moved to `terminalWorkspaceSurface.awareness`, joined client-side by id.
+      schema: KoluTerminalFieldsSchema,
       // Only the streaming reads are exposed; writes are server-internal.
       verbs: ["keys", "get"],
     },
@@ -924,28 +970,10 @@ export const koluSurface = defineSurface({
       verbs: ["keys", "get"],
     },
   },
-  streams: {
-    /** Live changed-files list for the Code-view's Local/Branch modes. */
-    gitStatus: {
-      inputSchema: GitStatusInputSchema,
-      outputSchema: GitStatusOutputSchema,
-    },
-    /** Live unified diff for one file. */
-    gitDiff: {
-      inputSchema: GitDiffInputSchema,
-      outputSchema: GitDiffOutputSchema,
-    },
-    /** Live repo-relative path list (tracked + untracked-but-not-ignored). */
-    fsListAll: {
-      inputSchema: FsListAllInputSchema,
-      outputSchema: FsListAllOutputSchema,
-    },
-    /** Live UTF-8 content for a single file in the Code-view's All-mode body. */
-    fsReadFile: {
-      inputSchema: FsReadFileInputSchema,
-      outputSchema: FsReadFileOutputSchema,
-    },
-  },
+  // R8: the fs/git reads (gitStatus · gitDiff · fsListAll · fsReadFile) are GONE
+  // from koluSurface — they're served by the composed `terminalWorkspaceSurface`
+  // as procedures + `{seq}` change-pulse watcher streams. The Code tab now calls
+  // those procedures and requeries on each pulse (see the client's `useWatchedRead`).
   events: {
     /** Terminal process exited — fires once per terminal lifetime with the
      *  exit code. Drives the exit toast and the active-terminal auto-switch
@@ -964,6 +992,11 @@ export const koluSurface = defineSurface({
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
+  // R8: the terminal-workspace surface, now a THIRD member kolu-server serves the
+  // browser in-process (awareness collection + activity stream + the fs/git
+  // procedures + watcher streams). R9 points its per-terminal dispatch at a
+  // remote host's mirror; the wire path is `surface.terminalWorkspace.*`.
+  terminalWorkspace: terminalWorkspaceSurface,
 } as const;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
@@ -1034,6 +1067,59 @@ export function activePr(
 ): PrInfo | null {
   const arm = activeArm(m);
   return arm ? prValue(arm.pr) : null;
+}
+
+// ── R8: project / join across the dissolved fold ──────────────────────────
+//
+// The server holds ONE record per terminal internally (the full `TerminalMetadata`
+// the sensors mutate, sessions persist, sleep/wake flip). R8 splits only the WIRE:
+// `projectKoluFields` feeds the `terminalMetadata` collection (kolu's own fields)
+// and `projectAwareness` feeds `terminalWorkspaceSurface.awareness` (the live
+// overlay). The browser does the inverse — `joinTerminalMetadata` — reconstructing
+// the full record from the two collections by terminal id. So the merge that used
+// to be a server-side fold is now a pure client-side join; the server just publishes
+// each half. (R9: a remote terminal's awareness half comes off the mirror instead
+// of the local projection, same join.)
+
+/** The kolu-owned half of a record — the `terminalMetadata` collection wire. The
+ *  active arm drops the awareness overlay; the sleeping arm is already kolu's own
+ *  frozen snapshot, so it passes through whole. */
+export function projectKoluFields(m: TerminalMetadata): KoluTerminalFields {
+  if (m.state === "sleeping") return m;
+  const { location, themeName, parentId, canvasLayout, subPanel, rightPanel, intent } =
+    m;
+  return {
+    state: "active",
+    location,
+    ...(themeName !== undefined && { themeName }),
+    ...(parentId !== undefined && { parentId }),
+    ...(canvasLayout !== undefined && { canvasLayout }),
+    ...(subPanel !== undefined && { subPanel }),
+    ...(rightPanel !== undefined && { rightPanel }),
+    ...(intent !== undefined && { intent }),
+  };
+}
+
+/** The awareness half of an ACTIVE record — the `terminalWorkspaceSurface.awareness`
+ *  wire. `AwarenessValueSchema.parse` strips the kolu-owned keys (location · chrome
+ *  · `state`), leaving exactly the generic `AwarenessValue`. Sleeping terminals
+ *  have no live awareness, so this is only published for active terminals. */
+export function projectAwareness(m: ActiveTerminal): AwarenessValue {
+  return AwarenessValueSchema.parse(m);
+}
+
+/** The browser's inverse of the split: rebuild the full `TerminalMetadata` from
+ *  kolu's own fields + the live `AwarenessValue` (keyed by the same terminal id).
+ *  A sleeping entry is already complete. For an active entry whose awareness half
+ *  hasn't arrived yet — the first-paint flicker the plan calls out — seed the
+ *  awareness defaults so the tile renders chrome immediately and fills its badge
+ *  the instant the awareness snapshot lands. */
+export function joinTerminalMetadata(
+  kolu: KoluTerminalFields,
+  awareness: AwarenessValue | undefined,
+): TerminalMetadata {
+  if (kolu.state === "sleeping") return kolu;
+  return { ...seedAwarenessValue(awareness?.cwd ?? ""), ...awareness, ...kolu };
 }
 
 // ── Saved-terminal backfills (legacy → current shape) ─────────────────

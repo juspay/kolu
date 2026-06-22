@@ -74,8 +74,9 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 const clients = surfaceClients(link, surfaces);
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
- *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,
- *  etc. Every existing `app.*` call site reaches kolu's own primitives. */
+ *  `app.collections.terminalMetadata.use(...)`, etc. Every `app.*` call site
+ *  reaches kolu's own primitives. (R8: the fs/git reads that used to live here as
+ *  `app.streams.gitStatus`/`fsReadFile` moved to the `terminalWorkspace` client.) */
 export const app = clients.kolu;
 
 /** surface-app's surface client — the build-identity `buildInfo` cell (read via
@@ -84,6 +85,14 @@ export const app = clients.kolu;
  *  the `surfaceApp` key is consumed by the scope, so it does NOT reappear in the
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
+
+/** R8: the composed terminal-workspace surface client — the `awareness`
+ *  collection (`terminalWorkspace.collections.awareness.use(...)`), the `activity`
+ *  stream, and the fs/git read procedures + change-pulse watcher streams
+ *  (`terminalWorkspace.rpc.surface.fs.listAll(...)`,
+ *  `terminalWorkspace.streams.subscribeRepoChange.use(...)`). The Code tab + the
+ *  metadata join read off this instead of kolu's old value-bearing streams. */
+export const terminalWorkspace = clients.terminalWorkspace;
 
 /** Convenience alias — the FULL combined link. `client.terminal.create(...)`,
  *  `client.git.worktreeCreate(...)`, `client.server.info(...)` reach the raw oRPC

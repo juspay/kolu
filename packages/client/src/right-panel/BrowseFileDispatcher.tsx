@@ -39,12 +39,15 @@ import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import {
+  buildTerminalFileUrl,
+  isBinaryPreviewable,
   isMarkdown,
   isRasterImage,
   isSandboxPreviewable,
   isVideo,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
+import type { FsReadFileOutput } from "kolu-git/schemas";
 import {
   type Component,
   createMemo,
@@ -61,10 +64,11 @@ import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { app } from "../wire";
+import { terminalWorkspace } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
+import { useWatchedRead } from "./useWatchedRead";
 import { openInCodeTab } from "./openInCodeTab";
 
 // The "File truncated" banner is rendered as a sibling ABOVE the comment
@@ -113,12 +117,34 @@ export type BrowseFileDispatcherProps = {
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  const fileContent = app.streams.fsReadFile.use(
-    () => ({
-      terminalId: props.terminalId,
-      repoPath: props.repoPath,
-      filePath: props.filePath,
-    }),
+  // R8: fsReadFile moved off koluSurface. The composed terminalWorkspaceSurface
+  // serves the RAW text read (`fs.readFile`) + the mtime (`fs.statFileMtimeMs`) as
+  // procedures, pulsed by `subscribeFileChange`. The binary-preview orchestration
+  // (decide binary vs text, build the kolu iframe-route URL) was kolu-server's; it
+  // moves HERE — the client knows the terminal id and builds the same `?v=<mtime>`
+  // URL via the browser-safe `buildTerminalFileUrl`.
+  const filePulse = terminalWorkspace.streams.subscribeFileChange.use(
+    () => ({ repoPath: props.repoPath, filePath: props.filePath }),
+    { onError: (err) => toast.error(`File watch: ${err.message}`) },
+  );
+  const fileContent = useWatchedRead<
+    { repoPath: string; filePath: string },
+    FsReadFileOutput
+  >(
+    () => ({ repoPath: props.repoPath, filePath: props.filePath }),
+    async (i): Promise<FsReadFileOutput> => {
+      if (isBinaryPreviewable(i.filePath)) {
+        const mtimeMs = await terminalWorkspace.rpc.surface.fs.statFileMtimeMs(i);
+        return {
+          kind: "binary",
+          url: `${buildTerminalFileUrl(props.terminalId, i.filePath)}?v=${Math.floor(mtimeMs)}`,
+        };
+      }
+      const { content, truncated } =
+        await terminalWorkspace.rpc.surface.fs.readFile(i);
+      return { kind: "text", content, truncated };
+    },
+    filePulse,
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },

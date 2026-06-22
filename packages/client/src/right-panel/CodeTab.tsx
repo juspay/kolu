@@ -64,9 +64,10 @@ import {
 } from "../ui/pierreTheme";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { app } from "../wire";
+import { terminalWorkspace } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { useWatchedRead } from "./useWatchedRead";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
@@ -311,11 +312,25 @@ const CodeTab: Component<{
   // later `git fetch` would never revive it because the failed initial server
   // read tore the stream down before its repo-change watcher was installed
   // (server.ts `pollOnEvent`).
-  const localStatus = app.streams.gitStatus.use(
+  // R8: fs/git reads moved off koluSurface to terminalWorkspaceSurface —
+  // procedures + a change PULSE. One repo-change pulse, shared by every repo-scoped
+  // read below; each `useWatchedRead` re-queries its procedure when the pulse ticks
+  // (the old value-bearing stream's "re-yield on repo change", reconstructed).
+  const repoPulse = terminalWorkspace.streams.subscribeRepoChange.use(
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p } : null;
+    },
+    { onError: (err) => toast.error(`Repo watch: ${err.message}`) },
+  );
+
+  const localStatus = useWatchedRead(
     () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
+    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
@@ -325,11 +340,13 @@ const CodeTab: Component<{
   // case is *expected* here (the badge just reads no count / the overlay falls
   // back to the local layer), so it's swallowed; any *other* failure
   // (GIT_FAILED, permission, transport) is a real fault and still toasts.
-  const branchStatus = app.streams.gitStatus.use(
+  const branchStatus = useWatchedRead(
     () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
+    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    repoPulse,
     {
       onError: (err) => {
         if (isUnfetchedBase(err)) return;
@@ -346,12 +363,14 @@ const CodeTab: Component<{
   // actively in this mode, so even the un-fetched-base case is actionable —
   // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
   // the rest of the component consumed off the old single subscription.
-  const activeStatus = app.streams.gitStatus.use(
+  const activeStatus = useWatchedRead(
     () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
+    (i) => terminalWorkspace.rpc.surface.git.getStatus(i),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
@@ -360,17 +379,19 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  const allPaths = app.streams.fsListAll.use(
+  const allPaths = useWatchedRead(
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
+    (i) => terminalWorkspace.rpc.surface.fs.listAll(i),
+    repoPulse,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
     },
   );
 
-  const diff = app.streams.gitDiff.use(
+  const diff = useWatchedRead(
     () => {
       const p = repoPath();
       const s = selectedPath();
@@ -380,6 +401,8 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
+    (i) => terminalWorkspace.rpc.surface.git.getDiff(i),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
     },

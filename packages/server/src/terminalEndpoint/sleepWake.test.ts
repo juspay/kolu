@@ -31,6 +31,11 @@ import {
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
 import {
+  __resetWorkspaceSurfaceCtxForTest,
+  noopWorkspaceSurfaceCtxForTest,
+  setWorkspaceSurfaceCtx,
+} from "../workspaceSurfaceCtx.ts";
+import {
   type ActiveTerminalProcess,
   getTerminal,
   registerTerminal,
@@ -86,11 +91,13 @@ function activeEntry(): ActiveTerminalProcess {
 
 beforeEach(() => {
   setSurfaceCtx(noopSurfaceCtxForTest());
+  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
 });
 
 afterEach(() => {
   unregisterTerminal(ID);
   __resetSurfaceCtxForTest();
+  __resetWorkspaceSurfaceCtxForTest();
 });
 
 describe("beginSleep — flip active → sleeping in place", () => {

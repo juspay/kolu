@@ -18,6 +18,11 @@ import {
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
 import {
+  __resetWorkspaceSurfaceCtxForTest,
+  noopWorkspaceSurfaceCtxForTest,
+  setWorkspaceSurfaceCtx,
+} from "../workspaceSurfaceCtx.ts";
+import {
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
@@ -59,6 +64,9 @@ beforeEach(async () => {
   // surface.ts is not imported by this test module; supply a no-op ctx
   // so calls to publishSnapshot (via surfaceCtx.collections…upsert) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
+  // R8: publishSnapshot also pushes the awareness projection through the
+  // workspace ctx, so the publish path needs both registered.
+  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -77,6 +85,7 @@ afterEach(() => {
   // inflated counts.
   stopWatch?.();
   __resetSurfaceCtxForTest();
+  __resetWorkspaceSurfaceCtxForTest();
 });
 
 describe("metadata publish routing", () => {
