@@ -2,7 +2,7 @@
 title: "Markdown preview: footnotes open in a click popover"
 description: Click a footnote marker in the Code-tab Markdown preview and its definition opens in a dismissible popover anchored to the marker — no more scrolling to the bottom of the document and back. Reuses the wikilink-disambiguation seam; no new package, nothing to install.
 parents: [solid-fileview, feature]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-22
 ---
@@ -13,7 +13,7 @@ import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import reuse from "../../diagrams/md-preview-footnotes-reuse.svg?raw";
 
-Plan of record · branch `md-footnote-popup`. The document preview already
+Plan of record · branch `md-footnote-popup`. <PrLink pr={1513} /> The document preview already
 renders GFM footnotes (`marked-footnote`) — the reference is a superscript
 `[n]` that links to a definitions list at the very bottom. Reading one means
 scrolling down, reading, and scrolling back to where you were. This plan keeps
