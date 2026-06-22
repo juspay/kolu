@@ -108,19 +108,43 @@ async function waitForSleeping(world: KoluWorld, id: string): Promise<void> {
 /** Poll until the tile with `id` is LIVE again: a live `.xterm-screen` is
  *  present AND the dormant body is gone — the inverse of `waitForSleeping`. */
 async function waitForLive(world: KoluWorld, id: string): Promise<void> {
-  await world.page.waitForFunction(
-    ({ sel, tileId }) => {
-      const tile = document.querySelector(
-        `${sel}[data-terminal-id="${tileId}"]`,
-      );
-      if (!tile) return false;
-      const liveXterm = tile.querySelector(".xterm-screen");
-      const dormant = tile.querySelector('[data-testid="dormant-tile-body"]');
-      return liveXterm !== null && dormant === null;
-    },
-    { sel: CANVAS_TILE_SELECTOR, tileId: id },
-    { timeout: POLL_TIMEOUT },
-  );
+  try {
+    await world.page.waitForFunction(
+      ({ sel, tileId }) => {
+        const tile = document.querySelector(
+          `${sel}[data-terminal-id="${tileId}"]`,
+        );
+        if (!tile) return false;
+        const liveXterm = tile.querySelector(".xterm-screen");
+        const dormant = tile.querySelector('[data-testid="dormant-tile-body"]');
+        return liveXterm !== null && dormant === null;
+      },
+      { sel: CANVAS_TILE_SELECTOR, tileId: id },
+      { timeout: POLL_TIMEOUT },
+    );
+  } catch (e) {
+    // WL-DEBUG (temporary): dump the tile state on timeout.
+    const snap = await world.page.evaluate(
+      ({ sel, tileId }) => {
+        const tile = document.querySelector(
+          `${sel}[data-terminal-id="${tileId}"]`,
+        );
+        if (!tile) return "NO-TILE";
+        return JSON.stringify({
+          hasXterm: !!tile.querySelector(".xterm-screen"),
+          hasDormant: !!tile.querySelector('[data-testid="dormant-tile-body"]'),
+          dataSleeping: tile.getAttribute("data-sleeping"),
+          html: tile.innerHTML.replace(/\s+/g, " ").slice(0, 320),
+        });
+      },
+      { sel: CANVAS_TILE_SELECTOR, tileId: id },
+    );
+    try {
+      const fsmod = await import("node:fs");
+      fsmod.appendFileSync("/tmp/wl-debug.log", `${id}: ${snap}\n`);
+    } catch {}
+    throw e;
+  }
 }
 
 /** Click the dormant body's Wake button for the tile with `id`. Dispatch the
