@@ -55,6 +55,28 @@ describe("useWatchedRead", () => {
     });
   });
 
+  it("pending() reads true SYNCHRONOUSLY when input flips null→value (the diff→browse gate)", async () => {
+    await createRoot(async (dispose) => {
+      const [seq] = createSignal(0);
+      const [inp, setInp] = createSignal<{ repoPath: string } | null>(null);
+      const r = useWatchedRead(inp, async () => ["a.txt"], fakePulse(seq));
+      await flush();
+      expect(r.pending()).toBe(false); // null input → stood down, not pending
+
+      // The view→browse moment: the openInCodeTab resolution gate reads
+      // `allPaths.pending()` on THIS tick and must see `true` — else it resolves
+      // against an empty list. A derived pending reads true here (value not yet
+      // loaded for the new input); the old imperative flag raced to false.
+      setInp({ repoPath: "/r" });
+      expect(r.pending()).toBe(true);
+
+      await flush();
+      expect(r.pending()).toBe(false); // value landed → no longer pending
+      expect(r()).toEqual(["a.txt"]);
+      dispose();
+    });
+  });
+
   it("stands the read down when input is null", async () => {
     await createRoot(async (dispose) => {
       const [seq] = createSignal(0);
