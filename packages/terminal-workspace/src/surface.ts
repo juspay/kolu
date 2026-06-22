@@ -31,15 +31,19 @@ import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
 /** The wire-shape `major.minor` of the workspace surface this build serves and
  *  expects. Bumped only when `terminalWorkspaceSurface` itself changes shape —
  *  additive (a new optional field / a new stream / a new procedure) is a minor
- *  bump, breaking a major. The remote dial gates an incompatible host into
- *  re-provision via `isContractVersionCompatible`. `0.2 → 0.3` adds the fs/git
- *  procedures + the two watcher streams (additive): a `0.2` daemon a `0.3`
- *  viewer dials reads as `skew` because it can't serve them, which is exactly
- *  the gate's job. `0.3 → 0.4` grows `git.getStatus`'s output with the branch
- *  tracking header (ahead/behind) + working-tree section counts (additive) —
- *  pulam's fleet board reads them live on each `subscribeRepoChange` pulse
- *  (R4.7); a `0.3` daemon reads as `skew` to a `0.4` viewer that expects them. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "0.4";
+ *  bump, a shape-breaking change a major. The remote dial gates an incompatible
+ *  host into re-provision via `isContractVersionCompatible`. `0.2 → 0.3` adds the
+ *  fs/git procedures + the two watcher streams (additive): a `0.2` daemon a `0.3`
+ *  viewer dials reads as `skew` because it can't serve them, which is exactly the
+ *  gate's job. `0.3 → 1.0` RESHAPES `git.getStatus`'s output: `local` mode drops
+ *  the always-null `base` and grows the branch tracking header (ahead/behind) +
+ *  working-tree section counts that the fleet board reads live on each
+ *  `subscribeRepoChange` pulse (R4.7). Removing `base` from the `local` arm is a
+ *  BREAKING change — a `0.3` viewer's schema requires `base` in every mode, so a
+ *  `1.0` daemon's `local` result would fail its parse — hence the major bump, not
+ *  a minor: the gate marks `0.3` and `1.0` mutually incompatible in BOTH
+ *  directions, which is honest (the local arm changed shape, not merely grew). */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "1.0";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });

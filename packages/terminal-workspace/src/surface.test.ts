@@ -47,13 +47,17 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("bumped the contract to 0.4 — additive, so it gates an OLDER daemon as skew", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("0.4");
-    // A 0.4 daemon serves a 0.3 viewer (the getStatus branch/working-tree
-    // additions are backward-compatible — older viewers ignore them)…
-    expect(isContractVersionCompatible("0.4", "0.3")).toBe(true);
-    // …but a 0.3 daemon can't serve a 0.4 consumer's branch/ahead-behind needs —
-    // the dial gates it as skew and re-provisions.
-    expect(isContractVersionCompatible("0.3", "0.4")).toBe(false);
+  it("bumped the contract to 1.0 — a BREAKING getStatus reshape, skew in BOTH directions vs 0.3", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.0");
+    // The 1.0 getStatus `local` arm dropped the always-null `base` (and grew the
+    // branch/working-tree fields). A 0.3 viewer's schema requires `base` in every
+    // mode, so a 1.0 daemon's `local` result fails its parse — NOT additive. The
+    // gate must therefore mark the two mutually incompatible, both directions:
+    // a 1.0 daemon can't serve a 0.3 viewer that still expects `base`…
+    expect(isContractVersionCompatible("1.0", "0.3")).toBe(false);
+    // …and a 0.3 daemon can't serve a 1.0 viewer that expects branch/ahead-behind.
+    expect(isContractVersionCompatible("0.3", "1.0")).toBe(false);
+    // A newer-minor 1.x daemon (a future additive bump) still serves a 1.0 viewer.
+    expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
   });
 });

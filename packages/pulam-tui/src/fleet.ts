@@ -277,8 +277,19 @@ async function runHost(
     log: opts.log,
   });
   const repoOf = new Map<TerminalId, string>();
+  // Set by the version probe below (which runs BEFORE the mirror fires any
+  // upsert). On a contract-skewed host, the awareness rows + skew header still
+  // show, but the per-repo git-status watch is SKIPPED: a skewed daemon's
+  // `getStatus` output shape is exactly what the gate says can't be trusted, so
+  // starting `subscribeRepoChange` + repeated failing `getStatus` re-queries
+  // against it would be pointless churn the interactive UI logs to a no-op sink.
+  let gitWatchable = true;
   const onAwarenessUpsert = (id: TerminalId, value: AwarenessValue): void => {
     opts.sink.upsert(host.label, id, value);
+    // A skewed host shows its rows but never opens a git-status watch — see
+    // `gitWatchable` above. (No repo membership is tracked either, so the link-
+    // drop path has nothing stale to release.)
+    if (!gitWatchable) return;
     // Reconcile this terminal's repo membership: a terminal whose cwd moved can
     // switch repos, so release the old watch before retaining the new one.
     const next = value.git?.repoRoot ?? null;
@@ -317,6 +328,11 @@ async function runHost(
     // to connected. (This is why the cell is probed, not folded into the mirror:
     // a mirror swallows per-stream blips, but the handshake must surface.)
     const { hostVersion, skewed } = await probeContractVersion(conn);
+    // Gate the git-status watcher BEFORE the mirror starts firing upserts: a
+    // skewed daemon's `getStatus` shape can't be trusted, so its rows still show
+    // but no per-repo watch opens. The probe resolves before `mirrorRemoteSurface`
+    // runs, so this is set before any `onAwarenessUpsert` fires.
+    gitWatchable = !skewed;
     opts.sink.setStatus(
       host.label,
       skewed

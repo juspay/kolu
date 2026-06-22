@@ -402,7 +402,15 @@ export interface FleetRow {
 }
 
 export function fleetRow(
-  host: string,
+  // The host the row is PAINTED under (sanitized for the alt-screen) and the host
+  // the row's stable selection key is built from (the RAW label, the partition
+  // identity) are two distinct strings: two raw labels that sanitize to the same
+  // display text (e.g. `a\nb` and `a b`) must keep DISTINCT selection keys, or
+  // ↑/↓/Enter could highlight or drill into the wrong host's row. `displayHost`
+  // is paint-only; `identityHost` is who the row belongs to (the same raw label
+  // `projectFleet` partitions the host-mode buckets on).
+  displayHost: string,
+  identityHost: string,
   id: TerminalId,
   v: AwarenessValue,
   live: boolean,
@@ -412,8 +420,8 @@ export function fleetRow(
   const repoName = v.git?.repoName ?? null;
   const branch = v.git?.branch ?? null;
   return {
-    host,
-    key: `${host}\u0000${id}`,
+    host: displayHost,
+    key: `${identityHost}\u0000${id}`,
     id: shortId(id),
     live,
     urgency,
@@ -562,6 +570,7 @@ export function projectFleet(
       key: s.label,
       row: fleetRow(
         host,
+        s.label,
         id,
         v,
         liveSet.has(id),
@@ -771,7 +780,14 @@ export function gitDetail(row: FleetRow): GitDetailView {
   const shown = status.files.slice(0, GIT_DETAIL_FILE_CAP);
   const files: GitDetailFile[] = shown.map((f) => ({
     code: f.status,
-    path: f.oldPath ? `${f.oldPath} → ${f.path}` : f.path,
+    // Git file paths are arbitrary bytes — a working-tree or committed name can
+    // carry a newline / ESC / BEL — so they funnel through the same control-byte
+    // strip the row's repo·branch heading and every other TUI-bound cell use,
+    // never painting verbatim into the alt-screen. Each half is sanitized before
+    // the rename arrow is joined so the arrow itself stays intact.
+    path: f.oldPath
+      ? `${sanitize(f.oldPath)} → ${sanitize(f.path)}`
+      : sanitize(f.path),
     tone: gitStatusTone(f.status),
   }));
   return {
@@ -796,22 +812,26 @@ export function flattenRows(view: FleetView): FleetRow[] {
  *  returning the neighbour's stable key with wrap — ↓ past the last row lands on
  *  the first, ↑ before the first on the last. Tracking identity rather than an
  *  index means the cursor survives both a shrink AND a reorder of the live row
- *  set: a missing or stale `currentKey` (the selected terminal left, or never
- *  matched) resolves to position 0, so clamping is automatic and there is no
- *  separate clamp/move split. An empty list has no row to name → `null`. */
+ *  set. With NO live selection — a missing key (nothing selected yet) or a stale
+ *  one (the selected terminal left) — there is no neighbour to step from, so the
+ *  first keypress ENTERS the list at the natural end: ↓ selects the first row, ↑
+ *  the last. (Resolving the absent key to index 0 and then adding the delta would
+ *  skip the first row on the very first ↓ — a real cursor lands on what you
+ *  pressed toward.) An empty list has no row to name → `null`. */
 export function step(
   currentKey: string | null,
   delta: number,
   rows: FleetRow[],
 ): string | null {
   if (rows.length === 0) return null;
-  // A stale/absent key resolves to index 0 (`indexOf` → -1, normalized below),
-  // which is the clamp the old `clampSelection` performed — but here it falls
-  // out of the same arithmetic instead of a second reducer.
-  const current = Math.max(
-    0,
-    rows.findIndex((r) => r.key === currentKey),
-  );
+  const current = rows.findIndex((r) => r.key === currentKey);
+  // No row currently holds the key (absent or stale): enter at the end the
+  // keypress points toward — ↓ at the first row, ↑ at the last — rather than
+  // stepping off a phantom index-0 selection.
+  if (current === -1) {
+    const entry = delta < 0 ? rows.length - 1 : 0;
+    return rows[entry]?.key ?? null;
+  }
   const next = (((current + delta) % rows.length) + rows.length) % rows.length;
   return rows[next]?.key ?? null;
 }

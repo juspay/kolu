@@ -559,6 +559,38 @@ describe("startFleet", () => {
     });
     handle.dispose();
   });
+
+  it("skips the git-status watch on a contract-skewed host (rows still show)", async () => {
+    // A skewed daemon's `getStatus` shape is exactly what the gate distrusts, so
+    // its rows + skew header still show but NO per-repo watch opens — no churn of
+    // failing `getStatus` re-queries the interactive UI would log to a no-op sink.
+    const repo = "/repo/kolu";
+    const f = fakeConn({
+      version: "0.3",
+      terminals: { [id("t")]: val({ git: gitInfo(repo) }) },
+    });
+    const { sink, statuses, upserts, gitSets } = recordingSink();
+    const handle = startFleet({
+      hosts: hostsOf("old"),
+      connect: async () => f.conn,
+      sink,
+      log: () => {},
+    });
+    await delay(30);
+    // The host is flagged skew and its row is still mirrored…
+    expect(statuses).toContainEqual([
+      "old",
+      {
+        kind: "skew",
+        localVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
+        hostVersion: "0.3",
+      },
+    ]);
+    expect(upserts).toContainEqual(["old", "t", expect.anything()]);
+    // …but its repo's git status was never watched or pushed.
+    expect(gitSets).toEqual([]);
+    handle.dispose();
+  });
 });
 
 describe("RepoWatchSet", () => {

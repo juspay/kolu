@@ -538,6 +538,29 @@ describe("projectFleet — terminal-safety", () => {
     expect(view.groups[0]?.label).toBe("a b");
     expect(view.groups[1]?.label).toBe("a b");
   });
+
+  it("keeps distinct selection keys for same-id terminals on hosts that sanitize alike", () => {
+    // The sharpest collision: two distinct raw hosts (`a\nb`, `a b`) that paint
+    // the same display text AND own a terminal with the SAME id. The stable
+    // selection key must stay distinct (built from the RAW label, not the
+    // sanitized display), or ↑/↓/Enter would highlight or drill the wrong row.
+    const shared = id("dup");
+    const states = [
+      host("a\nb", { kind: "connected" }, { [shared]: val({}) }),
+      host("a b", { kind: "connected" }, { [shared]: val({}) }),
+    ];
+    const view = projectFleet(states, "host");
+    if (view.mode === "needs") throw new Error("unreachable");
+    const k0 = view.groups[0]?.rows[0]?.key;
+    const k1 = view.groups[1]?.rows[0]?.key;
+    expect(k0).toBeDefined();
+    expect(k1).toBeDefined();
+    expect(k0).not.toBe(k1);
+    // Yet both rows still PAINT the same sanitized host (display is collapsed,
+    // identity is not).
+    expect(view.groups[0]?.rows[0]?.host).toBe("a b");
+    expect(view.groups[1]?.rows[0]?.host).toBe("a b");
+  });
 });
 
 describe("formatFleetJson", () => {
@@ -663,7 +686,14 @@ describe("gitCell", () => {
 
 describe("gitDetail", () => {
   const rowWith = (status: LocalStatus | undefined): FleetRow =>
-    fleetRow("zest", id("t"), val({ git: gitInfo("/r") }), false, status);
+    fleetRow(
+      "zest",
+      "zest",
+      id("t"),
+      val({ git: gitInfo("/r") }),
+      false,
+      status,
+    );
 
   it("reads loading until the first pulse resolves", () => {
     expect(gitDetail(rowWith(undefined)).summary).toBe("loading…");
@@ -717,6 +747,27 @@ describe("gitDetail", () => {
     expect(d.files).toHaveLength(20);
     expect(d.more).toBe(5);
   });
+  it("strips control bytes from changed file paths (a hostile filename can't corrupt the alt-screen)", () => {
+    // A working-tree / committed filename is arbitrary bytes — it can carry a
+    // newline, ESC, or BEL. The detail pane is TUI-bound, so the path must funnel
+    // through the same control-byte strip the rest of the renderer uses.
+    const d = gitDetail(
+      rowWith(
+        makeStatus({
+          files: [
+            { path: "ev\x1b[31mil.ts", status: "M" },
+            { path: "new\nname.ts", oldPath: "old\x07name.ts", status: "R" },
+          ],
+          workingTree: { staged: 0, modified: 1, untracked: 0 },
+        }),
+      ),
+    );
+    for (const f of d.files) {
+      expect(f.path).not.toMatch(/[\x00-\x1f\x7f]/);
+    }
+    // The rename arrow survives — each half is sanitized, the ` → ` join is intact.
+    expect(d.files[1]?.path).toBe("old name.ts → new name.ts");
+  });
 });
 
 describe("step (identity-based selection cursor)", () => {
@@ -732,10 +783,18 @@ describe("step (identity-based selection cursor)", () => {
     expect(step("a", -1, r)).toBe("c"); // ↑ before the first wraps to the last
   });
 
-  it("resolves a null/stale key to row 0 (clamp is automatic)", () => {
-    expect(step(null, 1, r)).toBe("b"); // null → index 0, then +1
-    expect(step(null, -1, r)).toBe("c"); // null → index 0, then -1 wraps
-    expect(step("gone", 1, r)).toBe("b"); // a key no row carries → index 0, +1
+  it("enters the list at the end the keypress points toward when nothing is selected", () => {
+    // No live selection: the first ↓ lands on the FIRST row (not the second —
+    // it must not skip past row 0), and the first ↑ on the LAST row.
+    expect(step(null, 1, r)).toBe("a"); // first ↓ → first row
+    expect(step(null, -1, r)).toBe("c"); // first ↑ → last row
+  });
+
+  it("treats a stale key (selected row gone) the same as no selection", () => {
+    // The selected terminal left, so no row carries the key: re-enter at the
+    // pointed-toward end rather than stepping off a phantom index-0 selection.
+    expect(step("gone", 1, r)).toBe("a"); // ↓ → first row
+    expect(step("gone", -1, r)).toBe("c"); // ↑ → last row
   });
 
   it("returns null for an empty list (no row to name)", () => {
