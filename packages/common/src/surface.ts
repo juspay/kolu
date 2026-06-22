@@ -744,6 +744,29 @@ export const DaemonStatusSchema = z.object({
 export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
 export type DaemonState = DaemonStatus["state"];
 
+/** The kaval daemon's memory as an HONEST three-way state, not a `number | null`
+ *  that conflates "no daemon" with "the poll failed".
+ *
+ *   - `{ status: "ok", rssBytes }` — a live daemon answered `system.processMemory`.
+ *   - `{ status: "absent" }` — there is no connected daemon to measure (down /
+ *     degraded / pre-first-poll). The expected "no value", not an error.
+ *   - `{ status: "error" }` — the daemon was BELIEVED connected (its `daemonStatus`
+ *     says so) yet the poll threw. A real anomaly the rail must surface distinctly
+ *     from `absent`, so a failing RPC never renders identically to "no daemon"
+ *     (the `caught-error-must-not-collapse-to-empty` rule — a server-side log is
+ *     not a user surface). The original error is logged at `error` level server-
+ *     side; the wire carries only the discriminant the rail needs.
+ *
+ *  A discriminated union (not an extra `kavalMemoryError` flag beside a nullable
+ *  number) so the three states are mutually exclusive by construction — there is
+ *  no representable "error AND a stale rss". */
+export const KavalMemorySchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
+  z.object({ status: z.literal("absent") }),
+  z.object({ status: z.literal("error") }),
+]);
+export type KavalMemory = z.infer<typeof KavalMemorySchema>;
+
 /** Live process-memory readout for the chrome bar's identity rail — the
  *  resident-set size (RSS) of the two server-side processes the rail names. The
  *  CLIENT's own JS-heap figure is NOT here: it's a browser-local fact read off
@@ -751,15 +774,16 @@ export type DaemonState = DaemonStatus["state"];
  *  only what the client can't measure itself.
  *
  *  `serverRssBytes` is the kolu-server process (always present — it's measuring
- *  itself). `kavalRssBytes` is the kaval pty-host daemon, a SEPARATE process the
- *  server polls over the daemon's `system.processMemory`; it is `null` whenever there
- *  is no live daemon to measure (down / degraded / pre-first-poll) — the honest
- *  "no value", never a misleading `0`. A continuously-changing metric, kept off
- *  the lifecycle-transition `daemonStatus` collection so the two different change
- *  rates don't ride one channel. */
+ *  itself). `kavalMemory` is the kaval pty-host daemon's RSS, a SEPARATE process
+ *  the server polls over the daemon's `system.processMemory`; it is the honest
+ *  three-way {@link KavalMemorySchema} so the rail can tell "no daemon" apart from
+ *  "the daemon's poll failed", never collapsing a failed RPC into the same shape
+ *  as no-data. A continuously-changing metric, kept off the lifecycle-transition
+ *  `daemonStatus` collection so the two different change rates don't ride one
+ *  channel. */
 export const ProcessMemorySchema = z.object({
   serverRssBytes: z.number(),
-  kavalRssBytes: z.number().nullable(),
+  kavalMemory: KavalMemorySchema,
 });
 export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
 
@@ -867,13 +891,13 @@ export const koluSurface = defineSurface({
 
     /** Live process-memory readout (server + kaval RSS) for the rail. The
      *  server's periodic sampler is the sole writer (`surfaceCtx.cells.
-     *  processMemory.set`); clients read-only. `kavalRssBytes` is `null` until
+     *  processMemory.set`); clients read-only. `kavalMemory` is `absent` until
      *  the first daemon poll, and whenever the daemon is down. */
     processMemory: {
       schema: ProcessMemorySchema,
       default: {
         serverRssBytes: 0,
-        kavalRssBytes: null,
+        kavalMemory: { status: "absent" },
       } satisfies z.infer<typeof ProcessMemorySchema>,
       verbs: ["get"],
     },

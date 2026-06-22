@@ -364,11 +364,12 @@ startMemorySampler(
     client: ptyHostClient,
     daemonState: () => readDaemonStatus(LOCAL_HOST_ID)?.state,
     publish: (m) => surfaceCtx.cells.processMemory.set(m),
-    warn: (err) =>
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "kaval memory heartbeat failed",
-      ),
+    // A believed-connected daemon whose processMemory poll throws/times out is a
+    // real failed RPC, not a benign degradation — log at ERROR with the full
+    // error object (stack preserved), and the rail surfaces it as a distinct
+    // `error` state, not "no daemon".
+    reportPollError: (err) =>
+      log.error({ err }, "kaval processMemory poll failed"),
   }),
 );
 

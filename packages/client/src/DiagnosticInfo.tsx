@@ -15,7 +15,7 @@ import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
 import { formatMB, readJsHeap } from "./ui/memory";
-import { kavalRssBytes, serverRssBytes } from "./ui/useMemoryUsage";
+import { kavalMemory, serverRssBytes } from "./ui/useMemoryUsage";
 import ModalDialog from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -61,9 +61,17 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         terminalCount: getDiagnostics().length,
         jsHeap: readJsHeap(),
         // Server + kaval RSS ride the `processMemory` cell (the same source the
-        // rail reads); null kaval = no live daemon to measure.
+        // rail reads). `kavalRss` is the honest three-way: the byte figure when
+        // a live daemon answered, `null` for `absent` (no daemon to measure), or
+        // the literal `"error"` when a believed-connected daemon's poll failed —
+        // so the diagnostic snapshot never conflates a failed poll with no-data.
         serverRss: serverRssBytes() ?? null,
-        kavalRss: kavalRssBytes() ?? null,
+        kavalRss: ((m) =>
+          m.status === "ok"
+            ? m.rssBytes
+            : m.status === "error"
+              ? "error"
+              : null)(kavalMemory()),
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
         // Page-attention state AT SNAPSHOT TIME. The parked-rAF freeze
@@ -202,12 +210,17 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 </Row>
               )}
             </Show>
-            <Show when={snapshot().session.kavalRss}>
-              {(rss) => (
-                <Row label="kaval RSS">
-                  <span class="font-mono text-fg">{formatMB(rss())}</span>
-                </Row>
-              )}
+            <Show when={snapshot().session.kavalRss !== null}>
+              <Row label="kaval RSS">
+                <span class="font-mono text-fg">
+                  {(() => {
+                    const rss = snapshot().session.kavalRss;
+                    return rss === "error"
+                      ? "poll failed"
+                      : formatMB(rss as number);
+                  })()}
+                </span>
+              </Row>
             </Show>
             <Row label="DOM">
               <span class="font-mono text-fg">

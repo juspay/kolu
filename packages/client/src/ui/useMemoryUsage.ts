@@ -11,6 +11,7 @@
  *     already throttles itself in a hidden tab).
  */
 
+import type { KavalMemory } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { getClockNow } from "../time/clock";
 import { app } from "../wire";
@@ -22,17 +23,17 @@ const sub = app.cells.processMemory.use({
 
 /** The kolu-server process's RSS in bytes, or `null` before the first server
  *  yield (it's always a real number once a sample lands — the server measures
- *  itself). One absent-encoding across all three accessors: the rail treats
- *  "no figure yet" the same however it arose. */
+ *  itself). */
 export function serverRssBytes(): number | null {
   return sub.value()?.serverRssBytes ?? null;
 }
 
-/** The kaval daemon's RSS in bytes; `null` when there's no live daemon to
- *  measure (down / degraded / pre-first-poll) or before the first server yield —
- *  the rail treats both identically as "no figure". */
-export function kavalRssBytes(): number | null {
-  return sub.value()?.kavalRssBytes ?? null;
+/** The kaval daemon's memory as its honest three-way state, or `absent` before
+ *  the first server yield — the rail treats "no figure yet" the same as "no
+ *  daemon", but keeps the `error` state (a believed-connected daemon whose poll
+ *  failed) distinct so a failed RPC never renders identically to "no daemon". */
+export function kavalMemory(): KavalMemory {
+  return sub.value()?.kavalMemory ?? { status: "absent" };
 }
 
 /** This browser's used JS heap in bytes, refreshed every second off the shared

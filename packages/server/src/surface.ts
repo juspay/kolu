@@ -113,23 +113,27 @@ const savedSessionStore: CellStore<SavedSession | null> =
 // surface layer's concern. The sampler only reads+publishes via the injected
 // `publish` (→ `surfaceCtx.cells.processMemory.set` → `set` below).
 
-/** Whole displayed megabytes of a byte count (the rail's granularity). `null`
- *  RSS (no daemon) stays `null` so it compares distinctly from any real value.
- *  Built on the shared {@link bytesToWholeMB} so the dedup boundary and the
- *  client's rendered figure are one computation, not two copies. */
-function rssMb(bytes: number | null): number | null {
-  return bytes === null ? null : bytesToWholeMB(bytes);
+/** The whole-MB rail figure of the kaval reading, plus its discriminant — a
+ *  comparison key that distinguishes `absent`/`error`/`ok@N MB` from each other,
+ *  so the dedup never folds an `error` state into an `absent` one (or vice
+ *  versa). `ok` carries its whole-MB figure (the rail's granularity) so a sub-MB
+ *  wobble within `ok` still dedups. Built on the shared {@link bytesToWholeMB} so
+ *  the dedup boundary and the client's rendered figure are one computation. */
+function kavalMemoryKey(m: ProcessMemory["kavalMemory"]): string {
+  return m.status === "ok" ? `ok:${bytesToWholeMB(m.rssBytes)}` : m.status;
 }
 
-/** Two readouts are equal when they render the same whole-MB rail figures —
- *  the cell's `equals`, so a sub-MB RSS wobble never re-publishes. */
+/** Two readouts are equal when they render the same whole-MB rail figures AND the
+ *  same kaval state — the cell's `equals`, so a sub-MB RSS wobble never
+ *  re-publishes, but a state transition (absent → error, ok → absent) always
+ *  does. */
 export function processMemoryMbEqual(
   a: ProcessMemory,
   b: ProcessMemory,
 ): boolean {
   return (
-    rssMb(a.serverRssBytes) === rssMb(b.serverRssBytes) &&
-    rssMb(a.kavalRssBytes) === rssMb(b.kavalRssBytes)
+    bytesToWholeMB(a.serverRssBytes) === bytesToWholeMB(b.serverRssBytes) &&
+    kavalMemoryKey(a.kavalMemory) === kavalMemoryKey(b.kavalMemory)
   );
 }
 
@@ -139,7 +143,7 @@ export function processMemoryMbEqual(
  *  no on-disk slot, mirroring the `terminalList` cell. */
 let currentProcessMemory: ProcessMemory = {
   serverRssBytes: 0,
-  kavalRssBytes: null,
+  kavalMemory: { status: "absent" },
 };
 const memoryCellStore = {
   get: (): ProcessMemory => currentProcessMemory,

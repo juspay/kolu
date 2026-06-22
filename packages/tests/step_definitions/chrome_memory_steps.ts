@@ -5,7 +5,7 @@ import type { KoluWorld } from "../support/world.ts";
 /** Each rail column's memory readout carries its own `data-testid` and renders a
  *  compact whole-MB string (e.g. "142 MB"). The figure only appears once a real
  *  value lands — server/client are present immediately under Chromium; kaval
- *  fills in once the daemon's first heartbeat is polled. */
+ *  fills in once the daemon's first `system.processMemory` poll returns. */
 async function assertMemoryReadout(
   world: KoluWorld,
   testid: string,
