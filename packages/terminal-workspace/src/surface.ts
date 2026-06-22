@@ -3,27 +3,40 @@
  * daemon serves, `arivu-tui` reads, and (in R8) a remote kolu-server mirrors.
  * It is the consume-facing dual of the host-side workspace the library owns: a
  * keyed `AwarenessValue` collection (one entry per terminal a kaval owns), the
- * `version` handshake cell, and the `activity` flow stream. R6 grows it to also
- * serve the Code tab's fs/git reads (procedures + watcher streams).
+ * `version` handshake cell, the `activity` flow stream, and — added in R6 — the
+ * Code tab's fs/git reads (procedures) plus their live change-pulses (watcher
+ * streams).
  *
  * This module is the BROWSER-SAFE face of the package: it imports only
  * `@kolu/surface/define` (its own doc notes it pulls just `@orpc/contract` +
- * `zod`), this package's zod-only `./schema`, and `zod`. It does NOT import the
- * package root (the sensors), so a viewer or remote-kolu consumer imports the
- * surface without dragging in any `node:`/kaval runtime — the same discipline
- * `./schema` keeps today.
+ * `zod`), the zod-only `kolu-git/schemas`, this package's zod-only `./schema`,
+ * and `zod`. It does NOT import `./endpoint` / `./serveFsGit` (which run the
+ * sensors / shell out to git), nor the package root, so a viewer or remote-kolu
+ * consumer imports the surface without dragging in any `node:`/kaval runtime —
+ * the same discipline `./schema` keeps today.
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import {
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+} from "kolu-git/schemas";
 import { z } from "zod";
 import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
 
 /** The wire-shape `major.minor` of the workspace surface this build serves and
  *  expects. Bumped only when `terminalWorkspaceSurface` itself changes shape —
- *  additive (a new optional field / a new stream) is a minor bump, breaking a
- *  major. The remote dial gates an incompatible host into re-provision via
- *  `isContractVersionCompatible`. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "0.2";
+ *  additive (a new optional field / a new stream / a new procedure) is a minor
+ *  bump, breaking a major. The remote dial gates an incompatible host into
+ *  re-provision via `isContractVersionCompatible`. `0.2 → 0.3` adds the fs/git
+ *  procedures + the two watcher streams (additive): a `0.2` daemon a `0.3`
+ *  viewer dials reads as `skew` because it can't serve them, which is exactly
+ *  the gate's job. */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "0.3";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -35,19 +48,53 @@ export const DEFAULT_VERSION: Version = {
   contractVersion: TERMINAL_WORKSPACE_CONTRACT_VERSION,
 };
 
-/** The terminal-workspace surface: a keyed `Collection<TerminalId,
- *  AwarenessValue>` (one entry per terminal kaval owns), the `version`
- *  handshake cell, and the `activity` stream. The value schema is the GENERIC
- *  `AwarenessValue` — no `location`, no kolu UI fields; kolu's own record is
- *  built on top of this, never the other way round.
+/** A repo/file change PULSE, not data. kolu-git's `subscribeRepoChange` /
+ *  `subscribeFileChange` collapse a burst of fs events into a payload-free
+ *  `onChange()`, so a watcher stream's frame must DIFFER each tick or the
+ *  stream's `isEqual` dedup would collapse two consecutive changes into one.
+ *  The monotonic `seq` (per subscription, starting at 0 for the snapshot frame)
+ *  is that distinguisher. A consumer reacts to a new pulse by re-querying the
+ *  `fs.*` / `git.*` procedures — the pulse carries no fs/git data itself. */
+export const RepoChangePulseSchema = z.object({
+  seq: z.number().int().nonnegative(),
+});
+export type RepoChangePulse = z.infer<typeof RepoChangePulseSchema>;
+
+/** Input for the per-file fs procedures (`readFile`, `statFileMtimeMs`) and the
+ *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's
+ *  `FsReadFileInputSchema` (which carries a `terminalId`) — the library reads a
+ *  file in a repo; the terminal/iframe-preview orchestration that needs the id
+ *  stays kolu-server's. */
+export const FsFileInputSchema = z.object({
+  repoPath: z.string(),
+  filePath: z.string(),
+});
+
+/** Output of `fs.readFile` — the raw text read. Deliberately NOT kolu-git's
+ *  `FsReadFileOutputSchema` (the text|binary discriminated union): the
+ *  binary-preview/iframe-URL branch is kolu-server orchestration layered on top
+ *  of this raw read, never library code. */
+export const FsReadFileTextOutputSchema = z.object({
+  content: z.string(),
+  truncated: z.boolean(),
+});
+
+/** The terminal-workspace surface. Two volatility homes serve the SAME
+ *  contract: in-process (kolu-server) and hosted by arivu (remote). The
+ *  primitives differ only in KIND:
+ *   - the `awareness` collection (keyed current state) + `version` cell (a
+ *     single current value) are the STATEFUL primitives;
+ *   - `activity` is the FLOW primitive — the live "bytes moving right now" the
+ *     Dock paints as a green dot, derived from kaval's raw byte tap (distinct
+ *     from `AwarenessValue.lastActivityAt`, the slow agent staleness clock), so
+ *     it can't be a collection field;
+ *   - the `fs.*` / `git.*` PROCEDURES are the Code tab's raw reads (request →
+ *     response, never persisted), and `subscribeRepoChange` /
+ *     `subscribeFileChange` are WATCHER STREAMS that pulse on each live change.
  *
- *  The three primitive kinds are deliberate: the collection (keyed current
- *  state) and the cell (a single current value) are the *stateful* primitives;
- *  `activity` is the *flow* primitive. Terminal-output activity — the live
- *  "bytes moving right now" the Dock paints as a green dot — has no persisted
- *  current value (it's distinct from `AwarenessValue.lastActivityAt`, the slow
- *  agent staleness clock), so it can't be a collection field: it's a stream the
- *  daemon derives from kaval's raw byte tap and the viewer reflects live. */
+ *  The value schema is the GENERIC `AwarenessValue` — no `location`, no kolu UI
+ *  fields; kolu's own record is built on top of this, never the other way
+ *  round. */
 export const terminalWorkspaceSurface = defineSurface({
   cells: {
     version: { schema: VersionSchema, default: DEFAULT_VERSION },
@@ -68,6 +115,42 @@ export const terminalWorkspaceSurface = defineSurface({
     activity: {
       inputSchema: z.object({}),
       outputSchema: z.array(TerminalIdSchema),
+    },
+    /** Live change-pulses for a repo's working tree + git dir (HEAD, index,
+     *  reflog, files). Pulse-then-requery: a consumer subscribes for a `{seq:0}`
+     *  snapshot, then re-queries `git.getStatus` / `fs.listAll` on each later
+     *  pulse. Backed by kolu-git's refcounted `subscribeRepoChange`. */
+    subscribeRepoChange: {
+      inputSchema: z.object({ repoPath: z.string() }),
+      outputSchema: RepoChangePulseSchema,
+    },
+    /** Live change-pulses narrowed to one file (its writes + a branch switch).
+     *  Backed by kolu-git's refcounted `subscribeFileChange`. Pulse-then-requery
+     *  `fs.readFile`. */
+    subscribeFileChange: {
+      inputSchema: FsFileInputSchema,
+      outputSchema: RepoChangePulseSchema,
+    },
+  },
+  procedures: {
+    /** Filesystem reads scoped to a repo on the serving host. */
+    fs: {
+      /** Tracked + untracked (gitignore-respecting) paths under `repoPath`. */
+      listAll: { input: FsListAllInputSchema, output: FsListAllOutputSchema },
+      /** Raw text content of a file (truncated past a size cap). */
+      readFile: {
+        input: FsFileInputSchema,
+        output: FsReadFileTextOutputSchema,
+      },
+      /** A file's mtime in ms — the cache key the binary-preview path needs. */
+      statFileMtimeMs: { input: FsFileInputSchema, output: z.number() },
+    },
+    /** Git reads scoped to a repo on the serving host. */
+    git: {
+      /** Changed files vs the diff base for `mode`. */
+      getStatus: { input: GitStatusInputSchema, output: GitStatusOutputSchema },
+      /** Unified diff hunks for one file vs the diff base for `mode`. */
+      getDiff: { input: GitDiffInputSchema, output: GitDiffOutputSchema },
     },
   },
 });

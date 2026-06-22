@@ -11,6 +11,8 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
     "./surface": "./src/surface.ts",
+    "./endpoint": "./src/endpoint.ts",
+    "./serveFsGit": "./src/serveFsGit.ts",
     "./socket": "./src/socket.ts"
   },
   "scripts": {
@@ -19,6 +21,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
+    "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "kaval": "workspace:*",

@@ -1,3 +1,4 @@
+import { isContractVersionCompatible } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
 import { seedAwarenessValue } from "./index.ts";
 import { AwarenessValueSchema } from "./schema.ts";
@@ -27,5 +28,30 @@ describe("terminal-workspace surface", () => {
     const seed = seedAwarenessValue("/some/repo");
     expect(AwarenessValueSchema.parse(seed)).toEqual(seed);
     expect(seed.pr).toEqual({ kind: "pending" });
+  });
+
+  it("declares the R6 fs/git procedures and watcher streams", () => {
+    const spec = terminalWorkspaceSurface.spec;
+    expect(Object.keys(spec.procedures?.fs ?? {})).toEqual(
+      expect.arrayContaining(["listAll", "readFile", "statFileMtimeMs"]),
+    );
+    expect(Object.keys(spec.procedures?.git ?? {})).toEqual(
+      expect.arrayContaining(["getStatus", "getDiff"]),
+    );
+    expect(Object.keys(spec.streams ?? {})).toEqual(
+      expect.arrayContaining([
+        "activity",
+        "subscribeRepoChange",
+        "subscribeFileChange",
+      ]),
+    );
+  });
+
+  it("bumped the contract to 0.3 — additive, so it gates an OLDER daemon as skew", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("0.3");
+    // A 0.3 daemon serves a 0.2 viewer (the fs/git additions are backward-compatible)…
+    expect(isContractVersionCompatible("0.3", "0.2")).toBe(true);
+    // …but a 0.2 daemon can't serve a 0.3 consumer's fs/git needs — the dial re-provisions.
+    expect(isContractVersionCompatible("0.2", "0.3")).toBe(false);
   });
 });

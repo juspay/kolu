@@ -13,7 +13,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -238,6 +238,18 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   // The PR field is present (pending or, lacking an origin remote, resolved as
   // absent/unavailable) — we only assert it exists, not gh's verdict.
   expect(value.pr.kind).toBeTruthy();
+
+  // ── R6: arivu serves the workspace fs/git too, over the SAME socket ──
+  // The second home of @kolu/terminal-workspace: the Code tab's fs/git reads
+  // (and R8's remote kolu) are answered by arivu, not just awareness.
+  writeFileSync(join(repo, "note.txt"), "hi\n");
+  const listed = await conn.client.surface.fs.listAll({ repoPath: repo });
+  expect(listed.paths).toContain("note.txt");
+  const status = await conn.client.surface.git.getStatus({
+    repoPath: repo,
+    mode: "local",
+  });
+  expect(Array.isArray(status.files)).toBe(true);
 
   // ── kill the terminal → arivu reconciles it out of the collection ─
   await ptyHost.client.surface.terminal.kill({ id });

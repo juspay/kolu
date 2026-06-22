@@ -30,6 +30,12 @@ import { dialAgentOnce } from "@kolu/surface-nix-host";
 import { connectArivuViaHost } from "./hostConnect.ts";
 import { snapshotAwareness } from "./read.ts";
 
+/** A stub for the fs/git primitives this probe never exercises: it asserts loud
+ *  if a host-connect test ever reaches a workspace read, rather than faking one. */
+function unusedInProbe(name: string): never {
+  throw new Error(`${name} not exercised by the host-connect probe`);
+}
+
 /** A real in-process arivu surface client over a `directLink` — the awareness
  *  collection backed by a plain Map, the `version` cell at this build's default.
  *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
@@ -51,13 +57,32 @@ function makeInProcessArivuClient(
         },
       },
     },
-    // The probe only reads the `version` cell; a minimal empty `activity` source
-    // satisfies `implementSurface`'s "a dep per stream" requirement.
+    // The probe only reads the `version` cell, but `implementSurface` wires a dep
+    // per declared stream + procedure, so the full R6 surface is stubbed here:
+    // `activity` yields an empty set and the fs/git watchers + reads are never
+    // exercised by a host-connect probe.
     streams: {
       activity: {
         source: async function* (): AsyncGenerator<TerminalId[]> {
           yield [];
         },
+      },
+      subscribeRepoChange: {
+        source: async function* (): AsyncGenerator<{ seq: number }> {},
+      },
+      subscribeFileChange: {
+        source: async function* (): AsyncGenerator<{ seq: number }> {},
+      },
+    },
+    procedures: {
+      fs: {
+        listAll: () => unusedInProbe("fs.listAll"),
+        readFile: () => unusedInProbe("fs.readFile"),
+        statFileMtimeMs: () => unusedInProbe("fs.statFileMtimeMs"),
+      },
+      git: {
+        getStatus: () => unusedInProbe("git.getStatus"),
+        getDiff: () => unusedInProbe("git.getDiff"),
       },
     },
   });

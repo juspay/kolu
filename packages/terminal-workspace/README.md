@@ -1,18 +1,20 @@
 # @kolu/terminal-workspace
 
-**Watch a terminal, know what it's working on.** Given one terminal's live
-signals — its working directory, title, foreground process, and the commands run
-in it — this package derives that terminal's _awareness_: which git repo and
-branch it's on (and whether the tree is dirty), the pull request for that branch
-and its CI checks, which AI coding agent is running and whether it's _working_ or
-_waiting on you_, and the foreground process. It also defines `AwarenessValue` —
-the shape of that derived state.
+**Know what a terminal is working on, and read its workspace.** The host-side
+library for a terminal's _workspace_: it derives that terminal's **awareness**
+(which git repo and branch, the branch's PR + CI checks, which AI agent is
+running and whether it's _working_ or _waiting on you_, the foreground process)
+**and** serves the **fs/git reads** the Code tab needs (the file tree, a file's
+contents, git status + diffs, and live change notifications). It runs in two
+homes off one codebase: **in-process** in `kolu-server` (local terminals) and
+**hosted by `arivu`** over ssh (remote ones) — the same two homes the sensors
+already proved.
 
 ## What it does
 
-`startAwareness(record, id, signals, sink, log)` starts one bank of sensors for
-a terminal and returns a teardown. Each sensor watches a single source and
-derives one field:
+**Awareness.** `startAwareness(record, id, signals, sink, log)` starts one bank
+of sensors for a terminal and returns a teardown. Each sensor watches a single
+source and derives one field:
 
 | Sensor | Watches | Derives |
 | --- | --- | --- |
@@ -27,20 +29,48 @@ title · command-run · foreground taps) and tells the sensors how to store and
 publish each result through `AwarenessSink`. The sensors do the deriving; the
 host owns everything else.
 
+**fs/git.** `createTerminalWorkspaceEndpoint(log)` returns the thin wrapper over
+[`kolu-git`](../integrations/git) the Code tab reads — `listAll` · `readFile` ·
+`statFileMtimeMs` · `getStatus` · `getDiff`, plus the refcounted
+`subscribeRepoChange` / `subscribeFileChange` watchers — each unwrapping a
+`GitResult` into a value or a thrown `ORPCError` (a git error surfaces, never
+collapses to an empty result). It was lifted out of `kolu-server` so there is
+**one** impl, not one per home.
+
+**One surface.** `terminalWorkspaceSurface` (`./surface`, browser-safe) is the
+single `@kolu/surface` both homes serve: the `awareness` collection + `version`
+cell + `activity` stream (the live "green dot" liveness), the `fs.*` / `git.*`
+read **procedures**, and the `subscribeRepoChange` / `subscribeFileChange`
+**watcher streams** (each a per-subscription change _pulse_ a consumer requeries
+on). `fsGitSurfaceDeps` (`./serveFsGit`) wires the endpoint onto it.
+
 ## What it knows nothing about
 
 It is **host-agnostic**. It doesn't own the PTY (that's [`kaval`](../kaval/)),
 doesn't decide how a host stores or ships the result (that's `AwarenessSink`),
-and carries no app concepts: `AwarenessValue` has no terminal `location`, no
-theme, no layout — those belong to whatever app embeds it, built _on top of_ the
-awareness value. Its one ambient dependency, a logger, is passed in rather than
-imported, so the package names no host package and reaches only for the
-vendor-neutral source libraries it derives from (`anyforge` for PRs, `kolu-git`
-for git, the per-agent packages for agent state).
+doesn't orchestrate terminals (spawn · adopt · the registry stay `kolu-server`'s,
+and the binary-preview / iframe-URL layer over `fs.readFile` is `kolu-server`'s
+too), and carries no app concepts: `AwarenessValue` has no terminal `location`,
+no theme, no layout — those belong to whatever app embeds it, built _on top of_
+the awareness value. Its one ambient dependency, a logger, is passed in rather
+than imported, so the package names no host package and reaches only for the
+vendor-neutral source libraries it builds on (`anyforge` for PRs, `kolu-git` for
+git/fs, the per-agent packages for agent state).
 
-`kolu-server` embeds it: it runs the sensors in-process for each local terminal
-and folds each result into the terminal metadata it serves to the browser.
+`kolu-server` embeds it (sensors in-process; fs/git bound to its local
+`TerminalEndpoint`; awareness folded into the terminal metadata it serves the
+browser). `arivu` serves the same surface remotely.
 
-Two entry points keep the boundary clean: the default import pulls the sensors
-(they run on Node, alongside `kaval`); `@kolu/terminal-workspace/schema` is the
-`AwarenessValue` schema alone — pure `zod`, safe to import from a browser bundle.
+## Entry points
+
+The export map is the boundary — node-only code never reaches a browser
+consumer:
+
+| Entry | Runtime | What |
+| --- | --- | --- |
+| `.` | Node | the sensors (`startAwareness`) + `AwarenessValue` |
+| `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
+| `./surface` | browser-safe | `terminalWorkspaceSurface` — the one surface definition |
+| `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
+| `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
+| `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |
