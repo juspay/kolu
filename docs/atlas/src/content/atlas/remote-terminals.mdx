@@ -97,8 +97,8 @@ Two volatility axes stay open (R1/R2 closed the rest):
 
 **Zero domain knowledge crosses the transport** (Hickey's cut): the agent runs the unmodified sensors and the boundary ships their *values*. An earlier per-domain design (`RemoteGitInfoProvider`, …) was transport adapters wearing domain costumes; the single-endpoint seam dissolved them.
 
-<Callout kind="note" title="The awareness 'fold' — and why R8 dissolves it">
-Through R7, remote awareness was *folded* server-side into the **co-owned** `terminalMetadata` record, split across the persisted/live fence (`pr·agent·foreground` live; `cwd·git·…` persisted). That fold was domain logic **only because kolu kept awareness in one co-owned record.** R8 composes `terminalWorkspaceSurface` into kolu's own surface, so the browser reads `awareness` directly and joins it with kolu's fields (theme · layout) at render — the server-side fold *and* the fence dissolve. Trade-offs in **R8**.
+<Callout kind="note" title="The awareness 'fold' was never domain logic — R8 deletes it">
+Through R7, remote awareness was *folded* server-side into the **co-owned** `terminalMetadata` record, split across a persisted/live **fence** (`pr·agent·foreground` live; `cwd·git·…` persisted) whose only job was keeping the ~150 ms agent firehose off the session autosave. Both were artifacts of *one co-owned record*. R8 gives observation its own home: the sensors write `terminalWorkspaceSurface.awareness`, and kolu (and the browser) **read** it through one seam (`awarenessFor`) instead of folding a copy in. One writer per fact — so the fold, the co-owned record, *and* the fence all **vanish** (the firehose never touches kolu). Detail + trade-offs in **R8**.
 </Callout>
 
 **Already paid for, so R5–R10 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (now a total dual). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R9 is an ssh driver behind shipped seams; R8 composes one surface (the fold dissolves); R7 *completed* the surface mirror (<PrLink pr={1505} />); R6 grew arivu's fs/git (<PrLink pr={1506} />); R5 is one wire signal.
@@ -130,7 +130,7 @@ export const PT = [
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop", m: "next · defined ↓", h: "#r5" },
   { d: 0, g: "✓", c: "ship", l: "R6 · terminal-workspace — one fs/git impl, two homes (surface arivu's until R8)", m: "#1506", h: "#r6" },
   { d: 0, g: "✓", c: "ship", l: "R7 · mirrorRemoteSurface → total dual (procedures forwarded)", m: "#1505", h: "#r7" },
-  { d: 0, g: "○", c: "prog", l: "R8 · one surface — compose into kolu-server, the fold dissolves", m: "next · defined ↓", h: "#r8" },
+  { d: 0, g: "○", c: "prog", l: "R8 · one observation surface — kolu reads, the fold vanishes", m: "next · defined ↓", h: "#r8" },
   { d: 0, g: "○", c: "prog", l: "R9 · kolu dials remotes", m: "needs R7·R8 ↓", h: "#r9" },
   { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "defined ↓", h: "#r10" },
 ];
@@ -169,23 +169,39 @@ This kills the duplication wart: without it, arivu would **reimplement** fs/git 
 
 <a id="r8"></a>
 
-### R8 — one surface, composed into kolu-server (the fold dissolves)
+### R8 — one observation surface, composed into kolu-server (the fold vanishes)
 
-R6 left **one impl, two contract shapes**: kolu re-exposes fs/git on `koluSurface`'s own streams (in-process), arivu serves `terminalWorkspaceSurface` (remote). R8 collapses that to **one surface, composed.** kolu-server **registers `terminalWorkspaceSurface` as a member of the surface it already serves the browser** — the same `implementSurfaces` keying it uses for surfaceApp + admin — and **deletes its own fs/git procedures.** The composed surface's deps answer **per terminal**: a local terminal from the in-process impl, a remote one from that host's mirror (R9). One definition, one "which kind?" dispatch, local and remote the *same* path.
+R6 left **one impl, two contract shapes**: kolu re-exposes fs/git on `koluSurface`'s own streams (in-process), arivu serves `terminalWorkspaceSurface` (remote). R8 collapses that to **one surface** — and settles the question the epic kept reopening, *who owns awareness?* The answer is **not kolu**.
 
-**The fold dissolves.** Through R7, remote awareness was *folded* server-side into the co-owned `terminalMetadata` record. With one composed surface the browser reads `awareness` straight off `terminalWorkspaceSurface.awareness` and kolu's own fields (theme · layout · `location`) from a separate cell — the page **joins them at render.** No server-side fold; `terminalMetadata` shrinks to kolu's fields. The "irreducible domain logic" the Architecture callout above named was an artifact of the *one co-owned record* choice, not of the data.
+A terminal is two things that were never one record:
 
-It is the **whole** move, not a half: composing only fs/git is awkward because the surface is unified, so R8 composes awareness too and lets the fold go. It **must precede R9** — the remote dial just points the dispatch at the mirror this phase builds.
+- **authored state** — kolu writes it, it is durable: id · restore-cwd · theme · layout · sleeping-state · the frozen-pr snapshot. Stays on `koluSurface`.
+- **observed state** — the sensors derive it, it is ephemeral and never persisted: cwd · git · pr · agent · foreground. Lives on `terminalWorkspaceSurface.awareness`.
+
+**The move: kolu stops *holding* the observation and *reads* it.** The sensors write the `terminalWorkspaceSurface.awareness` collection — in-process locally — instead of mutating kolu's `terminalMetadata`. kolu *and* the browser read it through **one seam, `awarenessFor(id)`**: the in-process collection today, a host's mirror in R9. `terminalMetadata` shrinks to kolu's authored fields; kolu keeps a few **restore-seeds** (cwd · git-cache · agent-session) by sampling the observation at save time, so a cold restart re-spawns and re-resolves fast.
+
+```text
+before (fold):  sensors ──┐
+                          ├──►  terminalMetadata   (one co-owned record + the fence)
+                kolu ─────┘
+
+after (read):   kolu ────────►  koluSurface.terminalMetadata        (authored)
+                sensors ─────►  terminalWorkspaceSurface.awareness  (observed)
+                                kolu reads both via awarenessFor(id) — in-process local · mirror remote
+```
+
+**The fence vanishes — it does not move.** The persisted/live fence existed for *one* reason: the ~150 ms agent firehose shared `terminalMetadata` with must-persist fields, so a typed wall (`updateServerLiveMetadata` not arming the autosave) kept the churn off the session save. Once the sensors write the observation surface instead, kolu never persists the live fields at all — it subscribes only to `cwd` (human-`cd` frequency) for its restore-seed — so the firehose never touches kolu and the **fence has nothing to guard.** One writer per fact: the fold, the co-owned record, *and* the fence all delete. The "irreducible domain logic" the Architecture callout named was a *held copy* that only existed because, before arivu, the observation had nowhere else to live.
+
+It ships **local-only** — the in-process surface already exists from R6 — so **R8 stands without R9**, and R9 becomes a pure **backing swap** behind `awarenessFor`. The three server-side readers of awareness today (`exportTranscriptHtml`, the active-agent count, the preview's repo-root) move to that same seam — the rewiring a *split-the-wire* prototype would owe at R9 anyway, paid once, here.
 
 | | trade-off |
 | --- | --- |
-| **win · uniform path** | one surface definition (no duplicate fs/git), composed locally + mirrored remotely; local and remote answered identically — location-transparency made structural, not aspirational. |
-| **win · the fold is gone** | the server-side aggregation *and* the persisted/live fence delete; the merge becomes a trivial client-side join by terminal id. |
-| **cost · not byte-identical** | the browser's fs/git (+ awareness) calls move under the `terminalWorkspace` namespace — a one-time client update. Cheap: server + browser are one repo, ship together. (R6 deliberately froze this; R8 unfreezes it.) |
-| **cost · no warm awareness across a *deploy*** | awareness is live (re-derived), not persisted. A **browser refresh is fine** — the server is up and re-snapshots on subscribe (snapshot-then-delta), so the page rebuilds the join with no loss. A **server restart** shows awareness briefly blank until sensors/mirror catch up, instead of last-saved values — the warm-vs-fresh trade kaval already took. Theme/layout/`location` stay persisted. |
-| **cost · a first-paint flicker** | the two snapshots (awareness, kolu fields) arrive separately, so a tile can show layout a beat before its badge — the atomic folded record avoided that. Smoothed by waiting for both, or a placeholder. |
+| **win · one writer per fact** | observation has one home; kolu authors only what it persists. The fold, the co-owned record, and the fence all delete — replaced by "compose two surfaces." Adding a sensor field touches the workspace schema + a join-spread, never kolu's wire. |
+| **win · local == remote** | the same seam answers both; the local/remote axis vanishes behind `awarenessFor` (in-process vs mirror). R9 is a backing swap, not a second data path. |
+| **cost · the surface moves** | the browser's fs/git + awareness calls move under the `terminalWorkspace` namespace, and server-side readers move to `awarenessFor` — a one-time, one-repo change (R6 froze it deliberately; R8 unfreezes). |
+| **cost · awareness streams in after chrome** | the page paints identity, then live observation lands a beat later (seeded placeholder). *Honest streaming* — live presence legitimately follows static identity — not a torn-record artifact. A *server restart* shows awareness briefly blank until sensors/mirror catch up; a *browser refresh* is fine (snapshot-then-delta). The warm-vs-fresh trade kaval already took; theme/layout/`location` stay persisted. |
 
-Net: R8 trades a frozen browser surface + warm-on-deploy awareness for **one composed surface and the deletion of the fold** — and it turns R9's remote dial into a *backing swap*, not a second data path.
+Net: R8 deletes the fold, the fence, and the co-owned record in one move, and turns R9 into a backing swap. The *split-the-wire-keep-the-record* prototype (<PrLink pr={1510} />, "Shape A") is the instructive half-step — it pays the cost of separation while keeping the braid as a server internal; this phase removes the braid.
 
 <a id="r9"></a>
 
@@ -219,4 +235,5 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 - **Renumbered to one R1–R9 tree** (2026-06-21) — shipped branches R1–R4 (was `R-1`/`R-1.5`/`R-4`/`R-2`/`R-3` + colliding child `P`/`B` schemes), and the remaining work lifted out of the child notes into a **linear R5–R9 roadmap defined here** (so the forward plan lives in one place; fs/git joins awareness in one library, `@kolu/terminal-workspace`, as its own phase R6; completing `mirrorRemoteSurface` to a total dual got its own phase R7 — proven via drishti's "Kill process" action, so it stands alone, before kolu's fold (R8) depends on it). Git holds the old labels. Cf. [ghostex vs kolu](ghostex-vs-remote-terminals.html), [herdr vs kolu](herdr-vs-kolu.html), [kaval vs zmosh](kaval-vs-zmosh.html).
 - **R6 shipped** (2026-06-21) — `@kolu/terminal-awareness` grew into `@kolu/terminal-workspace`: **one** thin fs/git wrapper (`createTerminalWorkspaceEndpoint`) lifted out of kolu-server's `localEndpoint`, re-exposed through **two deliberately different contract shapes** — kolu-server keeps it in-process on `koluSurface`'s value-bearing streams, while `arivu` serves it on `terminalWorkspaceSurface` as fs/git read procedures + `{seq}` change-pulse watcher streams (that surface's contract `0.2 → 0.3`). One impl, not one shared surface — the single surface both homes serve is mirrored by kolu in R8. `@kolu/arivu-contract` retired into the library. Done ahead of R5 (the phases are independent). <PrLink pr={1506} />
 - **R7 shipped** (2026-06-21, <PrLink pr={1505} />) — `mirrorRemoteSurface` returns `{ procedures, done }`: streaming primitives fold into the sink as before, every procedure comes back as a forwarding stub (`procedures.<ns>.<verb>(input)` → runs on the remote, returns). `serve ∘ mirror ≈ identity` is pinned by an in-repo unit test. The breaking return-shape change rode `surface.md`'s drishti merge-gate: the paired [drishti PR #71](https://github.com/srid/drishti/pull/71) (audited drishti's `await mirrorRemoteSurface(...)` → `.done` and pinned drishti's kolu source to this R7 revision) went green across all 18 odu nodes (every lane on both `aarch64-darwin` and `x86_64-linux`), the same gate [#70](https://github.com/srid/drishti/pull/70) passed for #1497. R9's remote dial consumes the total mirror — R8 having composed it into the one surface kolu serves.
-- **One-surface phase injected** (2026-06-22) — a new **R8** composes `terminalWorkspaceSurface` into the one surface kolu serves the browser and **dissolves the server-side awareness fold** (the merge becomes a client-side join by terminal id); the former *kolu dials remotes* and *canvas* phases shift to **R9 · R10**. The tree is now R1–R10. Trade-offs in the R8 section.
+- **One-surface phase injected** (2026-06-22) — a new **R8** composes `terminalWorkspaceSurface` into the one surface kolu serves the browser and **dissolves the server-side awareness fold**; the former *kolu dials remotes* and *canvas* phases shift to **R9 · R10**. The tree is now R1–R10. Trade-offs in the R8 section.
+- **R8 sharpened to one-writer-per-fact** (2026-06-22) — a prototype (<PrLink pr={1510} />, "Shape A") split awareness onto its own wire surface but kept the *co-owned record* server-side, so the fold and the fence survived as internals. A Hickey/Lowy pass (and the prototype's own adversary) showed the record was never one thing: R8 now has the **sensors write the observation surface** so kolu *reads* awareness through one seam (`awarenessFor`) rather than holding a copy — the fold, the co-owned record, and the fence all delete, R8 ships local-only, and R9 becomes a backing swap. The merge is not "a client-side join of a torn record"; it is honest composition of two distinct concerns (authored vs observed). The linchpin that makes it cheap: the live fields already never reach disk (`snapshotSession` strips them), so there is no on-disk migration.

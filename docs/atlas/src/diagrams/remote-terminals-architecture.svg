@@ -52,9 +52,9 @@
 
   <!-- legend -->
   <rect class="rt-green-box" x="566" y="22" width="14" height="14" rx="3"/>
-  <text class="rt-sub" x="586" y="33">shipped — R1 · R2</text>
+  <text class="rt-sub" x="586" y="33">shipped — R1 · R2 · R6</text>
   <rect class="rt-amber-box" x="566" y="42" width="14" height="14" rx="3"/>
-  <text class="rt-sub" x="586" y="53">remaining — R3 · R4 · R5</text>
+  <text class="rt-sub" x="586" y="53">remaining — R5 · R8 · R9</text>
 
   <!-- ================= browser ================= -->
   <rect class="rt-cli-box" x="290" y="74" width="240" height="48" rx="10"/>

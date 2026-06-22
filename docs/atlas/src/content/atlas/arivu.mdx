@@ -1,6 +1,6 @@
 ---
 title: arivu — terminal awareness as an ephemeral surface on kaval
-description: Repeat the kaval decoupling one level up. The awareness sensors (git · PR · agent · foreground) become a generic library — kolu runs it in-process locally (writing terminalMetadata directly), and an ephemeral daemon (arivu) on top of kaval serves the same awareness over ssh for remote terminals, mirrored + folded into kolu. One library, two homes. arivu + arivu-tui ship standalone first; kolu's compose + mirror of it lives in remote-terminals R8–R9 (no server-side fold).
+description: Repeat the kaval decoupling one level up. The awareness sensors (git · PR · agent · foreground) become a generic library that fills one typed surface — kolu runs it in-process locally, and an ephemeral daemon (arivu) on top of kaval serves the same surface over ssh for remote terminals. kolu reads that observation through one seam, never folding a copy into its own record. One library, two homes. arivu + arivu-tui ship standalone first; kolu's compose + mirror of it lives in remote-terminals R8–R9 (R8 deletes the old server-side fold).
 parents: [kaval-sessions, feature]
 status: accepted
 maturity: budding
@@ -13,10 +13,10 @@ import PrLink from "../../components/PrLink.astro";
 import Terminal from "../../components/Terminal.astro";
 import Pill from "../../components/Pill.astro";
 
-**kaval decoupled the PTY out of kolu into a standalone, minimal, durable daemon.** This note makes the *same move one level up* for the part kolu kept tangling: **terminal awareness** (git branch/dirty, PR status, agent detection, foreground). A new daemon — **`arivu`** (Tamil *அறிவு*, "the faculty of knowing"; sibling to `kaval` = *guard* and `odu` = *run*) — sits *on top of* kaval, runs the sensors, and exposes the result as one typed `@kolu/surface` collection. **One sensor library, two homes:** locally kolu runs it in-process and writes `terminalMetadata` straight through the existing mutators (no surface, no fold); remotely the `arivu` daemon serves the same awareness over ssh, which kolu mirrors and folds in. Clients keep reading the one `terminalMetadata` collection they always did.
+**kaval decoupled the PTY out of kolu into a standalone, minimal, durable daemon.** This note makes the *same move one level up* for the part kolu kept tangling: **terminal awareness** (git branch/dirty, PR status, agent detection, foreground). A new daemon — **`arivu`** (Tamil *அறிவு*, "the faculty of knowing"; sibling to `kaval` = *guard* and `odu` = *run*) — sits *on top of* kaval, runs the sensors, and exposes the result as one typed `@kolu/surface` collection. **One sensor library, two homes:** locally kolu runs the sensors in-process; remotely the `arivu` daemon serves the same awareness over ssh. Either way the result is one typed **observation surface** that kolu **reads** — it never folds a copy into its own record. (That convergence is [remote-terminals](remote-terminals.html) **R8**; until it lands, kolu's local path still routes awareness into `terminalMetadata`.)
 
 <D2
-  caption="arivu sits on top of kaval (which stays byte-for-byte minimal). LOCAL terminals run the sensors inside kolu-server, in-process — no socket, no fold. REMOTE terminals run arivu host-side: it dials the host's kaval for taps, reads the host fs (git/gh/~/.claude), and serves the awareness slice over ssh, which kolu-server mirrors + folds into the one terminalMetadata collection. The same daemon is independently useful: arivu-tui dials it directly."
+  caption="arivu sits on top of kaval (which stays byte-for-byte minimal). LOCAL terminals run the sensors inside kolu-server, in-process — no socket. REMOTE terminals run arivu host-side: it dials the host's kaval for taps, reads the host fs (git/gh/~/.claude), and serves the awareness slice over ssh, which kolu-server mirrors and reads through one seam (remote-terminals R8 deletes the old server-side fold). The same daemon is independently useful: arivu-tui dials it directly."
   code={`direction: down
 classes: {
   client: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
@@ -27,7 +27,7 @@ classes: {
   host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
 }
 browser: "browser\\ntiles · reads terminalMetadata" { class: client }
-server: "kolu-server\\nterminalMetadata — one collection\\nmirror + fold (remote only)" { class: server }
+server: "kolu-server\\nreads the observation surface\\nmirror (remote only)" { class: server }
 kaval_l: "kaval (local)\\ndurable PTY · taps" { class: pty }
 awd: "arivu (host · ephemeral)\\nruns the sensors · serves the slice" { class: tool }
 kaval_h: "kaval (host)\\ndurable PTY · taps" { class: pty }
@@ -36,7 +36,7 @@ tui: "arivu-tui (standalone)" { class: tui }
 browser -> server: oRPC
 kaval_l -> server: "taps · sensors in-process (local)"
 server -> awd: "dial (ssh)"
-awd -> server: "slice → mirror + fold (remote)"
+awd -> server: "slice → mirror (remote)"
 kaval_h -> awd: "taps (dialed as client)"
 awd -> fs: reads
 tui -> awd: dials
@@ -51,14 +51,14 @@ Three claims, each verified against the shipped code:
 - **kaval stays byte-for-byte minimal.** `arivu` *dials* kaval as a `ptyHostSurface` client for the four taps + `getScreenText`; it adds zero awareness/git/gh logic to kaval. A layer above, never a fork.
 - **Ephemerality is the simplifier.** Awareness never has to survive a restart — it's re-derivable from live taps + current host fs. So `arivu` sheds all of kaval's durability machinery: no single-instance lock, no spawn/cleanup, no persisted list (it borrows kaval's `terminal.list`), no adoption or reconnect. Every (re)start just re-runs the sensors from now.
 
-## One library, two homes — and why only remote folds
+## One library, two homes — kolu reads, never folds
 
-Local and remote share the *sensor library* and *one schema* — but they are genuinely different paths, not "only the transport." The surface and the fold exist only where awareness crosses a process boundary:
+Local and remote share the *sensor library* and *one schema* — and, after [remote-terminals](remote-terminals.html) **R8**, one **shape of consumption** too: the sensors fill the `terminalWorkspaceSurface.awareness` collection, and kolu **reads** it. The only thing that differs is where that collection is *backed*:
 
-- **Local → in-process, no surface.** kolu-server runs the sensors and writes `terminalMetadata` directly. Same process = nothing to serve, nothing to merge; wrapping it in an in-process surface is the fictional boundary rejected in #1406. Local stays this way for good — in-process sensors are always the running build, fresh by construction. Even after remote ships, local does **not** switch to dialing a local arivu "for consistency" (pure ceremony to move data within one process). The consistency that matters — same library, schema, contract — is already there.
-- **Remote → serve (arivu), then mirror (kolu).** `arivu` is Nix-provisioned over ssh (kaval's staleKey recipe), runs the identical sensors, and **serves** the slice over `stdioLink`. The kolu-side **mirror + compose** is *not* arivu's concern — it is [remote-terminals](remote-terminals.html) **R8–R9**'s, and its costs live there (R8 composes the surface into kolu's own, dissolving the server-side fold).
+- **Local → in-process.** kolu-server runs the sensors and they fill the in-process awareness collection; kolu reads it through `awarenessFor(id)` — no transport, no framing, and crucially **no fold** (the sensors no longer write kolu's `terminalMetadata`). This reverses the earlier *local writes `terminalMetadata` directly* stance: at #1406 an in-process surface bought nothing (kolu folded into its record either way), so it read as ceremony; R8 makes it earn its keep — giving observation its own collection is exactly what deletes the fold and the persisted/live fence, and unifies the read seam with remote.
+- **Remote → serve (arivu), then mirror (kolu).** `arivu` is Nix-provisioned over ssh (kaval's staleKey recipe), runs the identical sensors, and **serves** the slice over `stdioLink`. kolu mirrors it (R7's total dual) and reads the same `awarenessFor(id)` seam — the backing is a mirror instead of an in-process collection.
 
-So the asymmetry is **real and confined to the wire**: local is closure → mutate; remote is closure → frame → serve → mirror → fold. They share the invariant sensor library and one schema. The one new artifact is the host-side hooks impl that reifies each `mutate` closure into a serialized slice frame — a wire carries values, not closures.
+So the old asymmetry — *local mutates kolu's record; remote serves → mirrors → folds* — collapses to **one shape, two backings**: both fill the observation surface, kolu reads it, and local-vs-remote is a backing swap behind the seam. The one new artifact is the host-side hooks impl that reifies each `mutate` closure into a serialized slice frame — a wire carries values, not closures. (Until R8 lands, kolu's *local* path still routes awareness into `terminalMetadata`; R8 is what moves it onto the surface kolu reads.)
 
 > **`mirrorRemoteSurface` has graduated** (<PrLink pr={1497} />). It is now the one public mirror in `@kolu/surface` — the spec-driven dual of `implementSurface` that drives a served surface's **streaming** primitives (cells/collections/streams) into caller-supplied sinks — mirroring *procedures* to a **total** dual is [remote-terminals](remote-terminals.html) R7; `mirrorRemoteCollection` is demoted to its private per-key engine ("you don't sell half a house"). The trigger was arivu growing a real **`activity` stream** (the green dot) — the second stream-bearing consumer the graduation waited for. It does not by itself dissolve kolu's server-side fold — remote-terminals **R8** does, by composing the surface into kolu's own; until then the fold consumes `mirrorRemoteSurface`. As a `@kolu/surface` API change it rode `surface.md`'s drishti merge-gate.
 
@@ -75,11 +75,11 @@ Like kaval, the daemon is a deliverable in its own right, shipped and proven *be
   "# derived intelligence over the raw PTY — a future TUI-kolu consumes the same daemon",
 ]} />
 
-It ships self-contained: the sensors (`@kolu/terminal-workspace/sensors.ts`) import nothing from kolu but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. Define the contract once and the consumers fall out of one schema — the daemon serves it, the TUI reads it, and remotely kolu's mirror folds it.
+It ships self-contained: the sensors (`@kolu/terminal-workspace/sensors.ts`) import nothing from kolu but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. Define the contract once and the consumers fall out of one schema — the daemon serves it, the TUI reads it, and remotely kolu mirrors and reads it.
 
 ## The R4 tree — shipped end-to-end
 
-The standalone arivu story (extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity) is complete. The **kolu fold** — kolu dialing this host's arivu over a long-lived `HostSession`, mirroring it, and folding it into its own canvas — is not arivu's job; it lives in the parent [remote-terminals](remote-terminals.html) roadmap as **R8–R9** (R8 composes the surface, R9 dials), gated on the remote dial. *And* the **fs/git** a remote Code tab needs is roadmapped there as **R6**: this awareness library grows into **`@kolu/terminal-workspace`** — *one* `@kolu/surface` surface that adds fs/git procedures + watcher streams beside the `awareness` collection — so kolu runs it in-process locally and arivu hosts the *same* surface remotely, never a second fs/git impl. arivu just points there. (The **total mirror** is proven independently in R7 — *drishti* gains a "Kill process" action, the first forwarded procedure on a mirrored surface — so R7 needs neither arivu nor kolu.)
+The standalone arivu story (extract → daemon → remote viewer → Bun → OpenTUI → live fleet → live activity) is complete. **kolu's consume** — kolu dialing this host's arivu over a long-lived `HostSession`, mirroring it, and reading it into its own canvas — is not arivu's job; it lives in the parent [remote-terminals](remote-terminals.html) roadmap as **R8–R9** (R8 composes the surface and deletes the fold, R9 dials), gated on the remote dial. *And* the **fs/git** a remote Code tab needs is roadmapped there as **R6**: this awareness library grows into **`@kolu/terminal-workspace`** — *one* `@kolu/surface` surface that adds fs/git procedures + watcher streams beside the `awareness` collection — so kolu runs it in-process locally and arivu hosts the *same* surface remotely, never a second fs/git impl. arivu just points there. (The **total mirror** is proven independently in R7 — *drishti* gains a "Kill process" action, the first forwarded procedure on a mirrored surface — so R7 needs neither arivu nor kolu.)
 
 <Callout kind="note" title="Naming — arivu may outgrow 'knowing'">
 arivu (அறிவு, *the faculty of knowing*) was named for **awareness**. R6 broadens the daemon to host the whole `terminal-workspace` surface — awareness **and** fs/git — so "knowing" undersells it, and a rename to match (a `kaval`/`odu`-style single Tamil word) is on the table. Candidates, undecided: **களம் _kaḷam_** (field · arena · workspace), **தளம் _thaḷam_** (platform · site · ground), **சூழல் _sūzhal_** (context · environment · surroundings), **நிலம் _nilam_** (land · place). The package is already `@kolu/terminal-workspace` — the daemon name should echo it.
