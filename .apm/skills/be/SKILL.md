@@ -105,6 +105,28 @@ green before capturing.
    present is the fallback path, not the default. React to `failed`/`errored` nodes
    the moment they land: fix→fmt→commit→retry on real failures, confirm green on
    the final `HEAD`.
+   - **A pinned CI host being unreachable is an infra fault, not a debate
+     outcome — fail it over, don't park the lane.** When a lane never produces a
+     verdict because its host is *down* (ssh times out, tailscale shows it
+     "offline / last seen Nh ago"), that is distinct from a node that ran and went
+     red: there is nothing in the diff to fix and no `node_rerun` will help. The
+     trap is to declare an "external infrastructure outage," leave the lane
+     unverified, and stop — that hands the run back to the human, who then has to
+     name the alternate host by hand (a prior run stalled the **`aarch64-darwin`**
+     lane this exact way when **`rasam`** — the host pinned in `.agency/do.md` —
+     was offline, and only resumed when the user said "use sincereintent for
+     macos"). So when the pinned darwin host is unreachable, **re-pin the lane to
+     the working secondary darwin box and re-run it yourself** (resolve a reachable
+     host via `tailscale status` + an ssh probe, then `mcp__odu__run
+     hosts=["aarch64-darwin=<user>@<host>"]`), and note the failover in the report.
+     `.agency/do.md` may call a given box "retired for CI" — that is steady-state
+     guidance, not a directive to leave a lane unverified when the *primary* is
+     dark; reach for the live secondary, get a real verdict, and surface that you
+     did. Do **not** silently drop the platform or report green on a lane that
+     never ran — that is the no-fallbacks rule's "a caught error must surface"
+     clause: an unreachable host is the caught error; failing over (or, if no
+     darwin host answers at all, reporting the lane as genuinely blocked) is
+     surfacing it, parking-and-stopping is collapsing it to a silent gap.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior
