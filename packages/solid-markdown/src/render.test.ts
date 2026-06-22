@@ -246,13 +246,29 @@ describe("renderMarkdownToRawHtml — GFM extensions", () => {
     const out = html(
       'spoof <a data-md-footnote href="#md-footnote-1">x</a> ' +
         '<a data-md-footnote-backref href="#y">y</a> ' +
-        '<a data-md-footnote="bogus" href="#z">z</a>',
+        '<a data-md-footnote="bogus" href="#z">z</a> ' +
+        // Single-quoted and unquoted spoof values must also be consumed whole,
+        // not leave a dangling `=val` welded onto the `<a` (the bug F6 caught).
+        "<a data-md-footnote='q' href=\"#q\">q</a> " +
+        '<a data-md-footnote=bare href="#b">b</a>',
     );
     expect(out).not.toContain("data-md-footnote");
-    // The anchors themselves survive (just without the spoofed markers).
+    // The anchors themselves survive intact (just without the spoofed markers);
+    // none collapsed into `<a=…` and none lost its href.
+    expect(out).not.toContain("<a=");
     expect(out).toContain(">x</a>");
     expect(out).toContain(">y</a>");
     expect(out).toContain(">z</a>");
+    expect(out).toContain('href="#q"');
+    expect(out).toContain('href="#b"');
+  });
+
+  it("leaves prose that merely mentions the marker token untouched", () => {
+    // The spoof strip is scoped to anchor start tags, so a README that writes
+    // the literal `data-md-footnote` in plain text keeps its words — a global
+    // text regex would have deleted the token mid-sentence (the bug F6 caught).
+    const out = html("Set the data-md-footnote attribute to enable popovers.");
+    expect(out).toContain("Set the data-md-footnote attribute to enable");
   });
 
   it("keeps the parser's footnote markers even when raw HTML pre-seeded one", () => {

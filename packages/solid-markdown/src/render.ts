@@ -325,13 +325,23 @@ function rewriteAlerts(html: string): string {
  *  beside marked-footnote's own `data-footnote-ref` / `data-footnote-backref`.
  *  Net: the markers only ever ride the parser's own footnote refs, never a raw
  *  anchor that merely declared them. */
+// Strip every `data-md-footnote*` attribute from an anchor start tag, in any
+// HTML attribute-value form — bare (`data-md-footnote`), double-/single-quoted
+// (`data-md-footnote="x"`, `='x'`), and unquoted (`data-md-footnote=x`). Scoped
+// to the tag's attribute span only: it never sees text nodes, so prose that
+// merely mentions `data-md-footnote` is untouched, and an unquoted spoof value
+// is consumed whole rather than leaving a dangling `=x` welded onto `<a`.
+const DOC_FOOTNOTE_ATTR =
+  /\s+data-md-footnote(?:-backref)?(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?/g;
+
 function rewriteFootnotes(html: string): string {
   return (
     html
       // Drop document-authored markers before re-minting (see the spoof guard
-      // above). `\s*` swallows any value (`data-md-footnote="x"`) too, so a
-      // valued spoof can't survive as a leftover attribute.
-      .replace(/\s+data-md-footnote(?:-backref)?(?:="[^"]*")?/g, "")
+      // above), but only inside anchor start tags — a global text strip would
+      // corrupt prose containing the literal token and mangle unquoted spoof
+      // attributes. Match the whole `<a …>` open tag and clean its attributes.
+      .replace(/<a\b[^>]*>/g, (tag) => tag.replace(DOC_FOOTNOTE_ATTR, ""))
       .replace(/<a (?=[^>]*\bdata-footnote-ref\b)/g, "<a data-md-footnote ")
       .replace(
         /<a (?=[^>]*\bdata-footnote-backref\b)/g,
