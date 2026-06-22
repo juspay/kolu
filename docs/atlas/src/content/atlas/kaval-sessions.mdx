@@ -1,6 +1,6 @@
 ---
 title: Kaval sessions — dial daemons, multiplex the canvas
-description: "The R3 branch of remote-terminals — remote-over-ssh. A kaval is a daemon you dial (local unix socket, remote ssh via surface-nix-host), so remote is never a second backend. The spike shipped (R3.1–R3.6): kaval-tui create + --host reach/provision, the warm path deduped and connection-multiplexed. The forward work — dialing remotes, the fold, the canvas — now lives in the parent remote-terminals R5–R9 roadmap."
+description: "The R3 branch of remote-terminals — remote-over-ssh. A kaval is a daemon you dial (local unix socket, remote ssh via surface-nix-host), so remote is never a second backend. The spike shipped (R3.1–R3.6): kaval-tui create + --host reach/provision, the warm path deduped and connection-multiplexed. The forward work — composing one surface, dialing remotes, the canvas — now lives in the parent remote-terminals R5–R10 roadmap."
 parents: [remote-terminals, feature]
 status: accepted
 maturity: budding
@@ -86,7 +86,7 @@ $ kaval-tui attach a8f1… --host nix@prod
 
 | Phase | What shipped |
 | --- | --- |
-| **R3.1** · backend cleanup <PrLink pr={1364} /> | collapsed the speculative `TerminalBackend`/`getTerminalBackendFor(location)` dispatch into one **`TerminalEndpoint`** (renamed, byte-identical) — remote becomes a transport, not a second backend. Its doc-comment is the seam the parent's R8 fills |
+| **R3.1** · backend cleanup <PrLink pr={1364} /> | collapsed the speculative `TerminalBackend`/`getTerminalBackendFor(location)` dispatch into one **`TerminalEndpoint`** (renamed, byte-identical) — remote becomes a transport, not a second backend. Its doc-comment is the seam the parent's R9 fills |
 | **R3.2** · `kaval-tui create` <PrLink pr={1370} /> | spawns a plain `$SHELL` (or `create -- htop -d 5`) and prints the id — a fresh daemon needs something to attach to. Thin over `terminal.spawn` (spawn is fully-specified; the caller composes `{argv, env, initFiles}`, no kolu policy). `--json` for scripts |
 | **R3.3** · `kaval-tui --host` <PrLink pr={1373} /> | **reach + provision in one PR** (ssh). One `getHostSession` both provisions (`nix copy --derivation` → realise → pin) and dials over ssh `stdioLink`, handing back the same `ptyHostSurface` client the unix socket speaks. The one daemon-side addition — `kaval --stdio` — **fronts the durable daemon** (adopt-or-start the host's kaval, raw-byte-relay the link to its unix socket), so a remote PTY survives the link. ssh-config auto-detect deferred |
 | **R3.4** · upstream `frontDaemonOverStdio` <PrLink pr={1374} /> | homed R3.3's durable-fronting bridge in **`@kolu/surface-daemon`** as `frontDaemonOverStdio` — the **durable counterpart to `serveOverStdio`** ("`dtach`/`abduco` for any surface daemon, over ssh"): a contract-agnostic relay + adopt-or-spawn, parameterized by socket path + spawn command. kaval's `--stdio` became a thin call into it |
@@ -106,9 +106,9 @@ ssh <em>reach + provision</em> is R3's biggest unknown, shared by both granulari
 
 ## What's next — in the parent roadmap
 
-Dialing remotes, folding in awareness + fs/git, and the multiplex canvas now live as the linear **R5–R9** roadmap in the parent [remote-terminals](remote-terminals.html) note — including arivu growing an **fs/git surface** (R6). This note is the shipped spike (R3.1–R3.6).
+Dialing remotes, folding in awareness + fs/git, and the multiplex canvas now live as the linear **R5–R10** roadmap in the parent [remote-terminals](remote-terminals.html) note — including arivu growing an **fs/git surface** (R6). This note is the shipped spike (R3.1–R3.6).
 
 ## History
 
 - **2026-06** — the spike shipped R3.1→R3.6 end to end: backend cleanup (<PrLink pr={1364} />), `kaval-tui create` (<PrLink pr={1370} />), `--host` reach + provision (<PrLink pr={1373} />), `frontDaemonOverStdio` upstreamed to `@kolu/surface-daemon` (<PrLink pr={1374} />), warm-skip provisioning (<PrLink pr={1377} />), ssh `ControlMaster` multiplexing (<PrLink pr={1378} />). The spike is the production driver.
-- **Renumbered to the one R1–R9 tree** (2026-06-21) — this note is **R3**; was a local `P0…P4` scheme, now gone (git holds the old labels). the awareness fold is the parent's **R8**, and **R4** is [arivu](arivu.html) (the awareness daemon); the foundation seam is **R1**.
+- **Renumbered to the one R1–R10 tree** (2026-06-21) — this note is **R3**; was a local `P0…P4` scheme, now gone (git holds the old labels). kolu composes awareness in the parent's **R8** (the server-side fold dissolves there) and dials remotes in **R9**; **R4** is [arivu](arivu.html) (the awareness daemon); the foundation seam is **R1**.
