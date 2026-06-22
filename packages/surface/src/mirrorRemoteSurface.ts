@@ -312,9 +312,10 @@ function buildProcedureForwarders(
  * #1497 shape it adopted in drishti PR #70). So the migration is mechanical, not
  * documentary, and now real: the paired drishti PR #71 (the surface→drishti
  * merge-gate in `.claude/rules/surface.md`) audits that one call site to
- * `await mirrorRemoteSurface(...).done`, pinned to this R7 revision; it typechecks
- * and fmt-checks GREEN against the new `{ procedures, done }` API — exactly as #70
- * did for #1497.
+ * `await mirrorRemoteSurface(...).done`, pinned to this R7 revision; its FULL CI is
+ * GREEN against the new `{ procedures, done }` API — all 18 odu nodes (every lane —
+ * nix/typecheck/fmt-check/bun-nix-fresh/home-manager/drv-stability — on both
+ * aarch64-darwin and x86_64-linux), exactly the lane set #70 passed for #1497.
  * No back-compat thenable is offered: the fail-fast rule prefers a deliberate
  * per-site migration over a shim that hides the changed contract — and the handle's
  * non-thenable contract is pinned in CI by the "returns a non-thenable handle" test
