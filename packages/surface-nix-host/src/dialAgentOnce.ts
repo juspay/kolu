@@ -109,28 +109,28 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  `process.env.FOO` property that could silently drift. */
   agentDrvsJson: string | undefined;
   /** Noun for the "no <noun> derivation baked for system=…" error (e.g.
-   *  `kaval`, `arivu`). */
+   *  `kaval`, `pulam`). */
   drvNoun: string;
   /** The EXACT stderr prefix the remote agent writes before its fatal message,
-   *  right before exiting (e.g. `arivu:`, `kaval --stdio:`). Required and
+   *  right before exiting (e.g. `pulam:`, `kaval --stdio:`). Required and
    *  caller-supplied because it is NOT always `${drvNoun}:` — kaval's `--stdio`
    *  front writes `kaval --stdio:`, not `kaval:`. The agent's fatal is the LAST
    *  thing it writes, so `dialAgentOnce` surfaces everything from the last line
    *  carrying this prefix through the end of the remote stderr as the dial's
-   *  failure reason — capturing a multi-line block (e.g. arivu's "more than one
+   *  failure reason — capturing a multi-line block (e.g. pulam's "more than one
    *  kaval" error listing each `--kaval <socket>` candidate), not just the
    *  prefixed first line. */
   fatalPrefix: string;
   /** Roundtrip one cheap RPC on `client` to prove the link before
    *  `markConnected` flips the connect watchdog off. Required and caller-supplied
-   *  because surfaces differ: kaval has `system.heartbeat`, arivu reads the first
+   *  because surfaces differ: kaval has `system.heartbeat`, pulam reads the first
    *  frame of its `version` cell. The result is discarded; a rejection fails the
    *  dial (and destroys the session). */
   probe: (client: AgentClient<C>) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
-   *  the caller's concern (see the arivu-tui `--kaval` call site). */
+   *  the caller's concern (see the pulam-tui `--kaval` call site). */
   extraArgs?: readonly string[];
   /** Diagnostic-line sink, forwarded to `HostSessionOptions.onLog`. Omit and the
    *  session writes its `nix copy` progress / connection transitions / forwarded
@@ -177,7 +177,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // `probe` below rejects with the transport's opaque "stream closed" error, but
   // the agent's last stderr (on the session's `remoteProgressLines`) is the real
   // reason. The agent writes its fatal as `<fatalPrefix> <message>` to its own
-  // stderr right before exiting (see arivu's / kaval's bin.ts), forwarded onto
+  // stderr right before exiting (see pulam's / kaval's bin.ts), forwarded onto
   // `remoteProgressLines` — the remote-origin lines, already separated from the
   // session's OWN local lifecycle chatter ("agent exited", "reconnecting in
   // 2000ms…"). Reading them BY ORIGIN (the field) rather than re-parsing the
@@ -188,7 +188,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // The fatal is the LAST thing the agent writes, so it is the TAIL of
   // `remoteProgressLines` (never evicted by the `MAX_PROGRESS_LINES` cap, which
   // drops the oldest) — captured FROM the last prefixed line THROUGH the end, not
-  // just that one line. arivu's ambiguity error is multi-line (the "more than one
+  // just that one line. pulam's ambiguity error is multi-line (the "more than one
   // kaval" header plus each `--kaval <socket>` candidate the user needs to
   // recover): `forEachLine` splits it into separate `remoteProgressLines` entries
   // where only the first carries the prefix, so matching a single prefixed line

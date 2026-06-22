@@ -3,7 +3,7 @@
 # The flake intentionally has ZERO inputs (see flake.nix / nix/nixpkgs.nix);
 # every external Nix source is pinned with npins. bun2nix gives us the
 # fetchBunDeps/hook nixpkgs has no equivalent for — it powers the bun-built
-# `arivu-tui` viewer (arivu P3 PR1); the daemon and the rest of kolu stay Node.
+# `pulam-tui` viewer (pulam P3 PR1); the daemon and the rest of kolu stay Node.
 #
 # bun2nix's `rawflake` branch is a flake-parts flake whose
 # `lib.mkBun2nix { pkgs }` builds its rust CLI + setup hook and hands back
@@ -12,7 +12,7 @@
 # `builtins.getFlake` — but pinned to the EXACT rev + narHash npins records, so
 # it is reproducible and is NOT an input on kolu's flake: there is no
 # `inputs.bun2nix`, no node in kolu's (nonexistent) flake.lock, and `nix
-# develop` never forces it (this file is imported only when the `arivu-tui` attr
+# develop` never forces it (this file is imported only when the `pulam-tui` attr
 # is built). `npins update bun2nix` bumps the pin; this file follows it.
 # `mkBun2nix` takes `pkgs` as an argument, so the FOD cache (fetchBunDeps) is
 # realised against OUR npins-pinned pkgs — nixpkgs of record on the build path

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The multi-host shape for remote terminals. The browser drives kolu-server over one WebSocket. kolu-server holds the TerminalEndpoint seam keyed by hostId, behind which sit three drivers — the shipped local driver (R2), the remaining ssh driver (R9), and the remaining mirror (R9). On this machine a local kaval daemon owns the PTYs and survives deploys, with awareness run in-process. Each remote ssh host runs the same kaval daemon plus an arivu daemon hosting the terminal-workspace surface (awareness + R6 fs/git) over ssh. Green = shipped, amber = remaining.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 600" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The multi-host shape for remote terminals. The browser drives kolu-server over one WebSocket. kolu-server holds the TerminalEndpoint seam keyed by hostId, behind which sit three drivers — the shipped local driver (R2), the remaining ssh driver (R9), and the remaining mirror (R9). On this machine a local kaval daemon owns the PTYs and survives deploys, with awareness run in-process. Each remote ssh host runs the same kaval daemon plus an pulam daemon hosting the terminal-workspace surface (awareness + R6 fs/git) over ssh. Green = shipped, amber = remaining.">
   <defs>
     <marker id="rt-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#15803D"/>
@@ -92,7 +92,7 @@
   <rect class="rt-pill-a" x="540" y="244" width="26" height="17" rx="8.5"/>
   <text class="rt-pill-tx" x="553" y="256" text-anchor="middle">R9</text>
   <text class="rt-amber-t" x="574" y="257">the mirror</text>
-  <text class="rt-amber-s" x="540" y="280">mirror arivu's surface</text>
+  <text class="rt-amber-s" x="540" y="280">mirror pulam's surface</text>
   <text class="rt-amber-s rt-mono" x="540" y="297">awareness + fs/git</text>
 
   <!-- ================= host tier ================= -->
@@ -106,7 +106,7 @@
   <text class="rt-green-s" x="110" y="454">durable PTY · holds the fds + screen mirror</text>
   <text class="rt-green-s" x="110" y="472">survives a kolu-server deploy</text>
   <text class="rt-green-s" x="110" y="512">awareness + fs/git: in-process here</text>
-  <text class="rt-green-s" x="110" y="528">(the same terminal-workspace surface arivu hosts)</text>
+  <text class="rt-green-s" x="110" y="528">(the same terminal-workspace surface pulam hosts)</text>
 
   <!-- remote ssh host -->
   <rect class="rt-host" x="430" y="368" width="320" height="200" rx="12"/>
@@ -117,7 +117,7 @@
   <text class="rt-green-s" x="470" y="472">PTYs survive</text>
   <text class="rt-green-s" x="470" y="490">blips + deploys</text>
   <rect class="rt-amber-box" x="600" y="404" width="130" height="142" rx="10"/>
-  <text class="rt-amber-t" x="618" y="432">arivu</text>
+  <text class="rt-amber-t" x="618" y="432">pulam</text>
   <text class="rt-amber-s" x="618" y="454">awareness</text>
   <text class="rt-amber-s" x="618" y="472">+ fs/git (R6)</text>
   <text class="rt-amber-s" x="618" y="490">served / ssh</text>

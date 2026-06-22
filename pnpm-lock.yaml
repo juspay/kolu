@@ -25,71 +25,6 @@ importers:
 
   .: {}
 
-  packages/arivu:
-    dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@kolu/terminal-workspace':
-        specifier: workspace:*
-        version: link:../terminal-workspace
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      kaval:
-        specifier: workspace:*
-        version: link:../kaval
-      pino:
-        specifier: ^10.3.1
-        version: 10.3.1
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/arivu-tui:
-    dependencies:
-      '@kolu/surface':
-        specifier: workspace:*
-        version: link:../surface
-      '@kolu/surface-nix-host':
-        specifier: workspace:*
-        version: link:../surface-nix-host
-      '@kolu/terminal-workspace':
-        specifier: workspace:*
-        version: link:../terminal-workspace
-      '@opentui/core':
-        specifier: ^0.4.1
-        version: 0.4.1(typescript@5.9.3)(web-tree-sitter@0.25.10)
-      '@opentui/solid':
-        specifier: ^0.4.1
-        version: 0.4.1(solid-js@1.9.11)(typescript@5.9.3)(web-tree-sitter@0.25.10)
-      cleye:
-        specifier: ^2.3.0
-        version: 2.3.0
-      solid-js:
-        specifier: ^1.9.0
-        version: 1.9.11
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-
   packages/artifact-sdk:
     dependencies:
       '@kolu/solid-browser':
@@ -692,6 +627,71 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/pulam:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.21.0)
+      kaval:
+        specifier: workspace:*
+        version: link:../kaval
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/pulam-tui:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
+      '@opentui/core':
+        specifier: ^0.4.1
+        version: 0.4.1(typescript@5.9.3)(web-tree-sitter@0.25.10)
+      '@opentui/solid':
+        specifier: ^0.4.1
+        version: 0.4.1(solid-js@1.9.11)(typescript@5.9.3)(web-tree-sitter@0.25.10)
+      cleye:
+        specifier: ^2.3.0
+        version: 2.3.0
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/serve-dir:
     dependencies:
@@ -4735,15 +4735,15 @@ snapshots:
   '@babel/core@7.28.0':
     dependencies:
       '@ampproject/remapping': 2.3.0
-      '@babel/code-frame': 7.29.0
-      '@babel/generator': 7.29.1
+      '@babel/code-frame': 7.29.7
+      '@babel/generator': 7.29.7
       '@babel/helper-compilation-targets': 7.28.6
-      '@babel/helper-module-transforms': 7.28.6(@babel/core@7.28.0)
+      '@babel/helper-module-transforms': 7.29.7(@babel/core@7.28.0)
       '@babel/helpers': 7.29.2
-      '@babel/parser': 7.29.2
-      '@babel/template': 7.28.6
-      '@babel/traverse': 7.29.0
-      '@babel/types': 7.29.0
+      '@babel/parser': 7.29.7
+      '@babel/template': 7.29.7
+      '@babel/traverse': 7.29.7
+      '@babel/types': 7.29.7
       convert-source-map: 2.0.0
       debug: 4.4.3(supports-color@8.1.1)
       gensync: 1.0.0-beta.2
@@ -4839,15 +4839,6 @@ snapshots:
     dependencies:
       '@babel/traverse': 7.29.7
       '@babel/types': 7.29.7
-    transitivePeerDependencies:
-      - supports-color
-
-  '@babel/helper-module-transforms@7.28.6(@babel/core@7.28.0)':
-    dependencies:
-      '@babel/core': 7.28.0
-      '@babel/helper-module-imports': 7.28.6
-      '@babel/helper-validator-identifier': 7.28.5
-      '@babel/traverse': 7.29.0
     transitivePeerDependencies:
       - supports-color
 
@@ -4953,7 +4944,7 @@ snapshots:
   '@babel/preset-typescript@7.27.1(@babel/core@7.28.0)':
     dependencies:
       '@babel/core': 7.28.0
-      '@babel/helper-plugin-utils': 7.28.6
+      '@babel/helper-plugin-utils': 7.29.7
       '@babel/helper-validator-option': 7.27.1
       '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.28.0)
       '@babel/plugin-transform-modules-commonjs': 7.29.7(@babel/core@7.28.0)
@@ -6191,7 +6182,7 @@ snapshots:
       '@babel/core': 7.28.0
       '@babel/helper-module-imports': 7.18.6
       '@babel/plugin-syntax-jsx': 7.28.6(@babel/core@7.28.0)
-      '@babel/types': 7.29.0
+      '@babel/types': 7.29.7
       html-entities: 2.3.3
       parse5: 7.3.0
 

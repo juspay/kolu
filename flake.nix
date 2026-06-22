@@ -10,7 +10,7 @@
 # DO NOT add flake inputs (nixpkgs, flake-parts, git-hooks, etc.).
 # Instead, use fetchTarball or callPackage in nix/ files.
 #
-# bun2nix (the bun-built `arivu-tui` viewer's fetchBunDeps/hook) is pinned with
+# bun2nix (the bun-built `pulam-tui` viewer's fetchBunDeps/hook) is pinned with
 # npins and imported in nix/bun2nix.nix — the same zero-input path `odu` takes,
 # NOT a flake input. See that file for how its own flake.lock is resolved
 # without a node on kolu's (which stays nonexistent).
@@ -43,26 +43,26 @@
         builtins.unsafeDiscardStringContext
           (import ./default.nix { inherit pkgs commitHash; }).kaval.drvPath);
       kavalAgentDrvsJson = builtins.toJSON kavalDrvBySystem;
-      # Per-system { system → arivu .drv } map, baked onto arivu-tui's wrapper
-      # (ARIVU_AGENT_DRVS_JSON) so `arivu-tui --host <ssh>` ships the TARGET-arch
-      # arivu DAEMON derivation — the `arivu` daemon (it carries the sensors +
-      # git/gh + node:sqlite), NOT the arivu-tui viewer: the remote box runs
-      # `arivu --stdio`. Same context-free, IFD-free discipline as kavalDrvBySystem
-      # above (the arivu daemon drv doesn't depend on the map, so building it this
+      # Per-system { system → pulam .drv } map, baked onto pulam-tui's wrapper
+      # (PULAM_AGENT_DRVS_JSON) so `pulam-tui --host <ssh>` ships the TARGET-arch
+      # pulam DAEMON derivation — the `pulam` daemon (it carries the sensors +
+      # git/gh + node:sqlite), NOT the pulam-tui viewer: the remote box runs
+      # `pulam --stdio`. Same context-free, IFD-free discipline as kavalDrvBySystem
+      # above (the pulam daemon drv doesn't depend on the map, so building it this
       # way can't cycle back through the koluBySystem that consumes it).
-      arivuDrvBySystem = eachSystem (pkgs:
+      pulamDrvBySystem = eachSystem (pkgs:
         builtins.unsafeDiscardStringContext
-          (import ./default.nix { inherit pkgs commitHash; }).arivu.drvPath);
-      arivuAgentDrvsJson = builtins.toJSON arivuDrvBySystem;
+          (import ./default.nix { inherit pkgs commitHash; }).pulam.drvPath);
+      pulamAgentDrvsJson = builtins.toJSON pulamDrvBySystem;
       # Import default.nix / the website once per system; `packages` and
       # `checks` both consume these so each derivation set is evaluated once.
-      # bun2nix (for the arivu-tui viewer) is pinned via npins and resolved
+      # bun2nix (for the pulam-tui viewer) is pinned via npins and resolved
       # INSIDE default.nix (nix/bun2nix.nix), not threaded from here — it is
-      # forced only when the `arivu-tui` attr is built, so it stays out of this
+      # forced only when the `pulam-tui` attr is built, so it stays out of this
       # pure-eval path and out of the dev shell.
       koluBySystem = eachSystem (pkgs:
         import ./default.nix {
-          inherit pkgs commitHash kavalAgentDrvsJson arivuAgentDrvsJson;
+          inherit pkgs commitHash kavalAgentDrvsJson pulamAgentDrvsJson;
         });
       # website/default.nix is self-contained — it resolves its own public/
       # asset symlinks (favicon, kaval logo), so the flake just imports it.
@@ -89,7 +89,7 @@
           website-pnpm-deps = website.pnpmDeps;
           # The bun2nix CLI — `nix run .#bun2nix -- -l <dir>/bun.lock -o
           # <dir>/bun.nix` regenerates the committed dep cache after a bun.lock
-          # change (the arivu-tui viewer's deps). Pinned via npins (nix/bun2nix.nix).
+          # change (the pulam-tui viewer's deps). Pinned via npins (nix/bun2nix.nix).
           bun2nix = (import ./nix/bun2nix.nix { inherit pkgs; }).bun2nix;
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the

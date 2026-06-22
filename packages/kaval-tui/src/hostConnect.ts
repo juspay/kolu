@@ -14,7 +14,7 @@
  * `kaval/src/stdioBridge.ts`), so a PTY a `create` spawns survives the ssh link
  * and a later `attach` finds it.
  *
- * kaval's only volatile differences from the other one-shot CLIs (arivu-tui):
+ * kaval's only volatile differences from the other one-shot CLIs (pulam-tui):
  * the binary name, the per-system drv-map env var, and the connectivity probe
  * (`system.heartbeat` — kaval's atomic liveness verb).
  *

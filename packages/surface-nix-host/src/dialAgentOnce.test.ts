@@ -12,7 +12,7 @@
  *     `HostSession`, so repeated and concurrent same-host/binary dials never
  *     share state or cross-dispose (the F1 regression).
  *
- * The CLI wrappers (kaval-tui / arivu-tui) supply only their binary, env-var
+ * The CLI wrappers (kaval-tui / pulam-tui) supply only their binary, env-var
  * name + value, drvNoun, fatalPrefix, and probe; those thin seams are tested in
  * their own packages.
  */
@@ -176,11 +176,11 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
-      binary: "arivu",
+      binary: "pulam",
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
-      drvNoun: "arivu",
-      fatalPrefix: "arivu:",
+      drvNoun: "pulam",
+      fatalPrefix: "pulam:",
       probe: async () => undefined,
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
@@ -193,11 +193,11 @@ describe("dialAgentOnce: deferred drv resolution (arch probe + lookup)", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
-      binary: "arivu",
+      binary: "pulam",
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
-      drvNoun: "arivu",
-      fatalPrefix: "arivu:",
+      drvNoun: "pulam",
+      fatalPrefix: "pulam:",
       probe: async () => undefined,
     });
     expect(h.HostSession.mock.calls[0]?.[0]?.extraArgs).toBeUndefined();
@@ -276,9 +276,9 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     // host" ambiguity) → the probe rejects with a transport "stream closed"
     // error, but the session captured the agent's stderr tail + a `"remote"`
     // quit. dialAgentOnce must surface THAT — and the WHOLE block, not just the
-    // prefixed first line: arivu's ambiguity error lists each `--kaval <socket>`
+    // prefixed first line: pulam's ambiguity error lists each `--kaval <socket>`
     // candidate the user needs to recover, and `forEachLine` split those onto
-    // their own `remoteProgressLines` entries (only the first carries `arivu:`).
+    // their own `remoteProgressLines` entries (only the first carries `pulam:`).
     fakeSession({});
     h.state = {
       connection: "disconnected",
@@ -288,7 +288,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       // by origin — matching the caller's `fatalPrefix`, not re-parsing the
       // session's internal `[remote] ` tag.
       progressLines: [
-        "[remote] arivu: more than one kaval is running on this host — say which to read by re-running with --kaval:",
+        "[remote] pulam: more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "[local] agent exited (code=1, signal=null)",
         "[local] reconnecting in 2000ms… (attempt 1/5)",
       ],
@@ -297,10 +297,10 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
       // lines AFTER it (so the block capture, not a single line, keeps them).
       remoteProgressLines: [
         "spawning awareness sensors",
-        "arivu: more than one kaval is running on this host — say which to read by re-running with --kaval:",
+        "pulam: more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
         "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
-        "(e.g. arivu-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+        "(e.g. pulam-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ],
       lastError: "agent exited (code=1, signal=null)",
       // null on purpose: the child-`exit` event that sets `failureCause` races
@@ -311,11 +311,11 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
-      binary: "arivu",
+      binary: "pulam",
       envVar: "AGENT_DRVS_JSON",
       agentDrvsJson: VALID_MAP,
-      drvNoun: "arivu",
-      fatalPrefix: "arivu:",
+      drvNoun: "pulam",
+      fatalPrefix: "pulam:",
       probe: async () => {
         throw new Error("[AsyncIdQueue] Queue[1] was closed");
       },
@@ -330,7 +330,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
         "more than one kaval is running on this host — say which to read by re-running with --kaval:",
         "  --kaval /run/user/1000/kaval-7692/pty-host.sock    (kolu-server on port 7692)",
         "  --kaval /run/user/1000/kaval/pty-host.sock    (standalone kaval)",
-        "(e.g. arivu-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
+        "(e.g. pulam-tui --host <ssh> --kaval /run/user/1000/kaval-7692/pty-host.sock)",
       ].join("\n"),
     );
     expect(msg).toContain("--kaval /run/user/1000/kaval-7692/pty-host.sock");

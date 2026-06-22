@@ -64,7 +64,7 @@ export function createMetadata(
 ): ActiveTerminal {
   // The generic awareness seed is owned by @kolu/terminal-workspace (beside the
   // schema it produces); kolu layers only its own `location` on top. One seed,
-  // shared with `arivu` — see `seedAwarenessValue`. `state: "active"` is the
+  // shared with `pulam` — see `seedAwarenessValue`. `state: "active"` is the
   // discriminant the awareness seed deliberately doesn't carry (the awareness
   // wire stays flat) — this is the single seam every live terminal is born
   // through, so stamping it once here makes spawn/adopt/orphan active by

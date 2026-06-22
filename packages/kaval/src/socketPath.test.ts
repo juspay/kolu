@@ -196,7 +196,7 @@ describe("discoverPtyHostSockets", () => {
 // The selection policy (explicit wins; else discover; one→use it;
 // many→ambiguous-with-labels; none→bare default) plus the candidate labels — the
 // inverse of `kavalNamespace` — live here, beside the construction they decode,
-// so both consumers (arivu's daemon, kaval-tui) only render their own
+// so both consumers (pulam's daemon, kaval-tui) only render their own
 // many/none error surface. Discovery is exercised for real over seeded sockets,
 // so the policy is pinned end-to-end.
 describe("resolveRunningKavalSocket", () => {

@@ -319,7 +319,7 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // `state === "active"` — the compiler refuses a live field on the bare union, so
 // a sleeping terminal can sit on the canvas yet never be an input/WebGL target.
 // The awareness schemas in `@kolu/terminal-workspace` stay FLAT: the union is
-// recomposed HERE, and `state` never crosses the awareness wire (arivu/kaval
+// recomposed HERE, and `state` never crosses the awareness wire (pulam/kaval
 // never see a sleeping arm).
 
 const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });

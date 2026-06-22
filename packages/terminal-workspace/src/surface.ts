@@ -1,6 +1,6 @@
 /**
- * `@kolu/terminal-workspace/surface` — the ONE `@kolu/surface` the `arivu`
- * daemon serves, `arivu-tui` reads, and (in R8) a remote kolu-server mirrors.
+ * `@kolu/terminal-workspace/surface` — the ONE `@kolu/surface` the `pulam`
+ * daemon serves, `pulam-tui` reads, and (in R8) a remote kolu-server mirrors.
  * It is the consume-facing dual of the host-side workspace the library owns: a
  * keyed `AwarenessValue` collection (one entry per terminal a kaval owns), the
  * `version` handshake cell, the `activity` flow stream, and — added in R6 — the
@@ -79,10 +79,10 @@ export const FsReadFileTextOutputSchema = z.object({
   truncated: z.boolean(),
 });
 
-/** The terminal-workspace surface — ARIVU's home today. R6 ships one fs/git
+/** The terminal-workspace surface — PULAM's home today. R6 ships one fs/git
  *  IMPL (`createTerminalWorkspaceEndpoint`) with two homes, NOT one surface both
  *  serve: kolu-server (in-process) re-exposes the reads on `koluSurface`'s
- *  value-bearing streams, while arivu (remote) serves them on THIS surface. The
+ *  value-bearing streams, while pulam (remote) serves them on THIS surface. The
  *  two contract shapes are deliberately different (R8's remote kolu re-queries
  *  procedures rather than streaming full diffs over the wire); the single shared
  *  surface both homes serve is closed in R8 when kolu mirrors this surface whole

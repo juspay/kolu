@@ -78,7 +78,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 |---|---|
 | `HostSession<C>` | One ssh subprocess per `(host, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
 | `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, binary)` return the same session (first call's `opts` win). |
-| `dialAgentOnce<C>(opts)` | **One-shot CLI dial.** The composition every `--host` CLI needs but no single export owned: parse + validate the baked `{ system → drv }` env map (fail-fast, *before* any session), construct an **unpooled** `HostSession`, then `pin → probe → markConnected → return { client, dispose }` with the link already proven live. Caller brings only its volatile values — `binary`, the env-var name + value, a `drvNoun` for errors, the remote agent's exact stderr `fatalPrefix` (so a remote fatal surfaces verbatim; differs from `drvNoun` when the front writes e.g. `kaval --stdio:`), and a one-RPC `probe` closure. Unpooled by design: a one-shot dial is independent, so its `dispose()` tears down only its own session (no cross-dial sharing, no destroyed-session reuse). Used by `kaval-tui --host` and `arivu-tui --host`. |
+| `dialAgentOnce<C>(opts)` | **One-shot CLI dial.** The composition every `--host` CLI needs but no single export owned: parse + validate the baked `{ system → drv }` env map (fail-fast, *before* any session), construct an **unpooled** `HostSession`, then `pin → probe → markConnected → return { client, dispose }` with the link already proven live. Caller brings only its volatile values — `binary`, the env-var name + value, a `drvNoun` for errors, the remote agent's exact stderr `fatalPrefix` (so a remote fatal surfaces verbatim; differs from `drvNoun` when the front writes e.g. `kaval --stdio:`), and a one-RPC `probe` closure. Unpooled by design: a one-shot dial is independent, so its `dispose()` tears down only its own session (no cross-dial sharing, no destroyed-session reuse). Used by `kaval-tui --host` and `pulam-tui --host`. |
 | `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
 | `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, pin the output behind a per-agent GC root (`agentGcRootPath`), and return the realised output path. An already-provisioned remote skips the copy via a single realise-probe (the *warm fast-path* in [Why Nix](#why-nix-locked-in)). Progress lines forwarded to `onProgress`. |
 | `waitForNextClient(session, previous)` | Helper for the consumer's reconnect-loop: blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). |
@@ -127,7 +127,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 >   // `--stdio` front writes `kaval --stdio:`, not `kaval:`).
 >   fatalPrefix: "my-agent:",
 >   // one cheap RPC proves the link; the surface client is namespaced under
->   // `surface` (e.g. kaval-tui: `c.surface.system.heartbeat({})`, arivu-tui:
+>   // `surface` (e.g. kaval-tui: `c.surface.system.heartbeat({})`, pulam-tui:
 >   // the first frame of `c.surface.version.get({})`).
 >   probe: (c) => c.surface.system.heartbeat({}),
 > });
