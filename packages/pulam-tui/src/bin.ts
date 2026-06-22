@@ -139,7 +139,7 @@ const argv = cli({
       name: "git-status",
       help: {
         description:
-          "A LIVE git-status view for one repo: working tree (staged · modified · untracked) + branch (name · ahead/behind), repainting the instant the repo changes. The `subscribeRepoChange` pulse re-runs `git.getStatus` — the procedure-plus-pulse loop kolu's Code tab depends on. Flags go AFTER `git-status`.",
+          "A LIVE git-status view for one repo: working tree (added · modified · untracked) + branch name and a comparison vs the base ref, repainting the instant the repo changes. The `subscribeRepoChange` pulse re-runs `git.getStatus` — the procedure-plus-pulse loop kolu's Code tab depends on. Flags go AFTER `git-status`.",
       },
       flags: {
         repo: {
@@ -358,16 +358,19 @@ async function runGitStatus(opts: {
       : await connectLocal(opts.socket);
 
   if (opts.json) {
-    const snap = await snapshotGitStatus(conn.client, opts.repo);
-    process.stdout.write(
-      `${formatGitStatusJson({
-        repoPath: opts.repo,
-        branch: snap.branch,
-        local: snap.local,
-        branchMode: snap.branchMode,
-      })}\n`,
-    );
-    conn.dispose();
+    try {
+      const snap = await snapshotGitStatus(conn.client, opts.repo);
+      process.stdout.write(
+        `${formatGitStatusJson({
+          repoPath: opts.repo,
+          branch: snap.branch,
+          local: snap.local,
+          branchMode: snap.branchMode,
+        })}\n`,
+      );
+    } finally {
+      conn.dispose();
+    }
     process.exit(0);
   }
 

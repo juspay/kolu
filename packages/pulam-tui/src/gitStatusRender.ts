@@ -75,7 +75,7 @@ function statusGroup(status: GitChangeStatus): StatusGroupName {
 
 const GROUP_META: Record<StatusGroupName, { label: string; tone: FieldTone }> =
   {
-    staged: { label: "Staged", tone: "pass" },
+    staged: { label: "Added", tone: "pass" },
     modified: { label: "Modified", tone: "plain" },
     untracked: { label: "Untracked", tone: "pending" },
   };

@@ -157,10 +157,11 @@ export async function runGitStatusTui(args: {
   }
 
   const snap = await snapshotGitStatus(args.client, args.repoPath).catch(
-    () => ({
-      branch: null,
+    (err: Error) => ({
+      branch: null as string | null,
       local: null,
       branchMode: null,
+      error: err.message,
     }),
   );
   setBranch(snap.branch);
@@ -170,6 +171,13 @@ export async function runGitStatusTui(args: {
       branchMode: snap.branchMode,
       seq: 0,
       error: null,
+    });
+  } else if ("error" in snap && snap.error) {
+    setUpdate({
+      local: null,
+      branchMode: null,
+      seq: 0,
+      error: snap.error,
     });
   }
 

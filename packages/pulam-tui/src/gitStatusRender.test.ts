@@ -122,7 +122,7 @@ describe("projectGitStatus", () => {
     expect(view.branchComparison).toBeNull();
   });
 
-  it("assigns tones: staged → pass, modified → plain, untracked → pending", () => {
+  it("assigns tones: added → pass, modified → plain, untracked → pending", () => {
     const view = projectGitStatus(
       status([file("a.ts", "A"), file("b.ts", "M"), file("c.ts", "?")]),
       null,
