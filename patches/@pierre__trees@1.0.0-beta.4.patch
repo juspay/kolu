@@ -1,8 +1,8 @@
 diff --git a/dist/render/FileTreeView.js b/dist/render/FileTreeView.js
-index 648639b4b65c1dd797434e3afe189848426f4d53..ee9c5fb6701e58b9df83aa585e7058aab6300a23 100644
+index 648639b4b65c1dd797434e3afe189848426f4d53..cf034f4e2d33510e1b44a0343a0ff759c6a05c48 100644
 --- a/dist/render/FileTreeView.js
 +++ b/dist/render/FileTreeView.js
-@@ -1287,10 +1287,8 @@ function FileTreeView({ composition, controller, gitStatusByPath, ignoredGitDire
+@@ -1287,10 +1287,9 @@ function FileTreeView({ composition, controller, gitStatusByPath, ignoredGitDire
  			}
  		}
  		updateViewportRef.current = update;
@@ -10,6 +10,7 @@ index 648639b4b65c1dd797434e3afe189848426f4d53..ee9c5fb6701e58b9df83aa585e7058aa
  		const unsubscribe = controller.subscribe(() => {
 -			if (hasSeenInitialControllerSnapshot) setControllerRevision((revision) => revision + 1);
 -			else hasSeenInitialControllerSnapshot = true;
++			console.log("PIERRE_EMIT"); // PIERRE-PATCH-DEBUG
 +			setControllerRevision((revision) => revision + 1);
  			update();
  		});
