@@ -70,10 +70,11 @@ function recordingSurfaceCtx(
         return name === "terminalMetadata"
           ? {
               ...(inner as object),
-              upsert: (
-                id: string,
-                value: { state: TerminalMetadata["state"] },
-              ) => sink.push({ id, state: value.state }),
+              // Production upserts the WHOLE metadata record (`{ ...m }`); type
+              // `value` as that, not a `{ state }` projection, so the signature
+              // matches what the collection actually receives.
+              upsert: (id: string, value: TerminalMetadata) =>
+                sink.push({ id, state: value.state }),
             }
           : inner;
       },
