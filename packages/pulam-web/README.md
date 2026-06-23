@@ -41,14 +41,28 @@ pulam-web sits downstream of three workspace packages and breaks if any of their
 ## Run it
 
 ```sh
-PULAM_WEB_HOSTS=localhost,nix@box-b nix run .#pulam-web
+PULAM_WEB_HOSTS=localhost,nix@box nix run .#pulam-web
 # → open http://localhost:4800
 ```
 
-`nix run .#pulam-web` launches the parent server with the per-system pulam drv map and the client bundle baked into the wrapper — nothing to install or build by hand. Configure it with env:
+`nix run .#pulam-web` launches the parent server with the per-system pulam drv map and the client bundle baked into the wrapper — nothing to install or build by hand.
 
-- **`PULAM_WEB_HOSTS`** (required) — comma-separated ssh hosts to dial (`localhost` runs pulam locally, no ssh). Each is provisioned + dialed over ssh; an unreachable host shows as a per-host `failed` row, never taking the server down.
-- **`PULAM_WEB_KAVAL_SOCKETS`** (optional) — `host=socket` pairs for a host running **several** kaval daemons, where pulam's default discovery is ambiguous (e.g. a box with both a kolu-server and a standalone kaval): `PULAM_WEB_KAVAL_SOCKETS=srid@mac=/tmp/kaval-0-502/pty-host.sock`. A host with one kaval needs no entry. (The web twin of `pulam-tui --kaval host=socket`.)
+### Pointing at a host that runs kolu? You need `PULAM_WEB_KAVAL_SOCKETS` too.
+
+A host running **kolu** has **more than one kaval daemon** (kolu-server's, plus any standalone `kaval`), so pulam can't guess which one to read — that host renders **`no terminals`**. You must name its socket with **`PULAM_WEB_KAVAL_SOCKETS`**, so against real kolu hosts you pass **both** env vars:
+
+```sh
+PULAM_WEB_HOSTS=localhost,srid@box \
+PULAM_WEB_KAVAL_SOCKETS="localhost=/run/user/1000/kaval-7692/pty-host.sock,srid@box=/tmp/kaval-7692-501/pty-host.sock" \
+  nix run .#pulam-web
+```
+
+**Finding the socket.** kolu-server's kaval lives at `${XDG_RUNTIME_DIR}/kaval-<port>/pty-host.sock` (Linux) or `/tmp/kaval-<port>-<uid>/pty-host.sock` (macOS), where `<port>` is that kolu's listen port (`0` for the default instance). List a socket's terminals to pick the right one — `kaval-tui list --socket <path>` (local) or `kaval-tui list --host <ssh> --kaval <path>` (remote). When pulam can't pick, it logs every candidate verbatim — copy one from there. A host running a **single** kaval (a bare `nix run …#kaval` box) needs no entry; discovery is unambiguous.
+
+### All the knobs
+
+- **`PULAM_WEB_HOSTS`** (required) — comma-separated ssh hosts to dial. The local machine is **`localhost`** — *not* `local`: only `localhost` / `127.0.0.1` / `::1` skip ssh, so `local` is treated as a remote host named "local" and fails to connect. A plain `localhost` runs pulam in-process (no ssh). Each host is provisioned + dialed over ssh; an unreachable one shows as a per-host `failed` row, never taking the server down.
+- **`PULAM_WEB_KAVAL_SOCKETS`** — `host=socket` pairs (see above). **Required** for any host with several kavals — i.e. **every host running kolu**; omit only for single-kaval hosts. The web twin of `pulam-tui --kaval host=socket`. A socket named for a host you don't dial fails fast.
 - **`PULAM_WEB_PORT`** (default `4800`), **`PULAM_WEB_BIND`** (default `127.0.0.1` — the RPC surface is unauthenticated, so bind loopback unless firewalled or behind a trusted proxy). A malformed port fails fast rather than silently falling back.
 
-For development with HMR, `PULAM_WEB_HOSTS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api` + `/rpc`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
+For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api` + `/rpc`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
