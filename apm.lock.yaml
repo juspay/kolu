@@ -320,7 +320,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
   .agents/skills/be-review/SKILL.md: sha256:2559181daa2a8a491d285bad4287f734964f296011fb5be085f1ae43610a8c73
-  .agents/skills/be/SKILL.md: sha256:3b34daef527cfc0d46bfb7cc49351c1c27329b1d3fdcdef459585a9714563f36
+  .agents/skills/be/SKILL.md: sha256:b248c2d769ee5ec6c6cb3a64abdd81ed549b6ede17653f80a006cd9cc1144e61
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
@@ -355,7 +355,7 @@ local_deployed_file_hashes:
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
   .claude/skills/be-review/SKILL.md: sha256:2559181daa2a8a491d285bad4287f734964f296011fb5be085f1ae43610a8c73
-  .claude/skills/be/SKILL.md: sha256:3b34daef527cfc0d46bfb7cc49351c1c27329b1d3fdcdef459585a9714563f36
+  .claude/skills/be/SKILL.md: sha256:b248c2d769ee5ec6c6cb3a64abdd81ed549b6ede17653f80a006cd9cc1144e61
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
