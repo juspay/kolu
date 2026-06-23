@@ -259,10 +259,14 @@ export interface HostRegistryOptions<C extends AnyContractRouter, H> {
  *  "which hosts this parent knows about", with insertion order preserved
  *  (`Map` semantics) so a UI lists hosts in the order they were added. */
 export interface HostRegistry<C extends AnyContractRouter, H> {
+  /** Is this host registered? */
   has(host: string): boolean;
   /** The known hosts, in insertion order. */
   hosts(): string[];
+  /** The host's oRPC handler (what a `?host=` upgrade dispatcher hands the
+   *  browser socket), or `undefined` for an unknown host. */
   getHandler(host: string): H | undefined;
+  /** The host's session (its connection lifecycle), or `undefined` if unknown. */
   getSession(host: string): HostSession<C> | undefined;
   /** Spawn a new host's entry and persist. Throws if the host already exists
    *  (a key collision, not a re-add). */
@@ -277,7 +281,11 @@ export interface HostRegistry<C extends AnyContractRouter, H> {
    *  wake / network-change signal. A healthy host blips through one fast
    *  reconnect; idle sessions are skipped (see `HostSession.recheck`). */
   recheckAll(): void;
+  /** Track an open browser socket for `host`, so `remove(host)` can close it
+   *  (partysocket auto-reconnects, so a removal only sticks if the parent
+   *  closes the socket server-side). */
   registerConnection(host: string, ws: ClosableSocket): void;
+  /** Stop tracking a socket once it has closed on its own. */
   unregisterConnection(host: string, ws: ClosableSocket): void;
   /** Destroy every host's session (server shutdown). */
   destroyAll(): void;
