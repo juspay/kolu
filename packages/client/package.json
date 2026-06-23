@@ -17,6 +17,7 @@
     "@corvu/tooltip": "^0.2.2",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/html-escape": "workspace:*",
+    "@kolu/shell-quote": "workspace:*",
     "@kolu/solid-browser": "workspace:*",
     "@kolu/solid-fileview": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
