@@ -54,19 +54,26 @@ const ID = "11111111-1111-4111-8111-111111111111";
 function recordingSurfaceCtx(
   sink: Array<{ id: string; state: string }>,
 ): ReturnType<typeof noopSurfaceCtxForTest> {
-  const noop = () => {};
+  // Compose the canonical no-op ctx and add only this helper's single concern:
+  // record `terminalMetadata.upsert`. Every other collection member/method
+  // delegates to the base proxy, so the no-op shape lives in exactly one place
+  // (`surfaceCtx.ts`) and can't silently diverge here.
+  const base = noopSurfaceCtxForTest();
   return {
-    ...noopSurfaceCtxForTest(),
+    ...base,
     collections: new Proxy({} as never, {
-      get: (_t, name) => ({
-        upsert: (id: string, value: { state: string }) => {
-          if (name === "terminalMetadata")
-            sink.push({ id, state: value.state });
-        },
-        remove: noop,
-        readAll: () => new Map(),
-        readOne: () => undefined,
-      }),
+      get: (_t, name) => {
+        const inner = (base.collections as Record<string, unknown>)[
+          name as string
+        ];
+        return name === "terminalMetadata"
+          ? {
+              ...(inner as object),
+              upsert: (id: string, value: { state: string }) =>
+                sink.push({ id, state: value.state }),
+            }
+          : inner;
+      },
     }),
   } as ReturnType<typeof noopSurfaceCtxForTest>;
 }
