@@ -28,16 +28,9 @@ import { localDaemonStatus } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CopyCommandButton from "../ui/CopyCommandButton";
 import { CopyIcon } from "../ui/Icons";
+import { kavalCmd } from "./kavalCmd";
 
 const SHORT_ID_LEN = 8;
-
-/** `kaval-tui <verb> <id> [--socket <path>]` for one terminal — the one place
- *  the socket-pinning rule lives, shared by both verbs. */
-const kavalCmd = (verb: "attach" | "snapshot", id: string): string => {
-  const socket = localDaemonStatus()?.socketPath;
-  const base = `kaval-tui ${verb} ${id}`;
-  return socket ? `${base} --socket ${socket}` : base;
-};
 
 /** One terminal's command pair: attach over the top, snapshot under it. Both
  *  follow the same WYSIWYG contract — show/copy the short id, full id on hover. */
@@ -49,6 +42,7 @@ const TerminalCommands: Component<{
   testIdSuffix: string;
 }> = (props) => {
   const short = () => props.terminalId.slice(0, SHORT_ID_LEN);
+  const socket = () => localDaemonStatus()?.socketPath;
   return (
     <div class="space-y-1">
       <Show when={props.label}>
@@ -59,15 +53,15 @@ const TerminalCommands: Component<{
         )}
       </Show>
       <CopyCommandButton
-        command={kavalCmd("attach", short())}
-        title={kavalCmd("attach", props.terminalId)}
+        command={kavalCmd("attach", short(), socket())}
+        title={kavalCmd("attach", props.terminalId, socket())}
         testId={`inspector-attach-command${props.testIdSuffix}`}
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
       />
       <CopyCommandButton
-        command={kavalCmd("snapshot", short())}
-        title={kavalCmd("snapshot", props.terminalId)}
+        command={kavalCmd("snapshot", short(), socket())}
+        title={kavalCmd("snapshot", props.terminalId, socket())}
         testId={`inspector-snapshot-command${props.testIdSuffix}`}
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
@@ -85,17 +79,7 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
     props.terminalId,
     ...store.getSubTerminalIds(props.terminalId),
   ];
-  // One terminal's role in the tile, computed once: item 0 is the main pane,
-  // every later item is the (1-based) Nth split. Both the human label and the
-  // 0-based testid suffix below read from this single `kind`/`n`, so the
-  // main/split decision and the off-by-one live in one place.
-  const roles = () =>
-    terminals().map((id, i) =>
-      i === 0
-        ? ({ id, kind: "main" } as const)
-        : ({ id, kind: "split", n: i } as const),
-    );
-  const hasSplits = () => roles().length > 1;
+  const hasSplits = () => terminals().length > 1;
   return (
     <div class="space-y-2.5">
       <p class="text-[11px] leading-relaxed text-fg-3">
@@ -113,20 +97,27 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
           Learn more&nbsp;↗
         </a>
       </p>
-      <For each={roles()}>
-        {(role) => (
-          <TerminalCommands
-            terminalId={role.id}
-            label={
-              role.kind === "main"
-                ? hasSplits()
-                  ? "Main"
-                  : undefined
-                : `Split ${role.n}`
-            }
-            testIdSuffix={role.kind === "main" ? "" : `-split-${role.n - 1}`}
-          />
-        )}
+      {/* Key by the stable primitive terminal id (not a wrapper object) so a
+          metadata/sub-terminal recompute that leaves the ids unchanged reuses
+          the existing rows — preserving each `CopyCommandButton`'s "copied"
+          flash and avoiding needless DOM churn. The role (main vs. the 1-based
+          Nth split) is derived from `<For>`'s index accessor: item 0 is the
+          main pane, every later item is split `i`. Both the human label and the
+          0-based testid suffix read from that single `i`, so the main/split
+          decision and the off-by-one live in one place. */}
+      <For each={terminals()}>
+        {(id, i) => {
+          const isMain = () => i() === 0;
+          return (
+            <TerminalCommands
+              terminalId={id}
+              label={
+                isMain() ? (hasSplits() ? "Main" : undefined) : `Split ${i()}`
+              }
+              testIdSuffix={isMain() ? "" : `-split-${i() - 1}`}
+            />
+          );
+        }}
       </For>
     </div>
   );
