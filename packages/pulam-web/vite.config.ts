@@ -16,11 +16,16 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+// Import the port helpers from `ports.ts` (NOT `config.ts`): Vite loads this
+// config through native ESM, and `config.ts` pulls `@kolu/surface-nix-host`,
+// whose barrel's extensionless imports native ESM can't resolve — which would
+// break the client build (and `nix run .#pulam-web`). `ports.ts` depends on
+// nothing but the stdlib. See `ports.ts` for the full rationale.
 import {
   DEFAULT_CLIENT_PORT,
   DEFAULT_PORT,
   parsePort,
-} from "./src/server/config.ts";
+} from "./src/server/ports.ts";
 
 // The backend the dev proxy forwards to, and Vite's own client port. Mirrors the
 // server's `PORT` default (see `src/server/config.ts`) so a plain `pnpm
