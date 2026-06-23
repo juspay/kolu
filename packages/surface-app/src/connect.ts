@@ -23,9 +23,20 @@
  * the one `new PartySocket(...)` in the package (see the surface-connection note).
  */
 
+import {
+  createHeartbeat as createHeartbeatPrimitive,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
+} from "@kolu/surface/heartbeat";
 import { WebSocket as PartySocket } from "partysocket";
 import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
 import { retireSocket } from "./lifecycle";
+
+// The watchdog timing constants live with the lifted primitive in `@kolu/surface`
+// (the cadence is a property of the watchdog, not of either leg); re-exported here
+// so existing importers from `./connect` (and the cross-leg timing test) keep one
+// import path.
+export { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS };
 
 /** The `pid` handshake echo: the client's record of the last server `processId`
  *  it observed, threaded back as the `pid` query param on every (re)connect so a
@@ -144,14 +155,6 @@ export function createSurfaceSocket(opts: SurfaceSocketOptions): SurfaceSocket {
   return { ws, echo };
 }
 
-/** How often the heartbeat probes a live socket, and how long it waits for an
- *  answer before declaring the socket half-open. A healthy server answers the
- *  probe in milliseconds, so the 10s timeout is a confident dead-signal; the 15s
- *  interval keeps the keep-alive cheap. Worst-case auto-recovery after a socket
- *  goes silently dead is one interval + one timeout (~25s). */
-export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
-export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
-
 /** The structural socket `createHeartbeat` drives — a partysocket reduced to the
  *  two verbs the watchdog touches: read `readyState`/`OPEN` (only probe a live
  *  socket) and `reconnect()` (abandon a half-open one and connect fresh). */
@@ -161,12 +164,14 @@ type HeartbeatSocket = {
   reconnect: () => void;
 };
 
-/** Options for `createHeartbeat`. */
+/** Options for `createHeartbeat` — the partysocket-shaped face of the lifted
+ *  `@kolu/surface/heartbeat` primitive. This leg supplies the socket; the
+ *  primitive owns the race/settle/skip-overlap/dispose algorithm. */
 export interface HeartbeatOptions {
   /** The socket to watch — the `createSurfaceSocket` partysocket. */
   ws: HeartbeatSocket;
   /** A cheap server round-trip whose RESOLUTION is the liveness signal (its value
-   *  is ignored) — kolu reuses the `identity.info` probe. A REJECTION still
+   *  is ignored) — the framework-reserved `system.live` verb. A REJECTION still
    *  counts as alive: the round-trip completed (the server answered, even with an
    *  error) and a genuine transport drop surfaces as a `close` partysocket already
    *  reconnects through — so only a TIMEOUT (no answer at all) means half-open. A
@@ -200,102 +205,39 @@ const warnProbeThrew = (error: unknown) =>
     error,
   );
 
-/** A heartbeat watchdog for a reconnecting WebSocket: it turns a SILENTLY
- *  half-open socket — the TCP died with no FIN/RST (laptop sleep, Wi-Fi roam,
- *  NAT/proxy idle eviction) — into a real `close` + reconnect, so the transport's
- *  EXISTING recovery (partysocket auto-reconnect + oRPC stream re-subscribe via
- *  the retry plugin) takes over. partysocket ships NO ping/keepalive, and a
- *  half-open socket fires neither `error` nor `close`, so without this the socket
- *  sits `OPEN` forever: every stream iterator hangs (never yields, never throws →
- *  the retry plugin never re-fires) and the UI freezes until a manual reload.
- *  This is the "no-op procedure on an interval" heartbeat `@kolu/surface`'s
- *  peer-server note anticipates, layered on top of the link.
+/** A heartbeat watchdog for a reconnecting WebSocket — the partysocket-shaped
+ *  WRAPPER over the lifted `@kolu/surface/heartbeat` primitive. It turns a
+ *  SILENTLY half-open socket — the TCP died with no FIN/RST (laptop sleep, Wi-Fi
+ *  roam, NAT/proxy idle eviction) — into a real `close` + reconnect, so the
+ *  transport's EXISTING recovery (partysocket auto-reconnect + oRPC stream
+ *  re-subscribe via the retry plugin) takes over. partysocket ships NO
+ *  ping/keepalive, and a half-open socket fires neither `error` nor `close`, so
+ *  without this the socket sits `OPEN` forever: every stream iterator hangs and
+ *  the UI freezes until a manual reload. This is the "no-op procedure on an
+ *  interval" heartbeat `@kolu/surface`'s peer-server note anticipates.
  *
- *  Each tick — only while `readyState === OPEN` — races `probe` against
- *  `timeoutMs`. A probe that doesn't answer in time means the socket is
- *  half-open, so `ws.reconnect()` abandons it (partysocket dispatches a `close`,
- *  so the lifecycle drops to `disconnected` and in-flight streams error and
- *  re-subscribe) and connects fresh — with code 1000, NOT the stale-tab 4001, so
- *  the retire path is untouched. One miss forces the reconnect (no multi-miss
- *  debounce that would only lengthen the freeze), and ticks never overlap: a tick
- *  is skipped while the previous probe is still outstanding.
+ *  The race/settle/skip-overlap/late-fire-safe-dispose algorithm is the lifted
+ *  primitive's; this wrapper only maps the partysocket's two variation points
+ *  onto it: the live GATE is `readyState === OPEN`, and the on-stale ACTION is
+ *  `ws.reconnect()` (abandon the half-open socket and connect fresh — with code
+ *  1000, NOT the stale-tab 4001, so the retire path is untouched). The public
+ *  `onStale` here is a REPORTER (default `console.warn`), run after the reconnect.
  *
- *  Framework-free (timers + the structural socket; no SolidJS), like its siblings
- *  here. Returns `dispose()` to stop the interval AND any in-flight probe
- *  timeout, so a probe outstanding at teardown can't fire a late `reconnect` —
+ *  Returns `dispose()` to stop the interval AND any in-flight probe timeout —
  *  wire it to the consumer's teardown (kolu's `onCleanup`). */
 export function createHeartbeat(opts: HeartbeatOptions): {
   dispose: () => void;
 } {
-  const intervalMs = opts.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
-  let inFlight = false;
-  let disposed = false;
-  // The CURRENT probe's timeout, at function scope so `dispose()` can clear it —
-  // otherwise a probe in flight at teardown would still fire `reconnect()` later.
-  let probeTimer: ReturnType<typeof setTimeout> | undefined;
-  // Resolve the current probe exactly once (the answer or the timeout wins, the
-  // other becomes a no-op). On a timeout we `reconnect()` FIRST and report
-  // SECOND in a guarded block, so a throwing `onStale` can never defeat the
-  // recovery this helper exists to provide. No-op once disposed.
-  const settled = (stale: boolean) => {
-    if (!inFlight || disposed) return;
-    inFlight = false;
-    if (probeTimer !== undefined) {
-      clearTimeout(probeTimer);
-      probeTimer = undefined;
-    }
-    if (stale) {
-      opts.ws.reconnect();
-      try {
-        (opts.onStale ?? warnStale)();
-      } catch {
-        // A throwing status callback must never unwind the reconnect above.
-      }
-    }
-  };
-  const tick = () => {
-    if (inFlight || disposed) return;
-    if (opts.ws.readyState !== opts.ws.OPEN) return;
-    inFlight = true;
-    probeTimer = setTimeout(() => settled(true), timeoutMs);
-    // A SYNCHRONOUS throw from `probe` means NO round-trip was made at all — the
-    // probe is miswired (a bad client cast, a missing method), not a liveness
-    // signal — so it must NOT be silently classified as alive the way a genuine
-    // async REJECTION (the server answered with an error) is. We surface it and
-    // settle WITHOUT reconnecting: a broken probe is a local fault the socket
-    // can't fix, so a reconnect would only churn. The heartbeat goes inert until
-    // the probe is fixed, but the warning makes that visible instead of silent.
-    let probing: Promise<unknown>;
-    try {
-      probing = opts.probe();
-    } catch (error) {
-      // Report in a guarded block, then ALWAYS `settled(false)` — a throwing
-      // reporter must not leave `inFlight`/`probeTimer` armed, or this local
-      // probe fault would later be misclassified as a stale transport and force
-      // a spurious `ws.reconnect()` (and an uncaught error in the timer).
-      try {
-        (opts.onProbeError ?? warnProbeThrew)(error);
-      } catch {
-        // A throwing status callback must never defeat the settle below.
-      }
-      settled(false);
-      return;
-    }
-    Promise.resolve(probing).then(
-      () => settled(false),
-      () => settled(false),
-    );
-  };
-  const handle = setInterval(tick, intervalMs);
-  return {
-    dispose: () => {
-      disposed = true;
-      clearInterval(handle);
-      if (probeTimer !== undefined) {
-        clearTimeout(probeTimer);
-        probeTimer = undefined;
-      }
-    },
-  };
+  return createHeartbeatPrimitive({
+    probe: opts.probe,
+    intervalMs: opts.intervalMs,
+    timeoutMs: opts.timeoutMs,
+    // The two partysocket variation points: the live gate and the recovery action.
+    isLive: () => opts.ws.readyState === opts.ws.OPEN,
+    onStale: () => opts.ws.reconnect(),
+    // surface-app's public `onStale` is a REPORTER (not the action), defaulting to
+    // a warn so a silent half-open recovery is never invisible.
+    onStaleReport: opts.onStale ?? warnStale,
+    onProbeError: opts.onProbeError ?? warnProbeThrew,
+  });
 }
