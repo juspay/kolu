@@ -45,7 +45,7 @@ import {
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
 import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ArivuContract, buildReServe } from "./reserve.ts";
 
 // Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
@@ -147,19 +147,16 @@ afterEach(() => {
   }
 });
 
-/** Spin until `predicate()` holds or the budget elapses — the test's clock for
- *  the async fold (mirror frame → re-serve publish → Solid effect flush). */
+/** Poll until `predicate()` holds — delegates to `vi.waitFor` (Vitest's built-in
+ *  retry loop) so the test's clock for the async fold (mirror frame → re-serve
+ *  publish → Solid effect flush) stays consistent with the rest of the suite. */
 async function waitFor(
   predicate: () => boolean,
-  { timeoutMs = 1000, stepMs = 5 } = {},
+  { timeoutMs = 1000 } = {},
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) {
-      throw new Error("waitFor: condition not met within budget");
-    }
-    await new Promise((r) => setTimeout(r, stepMs));
-  }
+  await vi.waitFor(() => expect(predicate()).toBe(true), {
+    timeout: timeoutMs,
+  });
 }
 
 describe("buildReServe — agent → mirror → re-serve → browser store", () => {

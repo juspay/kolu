@@ -198,15 +198,19 @@ async function main(): Promise<void> {
       ) {
         return;
       }
-      // Accepted: enrol in the heartbeat and the registry's per-host socket set
-      // (so a host removal could close it — R4.8a never removes, but the wiring
-      // is the same the registry owns).
-      heartbeat.register(ws);
       const handler = registry.getHandler(host);
       if (handler === undefined) {
+        // Race: host removed between the `has` check above and here. Close
+        // before enrolling in the heartbeat or registry so the socket's
+        // lifecycle is clean — no register without a corresponding unregister.
         ws.close(1008, `unknown host: ${host}`);
         return;
       }
+      // Accepted: enrol in the heartbeat and the registry's per-host socket set
+      // (so a host removal could close it — R4.8a never removes, but the wiring
+      // is the same the registry owns). Enrollment happens AFTER the handler
+      // guard so the heartbeat only tracks fully-accepted sockets.
+      heartbeat.register(ws);
       registry.registerConnection(host, ws);
       log(`browser ws connect (host=${host})`);
       ws.on("close", (code, reason) => {

@@ -47,9 +47,7 @@ const processIdEcho = createProcessIdEcho();
  *  echoes it as `?pid=` on (re)connect. Call this BEFORE rendering any
  *  `<HostGroup>` so the echo is set before the first socket opens — the app's
  *  fetch-then-render order guarantees that. */
-export function rememberServerProcessId(processId: string): void {
-  processIdEcho.remember(processId);
-}
+export const rememberServerProcessId = processIdEcho.remember;
 
 /** Build the per-host base WS URL. The `?pid=` token is appended by the echo, so
  *  it's NOT added here. */
