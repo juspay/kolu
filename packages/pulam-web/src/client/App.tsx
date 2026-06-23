@@ -106,6 +106,7 @@ function FilterChip(props: {
     <button
       type="button"
       onClick={props.onClick}
+      aria-pressed={props.active}
       class="rounded px-1 py-0.5"
       classList={{
         "font-semibold text-[#c8d0de]": props.active,
@@ -154,7 +155,7 @@ export function App(): JSX.Element {
 
       <Show when={needTotal() > 0}>
         <div
-          class="pw-pulse mb-3 flex items-center gap-2 rounded-lg border border-[rgba(230,162,60,.42)] bg-[rgba(230,162,60,.14)] px-3 py-2"
+          class="mb-3 flex animate-pulse items-center gap-2 rounded-lg border border-[rgba(230,162,60,.42)] bg-[rgba(230,162,60,.14)] px-3 py-2 motion-reduce:animate-none"
           style={`color:${URGENCY.need.color}`}
         >
           <span>{URGENCY.need.glyph}</span>
@@ -190,7 +191,7 @@ export function App(): JSX.Element {
                 />
               )}
             </For>
-            <footer class="mt-3 flex items-center gap-2 border-t border-[#1c2231] pt-2 text-[12px]">
+            <footer class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-[#1c2231] pt-2 text-[12px]">
               <span class="text-[#94a3b8]">
                 showing <b class="text-[#c8d0de]">agents</b>
               </span>

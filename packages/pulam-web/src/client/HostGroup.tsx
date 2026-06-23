@@ -92,11 +92,15 @@ function AgentRow(props: {
         const urgency = () => agentUrgency(value().agent);
         const tone = () => URGENCY[urgency()];
         const glyph = () => tone().glyph;
+        // A needs-you glyph breathes (Tailwind's `animate-pulse`); a working
+        // glyph spins about the glyph's visual centre (`origin-[50%_54%]` —
+        // `◜` sits slightly high in its box). Both hold still under
+        // `motion-reduce` — the colour + sort still convey state.
         const glyphClass = () =>
           urgency() === "need"
-            ? "pw-pulse"
+            ? "animate-pulse motion-reduce:animate-none"
             : urgency() === "work"
-              ? "pw-spin"
+              ? "inline-block origin-[50%_54%] animate-spin motion-reduce:animate-none"
               : "";
         const name = (): string => {
           const v = value();
@@ -114,7 +118,9 @@ function AgentRow(props: {
           >
             <span
               class="inline-block h-1.5 w-1.5 flex-none rounded-full"
-              classList={{ "pw-blink": props.live() }}
+              classList={{
+                "animate-pulse motion-reduce:animate-none": props.live(),
+              }}
               style={`background:${props.live() ? LIVE_COLOR : DOT_OFF_COLOR}`}
               title="moving bytes"
             />
@@ -124,7 +130,12 @@ function AgentRow(props: {
             >
               {glyph()}
             </span>
-            <span class="w-[7ch] flex-none text-[#c8d0de]">{name()}</span>
+            <span
+              class="w-[9ch] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[#c8d0de]"
+              title={name()}
+            >
+              {name()}
+            </span>
             <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[#8b94a6]">
               {locationText(value())}
             </span>
@@ -214,7 +225,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <span style={`color:${HOST_COLOR}`}>▌</span>
         <span class="font-semibold text-[#aeb7c7]">{props.host}</span>
         <span class="text-[12px] text-[#5b6678]">
-          · {entries().length} terminals
+          · {awareness.keys().length} terminals
         </span>
       </header>
       <Show
@@ -225,29 +236,41 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
           when={!version.pending()}
           fallback={<div class="p-3 text-[#6b7480]">connecting…</div>}
         >
+          {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
+              `entries()`. `entries()` drops keys whose per-key value stream is
+              still pending, so gating on it would paint a host whose keys arrived
+              but values haven't settled as empty. Keys-but-no-settled-values is a
+              distinct loading state below. */}
           <Show
-            when={entries().length > 0}
+            when={awareness.keys().length > 0}
             fallback={<div class="p-3 text-[#6b7480]">no terminals</div>}
           >
             <Show
-              when={visibleIds().length > 0}
+              when={entries().length > 0}
               fallback={
-                <div class="p-3 text-[#6b7480]">
-                  no active agents · {hiddenCount()} hidden
-                </div>
+                <div class="p-3 text-[#6b7480]">loading terminal details…</div>
               }
             >
-              <ul class="m-0 list-none p-0">
-                <For each={visibleIds()}>
-                  {(id) => (
-                    <AgentRow
-                      value={() => valueForId(id)}
-                      live={() => liveSet().has(id)}
-                      now={props.now}
-                    />
-                  )}
-                </For>
-              </ul>
+              <Show
+                when={visibleIds().length > 0}
+                fallback={
+                  <div class="p-3 text-[#6b7480]">
+                    no active agents · {hiddenCount()} hidden
+                  </div>
+                }
+              >
+                <ul class="m-0 list-none p-0">
+                  <For each={visibleIds()}>
+                    {(id) => (
+                      <AgentRow
+                        value={() => valueForId(id)}
+                        live={() => liveSet().has(id)}
+                        now={props.now}
+                      />
+                    )}
+                  </For>
+                </ul>
+              </Show>
             </Show>
           </Show>
         </Show>

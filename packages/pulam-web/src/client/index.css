@@ -1,52 +1,8 @@
 @import "tailwindcss";
 
 /* The document chrome (dark monospace canvas) is Tailwind utilities on <html>/
- * <body> in index.html. The three semantic dashboard animations live here so the
- * agent rows stay plain utilities: the breathing needs-you strip + glyph
- * (pw-pulse), the working spinner (pw-spin), and the blinking live-output dot
- * (pw-blink). */
-.pw-pulse {
-  animation: pw-pulse 1.8s ease-in-out infinite;
-}
-@keyframes pw-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.pw-spin {
-  display: inline-block;
-  animation: pw-spin 1.1s linear infinite;
-  transform-origin: 50% 54%;
-}
-@keyframes pw-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.pw-blink {
-  animation: pw-blink 1.4s ease-in-out infinite;
-}
-@keyframes pw-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* Respect a reduced-motion preference — the colour + sort still convey state. */
-@media (prefers-reduced-motion: reduce) {
-  .pw-pulse,
-  .pw-spin,
-  .pw-blink {
-    animation: none;
-  }
-}
+ * <body> in index.html, and the three dashboard animations (the breathing
+ * needs-you strip + glyph, the working spinner, the blinking live-output dot)
+ * are Tailwind's built-in `animate-pulse` / `animate-spin` in the markup, each
+ * paired with `motion-reduce:animate-none` so a reduced-motion preference holds
+ * them still. No custom keyframes are needed here. */
