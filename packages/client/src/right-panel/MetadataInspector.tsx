@@ -286,9 +286,8 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Attach — the shell-side handle on this terminal (and its splits)
-           *  via kaval-tui; copy the attach/snapshot command and grab it from
-           *  any shell. */}
+          {/* Attach/snapshot commands per terminal (main + splits) — see
+           *  KavalAttachSection for the socket-pinning + short-id rationale. */}
           <Show when={props.terminalId}>
             {(id) => (
               <Section title="Attach">
