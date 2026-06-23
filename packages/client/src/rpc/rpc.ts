@@ -14,10 +14,7 @@
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
 
-import {
-  probeSurfaceLive,
-  type SurfaceLiveProbeable,
-} from "@kolu/surface/liveness";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   createServerLifecycle,
@@ -54,8 +51,7 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // HostSession and `connectSurface` use; the watchdog no longer reaches for an
   // app-nominated probe. `surfaceApp.rpc` is the SCOPED link, so `system.live`
   // resolves on it just like the identity probe above.
-  livenessProbe: () =>
-    probeSurfaceLive(surfaceApp.rpc as unknown as SurfaceLiveProbeable),
+  livenessProbe: () => probeSurfaceLive(surfaceApp.rpc),
   // Echo each observed identity back as the `pid` handshake param on the next
   // reconnect — that's how the server recognizes a stale tab after a restart and
   // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via

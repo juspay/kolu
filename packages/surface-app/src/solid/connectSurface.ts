@@ -24,10 +24,7 @@ import type {
   SurfaceSpec,
 } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
-import {
-  probeSurfaceLive,
-  type SurfaceLiveProbeable,
-} from "@kolu/surface/liveness";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import {
@@ -78,8 +75,7 @@ export function connectSurface<const S extends SurfaceSpec>(
   // override wins if an app supplies its own verb.
   const heartbeatOptions = normalizeHeartbeat(hb, {
     ws,
-    probe: () =>
-      probeSurfaceLive(client.rpc as unknown as SurfaceLiveProbeable),
+    probe: () => probeSurfaceLive(client.rpc),
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
   return { ws, echo, client, dispose: () => heartbeat?.dispose() };

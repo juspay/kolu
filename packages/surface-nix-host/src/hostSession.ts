@@ -59,10 +59,7 @@ import {
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
-import {
-  probeSurfaceLive,
-  type SurfaceLiveProbeable,
-} from "@kolu/surface/liveness";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -714,9 +711,7 @@ export class HostSession<C extends AnyContractRouter> {
         // Resolve the in-flight client, then probe its reserved `system.live`.
         const pending = this.clientPromise;
         if (pending === null) return Promise.reject(new Error("no client"));
-        return pending.then((client) =>
-          probeSurfaceLive(client as unknown as SurfaceLiveProbeable),
-        );
+        return pending.then((client) => probeSurfaceLive(client));
       },
       onStale: () => {
         if (this.destroyed) return;

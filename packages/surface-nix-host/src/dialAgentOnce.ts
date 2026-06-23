@@ -24,10 +24,7 @@
  * (as mini-ci's dialer does) — it does NOT reuse this `{ client, dispose }`.
  */
 
-import {
-  probeSurfaceLive,
-  type SurfaceLiveProbeable,
-} from "@kolu/surface/liveness";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
 import { type AgentClient, HostSession } from "./hostSession";
@@ -241,10 +238,7 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // the receptacle HostSession's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
     // assertion (pulam-tui's first-frame check) overrides it.
-    const probe =
-      opts.probe ??
-      ((c: AgentClient<C>) =>
-        probeSurfaceLive(c as unknown as SurfaceLiveProbeable));
+    const probe = opts.probe ?? ((c: AgentClient<C>) => probeSurfaceLive(c));
     await probe(client);
     session.markConnected();
     return {

@@ -69,9 +69,19 @@ export type SurfaceLiveProbeable = {
  *  alive; the value is discarded. This is the default probe for both liveness
  *  watchdogs (browser ws + ssh stdio), so neither needs an app-supplied probe.
  *  Pass the thing that carries `.surface` — a raw `ContractRouterClient` (an ssh
- *  agent client) or a `surfaceClient`'s `.rpc`. */
-export function probeSurfaceLive(
-  client: SurfaceLiveProbeable,
-): Promise<unknown> {
-  return client.surface[LIVENESS_NAMESPACE][LIVENESS_VERB]({});
+ *  agent client) or a `surfaceClient`'s `.rpc`.
+ *
+ *  Accepts `unknown` and concentrates the single structural cast to
+ *  {@link SurfaceLiveProbeable} HERE — the same receptacle pattern `surfaceAppProbe`
+ *  uses for the `identity.info` probe. Every real surface client DOES carry
+ *  `surface.system.live` statically (the reserved proc is intersected into every
+ *  `SurfaceContractFor<S>`), but a watchdog generic over an arbitrary contract,
+ *  or a `.rpc` typed `unknown` (the dynamic combined link), can't always prove it
+ *  to the compiler. Taking `unknown` and casting once internally means callers
+ *  pass `client.rpc` / `client` with NO cast at the boundary, instead of each
+ *  hand-pinning `as unknown as SurfaceLiveProbeable`. */
+export function probeSurfaceLive(client: unknown): Promise<unknown> {
+  return (client as SurfaceLiveProbeable).surface[LIVENESS_NAMESPACE][
+    LIVENESS_VERB
+  ]({});
 }
