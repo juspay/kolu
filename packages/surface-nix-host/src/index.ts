@@ -18,7 +18,7 @@ export {
   type HostEntry,
   type HostRegistry,
   type HostRegistryOptions,
-  type ProcedureHolder,
+  type LiveSpawnHolder,
   type PumpRemoteSurfaceOptions,
   pumpRemoteSurface,
 } from "./hostFanout";

@@ -33,7 +33,7 @@
  */
 
 import { implement } from "@orpc/server";
-import type { AgentClient } from "@kolu/surface-nix-host";
+import type { AgentClient, LiveSpawnHolder } from "@kolu/surface-nix-host";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
   type CellStore,
@@ -58,21 +58,6 @@ export type { ArivuContract };
  *  `SurfaceSink` / `ProcedureForwarders` are generic over. */
 type ArivuSpec = (typeof terminalWorkspaceSurface)["spec"];
 
-/** A live-client holder: `pumpRemoteSurface` sets `.current` to the spawn's
- *  `AgentClient` for the life of that spawn and clears it when the link dies, so
- *  an input-parameterized stream source can forward against the live remote on
- *  demand — or fail honestly in the gap. */
-export interface LiveClientHolder {
-  current: AgentClient<ArivuContract> | null;
-}
-
-/** A live-procedures holder: `pumpRemoteSurface` sets `.current` to the spawn's
- *  mirror procedure stubs and clears it when the link dies, so a `fs.*`/`git.*`
- *  forward reaches the live remote — or fails honestly in the gap. */
-export interface LiveProceduresHolder {
-  current: ProcedureForwarders<ArivuSpec> | null;
-}
-
 export interface ReServe {
   /** The flattened oRPC router an `RPCHandler` upgrades the browser onto. Held
    *  `unknown`: the precise `Lazy<Router>` type the flatten yields is one
@@ -90,9 +75,9 @@ export interface ReServe {
     onFirstVersion?: () => void,
   ) => SurfaceSink<ArivuSpec>;
   /** The live-client holder for forwarding input-param streams. */
-  liveClient: LiveClientHolder;
+  liveClient: LiveSpawnHolder<AgentClient<ArivuContract>>;
   /** The live-procedures holder for forwarding `fs.*`/`git.*`. */
-  liveProcedures: LiveProceduresHolder;
+  liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>;
 }
 
 export interface BuildReServeOptions {
@@ -126,8 +111,12 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const activityBus: Channel<TerminalId[]> = inMemoryChannel<TerminalId[]>();
 
   // ── The forwarding holders (populated by the session loop per spawn) ──────
-  const liveClient: LiveClientHolder = { current: null };
-  const liveProcedures: LiveProceduresHolder = { current: null };
+  const liveClient: LiveSpawnHolder<AgentClient<ArivuContract>> = {
+    current: null,
+  };
+  const liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>> = {
+    current: null,
+  };
 
   // ── The local surface implementation ─────────────────────────────────────
   const fragment = implementSurface(terminalWorkspaceSurface, {
@@ -285,7 +274,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
  *  is a real fault (the browser thinks it's connected), not a benign degraded
  *  state — surface it. */
 function forwardFs(
-  holder: LiveProceduresHolder,
+  holder: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>,
 ): ProcedureForwarders<ArivuSpec>["fs"] {
   const procs = holder.current;
   if (procs === null) {
@@ -296,7 +285,7 @@ function forwardFs(
 
 /** Read the live `git` forwarders or fail loud (same fail-fast stance as `fs`). */
 function forwardGit(
-  holder: LiveProceduresHolder,
+  holder: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>,
 ): ProcedureForwarders<ArivuSpec>["git"] {
   const procs = holder.current;
   if (procs === null) {

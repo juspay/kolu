@@ -39,14 +39,16 @@ import { makeClientCursor } from "./waitForNextClient";
 
 // ── pumpRemoteSurface — the reconnect-mirror loop ──────────────────────────
 
-/** A holder for the live spawn's procedure-forwarding stubs. The mirror is
- *  re-issued per spawn (stdio doesn't recover mid-stream), so a parent that
- *  *forwards* a procedure to the remote reads the live stub set from here: the
- *  pump sets `.current` on each connect and clears it the instant the link
- *  dies, so a call against a just-dropped link fails honestly rather than
- *  relaying into a dead client. */
-export interface ProcedureHolder<S extends SurfaceSpec> {
-  current: ProcedureForwarders<S> | null;
+/** A holder for the live spawn's forwarding handle — the procedure stubs or the
+ *  `AgentClient` itself. The mirror is re-issued per spawn (stdio doesn't recover
+ *  mid-stream), so a parent that *forwards* to the remote reads the live handle
+ *  from here: the pump sets `.current` on each connect and clears it the instant
+ *  the link dies, so a call against a just-dropped link fails honestly rather
+ *  than relaying into a dead client. One shape for both forwarding slots (the
+ *  procedures and the live client) so a consumer plugs into the same receptacle
+ *  for either. */
+export interface LiveSpawnHolder<T> {
+  current: T | null;
 }
 
 export interface PumpRemoteSurfaceOptions<
@@ -69,14 +71,14 @@ export interface PumpRemoteSurfaceOptions<
    *  Set to each spawn's `mirror.procedures` for the life of that spawn,
    *  cleared when the link dies. Omit for a read-only surface (no procedures
    *  to forward). */
-  liveProcedures?: ProcedureHolder<S>;
+  liveProcedures?: LiveSpawnHolder<ProcedureForwarders<S>>;
   /** Optional live-client holder for re-serving primitives the *sink* can't
    *  fold — chiefly INPUT-parameterized streams (a per-repo / per-file watcher
    *  the parent can't subscribe with one fixed input up front). Set to the live
    *  `AgentClient` for the life of each spawn, cleared when the link dies, so a
    *  re-serve's stream source can forward `client.surface.<stream>(input)` on
    *  demand. Omit when every primitive is folded through the sink. */
-  liveClient?: { current: AgentClient<C> | null };
+  liveClient?: LiveSpawnHolder<AgentClient<C>>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }
