@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { destroyAllSessions } from "@kolu/surface-nix-host";
+import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
 import {
   gateStaleSocket,
   installFreshStatic,
@@ -36,7 +36,6 @@ import {
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
-import { buildHostRegistry } from "@kolu/surface-nix-host";
 import {
   DEFAULT_PORT,
   PULAM_WEB_HOSTS_ENV,
