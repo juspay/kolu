@@ -39,19 +39,40 @@ const transcript: Transcript = {
   ],
 };
 
+const navigationTranscript: Transcript = {
+  ...transcript,
+  events: [
+    { kind: "user", text: "First question?", ts: null },
+    {
+      kind: "assistant",
+      text: "First answer.",
+      model: "gpt-test",
+      ts: null,
+    },
+    { kind: "user", text: "Second question?", ts: null },
+    {
+      kind: "assistant",
+      text: "Second answer.",
+      model: "gpt-test",
+      ts: null,
+    },
+  ],
+};
+
 describe("transcriptToHtml export modes", () => {
   it("renders a lightweight chat log without serialized tool payloads", async () => {
     const html = await transcriptToHtml(transcript, { mode: "chat" });
 
     expect(html).toContain("Chat log");
     expect(html).toContain("Can you explain this?");
-    expect(html).toContain('aria-label="Human message"');
+    expect(html).toContain('aria-label="Human message 1 of 1"');
     expect(html).toContain('aria-label="AI message"');
     expect(html).toContain('<strong class="speaker">Human</strong>');
     expect(html).toContain('<strong class="speaker">AI</strong>');
     expect(html).toContain("const answer = 42;");
     expect(html).not.toContain("secret-output");
     expect(html).not.toContain("<script");
+    expect(html).not.toContain('<nav class="prompt-jump"');
     expect(html).not.toContain("diffs-container");
     expect(html.length).toBeLessThan(12_000);
   });
@@ -65,5 +86,20 @@ describe("transcriptToHtml export modes", () => {
     expect(html).toContain(bigToolOutput);
     expect(html).not.toContain("<script");
     expect(html).not.toContain("diffs-container");
+  });
+
+  it("adds prompt-jump controls for multi-prompt conversations", async () => {
+    const html = await transcriptToHtml(navigationTranscript, {
+      mode: "chat",
+    });
+
+    expect(html).toContain('id="human-1"');
+    expect(html).toContain('id="human-2"');
+    expect(html).toContain('aria-label="Human message 1 of 2"');
+    expect(html).toContain('aria-label="Human message 2 of 2"');
+    expect(html).toContain('class="prompt-jump"');
+    expect(html).toContain('data-prompt-nav-action="prev"');
+    expect(html).toContain('data-prompt-nav-action="next"');
+    expect(html).toContain("<script>");
   });
 });

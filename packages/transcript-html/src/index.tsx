@@ -4,10 +4,11 @@
  *  - `chat`: just the visible conversation, for reading and sharing
  *  - `full`: the same conversation plus collapsed audit details
  *
- *  Both modes deliberately avoid runtime JavaScript, custom elements, and
- *  syntax-highlighting payloads. Hidden export content is still file weight, so
- *  the lightweight chat mode omits non-conversation payloads instead of hiding
- *  them with CSS. */
+ *  Both modes deliberately avoid custom elements and syntax-highlighting
+ *  payloads. Hidden export content is still file weight, so the lightweight
+ *  chat mode omits non-conversation payloads instead of hiding them with CSS.
+ *  The only runtime script is a tiny prompt-jump helper when a transcript has
+ *  multiple human messages. */
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -30,6 +31,7 @@ export interface TranscriptHtmlOptions {
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const STYLES = readFileSync(join(SRC_DIR, "styles.css"), "utf8");
+const SCRIPT = readFileSync(join(SRC_DIR, "script.js"), "utf8");
 
 const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
   "claude-code": "Claude Code",
@@ -185,6 +187,10 @@ function eventCounts(events: TranscriptEvent[]): {
   return { user, assistant, detail };
 }
 
+function humanMessageCount(events: TranscriptEvent[]): number {
+  return events.filter((event) => event.kind === "user").length;
+}
+
 function metaParts(transcript: Transcript, mode: TranscriptHtmlMode): string[] {
   const counts = eventCounts(transcript.events);
   const parts = [
@@ -266,8 +272,15 @@ function timestampHtml(ts: number | null): string {
 
 async function renderChatEvent(
   event: Extract<TranscriptEvent, { kind: "user" | "assistant" }>,
+  humanPosition: { index: number; total: number } | null,
 ): Promise<string> {
   const role = event.kind === "user" ? "Human" : "AI";
+  const humanAttrs = humanPosition
+    ? ` id="human-${humanPosition.index}" data-human-message tabindex="-1"`
+    : "";
+  const ariaLabel = humanPosition
+    ? `${role} message ${humanPosition.index} of ${humanPosition.total}`
+    : `${role} message`;
   const body =
     event.kind === "user"
       ? await renderUserMarkdown(event.text)
@@ -276,7 +289,7 @@ async function renderChatEvent(
     event.kind === "assistant" && event.model
       ? `<span class="model">${escapeHtml(event.model)}</span>`
       : "";
-  return `<section class="message ${event.kind}" aria-label="${role} message">
+  return `<section class="message ${event.kind}"${humanAttrs} aria-label="${escapeHtml(ariaLabel)}">
   <header><strong class="speaker">${role}</strong>${model}${timestampHtml(event.ts)}</header>
   <div class="body">${body}</div>
 </section>`;
@@ -305,9 +318,15 @@ async function renderEvents(
   mode: TranscriptHtmlMode,
 ): Promise<string> {
   const chunks: string[] = [];
+  const humanTotal = humanMessageCount(events);
+  let humanIndex = 0;
   for (const event of events) {
     if (event.kind === "user" || event.kind === "assistant") {
-      chunks.push(await renderChatEvent(event));
+      const humanPosition =
+        event.kind === "user"
+          ? { index: ++humanIndex, total: humanTotal }
+          : null;
+      chunks.push(await renderChatEvent(event, humanPosition));
     } else if (mode === "full") {
       chunks.push(renderDetailEvent(event));
     }
@@ -315,6 +334,14 @@ async function renderEvents(
   return chunks.length > 0
     ? chunks.join("\n")
     : `<p class="empty">No conversation events found.</p>`;
+}
+
+function promptJumpHtml(humanTotal: number): string {
+  if (humanTotal < 2) return "";
+  return `<nav class="prompt-jump" aria-label="Human message navigation" data-prompt-nav>
+  <button type="button" data-prompt-nav-action="prev" aria-label="Previous human message" title="Previous human message">↑</button>
+  <button type="button" data-prompt-nav-action="next" aria-label="Next human message" title="Next human message">↓</button>
+</nav>`;
 }
 
 function headerHtml(
@@ -341,7 +368,10 @@ export async function transcriptToHtml(
 ): Promise<string> {
   const prepared = relativizeTranscript(transcript);
   const title = deriveDisplayTitle(prepared);
+  const humanTotal = humanMessageCount(prepared.events);
   const events = await renderEvents(prepared.events, options.mode);
+  const promptJump = promptJumpHtml(humanTotal);
+  const script = humanTotal >= 2 ? `<script>${SCRIPT}</script>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -358,6 +388,8 @@ ${events}
 </main>
 <footer>Exported by <a href="https://kolu.dev/" target="_blank" rel="noopener noreferrer">Kolu</a>.</footer>
 </article>
+${promptJump}
+${script}
 </body>
 </html>
 `;

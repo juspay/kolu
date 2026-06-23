@@ -373,6 +373,49 @@ footer {
   padding-top: 1rem;
 }
 
+.prompt-jump {
+  position: fixed;
+  right: max(1rem, calc((100vw - 54rem) / 2 - 4.5rem));
+  bottom: 1.25rem;
+  z-index: 10;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.prompt-jump button {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 2px solid var(--line);
+  background: var(--paper-strong);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--shadow);
+  cursor: pointer;
+  font:
+    900 1.35rem / 1 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.prompt-jump button:not(:disabled):hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.prompt-jump button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.message.user:focus {
+  outline: 4px solid var(--shadow);
+  outline-offset: 0.25rem;
+}
+
 @media (max-width: 640px) {
   .document {
     width: min(100% - 1rem, 54rem);
@@ -394,6 +437,17 @@ footer {
     box-shadow: 4px 4px 0 currentColor;
     padding: 0.8rem;
   }
+
+  .prompt-jump {
+    right: 0.65rem;
+    bottom: 0.65rem;
+  }
+
+  .prompt-jump button {
+    width: 2.55rem;
+    height: 2.55rem;
+    font-size: 1.15rem;
+  }
 }
 
 @media print {
@@ -414,5 +468,9 @@ footer {
   .message {
     break-inside: avoid;
     box-shadow: none;
+  }
+
+  .prompt-jump {
+    display: none;
   }
 }
