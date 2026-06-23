@@ -1,39 +1,51 @@
 :root {
   color-scheme: light dark;
-  --bg: #fbfbf8;
-  --paper: #ffffff;
-  --ink: #181713;
-  --muted: #6f6b61;
-  --line: #dfddd5;
-  --line-strong: #b8b3a6;
-  --you: #0f6b48;
-  --you-bg: #ecf8f1;
-  --you-label-ink: #ffffff;
-  --ai: #1f5f99;
-  --ai-bg: #eef5ff;
+  --page: #10233f;
+  --page-stripe-a: rgba(255, 183, 3, 0.26);
+  --page-stripe-b: rgba(42, 157, 143, 0.22);
+  --paper: #fffdf2;
+  --paper-strong: #ffffff;
+  --ink: #111111;
+  --muted: #443f35;
+  --line: #171717;
+  --shadow: #f9a825;
+  --human: #a81d1d;
+  --human-bg: #fff0e8;
+  --human-label-ink: #ffffff;
+  --ai: #064e8a;
+  --ai-bg: #eaf5ff;
   --ai-label-ink: #ffffff;
-  --detail: #7b5f18;
-  --error: #a53a34;
-  --code-bg: #f3f2ed;
+  --detail: #6b4d00;
+  --detail-bg: #fff6cf;
+  --error: #9f1239;
+  --error-bg: #ffe4ea;
+  --code-bg: #101820;
+  --code-ink: #fff7d6;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #151511;
-    --paper: #1d1c18;
-    --ink: #ece8dc;
-    --muted: #a9a295;
-    --line: #3b382f;
-    --line-strong: #585143;
-    --you: #74e0a1;
-    --you-bg: #10261b;
-    --you-label-ink: #062214;
-    --ai: #93c5fd;
-    --ai-bg: #101d2c;
-    --ai-label-ink: #071a2c;
-    --detail: #d3ad4c;
-    --error: #e07870;
-    --code-bg: #11110e;
+    --page: #030711;
+    --page-stripe-a: rgba(255, 209, 102, 0.18);
+    --page-stripe-b: rgba(125, 211, 252, 0.16);
+    --paper: #0f172a;
+    --paper-strong: #111c32;
+    --ink: #fbfbf4;
+    --muted: #d5d9e3;
+    --line: #f5f0df;
+    --shadow: #38bdf8;
+    --human: #ff8a7a;
+    --human-bg: #321112;
+    --human-label-ink: #250000;
+    --ai: #8bd3ff;
+    --ai-bg: #0d2438;
+    --ai-label-ink: #00192a;
+    --detail: #ffd166;
+    --detail-bg: #2a2108;
+    --error: #ff8fb3;
+    --error-bg: #35101c;
+    --code-bg: #05070c;
+    --code-ink: #fff8d6;
   }
 }
 
@@ -48,33 +60,69 @@ body {
 }
 
 body {
-  background: var(--bg);
+  min-height: 100vh;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 22px,
+      var(--page-stripe-a) 22px,
+      var(--page-stripe-a) 24px,
+      transparent 24px,
+      transparent 46px,
+      var(--page-stripe-b) 46px,
+      var(--page-stripe-b) 48px
+    ),
+    linear-gradient(90deg, var(--page) 0 100%);
   color: var(--ink);
   font:
-    16px / 1.58 ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
+    16px / 1.6 "Avenir Next",
+    Avenir,
     "Segoe UI",
+    ui-sans-serif,
+    system-ui,
     sans-serif;
 }
 
 a {
   color: inherit;
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  font-weight: 700;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 0.12em;
   text-underline-offset: 0.18em;
 }
 
 .document {
-  width: min(100% - 2rem, 48rem);
-  margin: 0 auto;
-  padding: 3rem 0 5rem;
+  width: min(100% - 2rem, 54rem);
+  margin: 2.25rem auto 4rem;
+  border: 2px solid var(--line);
+  background: var(--paper);
+  box-shadow: 14px 14px 0 var(--shadow);
+  padding: 1.5rem;
 }
 
 .masthead {
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 2rem;
-  padding-bottom: 1.25rem;
+  position: relative;
+  border: 2px solid var(--line);
+  background:
+    linear-gradient(90deg, var(--human) 0 0.6rem, transparent 0),
+    var(--paper-strong);
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.15rem 1.2rem 1.4rem;
+}
+
+.masthead::after {
+  content: "";
+  display: block;
+  width: 8rem;
+  height: 0.55rem;
+  margin-top: 1rem;
+  background: linear-gradient(
+    90deg,
+    var(--human) 0 33%,
+    var(--shadow) 33% 66%,
+    var(--ai) 66% 100%
+  );
 }
 
 .eyebrow,
@@ -86,7 +134,7 @@ time,
 .muted,
 .detail-marker {
   color: var(--muted);
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
 }
 
 .eyebrow,
@@ -94,7 +142,7 @@ time,
 .model,
 summary,
 .detail-marker {
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .eyebrow,
@@ -104,14 +152,15 @@ summary,
 }
 
 h1 {
-  margin: 0.45rem 0 0.6rem;
-  max-width: 42rem;
+  margin: 0.55rem 0 0.7rem;
+  max-width: 44rem;
   font:
-    650 clamp(1.75rem, 4vw, 2.7rem) / 1.08 ui-serif,
-    Georgia,
-    "Times New Roman",
-    serif;
-  letter-spacing: -0.018em;
+    850 2.65rem / 1.05 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0;
 }
 
 .conversation {
@@ -122,25 +171,25 @@ h1 {
 
 .message {
   width: fit-content;
-  max-width: min(100%, 42rem);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--paper);
-  padding: 0.85rem 1rem 0.95rem;
+  max-width: min(100%, 43rem);
+  border: 2px solid var(--line);
+  background: var(--paper-strong);
+  box-shadow: 6px 6px 0 var(--line);
+  padding: 0.95rem 1rem 1rem;
 }
 
 .message.user {
   align-self: flex-end;
-  background: var(--you-bg);
-  border-color: color-mix(in srgb, var(--you) 55%, var(--line));
-  border-right: 4px solid var(--you);
+  background: var(--human-bg);
+  border-color: var(--human);
+  box-shadow: 6px 6px 0 var(--human);
 }
 
 .message.assistant {
   align-self: flex-start;
   background: var(--ai-bg);
-  border-color: color-mix(in srgb, var(--ai) 55%, var(--line));
-  border-left: 4px solid var(--ai);
+  border-color: var(--ai);
+  box-shadow: 6px 6px 0 var(--ai);
 }
 
 .message header {
@@ -148,26 +197,31 @@ h1 {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.42rem;
+  margin-bottom: 0.55rem;
 }
 
 .message.user header {
   justify-content: flex-end;
 }
 
-.message strong {
+.speaker {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 0.16rem 0.52rem;
-  font-size: 0.75rem;
-  line-height: 1.3;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  padding: 0.18rem 0.52rem;
+  font:
+    850 0.78rem / 1.2 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
   text-transform: uppercase;
 }
 
 .message.user .speaker {
-  background: var(--you);
-  color: var(--you-label-ink);
+  background: var(--human);
+  color: var(--human-label-ink);
 }
 
 .message.assistant .speaker {
@@ -191,57 +245,69 @@ h1 {
 .body h4,
 .body h5,
 .body h6 {
-  margin: 0.85rem 0 0.25rem;
+  margin: 0.9rem 0 0.35rem;
   line-height: 1.25;
 }
 
 code,
 pre {
   font-family:
-    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.88em;
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.9em;
 }
 
 code {
+  border: 1px solid var(--line);
   background: var(--code-bg);
-  border-radius: 0.22rem;
-  padding: 0.04rem 0.25rem;
+  color: var(--code-ink);
+  padding: 0.05rem 0.28rem;
 }
 
 pre {
   overflow-x: auto;
+  border: 2px solid var(--line);
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.85rem 0.95rem;
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  padding: 0.8rem 0.9rem;
 }
 
 pre code {
+  border: 0;
   background: transparent;
-  border-radius: 0;
+  color: inherit;
   padding: 0;
 }
 
 blockquote {
-  border-left: 3px solid var(--line-strong);
-  color: var(--muted);
-  padding-left: 0.8rem;
+  border-left: 0.45rem solid var(--line);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--paper-strong) 78%, var(--shadow));
+  margin-left: 0;
+  padding: 0.55rem 0.8rem;
 }
 
 table {
-  border-collapse: collapse;
   display: block;
   overflow-x: auto;
+  border-collapse: collapse;
+  border: 2px solid var(--line);
+  background: var(--paper-strong);
 }
 
 th,
 td {
   border-bottom: 1px solid var(--line);
-  padding: 0.3rem 0.55rem;
+  padding: 0.35rem 0.6rem;
   text-align: left;
   vertical-align: top;
+}
+
+th {
+  background: var(--line);
+  color: var(--paper);
 }
 
 .body p,
@@ -250,33 +316,38 @@ td {
 .body blockquote,
 .body pre,
 .body table {
-  margin: 0.45rem 0;
+  margin: 0.5rem 0;
 }
 
 .detail {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--detail);
-  border-radius: 0.45rem;
-  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  border: 2px solid var(--line);
+  background: var(--detail-bg);
+  box-shadow: 5px 5px 0 var(--detail);
 }
 
 .detail.error {
-  border-left-color: var(--error);
+  background: var(--error-bg);
+  box-shadow: 5px 5px 0 var(--error);
 }
 
 summary {
   cursor: pointer;
-  color: var(--muted);
-  padding: 0.6rem 0.8rem;
-  font-size: 0.85rem;
+  color: var(--ink);
+  padding: 0.72rem 0.85rem;
+  font:
+    800 0.9rem / 1.35 ui-monospace,
+    "SFMono-Regular",
+    Menlo,
+    Consolas,
+    monospace;
 }
 
 .detail[open] summary {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 2px solid var(--line);
 }
 
 .detail-body {
-  padding: 0 0.8rem 0.8rem;
+  padding: 0 0.85rem 0.85rem;
 }
 
 .detail-body pre {
@@ -284,30 +355,44 @@ summary {
 }
 
 .detail-marker {
-  border-left: 3px solid var(--line);
-  padding-left: 1rem;
+  border: 2px solid var(--line);
+  background: var(--paper-strong);
+  padding: 0.65rem 0.85rem;
 }
 
 .empty {
+  border: 2px solid var(--line);
+  background: var(--paper-strong);
   color: var(--muted);
-  font-style: italic;
+  padding: 0.9rem;
 }
 
 footer {
-  border-top: 1px solid var(--line);
-  margin-top: 3rem;
+  border-top: 2px solid var(--line);
+  margin-top: 2.25rem;
   padding-top: 1rem;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   .document {
-    width: min(100% - 1.25rem, 48rem);
-    padding-top: 1.5rem;
+    width: min(100% - 1rem, 54rem);
+    margin-top: 0.5rem;
+    padding: 0.85rem;
+    box-shadow: 8px 8px 0 var(--shadow);
+  }
+
+  .masthead {
+    padding: 0.9rem 0.9rem 1rem 1.1rem;
+  }
+
+  h1 {
+    font-size: 2rem;
   }
 
   .message {
     width: 100%;
-    padding: 0.75rem;
+    box-shadow: 4px 4px 0 currentColor;
+    padding: 0.8rem;
   }
 }
 
@@ -319,10 +404,15 @@ footer {
 
   .document {
     width: auto;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
     padding: 0;
   }
 
-  .detail {
+  .detail,
+  .message {
     break-inside: avoid;
+    box-shadow: none;
   }
 }
