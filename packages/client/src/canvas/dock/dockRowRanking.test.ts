@@ -5,11 +5,15 @@ import {
   LOCAL_LOCATION,
   type TerminalId,
   type TerminalMetadata,
-  type Urgency,
+  URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { paintBucket } from "../dockModel";
-import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import {
+  DOCK_ROW_BUCKET_PRIORITY,
+  type DockRowBucket,
+  rankDockRows,
+} from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -202,16 +206,13 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
 describe("dock ⇄ agentProjection urgency parity (the cross-consumer differential)", () => {
   // The #1535 review flagged that nothing pinned "the dock ranks an agent state
   // the SAME way pulam-tui / pulam-web do". This asserts it structurally: for
-  // every agent state, the dock's row bucket maps back to the same urgency the
-  // shared `agentProjection.agentUrgency` yields. If the dock ever re-grows a
-  // hand-rolled bucket that disagrees (the historical `waiting`→awaiting drift),
-  // this test goes red — making "consistent with pulam-web" a fact, not prose.
-  const ROW_BUCKET_URGENCY: Partial<Record<DockRowBucket, Urgency>> = {
-    awaiting: "need",
-    working: "work",
-    idle: "idle",
-  };
-
+  // every agent state, the dock's row RANK equals the shared
+  // `agentProjection.agentUrgency`'s rank. Both sides read PRODUCTION constants —
+  // the dock's own `DOCK_ROW_BUCKET_PRIORITY` and the shared `URGENCY_RANK` — so
+  // there is no hand-written fixture table to drift from the production tables
+  // (the bug a parallel `{awaiting→need, …}` map would reintroduce). If the dock
+  // ever re-grows a bucket that disagrees (the historical `waiting`→awaiting
+  // drift), this goes red.
   const STATES: AgentInfo["state"][] = [
     "thinking",
     "tool_use",
@@ -225,9 +226,23 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
       // lastActivityAt > 0 so an idle-urgency agent lands in `idle`, not the
       // never-touched `none` tail (which carries no agent and no urgency).
       const meta = makeMeta({ agent: makeAgent(state), lastActivityAt: 1 });
-      expect(ROW_BUCKET_URGENCY[bucket(meta, false)]).toBe(
-        agentUrgency(makeAgent(state)),
+      expect(DOCK_ROW_BUCKET_PRIORITY[bucket(meta, false)]).toBe(
+        URGENCY_RANK[agentUrgency(makeAgent(state))],
       );
     });
   }
+
+  it("excludes the dock-only tail buckets from the agent-state rank set", () => {
+    // The three agent-state buckets share the shared urgency ranks; the dock's
+    // own quieter tail (sleeping/parked/none) sits BELOW them. Pinning that the
+    // tail ranks strictly above (later than) idle catches a future misroute that
+    // sent an agent state into the tail (e.g. waiting→parked) — it would no
+    // longer satisfy the parity assertion above, and this guards the boundary.
+    const tail: DockRowBucket[] = ["sleeping", "parked", "none"];
+    for (const bucketKey of tail) {
+      expect(DOCK_ROW_BUCKET_PRIORITY[bucketKey]).toBeGreaterThan(
+        URGENCY_RANK.idle,
+      );
+    }
+  });
 });

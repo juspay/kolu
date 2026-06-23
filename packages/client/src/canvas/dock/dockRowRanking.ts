@@ -53,7 +53,7 @@ export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
  *  shared needs-you-first rank (`need=0 < work=1 < idle=2`) so the dock can't
  *  drift from the pulam-tui / pulam-web ordering; `sleeping`/`parked`/`none`
  *  are the dock's own quieter tail below them. */
-const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: URGENCY_RANK.need,
   working: URGENCY_RANK.work,
   idle: URGENCY_RANK.idle,
