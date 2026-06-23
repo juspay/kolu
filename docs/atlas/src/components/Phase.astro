@@ -1,0 +1,84 @@
+---
+/**
+ * Phase — a per-phase header strip with dependency metadata.
+ *
+ * Sits at the top of a phase's `###` section and shows, at a glance: the phase
+ * id + name, its status, what it **needs** (upstream — what blocks it), what it
+ * **blocks** (downstream — what waits on it), and any links (PRs, issues).
+ * Complements <PhaseTree> (the bird's-eye roadmap): the tree shows the whole
+ * graph, <Phase> shows one node's local edges.
+ *
+ * Usage (in an .mdx note):
+ *   import Phase from "../../components/Phase.astro";
+ *   <Phase id="R-compose-2" name="git-status stream" status="todo"
+ *     needs={["R6", "R-pulamweb-3"]} blocks={["R9"]}
+ *     links={[{ label: "prep #1534", href: "https://github.com/juspay/kolu/issues/1534" }]} />
+ *
+ * `needs`/`blocks` are plain phase ids (rendered as text, not links — navigate
+ * via the PhaseTree). `status`: shipped · next · build-clean · todo.
+ */
+interface Link {
+  label: string;
+  href: string;
+}
+interface Props {
+  id: string;
+  name?: string;
+  status?: "shipped" | "next" | "build-clean" | "todo";
+  /** upstream — phases this one depends on / is blocked by */
+  needs?: string[];
+  /** downstream — phases blocked on this one */
+  blocks?: string[];
+  links?: Link[];
+}
+const { id, name, status = "todo", needs = [], blocks = [], links = [] } = Astro.props;
+const S: Record<string, { bg: string; bd: string; fg: string; label: string }> = {
+  shipped: { bg: "#e6f4ea", bd: "#bce3c8", fg: "#15803d", label: "✓ shipped" },
+  next: { bg: "#fef3e2", bd: "#f5d8a8", fg: "#b45309", label: "▶ do next" },
+  "build-clean": { bg: "#eef2ff", bd: "#c7d2fe", fg: "#4f46e5", label: "◐ build-clean" },
+  todo: { bg: "#f8fafc", bd: "#e2e8f0", fg: "#64748b", label: "○ todo" },
+};
+const s = S[status] ?? S.todo;
+const hasMeta = needs.length > 0 || blocks.length > 0 || links.length > 0;
+---
+
+<div
+  style={`border:1px solid ${s.bd};background:${s.bg};border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em`}
+>
+  <div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap">
+    <span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a"
+      >{id}</span
+    >
+    {name && <span style="color:#334155">· {name}</span>}
+    <span style={`margin-left:auto;font-size:.85em;font-weight:600;color:${s.fg}`}>{s.label}</span>
+  </div>
+  {
+    hasMeta && (
+      <div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569">
+        {needs.length > 0 && (
+          <span>
+            <span style="color:#94a3b8">needs ←</span> {needs.join(" · ")}
+          </span>
+        )}
+        {blocks.length > 0 && (
+          <span>
+            <span style="color:#94a3b8">blocks →</span> {blocks.join(" · ")}
+          </span>
+        )}
+        {links.length > 0 && (
+          <span>
+            <span style="color:#94a3b8">links</span>{" "}
+            {links.map((l, i) => (
+              <>
+                {i > 0 ? " · " : ""}
+                <a href={l.href} style="color:#475569;text-decoration:underline;text-decoration-color:#cbd5e1">
+                  {l.label}
+                </a>
+              </>
+            ))}
+          </span>
+        )}
+      </div>
+    )
+  }
+</div>

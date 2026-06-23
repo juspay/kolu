@@ -12,6 +12,7 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Svg from "../../components/Svg.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
+import Phase from "../../components/Phase.astro";
 import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
 **The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4, R6 and R7 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, the standalone pulam awareness daemon, `@kolu/terminal-workspace` (one fs/git impl, two homes; the surface is pulam's until R8), and the total-dual surface mirror (procedures forwarded). **What remains (R5 · R8 · R9) is one linear roadmap, defined in this note**: harden reconnect, dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [pulam](pulam.html) (R4).
@@ -140,11 +141,16 @@ Everything marked ✓ is shipped (PRs linked). **The live edge: [R-pulamweb-3](p
 
 ### R5 — overflow-recovery loop
 
+<Phase id="R5" name="overflow-recovery loop" status="todo" />
+*Independent — needs nothing, blocks nothing; landable any time.*
+
 ~130 LoC w/ tests; the next step. kaval sheds a slow attach subscriber by *ending* its iterator, today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` reset), distinct from PTY-exit. **Ships independently of the remote work**: a slow subscriber is reproducible on the *local* socket, so it is CI-testable today, and the fix hardens the attach contract for *both* transports — a clean prerequisite for the remote reconnect R8 leans on. [herdr vs kolu](herdr-vs-kolu.html) flagged the same gap.
 
 <a id="r6"></a>
 
 ### R6 — `@kolu/terminal-workspace`: one library, one fs/git impl, two homes
+
+<Phase id="R6" name="terminal-workspace — one fs/git impl, two homes" status="shipped" needs={["R4"]} blocks={["R8"]} links={[{ label: "#1506", href: "https://github.com/juspay/kolu/pull/1506" }]} />
 
 **Shipped** — <PrLink pr={1506} />. The host-side library that knows a terminal's working directory becomes **`@kolu/terminal-workspace`** — the shipped `@kolu/terminal-awareness` (R4.1) grown to cover fs/git too, run *in-process* locally (kolu) and hosted by *pulam* remotely: the same two homes the sensors already proved. R6 ships **one fs/git impl** (`createTerminalWorkspaceEndpoint`), *not* one surface both homes already serve — the two homes re-expose that one impl through two **deliberately different** contract shapes:
 
@@ -157,6 +163,8 @@ This kills the duplication wart: without it, pulam would **reimplement** fs/git 
 
 ### R7 — `mirrorRemoteSurface` is now a total dual — *shipped* <PrLink pr={1505} />
 
+<Phase id="R7" name="mirrorRemoteSurface → total dual" status="shipped" blocks={["R9"]} links={[{ label: "#1505", href: "https://github.com/juspay/kolu/pull/1505" }]} />
+
 `mirrorRemoteSurface` is the consume-side **dual of `implementSurface`** — and a dual must mirror *every* primitive its producer wires. `implementSurface` wires procedures too, but the mirror's `SurfaceSink` carried only `cells`/`collections`/`streams`/`events`: a **leaky half-mirror**, harmless only because every surface mirrored so far had **zero procedures**. R7 closed the gap by kind: **streaming state stays PUSH** (subscribed and folded into the sink); a **procedure is PULL** (a local call runs on the remote and returns), so it can't sit in the push-only sink — it comes back as a **forwarding stub**. The return is therefore `{ procedures, done }`: `procedures.<ns>.<verb>(input)` relays to the remote (total — every procedure gets a stub, since a passthrough has no standing cost), and `done` is the former settle-on-link-close promise. Graft the stubs into a re-serve and `serve ∘ mirror ≈ identity` — the location-transparency the whole epic rests on — **pinned in-repo** by a hermetic unit test (`implementSurface` → `directLink` → mirror → re-serve → call). A `@kolu/surface` change → the **drishti merge-gate**.
 
 **Proven by drishti — the canonical external second consumer.** [drishti](https://github.com/srid/drishti) is the browser ↔ Bun ↔ ssh process-monitor that already mirrors per-host *process* surfaces (the graduation that first proved `@kolu/surface` is electricity), and it was **read-only**. R7's external proof is drishti gaining a **"Kill process"** action — the first *forwarded procedure* on a mirrored surface, exercised end-to-end (browser → Bun → ssh → remote agent → `kill(pid)`), **zero kolu**. That proof is the **merge-gate** for this kolu PR, not optional decoration: the return shape changed from `Promise<void>` to `{ procedures, done }`, and drishti `master` still `await`s the old shape on its streaming sinks ([drishti #70](https://github.com/srid/drishti/pull/70) adopted the #1497 `mirrorRemoteSurface`, all CI green). So the paired [drishti R7 PR #71](https://github.com/srid/drishti/pull/71) — audit that `await` to `.done`, pin drishti's kolu source to this R7 revision, go green — is now **open and gates #1505**: its full CI is green against the new `{ procedures, done }` API — all 18 odu nodes (every lane on both `aarch64-darwin` and `x86_64-linux`), the "Kill process" forwarded-procedure action landing on top of the migrated mirror — exactly the lane set #70 passed to gate #1497. Because that proof lives entirely in drishti's own surface, **R7 stands alone — it needs neither R6 nor kolu**; R9 then consumes a *proven* total mirror for the remote dial. **One caution this plan earlier blurred:** the mirror (remote → local, proven here by drishti) is a *different primitive* from **kolu composing-and-serving a stream to the browser** over `websocketLink` + `surfaceClient`. That second leg is **R-compose-2's**, and it is proven separately by **[pulam-web](pulam-web.html)** — not by this mirror. drishti proved the mirror; *pulam-web* proves the browser leg.
@@ -164,6 +172,9 @@ This kills the duplication wart: without it, pulam would **reimplement** fs/git 
 <a id="r8"></a>
 
 ### R8 — compose terminal-workspace into kolu-server (the fold vanishes)
+
+<Phase id="R-compose-1" name="awareness — kolu reads (one writer per fact)" status="build-clean" needs={["R6"]} blocks={["R9"]} links={[{ label: "wake bug #1529", href: "https://github.com/juspay/kolu/issues/1529" }]} />
+<Phase id="R-compose-2" name="git-status stream over ws" status="todo" needs={["R6", "R-pulamweb-3"]} blocks={["R9"]} links={[{ label: "repaint prep #1534", href: "https://github.com/juspay/kolu/issues/1534" }, { label: "deselect #1533", href: "https://github.com/juspay/kolu/issues/1533" }]} />
 
 R6 left **one impl, two contract shapes**: kolu re-exposes fs/git on `koluSurface`'s own streams (in-process), pulam serves `terminalWorkspaceSurface` (remote). R8 collapses that to **one surface** — and settles the question the epic kept reopening, *who owns awareness?* The answer is **not kolu**.
 
@@ -205,6 +216,8 @@ Net (R-compose-1): the awareness compose deletes the fold, the fence, and the co
 
 ### R9 — kolu dials remotes
 
+<Phase id="R9" name="kolu dials remotes" status="todo" needs={["R7", "R-compose-2"]} blocks={["R10"]} />
+
 The linchpin — it **needs R7** (the total mirror) and is **blocked-on R-compose-2** (the composed surface + its per-terminal dispatch; R-compose-2 proves the browser-ws-stream leg R9 leans on). kolu-server gains the **N-endpoint registry + the ssh driver** — the `{kind:"remote",host}` arm, the `(host,id)` join, a persisted `location` — reusing the *same* `getHostSession` the spike (R3) built. It dials the host's **kaval** for the PTY (via the shipped `frontDaemonOverStdio`) → a remote tile; and dials its **pulam** over a *long-lived* `HostSession`, **mirroring the whole `terminal-workspace` surface** (R7) into one local handle. Because R8 already made that surface the one kolu serves the browser, R9 just **points the remote terminal's dispatch at the mirror** instead of the in-process impl. **No fold to write** (R8 dissolved it), no second data path. The mirror's **streams** — awareness `activity` + the fs/git `{seq}` watchers — re-serve to the browser over the *same* `websocketLink` + `surfaceClient` leg **R-compose-2** proves (and R9 turns the quiet `activity` stream live on it), so R-compose-2's [pulam-web](pulam-web.html) graduations gate R9, not just R8. `location` is persisted kolu-side, re-validated on reconnect against the remote kaval's live `cwd`. (Paste/upload is a `TerminalEndpoint` concern — the same seam, the `PRECONDITION_FAILED` guard.) The result: a remote terminal as capable as a local one — PTY, awareness badge, green dot, working Code tab. The shape is the **lead diagram** above.
 
 **Adoption — a dial joins, never clobbers.** If the host already runs a kaval it is **adopted** (the same `adoptOrEnsure` spine the local boot uses); a duplicate is impossible by construction (the pid-gate's atomic `link(2)` EEXIST). On dial:
@@ -222,6 +235,8 @@ One kaval per remote host: dialing *joins* its terminals ("the prod terminals"),
 <a id="r10"></a>
 
 ### R10 — canvas multiplex + validate
+
+<Phase id="R10" name="canvas multiplex + validate" status="todo" needs={["R9"]} />
 
 The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. The granularity call lands here, validated, not up front.
 

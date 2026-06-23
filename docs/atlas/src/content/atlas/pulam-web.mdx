@@ -11,6 +11,7 @@ import Callout from "../../components/Callout.astro";
 import PrLink from "../../components/PrLink.astro";
 import D2 from "../../components/D2.astro";
 import Pill from "../../components/Pill.astro";
+import Phase from "../../components/Phase.astro";
 
 **pulam-web is [drishti](electricity.html)'s twin, pointed at the terminal-workspace surface.** Where drishti monitors per-host *processes* in a browser, pulam-web monitors per-host *terminals* — the fleet you already see in `pulam-tui`, but in a browser, **auto-provisioned over ssh**. It exists for one engineering reason on top of being a real product: it is **kolu's own browser-consumption leg, minus kolu** — `websocketLink` → `surfaceClient` → Solid `reconcile` — so it graduates the path [remote-terminals **R-compose-2**](remote-terminals.html#r8) is blocked on, in a build whose console you can actually see.
 
@@ -144,6 +145,8 @@ Three steps, each isolating **one** risk. **R-pulamweb-1 (in drishti)** graduate
 
 ### R-pulamweb-1 — the reactive stream consumer, in drishti ✅ shipped
 
+<Phase id="R-pulamweb-1" name="reactive stream consumer (drishti)" status="shipped" blocks={["R-pulamweb-3"]} links={[{ label: "drishti #72", href: "https://github.com/srid/drishti/pull/72" }]} />
+
 **Shipped** ([drishti #72](https://github.com/srid/drishti/pull/72)). Before pulam-web exists, prove its riskiest piece — a reactive stream consumer that survives delta accumulation — where the browser ⇄ ssh ⇄ mirror stack already runs: **drishti**. drishti's `processesSnapshot` (`packages/common/src/surface.ts`) is mirrored per host and was consumed **imperatively** — `streamCall(app.rpc.surface.processesSnapshot.get)` + `for await` + a teardown controller. This graduates that one call site to a declarative reactive subscription. The exercise surfaced the trap that **is** R-compose-2's lesson:
 
 **`.streams.use()` is for *value-bearing* streams; `processesSnapshot` is *delta-accumulate*.** The first cut switched the call site to `app.streams.processesSnapshot.use()` and copied the latest frame into a `reconcile` store from a coarse `createEffect`. That **silently drops same-shape delta frames**: `.streams.use()` writes each frame into a `reconcile` store, and a coarse reader (`const msg = sub()`) only re-fires for the paths it actually reads — so two consecutive deltas differing only in a nested field (a hot PID's `cpuPct` ticking under an unchanged key set) coalesce and the second is lost; live values freeze in steady state. `processesSnapshot` is snapshot-**then-delta** — each frame is a *change*, not the full state — so the consumer must accumulate.
@@ -153,6 +156,8 @@ Three steps, each isolating **one** risk. **R-pulamweb-1 (in drishti)** graduate
 <a id="r-pulamweb-2"></a>
 
 ### R-pulamweb-2 — the framework (terminal list only) ✅ <PrLink pr={1524} />
+
+<Phase id="R-pulamweb-2" name="framework — provision · fan-out · list" status="shipped" blocks={["R-pulamweb-3"]} links={[{ label: "#1524", href: "https://github.com/juspay/kolu/pull/1524" }]} />
 
 R-pulamweb-2 stands up **everything hard** — auto-provision + dial N pulam over ssh, mirror each, fan out, re-serve to the browser over `/rpc/ws`, and consume in the browser — but renders **only a plain list of terminals** (grouped by host). No git status, no drill-in, no features. The point is to prove the *plumbing* with a payload so small a failure has nowhere to hide.
 
@@ -164,6 +169,8 @@ R-pulamweb-2 stands up **everything hard** — auto-provision + dial N pulam ove
 <a id="r-pulamweb-3"></a>
 
 ### R-pulamweb-3 — the user-facing features (live git status + drill-in) ◀ do next
+
+<Phase id="R-pulamweb-3" name="features — live git status · drill-in" status="next" needs={["R-pulamweb-1", "R-pulamweb-2"]} blocks={["R-compose-2"]} links={[{ label: "repaint prep #1534", href: "https://github.com/juspay/kolu/issues/1534" }, { label: "deselect #1533", href: "https://github.com/juspay/kolu/issues/1533" }]} />
 
 With R-pulamweb-2's framework proven and R-pulamweb-1's stream consumer proven, R-pulamweb-3 just **layers the features** onto the pipeline:
 
