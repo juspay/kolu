@@ -68,17 +68,12 @@ export default defineConfig({
   define: {
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
-  // Vite 8's experimental bundled dev mode: Rolldown bundles the app up front
-  // instead of serving thousands of unbundled ESM modules, cutting cold dev
-  // startup ~15× and full reloads ~10× on a graph this size. Strictly a
-  // dev-server knob — it does NOT touch `vite build`, so the Nix-built,
-  // content-hashed production bundle (koluStamped) is byte-for-byte unaffected
-  // and stays reproducible. (The build-output experiments — chunk import map,
-  // Wasm-as-build — are deliberately left off for exactly that reproducibility
-  // reason.)
-  experimental: {
-    bundledDev: true,
-  },
+  // NOTE: Vite 8.1's experimental bundled dev mode (`experimental.bundledDev`)
+  // is deliberately NOT enabled. It crashes kolu's client at runtime —
+  // `Uncaught ReferenceError: __reExport is not defined` — so the app never
+  // mounts under `just dev` (a Rolldown dev-bundling CJS-interop helper that
+  // 8.1.0 references but doesn't emit). Standard Vite 8 dev works correctly;
+  // revisit bundledDev when the upstream helper bug is fixed.
   // Pierre's syntax-highlight worker (@pierre/diffs/worker, spawned by
   // @kolu/solid-pierre's CodeView as a `{ type: "module" }` worker) code-splits
   // its Shiki grammars via dynamic import, which Vite's default `iife` worker

@@ -63,11 +63,8 @@ export default defineConfig({
     target: "esnext",
     outDir: "dist",
   },
-  // Vite 8's experimental bundled dev mode (twin of packages/client): Rolldown
-  // bundles up front for ~15× faster cold `pnpm dev:client` startup. Dev-only —
-  // never affects the Nix-built `dist/` the production server serves, so the
-  // build stays reproducible.
-  experimental: {
-    bundledDev: true,
-  },
+  // NOTE: Vite 8.1's experimental bundled dev mode (`experimental.bundledDev`)
+  // is deliberately NOT enabled — twin of packages/client. It crashes the
+  // client at runtime (`__reExport is not defined`), so the app never mounts
+  // under dev; standard Vite 8 dev works. Revisit when the upstream bug is fixed.
 });
