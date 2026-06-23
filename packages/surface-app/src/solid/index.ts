@@ -37,7 +37,11 @@ export {
   retireSocket,
 } from "../lifecycle";
 
-import { createHeartbeat } from "../connect";
+import {
+  createHeartbeat,
+  type HeartbeatConfig,
+  normalizeHeartbeat,
+} from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
 
 // The turnkey single-surface connect seam (socket + client + default-on
@@ -149,10 +153,9 @@ export function createServerLifecycle<
    *  probes `livenessProbe` (the reserved `system.live`) on an interval and forces
    *  `ws.reconnect()` on a silently half-open socket. Pass `false` only if you wire
    *  your own `createHeartbeat`; pass an object to tune its `intervalMs` /
-   *  `timeoutMs` / `onStale`. */
-  heartbeat?:
-    | false
-    | { intervalMs?: number; timeoutMs?: number; onStale?: () => void };
+   *  `timeoutMs` / `onStale`. The same {@link HeartbeatConfig} knob `connectSurface`
+   *  accepts (a `heartbeat.probe` override here wins over `livenessProbe`). */
+  heartbeat?: HeartbeatConfig;
   /** Surface a failed identity probe. A broken `identity.info` otherwise leaves
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
@@ -295,14 +298,11 @@ export function createServerLifecycle<
   // `<SurfaceAppProvider>` `{ ws, probe }` turnkey path has the transport and the
   // identity probe but no surface client `.rpc` to build `system.live` from, so
   // there the identity probe doubles as the liveness round-trip.
-  const heartbeat =
-    opts.heartbeat === false
-      ? undefined
-      : createHeartbeat({
-          ws: opts.ws,
-          probe: opts.livenessProbe ?? opts.probe,
-          ...(typeof opts.heartbeat === "object" ? opts.heartbeat : {}),
-        });
+  const heartbeatOptions = normalizeHeartbeat(opts.heartbeat, {
+    ws: opts.ws,
+    probe: opts.livenessProbe ?? opts.probe,
+  });
+  const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
   const dispose = () => {
     opts.ws.removeEventListener?.("open", onOpen);
     opts.ws.removeEventListener?.("close", onClose);

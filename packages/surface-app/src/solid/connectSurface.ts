@@ -33,6 +33,8 @@ import type { WebSocket as PartySocket } from "partysocket";
 import {
   createHeartbeat,
   createSurfaceSocket,
+  type HeartbeatConfig,
+  normalizeHeartbeat,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
@@ -45,15 +47,9 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
    *  framework-reserved `system.live` round-trip — so an app needn't (and can't
    *  forget to) supply a probe. Pass `false` only if a different layer owns this
    *  socket's liveness; pass an object to tune `intervalMs`/`timeoutMs`/`onStale`
-   *  or to override the probe with a domain-specific liveness verb. */
-  heartbeat?:
-    | false
-    | {
-        intervalMs?: number;
-        timeoutMs?: number;
-        onStale?: () => void;
-        probe?: () => Promise<unknown>;
-      };
+   *  or to override the probe with a domain-specific liveness verb. The same
+   *  {@link HeartbeatConfig} knob `createServerLifecycle` accepts. */
+  heartbeat?: HeartbeatConfig;
 }
 
 /** A live single-surface connection: the socket, its `pid` echo, the reactive
@@ -76,21 +72,15 @@ export function connectSurface<const S extends SurfaceSpec>(
     surface,
     websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket),
   );
-  const heartbeat =
-    hb === false
-      ? undefined
-      : createHeartbeat({
-          ws,
-          // Default to the framework-reserved liveness round-trip — every surface
-          // answers `system.live`, so this needs no per-app probe. An app may
-          // still override with its own verb.
-          probe:
-            (typeof hb === "object" ? hb.probe : undefined) ??
-            (() =>
-              probeSurfaceLive(client.rpc as unknown as SurfaceLiveProbeable)),
-          intervalMs: typeof hb === "object" ? hb.intervalMs : undefined,
-          timeoutMs: typeof hb === "object" ? hb.timeoutMs : undefined,
-          onStale: typeof hb === "object" ? hb.onStale : undefined,
-        });
+  // One normalizer, not four `typeof hb === "object" ? hb.x : undefined` ternaries.
+  // The base `probe` is the framework-reserved `system.live` round-trip — every
+  // surface answers it, so this needs no per-app probe; a `heartbeat.probe`
+  // override wins if an app supplies its own verb.
+  const heartbeatOptions = normalizeHeartbeat(hb, {
+    ws,
+    probe: () =>
+      probeSurfaceLive(client.rpc as unknown as SurfaceLiveProbeable),
+  });
+  const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
   return { ws, echo, client, dispose: () => heartbeat?.dispose() };
 }
