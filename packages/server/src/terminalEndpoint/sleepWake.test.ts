@@ -23,6 +23,7 @@ import {
   LOCAL_LOCATION,
   SavedTerminalSchema,
   type SleepingTerminal,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -52,7 +53,7 @@ const ID = "11111111-1111-4111-8111-111111111111";
  *  collection — not merely that a `terminals:dirty` trigger fired. Built off the
  *  no-op ctx, overriding only the collections proxy. */
 function recordingSurfaceCtx(
-  sink: Array<{ id: string; state: string }>,
+  sink: Array<{ id: string; state: TerminalMetadata["state"] }>,
 ): ReturnType<typeof noopSurfaceCtxForTest> {
   // Compose the canonical no-op ctx and add only this helper's single concern:
   // record `terminalMetadata.upsert`. Every other collection member/method
@@ -69,8 +70,10 @@ function recordingSurfaceCtx(
         return name === "terminalMetadata"
           ? {
               ...(inner as object),
-              upsert: (id: string, value: { state: string }) =>
-                sink.push({ id, state: value.state }),
+              upsert: (
+                id: string,
+                value: { state: TerminalMetadata["state"] },
+              ) => sink.push({ id, state: value.state }),
             }
           : inner;
       },
@@ -350,15 +353,11 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
 });
 
 describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
-  // The general invariant: a no-op-upsert collection backed by an external store
-  // (the registry) reaches the client SOLELY through an explicit publish, so
-  // every authored lifecycle flip — especially sleep↔active and spawn — must
-  // publish, not merely fire `terminals:dirty`. Sleep already does
-  // (`publishTerminalState(sleeping, id)`); before this fix the wake/spawn core
-  // (`registerActiveAndSpawn`) emitted only the dirty trigger, so a woken
-  // terminal's registry meta flipped to active while the client stayed pinned to
-  // the stale sleeping snapshot (`isLive` false → the dormant tile body never
-  // yielded to the live xterm).
+  // Pins the invariant documented at `publishTerminalState`: a lifecycle flip
+  // reaches the client only through that publish, never through `terminals:dirty`
+  // alone. Before this fix the wake/spawn core (`registerActiveAndSpawn`) emitted
+  // only the dirty trigger, so a woken terminal's registry meta flipped to active
+  // while the client stayed pinned to the stale sleeping snapshot.
   const PUB_ID = "44444444-4444-4444-8444-444444444444";
   const sleepingRecord = () => ({
     id: PUB_ID,
@@ -371,7 +370,7 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
     lastAgentCommand: "claude --model sonnet",
   });
 
-  let upserts: Array<{ id: string; state: string }>;
+  let upserts: Array<{ id: string; state: TerminalMetadata["state"] }>;
 
   beforeEach(() => {
     // Replace the suite-wide no-op ctx with a recording one (the double-call
