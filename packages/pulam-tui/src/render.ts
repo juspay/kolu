@@ -12,6 +12,18 @@
  * raw `AwarenessValue` (every deep field) for scripts.
  */
 
+import {
+  agentBucket,
+  agentShortName,
+  agentStatusLabel,
+  agentUrgency,
+  compareAgents,
+  DASH,
+  fleetStateLabel,
+  relativeTime,
+  type Urgency,
+  URGENCY_RANK,
+} from "@kolu/terminal-workspace/agentProjection";
 import type {
   AwarenessValue,
   GitChangeStatus,
@@ -23,6 +35,18 @@ import type {
   FleetHostStatus,
   FleetSnapshot,
 } from "./fleetTypes.ts";
+
+// The renderer-agnostic agent-state projection is owned by
+// `@kolu/terminal-workspace/agentProjection` and shared with pulam-web — one
+// copy, fenced by the schema's `AgentInfo["state"]` union. Re-exported here so
+// the views (`tui.tsx`, `fleet.tsx`) and the render tests keep their single
+// `./render.ts` import surface; this module layers only the TUI's presentation
+// (the tone palette + the "awaiting you" labels) on top.
+export { agentShortName, agentStatusLabel, agentUrgency, relativeTime };
+
+/** The coarse urgency of a terminal — the shared `Urgency`, re-aliased under the
+ *  name this renderer (and its tests) have always used. */
+export type FleetUrgency = Urgency;
 
 /** How many leading chars of a terminal id the dashboard shows. v4 UUIDs
  *  collide with vanishing probability across the handful one runs; `--json`
@@ -40,8 +64,6 @@ export function cell(s: string, w: number): string {
   return s.length > w ? `${s.slice(0, w - 1)}…` : s.padEnd(w);
 }
 
-const DASH = "—";
-
 /** Strip terminal-hostile bytes from a value. A shell can set its title /
  *  process name to anything (newlines, raw ESC), so painting them verbatim
  *  could inject control effects. JSON output stays raw; this is human-only.
@@ -51,52 +73,6 @@ const DASH = "—";
  *  subset. */
 export function sanitize(value: string): string {
   return value.replace(/[\x00-\x1f\x7f]+/g, " ").trim();
-}
-
-/** Compact relative age (`3s`/`5m`/`2h`/`4d`) of an epoch-millis against `now`;
- *  `0` (no agent activity ever observed) renders as a dash. */
-export function relativeTime(ms: number, now: number): string {
-  if (ms <= 0) return DASH;
-  const secs = Math.max(0, Math.floor((now - ms) / 1000));
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
-/** The agent vendor's short label — `claude-code` reads as `claude`. */
-export function agentShortName(kind: string): string {
-  return kind === "claude-code" ? "claude" : kind;
-}
-
-/** The coarse bucket an agent's fine-grained state falls in. The closed union
- *  means a tone/label decision can switch exhaustively over it, and a brand-new
- *  state surfaces as `other` (shown verbatim) rather than silently miscoloured. */
-function agentBucket(
-  state: string,
-): "working" | "awaiting" | "waiting" | "other" {
-  switch (state) {
-    case "thinking":
-    case "tool_use":
-    case "running_background":
-      return "working";
-    case "awaiting_user":
-      return "awaiting";
-    case "waiting":
-      return "waiting";
-    default:
-      return "other";
-  }
-}
-
-/** The dashboard label for an agent's state, derived from its bucket. An
- *  unrecognized (`other`) state falls through verbatim so a new agent state is
- *  visible rather than silently collapsed. */
-export function agentStatusLabel(state: string): string {
-  const bucket = agentBucket(state);
-  return bucket === "other" ? state : bucket;
 }
 
 function agentValue(agent: AwarenessValue["agent"]): string {
@@ -298,55 +274,32 @@ export function formatAwarenessJson(
 // (`fleet.tsx`) both go through here, so the grouping/sort/summary stay
 // unit-tested and never depend on the Bun renderer.
 
-/** The coarse urgency of a terminal — drives the glyph, the tone, and the
- *  needs-you-first sort. `need` = an agent awaiting you; `work` = an agent
- *  working; `idle` = everything else (waiting / no agent). */
-export type FleetUrgency = "need" | "work" | "idle";
-
-/** The one descriptor per urgency — its sort rank (lower floats up), colour
- *  tone, and section/state label — so the cross-fleet "needs-you first"
- *  ordering, the colouring, the row-state cell, and the agent-mode section
- *  headers all read a single definition. A new urgency (or a relabel) is one
- *  edit here, not four sites kept in agreement by hand. */
-const URGENCY: Record<
-  FleetUrgency,
-  { rank: number; tone: FieldTone; label: string }
-> = {
-  need: { rank: 0, tone: "awaiting", label: "awaiting you" },
-  work: { rank: 1, tone: "working", label: "working" },
-  idle: { rank: 2, tone: "idle", label: "idle" },
+/** The TUI's presentation descriptor per urgency — its colour tone and the
+ *  section/state label — so the colouring, the row-state cell, and the
+ *  agent-mode section headers all read a single definition. The sort RANK lives
+ *  in the shared `URGENCY_RANK` (the volatile ordering axis, shared with
+ *  pulam-web); only the tone + the TUI's "awaiting you" wording are this
+ *  renderer's own. */
+const URGENCY: Record<FleetUrgency, { tone: FieldTone; label: string }> = {
+  need: { tone: "awaiting", label: "awaiting you" },
+  work: { tone: "working", label: "working" },
+  idle: { tone: "idle", label: "idle" },
 };
 
-/** Map an agent to its fleet urgency: `awaiting_user` → need (blocked on you),
- *  the working states → work, everything else (waiting / no agent) → idle. The
- *  exhaustive switch over the closed `agentBucket` union means a new bucket
- *  forces a decision here rather than silently falling to idle. */
-export function agentUrgency(agent: AwarenessValue["agent"]): FleetUrgency {
-  if (!agent) return "idle";
-  switch (agentBucket(agent.state)) {
-    case "awaiting":
-      return "need";
-    case "working":
-      return "work";
-    case "waiting":
-    case "other":
-      return "idle";
-  }
-}
+/** The TUI's per-urgency label words the shared `fleetStateLabel` idle-fork
+ *  reads — the only thing this renderer customizes over the shared projection. */
+const URGENCY_LABELS: Record<FleetUrgency, string> = {
+  need: URGENCY.need.label,
+  work: URGENCY.work.label,
+  idle: URGENCY.idle.label,
+};
 
-/** The fleet row's pointed state label: needs read as "awaiting you", work as
- *  "working" (both the shared `URGENCY` label); an idle terminal overrides with
- *  its agent's own label (e.g. "waiting") or falls back to the `idle` label when
- *  no agent runs. */
-function fleetStateText(
-  urgency: FleetUrgency,
-  agent: AwarenessValue["agent"],
-): string {
-  return urgency === "idle"
-    ? agent
-      ? agentStatusLabel(agent.state)
-      : URGENCY.idle.label
-    : URGENCY[urgency].label;
+/** The fleet row's pointed state label, via the shared idle-fork helper with the
+ *  TUI's labels: needs read as "awaiting you", work as "working"; an idle
+ *  terminal overrides with its agent's own label (e.g. "waiting") or falls back
+ *  to the `idle` label when no agent runs. */
+function fleetStateText(agent: AwarenessValue["agent"]): string {
+  return fleetStateLabel(agent, URGENCY_LABELS);
 }
 
 /** One terminal as a fleet row. The agent name stays calm; the urgency carries
@@ -436,7 +389,7 @@ export function fleetRow(
     where: { text: repoBranchText(repoName, branch), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
-      text: fleetStateText(urgency, v.agent),
+      text: fleetStateText(v.agent),
       tone: URGENCY[urgency].tone,
     },
     gitStatus,
@@ -448,32 +401,33 @@ export function fleetRow(
 }
 
 /** Order terminals within a scope: needs-you first, then most-recently-active,
- *  then id (a stable tiebreak). The one ordering every fleet view shares. */
+ *  then id (a stable tiebreak) — the shared `compareAgents` ordering. The one
+ *  ordering every fleet view shares. */
 function sortedEntries(
   terminals: Record<string, AwarenessValue>,
 ): Array<[TerminalId, AwarenessValue]> {
   return (
     Object.entries(terminals) as Array<[TerminalId, AwarenessValue]>
-  ).sort(([ia, a], [ib, b]) => {
-    const ra = URGENCY[agentUrgency(a.agent)].rank;
-    const rb = URGENCY[agentUrgency(b.agent)].rank;
-    if (ra !== rb) return ra - rb;
-    if (a.lastActivityAt !== b.lastActivityAt)
-      return b.lastActivityAt - a.lastActivityAt;
-    return ia.localeCompare(ib);
-  });
+  ).sort(([ia, a], [ib, b]) =>
+    compareAgents(
+      { agent: a.agent, lastActivityAt: a.lastActivityAt, id: ia },
+      { agent: b.agent, lastActivityAt: b.lastActivityAt, id: ib },
+    ),
+  );
 }
 
 /** The SAME ordering as `sortedEntries`, but over already-projected `FleetRow`s
  *  so a fleet-WIDE list (the flat `needs` view, an agent-mode section) keeps the
- *  full tiebreak — urgency rank, then most-recent activity, then stable id —
- *  once the scope is the whole fleet rather than one host. Sorting only by
- *  urgency rank (the old flat path) collapsed the recency/id tiebreak the
- *  per-host sort defines, so two hosts' rows fell back to host-iteration order;
- *  this carries the keys (`activeAt`, `sortId`) through and applies them once. */
+ *  full tiebreak — urgency rank (the shared `URGENCY_RANK`), then most-recent
+ *  activity, then stable id — once the scope is the whole fleet rather than one
+ *  host. Sorting only by urgency rank (the old flat path) collapsed the
+ *  recency/id tiebreak the per-host sort defines, so two hosts' rows fell back to
+ *  host-iteration order; this carries the keys (`activeAt`, `sortId`) through and
+ *  applies them once. The row already carries its computed `urgency`, so this
+ *  reads `URGENCY_RANK` directly rather than re-deriving it from the agent. */
 function fleetRowOrder(a: FleetRow, b: FleetRow): number {
-  const ra = URGENCY[a.urgency].rank;
-  const rb = URGENCY[b.urgency].rank;
+  const ra = URGENCY_RANK[a.urgency];
+  const rb = URGENCY_RANK[b.urgency];
   if (ra !== rb) return ra - rb;
   if (a.activeAt !== b.activeAt) return b.activeAt - a.activeAt;
   return a.sortId.localeCompare(b.sortId);

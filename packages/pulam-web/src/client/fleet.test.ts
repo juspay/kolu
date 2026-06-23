@@ -1,26 +1,26 @@
 /**
- * Pins `fleet.ts` — the projection ported from pulam-tui — to the TUI's
- * behaviour, so the two copies can't drift. Pure functions, no DOM: bucketing,
- * the needs-you-first ordering, recency formatting, terminal categorisation, and
- * the filter predicate. Mirrors the assertions in pulam-tui's `render.test.ts`.
+ * Pins `fleet.ts` — the pulam-web PRESENTATION layer over the shared agent-state
+ * projection. The renderer-agnostic core (bucketing, urgency, recency, short
+ * name, the idle-label fork, the needs-you-first ordering) is tested ONCE in
+ * `@kolu/terminal-workspace`'s `agentProjection.test.ts`; this file keeps only
+ * the web-specific bits: the location/cwd helpers, the URGENCY colour/label
+ * descriptor, the web-labelled state cell, the terminal-category filter, and the
+ * fleet-entry comparator adapter.
  */
 
+import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import type {
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
-import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import { agentUrgency } from "@kolu/terminal-workspace/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
-  agentBucket,
-  agentShortName,
-  agentUrgency,
   basename,
   compareFleetEntries,
   type FleetEntry,
   isVisible,
   locationText,
-  relativeTime,
   stateLabel,
   terminalCategory,
   URGENCY,
@@ -46,76 +46,18 @@ function withAgent(
 const id = (n: number): TerminalId =>
   `${n}${n}${n}${n}${n}${n}${n}${n}-1111-4111-8111-111111111111` as TerminalId;
 
-describe("agentBucket", () => {
-  it("maps the working states", () => {
-    expect(agentBucket("thinking")).toBe("working");
-    expect(agentBucket("tool_use")).toBe("working");
-    expect(agentBucket("running_background")).toBe("working");
-  });
-  it("maps awaiting and waiting", () => {
-    expect(agentBucket("awaiting_user")).toBe("awaiting");
-    expect(agentBucket("waiting")).toBe("waiting");
-  });
-  it("surfaces an unknown state verbatim as `other` (fail-loud, not miscoloured)", () => {
-    expect(agentBucket("brand_new_state")).toBe("other");
-  });
-});
-
-describe("agentUrgency", () => {
-  it("no agent → idle", () => {
-    expect(agentUrgency(null)).toBe("idle");
-  });
-  it("awaiting_user → need", () => {
-    expect(agentUrgency(withAgent("awaiting_user").agent)).toBe("need");
-  });
-  it("working states → work", () => {
-    expect(agentUrgency(withAgent("thinking").agent)).toBe("work");
-    expect(agentUrgency(withAgent("tool_use").agent)).toBe("work");
-    expect(agentUrgency(withAgent("running_background").agent)).toBe("work");
-  });
-  it("waiting / unknown → idle", () => {
-    expect(agentUrgency(withAgent("waiting").agent)).toBe("idle");
-    expect(agentUrgency(withAgent("brand_new_state").agent)).toBe("idle");
-  });
-});
-
-describe("stateLabel", () => {
-  it("need / work read the urgency label", () => {
+describe("stateLabel (web labels over the shared idle fork)", () => {
+  it("need reads the web label 'needs you'", () => {
     expect(stateLabel(withAgent("awaiting_user").agent)).toBe("needs you");
     expect(stateLabel(withAgent("thinking").agent)).toBe("working");
   });
-  it("an idle agent shows its own state; an unknown state shows verbatim", () => {
+  it("an idle agent shows its own state; no agent reads idle", () => {
     expect(stateLabel(withAgent("waiting").agent)).toBe("waiting");
-    expect(stateLabel(withAgent("brand_new_state").agent)).toBe(
-      "brand_new_state",
-    );
-  });
-  it("no agent reads idle", () => {
     expect(stateLabel(null)).toBe("idle");
   });
 });
 
-describe("agentShortName", () => {
-  it("shortens claude-code, passes others through", () => {
-    expect(agentShortName("claude-code")).toBe("claude");
-    expect(agentShortName("codex")).toBe("codex");
-  });
-});
-
-describe("relativeTime", () => {
-  const now = 1_000_000_000_000;
-  it("0 / never → em-dash", () => {
-    expect(relativeTime(0, now)).toBe("—");
-  });
-  it("formats seconds / minutes / hours / days", () => {
-    expect(relativeTime(now - 5_000, now)).toBe("5s");
-    expect(relativeTime(now - 5 * 60_000, now)).toBe("5m");
-    expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3h");
-    expect(relativeTime(now - 2 * 86_400_000, now)).toBe("2d");
-  });
-});
-
-describe("compareFleetEntries (needs-you-first)", () => {
+describe("compareFleetEntries (needs-you-first, over fleet entries)", () => {
   const entry = (
     i: number,
     state: string | null,
@@ -134,24 +76,6 @@ describe("compareFleetEntries (needs-you-first)", () => {
     expect([work, need].sort(compareFleetEntries).map((e) => e.id)).toEqual([
       need.id,
       work.id,
-    ]);
-  });
-
-  it("within equal urgency, the most-recently-active sorts first", () => {
-    const stale = entry(1, "thinking", 1_000);
-    const fresh = entry(2, "thinking", 9_000);
-    expect([stale, fresh].sort(compareFleetEntries).map((e) => e.id)).toEqual([
-      fresh.id,
-      stale.id,
-    ]);
-  });
-
-  it("ties on urgency + recency break by id", () => {
-    const a = entry(1, "thinking", 5_000);
-    const b = entry(2, "thinking", 5_000);
-    expect([b, a].sort(compareFleetEntries).map((e) => e.id)).toEqual([
-      a.id,
-      b.id,
     ]);
   });
 
@@ -226,9 +150,11 @@ describe("basename", () => {
   });
 });
 
-describe("URGENCY table", () => {
-  it("ranks need < work < idle", () => {
-    expect(URGENCY.need.rank).toBeLessThan(URGENCY.work.rank);
-    expect(URGENCY.work.rank).toBeLessThan(URGENCY.idle.rank);
+describe("URGENCY descriptor", () => {
+  it("carries the web colour + label per urgency", () => {
+    expect(URGENCY.need.label).toBe("needs you");
+    expect(URGENCY.work.label).toBe("working");
+    expect(URGENCY.idle.label).toBe("idle");
+    expect(URGENCY.need.color).toMatch(/^#/);
   });
 });

@@ -6,10 +6,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import type { FleetHostState } from "./fleetTypes.ts";
 import {
-  agentShortName,
-  agentStatusLabel,
   agentTone,
-  agentUrgency,
   dashRow,
   dashRows,
   flattenRows,
@@ -21,7 +18,6 @@ import {
   gitDetail,
   prTone,
   projectFleet,
-  relativeTime,
   shortId,
   step,
 } from "./render.ts";
@@ -48,37 +44,6 @@ describe("shortId", () => {
   it("keeps the leading 8 chars", () => {
     expect(shortId("a3f1c0de-1234-5678")).toBe("a3f1c0de");
     expect(shortId("abc")).toBe("abc");
-  });
-});
-
-describe("relativeTime", () => {
-  it("renders compact ages and dashes a 0 (never active)", () => {
-    expect(relativeTime(0, NOW)).toBe("—");
-    expect(relativeTime(NOW - 5_000, NOW)).toBe("5s");
-    expect(relativeTime(NOW - 5 * 60_000, NOW)).toBe("5m");
-    expect(relativeTime(NOW - 3 * 3_600_000, NOW)).toBe("3h");
-    expect(relativeTime(NOW - 2 * 86_400_000, NOW)).toBe("2d");
-  });
-});
-
-describe("agentShortName", () => {
-  it("shortens claude-code to claude, leaves others", () => {
-    expect(agentShortName("claude-code")).toBe("claude");
-    expect(agentShortName("codex")).toBe("codex");
-    expect(agentShortName("opencode")).toBe("opencode");
-  });
-});
-
-describe("agentStatusLabel", () => {
-  it("buckets working / awaiting / waiting", () => {
-    expect(agentStatusLabel("thinking")).toBe("working");
-    expect(agentStatusLabel("tool_use")).toBe("working");
-    expect(agentStatusLabel("running_background")).toBe("working");
-    expect(agentStatusLabel("awaiting_user")).toBe("awaiting");
-    expect(agentStatusLabel("waiting")).toBe("waiting");
-  });
-  it("falls through unknown states verbatim", () => {
-    expect(agentStatusLabel("brand_new_state")).toBe("brand_new_state");
   });
 });
 
@@ -225,17 +190,6 @@ function host(
     gitStatuses,
   };
 }
-
-describe("agentUrgency", () => {
-  it("buckets awaiting → need, working → work, the rest → idle", () => {
-    expect(agentUrgency(agentVal("awaiting_user"))).toBe("need");
-    expect(agentUrgency(agentVal("thinking"))).toBe("work");
-    expect(agentUrgency(agentVal("tool_use"))).toBe("work");
-    expect(agentUrgency(agentVal("waiting"))).toBe("idle");
-    expect(agentUrgency(agentVal("brand_new"))).toBe("idle");
-    expect(agentUrgency(null)).toBe("idle");
-  });
-});
 
 describe("projectFleet — host mode", () => {
   it("groups per host, floats needs-you first, and counts the summary", () => {

@@ -48,6 +48,9 @@ import {
 import {
   agentShortName,
   agentUrgency,
+  relativeTime,
+} from "@kolu/terminal-workspace/agentProjection";
+import {
   compareFleetEntries,
   DOT_OFF_COLOR,
   type FleetEntry,
@@ -56,7 +59,6 @@ import {
   isVisible,
   LIVE_COLOR,
   locationText,
-  relativeTime,
   stateLabel,
   terminalCategory,
   URGENCY,
