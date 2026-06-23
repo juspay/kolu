@@ -50,11 +50,13 @@ describe("shortId", () => {
 describe("agentTone", () => {
   const agent = (state: string): AwarenessValue["agent"] =>
     ({ kind: "claude-code", state }) as AwarenessValue["agent"];
-  it("tones by bucket; no agent is muted, unknown is plain", () => {
+  it("tones by PAINT class (mirrors the Dock pip); no agent is muted, unknown is plain", () => {
     expect(agentTone(null)).toBe("muted");
     expect(agentTone(agent("thinking"))).toBe("working");
     expect(agentTone(agent("awaiting_user"))).toBe("awaiting");
-    expect(agentTone(agent("waiting"))).toBe("idle");
+    // `waiting` paints `awaiting` — the lingering amber cue — even though its
+    // idle urgency sorts it down (the Dock's order≠colour split), NOT idle grey.
+    expect(agentTone(agent("waiting"))).toBe("awaiting");
     expect(agentTone(agent("??"))).toBe("plain");
   });
 });

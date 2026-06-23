@@ -9,22 +9,27 @@
  * than in a hand-copied switch downstream. It depends on nothing but the
  * `AgentInfo['state']` type: no transport, no renderer, no `@kolu/pulam-tui`.
  *
- * Three folds live here, grouped by who reads them — not because every consumer
- * reads every fold, but because every fold over `AgentInfo['state']` wants the
- * same fence beside the schema:
- *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the
- *    renderer-agnostic needs-you ordering, shared by the pulam-tui dashboard,
- *    the pulam-web fleet board, AND kolu's Dock (all three rank identically).
- *  - `agentPaintClass` (→ {awaiting, working, none}) — the tile/pip paint class
- *    (kolu client). It deliberately differs from urgency on `waiting`: a
- *    just-finished agent paints `awaiting` (a lingering dot) but ranks idle.
- *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership
- *    (kolu's `useTerminalAlerts`). It notifies on a finished agent (`waiting`)
- *    too — "notify me something happened" ≠ "rank by what needs my action".
+ * This is the shared agent-state VOCABULARY that kolu's on-canvas **Dock** and
+ * its two fleet MIRRORS — `pulam-web` (browser) and `pulam-tui` (terminal) — all
+ * draw from: the mirrors render the same agent-state UX the Dock does, so each
+ * fold lives here once and the three stay in lockstep. A mirror that hasn't
+ * adopted a fold yet is a GAP to fill, not a sign the fold is kolu-only. The
+ * three folds:
+ *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the needs-you
+ *    ordering. Read by all three (Dock rows, pulam-web, pulam-tui).
+ *  - `agentPaintClass` (→ {awaiting, working, none}) — the pip/glyph paint
+ *    class. Read by the Dock pip AND both fleet mirrors' agent glyph. It
+ *    deliberately differs from urgency on `waiting`: a just-finished agent
+ *    paints `awaiting` (the lingering dot) but RANKS idle — order≠colour.
+ *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership.
+ *    Read by kolu's `useTerminalAlerts` today; pulam-web fleet notifications are
+ *    the next mirror to fill in (see `pulam-web.mdx`). It notifies on a finished
+ *    agent (`waiting`) too — "notify me something happened" ≠ "rank by what
+ *    needs my action".
  *
- * Each consumer keeps only its PRESENTATION layer over this core: the TUI maps
- * urgency→tone (`palette.ts`) and labels it "awaiting you"; the web maps
- * urgency→hex (`URGENCY.color`) and labels it "needs you".
+ * Each consumer keeps only its PRESENTATION over this core: the TUI maps
+ * urgency/paint→tone (`agentTone`/`URGENCY`) and labels "awaiting you"; the web
+ * maps them → hex (`PAINT`/`URGENCY`) and labels "needs you".
  */
 
 import type { AgentInfo, AwarenessValue } from "./schema.ts";

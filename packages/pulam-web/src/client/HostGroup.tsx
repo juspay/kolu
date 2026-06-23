@@ -61,6 +61,8 @@ import {
   isVisible,
   LIVE_COLOR,
   locationText,
+  PAINT,
+  paintClassFor,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -77,11 +79,15 @@ export interface HostGroupProps {
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
 
-/** One agent/terminal row. The urgency carries the colour (leading glyph + state
- *  cell) so the eye lands on a blocked row's amber; the green dot rides the
- *  activity stream, orthogonal to the agent state. Reads its value fine-grained
- *  off `value()` (a per-key subscription) so only this row re-renders on its own
- *  delta. */
+/** One agent/terminal row, MIRRORING kolu's Dock. The leading glyph's COLOUR +
+ *  shape follow the PAINT class (`PAINT[paintClassFor(value)]`) — so a
+ *  just-finished `waiting` agent keeps the lingering amber dot rather than the
+ *  idle grey its sort implies — while the SORT, the needs-you row tint, the
+ *  state-cell label colour, and the pulse/spin animation stay keyed off
+ *  `urgency`. That order≠colour split is the Dock's, one fold over from the dock
+ *  pip. The green dot rides the activity stream, orthogonal to agent state.
+ *  Reads its value fine-grained off `value()` (a per-key subscription) so only
+ *  this row re-renders on its own delta. */
 function AgentRow(props: {
   value: () => AwarenessValue | undefined;
   live: () => boolean;
@@ -92,7 +98,8 @@ function AgentRow(props: {
       {(value) => {
         const urgency = () => agentUrgency(value().agent);
         const tone = () => URGENCY[urgency()];
-        const glyph = () => tone().glyph;
+        const paint = () => PAINT[paintClassFor(value())];
+        const glyph = () => paint().glyph;
         // A needs-you glyph breathes (Tailwind's `animate-pulse`); a working
         // glyph spins about the glyph's visual centre (`origin-[50%_54%]` —
         // `◜` sits slightly high in its box). Both hold still under
@@ -127,7 +134,7 @@ function AgentRow(props: {
             />
             <span
               class={glyphClass()}
-              style={`color:${tone().color};width:1.3ch;flex:none`}
+              style={`color:${paint().color};width:1.3ch;flex:none`}
             >
               {glyph()}
             </span>

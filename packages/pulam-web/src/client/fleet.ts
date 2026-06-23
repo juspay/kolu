@@ -2,12 +2,14 @@
  * The pulam-web fleet view's PRESENTATION layer over the shared agent-state
  * projection. The renderer-agnostic core — bucketing, the needs-you-first
  * ordering, recency formatting, the short agent name, the idle-label fork — lives
- * in `@kolu/terminal-workspace/agentProjection` and is shared byte-for-byte with
- * pulam-tui (one definition, fenced by the schema's `AgentInfo['state']` union),
- * so a new agent state can't drift between the two homes. This module keeps ONLY
- * what is genuinely web-specific: the urgency→{colour, label, glyph} descriptor
- * the rows/footer paint, the web chrome colours, the cwd/location helpers, and the
- * terminal-category filter the dashboard toggles read.
+ * in `@kolu/terminal-workspace/agentProjection`, shared byte-for-byte across the
+ * surfaces that render it (pulam-tui, pulam-web, AND kolu's Dock — the two fleet
+ * views MIRROR the Dock UX), fenced by the schema's `AgentInfo['state']` union so
+ * a new agent state can't drift between them. This module keeps ONLY what is
+ * genuinely web-specific: the urgency→{colour, label, glyph} and PAINT→{colour,
+ * glyph} descriptors the rows paint (the glyph follows PAINT — mirroring the Dock
+ * pip — while the row tint + state label follow urgency), the web chrome colours,
+ * the cwd/location helpers, and the terminal-category filter the toggles read.
  *
  * What this does NOT do: dirty/clean counts. The awareness `git` info carries
  * only `repoName`/`branch`/remote — the file counts come from the `git.getStatus`
@@ -15,6 +17,8 @@
  */
 
 import {
+  type AgentPaintClass,
+  agentPaintClass,
   agentUrgency,
   compareAgents,
   type Urgency,
@@ -60,6 +64,29 @@ export const URGENCY_LABELS: Record<Urgency, string> = {
   work: URGENCY.work.label,
   idle: URGENCY.idle.label,
 };
+
+/** The paint class an awareness value renders its glyph from — the agent's
+ *  `agentPaintClass`, or `none` for a terminal with no agent (the fleet echo of
+ *  kolu's Dock paint fold, `dockModel.paintBucket`'s null-arm). */
+export function paintClassFor(value: AwarenessValue): AgentPaintClass {
+  return value.agent ? agentPaintClass(value.agent.state) : "none";
+}
+
+/** One descriptor per PAINT class — the colour + glyph the agent cue paints —
+ *  so the fleet MIRRORS kolu's Dock pip: the cue follows `agentPaintClass`, NOT
+ *  urgency, so a just-finished `waiting` agent keeps the lingering "awaiting"
+ *  amber dot rather than dropping to the idle grey its sort would imply. This is
+ *  the Dock's order≠colour split: COLOUR is paint (here), while the sort, the
+ *  needs-you row tint, and the pulse/spin ANIMATION stay keyed off urgency. The
+ *  three paint classes index the SAME three visual tiers `URGENCY` defines
+ *  (attention amber · working cyan · quiet grey) — one palette, two folds onto
+ *  it — so the hex/glyph live once, in `URGENCY`. */
+export const PAINT: Record<AgentPaintClass, { color: string; glyph: string }> =
+  {
+    awaiting: { color: URGENCY.need.color, glyph: URGENCY.need.glyph },
+    working: { color: URGENCY.work.color, glyph: URGENCY.work.glyph },
+    none: { color: URGENCY.idle.color, glyph: URGENCY.idle.glyph },
+  };
 
 /** The green live-output dot — a terminal moving bytes right now (the fleet echo
  *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to the agent-state
