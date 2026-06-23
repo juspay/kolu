@@ -8,6 +8,7 @@ import {
   type Urgency,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { agentBucket } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
@@ -49,8 +50,18 @@ function makeSleepingMeta(lastActivityAt = 0): TerminalMetadata {
   };
 }
 
-/** Convenience: rank a single terminal and return its bucket. */
+/** Convenience: rank a single terminal and return its ORDER bucket. */
 function bucket(meta: TerminalMetadata, stale: boolean): DockRowBucket {
+  return rankOne(meta, stale).bucket;
+}
+
+/** Convenience: rank a single terminal and return its PIP bucket (the colour
+ *  the row's `StatePip` paints, decoupled from order). */
+function pip(meta: TerminalMetadata, stale: boolean): DockRowBucket {
+  return rankOne(meta, stale).pip;
+}
+
+function rankOne(meta: TerminalMetadata, stale: boolean) {
   const rows = rankDockRows(
     ["t1"] as TerminalId[],
     () => meta,
@@ -58,7 +69,7 @@ function bucket(meta: TerminalMetadata, stale: boolean): DockRowBucket {
   );
   const row = rows[0];
   if (!row) throw new Error("no row returned");
-  return row.bucket;
+  return row;
 }
 
 describe("rankDockRows — parked bucket precedence", () => {
@@ -146,6 +157,45 @@ describe("rankDockRows — parked bucket precedence", () => {
     );
     expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
+  });
+});
+
+describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile title", () => {
+  // The dock row and the tile title both render through `StatePip`, so a given
+  // state must paint the SAME pip colour in both. Order (rank) is a separate
+  // axis: a fresh `waiting` agent sorts as `idle` (it doesn't float into the
+  // needs-you order) yet keeps its `awaiting` glow, exactly as the title does.
+  it("a fresh waiting agent ranks idle but its pip stays awaiting (glow lingers)", () => {
+    const meta = makeMeta({
+      agent: makeAgent("waiting"),
+      lastActivityAt: Date.now(),
+    });
+    expect(bucket(meta, false)).toBe("idle"); // ORDER: not needs-you
+    expect(pip(meta, false)).toBe("awaiting"); // COLOUR: still glowing
+  });
+
+  it("the row pip equals the tile-title paint fold for every fresh agent state", () => {
+    const STATES: AgentInfo["state"][] = [
+      "thinking",
+      "tool_use",
+      "running_background",
+      "awaiting_user",
+      "waiting",
+    ];
+    for (const state of STATES) {
+      const meta = makeMeta({
+        agent: makeAgent(state),
+        lastActivityAt: Date.now(),
+      });
+      // `agentBucket` is the fold `TerminalMeta` feeds its title pip — the dock
+      // row pip must agree so one state never shows two colours.
+      expect(pip(meta, false)).toBe(agentBucket(makeAgent(state)));
+    }
+  });
+
+  it("a sleeping row keeps its ☾ pip; a never-touched shell keeps none", () => {
+    expect(pip(makeSleepingMeta(), false)).toBe("sleeping");
+    expect(pip(makeMeta(), false)).toBe("none");
   });
 });
 

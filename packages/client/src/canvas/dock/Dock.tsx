@@ -409,6 +409,7 @@ const RepoSection: Component<{
         <DockRow
           id={row.id}
           bucket={row.bucket}
+          pip={row.pip}
           flatIndex={props.flatIndexOf.get(row.id) ?? -1}
         />
       )}
@@ -438,7 +439,11 @@ const RepoSection: Component<{
  *  Update both files when row geometry changes. */
 const DockRow: Component<{
   id: TerminalId;
+  /** ORDER bucket — drives `data-bucket` (used by ordering tests / styling). */
   bucket: DockRowBucket;
+  /** PIP bucket — drives the `StatePip` colour, decoupled from order so the row
+   *  pip reads identically to the tile title's pip (both `agentPaintClass`). */
+  pip: DockRowBucket;
   /** Position in the dock-wide flat row order. `< 9` qualifies the row
    *  for a `Cmd+(flatIndex+1)` shortcut hint while the platform
    *  modifier is held. */
@@ -488,7 +493,7 @@ const DockRow: Component<{
           title="Jump to this terminal"
         >
           <ActivityPip id={props.id} />
-          <StatePip bucket={props.bucket} unread={unread()} />
+          <StatePip bucket={props.pip} unread={unread()} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{

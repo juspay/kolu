@@ -115,6 +115,7 @@ function DockListSection(props: {
           <DockListRow
             id={row.id}
             bucket={row.bucket}
+            pip={row.pip}
             onSelect={props.onSelect}
           />
         )}
@@ -131,7 +132,11 @@ function DockListSection(props: {
  *  row geometry changes. */
 function DockListRow(props: {
   id: TerminalId;
+  /** ORDER bucket — drives `data-bucket`. */
   bucket: DockRowBucket;
+  /** PIP bucket — drives the `StatePip` colour, identical to the tile title's
+   *  pip (both `agentPaintClass`), decoupled from order. */
+  pip: DockRowBucket;
   onSelect: (id: TerminalId) => void;
 }) {
   const store = useTerminalStore();
@@ -177,7 +182,7 @@ function DockListRow(props: {
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           <ActivityPip id={props.id} />
-          <StatePip bucket={props.bucket} unread={unread()} />
+          <StatePip bucket={props.pip} unread={unread()} />
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{
