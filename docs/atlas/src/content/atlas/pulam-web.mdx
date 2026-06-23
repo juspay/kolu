@@ -4,7 +4,7 @@ description: A browser ↔ Node ↔ ssh app (drishti's twin for the terminal-wor
 parents: [pulam, feature]
 status: proposed
 maturity: seedling
-updated: 2026-06-22
+updated: 2026-06-23
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -88,6 +88,10 @@ export const PulamWebUI = () => (
 <PulamWebUI />
 
 Leave it open on a second monitor: a **fleet of every terminal across every host**, grouped by host, each row a live **git-status cell** (`●staged ✎modified ?untracked ↑ahead↓behind`). Click a row and a **drill-in pane** shows that repo's full status — branch tracking, the staged/modified/untracked split, and the changed-file list — exactly `pulam-tui`'s view, in a browser. Hosts are **added on demand and auto-provisioned over ssh** (the `copying…` chip is the live provision state), so a teammate opens one URL and watches the whole fleet. It is `git status`, never file *content* — the changed-file **list**, not bodies or diffs (the same scope as R4.7).
+
+<Callout kind="note" title="What R4.8a ships (this PR) vs the picture above">
+The screenshot + description above are the **R4.8b** target — the live **git-status cells** and the **drill-in** pane. **R4.8a** (<PrLink pr={1524} />, shipping now) stands up the *framework* beneath them: the whole pipeline — auto-provision · dial N pulam over ssh · mirror · fan-out · re-serve · browser-consume — rendering a **plain live terminal list grouped by host**, with **no git status and no drill-in yet**. It's proven end-to-end (a live two-host fleet across a Linux box **and a real macOS host**, over the live ws); the git cells + drill-in layer onto this proven framework in R4.8b.
+</Callout>
 
 ## Architecture-level changes
 
