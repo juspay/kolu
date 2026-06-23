@@ -146,10 +146,11 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 >   // stderr as the failure reason. Often differs from `drvNoun` (kaval's
 >   // `--stdio` front writes `kaval --stdio:`, not `kaval:`).
 >   fatalPrefix: "my-agent:",
->   // one cheap RPC proves the link; the surface client is namespaced under
->   // `surface` (e.g. kaval-tui: `c.surface.system.heartbeat({})`, pulam-tui:
->   // the first frame of `c.surface.version.get({})`).
->   probe: (c) => c.surface.system.heartbeat({}),
+>   // No `probe` needed: the dial defaults to the framework-reserved `system.live`
+>   // round-trip (every `defineSurface` agent answers it — the same receptacle the
+>   // periodic watchdog uses), so an agent is provable without nominating a verb.
+>   // Override `probe` ONLY for a protocol assertion beyond liveness (e.g.
+>   // pulam-tui asserts `c.surface.version.get({})` yields a first frame).
 > });
 > ```
 >
