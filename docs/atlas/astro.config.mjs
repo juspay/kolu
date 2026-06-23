@@ -2,7 +2,6 @@
 
 import mdx from "@astrojs/mdx";
 import { defineConfig } from "astro/config";
-import remarkGfm from "remark-gfm";
 
 import stableInlineStyles from "./build/stable-inline-styles.mjs";
 
@@ -25,10 +24,10 @@ export default defineConfig({
   // the chunks inlined into unrelated pages (issue #1209). Runs after mdx().
   integrations: [mdx(), stableInlineStyles()],
   markdown: {
-    // GFM tables/strikethrough/autolinks. Astro applies GFM to `.md` by default
-    // but it does not reach the MDX pipeline, so add it explicitly here —
-    // @astrojs/mdx extends `markdown.remarkPlugins`, so this covers .md + .mdx.
-    remarkPlugins: [remarkGfm],
+    // GFM (tables/strikethrough/autolinks) is native to Astro 7's default
+    // Sätteri pipeline — its pulldown-cmark parser covers `.md` and `.mdx`
+    // alike, so the explicit `remark-gfm` plugin that Astro 6 needed for the
+    // MDX path is no longer required.
     shikiConfig: { theme: "github-light", wrap: false },
   },
 });
