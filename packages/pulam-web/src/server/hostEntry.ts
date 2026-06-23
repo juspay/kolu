@@ -30,7 +30,6 @@
 
 import { RPCHandler } from "@orpc/server/ws";
 import {
-  type AgentClient,
   getHostSession,
   type HostSession,
   pumpRemoteSurface,
@@ -96,8 +95,7 @@ export function makeBuildEntry(
     void pumpRemoteSurface({
       source: terminalWorkspaceSurface,
       session,
-      makeSink: (client: AgentClient<ArivuContract>) =>
-        reServe.makeSink(client, () => session.markConnected()),
+      makeSink: () => reServe.makeSink(() => session.markConnected()),
       liveProcedures: reServe.liveProcedures,
       liveClient: reServe.liveClient,
       log: (line) => log(`[${host}] ${line}`),

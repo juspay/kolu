@@ -17,9 +17,10 @@
  *      its awareness collection backed by a Map the test mutates. Seeded with
  *      terminal "A".
  *   2. An agent client over `directLink`.
- *   3. `mirrorRemoteSurface(surface, agentClient, makeSink(agentClient), {})` —
+ *   3. `mirrorRemoteSurface(surface, agentClient, makeSink(), {})` —
  *      drives `buildReServe`'s sink fold WITHOUT the session (the split the
- *      design exposes for exactly this: `makeSink` is invokable with any client).
+ *      design exposes for exactly this: `makeSink` builds the sink directly, no
+ *      client argument — forwarding reaches the live client via the holder).
  *   4. A SECOND client over `directLink` to the re-serve router, wrapped in a
  *      Solid `surfaceClient`, its `awareness.use({})` read inside `createRoot`.
  *
@@ -168,13 +169,13 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
 
     // 3. The re-serve, and the mirror that folds the agent's frames into its
     //    sink. We call `mirrorRemoteSurface` ourselves with the test client and
-    //    `makeSink(client)` — the split `buildReServe` exposes precisely so the
+    //    `makeSink()` — the split `buildReServe` exposes precisely so the
     //    fold is testable without `pumpRemoteSurface`'s session.
     const reServe = buildReServe();
     const mirror = mirrorRemoteSurface(
       terminalWorkspaceSurface,
       agent.client,
-      reServe.makeSink(agent.client),
+      reServe.makeSink(),
       {},
     );
     // The re-serve forwards input-param streams / procedures through the live

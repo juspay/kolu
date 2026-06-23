@@ -64,9 +64,11 @@ export interface PumpRemoteSurfaceOptions<
    *  (re)spawn, so per-client state (first-frame flags, frame counters) resets
    *  naturally each reconnect. Wire `session.markConnected()` into whichever
    *  frame signals the link is live — the framework can't know which primitive
-   *  leads a given surface's handshake. `seq` labels successive spawns (`#1`,
-   *  `#2`, …) for tracing an otherwise-identical per-reconnect log line. */
-  makeSink: (client: AgentClient<C>, ctx: { seq: number }) => SurfaceSink<S>;
+   *  leads a given surface's handshake. The live client/procedures reach
+   *  forwarding code through the holders below, so the sink-builder takes only
+   *  `seq` (which labels successive spawns `#1`, `#2`, … for tracing an
+   *  otherwise-identical per-reconnect log line). */
+  makeSink: (ctx: { seq: number }) => SurfaceSink<S>;
   /** Optional forwarding-stub holder for re-serving the mirror's procedures.
    *  Set to each spawn's `mirror.procedures` for the life of that spawn,
    *  cleared when the link dies. Omit for a read-only surface (no procedures
@@ -123,7 +125,7 @@ export async function pumpRemoteSurface<
     const mirror = mirrorRemoteSurface(
       opts.source,
       client as SurfaceClientLike,
-      opts.makeSink(client, { seq }),
+      opts.makeSink({ seq }),
       { log },
     );
     // Publish this spawn's forwarding stubs + live client; clear them the

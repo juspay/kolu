@@ -16,9 +16,9 @@
  *     collection, and the `activity` stream flow INWARD — the mirror reads the
  *     remote and folds each frame into local state (the `version` store, the
  *     `awareness` cache, the `activity` bus). The browser-facing sources read
- *     that local state. `makeSink(client)` builds this sink; `pumpRemoteSurface`
+ *     that local state. `makeSink()` builds this sink; `pumpRemoteSurface`
  *     (the session loop) re-issues it per (re)spawn, but the SAME `makeSink` is
- *     directly invokable with any client — which is exactly what the hermetic
+ *     directly invokable with no client — which is exactly what the hermetic
  *     test drives, with no session.
  *
  *   - PULL / INPUT-PARAM (forwarded via the live holders): the
@@ -66,14 +66,13 @@ export interface ReServe {
    *  the test's `directLink(router as …)`), not at the flatten. */
   router: unknown;
   /** Build the mirror SINK for ONE freshly-spawned client. `pumpRemoteSurface`
-   *  calls this per (re)spawn; the hermetic test calls it directly with a
-   *  `directLink` client and drives `mirrorRemoteSurface` itself. The first
-   *  `version` frame is the link-live handshake — `onFirstVersion` runs there
-   *  (the session loop wires `markConnected` into it). */
-  makeSink: (
-    client: AgentClient<ArivuContract>,
-    onFirstVersion?: () => void,
-  ) => SurfaceSink<ArivuSpec>;
+   *  calls this per (re)spawn; the hermetic test calls it directly and drives
+   *  `mirrorRemoteSurface` itself. The sink folds only PUSH primitives and never
+   *  reads the client (forwarding reaches the live client through `liveClient`),
+   *  so it takes no client argument. The first `version` frame is the link-live
+   *  handshake — `onFirstVersion` runs there (the session loop wires
+   *  `markConnected` into it). */
+  makeSink: (onFirstVersion?: () => void) => SurfaceSink<ArivuSpec>;
   /** The live-client holder for forwarding input-param streams. */
   liveClient: LiveSpawnHolder<AgentClient<ArivuContract>>;
   /** The live-procedures holder for forwarding `fs.*`/`git.*`. */
@@ -217,10 +216,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
    * (`subscribe*Change`, `fs.*`, `git.*`) are NOT in the sink — they're pulled
    * via the live holders.
    */
-  const makeSink = (
-    _client: AgentClient<ArivuContract>,
-    onFirstVersion?: () => void,
-  ): SurfaceSink<ArivuSpec> => {
+  const makeSink = (onFirstVersion?: () => void): SurfaceSink<ArivuSpec> => {
     let firstVersionFrame = true;
     return {
       cells: {
