@@ -37,12 +37,16 @@ can check itself against without a human in the loop.
 
 _No open items._ The **Upgrade to Vite 8.1, repo-wide** loop shipped in
 [#1543](https://github.com/juspay/kolu/pull/1543): every Vite-built surface is on
-8.1, and the client + pulam-web dev servers adopt Vite 8.1's experimental bundled
-dev mode (~7× faster cold page load). The build-output experiments (chunk import
-map, Wasm-as-build) were deliberately left off so the reproducible `nix build`
-artifact never depends on an experimental flag; the stable features
-(`import.meta.glob` `caseSensitive`, Wasm ESM, `html.additionalAssetSources`) had
-no call sites to wire in.
+8.1 (Rolldown/Oxc bundler), all surfaces build, and `just dev` runs — confirmed
+via chrome-devtools (kolu loads, connects, creates a working terminal). The
+experimental **bundled dev mode was evaluated and *not* adopted**: on 8.1.0 it
+crashes kolu's client with `__reExport is not defined` so the app never mounts —
+a known cluster of `bundledDev` runtime-ReferenceError bugs upstream
+([vite#22419](https://github.com/vitejs/vite/issues/22419),
+[vite#22012](https://github.com/vitejs/vite/issues/22012)); revisit when fixed.
+The build-output experiments (chunk import map, Wasm-as-build) were left off for
+`nix build` reproducibility; the stable features (`import.meta.glob`
+`caseSensitive`, Wasm ESM, `html.additionalAssetSources`) had no call sites.
 
 ## Graduating an item
 
