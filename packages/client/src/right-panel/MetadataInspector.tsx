@@ -22,7 +22,7 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
-import KavalAttachCommand from "./KavalAttachCommand";
+import KavalAttachSection from "./KavalAttachSection";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
@@ -286,12 +286,13 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Attach — the shell-side handle on this terminal via kaval-tui;
-           *  copy the command and grab it from any shell. */}
+          {/* Attach — the shell-side handle on this terminal (and its splits)
+           *  via kaval-tui; copy the attach/snapshot command and grab it from
+           *  any shell. */}
           <Show when={props.terminalId}>
             {(id) => (
               <Section title="Attach">
-                <KavalAttachCommand terminalId={id()} />
+                <KavalAttachSection terminalId={id()} />
               </Section>
             )}
           </Show>

@@ -1,7 +1,7 @@
 /** The canonical "copy-this-command" affordance: a full-width button showing a
  *  monospace command that copies it on click, flips the trailing label to
  *  "copied" for 1500ms, and toasts on failure. One place to change the copy
- *  interaction — `KavalAttachCommand` and `PrUnavailablePopover`'s recovery
+ *  interaction — `KavalAttachSection` and `PrUnavailablePopover`'s recovery
  *  hint both compose this rather than re-hand-rolling the signal + timeout +
  *  `writeTextToClipboard` + `toast.error` sequence.
  *
