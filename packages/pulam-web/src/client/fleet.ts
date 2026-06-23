@@ -34,16 +34,22 @@ export function basename(cwd: string): string {
   return base.length > 0 ? base : cwd;
 }
 
-/** One descriptor per urgency — its web colour and the user-facing label — so
- *  the row colour and the state cell read a SINGLE definition rather than
- *  re-spelling the hex/label at each render site. The sort rank lives in the
- *  shared projection (`URGENCY_RANK`); the colour/label are this renderer's own
- *  presentation choice. Labels follow the reviewed mockup ("needs you"); the TUI
- *  spells "awaiting you" in its own table. */
-export const URGENCY: Record<Urgency, { color: string; label: string }> = {
-  need: { color: "#e6a23c", label: "needs you" },
-  work: { color: "#56b6c2", label: "working" },
-  idle: { color: "#5b6678", label: "idle" },
+/** One descriptor per urgency — its web colour, the user-facing label, and the
+ *  leading glyph — so urgency fully describes its own presentation and the row
+ *  colour, the state cell, the footer counters, and the needs-you strip all read
+ *  a SINGLE definition rather than re-spelling the hex/label/glyph at each render
+ *  site. The sort rank lives in the shared projection (`URGENCY_RANK`); the
+ *  colour/label/glyph are this renderer's own presentation choice. Labels follow
+ *  the reviewed mockup ("needs you"); the TUI spells "awaiting you" in its own
+ *  table. (The pulse/spin ANIMATION stays a render-local class keyed off
+ *  urgency, not a field here — it's a behaviour, not a static descriptor.) */
+export const URGENCY: Record<
+  Urgency,
+  { color: string; label: string; glyph: string }
+> = {
+  need: { color: "#e6a23c", label: "needs you", glyph: "●" },
+  work: { color: "#56b6c2", label: "working", glyph: "◜" },
+  idle: { color: "#5b6678", label: "idle", glyph: "○" },
 };
 
 /** The web label set, keyed off `URGENCY`, that the shared `fleetStateLabel`

@@ -90,8 +90,7 @@ function AgentRow(props: {
       {(value) => {
         const urgency = () => agentUrgency(value().agent);
         const tone = () => URGENCY[urgency()];
-        const glyph = () =>
-          urgency() === "need" ? "●" : urgency() === "work" ? "◜" : "○";
+        const glyph = () => tone().glyph;
         const glyphClass = () =>
           urgency() === "need"
             ? "pw-pulse"

@@ -23,7 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import type { FleetFilters } from "./fleet.ts";
+import { type FleetFilters, URGENCY } from "./fleet.ts";
 import { HostGroup } from "./HostGroup.tsx";
 import { rememberServerProcessId } from "./wire.ts";
 
@@ -153,8 +153,11 @@ export function App(): JSX.Element {
       </h1>
 
       <Show when={needTotal() > 0}>
-        <div class="pw-pulse mb-3 flex items-center gap-2 rounded-lg border border-[rgba(230,162,60,.42)] bg-[rgba(230,162,60,.14)] px-3 py-2 text-[#f0b860]">
-          <span>●</span>
+        <div
+          class="pw-pulse mb-3 flex items-center gap-2 rounded-lg border border-[rgba(230,162,60,.42)] bg-[rgba(230,162,60,.14)] px-3 py-2"
+          style={`color:${URGENCY.need.color}`}
+        >
+          <span>{URGENCY.need.glyph}</span>
           <span class="font-semibold">
             {needTotal()} agent{needTotal() === 1 ? "" : "s"} need you
           </span>
@@ -206,10 +209,24 @@ export function App(): JSX.Element {
                 active={filters.sleeping}
                 onClick={() => toggle("sleeping")}
               />
-              <span class="ml-auto text-[#e6a23c]">
-                ● {needTotal()} need you
-              </span>
-              <span class="text-[#56b6c2]">◜ {workTotal()} working</span>
+              <For
+                each={
+                  [
+                    { urgency: "need", count: needTotal },
+                    { urgency: "work", count: workTotal },
+                  ] as const
+                }
+              >
+                {(counter, i) => (
+                  <span
+                    classList={{ "ml-auto": i() === 0 }}
+                    style={`color:${URGENCY[counter.urgency].color}`}
+                  >
+                    {URGENCY[counter.urgency].glyph} {counter.count()}{" "}
+                    {URGENCY[counter.urgency].label}
+                  </span>
+                )}
+              </For>
             </footer>
           </Show>
         </Show>
