@@ -16,16 +16,21 @@ export {
   TranscriptSchema,
 } from "kolu-transcript-core";
 
+export const TranscriptHtmlModeSchema = z.enum(["chat", "full"]);
+export type TranscriptHtmlMode = z.infer<typeof TranscriptHtmlModeSchema>;
+
 export const ExportTranscriptHtmlInputSchema = z.object({
   id: z.string().uuid(),
+  /** `chat` is the lightweight conversation document; `full` includes
+   *  collapsed tool/reasoning audit details. */
+  mode: TranscriptHtmlModeSchema,
 });
 
 export const ExportTranscriptHtmlOutputSchema = z.object({
-  /** Full self-contained HTML document. The client wraps it in a Blob
-   *  and opens it in a new tab — no server-side file write. */
+  /** Self-contained HTML document for the requested mode. The client wraps it
+   *  in a Blob and opens/downloads it — no server-side file write. */
   html: z.string(),
-  /** Suggested filename for "Save Page As…", derived from agent kind +
-   *  session id. */
+  /** Suggested filename, derived from agent kind + session id + mode. */
   filename: z.string(),
 });
 

@@ -1,0 +1,65 @@
+import type { Transcript } from "kolu-common/transcript";
+import { transcriptToHtml } from "kolu-transcript-html";
+import { describe, expect, it } from "vitest";
+
+const bigToolOutput = `secret-output\n${"x".repeat(20_000)}`;
+
+const transcript: Transcript = {
+  agentKind: "codex",
+  sessionId: "thread-1234567890",
+  title: null,
+  repoName: "juspay/kolu",
+  cwd: "/home/srid/code/kolu",
+  model: "gpt-test",
+  contextTokens: 42_000,
+  pr: { number: 12, url: "https://github.com/juspay/kolu/pull/12" },
+  exportedAt: Date.UTC(2026, 5, 23, 12, 0, 0),
+  events: [
+    { kind: "user", text: "Can you explain this?", ts: null },
+    {
+      kind: "assistant",
+      text: "Yes.\n\n```ts\nconst answer = 42;\n```",
+      model: "gpt-test",
+      ts: null,
+    },
+    {
+      kind: "tool_call",
+      id: "call-1",
+      toolName: "bash",
+      inputs: { kind: "bash", command: "printf secret-output" },
+      ts: null,
+    },
+    {
+      kind: "tool_result",
+      id: "call-1",
+      output: bigToolOutput,
+      isError: false,
+      ts: null,
+    },
+  ],
+};
+
+describe("transcriptToHtml export modes", () => {
+  it("renders a lightweight chat log without serialized tool payloads", async () => {
+    const html = await transcriptToHtml(transcript, { mode: "chat" });
+
+    expect(html).toContain("Chat log");
+    expect(html).toContain("Can you explain this?");
+    expect(html).toContain("const answer = 42;");
+    expect(html).not.toContain("secret-output");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("diffs-container");
+    expect(html.length).toBeLessThan(12_000);
+  });
+
+  it("renders the same shell with collapsed full-transcript details", async () => {
+    const html = await transcriptToHtml(transcript, { mode: "full" });
+
+    expect(html).toContain("Full transcript");
+    expect(html).toContain('<details class="detail tool-call">');
+    expect(html).toContain("printf secret-output");
+    expect(html).toContain(bigToolOutput);
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("diffs-container");
+  });
+});

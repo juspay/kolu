@@ -294,7 +294,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                         name: "Export agent session as HTML",
                         section: "active-terminal" as const,
                         description:
-                          "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
+                          "Choose a chat log or full transcript for the current Claude Code, OpenCode, or Codex session",
                         onSelect: () => deps.handleExportSessionAsHtml(),
                       },
                     ]

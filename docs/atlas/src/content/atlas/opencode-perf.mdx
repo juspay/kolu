@@ -4,7 +4,7 @@ description: OpenCode Desktop v2's "10×" is a streaming-markdown number. Mapped
 parents: [analysis]
 status: implemented
 maturity: budding
-updated: 2026-06-14
+updated: 2026-06-23
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -21,13 +21,21 @@ verify; every load-bearing fact re-checked against source + the npm registry.
 <Callout kind="accent" title="Verdict — the number is workload-specific">
 OpenCode's win is a **streaming-markdown message timeline** number. Kolu has no
 such surface: agent output is the `xterm.js` WebGL terminal, the only transcript
-is a static SSR export, and code/diffs are *already* virtualized inside Pierre.
+is a static HTML export, and the live code/diff views are *already* virtualized
+inside Pierre.
 So 4 of their 6 techniques have **no consumer** here. What transfers is narrow,
 and all of it has now shipped: **R1** (bump `@pierre/diffs` 1.2.1 → 1.2.10 + Shiki
 to 4.2.0) <PrLink pr={1360} />, **R2** (move diff/file highlighting to a worker
 pool, off the UI thread) <PrLink pr={1363} />, and **R3+R4** — a CPU-throttle
 gesture harness that proved the canvas pan/zoom write-storm freezes a weak client,
 and the rAF-coalesce that fixes it <PrLink pr={1368} />.
+</Callout>
+
+<Callout kind="accent" title="Update — transcript export left the Pierre path">
+The session HTML export now emits a plain no-JavaScript chat/full document:
+fenced code and tool payloads are escaped text, and the lightweight chat file
+omits hidden tool payloads entirely. So the Pierre/Shiki conclusions in this
+note apply to Kolu's live Code-tab surfaces, not to `transcript-html`.
 </Callout>
 
 <Callout kind="good" title="Update — R1 shipped (#1360)">
@@ -74,7 +82,7 @@ diffs: "@pierre/diffs 1.2.10 ✓ R1 #1360" {
 codeview: "solid-pierre CodeView · R2 ✓ #1363" {
   style.fill: "#e6f4ea"
 }
-views: "client + transcript-html views" {
+views: "client code/diff views" {
   style.fill: "#e6f4ea"
 }
 markdown: "solid-markdown · already cached" {
@@ -122,8 +130,8 @@ tracer -> codeview: "large-diff render"
 
 <Finding sev="low" title="R1 — Bump @pierre/diffs to 1.2.10 + Shiki 4.2.0 — SHIPPED (#1360)">
 Done <PrLink pr={1360} />. `^1.2.1 → ^1.2.10` across `solid-pierre`, `client`,
-`transcript-html`; `shiki ^3.23.0 → ^4.2.0` in `solid-markdown` (single shared
-copy). **Deps-only — no source code changed.** The flagged breaking-change risks
+and `transcript-html` as it existed then; `shiki ^3.23.0 → ^4.2.0` in
+`solid-markdown` (single shared copy). **Deps-only — no source code changed.** The flagged breaking-change risks
 were all non-issues: `fileGap` is used **nowhere** (the `fileGap→spacing` rename
 never bit), `pierreTheme.ts` was already on the `--*-override` convention, and the
 `PIERRE_DIFFS_LINE_HEIGHT=16` virtualizer contract (#1026) held — proven green by
@@ -143,8 +151,8 @@ tokens stream back off-thread. Kolu supplies the `workerFactory`
 (`new Worker(new URL('@pierre/diffs/worker/worker.js', import.meta.url), { type:
 'module' })`), so the worker bundles through the client's Vite — which needed
 `worker.format: 'es'` since Pierre's worker code-splits its Shiki grammars (the
-default `iife` can't). Browser-only (created in `onMount`), so the SSR
-transcript-html path never spawns a Worker. Pool size 2; never torn down. The
+default `iife` can't). Browser-only (created in `onMount`), so static transcript
+exports never spawn a Worker. Pool size 2; never torn down. The
 transitive `@shikijs/transformers@3` duplicate (a `@shikijs/core@3.23.0` beside
 the 4.x engine) remains Pierre's choice — worth watching if it regresses.
 </Finding>
@@ -189,9 +197,10 @@ and untouched; only the state-write defers.
 The verification pass settled every load-bearing claim — and R1 (#1360) has since
 moved the version facts forward:
 
-- `@pierre/diffs` now **1.2.10** across all 3 packages; `shiki` now **4.2.0**
-  (single shared copy); `@pierre/trees` **1.0.0-beta.4** (already latest, left
-  untouched). <Pill variant="done">shipped #1360</Pill>
+- `@pierre/diffs` now **1.2.10** across the live Pierre consumers (`client` and
+  `solid-pierre`; `transcript-html` consumed it at the time but no longer does);
+  `shiki` now **4.2.0** (single shared copy); `@pierre/trees` **1.0.0-beta.4**
+  (already latest, left untouched). <Pill variant="done">shipped #1360</Pill>
 - The Shiki 4 bump was **deliberate, not forced**: Pierre takes `shiki` as a
   regular dep and `solid-markdown` shares it, so bumping only one would split the
   workspace into two shiki copies. <Pill variant="ok">verified</Pill>

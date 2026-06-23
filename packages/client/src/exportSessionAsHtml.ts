@@ -1,11 +1,9 @@
 /** Trigger an HTML export of the active terminal's agent session.
  *
  *  Server reads the on-disk transcript (Claude JSONL / OpenCode SQLite /
- *  Codex JSONL), normalizes to the unified IR, renders to a self-
- *  contained HTML document, and returns the string. We wrap it in a
- *  Blob and open in a new tab — no `window.print()`, no popup-and-save
- *  dance like `exportScrollbackAsPdf`. The user can save the page as a
- *  file via the browser's native menu.
+ *  Codex JSONL), normalizes to the unified IR, renders either a lightweight
+ *  chat log or a full collapsed transcript, and returns the string. We wrap it
+ *  in a Blob and open/download it client-side — no server-side file write.
  *
  *  Distinct from `exportScrollbackAsPdf.ts` (which serializes xterm's
  *  ring buffer) by data source AND delivery: that one runs entirely on
@@ -13,29 +11,56 @@
  *  on the server because the transcript only exists there. */
 
 import type { TerminalId } from "kolu-common/surface";
+import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 import { client } from "./wire";
 
-export async function exportSessionAsHtml(id: TerminalId): Promise<void> {
-  const loadingId = toast.loading("Exporting session…");
+async function fetchHtml(id: TerminalId, mode: TranscriptHtmlMode) {
+  return await client.terminal.exportTranscriptHtml({ id, mode });
+}
+
+function openExport(html: string, filename: string): void {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  // Open in a new tab. The blob URL stays valid as long as this document is
+  // alive; revoke after a generous delay so the new tab has time to fetch and
+  // parse it.
+  const win = window.open(url, "_blank", "noopener");
+  if (!win) triggerDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function downloadExport(html: string, filename: string): void {
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function exportSessionAsHtml(
+  id: TerminalId,
+  mode: TranscriptHtmlMode | "both",
+): Promise<void> {
+  const loadingId = toast.loading(
+    mode === "both" ? "Exporting session files…" : "Exporting session…",
+  );
   try {
-    const { html, filename } = await client.terminal.exportTranscriptHtml({
-      id,
-    });
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    // Open in a new tab. The blob URL stays valid as long as this
-    // document is alive; revoke after a generous delay so the new tab
-    // has time to fetch and parse it.
-    const win = window.open(url, "_blank", "noopener");
-    if (!win) {
-      // Popup blocked — fall back to a download. Same origin (blob:) and no
-      // user-supplied content in the path so this is safe.
-      triggerDownload(url, filename);
+    if (mode === "both") {
+      const exports = await Promise.all([
+        fetchHtml(id, "chat"),
+        fetchHtml(id, "full"),
+      ]);
+      for (const { html, filename } of exports) downloadExport(html, filename);
+      toast.success("Session files exported", { id: loadingId });
+    } else {
+      const { html, filename } = await fetchHtml(id, mode);
+      openExport(html, filename);
+      toast.success(
+        mode === "chat" ? "Chat log exported" : "Full transcript exported",
+        { id: loadingId },
+      );
     }
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    toast.success("Session exported", { id: loadingId });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     toast.error(`Failed to export session: ${message}`, { id: loadingId });

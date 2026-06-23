@@ -1,1085 +1,299 @@
 :root {
-  color-scheme: dark;
-  --bg: #0f0e0b;
-  --bg-elev: #16140f;
-  --bg-sunk: #0a0907;
-  --rule: #2a2620;
-  --rule-strong: #3a3429;
-  --ink: #e8dec8;
-  --ink-2: #b0a48a;
-  --ink-3: #75694e;
-  --accent: #d4823a;
-  --user: #7fcc8a;
-  --assistant: #88aed8;
-  --reasoning: #8895a4;
-  --tool: #c4a046;
-  --error: #dc6260;
+  color-scheme: light dark;
+  --bg: #fbfbf8;
+  --paper: #ffffff;
+  --ink: #181713;
+  --muted: #6f6b61;
+  --line: #dfddd5;
+  --line-strong: #b8b3a6;
+  --you: #1e7a58;
+  --ai: #2f5f9a;
+  --detail: #7b5f18;
+  --error: #a53a34;
+  --code-bg: #f3f2ed;
 }
-@media (prefers-color-scheme: light) {
+
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light;
-    --bg: #fbf7ee;
-    --bg-elev: #f2ebd9;
-    --bg-sunk: #f6f0e0;
-    --rule: #d2c7ae;
-    --rule-strong: #b4a88a;
-    --ink: #1b1611;
-    --ink-2: #4a4234;
-    --ink-3: #87796a;
-    --accent: #b5400f;
-    --user: #2f7a3a;
-    --assistant: #2d5f8a;
-    --reasoning: #5b6a78;
-    --tool: #8e6418;
-    --error: #9b2828;
+    --bg: #151511;
+    --paper: #1d1c18;
+    --ink: #ece8dc;
+    --muted: #a9a295;
+    --line: #3b382f;
+    --line-strong: #585143;
+    --you: #73c79b;
+    --ai: #8eb6e6;
+    --detail: #d3ad4c;
+    --error: #e07870;
+    --code-bg: #11110e;
   }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0f0e0b;
-  --bg-elev: #16140f;
-  --bg-sunk: #0a0907;
-  --rule: #2a2620;
-  --rule-strong: #3a3429;
-  --ink: #e8dec8;
-  --ink-2: #b0a48a;
-  --ink-3: #75694e;
-  --accent: #d4823a;
-  --user: #7fcc8a;
-  --assistant: #88aed8;
-  --reasoning: #8895a4;
-  --tool: #c4a046;
-  --error: #dc6260;
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #fbf7ee;
-  --bg-elev: #f2ebd9;
-  --bg-sunk: #f6f0e0;
-  --rule: #d2c7ae;
-  --rule-strong: #b4a88a;
-  --ink: #1b1611;
-  --ink-2: #4a4234;
-  --ink-3: #87796a;
-  --accent: #b5400f;
-  --user: #2f7a3a;
-  --assistant: #2d5f8a;
-  --reasoning: #5b6a78;
-  --tool: #8e6418;
-  --error: #9b2828;
-}
-/* Pierre's :host sets color-scheme: light dark inside its shadow,
-   * which makes light-dark() resolve to the system preference. We
-   * override with !important from the host side so the document's
-   * theme choice (above) wins, and Pierre's tokens flip with the
-   * dock toggle. */
-diffs-container[data-pierre] {
-  color-scheme: inherit !important;
 }
 
 * {
   box-sizing: border-box;
 }
+
 html,
 body {
   margin: 0;
   padding: 0;
 }
+
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family:
-    ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-  font-size: 15px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  counter-reset: prompt;
+  font:
+    16px / 1.58 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
-::selection {
-  background: var(--accent);
-  color: var(--bg);
-}
+
 a {
-  color: var(--accent);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-a:hover {
-  text-decoration-thickness: 2px;
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 0.18em;
 }
 
-/* Thin themed scrollbars in any horizontally-scrollable card-text /
-   * pre viewport. Replaces Chrome's chunky default. Pierre owns the
-   * scrollbar styling inside its shadow DOM. */
-.card-text--code,
-pre.text {
-  scrollbar-width: thin;
-  scrollbar-color: var(--rule-strong) transparent;
-}
-.card-text--code::-webkit-scrollbar,
-pre.text::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-.card-text--code::-webkit-scrollbar-track,
-pre.text::-webkit-scrollbar-track {
-  background: transparent;
-}
-.card-text--code::-webkit-scrollbar-thumb,
-pre.text::-webkit-scrollbar-thumb {
-  background: var(--rule-strong);
-  border-radius: 3px;
-}
-.card-text--code::-webkit-scrollbar-thumb:hover,
-pre.text::-webkit-scrollbar-thumb:hover {
-  background: var(--ink-3);
-}
-
-/* --- Document --- */
-.doc {
-  max-width: 48rem;
+.document {
+  width: min(100% - 2rem, 48rem);
   margin: 0 auto;
-  padding: 2.5rem 1.25rem 8rem 1.25rem;
-}
-@media (min-width: 768px) {
-  .doc {
-    padding: 3rem 1.5rem 8rem 3rem;
-  }
+  padding: 3rem 0 5rem;
 }
 
-/* --- Masthead --- */
 .masthead {
+  border-bottom: 1px solid var(--line);
   margin-bottom: 2rem;
-  position: relative;
-}
-.brand {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.25rem 0.5rem 0.25rem 0.375rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink-3);
-  text-decoration: none;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: var(--bg-elev);
-  transition:
-    color 0.12s ease,
-    border-color 0.12s ease;
-}
-.brand:hover {
-  color: var(--ink);
-  border-color: var(--rule-strong);
-}
-.brand .brand-mark {
-  display: inline-flex;
-}
-.brand .brand-name {
-  font-weight: 600;
+  padding-bottom: 1.25rem;
 }
 
-/* --- Footer colophon --- */
-.colophon {
-  margin-top: 4rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--rule);
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.75rem;
-  color: var(--ink-3);
-}
-.colophon a {
-  color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px dotted currentColor;
-}
-.colophon a:hover {
-  color: var(--user);
-}
-.colophon-mark {
-  display: inline-flex;
-  flex-shrink: 0;
-}
-.eyebrow {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ink-3);
-  margin-bottom: 1.25rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.625rem;
-  align-items: center;
-}
-.eyebrow .sep {
-  color: var(--rule-strong);
-}
-.eyebrow .repo {
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-}
-.eyebrow .pr {
-  color: var(--user);
-  text-decoration: none;
-  border-bottom: 1px dotted currentColor;
-}
-.eyebrow .pr:hover {
-  color: var(--accent);
-}
-.title {
-  font-family:
-    ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-  font-size: clamp(1.625rem, 3.6vw, 2.25rem);
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  margin: 0 0 1rem 0;
-  color: var(--ink);
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-.title-prefix {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.375rem;
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  line-height: 1.4;
-}
-.title-prefix .title-repo {
-  color: var(--accent);
-  font-weight: 600;
-}
-.title-prefix .title-pr {
-  color: var(--user);
-  text-decoration: none;
-  border-bottom: 1px dotted currentColor;
-}
-.title-prefix .title-pr:hover {
-  color: var(--accent);
-}
-.title-prefix .title-sep {
-  color: var(--rule-strong);
-}
-.title-text {
-  display: block;
-}
-.byline {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+.eyebrow,
+.repo-line,
+.meta,
+footer,
+time,
+.model,
+.muted,
+.detail-marker {
+  color: var(--muted);
   font-size: 0.8125rem;
-  color: var(--ink-2);
-  line-height: 1.65;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.625rem;
-  align-items: center;
-}
-.byline .sep {
-  color: var(--rule-strong);
-  margin: 0 0.125rem;
-}
-.byline .key {
-  color: var(--ink-3);
-}
-.byline code {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.78125rem;
-  color: var(--ink-2);
-}
-/* Runtime stamp: agent · model · tokens grouped in a single subtle
-     pill so the "who/what is talking" trio reads as one beat. */
-.byline-runtime {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.125rem 0.5rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  font-size: 0.75rem;
-}
-.byline-runtime .byline-rt-sep {
-  color: var(--rule-strong);
-}
-.byline-runtime .byline-agent {
-  color: var(--accent);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.byline-runtime .byline-model {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.71875rem;
-  color: var(--ink);
-  background: none;
-  border: none;
-  padding: 0;
-}
-.byline-runtime .byline-tokens {
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-.rule {
-  border: none;
-  border-top: 2px solid var(--ink);
-  border-bottom: 1px solid var(--ink);
-  height: 4px;
-  background: transparent;
-  margin: 1.5rem 0 0 0;
 }
 
-/* --- Events --- */
-.events {
+.eyebrow,
+.meta,
+.model,
+summary,
+.detail-marker {
+  letter-spacing: 0.01em;
+}
+
+.eyebrow,
+.repo-line,
+.meta {
+  margin: 0.25rem 0;
+}
+
+h1 {
+  margin: 0.45rem 0 0.6rem;
+  max-width: 42rem;
+  font:
+    650 clamp(1.75rem, 4vw, 2.7rem) / 1.08 ui-serif,
+    Georgia,
+    "Times New Roman",
+    serif;
+  letter-spacing: -0.018em;
+}
+
+.conversation {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
 }
-.event {
-  display: grid;
-  grid-template-columns: 2.25rem 1fr;
-  gap: 0.625rem;
-  position: relative;
+
+.message {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 1rem;
 }
-@media (min-width: 768px) {
-  .event {
-    grid-template-columns: 2.75rem 1fr;
-    gap: 0.875rem;
-  }
+
+.message.user {
+  border-color: var(--you);
 }
-/* Nested-subtask indent: events between a subtask_start and its
-   * subtask_end (and the boundaries themselves) carry an inline
-   * --subtask-depth. Each level shifts right by one indent step;
-   * horizontal offset alone conveys nesting — no rail, since the
-   * assistant card already has its own subtle left border and a
-   * second one stacked outside it reads as visual noise. */
-.event[style*="--subtask-depth"],
-.subtask-boundary[style*="--subtask-depth"] {
-  padding-left: calc(var(--subtask-depth, 0) * 1.25rem);
+
+.message.assistant {
+  border-color: var(--ai);
 }
-.gutter {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  padding-top: 0.125rem;
-  color: var(--ink-3);
-  user-select: none;
-}
-.gutter-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--rule);
-  background: var(--bg-elev);
-}
-.gutter-num {
-  font-family: ui-serif, Georgia, serif;
-  font-size: 0.6875rem;
-  color: var(--ink-3);
-  margin-top: 0.1875rem;
-  font-feature-settings: "lnum", "tnum";
-  letter-spacing: 0.06em;
-}
-.card {
-  min-width: 0;
-  padding-top: 0.125rem;
-}
-.card-head {
+
+.message header {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.22rem;
 }
-.card-role {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
+
+.message strong {
+  color: var(--ink);
+  font-size: 0.82rem;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-weight: 600;
-  color: var(--ink-2);
 }
-.card-model {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
-  color: var(--ink-3);
-}
-.ts {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
-  color: var(--ink-3);
+
+.message time {
   margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-/* User events: tinted pulled-quote on rust accent. The wash bonds the
-     card to its gutter color so a User turn reads as "human input zone"
-     at a glance, contrasting strongly with the clean Assistant card. */
-.event--user .gutter-icon {
-  color: var(--user);
-  border-color: var(--user);
+.body > :first-child {
+  margin-top: 0;
 }
-.event--user .gutter-num::before {
-  counter-increment: prompt;
-  content: counter(prompt, decimal-leading-zero);
+
+.body > :last-child {
+  margin-bottom: 0;
 }
-.event--user .card {
-  border-left: 3px solid var(--user);
-  padding: 0.5rem 0.75rem 0.5rem 0.875rem;
-  margin-left: -1px;
-  background: color-mix(in srgb, var(--user) 7%, transparent);
-  border-radius: 0 4px 4px 0;
+
+.body h3,
+.body h4,
+.body h5,
+.body h6 {
+  margin: 0.85rem 0 0.25rem;
+  line-height: 1.25;
 }
-/* User prompts render through the markdown pipeline (with `breaks:
-   true` so multi-line typed input keeps its line breaks), so the
-   container is a `<div>` with `.md` children — paragraphs, lists,
-   code, etc. The serif voice stays on the wrapper and inherits
-   into prose; `.md code` overrides it to monospace. */
-.event--user .card-text--user {
+
+code,
+pre {
   font-family:
-    ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-  font-size: 1rem;
-  line-height: 1.5;
-  font-weight: 500;
-  color: var(--ink);
-  margin: 0;
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+}
+
+code {
+  background: var(--code-bg);
+  border-radius: 0.22rem;
+  padding: 0.04rem 0.25rem;
+}
+
+pre {
+  overflow-x: auto;
+  white-space: pre-wrap;
   word-break: break-word;
-}
-.event--user.is-current .card {
-  background: color-mix(in srgb, var(--user) 14%, transparent);
-  border-left-width: 4px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--user) 30%, transparent);
-}
-.event--user.is-current .gutter-num {
-  color: var(--user);
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.8rem 0.9rem;
 }
 
-/* Assistant events: sans-serif working-notes voice, steel-blue accent.
-     A hairline left rule mirrors the User card's stronger frame so
-     consecutive Assistant cards don't feel "loose" between Users. */
-.event--assistant .gutter-icon {
-  color: var(--assistant);
-  border-color: var(--assistant);
-}
-.event--assistant .card {
-  border-left: 1px solid color-mix(in srgb, var(--assistant) 35%, transparent);
-  padding-left: 0.875rem;
-  margin-left: -1px;
-}
-.card-text--assistant {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  font-size: 0.9375rem;
-  line-height: 1.55;
-  color: var(--ink);
+pre code {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
 }
 
-/* Markdown elements inside assistant text — programmer-density;
-     consecutive blocks sit a single line-leading apart, no extra
-     margin. */
-.md > :first-child {
-  margin-top: 0 !important;
+blockquote {
+  border-left: 3px solid var(--line-strong);
+  color: var(--muted);
+  padding-left: 0.8rem;
 }
-.md > :last-child {
-  margin-bottom: 0 !important;
-}
-.md p {
-  margin: 0 0 0.125rem 0;
-}
-.md strong {
-  font-weight: 700;
-}
-.md em {
-  font-style: italic;
-}
-.md code {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.85em;
-  background: var(--bg-elev);
-  border-radius: 2px;
-  padding: 0 0.1875rem;
-  color: var(--ink);
-}
-.md a {
-  color: var(--accent);
-}
-.md .md-h {
-  font-family: ui-serif, Georgia, serif;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  margin: 0.5rem 0 0.0625rem 0;
-}
-.md h3.md-h {
-  font-size: 1.0625rem;
-}
-.md h4.md-h {
-  font-size: 1rem;
-}
-.md h5.md-h {
-  font-size: 0.9375rem;
-  color: var(--ink-2);
-}
-.md ul.md-list,
-.md ol.md-list {
-  margin: 0 0 0.125rem 0;
-  padding-left: 1.25rem;
-}
-.md .md-list li {
-  margin: 0;
-  line-height: 1.5;
-}
-.md .md-list li + li {
-  margin-top: 0.0625rem;
-}
-.md .md-list li > p {
-  margin: 0;
-}
-.md .md-list li > p + p {
-  margin-top: 0.0625rem;
-}
-.md .md-list--ordered li::marker {
-  color: var(--ink-3);
-  font-feature-settings: "lnum", "tnum";
-}
-.md .md-quote {
-  margin: 0 0 0.125rem 0;
-  padding: 0.125rem 0 0.125rem 0.75rem;
-  border-left: 3px solid var(--rule-strong);
-  color: var(--ink-2);
-  font-style: italic;
-}
-.md .md-hr {
-  border: none;
-  border-top: 1px solid var(--rule);
-  margin: 0.5rem 0;
-}
-.md .md-table-wrap {
-  margin: 0.25rem 0 0.375rem 0;
+
+table {
+  border-collapse: collapse;
+  display: block;
   overflow-x: auto;
 }
-.md .md-table {
-  border-collapse: collapse;
-  font-size: 0.8125rem;
-  line-height: 1.4;
-  color: var(--ink);
-}
-.md .md-table th,
-.md .md-table td {
-  padding: 0.25rem 0.625rem;
-  border-bottom: 1px solid var(--rule);
+
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.3rem 0.55rem;
   text-align: left;
   vertical-align: top;
 }
-.md .md-table thead th {
-  border-bottom: 1px solid var(--rule-strong);
-  font-weight: 600;
-  color: var(--ink);
-  text-transform: none;
-  letter-spacing: 0;
-}
-.md .md-table tbody tr:last-child td {
-  border-bottom: none;
-}
-/* Pierre owns fenced code blocks — the diffs-container's shadow
-   * root carries shiki tokens, gutters, and scrolling. We only set
-   * spacing here so Pierre's surface blends with the parchment
-   * palette. */
-.md diffs-container[data-pierre] {
-  display: block;
-  margin: 0.25rem 0 0.375rem 0;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  overflow: hidden;
-}
-/* Tighten the assistant card line-height — counters the visual
-     "airy paragraphs" feel even when block margins are minimal. */
-.card-text--assistant.md {
-  line-height: 1.5;
+
+.body p,
+.body ul,
+.body ol,
+.body blockquote,
+.body pre,
+.body table {
+  margin: 0.45rem 0;
 }
 
-/* Reasoning: muted, collapsed by default. */
-.event--reasoning {
-  opacity: 0.85;
-}
-.event--reasoning .gutter-icon {
-  color: var(--reasoning);
-  border-color: var(--reasoning);
-}
-.event--reasoning .card details summary .card-role {
-  color: var(--reasoning);
-}
-.event--reasoning .card-text {
-  font-family: ui-serif, Georgia, serif;
-  font-size: 0.9375rem;
-  color: var(--ink-2);
-  background: var(--bg-elev);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.625rem 0.75rem;
-  margin: 0.5rem 0 0 0;
-  line-height: 1.55;
-}
-/* Reasoning is rendered through the markdown pipeline, so the
-   * container shouldn't force italic onto everything — emphasis is
-   * the markdown's own em job. Keep a muted, slightly italic tone in
-   * paragraphs only so the chain-of-thought reads as commentary
-   * without flattening inline code, bold, links, etc. */
-.event--reasoning .card-text.md p {
-  font-style: italic;
+.detail {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--detail);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--paper) 78%, transparent);
 }
 
-/* Edit events: agent file changes rendered through Pierre's SSR.
-   * Visible by default; the dock toggle can hide them. Distinct from
-   * tool calls (which stay hidden by their own toggle). */
-body[data-hide-edits="true"] .event--edit {
-  display: none;
-}
-.event--edit .gutter-icon {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.event--edit .card-role {
-  color: var(--accent);
-  letter-spacing: 0.16em;
-}
-.event--edit .tool-name {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.71875rem;
-  color: var(--ink-3);
-}
-/* diffs-container is Pierre's web-component host; the shadow root
-   * carries the rendered chunk. We only style the host's outer frame
-   * so it sits inside the event card cleanly. */
-diffs-container[data-pierre] {
-  display: block;
-  margin-top: 0.25rem;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg-sunk);
-}
-diffs-container[data-pierre] + diffs-container[data-pierre] {
-  margin-top: 0.5rem;
+.detail.error {
+  border-left-color: var(--error);
 }
 
-/* Generic collapse toggle — same chrome wherever a body folds:
-   * msg-collapsible (prose + Pierre code chunks), and any future
-   * collapsible surface. The chevron rotates -90° when the wrapper
-   * has `is-collapsed`, mirroring the subtask-boundary disclosure. */
-.collapse-toggle {
-  appearance: none;
-  -webkit-appearance: none;
-  background: var(--bg-elev);
-  border: none;
-  border-top: 1px solid var(--rule);
-  width: 100%;
-  padding: 0.375rem 0.625rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-2);
+summary {
   cursor: pointer;
-  transition:
-    color 0.12s ease,
-    background 0.12s ease;
-}
-.collapse-toggle:hover {
-  color: var(--accent);
-  background: var(--bg-sunk);
-}
-.collapse-chevron {
-  display: inline-block;
-  font-size: 0.625rem;
-  color: var(--ink-3);
-  transition: transform 0.15s ease;
-}
-.msg-collapsible.is-collapsed .collapse-toggle .collapse-chevron,
-.subtask-boundary--start[data-collapsed="true"] .collapse-chevron {
-  transform: rotate(-90deg);
-}
-.collapse-toggle:hover .collapse-chevron {
-  color: currentColor;
+  color: var(--muted);
+  padding: 0.6rem 0.8rem;
+  font-size: 0.85rem;
 }
 
-/* Collapsible body wrapper. When the wrapper carries
-   * `is-collapsed`, clip the body to a scannable preview and fade
-   * its tail. Works for prose, code chunks, and any future
-   * collapsible surface — the body always lives inside `.collapse-body`. */
-.msg-collapsible.is-collapsed > .collapse-body {
-  max-height: 16rem;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    black calc(100% - 2.5rem),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    black calc(100% - 2.5rem),
-    transparent
-  );
+.detail[open] summary {
+  border-bottom: 1px solid var(--line);
 }
 
-/* Subtask boundaries: a thin labeled divider that visually scopes the
-   * inlined child-session events between start/end markers. */
-.subtask-boundary {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 0.625rem;
-  margin: 1.25rem 0 0.5rem;
-}
-.subtask-boundary--end {
-  margin: 0.5rem 0 1.5rem;
-}
-.subtask-rule {
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--rule-strong),
-    transparent
-  );
-}
-.subtask-label {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.subtask-label--end {
-  color: var(--ink-3);
-}
-.subtask-boundary--start {
-  /* Reset the default button chrome — the boundary is rendered as
-   * a `<button>` for a11y (keyboard focusable, clickable, screen
-   * reader–friendly) but visually it's a divider with a label. */
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  border: 0;
-  font: inherit;
-  color: inherit;
-  text-align: inherit;
-  cursor: pointer;
-  user-select: none;
-  width: 100%;
-  transition: color 0.12s ease;
-}
-.subtask-boundary--start:hover .subtask-label,
-.subtask-boundary--start:focus-visible .subtask-label {
-  color: var(--accent);
-}
-.subtask-boundary--start:focus-visible {
-  outline: 1px dashed var(--accent);
-  outline-offset: 2px;
-}
-/* The subtask boundary's chevron lives inside `.subtask-label`;
-   * spacing between it and the label text is set on the chevron's
-   * right margin so the rotation stays centered. Rotation is shared
-   * with the generic `.collapse-chevron` rule above. */
-.subtask-label .collapse-chevron {
-  margin-right: 0.375rem;
-}
-/* When a subtask is collapsed, hide every inlined child event up to
-   * (and including) its matching end divider. The JS handler tags them
-   * with the is-subtask-hidden class based on sibling traversal that
-   * respects nested subtasks. */
-.is-subtask-hidden {
-  display: none !important;
-}
-.subtask-agent {
-  color: var(--accent);
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.subtask-id {
-  color: var(--ink-3);
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.625rem;
-  text-transform: none;
-  letter-spacing: 0;
-  margin-left: 0.375rem;
+.detail-body {
+  padding: 0 0.8rem 0.8rem;
 }
 
-/* Tool events: bronze accent, hidden by default. Skills opt out of
- * the hide rule — they read as user-facing directives, not the
- * mechanical exec/read/grep noise the dock toggle is meant to mute. */
-body[data-hide-tools="true"] .event--tool:not(.event--skill) {
-  display: none;
-}
-.event--skill .gutter-icon,
-.event--skill details summary .card-role {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.event--skill .tool-name {
-  color: var(--accent);
-}
-body[data-hide-reasoning="true"] .event--reasoning {
-  display: none;
-}
-.event--tool .gutter-icon {
-  color: var(--tool);
-  border-color: var(--tool);
-}
-.event--tool details summary .card-role {
-  color: var(--tool);
-}
-.event--tool .tool-name {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.75rem;
-  color: var(--tool);
-}
-.event--tool .tool-summary {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.71875rem;
-  color: var(--ink-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.event--tool.event--error .gutter-icon {
-  color: var(--error);
-  border-color: var(--error);
-}
-.event--tool.event--error details summary .card-role {
-  color: var(--error);
-}
-.event--tool .card-text--code {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.78125rem;
-  line-height: 1.5;
-  background: var(--bg-sunk);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.625rem 0.75rem;
-  margin: 0.5rem 0 0 0;
-  color: var(--ink-2);
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-x: auto;
+.detail-body pre {
+  margin-bottom: 0;
 }
 
-/* Details/summary chrome */
-details summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-}
-details summary::-webkit-details-marker {
-  display: none;
-}
-details summary::before {
-  content: "›";
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  color: var(--ink-3);
-  font-size: 0.875rem;
-  transition: transform 0.12s ease;
-  display: inline-block;
-  margin-right: 0.125rem;
-}
-details[open] summary::before {
-  transform: rotate(90deg);
-  color: var(--ink-2);
+.detail-marker {
+  border-left: 3px solid var(--line);
+  padding-left: 1rem;
 }
 
 .empty {
-  color: var(--ink-3);
-  text-align: center;
-  padding: 4rem 1rem;
+  color: var(--muted);
   font-style: italic;
-  font-family: ui-serif, Georgia, serif;
 }
 
-/* --- Floating dock (bottom-right, always visible) --- */
-.dock {
-  position: fixed;
-  right: 1.25rem;
-  bottom: 1.25rem;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  padding: 0.5rem;
-  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid var(--rule);
-  border-radius: 12px;
-  box-shadow:
-    0 1px 0 rgba(0, 0, 0, 0.04),
-    0 12px 32px -8px rgba(0, 0, 0, 0.25);
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.75rem;
-  min-width: 12.5rem;
-  color: var(--ink);
-}
-.dock-btn {
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 0.5rem 0.625rem;
-  color: var(--ink);
-  font: inherit;
-  cursor: pointer;
-  display: grid;
-  grid-template-columns: 1rem 1fr auto;
-  align-items: center;
-  gap: 0.5rem;
-  text-align: left;
-  width: 100%;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease;
-}
-.dock-btn:hover {
-  background: var(--bg-sunk);
-  border-color: var(--rule);
-}
-.dock-btn .dock-icon {
-  color: var(--ink-3);
-  display: inline-flex;
-}
-.dock-btn:hover .dock-icon {
-  color: var(--accent);
-}
-.dock-btn .dock-label {
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-.dock-btn .dock-state {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
-  color: var(--ink);
-  padding: 0.125rem 0.375rem;
-  background: var(--bg-sunk);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  min-width: 3rem;
-  text-align: center;
-}
-.dock-btn[aria-pressed="true"] .dock-state {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.dock-btn[data-toggle="theme"] .dock-state {
-  color: var(--ink);
+footer {
+  border-top: 1px solid var(--line);
+  margin-top: 3rem;
+  padding-top: 1rem;
 }
 
-.dock-divider {
-  height: 1px;
-  background: var(--rule);
-  margin: 0.125rem 0.375rem;
-}
-.dock-nav {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.125rem;
-}
-.dock-nav button {
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  color: var(--ink-2);
-  font: inherit;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  width: 1.875rem;
-  height: 1.875rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    color 0.12s ease,
-    border-color 0.12s ease;
-}
-.dock-nav button:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.dock-pos {
-  text-align: center;
-  font-family: ui-serif, Georgia, serif;
-  font-size: 0.8125rem;
-  color: var(--ink-2);
-  font-feature-settings: "lnum", "tnum";
-  letter-spacing: 0.05em;
-}
-.dock-pos [data-nav-pos] {
-  color: var(--accent);
-  font-weight: 600;
-}
+@media (max-width: 520px) {
+  .document {
+    width: min(100% - 1.25rem, 48rem);
+    padding-top: 1.5rem;
+  }
 
-.hint {
-  margin: 1.5rem 0 0 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 0.75rem;
-  color: var(--ink-3);
-  text-align: center;
-}
-.hint kbd {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.6875rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--rule);
-  border-bottom-width: 2px;
-  border-radius: 3px;
-  padding: 0.0625rem 0.25rem;
-  color: var(--ink-2);
+  .message {
+    padding-left: 0.75rem;
+  }
+
+  .message header {
+    flex-wrap: wrap;
+  }
+
+  .message time {
+    margin-left: 0;
+  }
 }
 
 @media print {
-  .dock,
-  .hint {
-    display: none !important;
-  }
   body {
     background: white;
     color: black;
+  }
+
+  .document {
+    width: auto;
+    padding: 0;
+  }
+
+  .detail {
+    break-inside: avoid;
   }
 }

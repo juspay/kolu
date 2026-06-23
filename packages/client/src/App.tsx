@@ -43,6 +43,9 @@ import { createCommands } from "./commands";
 import DegradedCanvas from "./kaval/DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
+import ExportSessionDialog, {
+  exportSessionDialog,
+} from "./ExportSessionDialog";
 import CompactTileView from "./CompactTileView";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -192,7 +195,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
-    handleExportSessionAsHtml: () => void crud.exportSessionHtml(),
+    handleExportSessionAsHtml: () => exportSessionDialog.openDialog(),
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
@@ -323,6 +326,7 @@ const App: Component = () => {
       <DiagnosticInfo activeId={store.activeId()} />
       <AboutDialog />
       <WelcomeDialog install={pwaInstall} />
+      <ExportSessionDialog />
       <CloseConfirm
         target={closeConfirmTarget()}
         onCancel={() => {

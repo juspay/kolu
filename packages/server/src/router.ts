@@ -320,9 +320,9 @@ export const appRouter = t.router({
             message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
           });
         }
-        const html = await transcriptToHtml(transcript);
+        const html = await transcriptToHtml(transcript, { mode: input.mode });
         const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
-        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}.html`;
+        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}-${input.mode}.html`;
         return { html, filename };
       },
     ),
