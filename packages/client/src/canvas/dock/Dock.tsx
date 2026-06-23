@@ -257,7 +257,7 @@ const RailOrCards: Component<{
                   {(row) => (
                     <RailChip
                       id={row.id}
-                      bucket={row.bucket}
+                      pip={row.pip}
                       flatIndex={flatIndexOf().get(row.id) ?? -1}
                     />
                   )}
@@ -580,14 +580,23 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
 
 /** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
  *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the
- *  ring; bucket state animates the ring (breath for `awaiting`,
+ *  ring; the PAINT bucket animates the ring (breath for `awaiting`,
  *  spin-glow for `working`, flat for `idle`/`none`); active wears an
- *  accent halo; unread shows an alert badge top-right. The bucket
- *  comes from the same `RankedDockRow` the cards mode reads, so the
- *  two modes can never disagree on which terminal is awaiting. */
+ *  accent halo; unread shows an alert badge top-right. The border tint and
+ *  glow read `pip` (the PAINT bucket) — the SAME fold the cards-mode row pip
+ *  and the tile title glow through — so a fresh `waiting` agent keeps its
+ *  lingering `awaiting` glow in the rail exactly as it does in cards mode and
+ *  on its tile title, instead of going dark because the ORDER bucket ranks it
+ *  `idle`. The `pip` comes from the same `RankedDockRow` the cards-mode row pip
+ *  reads, so the two modes can never disagree on which terminal glows. */
 const RailChip: Component<{
   id: TerminalId;
-  bucket: DockRowBucket;
+  /** PAINT bucket — drives the chip border tint and the state glow, identical
+   *  to the cards-mode row pip and the tile-title glow (all `agentPaintClass`).
+   *  The rail carries no ORDER bucket because, unlike cards mode, it exposes no
+   *  ordering hook through `data-bucket` — the attribute is a pure paint/styling
+   *  selector here. */
+  pip: DockRowBucket;
   flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
@@ -610,7 +619,7 @@ const RailChip: Component<{
             type="button"
             data-testid="dock-rail"
             data-terminal-id={props.id}
-            data-bucket={props.bucket}
+            data-bucket={props.pip}
             data-agent-state={activeArm(c().meta)?.agent?.state}
             data-active={active() ? "" : undefined}
             data-unread={unread() ? "" : undefined}
@@ -620,8 +629,8 @@ const RailChip: Component<{
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"
             style={{ "--repo-color": c().info.repoColor }}
-            title={chipTooltip(c().info, props.bucket)}
-            aria-label={chipTooltip(c().info, props.bucket)}
+            title={chipTooltip(c().info, props.pip)}
+            aria-label={chipTooltip(c().info, props.pip)}
           >
             <Show when={showShortcutHint()}>
               <span
@@ -659,11 +668,12 @@ const RailChip: Component<{
             </Show>
             {/* Agent-state glow on its own child so it animates opacity/transform
              *  (compositor) rather than repainting the chip's box-shadow every
-             *  frame — see #1308. Only the two live buckets render it; the CSS
-             *  in index.css picks breath (awaiting) vs orbit (working). */}
-            <Show
-              when={props.bucket === "awaiting" || props.bucket === "working"}
-            >
+             *  frame — see #1308. Gated on the PAINT bucket (`pip`), not the order
+             *  bucket, so a fresh `waiting` agent keeps its lingering glow here as
+             *  it does in cards mode and on its tile title. Only the two paint
+             *  buckets render it; the CSS in index.css picks breath (awaiting) vs
+             *  orbit (working). */}
+            <Show when={props.pip === "awaiting" || props.pip === "working"}>
               <div class="dock-rail-chip-glow" aria-hidden="true" />
             </Show>
           </button>
