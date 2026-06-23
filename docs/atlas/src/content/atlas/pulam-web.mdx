@@ -92,23 +92,24 @@ Leave it open on a second monitor: a **fleet of every terminal across every host
 ## Architecture-level changes
 
 <D2
-  caption="pulam-web is browser ↔ backend ↔ N pulam over ssh. The backend auto-provisions + mirrors each remote pulam (getHostSession + provisionAgent + mirrorRemoteSurface), wraps git status into a value-bearing stream server-side, and re-serves the aggregate to the browser over one /rpc/ws per host via oRPC's RPCHandler. The browser reads it through websocketLink + surfaceClient + Solid reconcile — the SAME @kolu/surface code kolu's own Code tab uses, which is why a green pulam-web proves kolu's R8b leg. Green = shipped @kolu/* primitives reused as-is; violet = the new pulam-web wiring."
+  caption="pulam-web is browser ↔ backend ↔ N pulam over ssh. The backend auto-provisions + mirrors each remote pulam via the shared @kolu/surface-nix-host helpers (getHostSession + pumpRemoteSurface, keyed by buildHostRegistry), re-serves the whole terminalWorkspaceSurface per host, and dispatches one /rpc/ws?host= per host to its oRPC RPCHandler. The browser reads it through websocketLink + surfaceClient + Solid reconcile — the SAME @kolu/surface code kolu's own Code tab uses, which is why a green pulam-web proves kolu's R8b leg. Green = shipped @kolu/* primitives reused as-is; teal = the newly-shared fan-out helpers (drishti adopts them too); violet = the app-local pulam-web wiring (re-serve + ws-upgrade)."
   code={`direction: down
 classes: {
   cli: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
   new: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
   ship: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+  shared: { style.fill: "#e0f2f1"; style.stroke: "#a7d8d4"; style.font-color: "#0f766e" }
   host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
 }
-browser: "browser (SolidJS)\\nsurfaceClients(websocketLink) · .streams.use() + reconcile" { class: cli }
-be: "pulam-web backend (Node)\\nper-host RPCHandler.upgrade(ws) on /rpc/ws" { class: new }
-mirror: "per host: getHostSession + provisionAgent\\nmirrorRemoteSurface → value-bearing gitStatus wrap" { class: new }
-agg: "startFleet · FleetSink · RepoWatchSet\\n(pulam-tui core, renderer-agnostic)" { class: ship }
+browser: "browser (SolidJS)\\nsurfaceClient(websocketLink) · .collections.awareness.use() + reconcile" { class: cli }
+be: "pulam-web backend (Node)\\napp-local re-serve + ws-upgrade · RPCHandler.upgrade per /rpc/ws?host=" { class: new }
+agg: "@kolu/surface-nix-host (NEW shared)\\nbuildHostRegistry · pumpRemoteSurface (drishti adopts too)" { class: shared }
+mirror: "per host: getHostSession (reconnecting)\\nmirrorRemoteSurface → re-serve whole surface" { class: ship }
 pulam1: "pulam (host A) — terminal-workspace surface" { class: host }
 pulam2: "pulam (host B) — terminal-workspace surface" { class: host }
 browser -> be: "ws · oRPC (kolu's exact leg)"
-be -> mirror: serves
-mirror -> agg: reuses
+be -> agg: "fans out via"
+agg -> mirror: "drives"
 mirror -> pulam1: "ssh stdio · nix copy --derivation"
 mirror -> pulam2: "ssh stdio"
 `}
@@ -116,7 +117,16 @@ mirror -> pulam2: "ssh stdio"
 
 **It is the same `@kolu/surface` code kolu and drishti run — that is the whole point.** Serve side: `implementSurface` → oRPC `RPCHandler` (`@orpc/server/ws`) → `handler.upgrade(ws)` on a `/rpc/ws` socket. Consume side: `websocketLink` → `surfaceClient`/`surfaceClients` → the reactive `.use()` hooks (`surfaceClient.ts` owns snapshot-then-deltas + `reconcile`). drishti proves this trio is electricity; kolu's Code tab proves `.streams.use()` for a **value-bearing** `gitStatus` stream. pulam-web is the first *standalone* app to put those together — value-bearing git status, over `.streams.use()`, **sourced from a mirror** — which is precisely R8b's path.
 
-**Node, matching kolu's own stack.** The surface leg is identical `@kolu/surface` code on any runtime — drishti even writes its server Node-style (`@hono/node-server` + the `ws` package) and runs it on Bun *only* for its `Bun.build` client bundler. We go **Node**, like kolu-server, and bundle the SolidJS frontend with **Vite + `vite-plugin-solid`** (kolu's own client toolchain) rather than drishti's `Bun.build` — so pulam-web is kolu's stack end-to-end. drishti's *server / provision / mirror* code ports to Node verbatim (it is already Node-shaped); only the bundler differs. **There is no `serveOverWebSocket` helper** — the ~18-line ws-serve block is copied from the surface example (`packages/surface/example/src/server/main.ts:94-111`) or kolu-server (`packages/server/src/index.ts:427-510`).
+**Node, matching kolu's own stack.** The surface leg is identical `@kolu/surface` code on any runtime — drishti even writes its server Node-style (`@hono/node-server` + the `ws` package) and runs it on Bun *only* for its `Bun.build` client bundler. We go **Node**, like kolu-server, and bundle the SolidJS frontend with **Vite + `vite-plugin-solid`** (kolu's own client toolchain) rather than drishti's `Bun.build` — so pulam-web is kolu's stack end-to-end.
+
+<Callout kind="note" title="Common it up — what graduates to the surface family, what stays app-local (grounded)">
+The directive was *don't replicate drishti's plumbing into pulam-web — upstream the common stuff*. Grounding both apps against the installed code drew the line precisely:
+
+- **What graduates — the per-host mirror-bridge + registry → `@kolu/surface-nix-host`.** drishti's `bridgeAgentToParent` (a `makeClientCursor` reconnect loop re-issuing `mirrorRemoteSurface` per spawn + a live-procedure forwarding holder) and its `hostRegistry` (`Map<host,{session,handler}>`) are ~600 lines pulam-web would otherwise copy verbatim. They graduate as `pumpRemoteSurface` + `buildHostRegistry` — the **N-host, consume-side companions** to nix-host's *existing* `makeClientCursor` + `getHostSession`, with **zero new deps** (the registry stays generic over the handler type, so no `@orpc/server/ws` in nix-host). Both apps consume one copy.
+- **What stays app-local — the ws-serve upgrade block.** It is *not* the right thing to extract: `@kolu/surface` core has no `ws` dep (putting a `WebSocketServer` helper there inverts its transport-agnostic boundary — a defect per [electricity](electricity.html)), and drishti's real handler validates `?host=` and `destroy()`s the raw socket *before* `handleUpgrade`, plus dispatches an `__admin__` sentinel to a second handler — neither fits a generic `onConnection(ws)` seam. So each app keeps its ~18-line upgrade block, composed from the **already-shared** `gateWsOrigin` (`@kolu/surface/ws-origin`) + `gateStaleSocket` + `startWsHeartbeat` (`@kolu/surface-app/server`).
+
+So the extraction is drishti's own proven code lifted up — drishti's adoption is a near-mechanical swap whose green CI proves the lift was behaviour-preserving (the same way `gateStaleSocket` was already extracted from drishti).
+</Callout>
 
 <Callout kind="note" title="The design fork R8b rides on — resolve it here, grounded">
 Two ways git status reaches a browser. **Design A** (what #1510 did, and stuck): ship terminal-workspace's raw `{seq}` pulse to the browser and re-query `getStatus` client-side via `useWatchedRead`. **Design B** (what `koluSurface` *already* does — `packages/server/src/surface.ts:271-277`, `{read:getStatus, install:subscribeRepoChange, isEqual}` — and the Code tab proves daily): wrap it into one **value-bearing** stream *server-side*; the browser consumes an ordinary value-bearing stream via `.streams.use()`. **Lead: Design B.** For a remote host the backend wraps the **mirrored** `subscribeRepoChange` + **forwarded** `getStatus` (R7) into that value-bearing stream — so the raw `{seq}` pulse never crosses to the browser, and the "ungraduated primitive" dissolves as an artifact of A. pulam-web confirms B end-to-end from a mirrored source; that becomes R8b's recipe.
@@ -134,10 +144,10 @@ Before pulam-web exists, prove its riskiest piece — **`.streams.use()` + Solid
 
 R4.8a stands up **everything hard** — auto-provision + dial N pulam over ssh, mirror each, fan out, re-serve to the browser over `/rpc/ws`, and consume in the browser — but renders **only a plain list of terminals** (grouped by host). No git status, no drill-in, no features. The point is to prove the *plumbing* with a payload so small a failure has nowhere to hide.
 
-- **Backend (Node)** — per host: `getHostSession({ binary:"pulam", … })` + `provisionAgent` (auto-provision + dial over ssh), `mirrorRemoteSurface` the `awareness` collection, keyed in a `Map<host,{session,handler}>`, one `RPCHandler.upgrade(ws)` per `/rpc/ws?host=<id>`; surface the `copying→connecting→connected` lifecycle via a `connection` cell. drishti's `hostRegistry.ts` + `router.ts` are the templates; `pulam-tui`'s `connectArivuViaHost` is the provision wrapper. The ws-serve is the ~18-line block from the surface example.
-- **Browser (SolidJS + Vite)** — `surfaceClients(websocketLink(ws))` → **`app.collections.awareness.use({})`** → render a list of terminals per host, plus the `connection`-cell `copying…` overlay. This is the **`.collections.use()`** consumer (which drishti already proves); the *stream* consumer is deferred to R4.8b.
+- **Backend (Node)** — per host, `buildEntry(host)`: `getHostSession({ binary:"pulam", resolveDrvPath, … })` (the pooled, **reconnecting** session — `getHostSession` + `makeClientCursor`, *not* one-shot `dialAgentOnce`, so a transient ssh drop self-heals), a per-host re-serve of the **whole** `terminalWorkspaceSurface` via `implementSurface` (`implementSurface` fail-fast-throws on any unimplemented primitive, so the re-serve folds `version` + `awareness` from the mirror and **forwards** the rest — `fs.*`/`git.*` procedures via the live-procedure holder, the `activity`/repo/file streams via the live client — never a degraded stub), and `pumpRemoteSurface(session, makeSink)` (the shared reconnect-mirror loop) folding the agent's frames in. The N entries live in `buildHostRegistry({ buildEntry })`; one `RPCHandler.upgrade(ws)` per `/rpc/ws?host=<id>`, dispatched by an **app-local** upgrade block (`gateWsOrigin` + `gateStaleSocket` + `startWsHeartbeat`, all already shared). `pulam-tui`'s `hostConnect.ts` is the dial template.
+- **Browser (SolidJS + Vite)** — per host a `surfaceClient(terminalWorkspaceSurface, websocketLink(ws?host=<id>))` → **`app.collections.awareness.use({})`** → render a list of terminals per host (`cwd` · foreground · agent), plus a coarse `connecting…` overlay until the first frame. This is the **`.collections.use()`** consumer (which drishti already proves); the *value-bearing stream* consumer (`.streams.use()`) is deferred to R4.8b. (For R4.8a the host roster is a static `/api/hosts` boot list; dynamic add + the fine `copying…` provision state ride a small parent fleet surface in a follow-up — `terminalWorkspaceSurface` itself carries no connection cell.)
 
-**Done when:** the browser shows a **live terminal list across N auto-provisioned pulam hosts** — adding a host shows `copying→connected` and its terminals appear; terminals come and go live (awareness deltas) — all over the real ws. No features yet. That alone proves the framework: provision · dial · reconnect · fan-out · ws-serve · browser collection-consume.
+**Done when:** the browser shows a **live terminal list across N auto-provisioned pulam hosts** — its terminals appear and come/go live (awareness deltas) — all over the real ws. The mirror → re-serve → browser-store path is proven deterministically by the hermetic test (below). No features yet. That alone proves the framework: provision · dial · reconnect · fan-out · ws-serve · browser collection-consume.
 
 ### R4.8b — the user-facing features (the R8b proof + the product)
 
@@ -150,27 +160,29 @@ With R4.8a's framework proven and Step 0's stream consumer proven, R4.8b just **
 `pulam-tui` reads streams by **raw `mirrorRemoteSurface` iteration**; drishti reads streams by **raw `for await` over `streamCall`**. *Neither* exercises the `.streams.use()` + Solid `reconcile` hook — the path kolu's Code tab uses and #1510 stuck on. Copy drishti for the *backend mirror + provision + ws-serve* and for *cells/collections* (`.use()`), but the **git-status stream must go through `.streams.use()` + `reconcile`, value-bearing (Design B)** — that consumer is the reason pulam-web exists.
 </Callout>
 
-**Reuse map (verified on master / in `/home/srid/code/drishti`).**
+**Reuse map (grounded against installed code in this worktree + `/home/srid/code/drishti`).** *Shared* = consumed from the surface family, not copied; *app-local* = pulam-web's own; *R4.8b* = not needed for the framework.
 
-| Concern | Copy from | Note |
+| Concern | Source | Note |
 | --- | --- | --- |
-| ws-serve (~18 lines) | `surface/example/src/server/main.ts:94-111` (or `server/src/index.ts:427-510`) | no `serveOverWebSocket` helper exists |
-| per-host mirror + re-serve | drishti `app/src/server/router.ts` (`implementSurface` + `bridgeAgentToParent` + `mirrorRemoteSurface`) | forwarded-procedure holder for R7 procs |
-| fan-out registry | drishti `app/src/server/hostRegistry.ts` (`Map<host,{session,handler}>`) | `?host=` upgrade dispatch |
-| autoprovision | `@kolu/surface-nix-host` `getHostSession`/`provisionAgent`; wrapper = `pulam-tui/src/hostConnect.ts:60-101` | pins `binary:"pulam"`, `PULAM_AGENT_DRVS_JSON` |
-| aggregation | `pulam-tui/src/fleet.ts` (`startFleet`, `FleetSink`, `RepoWatchSet`) | renderer-agnostic; replace `fleet.tsx` only |
-| projections | `pulam-tui/src/render.ts` (`gitCell`, `gitDetail`) | Solid-free, port to DOM |
-| browser bootstrap | drishti `app/src/client/wire.ts` + kolu `client/src/wire.ts:39-79` | `websocketLink` + `surfaceClients` |
-| bundler + nix | **Vite + `vite-plugin-solid`** (kolu's `packages/client` toolchain), Node — *not* drishti's `Bun.build` | hydrate `@kolu/*` from npins; package like kolu's client |
+| per-host mirror loop | **shared** `@kolu/surface-nix-host` `pumpRemoteSurface` | extracted from drishti `bridgeAgentToParent`; `makeClientCursor` reconnect + `mirrorRemoteSurface` per spawn + live-procedure/live-client holders |
+| fan-out registry | **shared** `@kolu/surface-nix-host` `buildHostRegistry` | extracted from drishti `hostRegistry.ts`; `Map<host,{session,handler}>`, generic over the handler type |
+| ws-serve (~18 lines) | **app-local** in `pulam-web` | composed from shared `gateWsOrigin` (`@kolu/surface/ws-origin`) + `gateStaleSocket` + `startWsHeartbeat` (`@kolu/surface-app/server`); `?host=` dispatch is the app's (see the *common-it-up* callout above) |
+| whole-surface re-serve | **app-local** `implementSurface(terminalWorkspaceSurface, …)` | folds `version`+`awareness` from the mirror, forwards `fs.*`/`git.*` + the watcher streams (fail-fast: every primitive implemented) |
+| autoprovision + dial | **shared** `@kolu/surface-nix-host` `getHostSession` (+ `resolveSystem`) | dial template = `pulam-tui/src/hostConnect.ts`; pins `binary:"pulam"`, `PULAM_AGENT_DRVS_JSON`. Provisioning lives *inside* the session's reconnect cycle — no hand-rolled `provisionAgent` call |
+| browser bootstrap | drishti `app/src/client/wire.ts` (pattern) | one `surfaceClient(terminalWorkspaceSurface, websocketLink(ws?host=))` per host (`@kolu/surface/solid` + `@kolu/surface/links/websocket`) |
+| serve the bundle | **shared** `installFreshStatic` (`@kolu/surface-app/server`) | the same fresh-static contract kolu-server uses |
+| `fleet.ts` / `render.ts` (`gitCell`, `gitDetail`, `RepoWatchSet`) | `pulam-tui` — **R4.8b** | git cells + drill-in; renderer-agnostic core ports then, not now |
+| bundler + nix | **Vite + `vite-plugin-solid`** (kolu's `packages/client` toolchain), Node | in-repo package: `@kolu/*` are **workspace deps** (no npins); nix derivation + flake/justfile wiring modeled on `packages/client` |
 
-**The hermetic test.** No in-memory `websocketLink` double exists (only `directLink`/`stdio`/unix-socket). Model on R7's `mirrorRemoteSurface.test.ts` (`implementSurface → directLink → consume`) **but drive it through `surfaceClient` + a Solid `reconcile` store**, asserting the reactive value re-notifies on the second delta. That catches a reconcile break deterministically; a ws-flush break only shows over a real socket — so **pulam-web over real ws is the full proof**, the unit test necessary-but-not-sufficient.
+**The hermetic test.** No in-memory `websocketLink` double exists (only `directLink`/`stdio`/unix-socket). Model on R7's `mirrorRemoteSurface.test.ts`: stand up a real `terminalWorkspaceSurface` agent via `implementSurface`, connect it with `directLink`, drive pulam-web's `buildReServe` fold path (the mirror sink) with that client, then consume the **re-served** surface through a second `surfaceClient` + a Solid `reconcile` store — asserting the awareness keys re-notify on the second delta (agent → mirror → re-serve → browser-store). `buildReServe` is split so the mirror step takes an injected client, which is exactly what makes it driveable without ssh. That catches a reconcile break deterministically; a ws-flush break only shows over a real socket — so **pulam-web over real ws is the full proof**, the unit test necessary-but-not-sufficient.
 
 **Definition of done — by phase.** **Step 0 (drishti):** `processesSnapshot` rendered live via `.streams.use()`, its hand-rolled controller deleted. **R4.8a:** a live terminal list across N auto-provisioned hosts over the real ws — the *framework*, no features. **R4.8b:** a live git-status cell + drill-in updating within ~1s of a working-tree change (**video/screenshot over the real ws**), the consumer confirmed *in code* as `.streams.use()` + `reconcile`, value-bearing, the hermetic test green, and the adopted design recorded as **R8b's recipe**.
 
-<Callout kind="warn" title="Shared @kolu/surface* — drishti gate">
-`@kolu/surface`, `@kolu/surface-app`, `@kolu/surface-nix-host` are shared with [drishti](https://github.com/srid/drishti). pulam-web *consuming* them read-only needs no drishti PR — but any *API-facing* change to those packages requires a linked drishti PR with green CI (`.claude/rules/surface.md`). Design B + the reuse map above are all read-only consumption, so no gate is expected.
+<Callout kind="warn" title="Shared @kolu/surface* — the drishti gate APPLIES this round">
+`@kolu/surface`, `@kolu/surface-app`, `@kolu/surface-nix-host` are shared with [drishti](https://github.com/srid/drishti), and any *API-facing* change to them requires a linked drishti PR with green CI (`.claude/rules/surface.md`). The *common-it-up* extraction **adds two exports** to `@kolu/surface-nix-host` — `pumpRemoteSurface` + `buildHostRegistry` — so the gate is in scope (additive, non-breaking, but API-facing). The linked drishti PR refactors drishti's `bridgeAgentToParent` + `hostRegistry.ts` to consume the shared helpers (dropping its hand-rolled copies), bumps drishti's npins kolu pin to this branch, and goes green — its passing CI is what proves the lift behaviour-preserving. pulam-web's *consumption* of the rest (`mirrorRemoteSurface`, `getHostSession`, `gateStaleSocket`, …) stays read-only.
 </Callout>
 
 ## History
 
+- **R4.8a grounded + building** (2026-06-22) — deep-grounded the framework against the installed code (drishti's `bridgeAgentToParent`/`hostRegistry`, the `@kolu/surface*` family, `pulam-tui`'s dial, the `terminalWorkspaceSurface` shape, kolu's Vite/nix client toolchain). Two corrections to the original sketch, both load-bearing: **(1)** the *common-it-up* extraction is the per-host **mirror-bridge + registry** (`pumpRemoteSurface` + `buildHostRegistry` → `@kolu/surface-nix-host`), **not** a ws-serve helper — surface core has no `ws` dep and drishti's upgrade handler doesn't fit a generic seam, so ws-serve stays app-local from already-shared gates; **(2)** the per-host re-serve is the **whole** `terminalWorkspaceSurface` (fail-fast on any omission), folding `version`+`awareness` and forwarding the rest, dialed via the **reconnecting** `getHostSession`+`makeClientCursor` (not one-shot `dialAgentOnce`). The shared extraction landed first (typecheck + 11 registry tests green); the drishti adoption rides a linked gated PR.
 - **Planned** (2026-06-22) — branched out of [pulam](pulam.html)'s R4.8 once it grew its own UI and a layered plan (Step 0 in drishti · R4.8a framework · R4.8b features). Grounded against `/home/srid/code/drishti` (the surface leg is identical `@kolu/surface` code, so the runtime is free — **chose Node + Vite** to match kolu-server/client; Bun was only drishti's bundler; autoprovision is `getHostSession`+`provisionAgent`) and against `pulam-tui` (the `startFleet`/`FleetSink`/`RepoWatchSet` core is renderer-agnostic and reusable). Gates [remote-terminals R8b](remote-terminals.html#r8).
