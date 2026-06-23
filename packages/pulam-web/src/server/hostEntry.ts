@@ -74,6 +74,11 @@ export function makeBuildEntry(
 ): (host: string) => HostEntry {
   const log = deps.log ?? (() => {});
   return (host: string): HostEntry => {
+    // How this host tags its diagnostic lines — derived once, read by the three
+    // log sinks below (session, re-serve, pump), so the `[host] ` format lives
+    // in one place.
+    const hostLog = (line: string): void => log(`[${host}] ${line}`);
+
     // 1. The pooled ssh session dialing `pulam --stdio` on this host.
     const session = getHostSession<ArivuContract>({
       host,
@@ -83,11 +88,11 @@ export function makeBuildEntry(
       // over it here.
       resolveDrvPath: () => deps.resolveDrvPath(host),
       connectTimeoutMs: deps.connectTimeoutMs ?? 60_000,
-      onLog: (line) => log(`[${host}] ${line}`),
+      onLog: hostLog,
     });
 
     // 2. The local re-serve of this host's awareness surface.
-    const reServe = buildReServe({ log: (line) => log(`[${host}] ${line}`) });
+    const reServe = buildReServe({ log: hostLog });
 
     // 3. The background reconnect-mirror loop. Void (fire-and-forget): it runs
     //    for the session's life, re-mirroring on each respawn. The sink's first
@@ -98,7 +103,7 @@ export function makeBuildEntry(
       makeSink: () => reServe.makeSink(() => session.markConnected()),
       liveProcedures: reServe.liveProcedures,
       liveClient: reServe.liveClient,
-      log: (line) => log(`[${host}] ${line}`),
+      log: hostLog,
     });
 
     // The browser-facing oRPC handler over the flattened re-serve router.
