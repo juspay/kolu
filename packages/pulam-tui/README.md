@@ -1,10 +1,11 @@
 # pulam-tui
 
 **pulam-tui** is the terminal-side viewer for [`pulam`](../pulam), the standalone
-terminal-awareness daemon. It dials pulam's unix socket and reads the
+terminal-workspace daemon. It dials pulam's unix socket and reads the
 `awareness` collection: what each terminal _is in_ — repo branch, the open PR and
 its checks, which AI agent and whether it's working / awaiting you / waiting, and
-the foreground process.
+the foreground process — plus a live `git status` view off the same surface (see
+`fleet` below).
 
 Where [`kaval-tui`](../kaval-tui) shows what's _running_ in each PTY, pulam-tui
 shows what each terminal _is in_ — a "what is every agent doing, across every
@@ -87,7 +88,7 @@ nix run github:juspay/kolu#pulam-tui          # the dashboard
 nix run github:juspay/kolu#pulam-tui -- --json # scriptable dump
 ```
 
-By default it dials an pulam on this machine. Two ways to point it elsewhere,
+By default it dials a pulam on this machine. Two ways to point it elsewhere,
 **mutually exclusive**:
 
 - `--socket PATH` — a different local socket.

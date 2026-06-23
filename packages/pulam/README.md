@@ -2,15 +2,16 @@
 
 **pulam** (Tamil புலம், _pulam_ — "field · domain", from the same root as _pulan_, "a sense"; a sibling to
 [`kaval`](../kaval), _watch/guard_, and `odu`, _run_) is the standalone
-**terminal-awareness daemon**. It dials a running `kaval`, runs the awareness
+**terminal-workspace daemon**. It dials a running `kaval`, runs the awareness
 sensors — git branch · PR + checks · AI-agent state · foreground process — for
 every PTY kaval owns, and serves the
 [`@kolu/terminal-workspace/surface`](../terminal-workspace) surface: the
 `awareness` collection + `version` cell + live `activity` stream, plus (added in
 R6) the Code tab's `fs.*` / `git.*` read procedures and their
 `subscribeRepoChange` / `subscribeFileChange` change-pulse watcher streams.
-[`pulam-tui`](../pulam-tui) today consumes only the awareness/activity side; the
-fs/git surface is what a remote kolu-server mirrors in R8.
+[`pulam-tui`](../pulam-tui) consumes the awareness/activity side **and** the
+fs/git `git.getStatus` + `subscribeRepoChange` arm — its live `git status` view
+(R4.7); a remote kolu-server mirrors the same surface in R8.
 
 Where kaval owns the PTYs, pulam derives _meaning_ over them — and adds **zero**
 awareness/git/gh logic to kaval, dialing it as a plain `ptyHostSurface` client
@@ -61,9 +62,9 @@ nix run github:juspay/kolu#pulam-tui              # the dashboard
 The runtime is just `node · git · gh` — no kolu-server, no browser. For _remote_
 awareness, [`pulam-tui --host <ssh>`](../pulam-tui) Nix-provisions this daemon on
 another machine and dials it over `--stdio` (it discovers the remote kaval, a
-kolu-server included). The kolu-server **mirror + fold** — a long-lived dial that
-folds remote awareness into kolu's own `terminalMetadata` — is the separate
-[remote-terminals R-2](https://kolu.dev/atlas/remote-terminals.html) phase.
+kolu-server included). The kolu-server **mirror** — a long-lived dial where kolu
+_reads_ a remote host's surface (no fold; the server-side fold dissolves) — is the
+separate [remote-terminals R8–R9](https://kolu.dev/atlas/remote-terminals.html) phase.
 
 The full design lives in the
 [pulam atlas note](https://kolu.dev/atlas/pulam.html).
