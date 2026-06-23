@@ -29,6 +29,16 @@ has outgrown Sundry (see *Graduating an item*).
 The item **Distinguish the active terminal in a split** graduated to its own note
 — [Distinguish the Active Terminal in a Split](./split-active-pane.html).
 
+## Overnight loops
+
+Items here are **self-contained enough to hand to an autonomous overnight run** —
+a clear target, a public reference to follow, and a definition of done an agent
+can check itself against without a human in the loop.
+
+| Item | What | Goal |
+| --- | --- | --- |
+| **Upgrade to Vite 8.1, repo-wide** | Kolu's Vite-built surfaces (client, docs/atlas, website) lag behind Vite 8.1. | Bump every Vite-built package to 8.1 and *adopt*, not just install, the [8.1 features](https://vite.dev/blog/announcing-vite8-1): experimental bundled dev mode (≈15× faster startup, 10× faster full reloads), experimental chunk import map (no hash cascading), Wasm ESM integration, Lightning CSS progress (external CSS imports + plugin file-dependency registration), `import.meta.glob` `caseSensitive`, and `html.additionalAssetSources` for custom-element asset discovery. Done = all surfaces build and pass CI on 8.1 with each applicable feature wired in. |
+
 ## Graduating an item
 
 When a Sundry item earns a design, a repro, or a plan, it has stopped being
