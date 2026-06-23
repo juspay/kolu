@@ -13,7 +13,7 @@
  *  the directories the wrapper should ensure are open so matches don't
  *  hide behind a collapsed parent on first paint. */
 
-import { ancestorDirectoryPaths } from "@kolu/solid-pierre";
+import { ancestorDirectoryPaths } from "@kolu/solid-pierre/paths";
 
 type FileTreeSearchProjection = {
   projectedPaths: string[];

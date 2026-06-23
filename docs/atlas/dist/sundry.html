@@ -33,22 +33,18 @@ has outgrown Sundry (see <em>Graduating an item</em>).</p>
 <p>Items here are <strong>self-contained enough to hand to an autonomous overnight run</strong> —
 a clear target, a public reference to follow, and a definition of done an agent
 can check itself against without a human in the loop.</p>
-<table>
-<thead>
-<tr>
-<th>Item</th>
-<th>What</th>
-<th>Goal</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Upgrade to Vite 8.1, repo-wide</strong></td>
-<td>Kolu’s Vite-built surfaces (client, docs/atlas, website) lag behind Vite 8.1.</td>
-<td>Bump every Vite-built package to 8.1 and <em>adopt</em>, not just install, the <a href="https://vite.dev/blog/announcing-vite8-1">8.1 features</a>: experimental bundled dev mode (≈15× faster startup, 10× faster full reloads), experimental chunk import map (no hash cascading), Wasm ESM integration, Lightning CSS progress (external CSS imports + plugin file-dependency registration), <code>import.meta.glob</code> <code>caseSensitive</code>, and <code>html.additionalAssetSources</code> for custom-element asset discovery. Done = all surfaces build and pass CI on 8.1 with each applicable feature wired in.</td>
-</tr>
-</tbody>
-</table>
+<p><em>No open items.</em> The <strong>Upgrade to Vite 8.1, repo-wide</strong> loop shipped in
+<a href="https://github.com/juspay/kolu/pull/1543">#1543</a>: every Vite-built surface is on
+8.1 (Rolldown/Oxc bundler), all surfaces build, and <code>just dev</code> runs — confirmed
+via chrome-devtools (kolu loads, connects, creates a working terminal). The
+experimental <strong>bundled dev mode was evaluated and <em>not</em> adopted</strong>: on 8.1.0 it
+crashes kolu’s client with <code>__reExport is not defined</code> so the app never mounts —
+a known cluster of <code>bundledDev</code> runtime-ReferenceError bugs upstream
+(<a href="https://github.com/vitejs/vite/issues/22419">vite#22419</a>,
+<a href="https://github.com/vitejs/vite/issues/22012">vite#22012</a>); revisit when fixed.
+The build-output experiments (chunk import map, Wasm-as-build) were left off for
+<code>nix build</code> reproducibility; the stable features (<code>import.meta.glob</code>
+<code>caseSensitive</code>, Wasm ESM, <code>html.additionalAssetSources</code>) had no call sites.</p>
 <h2 id="graduating-an-item">Graduating an item</h2>
 <p>When a Sundry item earns a design, a repro, or a plan, it has stopped being
 sundry. Create a real note under its true index (<code>parents: [bug]</code>, <code>[feature]</code>,

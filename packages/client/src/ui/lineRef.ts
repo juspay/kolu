@@ -3,7 +3,7 @@
  *  excerpts, and editor messages all share this shape; this module is
  *  the single place that knows how to read and resolve it. */
 
-import { ancestorDirectoryPaths } from "@kolu/solid-pierre";
+import { ancestorDirectoryPaths } from "@kolu/solid-pierre/paths";
 
 /** Parsed line reference with an inclusive 1-based range. `startLine`
  *  and `endLine` are null when the source had no `:N` suffix — `path`
