@@ -120,4 +120,56 @@ describe("reconnect bridge loop", () => {
     // pre-fix busy-spin did tens of thousands.
     expect(iterations).toBeLessThan(50);
   });
+
+  it("destroy() during backoff unblocks a cursor.next() that is awaiting the next client (F7)", async () => {
+    // The first spawn yields a live client (so the cursor advances past it), then
+    // its link dies → the session drops into a LONG backoff with no spawn in
+    // flight. A second `cursor.next()` then parks, waiting for the next client
+    // that is 30s away. Only an `onState` publish re-checks `isDestroyed()`, and
+    // pre-fix `destroy()` cleared timers WITHOUT publishing — so the park hung
+    // forever (the F7 bug). Post-fix `destroy()` re-publishes state, so the
+    // parked `next()` rejects and the pump loop can exit.
+    vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
+
+    session = new HostSession<typeof contract>({
+      host: "destroyhost",
+      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      binary: "agent",
+      // Long backoff so the second next() is genuinely parked, not racing a fast
+      // respawn.
+      reconnectDelayMs: 30_000,
+    });
+    session.pin().catch(() => {});
+
+    const cursor = makeClientCursor(session);
+    // Advance past the first spawn's live client and drain its stream until the
+    // link dies — exactly what a real pump loop does. This leaves the session in
+    // backoff with `clientPromise` cleared.
+    const client = await cursor.next();
+    try {
+      // biome-ignore lint/suspicious/noExplicitAny: proxy call in a repro
+      for await (const _ of await (client as any).tick({})) {
+        session.markConnected();
+      }
+    } catch {
+      /* the link drops → rejection ends the drain */
+    }
+
+    // Now park a SECOND next(): no spawn in flight (mid-backoff), so it blocks.
+    const parked = cursor.next();
+    // Let the backoff settle, then destroy.
+    await new Promise((r) => setTimeout(r, 20));
+    session.destroy();
+
+    // The parked next() must REJECT (session destroyed), not hang. A bounded race
+    // so a regression fails the test instead of hanging the whole suite.
+    await expect(
+      Promise.race([
+        parked,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("cursor.next() hung")), 1000),
+        ),
+      ]),
+    ).rejects.toThrow(/session destroyed/);
+  });
 });

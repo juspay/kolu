@@ -92,6 +92,23 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
+# Run pulam-web in dev — Vite client (HMR, :5800, proxying /rpc + /api) and the
+# tsx server (:4800) side-by-side. Set PULAM_WEB_HOSTS to a comma-separated ssh
+# host list (e.g. `PULAM_WEB_HOSTS=localhost,srid@box just pulam-web`); the pulam
+# drv map is baked from the flake (the SAME value `nix run .#pulam-web` --sets),
+# so a localhost or remote dial just works. Open http://localhost:5800.
+pulam-web: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PULAM_AGENT_DRVS_JSON="${PULAM_AGENT_DRVS_JSON:-$(nix eval --raw .#pulamAgentDrvsJson)}"
+    cd packages/pulam-web
+    # Start Vite (client) in the background, then run the server in the
+    # foreground. An EXIT trap — armed the instant the client starts — kills it on
+    # ANY exit of this shell: a clean server stop, a non-zero server exit, OR a
+    # Ctrl+C / SIGTERM that would otherwise interrupt before a trailing `kill` ran
+    # and orphan the background Vite. The trap is the only reliable teardown.
+    {{ nix_shell }} bash -c 'pnpm dev:client & client=$!; trap "kill \"$client\" 2>/dev/null || true" EXIT; pnpm dev:server'
+
 # Run unit tests (vitest) across server and client packages
 test-unit: install
     {{ nix_shell }} pnpm test:unit

@@ -31,6 +31,37 @@ export function isLocalHost(host: string): boolean {
  *     state. */
 export type FailureCause = "network" | "remote";
 
+/** A `resolveDrvPath` rejection that carries its own {@link FailureCause}, so the
+ *  resolver can tell `HostSession` that THIS failure is not a transport blip.
+ *
+ *  Why it exists: `HostSession.spawn` runs the caller's `resolveDrvPath` thunk
+ *  at the top of every spawn and, by default, treats a rejection as `"network"`
+ *  — the right call for the common case (the resolver's arch probe is an ssh
+ *  round-trip, so a rejection usually means the host is unreachable, which must
+ *  retry forever). But a resolver can also fail for a NON-transport reason that
+ *  retrying can never fix: it probed the host fine and then found no derivation
+ *  baked for that system. That is a `"remote"` (bounded → terminal) fault, not a
+ *  sleeping host. Throwing this error lets the resolver say so explicitly; the
+ *  session reads `.failureCause` instead of assuming `"network"`. A plain `Error`
+ *  keeps the back-compatible `"network"` default.
+ *
+ *  The discriminant is its OWN field (`failureCause`), NOT the standard
+ *  `Error.cause` (the ES2022 options bag). Redeclaring `cause` as a class member
+ *  overloads a JS error property with unrelated meaning and trips
+ *  `noImplicitOverride` in any consumer that typechecks this source under that
+ *  flag (drishti does) — the same reason `@kolu/surface`'s `SinkError` keeps the
+ *  chained error on `Error.cause` and never redeclares it. Leave `Error.cause`
+ *  free for exception chaining if a future caller wants it. */
+export class ResolveDrvError extends Error {
+  constructor(
+    message: string,
+    readonly failureCause: FailureCause,
+  ) {
+    super(message);
+    this.name = "ResolveDrvError";
+  }
+}
+
 /** Heuristic: does an ssh / `nix copy` stderr line look like a *transport*
  *  failure (host unreachable) rather than a remote rejection? Used to
  *  upgrade a provisioning failure's cause to `"network"` — `nix copy`

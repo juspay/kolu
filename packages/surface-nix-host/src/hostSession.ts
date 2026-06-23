@@ -58,7 +58,12 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import { buildAgentCommand, type FailureCause, forEachLine } from "./host";
+import {
+  buildAgentCommand,
+  type FailureCause,
+  forEachLine,
+  ResolveDrvError,
+} from "./host";
 import { provisionAgent } from "./nixCopy";
 
 // `FailureCause` lives in `./host` (shared with `provisionAgent`, which now
@@ -113,7 +118,11 @@ export interface HostSessionOptions {
    *  which the session treats as a `"network"` fault: `disconnected` →
    *  backoff → `disconnected` → …, retrying indefinitely until the host is
    *  reachable again (never terminal — only a `"remote"` provisioning
-   *  rejection gives up into `failed`). See `FailureCause`. The session
+   *  rejection gives up into `failed`). See `FailureCause`. To mark a
+   *  resolver rejection as a NON-transport, bounded → terminal fault (it
+   *  probed the host fine but no derivation is baked for that system),
+   *  reject with a {@link ResolveDrvError} carrying `failureCause: "remote"`; the
+   *  session reads its `.failureCause` instead of defaulting to `"network"`. The session
    *  ships the resolved derivation to the target host (no-op for localhost)
    *  and realises it there to get a target-arch-correct output path.
    *
@@ -278,10 +287,23 @@ export class HostSession<C extends AnyContractRouter> {
   }
 
   /** Immediately drop the session regardless of ref count. Used on
-   *  server shutdown. */
+   *  server shutdown.
+   *
+   *  Fires a state notification AFTER teardown: a consumer blocked in
+   *  `waitForNextClient`/`makeClientCursor` only re-checks `isDestroyed()` when
+   *  the state cell publishes, and `teardown` (clear timer, kill child, clear
+   *  clientPromise) does NOT otherwise publish — so without this nudge a pump
+   *  waiting for the next client while no spawn is in flight (idle, or mid-
+   *  backoff) would hang forever on a destroyed session (the F7 bug). The
+   *  notification carries no visible state change; `inMemoryCell.set` publishes
+   *  unconditionally, which is exactly the wake the cursor needs to reject and
+   *  let the pump loop exit. */
   destroy(): void {
     this.destroyed = true;
     this.teardown("session destroyed");
+    // Re-publish the current state (no field change) purely to wake `onState`
+    // listeners so they observe `isDestroyed()` and unblock.
+    this.stateCell.set({ ...this.stateCell.current() });
   }
 
   /** Has `destroy()` been called? Used by the bridge's outer pump loop
@@ -457,15 +479,21 @@ export class HostSession<C extends AnyContractRouter> {
       // non-Error rejection here mustn't degrade `lastError` to the string
       // "undefined" on the connection cell the UI reads.
       const reason = err instanceof Error ? err.message : String(err);
-      // Couldn't even resolve the .drv — the arch probe is an ssh
-      // round-trip, so a rejection here means the host is unreachable:
-      // a `"network"` fault, never terminal.
+      // Classify the resolver rejection. The arch probe is an ssh round-trip,
+      // so the DEFAULT is `"network"` (host unreachable → retry forever). But a
+      // resolver that probed fine and then found no derivation baked for that
+      // system throws a `ResolveDrvError` carrying `"remote"` — a non-transport,
+      // bounded → terminal config error, NOT a sleeping host. Read its `.failureCause`
+      // so an unsupported/mis-baked system fails loudly into `failed` instead of
+      // spinning forever (the case F4 flagged).
+      const cause: FailureCause =
+        err instanceof ResolveDrvError ? err.failureCause : "network";
       this.updateState({
         connection: "disconnected",
         lastError: reason,
-        failureCause: "network",
+        failureCause: cause,
       });
-      this.scheduleReconnect("network");
+      this.scheduleReconnect(cause);
       throw err;
     });
     const provision = await provisionAgent({
@@ -786,12 +814,30 @@ export function getHostSession<C extends AnyContractRouter>(
   opts: HostSessionOptions,
 ): HostSession<C> {
   const key = `${opts.host}::${opts.binary}`;
-  let session = pool.get(key);
-  if (session === undefined) {
-    session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
-    pool.set(key, session);
+  const existing = pool.get(key);
+  // A pooled session that's already been `destroy()`-ed is INERT — its pump
+  // loop has exited and it never reconnects. Reusing it would hand a caller a
+  // dead session: `buildHostRegistry.remove()` destroys a host's session, so a
+  // later `add()` of the SAME host (via a `buildEntry` that calls
+  // `getHostSession`) would otherwise get back the destroyed instance and the
+  // re-added host would never reconnect. Treat a destroyed entry as absent:
+  // build a fresh session and replace the stale one in the pool.
+  if (existing !== undefined && !existing.isDestroyed()) {
+    return existing as HostSession<C>;
   }
+  const session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
+  pool.set(key, session);
   return session as HostSession<C>;
+}
+
+/** Drop a pooled session from the pool WITHOUT destroying it — the caller owns
+ *  the destroy (e.g. `buildHostRegistry.remove()` destroys the entry's session
+ *  itself, then evicts here so the key is free for a clean re-add). A no-op for
+ *  an unknown `(host, binary)`. Pairs with `getHostSession`, which also treats a
+ *  still-pooled-but-destroyed session as absent — so eviction is belt-and-
+ *  suspenders against a destroyed session lingering as a stale pool entry. */
+export function evictHostSession(host: string, binary: string): void {
+  pool.delete(`${host}::${binary}`);
 }
 
 /** Destroy every pooled session (e.g. on server shutdown). */

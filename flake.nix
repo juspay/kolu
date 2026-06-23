@@ -69,6 +69,16 @@
       websiteBySystem = eachSystem (pkgs: import ./website { inherit pkgs; });
     in
     {
+      # The per-system `{ system → pulam .drv }` map, exposed as a plain string
+      # output so `nix run .#pulam-web` isn't the only way to get it: local dev
+      # (`just pulam-web`, or a bare `pnpm dev:server`) reads
+      # `PULAM_AGENT_DRVS_JSON=$(nix eval --raw .#pulamAgentDrvsJson)` — the exact
+      # form `packages/pulam-web/src/server/config.ts` names when the env is
+      # absent. The `nix run .#pulam-web` wrapper bakes the SAME value with
+      # `--set`, so the two paths can't drift. Pure eval (the daemon drv's context
+      # is discarded above), so listing it here adds no build.
+      pulamAgentDrvsJson = pulamAgentDrvsJson;
+
       # The module proper is platform-agnostic; the flake closes over it to
       # default `tuiPackage` to this flake's matching `kaval-tui` build, so the
       # CLI ships automatically with the server (override or set null to opt out).

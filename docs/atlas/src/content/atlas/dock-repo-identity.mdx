@@ -43,24 +43,19 @@ export const ProtoStyles = () => (
   .dk-time{font:.6rem/1 ui-monospace,monospace;color:#838390}
   .dk-sub{font:.63rem/1.3 ui-monospace,monospace;color:#9a9aa6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
   @keyframes dk-pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
   /* calmed rows — repo owns the hue, labels go neutral (branch kept by a faint dot, see below) */
   .dk.calm .dk-lab{color:#dde0e5!important}
-
   /* ── A · SPINE + tinted header ── */
   .v-spine .dk-sec{border-left:3px solid var(--rc)}
   .v-spine .dk-sech{background:color-mix(in oklch,var(--rc) 15%,#1b1b1f)}
   .v-spine .dk-name{color:color-mix(in oklch,var(--rc) 78%,#ffffff)}
-
   /* ── B · avatar swatch ── */
   .v-avatar .dk-av{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;background:var(--rc);color:#141416;font:700 .64rem/1 ui-monospace,monospace;flex:none}
   .v-avatar .dk-name{color:#cdd0d6}
-
   /* ── C · bold band ── */
   .v-band .dk-sech{background:color-mix(in oklch,var(--rc) 90%,#161618);border-color:transparent}
   .v-band .dk-name{color:#161618}
   .v-band .dk-count{color:rgba(20,20,24,.65)}
-
   @media (prefers-reduced-motion:reduce){.pip-unread i{animation:none}}
   `}</style>
 );
