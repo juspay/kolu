@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
+    "./agentProjection": "./src/agentProjection.ts",
     "./surface": "./src/surface.ts",
     "./endpoint": "./src/endpoint.ts",
     "./serveFsGit": "./src/serveFsGit.ts",

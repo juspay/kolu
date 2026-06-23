@@ -1,0 +1,169 @@
+/**
+ * Pins `fleet.ts` — the pulam-web PRESENTATION layer over the shared agent-state
+ * projection. The renderer-agnostic core (bucketing, urgency, recency, short
+ * name, the idle-label fork, the needs-you-first ordering) is tested ONCE in
+ * `@kolu/terminal-workspace`'s `agentProjection.test.ts`; this file keeps only
+ * the web-specific bits: the location/cwd helpers, the URGENCY colour/label
+ * descriptor, the web-labelled state cell, the terminal-category filter, and the
+ * fleet-entry comparator adapter.
+ */
+
+import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
+import {
+  agentUrgency,
+  fleetStateLabel,
+} from "@kolu/terminal-workspace/agentProjection";
+import { describe, expect, it } from "vitest";
+import {
+  basename,
+  compareFleetEntries,
+  type FleetEntry,
+  isVisible,
+  locationText,
+  terminalCategory,
+  URGENCY,
+  URGENCY_LABELS,
+} from "./fleet.ts";
+
+/** Build an awareness value with a given agent state. Only `kind`/`state` are
+ *  read by the projection, so a minimal cast keeps the test on the projection
+ *  rather than reconstructing every agent field. */
+function withAgent(
+  state: string,
+  opts: { kind?: string; lastActivityAt?: number; cwd?: string } = {},
+): AwarenessValue {
+  return {
+    ...seedAwarenessValue(opts.cwd ?? "/work/repo"),
+    lastActivityAt: opts.lastActivityAt ?? 0,
+    agent: {
+      kind: opts.kind ?? "claude-code",
+      state,
+    } as AwarenessValue["agent"],
+  };
+}
+
+const id = (n: number): TerminalId =>
+  `${n}${n}${n}${n}${n}${n}${n}${n}-1111-4111-8111-111111111111` as TerminalId;
+
+describe("fleetStateLabel with the web URGENCY_LABELS", () => {
+  it("need reads the web label 'needs you'", () => {
+    expect(
+      fleetStateLabel(withAgent("awaiting_user").agent, URGENCY_LABELS),
+    ).toBe("needs you");
+    expect(fleetStateLabel(withAgent("thinking").agent, URGENCY_LABELS)).toBe(
+      "working",
+    );
+  });
+  it("an idle agent shows its own state; no agent reads idle", () => {
+    expect(fleetStateLabel(withAgent("waiting").agent, URGENCY_LABELS)).toBe(
+      "waiting",
+    );
+    expect(fleetStateLabel(null, URGENCY_LABELS)).toBe("idle");
+  });
+});
+
+describe("compareFleetEntries (needs-you-first, over fleet entries)", () => {
+  const entry = (
+    i: number,
+    state: string | null,
+    lastActivityAt: number,
+  ): FleetEntry => ({
+    id: id(i),
+    value:
+      state === null
+        ? { ...seedAwarenessValue("/x"), lastActivityAt }
+        : withAgent(state, { lastActivityAt }),
+  });
+
+  it("a blocked agent floats above a MORE-RECENT working agent (urgency beats recency)", () => {
+    const need = entry(1, "awaiting_user", 1_000); // older
+    const work = entry(2, "thinking", 9_999); // newer
+    expect([work, need].sort(compareFleetEntries).map((e) => e.id)).toEqual([
+      need.id,
+      work.id,
+    ]);
+  });
+
+  it("orders a full mix need < work < idle", () => {
+    const need = entry(3, "awaiting_user", 100);
+    const work = entry(2, "thinking", 100);
+    const idle = entry(1, "waiting", 100);
+    expect(
+      [idle, work, need]
+        .sort(compareFleetEntries)
+        .map((e) => agentUrgency(e.value.agent)),
+    ).toEqual(["need", "work", "idle"]);
+  });
+});
+
+describe("terminalCategory", () => {
+  it("an active agent (need/work) → active", () => {
+    expect(terminalCategory(withAgent("awaiting_user"))).toBe("active");
+    expect(terminalCategory(withAgent("thinking"))).toBe("active");
+  });
+  it("an idle/waiting agent → idle", () => {
+    expect(terminalCategory(withAgent("waiting"))).toBe("idle");
+  });
+  it("no agent but a foreground process → nonagent", () => {
+    const v: AwarenessValue = {
+      ...seedAwarenessValue("/x"),
+      foreground: { name: "vim", title: null },
+    };
+    expect(terminalCategory(v)).toBe("nonagent");
+  });
+  it("no agent and no foreground → sleeping", () => {
+    expect(terminalCategory(seedAwarenessValue("/x"))).toBe("sleeping");
+  });
+});
+
+describe("isVisible", () => {
+  const allOff = { idle: false, nonagent: false, sleeping: false };
+  it("active agents are always visible", () => {
+    expect(isVisible("active", allOff)).toBe(true);
+  });
+  it("idle / nonagent / sleeping are gated by their toggle", () => {
+    expect(isVisible("idle", allOff)).toBe(false);
+    expect(isVisible("idle", { ...allOff, idle: true })).toBe(true);
+    expect(isVisible("nonagent", allOff)).toBe(false);
+    expect(isVisible("nonagent", { ...allOff, nonagent: true })).toBe(true);
+    expect(isVisible("sleeping", allOff)).toBe(false);
+    expect(isVisible("sleeping", { ...allOff, sleeping: true })).toBe(true);
+  });
+});
+
+describe("locationText", () => {
+  it("repo · branch when in a repo", () => {
+    const v: AwarenessValue = {
+      ...seedAwarenessValue("/work/kolu"),
+      git: {
+        repoName: "kolu",
+        branch: "feat/dial-ssh",
+      } as AwarenessValue["git"],
+    };
+    expect(locationText(v)).toBe("kolu · feat/dial-ssh");
+  });
+  it("cwd basename when not in a repo", () => {
+    expect(locationText(seedAwarenessValue("/work/repo-a"))).toBe("repo-a");
+  });
+});
+
+describe("basename", () => {
+  it("trims a trailing slash and takes the last segment", () => {
+    expect(basename("/a/b/")).toBe("b");
+    expect(basename("/a/b")).toBe("b");
+    expect(basename("solo")).toBe("solo");
+  });
+});
+
+describe("URGENCY descriptor", () => {
+  it("carries the web colour + label per urgency", () => {
+    expect(URGENCY.need.label).toBe("needs you");
+    expect(URGENCY.work.label).toBe("working");
+    expect(URGENCY.idle.label).toBe("idle");
+    expect(URGENCY.need.color).toMatch(/^#/);
+  });
+});

@@ -1,4 +1,8 @@
 @import "tailwindcss";
 
 /* The document chrome (dark monospace canvas) is Tailwind utilities on <html>/
- * <body> in index.html — utilities-only styling, no custom CSS here. */
+ * <body> in index.html, and the three dashboard animations (the breathing
+ * needs-you strip + glyph, the working spinner, the blinking live-output dot)
+ * are Tailwind's built-in `animate-pulse` / `animate-spin` in the markup, each
+ * paired with `motion-reduce:animate-none` so a reduced-motion preference holds
+ * them still. No custom keyframes are needed here. */

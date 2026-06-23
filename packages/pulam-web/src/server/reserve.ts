@@ -113,8 +113,13 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const awarenessCache = new Map<TerminalId, AwarenessValue>();
   // A local bus the mirror's `activity` sink republishes each remote frame onto,
   // so the browser-facing `activity` source forwards the same data without
-  // re-subscribing to the remote.
+  // re-subscribing to the remote. `activityLatest` caches the most-recent frame
+  // the mirror folded so a browser that subscribes mid-stream gets the TRUE live
+  // set as its snapshot — NOT the awareness key set (every terminal would falsely
+  // paint live). It starts `[]`: until the first real frame, NOTHING is live (the
+  // dot is the byte-tap, distinct from a terminal merely existing).
   const activityBus: Channel<TerminalId[]> = inMemoryChannel<TerminalId[]>();
+  let activityLatest: TerminalId[] = [];
 
   // ── The forwarding holders (populated by the session loop per spawn) ──────
   // The live client is OBSERVABLE: its input-param stream forwarders must hold
@@ -151,10 +156,12 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
       // Browser-facing `activity` — yields the parent's current live set on
       // subscribe (snapshot-then-delta, the streaming contract every reconnect
       // relies on), then forwards every frame the mirror republished onto the
-      // local bus.
+      // local bus. The snapshot is `activityLatest` (the last frame the mirror
+      // folded, `[]` before any), NOT the awareness key set: the live dot is the
+      // byte-tap, so a quiet terminal that merely exists must NOT paint live.
       activity: {
         source: async function* (_input, signal) {
-          yield [...awarenessCache.keys()];
+          yield [...activityLatest];
           for await (const frame of activityBus.subscribe(signal)) {
             yield frame;
           }
@@ -248,7 +255,14 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
       streams: {
         activity: {
           input: {},
-          onFrame: (frame) => activityBus.publish(frame),
+          // Cache the frame as the new snapshot BEFORE publishing, so a browser
+          // subscribing immediately after sees this frame as its snapshot rather
+          // than a stale one (the publish only reaches already-subscribed
+          // consumers; a fresh subscribe reads `activityLatest`).
+          onFrame: (frame) => {
+            activityLatest = frame;
+            activityBus.publish(frame);
+          },
         },
       },
     };

@@ -4,7 +4,7 @@ description: Repeat the kaval decoupling one level up. The awareness sensors (gi
 parents: [kaval-sessions, feature]
 status: accepted
 maturity: budding
-updated: 2026-06-22
+updated: 2026-06-23
 ---
 
 import D2 from "../../components/D2.astro";
@@ -229,7 +229,7 @@ The discipline that built this epic: **every hard primitive graduates through a 
 | --- | --- | --- |
 | **R4.6 · rename** <Pill>refactor</Pill> <PrLink pr={1512} /> | arivu → **pulam** — the daemon, `pulam-tui`, this note; the package stays `@kolu/terminal-workspace`. Behaviour-preserving; green CI is the proof. *Deliberately just the rename — across code, Nix, docs, and the website.* | clears the "knowing" misnomer before new surface area is born under it |
 | **[R4.7](#r47) · live `git status` in `pulam-tui fleet`** <Pill variant="ok">feature</Pill> <PrLink pr={1519} /> | each fleet **row** grows a **live working-tree cell** (changed-file count + branch ahead/behind), and a **selected** row (↑/↓ · Enter) **drills in** to the full `git status` — `staged · modified · untracked` + the changed-file list. Driven by `subscribeRepoChange`'s `{seq}` pulse re-running `git.getStatus`; *no file content* — the changed-file **list**, never bodies or diffs. `git.getStatus`'s `local` arm grew the branch header + section counts and dropped the always-null `base` — a *breaking* reshape, so the workspace contract bumps `0.3 → 1.0`. | the server `source`-arm `{seq}` **shape**, end-to-end and observable — "is the shape sound?" |
-| **[R4.8](pulam-web.html) · `pulam-web`** <Pill variant="ok">feature</Pill> | the **browser twin** ([its own note](pulam-web.html)) — a [drishti](electricity.html)-shaped browser ↔ ssh app reading pulam's surface over **`websocketLink` + `surfaceClient` + Solid `reconcile`**. Cheapest-first: **R-pulamweb-1** drishti consumer ✅ · **R-pulamweb-2** framework ✅ <PrLink pr={1524} /> · **R-pulamweb-3** live git status + drill-in ◀ next. | **kolu's exact failing leg** — ws + `surfaceClient` + reconcile — proven kolu-free with a *visible console*; the recipe **R-compose-2** rides on |
+| **[R4.8](pulam-web.html) · `pulam-web`** <Pill variant="ok">feature</Pill> | the **browser twin** ([its own note](pulam-web.html)) — a [drishti](electricity.html)-shaped browser ↔ ssh app reading pulam's surface over **`websocketLink` + `surfaceClient` + Solid `reconcile`**. Cheapest-first: **R-pulamweb-1** drishti consumer ✅ · **R-pulamweb-2** framework ✅ <PrLink pr={1524} /> · **R-pulamweb-3** agent dashboard ✅ <PrLink pr={1535} /> · **R-pulamweb-4** live git status + drill-in ◀ next. | **kolu's exact failing leg** — ws + `surfaceClient` + reconcile — proven kolu-free with a *visible console*; the recipe **R-compose-2** rides on |
 
 **Why a *web* twin, when the TUI sufficed for the glance view.** pulam-tui rides `stdioLink` + mirror sinks, so it structurally *cannot* exercise the leg kolu fails on: browser `websocketLink` → `surfaceClient` → Solid `reconcile`. pulam-web *is* that leg, minus kolu — it reads the **same** surface the **same** way kolu's browser will. So it is not a prettier dashboard (that would be the ceremony the fleet-board callout warned against); it is the standalone proof of **kolu's own consumption shape**. Only once R4.7 (shape) and R4.8 (transport) are green does kolu's **[R-compose-2](remote-terminals.html#r8)** compose the surface — now a backing-swap onto twice-proven electricity, not a speculative one.
 
@@ -249,7 +249,7 @@ So the *shape* is sound over a real wire. **But the consumer here is raw `for aw
 
 ### R4.8 — `pulam-web`: the browser twin → [its own note](pulam-web.html)
 
-R4.8 grew its own UI and a layered plan, so it moved to a dedicated note: **[pulam-web](pulam-web.html)**. The short of it — a [drishti](electricity.html)-shaped **Node** browser ↔ ssh app reading pulam's surface over **`websocketLink` + `surfaceClient` + Solid `reconcile`**, *kolu's exact browser-consumption leg minus kolu* (Node + Vite, matching kolu's own stack). It lands cheapest-first: **R-pulamweb-1** graduates the reactive stream consumer in **drishti** ✅; **R-pulamweb-2** stands up the whole framework (provision · fan-out · mirror · re-serve) rendering only a **terminal list** ✅ <PrLink pr={1524} />; **R-pulamweb-3** layers the user-facing features (live git status + drill-in) — *do next*. Full plan, UI mockup, and verified reuse map live in **[pulam-web](pulam-web.html)**.
+R4.8 grew its own UI and a layered plan, so it moved to a dedicated note: **[pulam-web](pulam-web.html)**. The short of it — a [drishti](electricity.html)-shaped **Node** browser ↔ ssh app reading pulam's surface over **`websocketLink` + `surfaceClient` + Solid `reconcile`**, *kolu's exact browser-consumption leg minus kolu* (Node + Vite, matching kolu's own stack). It lands cheapest-first: **R-pulamweb-1** graduates the reactive stream consumer in **drishti** ✅; **R-pulamweb-2** stands up the whole framework (provision · fan-out · mirror · re-serve) rendering only a **terminal list** ✅ <PrLink pr={1524} />; **R-pulamweb-3** layers the **agent dashboard** (every agent sorted by what needs you) ✅ <PrLink pr={1535} />; **R-pulamweb-4** adds the live git status + drill-in — *do next*. Full plan, UI mockup, and verified reuse map live in **[pulam-web](pulam-web.html)**.
 
 ## History
 
