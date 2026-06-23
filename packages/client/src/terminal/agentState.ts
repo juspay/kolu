@@ -1,49 +1,29 @@
-/** Agent-state predicates — domain-level rules over `AgentInfo["state"]`.
+/** The agent-state ATTENTION class — the one equivalence class the terminal
+ *  ALERT layer (`useTerminalAlerts`) fires on. An agent enters it when it
+ *  either finishes its turn and yields (`waiting`) or actively blocks on the
+ *  user (`awaiting_user`); crossing INTO the class is what fires the "your
+ *  agent wants you" notification and OS badge (staleness still suppresses the
+ *  badge). Folding the two states into one class means flipping between them
+ *  within a session doesn't double-alert.
  *
- *  Two equivalence classes carved over the same union, both used by
- *  multiple consumers and otherwise prone to drifting apart:
- *
- *  - **Attention** (`waiting` | `awaiting_user`): agent is blocked on the
- *    user. Drives the dock's `awaiting` row variant, the OS-badge gate
- *    (firing condition only — staleness still suppresses the badge), and
- *    the activity-alert fire criterion. A new state joining this class
- *    must land here so every consumer picks it up.
- *  - **Working** (`thinking` | `tool_use` | `running_background`): compute is
- *    in flight (locally, or in a background task this agent is waiting on).
- *    Drives the dock's `working` row variant.
- *
- *  `agentBucket` (in `canvas/dockModel.ts`) used to repeat both literal
- *  lists in a `match`/`.exhaustive()` block; it now consumes these
- *  predicates so the membership rule lives in exactly one place. The
- *  `satisfies never` at the agentBucket fall-through keeps exhaustiveness
- *  intact — any future state literal added to `AgentInfo["state"]` will
- *  compile-fail there until it lands in one of these predicates.
- */
+ *  This is deliberately a DIFFERENT partition from the shared needs-you
+ *  projection (`@kolu/terminal-workspace/agentProjection`, which the dock,
+ *  pulam-tui, and pulam-web all rank by): there `waiting` is idle — a finished
+ *  agent isn't asking you to act — but the alert layer still NOTIFIES on it,
+ *  because a finished agent is worth a ping. "Notify me something happened" and
+ *  "rank by what needs my action" are different questions, so they classify
+ *  `waiting` differently, on purpose. */
 
 export type AttentionState = "waiting" | "awaiting_user";
-export type WorkingState = "thinking" | "tool_use" | "running_background";
 
-/** True when the agent state means "user action needed now". Type
- *  predicate so consumers can narrow `AgentInfo["state"]` to
- *  `AttentionState` and skip subsequent re-checks.
+/** True when the agent state belongs to the alert/notify class above. Type
+ *  predicate so consumers can narrow `AgentInfo["state"]` to `AttentionState`.
  *
- *  Accepts `string | undefined` because callers reading from reactive
- *  history (`createEffect`'s previous-value tracking) lose the literal
- *  type — equality comparisons inside still narrow correctly. */
+ *  Accepts `string | undefined` because callers reading from reactive history
+ *  (`createEffect`'s previous-value tracking) lose the literal type — equality
+ *  comparisons inside still narrow correctly. */
 export function isAttentionState(
   state: string | undefined,
 ): state is AttentionState {
   return state === "waiting" || state === "awaiting_user";
-}
-
-/** True when the agent is actively computing. Counterpart to
- *  `isAttentionState`; together they partition the live agent states. */
-export function isWorkingState(
-  state: string | undefined,
-): state is WorkingState {
-  return (
-    state === "thinking" ||
-    state === "tool_use" ||
-    state === "running_background"
-  );
 }

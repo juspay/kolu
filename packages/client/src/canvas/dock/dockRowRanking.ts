@@ -11,18 +11,25 @@
  *  send the keystroke to whichever terminal had the most recent
  *  `lastActivityAt` regardless of its dock position.
  *
- *  Kept separate from `dockModel.ts`: that module uses a four-bucket
- *  scheme (`awaiting/working/idle/none`) that the canvas minimap also
- *  reads, while dock rows use a five-bucket scheme with `parked` as
- *  its own visual treatment. Co-locating the two enums in one file
- *  would invite label-collision bugs. */
+ *  The agent-state core — awaiting/working/idle and their needs-you-first
+ *  rank — is the shared `agentProjection` (`agentUrgency` · `URGENCY_RANK`),
+ *  so the dock ranks a given agent state identically to pulam-tui and
+ *  pulam-web (one source, pinned by the cross-consumer differential test).
+ *  The dock then layers its OWN overlays on top: `sleeping` (a deliberate
+ *  dormant state), `parked` (the staleness window), and `none` (a
+ *  never-touched plain shell) — the quieter tail below the three shared
+ *  buckets. `dockModel.ts`'s `agentBucket` is the orthogonal PAINT fold (tile
+ *  aura / minimap / switcher columns), kept separate so the two enums can't
+ *  collide. */
 
 import {
+  activeArm,
+  agentUrgency,
   sleepingArm,
   type TerminalId,
   type TerminalMetadata,
+  URGENCY_RANK,
 } from "kolu-common/surface";
-import { metaBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
  *  idle) because it carries a different visual treatment (faded, tinier
@@ -42,11 +49,14 @@ export type DockRowBucket =
  *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
  *  everywhere else; this table only decides the order of rows that
  *  carry no recency signal at all, so the result stays deterministic.
- *  Lower number = shown first. */
+ *  Lower number = shown first. The three agent-state buckets inherit the
+ *  shared needs-you-first rank (`need=0 < work=1 < idle=2`) so the dock can't
+ *  drift from the pulam-tui / pulam-web ordering; `sleeping`/`parked`/`none`
+ *  are the dock's own quieter tail below them. */
 const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
-  awaiting: 0,
-  working: 1,
-  idle: 2,
+  awaiting: URGENCY_RANK.need,
+  working: URGENCY_RANK.work,
+  idle: URGENCY_RANK.idle,
   sleeping: 3,
   parked: 4,
   none: 5,
@@ -61,12 +71,20 @@ function classifyDockRow(
   // into the parked-drop (which `dockTree` hides) however long it has slept.
   if (sleepingArm(meta)) return "sleeping";
   if (parked) return "parked";
-  const agent = metaBucket(meta);
-  // A terminal that *has* an agent but no live attention state reads
-  // as "idle" in the dock — quieter than a working pill. Plain shells
-  // (`lastActivityAt === 0`) route to `none`.
-  if (agent === "none") return meta.lastActivityAt > 0 ? "idle" : "none";
-  return agent;
+  // The agent-state core IS the shared needs-you projection, so the dock ranks
+  // a given state identically to pulam-tui / pulam-web (pinned by the
+  // differential test). `awaiting_user` → need, the working states → work, and
+  // everything else — a `waiting` post-turn agent, an unknown state, or no
+  // agent at all — → idle. A never-touched plain shell (`lastActivityAt === 0`,
+  // no agent) keeps its quieter `none` bucket below idle.
+  switch (agentUrgency(activeArm(meta)?.agent ?? null)) {
+    case "need":
+      return "awaiting";
+    case "work":
+      return "working";
+    case "idle":
+      return meta.lastActivityAt > 0 ? "idle" : "none";
+  }
 }
 
 export type RankedDockRow = {

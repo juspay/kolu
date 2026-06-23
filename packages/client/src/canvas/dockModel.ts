@@ -1,5 +1,6 @@
 import {
   activeArm,
+  agentBucket as projectionBucket,
   type AgentInfo,
   type PrResult,
   type TerminalId,
@@ -11,7 +12,6 @@ import {
   type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
-import { isAttentionState, isWorkingState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
@@ -193,24 +193,36 @@ export type DockModel = {
   columns: DockColumn[];
 };
 
-/** Classify live agent metadata into the agent-state buckets. Pure — does
- *  not consider staleness. Callers that have a staleness signal should
- *  prefer `entryBucket()` so parked terminals route to the Idle column;
- *  this function stays exported for the minimap badge, which colors tiles
- *  by agent state regardless of age. */
+/** Classify live agent metadata into the dock's agent-state PAINT buckets — the
+ *  canvas tile aura, the minimap badge, the expanded-switcher columns. Pure —
+ *  does not consider staleness. Callers that have a staleness signal should
+ *  prefer `entryBucket()` so parked terminals route to the Idle column.
+ *
+ *  Sources its membership from the shared `agentBucket` in
+ *  `@kolu/terminal-workspace/agentProjection` (imported as `projectionBucket`),
+ *  so the closed agent-state set lives in ONE place; the exhaustiveness fence
+ *  that catches a newly-added state now lives there, not in a hand-copied list.
+ *
+ *  This is the PAINT fold, NOT the needs-you RANKING (that's `dockRowRanking`'s
+ *  `agentUrgency`). The paint vocabulary — {awaiting, working, none} — has no
+ *  quiet-agent slot, so the post-turn lull (`waiting`) folds to `awaiting`: a
+ *  just-finished agent keeps its tile glow until it parks. The ranking reads
+ *  `agentUrgency`, where `waiting` is idle. The two legitimately differ on
+ *  `waiting`, exactly as the shared projection's own `agentBucket` (activity)
+ *  and `agentUrgency` (urgency) do. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
-  const state = agent?.state;
-  if (state === undefined) return "none";
-  if (isAttentionState(state)) return "awaiting";
-  if (isWorkingState(state)) return "working";
-  // Exhaustiveness fence: AgentInfo["state"] partitions cleanly into
-  // attention + working today. Any future state literal added to the
-  // schema must join one predicate (or earn its own bucket) — `state
-  // satisfies never` compile-fails here until it does.
-  state satisfies never;
-  return "none";
+  if (!agent) return "none";
+  switch (projectionBucket(agent.state)) {
+    case "awaiting":
+    case "waiting":
+      return "awaiting";
+    case "working":
+      return "working";
+    case "other":
+      return "none";
+  }
 }
 
 /** Bucket a terminal by its live agent — `agentBucket` over the active arm. A
