@@ -18,9 +18,9 @@
  *  The dock then layers its OWN overlays on top: `sleeping` (a deliberate
  *  dormant state), `parked` (the staleness window), and `none` (a
  *  never-touched plain shell) — the quieter tail below the three shared
- *  buckets. `dockModel.ts`'s `agentBucket` is the orthogonal PAINT fold (tile
- *  aura / minimap / switcher columns), kept separate so the two enums can't
- *  collide. */
+ *  buckets. `dockModel.ts`'s `paintBucket` is the orthogonal PAINT fold (tile
+ *  aura / minimap / switcher columns / title pip), kept separate so the two
+ *  enums can't collide. */
 
 import {
   activeArm,

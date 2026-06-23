@@ -16,7 +16,7 @@ import { prValue } from "anyforge/schemas";
 import { activeArm, prUnavailableSource } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { StatePip } from "../canvas/dock/RowPips";
-import { agentBucket } from "../canvas/dockModel";
+import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
@@ -118,7 +118,7 @@ const TerminalMeta: Component<{
              *  triage states — which fold in recency/staleness — dock-only. */}
             <Show when={activeArm(info().meta)?.agent}>
               {(agent) => (
-                <StatePip bucket={agentBucket(agent())} unread={props.unread} />
+                <StatePip bucket={paintBucket(agent())} unread={props.unread} />
               )}
             </Show>
             <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>

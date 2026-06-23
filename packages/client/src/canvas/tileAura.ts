@@ -7,7 +7,7 @@
  *  because the unread obligation outlives the bucket transition until the
  *  user focuses the tile (which clears unread).
  *
- *  Reuses the dock's upstream classifiers (`agentBucket`, the unread flag,
+ *  Reuses the dock's upstream classifiers (`paintBucket`, the unread flag,
  *  `useStaleCheck`) but maps to the canvas's own vocabulary: a ranked, aging
  *  ladder where a fresh waiter outranks a busy tile and a stale waiter cools
  *  *below* it. A stale worker parks to `none`, so the canvas agrees with the

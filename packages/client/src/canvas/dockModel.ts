@@ -211,22 +211,28 @@ export type DockModel = {
  *  quiet-agent slot, so the post-turn lull (`waiting`) folds to `awaiting`: a
  *  just-finished agent keeps its tile glow until it parks. The ranking reads
  *  `agentUrgency`, where `waiting` is idle. The two legitimately differ on
- *  `waiting` and stay separate functions, co-located behind the schema fence. */
-export function agentBucket(
+ *  `waiting` and stay separate functions, co-located behind the schema fence.
+ *
+ *  Named `paintBucket` — NOT `agentBucket` — so the name carries the concept:
+ *  `agentBucket` unambiguously means the shared projection's activity fold
+ *  (`@kolu/terminal-workspace/agentProjection`), and `paintBucket` is this
+ *  agent-optional paint adapter (the per-state fold itself is `agentPaintClass`
+ *  in the projection; this only lifts it over an absent agent). */
+export function paintBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
   if (!agent) return "none";
   return agentPaintClass(agent.state);
 }
 
-/** Bucket a terminal by its live agent — `agentBucket` over the active arm. A
+/** Bucket a terminal by its live agent — `paintBucket` over the active arm. A
  *  sleeping/absent terminal has no live agent, so it folds to the idle/"none"
  *  bucket. The single fold so presence surfaces (dock rows, minimap badge,
  *  canvas aura) don't re-spell the active-narrow + bucket at every call site. */
 export function metaBucket(
   meta: TerminalMetadata,
 ): Exclude<AgentBucketKind, "idle"> {
-  return agentBucket(activeArm(meta)?.agent);
+  return paintBucket(activeArm(meta)?.agent);
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last

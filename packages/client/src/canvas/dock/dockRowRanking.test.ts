@@ -8,7 +8,7 @@ import {
   type Urgency,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { agentBucket } from "../dockModel";
+import { paintBucket } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
@@ -187,9 +187,9 @@ describe("row ORDER vs row COLOUR are decoupled — the pip matches the tile tit
         agent: makeAgent(state),
         lastActivityAt: Date.now(),
       });
-      // `agentBucket` is the fold `TerminalMeta` feeds its title pip — the dock
+      // `paintBucket` is the fold `TerminalMeta` feeds its title pip — the dock
       // row pip must agree so one state never shows two colours.
-      expect(pip(meta, false)).toBe(agentBucket(makeAgent(state)));
+      expect(pip(meta, false)).toBe(paintBucket(makeAgent(state)));
     }
   });
 

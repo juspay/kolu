@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 import type { IdleBucketKey } from "../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import {
-  agentBucket,
   buildDockModel,
   type DockSourceEntry,
+  paintBucket,
   sortDockEntriesByRecency,
 } from "./dockModel";
 import type { TileLayout } from "./TileLayout";
@@ -100,25 +100,25 @@ function modelFor(
   return buildDockModel(entries, options);
 }
 
-describe("agentBucket", () => {
+describe("paintBucket", () => {
   it("maps waiting agents to awaiting", () => {
-    expect(agentBucket(makeAgent({ state: "waiting" }))).toBe("awaiting");
+    expect(paintBucket(makeAgent({ state: "waiting" }))).toBe("awaiting");
   });
 
   it("maps active agents to working", () => {
-    expect(agentBucket(makeAgent({ state: "thinking" }))).toBe("working");
-    expect(agentBucket(makeAgent({ state: "tool_use" }))).toBe("working");
+    expect(paintBucket(makeAgent({ state: "thinking" }))).toBe("working");
+    expect(paintBucket(makeAgent({ state: "tool_use" }))).toBe("working");
   });
 
   it("maps missing agents to none", () => {
-    expect(agentBucket(null)).toBe("none");
+    expect(paintBucket(null)).toBe("none");
   });
 });
 
 describe("dock paint fold ⇄ agentProjection bucket parity (the cross-consumer differential)", () => {
   // Sibling to the urgency-parity test in dockRowRanking.test.ts: that one pins
   // the dock RANK path back to the shared projection; this one pins the dock
-  // PAINT path. For every agent state, the dock paint fold (`agentBucket`) maps
+  // PAINT path. For every agent state, the dock paint fold (`paintBucket`) maps
   // back to the shared activity bucket (`agentProjection.agentBucket`) under the
   // DELIBERATE {waiting→awaiting, other→none} fold — so the divergence on
   // `waiting` is asserted intentional-and-stable, not left to an inline switch
@@ -127,7 +127,7 @@ describe("dock paint fold ⇄ agentProjection bucket parity (the cross-consumer 
   // red.
   const PAINT_FOR_BUCKET: Record<
     ReturnType<typeof projectionBucket>,
-    ReturnType<typeof agentBucket>
+    ReturnType<typeof paintBucket>
   > = {
     awaiting: "awaiting",
     // Deliberate divergence: a just-finished agent keeps its glow until it
@@ -147,7 +147,7 @@ describe("dock paint fold ⇄ agentProjection bucket parity (the cross-consumer 
 
   for (const state of STATES) {
     it(`paints a ${state} agent at the projection bucket's declared fold`, () => {
-      expect(agentBucket(makeAgent({ state }))).toBe(
+      expect(paintBucket(makeAgent({ state }))).toBe(
         PAINT_FOR_BUCKET[projectionBucket(state)],
       );
     });
