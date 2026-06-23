@@ -10,10 +10,12 @@
  *
  * A CLI supplies only its genuinely-volatile values: the binary name, the
  * already-read drv-map JSON (the env-var NAME stays in the caller, since the
- * Nix-wrapper boundary spells it per-agent), a noun for the "no derivation
- * baked" error, and a one-line `probe` closure that roundtrips one cheap RPC
- * (`system.heartbeat`, the first frame of a `version` cell, …) so the dial can
- * prove the link before flipping the connect watchdog off.
+ * Nix-wrapper boundary spells it per-agent), and a noun for the "no derivation
+ * baked" error. Proving the link is the framework's job, not the CLI's: the dial
+ * defaults to the reserved `system.live` round-trip (`probeSurfaceLive`) — the
+ * same receptacle HostSession's periodic watchdog plugs into — so no CLI
+ * nominates its own liveness verb. A CLI overrides `probe` only for a protocol
+ * assertion that goes beyond liveness (pulam-tui's `version` first-frame check).
  *
  * This is the *one-shot* shape: it fires `markConnected()` itself and discards
  * the `HostSession`, because a one-shot CLI needs no copying/connecting overlay
@@ -22,6 +24,10 @@
  * (as mini-ci's dialer does) — it does NOT reuse this `{ client, dispose }`.
  */
 
+import {
+  probeSurfaceLive,
+  type SurfaceLiveProbeable,
+} from "@kolu/surface/liveness";
 import type { AnyContractRouter } from "@orpc/contract";
 import { resolveSystem } from "./arch";
 import { type AgentClient, HostSession } from "./hostSession";
@@ -122,11 +128,15 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  prefixed first line. */
   fatalPrefix: string;
   /** Roundtrip one cheap RPC on `client` to prove the link before
-   *  `markConnected` flips the connect watchdog off. Required and caller-supplied
-   *  because surfaces differ: kaval has `system.heartbeat`, pulam reads the first
-   *  frame of its `version` cell. The result is discarded; a rejection fails the
-   *  dial (and destroys the session). */
-  probe: (client: AgentClient<C>) => Promise<unknown>;
+   *  `markConnected` flips the connect watchdog off. Optional — it DEFAULTS to the
+   *  framework-reserved `system.live` round-trip (`probeSurfaceLive`), the same
+   *  receptacle HostSession's periodic watchdog plugs into, so every
+   *  `defineSurface` agent is provable without nominating an app verb. Override
+   *  ONLY for a genuine protocol assertion that goes BEYOND liveness — pulam-tui
+   *  asserts its `version` cell yields a first frame, which is a contract check,
+   *  not merely "is the link alive". The result is discarded; a rejection fails
+   *  the dial (and destroys the session). */
+  probe?: (client: AgentClient<C>) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `HostSessionOptions.extraArgs` / `buildAgentCommand` — what the args mean is
@@ -227,8 +237,15 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // Roundtrip one cheap RPC and flip the session to `connected`: this disarms
     // the connect watchdog that would otherwise SIGTERM the ssh child mid a
     // long-running command, and proves the link works in both directions before
-    // any real command.
-    await opts.probe(client);
+    // any real command. Default to the framework-reserved `system.live` probe —
+    // the receptacle HostSession's periodic watchdog also plugs into — so a CLI
+    // need not nominate its own liveness verb; only a deliberate protocol
+    // assertion (pulam-tui's first-frame check) overrides it.
+    const probe =
+      opts.probe ??
+      ((c: AgentClient<C>) =>
+        probeSurfaceLive(c as unknown as SurfaceLiveProbeable));
+    await probe(client);
     session.markConnected();
     return {
       client,

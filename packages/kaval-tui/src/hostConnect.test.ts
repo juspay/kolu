@@ -3,10 +3,10 @@
  * (drv-map parse, arch-probe + lookup, pin → probe → markConnected → destroy)
  * lives in `@kolu/surface-nix-host`'s `dialAgentOnce` and is tested there; here
  * we mock `dialAgentOnce` and prove the thin seam this wrapper owns: it passes
- * kaval's three volatile values (binary, env var, drvNoun) and a `probe` that
- * roundtrips `system.heartbeat` (kaval's atomic liveness verb). The probe is
- * exercised against a REAL in-process kaval client, and the returned
- * `Connection` flows back unchanged.
+ * kaval's volatile values (binary, env var, drvNoun) and nominates NO `probe` —
+ * the dial defaults to the framework-reserved `system.live` round-trip, so kaval
+ * no longer supplies a liveness verb of its own. The returned `Connection` flows
+ * back unchanged.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,17 +58,16 @@ describe("connectPtyHostViaHost", () => {
     expect(Array.isArray(entries)).toBe(true);
   });
 
-  it("the probe roundtrips system.heartbeat (kaval's liveness verb)", async () => {
+  it("nominates no probe — the dial defaults to the reserved system.live", async () => {
     const client = inProcessKavalClient();
     h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
 
     await connectPtyHostViaHost("nix@prod");
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
 
-    // Running the probe against the real in-process host roundtrips one RPC —
-    // the connectivity proof the one-shot dial uses.
-    // biome-ignore lint/suspicious/noExplicitAny: the mocked generic collapses the probe's client type; the in-process client speaks the same contract.
-    await expect(opts?.probe(client as any)).resolves.toBeDefined();
+    // kaval supplies no `probe`: liveness is the framework's job now (the dial
+    // defaults to `system.live`), so this wrapper nominates no verb of its own.
+    expect(opts?.probe).toBeUndefined();
   });
 
   it("threads dispose back through the Connection", async () => {

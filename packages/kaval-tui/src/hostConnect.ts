@@ -9,14 +9,16 @@
  * `@kolu/surface-nix-host`'s `dialAgentOnce`: it resolves the daemon's `.drv`
  * for the host's arch, ships it (`nix copy --derivation` → realise), runs
  * `ssh <host> kaval --stdio`, speaks `ptyHostSurface` over that child's stdio,
- * and proves the link with the caller's `probe` before flipping the connect
- * watchdog off. kaval's `--stdio` mode fronts the *durable* daemon (see
+ * and proves the link with the reserved `system.live` probe before flipping the
+ * connect watchdog off. kaval's `--stdio` mode fronts the *durable* daemon (see
  * `kaval/src/stdioBridge.ts`), so a PTY a `create` spawns survives the ssh link
  * and a later `attach` finds it.
  *
  * kaval's only volatile differences from the other one-shot CLIs (pulam-tui):
- * the binary name, the per-system drv-map env var, and the connectivity probe
- * (`system.heartbeat` — kaval's atomic liveness verb).
+ * the binary name and the per-system drv-map env var. The connectivity probe is
+ * no longer one of them — the dial defaults to the framework-reserved
+ * `system.live` round-trip, so kaval nominates no liveness verb of its own
+ * (`system.heartbeat` reverts to being just kaval's memory verb).
  *
  * This is the ONLY place kaval-tui imports `@kolu/surface-nix-host` — it must
  * never leak into the kaval daemon closure (the staleKey allow-list).
@@ -50,7 +52,9 @@ export function connectPtyHostViaHost(host: string): Promise<Connection> {
     // `kaval:`-shaped guess would silently drop the remote's real reason and
     // surface only the transport's opaque "stream closed" error.
     fatalPrefix: "kaval --stdio:",
-    // One cheap RPC that roundtrips kaval's atomic liveness verb.
-    probe: (client) => client.surface.system.heartbeat({}),
+    // No `probe`: the dial defaults to the framework-reserved `system.live`
+    // round-trip (every `defineSurface` agent answers it), the same receptacle
+    // HostSession's watchdog uses — so kaval needn't nominate its own liveness
+    // verb. `system.heartbeat` stays kaval's memory verb, no longer a liveness probe.
   });
 }

@@ -3,10 +3,12 @@
  * (drv-map parse, arch-probe + lookup, pin → probe → markConnected → destroy)
  * lives in `@kolu/surface-nix-host`'s `dialAgentOnce` and is tested there; here
  * we mock `dialAgentOnce` and prove the thin seam this wrapper owns: it passes
- * pulam's three volatile values (binary, env var, drvNoun) and a `probe` that
- * roundtrips the `version` cell (pulam has no `system.heartbeat`). The probe is
- * exercised against a REAL in-process pulam client (a `directLink` over the
- * served `terminalWorkspaceSurface`), and the returned `Connection` flows back unchanged.
+ * pulam's three volatile values (binary, env var, drvNoun) and OVERRIDES the
+ * dial's default `system.live` probe with a protocol assertion — reading the
+ * `version` cell's first frame (a contract check, not merely liveness). The
+ * override is exercised against a REAL in-process pulam client (a `directLink`
+ * over the served `terminalWorkspaceSurface`), and the returned `Connection`
+ * flows back unchanged.
  */
 import {
   type AwarenessValue,
@@ -137,10 +139,14 @@ describe("connectArivuViaHost", () => {
     await connectArivuViaHost("nix@prod");
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
 
-    // Running the probe against the real in-process surface resolves with the
-    // version cell's first frame — the connectivity proof the one-shot dial uses.
+    // pulam OVERRIDES the dial's default `system.live` with a protocol assertion,
+    // so its `probe` is defined. Running it against the real in-process surface
+    // resolves with the version cell's first frame — the proof the override exists.
+    expect(opts?.probe).toBeDefined();
     // biome-ignore lint/suspicious/noExplicitAny: the mocked generic collapses the probe's client type; the directLink client speaks the same contract.
-    await expect(opts?.probe(client as any)).resolves.toEqual(DEFAULT_VERSION);
+    await expect(opts?.probe?.(client as any)).resolves.toEqual(
+      DEFAULT_VERSION,
+    );
   });
 
   it("the probe THROWS when the version stream ends empty (link/protocol failure, not connected)", async () => {
@@ -165,8 +171,9 @@ describe("connectArivuViaHost", () => {
         },
       },
     };
+    expect(opts?.probe).toBeDefined();
     // biome-ignore lint/suspicious/noExplicitAny: a hand-rolled stub standing in for the contract client; only `version.get` is exercised.
-    await expect(opts?.probe(emptyStreamClient as any)).rejects.toThrow(
+    await expect(opts?.probe?.(emptyStreamClient as any)).rejects.toThrow(
       /yielded no snapshot frame/,
     );
   });
