@@ -46,9 +46,64 @@ import { makeClientCursor } from "./waitForNextClient";
  *  the link dies, so a call against a just-dropped link fails honestly rather
  *  than relaying into a dead client. One shape for both forwarding slots (the
  *  procedures and the live client) so a consumer plugs into the same receptacle
- *  for either. */
+ *  for either.
+ *
+ *  `onChange` is an OPTIONAL observer the pump fires every time it (re)sets or
+ *  clears `.current` — so a forwarder that must stay open across reconnects (a
+ *  re-served INPUT-parameterized stream that has to *rebind* to each successive
+ *  live client, not complete when the current one dies) can wake on the next
+ *  spawn instead of polling. A holder that just reads `.current` on demand omits
+ *  it. The pump only fires it; the holder owns the listener set (see
+ *  {@link observableHolder}). */
 export interface LiveSpawnHolder<T> {
   current: T | null;
+  /** Fired by the pump after every `.current` (re)assignment, including the
+   *  clear-to-`null` on link death. Optional — omit for read-on-demand holders. */
+  onChange?: () => void;
+}
+
+/** A {@link LiveSpawnHolder} that NOTIFIES — `whenChanged()` resolves on the
+ *  next `.current` mutation the pump makes, so a forwarder can `await` the next
+ *  live client (or its clear) rather than poll. The pump mutates `.current` and
+ *  calls `onChange`; the holder fans that out to everyone waiting. Use this (not
+ *  a bare `{ current: null }`) when a re-served stream must rebind across remote
+ *  respawns instead of completing when one spawn's link dies. */
+export interface ObservableHolder<T> extends LiveSpawnHolder<T> {
+  /** Resolve on the next `.current` change. One-shot: re-await for the one after. */
+  whenChanged(signal?: AbortSignal): Promise<void>;
+}
+
+/** Build an {@link ObservableHolder}. The `onChange` the pump fires wakes every
+ *  pending `whenChanged()` waiter exactly once; an aborted waiter rejects with
+ *  the signal's reason and detaches, so a torn-down subscription never leaks a
+ *  listener. */
+export function observableHolder<T>(): ObservableHolder<T> {
+  const waiters = new Set<() => void>();
+  return {
+    current: null,
+    onChange() {
+      for (const wake of [...waiters]) wake();
+    },
+    whenChanged(signal) {
+      return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        const wake = (): void => {
+          waiters.delete(wake);
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const onAbort = (): void => {
+          waiters.delete(wake);
+          reject(signal?.reason);
+        };
+        waiters.add(wake);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    },
+  };
 }
 
 export interface PumpRemoteSurfaceOptions<
@@ -130,14 +185,28 @@ export async function pumpRemoteSurface<
     );
     // Publish this spawn's forwarding stubs + live client; clear them the
     // instant the link dies so a forward in the gap fails honestly rather than
-    // calling a dead client.
-    if (opts.liveProcedures) opts.liveProcedures.current = mirror.procedures;
-    if (opts.liveClient) opts.liveClient.current = client;
+    // calling a dead client. `onChange` wakes any forwarder holding open across
+    // reconnects (an observable holder's `whenChanged()` waiters) — both on the
+    // set (rebind to this spawn) and the clear (the link just died).
+    if (opts.liveProcedures) {
+      opts.liveProcedures.current = mirror.procedures;
+      opts.liveProcedures.onChange?.();
+    }
+    if (opts.liveClient) {
+      opts.liveClient.current = client;
+      opts.liveClient.onChange?.();
+    }
     try {
       await mirror.done;
     } finally {
-      if (opts.liveProcedures) opts.liveProcedures.current = null;
-      if (opts.liveClient) opts.liveClient.current = null;
+      if (opts.liveProcedures) {
+        opts.liveProcedures.current = null;
+        opts.liveProcedures.onChange?.();
+      }
+      if (opts.liveClient) {
+        opts.liveClient.current = null;
+        opts.liveClient.onChange?.();
+      }
     }
     log(`pump: mirror ended for client #${seq} — awaiting next client`);
   }
@@ -174,9 +243,13 @@ export interface HostRegistryOptions<C extends AnyContractRouter, H> {
    *  `failed` connection state, never a throw that takes the whole registry —
    *  and with it the parent's HTTP port — down. */
   buildEntry: (host: string) => HostEntry<C, H>;
-  /** Persist the host set after every `add`/`remove`, awaited before the call
-   *  resolves (so a downstream announce never races ahead of the store). Omit
-   *  for a static host set (no persistence — pulam-web R4.8a). */
+  /** Persist the next host set, awaited BEFORE `add`/`remove` commit their
+   *  in-memory + session/socket changes — so the write is transactional: a
+   *  persist rejection aborts the mutation with memory, sessions, sockets, and
+   *  disk all still consistent (the just-built session is torn down on a failed
+   *  `add`; a failed `remove` leaves the host fully live). Receives the intended
+   *  post-mutation host list, not the current one. Omit for a static host set
+   *  (no persistence — pulam-web R4.8a). */
   persist?: (hosts: string[]) => Promise<void>;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
@@ -224,8 +297,15 @@ export function buildHostRegistry<C extends AnyContractRouter, H>(
   for (const host of opts.initialHosts)
     entries.set(host, opts.buildEntry(host));
 
-  const persist = async (): Promise<void> => {
-    if (opts.persist) await opts.persist([...entries.keys()]);
+  // Persist the GIVEN next-host list (not `entries.keys()`) so the on-disk
+  // store can be written BEFORE the in-memory + session/socket lifecycle is
+  // committed. That ordering is what makes `add`/`remove` transactional: a
+  // persist rejection leaves memory, sockets, sessions, and disk all in the
+  // pre-mutation state instead of a half-applied mix (the inconsistency F5
+  // flagged). A no-`persist` registry (a static host set) skips straight to
+  // the commit.
+  const persistHosts = async (nextHosts: string[]): Promise<void> => {
+    if (opts.persist) await opts.persist(nextHosts);
   };
 
   return {
@@ -236,14 +316,29 @@ export function buildHostRegistry<C extends AnyContractRouter, H>(
 
     async add(host) {
       if (entries.has(host)) throw new Error("host already exists");
-      entries.set(host, opts.buildEntry(host));
-      await persist();
+      // Build the entry up front (so a `buildEntry` throw aborts before any
+      // commit), but persist the next host set BEFORE inserting it. If persist
+      // rejects, tear the just-built session down and DON'T insert — the caller
+      // sees the rejection with memory and disk both still excluding `host`.
+      const entry = opts.buildEntry(host);
+      try {
+        await persistHosts([...entries.keys(), host]);
+      } catch (err) {
+        entry.session.destroy();
+        throw err;
+      }
+      entries.set(host, entry);
       log(`added host: ${host} (total ${entries.size})`);
     },
 
     async remove(host) {
       const entry = entries.get(host);
       if (entry === undefined) return;
+      // Persist the post-removal set FIRST. If it rejects, the host stays fully
+      // live (session intact, sockets open, still in `entries`) and matches the
+      // disk that still lists it — no destroy-but-still-on-disk split.
+      await persistHosts([...entries.keys()].filter((h) => h !== host));
+      // Persisted: now commit the destructive teardown.
       const sockets = socketsByHost.get(host);
       if (sockets !== undefined) {
         for (const ws of sockets) {
@@ -257,7 +352,6 @@ export function buildHostRegistry<C extends AnyContractRouter, H>(
       }
       entry.session.destroy();
       entries.delete(host);
-      await persist();
       log(`removed host: ${host} (total ${entries.size})`);
     },
 

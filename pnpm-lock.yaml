@@ -710,12 +710,6 @@ importers:
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
@@ -731,16 +725,19 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.1.0
+        version: 4.2.2(vite@6.4.3(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
       '@types/ws':
         specifier: ^8.5.12
         version: 8.18.1
+      tailwindcss:
+        specifier: ^4.1.0
+        version: 4.2.2
       tsx:
         specifier: ^4.19.0
         version: 4.21.0

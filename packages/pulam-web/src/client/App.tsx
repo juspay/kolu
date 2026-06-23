@@ -34,34 +34,25 @@ export function App(): JSX.Element {
   const [hosts] = createResource(fetchHosts);
 
   return (
-    <main style={{ "max-width": "720px", margin: "0 auto", padding: "16px" }}>
-      <h1
-        style={{
-          "font-size": "15px",
-          "font-weight": "600",
-          color: "#d7dbe0",
-          margin: "4px 0 12px",
-        }}
-      >
+    <main class="mx-auto max-w-[720px] p-4">
+      <h1 class="mx-0 mt-1 mb-3 text-[15px] font-semibold text-[#d7dbe0]">
         pulam-web · fleet terminals
       </h1>
       <Show
         when={!hosts.error}
         fallback={
-          <div style={{ color: "#ff8d8d" }}>
+          <div class="text-[#ff8d8d]">
             {(hosts.error as Error)?.message ?? "failed to load hosts"}
           </div>
         }
       >
         <Show
           when={hosts() !== undefined}
-          fallback={<div style={{ color: "#6b7480" }}>loading hosts…</div>}
+          fallback={<div class="text-[#6b7480]">loading hosts…</div>}
         >
           <Show
             when={(hosts() ?? []).length > 0}
-            fallback={
-              <div style={{ color: "#6b7480" }}>no hosts configured</div>
-            }
+            fallback={<div class="text-[#6b7480]">no hosts configured</div>}
           >
             <For each={hosts()}>{(host) => <HostGroup host={host} />}</For>
           </Show>

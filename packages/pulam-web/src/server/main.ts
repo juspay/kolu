@@ -41,6 +41,7 @@ import {
   DEFAULT_PORT,
   PULAM_WEB_HOSTS_ENV,
   makeResolveDrvPath,
+  parsePort,
   readInitialHosts,
 } from "./config.ts";
 import {
@@ -104,7 +105,12 @@ async function main(): Promise<void> {
     process.env.PULAM_WEB_ALLOWED_ORIGINS,
   );
 
-  const port = Number(process.env.PULAM_WEB_PORT) || DEFAULT_PORT;
+  // Fail-fast on a malformed/0 port rather than silently binding the default.
+  const port = parsePort(
+    "PULAM_WEB_PORT",
+    process.env.PULAM_WEB_PORT,
+    DEFAULT_PORT,
+  );
   const bind = process.env.PULAM_WEB_BIND ?? "127.0.0.1";
 
   const server = serve({ fetch: app.fetch, port, hostname: bind }, (info) => {

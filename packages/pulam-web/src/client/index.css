@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* The document chrome — the dark monospace canvas the fleet list sits on. Lives
+ * here (not an index.html <style> block) so it goes through the same Tailwind
+ * pipeline as the markup. `@layer base` keeps it below utilities so a utility on
+ * <body> would still win. */
+@layer base {
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: #0b0d10;
+    color: #d7dbe0;
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+}

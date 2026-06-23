@@ -33,7 +33,12 @@
  */
 
 import { implement } from "@orpc/server";
-import type { AgentClient, LiveSpawnHolder } from "@kolu/surface-nix-host";
+import type {
+  AgentClient,
+  LiveSpawnHolder,
+  ObservableHolder,
+} from "@kolu/surface-nix-host";
+import { observableHolder } from "@kolu/surface-nix-host";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
   type CellStore,
@@ -73,9 +78,11 @@ export interface ReServe {
    *  handshake — `onFirstVersion` runs there (the session loop wires
    *  `markConnected` into it). */
   makeSink: (onFirstVersion?: () => void) => SurfaceSink<ArivuSpec>;
-  /** The live-client holder for forwarding input-param streams. */
-  liveClient: LiveSpawnHolder<AgentClient<ArivuContract>>;
-  /** The live-procedures holder for forwarding `fs.*`/`git.*`. */
+  /** The live-client holder for forwarding input-param streams. OBSERVABLE —
+   *  the forwarders rebind to each successive spawn via `whenChanged()`. */
+  liveClient: ObservableHolder<AgentClient<ArivuContract>>;
+  /** The live-procedures holder for forwarding `fs.*`/`git.*`. Read on demand
+   *  (a procedure call reads `.current` at call time), so a plain holder. */
   liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>;
 }
 
@@ -110,9 +117,11 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const activityBus: Channel<TerminalId[]> = inMemoryChannel<TerminalId[]>();
 
   // ── The forwarding holders (populated by the session loop per spawn) ──────
-  const liveClient: LiveSpawnHolder<AgentClient<ArivuContract>> = {
-    current: null,
-  };
+  // The live client is OBSERVABLE: its input-param stream forwarders must hold
+  // open across remote respawns and rebind to each new spawn, so they await
+  // `whenChanged()` (woken by the pump's `onChange`) rather than completing.
+  const liveClient = observableHolder<AgentClient<ArivuContract>>();
+  // The procedures are read on demand at call time, so a plain holder suffices.
   const liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>> = {
     current: null,
   };
@@ -278,17 +287,31 @@ interface ForwardableStream<I, P> {
 
 /**
  * Build a browser-facing source that forwards an INPUT-PARAMETERIZED stream to
- * the live remote, snapshot-then-relay with a hold in the gap. The single
- * encoding of "yield the leading frame, then relay the live remote's pulses — or
- * hold at the lead while no client is up" that `subscribeRepoChange` and
- * `subscribeFileChange` both need (and any future per-input stream will too).
+ * the live remote, snapshot-then-relay, staying OPEN across remote respawns. The
+ * single encoding of "yield the leading frame, then relay the live remote's
+ * pulses, rebinding to each successive live client until the browser unsubscribes"
+ * that `subscribeRepoChange` and `subscribeFileChange` both need (and any future
+ * per-input stream will too).
  *
- * The hold-at-`lead` gap policy is deliberately app-local: it's a re-serve
+ * Why a loop and not a one-shot: the browser↔parent transport does NOT drop when
+ * a *remote* link respawns (stdio doesn't recover mid-stream — the pump re-dials
+ * and swaps `holder.current`). If this source merely forwarded the current
+ * client's stream and returned when it ended, the browser would see a CLEAN
+ * end-of-stream (not a transport error), so `STREAM_RETRY` would never re-fire
+ * and the watcher would silently go dead. Instead we loop: forward the live
+ * client's pulses, and when that spawn's stream ends (or none is up yet), wait on
+ * `holder.whenChanged()` for the NEXT live client and rebind — exiting only when
+ * the browser aborts. The leading `lead` frame is yielded once up front so a
+ * browser that subscribes before the link is live still gets its snapshot.
+ *
+ * The hold-and-rebind gap policy is deliberately app-local: it's a re-serve
  * convention, not a pump primitive, so it stays here rather than in
- * `pumpRemoteSurface`.
+ * `pumpRemoteSurface`. It requires an OBSERVABLE holder (`whenChanged`) — the
+ * pump fires `onChange` on every set/clear of `.current`, which is what wakes the
+ * `whenChanged()` await below.
  */
 function forwardInputStream<I, P>(
-  holder: LiveSpawnHolder<AgentClient<ArivuContract>>,
+  holder: ObservableHolder<AgentClient<ArivuContract>>,
   select: (
     surface: AgentClient<ArivuContract>["surface"],
   ) => ForwardableStream<I, P>,
@@ -298,15 +321,29 @@ function forwardInputStream<I, P>(
 ): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<P> {
   return async function* (input, signal) {
     yield lead;
-    const client = holder.current;
-    if (client === null) {
-      log(`${label}: no live client — holding`);
-      return;
-    }
-    for await (const pulse of await select(client.surface).get(input, {
-      signal,
-    })) {
-      yield pulse;
+    while (signal?.aborted !== true) {
+      const client = holder.current;
+      if (client === null) {
+        // No live remote yet (pre-handshake, or between a dropped link and the
+        // next spawn). HOLD — don't complete the browser's stream — and wake on
+        // the next `.current` change. Reject-on-abort means the browser
+        // unsubscribing tears us down cleanly.
+        log(`${label}: no live client — holding for next spawn`);
+        try {
+          await holder.whenChanged(signal);
+        } catch {
+          return; // aborted: the browser unsubscribed
+        }
+        continue;
+      }
+      // Relay this spawn's pulses until ITS stream ends (link death / respawn),
+      // then loop back to rebind to the next live client.
+      for await (const pulse of await select(client.surface).get(input, {
+        signal,
+      })) {
+        yield pulse;
+      }
+      log(`${label}: remote stream ended — awaiting next spawn`);
     }
   };
 }

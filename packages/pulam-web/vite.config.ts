@@ -1,8 +1,9 @@
 /**
  * Vite config for pulam-web's browser client — the twin of `packages/client`'s
- * toolchain, stripped to the leaf this surface needs: just `vite-plugin-solid`
- * (no Tailwind, no surface-app PWA plugin — R4.8a renders a plain monospace
- * fleet list, the polished mockup is R4.8b).
+ * toolchain, stripped to the leaf this surface needs: `vite-plugin-solid` plus
+ * `@tailwindcss/vite` (the repo-wide styling mechanism — utilities only, per the
+ * `styling-tailwind-only` rule). No surface-app PWA plugin — R4.8a renders a
+ * plain monospace fleet list, the polished mockup is R4.8b.
  *
  * The dev proxy points `/rpc` (WebSocket, `ws: true`) and `/api` at the Node
  * backend (`src/server/main.ts`, default port 4800) so `pnpm dev:client` and
@@ -12,17 +13,33 @@
  * `installFreshStatic`.
  */
 
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+import {
+  DEFAULT_CLIENT_PORT,
+  DEFAULT_PORT,
+  parsePort,
+} from "./src/server/config.ts";
 
-// The backend the dev proxy forwards to. Mirrors the server's `PORT` default
-// (see `src/server/config.ts`) so a plain `pnpm dev:server` + `pnpm dev:client`
-// pair just works with no extra env.
-const BACKEND_PORT = Number(process.env.PULAM_WEB_PORT) || 4800;
-const CLIENT_PORT = Number(process.env.PULAM_WEB_CLIENT_PORT) || 5800;
+// The backend the dev proxy forwards to, and Vite's own client port. Mirrors the
+// server's `PORT` default (see `src/server/config.ts`) so a plain `pnpm
+// dev:server` + `pnpm dev:client` pair just works with no extra env. Parsed via
+// the SAME `parsePort` the backend uses — a malformed/0 port fails fast here too,
+// not silently collapses to the default.
+const BACKEND_PORT = parsePort(
+  "PULAM_WEB_PORT",
+  process.env.PULAM_WEB_PORT,
+  DEFAULT_PORT,
+);
+const CLIENT_PORT = parsePort(
+  "PULAM_WEB_CLIENT_PORT",
+  process.env.PULAM_WEB_CLIENT_PORT,
+  DEFAULT_CLIENT_PORT,
+);
 
 export default defineConfig({
-  plugins: [solid()],
+  plugins: [tailwindcss(), solid()],
   server: {
     port: CLIENT_PORT,
     // No-store the dev shell so a reload never serves a stale index against a

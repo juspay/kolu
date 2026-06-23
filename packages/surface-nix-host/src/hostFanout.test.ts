@@ -81,6 +81,62 @@ describe("buildHostRegistry", () => {
     expect(ws.close).toHaveBeenCalledWith(1000, "host removed");
   });
 
+  it("add() persists BEFORE committing — a persist reject leaves nothing added and tears the new session down", async () => {
+    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    const persist = vi
+      .fn<(hosts: string[]) => Promise<void>>()
+      .mockRejectedValue(new Error("disk full"));
+    const registry = buildHostRegistry<AnyContractRouter, Handler>({
+      initialHosts: ["alpha"],
+      persist,
+      buildEntry: (host) => {
+        const entry: HostEntry<AnyContractRouter, Handler> = {
+          session: fakeSession(),
+          handler: { id: host },
+        };
+        built.set(host, entry);
+        return entry;
+      },
+    });
+    await expect(registry.add("beta")).rejects.toThrow("disk full");
+    // Persist was attempted with the intended next set…
+    expect(persist).toHaveBeenCalledWith(["alpha", "beta"]);
+    // …but the host was NOT added, and the just-built session was torn down so
+    // it doesn't leak (memory + disk both still exclude beta).
+    expect(registry.has("beta")).toBe(false);
+    expect(registry.hosts()).toEqual(["alpha"]);
+    expect(built.get("beta")?.session.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("remove() persists BEFORE committing — a persist reject leaves the host fully live", async () => {
+    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    const persist = vi
+      .fn<(hosts: string[]) => Promise<void>>()
+      .mockRejectedValue(new Error("disk full"));
+    const registry = buildHostRegistry<AnyContractRouter, Handler>({
+      initialHosts: ["alpha", "beta"],
+      persist,
+      buildEntry: (host) => {
+        const entry: HostEntry<AnyContractRouter, Handler> = {
+          session: fakeSession(),
+          handler: { id: host },
+        };
+        built.set(host, entry);
+        return entry;
+      },
+    });
+    const ws = socket();
+    registry.registerConnection("alpha", ws);
+    await expect(registry.remove("alpha")).rejects.toThrow("disk full");
+    expect(persist).toHaveBeenCalledWith(["beta"]);
+    // Disk still lists alpha, so memory must too: session NOT destroyed, socket
+    // NOT closed, still registered.
+    expect(registry.has("alpha")).toBe(true);
+    expect(registry.hosts()).toEqual(["alpha", "beta"]);
+    expect(built.get("alpha")?.session.destroy).not.toHaveBeenCalled();
+    expect(ws.close).not.toHaveBeenCalled();
+  });
+
   it("remove() is a no-op for an unknown host", async () => {
     const { registry, persist } = harness(["alpha"]);
     await registry.remove("ghost");

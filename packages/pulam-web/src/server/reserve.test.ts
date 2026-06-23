@@ -172,22 +172,29 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
     //    `makeSink()` — the split `buildReServe` exposes precisely so the
     //    fold is testable without `pumpRemoteSurface`'s session.
     const reServe = buildReServe();
+    // Abort-driven teardown: pass `{ signal }` so the mirror's in-memory
+    // subscriptions are actually torn down in the disposer (not just left for GC),
+    // and we settle `mirror.done` so a teardown error surfaces rather than floats.
+    const mirrorAbort = new AbortController();
     const mirror = mirrorRemoteSurface(
       terminalWorkspaceSurface,
       agent.client,
       reServe.makeSink(),
-      {},
+      { signal: mirrorAbort.signal },
     );
     // The re-serve forwards input-param streams / procedures through the live
     // client; wire it so the whole shell is live (unused by this test, but it
-    // mirrors how `hostEntry` populates the holder around a spawn).
+    // mirrors how `hostEntry` populates the holder around a spawn). Fire
+    // `onChange` so the holder matches the pump's set semantics.
     reServe.liveClient.current = agent.client;
+    reServe.liveClient.onChange?.();
     disposers.push(() => {
       reServe.liveClient.current = null;
-      // The mirror's `done` settles when the agent's streams close; we don't
-      // await it (it's the loop body, per the design note) — the afterEach
-      // teardown lets pending subscriptions get collected.
-      void mirror.done;
+      reServe.liveClient.onChange?.();
+      mirrorAbort.abort();
+      // Settle (not ignore) the mirror's done so any teardown rejection is
+      // observed here rather than left as a floating promise across tests.
+      void mirror.done.catch(() => {});
     });
 
     // 4. A SECOND client to the RE-SERVE router, wrapped in a Solid client, with
@@ -224,5 +231,111 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
       return keys.includes(TERM_B) && !keys.includes(TERM_A);
     });
     expect([...keysNow()].sort()).toEqual([TERM_B]);
+  });
+});
+
+/**
+ * F1 proof: a forwarded INPUT-parameterized stream (`subscribeRepoChange`) must
+ * stay OPEN across the live-client lifecycle — yield its lead frame before any
+ * client, HOLD (not complete) while none is up, bind to the live client when one
+ * appears, and REBIND to the next one when a spawn's stream ends. The whole point
+ * is that a remote respawn doesn't drop the browser↔parent transport, so a
+ * one-shot forward would silently go dead.
+ *
+ * We drive the re-serve's browser-facing `subscribeRepoChange` source directly
+ * over `directLink` and flip `reServe.liveClient` by hand (the pump's job in
+ * production), asserting on the pulse `seq`s the browser sees.
+ */
+describe("forwardInputStream — holds open and rebinds across spawns (F1)", () => {
+  /** A minimal AgentClient stand-in whose `subscribeRepoChange` yields a
+   *  controllable pulse stream. Only the slice `forwardInputStream` reaches
+   *  (`.surface.subscribeRepoChange.get`) is implemented. `pulse(seq)` enqueues a
+   *  frame; `end()` completes the stream (a respawn / link death). Pulses queue
+   *  on the holder itself (not per-subscribe), so a `pulse(1)` racing ahead of the
+   *  forwarder's `.get()` subscribe is BUFFERED and still delivered — the test
+   *  asserts behaviour, not subscribe-timing luck. */
+  function fakeClient() {
+    const queue: Array<{ seq: number }> = [];
+    let wake: (() => void) | null = null;
+    let done = false;
+    const surface = {
+      subscribeRepoChange: {
+        get: async (_input: { repoPath: string }) => ({
+          async *[Symbol.asyncIterator]() {
+            while (true) {
+              while (queue.length > 0) yield queue.shift() as { seq: number };
+              if (done) return;
+              await new Promise<void>((r) => {
+                wake = r;
+              });
+            }
+          },
+        }),
+      },
+    };
+    return {
+      // biome-ignore lint/suspicious/noExplicitAny: structural stand-in for the slice forwardInputStream reaches
+      client: { surface } as any,
+      pulse: (seq: number) => {
+        queue.push({ seq });
+        wake?.();
+      },
+      end: () => {
+        done = true;
+        wake?.();
+      },
+    };
+  }
+
+  it("yields the lead frame before any client, then forwards a client's pulses, then rebinds to the next spawn", async () => {
+    const reServe = buildReServe();
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browser = directLink<ArivuContract>(reServe.router as any);
+
+    const ac = new AbortController();
+    const seen: number[] = [];
+    const iterable = await browser.surface.subscribeRepoChange.get(
+      { repoPath: "/work/repo" },
+      { signal: ac.signal },
+    );
+    // Drain in the background so we can assert on `seen` as we drive the holder.
+    const drain = (async () => {
+      try {
+        for await (const pulse of iterable) seen.push(pulse.seq);
+      } catch {
+        /* aborted on teardown */
+      }
+    })();
+    disposers.push(() => {
+      ac.abort();
+      void drain.catch(() => {});
+    });
+
+    // Lead frame {seq:0} arrives BEFORE any live client — the snapshot a browser
+    // that subscribed pre-handshake still gets — and the stream does NOT complete.
+    await waitFor(() => seen.includes(0));
+
+    // First spawn appears: bind and forward its pulses.
+    const spawn1 = fakeClient();
+    reServe.liveClient.current = spawn1.client;
+    reServe.liveClient.onChange?.();
+    spawn1.pulse(1);
+    await waitFor(() => seen.includes(1));
+
+    // That spawn's link dies (stream ends) and the holder clears — the forward
+    // must HOLD, not complete.
+    spawn1.end();
+    reServe.liveClient.current = null;
+    reServe.liveClient.onChange?.();
+
+    // Next spawn appears: the forward REBINDS and its pulses flow through the
+    // SAME browser subscription (proof the stream stayed open across the gap).
+    const spawn2 = fakeClient();
+    reServe.liveClient.current = spawn2.client;
+    reServe.liveClient.onChange?.();
+    spawn2.pulse(2);
+    await waitFor(() => seen.includes(2));
+
+    expect(seen).toEqual([0, 1, 2]);
   });
 });

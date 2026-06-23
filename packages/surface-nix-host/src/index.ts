@@ -19,6 +19,8 @@ export {
   type HostRegistry,
   type HostRegistryOptions,
   type LiveSpawnHolder,
+  type ObservableHolder,
+  observableHolder,
   type PumpRemoteSurfaceOptions,
   pumpRemoteSurface,
 } from "./hostFanout";
@@ -27,6 +29,7 @@ export {
   buildSshProbeCommand,
   forEachLine,
   isLocalHost,
+  ResolveDrvError,
   SSH_COMMON_OPTS,
 } from "./host";
 export {
