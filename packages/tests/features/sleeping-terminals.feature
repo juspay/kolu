@@ -124,3 +124,18 @@ Feature: Sleeping terminals
     And there should be exactly 1 canvas tile
     And the workspace switcher should have 1 terminal entry
     And there should be no page errors
+
+  Scenario: A sleeping terminal offers no kaval-tui attach command in the Inspector
+    # A slept terminal released its PTY, so it is no longer one of kaval's
+    # terminals — a kaval-tui attach/snapshot command would have nothing to reach.
+    # The Inspector's Attach section is live while the tile is active and must
+    # disappear once it is dormant, rather than handing over a dead command.
+    Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show the kaval-tui attach command
+    When I sleep the active terminal via the tile sleep button
+    Then the slept terminal should be sleeping
+    And the inspector should not show a kaval-tui attach command
+    And there should be no page errors

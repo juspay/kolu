@@ -287,8 +287,12 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Attach/snapshot commands per terminal (main + splits) — see
-           *  KavalAttachSection for the socket-pinning + short-id rationale. */}
-          <Show when={props.terminalId}>
+           *  KavalAttachSection for the socket-pinning + short-id rationale.
+           *  Gated on the ACTIVE arm: a sleeping tile released its PTY (and its
+           *  splits were closed), so it is no longer one of kaval's terminals —
+           *  a `kaval-tui attach`/`snapshot` command would have nothing to
+           *  reach. Same liveness narrow the PR/Agent/Foreground sections use. */}
+          <Show when={activeArm(meta()) && props.terminalId}>
             {(id) => (
               <Section title="Attach">
                 <KavalAttachSection terminalId={id()} />

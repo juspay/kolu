@@ -248,6 +248,29 @@ Then(
 );
 
 Then(
+  "the inspector should not show a kaval-tui attach command",
+  async function (this: KoluWorld) {
+    // A sleeping tile released its PTY (and its splits were closed), so it is no
+    // longer one of kaval's terminals — the Attach section must disappear, not
+    // hand the user a `kaval-tui attach <id>` that can't connect. Assert the
+    // inspector is still rendered (so this isn't a vacuous pass from a closed
+    // panel) yet carries no attach OR snapshot command for any terminal.
+    await this.page
+      .locator('[data-testid="inspector-cwd"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid^="inspector-attach-command"]')
+          .length === 0 &&
+        document.querySelectorAll('[data-testid^="inspector-snapshot-command"]')
+          .length === 0,
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the inspector toggle should not be active",
   async function (this: KoluWorld) {
     // The header toggle drops its `data-active` marker when the panel isn't
