@@ -1,7 +1,8 @@
 import {
   activeArm,
-  agentPaintClass,
   type AgentInfo,
+  agentPaintClass,
+  type AgentPaintClass,
   type PrResult,
   type TerminalId,
   type TerminalMetadata,
@@ -59,7 +60,14 @@ export function sortDockEntriesByRecency(
   });
 }
 
-export type AgentBucketKind = "awaiting" | "working" | "idle" | "none";
+/** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
+ *  (awaiting | working | none) plus the dock's own `idle` triage column.
+ *  Declared as an EXTENSION of `AgentPaintClass` (not a re-spelled literal set)
+ *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass` —
+ *  the paint fold's return type — making the value `paintBucket` feeds into
+ *  `StatePip` (typed `DockRowBucket`) a DECLARED widening rather than a literal
+ *  coincidence. */
+export type AgentBucketKind = AgentPaintClass | "idle";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *

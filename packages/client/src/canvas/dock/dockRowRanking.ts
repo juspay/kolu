@@ -25,6 +25,7 @@
 import {
   activeArm,
   agentPaintClass,
+  type AgentPaintClass,
   agentUrgency,
   sleepingArm,
   type TerminalId,
@@ -32,19 +33,17 @@ import {
   URGENCY_RANK,
 } from "kolu-common/surface";
 
-/** Per-row render variant. `parked` is its own bucket (not folded into
- *  idle) because it carries a different visual treatment (faded, tinier
- *  row) and routes through staleness, not the idle-bucket classifier.
+/** Per-row render variant. Declared as an EXTENSION of the shared
+ *  `AgentPaintClass` (awaiting | working | none) plus the dock's own triage tail,
+ *  so `DockRowBucket` CONTAINS `AgentPaintClass` by declaration — the paint class
+ *  the row pip and the tile title both feed into `StatePip` is then a declared
+ *  subset of this union, not a literal coincidence. `parked` is its own bucket
+ *  (not folded into idle) because it carries a different visual treatment (faded,
+ *  tinier row) and routes through staleness, not the idle-bucket classifier.
  *  `sleeping` is likewise its own bucket — a DELIBERATE dormant state, decoupled
  *  from staleness: a freshly-slept tile must read "asleep", never "parked", and
  *  must NOT be dropped by the dock's parked filter. */
-export type DockRowBucket =
-  | "awaiting"
-  | "working"
-  | "idle"
-  | "sleeping"
-  | "parked"
-  | "none";
+export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
  *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
