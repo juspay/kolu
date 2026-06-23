@@ -81,7 +81,10 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 | `dialAgentOnce<C>(opts)` | **One-shot CLI dial.** The composition every `--host` CLI needs but no single export owned: parse + validate the baked `{ system → drv }` env map (fail-fast, *before* any session), construct an **unpooled** `HostSession`, then `pin → probe → markConnected → return { client, dispose }` with the link already proven live. Caller brings only its volatile values — `binary`, the env-var name + value, a `drvNoun` for errors, the remote agent's exact stderr `fatalPrefix` (so a remote fatal surfaces verbatim; differs from `drvNoun` when the front writes e.g. `kaval --stdio:`), and a one-RPC `probe` closure. Unpooled by design: a one-shot dial is independent, so its `dispose()` tears down only its own session (no cross-dial sharing, no destroyed-session reuse). Used by `kaval-tui --host` and `pulam-tui --host`. |
 | `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
 | `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, pin the output behind a per-agent GC root (`agentGcRootPath`), and return the realised output path. An already-provisioned remote skips the copy via a single realise-probe (the *warm fast-path* in [Why Nix](#why-nix-locked-in)). Progress lines forwarded to `onProgress`. |
-| `waitForNextClient(session, previous)` | Helper for the consumer's reconnect-loop: blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). |
+| `makeClientCursor(session)` | A stateful cursor over the session's spawn lifecycle: `cursor.next()` blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). Owns the spawn-identity comparison so a consumer's reconnect-loop can't busy-spin. |
+| `pumpRemoteSurface(session, makeSink)` | **The reconnect-mirror loop, packaged.** Pins the session, loops over each successive client (`makeClientCursor`), and runs ONE `mirrorRemoteSurface` per spawn — folding the agent's frames into the caller's `makeSink` (built per spawn, so per-client state resets on reconnect) until the link dies, then awaits the next spawn. Optional `liveProcedures` / `liveClient` holders re-serve the mirror's procedures + input-parameterized streams. The consume-side companion to `getHostSession` — what every parent that re-serves a remote surface needs. |
+| `buildHostRegistry({ buildEntry })` | **The N-host fan-out.** A keyed `Map<host, { session, handler }>` a `?host=` upgrade dispatcher reads, with `add`/`remove`/`reconnect`/`recheckAll` + per-host socket eviction. The app supplies `buildEntry(host) → { session, handler }` (provisioning + its oRPC handler) and an optional `persist` hook; the registry is generic over the handler type (no `@orpc/server/ws` dep). |
+| `LiveSpawnHolder<T>` | A `{ current: T \| null }` cell `pumpRemoteSurface` sets on each connect and clears on link death — the receptacle a re-serve forwards through (procedure stubs or the live client), so a forward in the gap between a dropped link and the next spawn fails honestly rather than relaying into a dead client. |
 | `buildAgentCommand({ host, agentPath, binary })` | Compute the spawn argv for an agent binary on a given host. Used internally; exported for consumers that need to invoke the agent directly (e.g. one-shot subprocess tests). The argv ends ssh's option parsing with `--` before the host, so an attacker-influenced `host` (`-oProxyCommand=…`) can never be read by ssh as an *option* — it is always a destination. |
 | `resolveSystem(host)` | Ask `host`'s own Nix for `builtins.currentSystem` (`nix-instantiate --eval`, locally for `isLocalHost`, over `ssh` otherwise) and return the nix-system string. No `uname` table to maintain — the host's Nix is the source of truth, and it's already reachable since `provisionAgent` shells `nix-store` on the same PATH. Pairs with a per-system `.drv` map the caller builds at its own build time. **Memoized per host for the process** (a host's nix-system is stable), so repeat dials don't re-probe; a *failed* probe isn't cached, so a transient-unreachable host re-probes on the next dial. |
 | `runCapture(cmd, args, onProgress)`, `runProgress(cmd, args, onProgress)` | Spawn-and-await helpers with consistent close-event-flush semantics. Used internally by `provisionAgent` and `resolveSystem`; exported so consumers can avoid re-rolling the same event-wiring dance. |
@@ -95,18 +98,33 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
   - `acquire()` is scoped — bumps `refCount` only on successful spawn. A failed provisioning leaves `refCount` untouched (no `try/finally` leak in the caller).
 - **Reconnect terminates only for *remote* faults**: each failure carries a `failureCause` (`"network"` | `"remote"`). A `"remote"` fault — the host answered but rejected the closure (e.g. the parent's user isn't in `trusted-users`) — is bounded by `MAX_CONSECUTIVE_FAILURES` (currently 5); after that the session surfaces the terminal `"failed"` state with the last error, so a misconfigured target fails loudly instead of spamming forever. A `"network"` fault — the host was unreachable (asleep, roaming between Wi-Fi networks, VPN down) — is **never** terminal: the session keeps retrying at the capped backoff indefinitely, so a laptop that closes its lid at home and reopens at a café reconnects on its own with no manual intervention.
 - **`recheck()` vs `reconnect()`**: `reconnect()` is the manual "Reconnect" button — it re-arms a `"failed"`/idle session and deliberately won't disturb a live link. `recheck()` is the wake / network-change companion: it force-cycles *whatever* is there, including a `"connected"` link, because after a sleep that link is often stale (the far end dropped the socket but the local ssh child won't notice until its keepalive fails ~30s later). A long-running parent calls `recheck()` on every session when it observes the machine wake or regain connectivity.
-- **Pump-loop pattern**: the stdio link doesn't auto-reconnect mid-stream (the streams die with the agent process). The consumer is expected to loop on `waitForNextClient`, running pumps against each fresh `AgentClient` the session produces:
+- **Pump-loop pattern**: the stdio link doesn't auto-reconnect mid-stream (the streams die with the agent process). A consumer that re-serves a remote `@kolu/surface` should reach for **`pumpRemoteSurface`** — it owns the whole loop (pin → `makeClientCursor` → one `mirrorRemoteSurface` per spawn → await the next), so the only app code is the per-spawn `makeSink`:
 
   ```ts
-  let last: AgentClient<C> | null = null;
+  await pumpRemoteSurface({
+    source: surface,                          // the surface to mirror + re-serve
+    session,
+    makeSink: () => ({                        // built per spawn — per-client state resets
+      cells: { version: (v) => fragment.ctx.cells.version.set(v) },
+      collections: { awareness: { upsert, remove } },
+    }),
+    liveProcedures,                           // optional: forward fs.*/git.* procedures
+  });
+  ```
+
+  For the raw loop (when you're not mirroring a whole surface — pumping arbitrary streams by hand), drive `makeClientCursor` directly:
+
+  ```ts
+  const cursor = makeClientCursor(session);
   while (!session.isDestroyed()) {
-    const client = await waitForNextClient(session, last);
-    last = client;
+    const client = await cursor.next();
     await Promise.allSettled([pumpSystem(client), pumpMetrics(client)]);
   }
   ```
 
-  When the link dies, the pumps' `for await` loops settle, the loop re-enters, `waitForNextClient` blocks until the session's `scheduleReconnect` produces a new client, pumps restart against it.
+  When the link dies, the pumps' `for await` loops settle, the loop re-enters, and `cursor.next()` blocks until the session's `scheduleReconnect` produces a new client.
+
+- **Fan out over N hosts**: a parent that dials *many* hosts (a browser fleet view) keeps them in `buildHostRegistry` — one `{ session, handler }` per host, with `add`/`remove`/`reconnect`/`recheckAll` + socket eviction — and dispatches a `?host=<id>` WebSocket upgrade to the right handler. Each host's `buildEntry` wires `getHostSession` + a `pumpRemoteSurface`-fed re-serve + its oRPC handler. The two consumers today are [`drishti`](https://github.com/srid/drishti)'s process monitor and `@kolu/pulam-web`'s terminal fleet — both consume one shared copy rather than re-rolling the loop + registry.
 
 ## Computing `drvPath` for the target
 

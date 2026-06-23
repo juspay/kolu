@@ -17,7 +17,9 @@ import {
   makeResolveDrvPath,
   parsePort,
   PULAM_AGENT_DRVS_ENV,
+  PULAM_WEB_KAVAL_SOCKETS_ENV,
   readInitialHosts,
+  readKavalSockets,
 } from "./config.ts";
 
 const { resolveSystemMock } = vi.hoisted(() => ({
@@ -146,5 +148,43 @@ describe("parsePort", () => {
   it("rejects explicit 0 and out-of-range ports", () => {
     expect(() => parsePort("P", "0", 4800)).toThrow("out of range");
     expect(() => parsePort("P", "99999", 4800)).toThrow("out of range");
+  });
+});
+
+describe("readKavalSockets", () => {
+  it("an unset/empty env yields an empty map (every host runs one kaval)", () => {
+    expect(readKavalSockets({} as NodeJS.ProcessEnv).size).toBe(0);
+    expect(
+      readKavalSockets({
+        [PULAM_WEB_KAVAL_SOCKETS_ENV]: "  ",
+      } as NodeJS.ProcessEnv).size,
+    ).toBe(0);
+  });
+
+  it("parses host=socket pairs, trimming + dropping blanks", () => {
+    const map = readKavalSockets({
+      [PULAM_WEB_KAVAL_SOCKETS_ENV]:
+        " srid@mac=/tmp/kaval-0/pty-host.sock , nix@box=/run/user/1000/kaval/pty-host.sock ,, ",
+    } as NodeJS.ProcessEnv);
+    expect(map.get("srid@mac")).toBe("/tmp/kaval-0/pty-host.sock");
+    expect(map.get("nix@box")).toBe("/run/user/1000/kaval/pty-host.sock");
+    expect(map.size).toBe(2);
+  });
+
+  it("splits on the FIRST `=` only, so a socket path may contain `=`", () => {
+    const map = readKavalSockets({
+      [PULAM_WEB_KAVAL_SOCKETS_ENV]: "host=/tmp/a=b/sock",
+    } as NodeJS.ProcessEnv);
+    expect(map.get("host")).toBe("/tmp/a=b/sock");
+  });
+
+  it("fails fast on a malformed entry (no `=`, empty host, or empty socket)", () => {
+    for (const bad of ["nosocket", "=/tmp/sock", "host="]) {
+      expect(() =>
+        readKavalSockets({
+          [PULAM_WEB_KAVAL_SOCKETS_ENV]: bad,
+        } as NodeJS.ProcessEnv),
+      ).toThrow(PULAM_WEB_KAVAL_SOCKETS_ENV);
+    }
   });
 });

@@ -35,17 +35,20 @@ pulam-web sits downstream of three workspace packages and breaks if any of their
 | Package | What pulam-web depends on |
 | --- | --- |
 | `@kolu/terminal-workspace` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
-| `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `observableHolder`, `ResolveDrvError` |
+| `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `LiveSpawnHolder`, `ResolveDrvError` |
 | `@kolu/surface` / `@kolu/surface-app` | the mirror (`mirrorRemoteSurface`), the Solid client (`surfaceClient`), the server shell (static serving, gates, heartbeat) |
 
-## Run it locally
+## Run it
 
 ```sh
-PULAM_WEB_HOSTS=nix@box-a,nix@box-b \
-PULAM_AGENT_DRVS_JSON="$(nix eval --raw .#pulamAgentDrvsJson)" \
-  pnpm dev:server        # the Node parent (default port 4800)
-
-pnpm dev:client          # Vite, proxying /api + /rpc to the backend (default 5800)
+PULAM_WEB_HOSTS=localhost,nix@box-b nix run .#pulam-web
+# → open http://localhost:4800
 ```
 
-Both ports honour `PULAM_WEB_PORT` / `PULAM_WEB_CLIENT_PORT`; a malformed value fails fast rather than silently falling back. In production the backend serves the built `dist/` itself.
+`nix run .#pulam-web` launches the parent server with the per-system pulam drv map and the client bundle baked into the wrapper — nothing to install or build by hand. Configure it with env:
+
+- **`PULAM_WEB_HOSTS`** (required) — comma-separated ssh hosts to dial (`localhost` runs pulam locally, no ssh). Each is provisioned + dialed over ssh; an unreachable host shows as a per-host `failed` row, never taking the server down.
+- **`PULAM_WEB_KAVAL_SOCKETS`** (optional) — `host=socket` pairs for a host running **several** kaval daemons, where pulam's default discovery is ambiguous (e.g. a box with both a kolu-server and a standalone kaval): `PULAM_WEB_KAVAL_SOCKETS=srid@mac=/tmp/kaval-0-502/pty-host.sock`. A host with one kaval needs no entry. (The web twin of `pulam-tui --kaval host=socket`.)
+- **`PULAM_WEB_PORT`** (default `4800`), **`PULAM_WEB_BIND`** (default `127.0.0.1` — the RPC surface is unauthenticated, so bind loopback unless firewalled or behind a trusted proxy). A malformed port fails fast rather than silently falling back.
+
+For development with HMR, `PULAM_WEB_HOSTS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api` + `/rpc`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.

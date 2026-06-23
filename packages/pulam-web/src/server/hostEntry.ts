@@ -61,6 +61,12 @@ export interface BuildEntryDeps {
    *  treating `connecting` as wedged. Cold `nix copy` can take 30s+, so a
    *  generous default avoids flapping the first connect. Default 60s. */
   connectTimeoutMs?: number;
+  /** Per-host kaval socket overrides (`config.ts`'s `PULAM_WEB_KAVAL_SOCKETS`).
+   *  When a host names a socket, the dial pins it via `pulam --stdio --kaval
+   *  <socket>` — needed where SEVERAL kaval daemons run on the host and pulam's
+   *  default discovery is ambiguous. Absent for a host → pulam discovers the one
+   *  running kaval. */
+  kavalSockets?: ReadonlyMap<string, string>;
   /** Diagnostic sink. Default no-op. A per-host tag is the caller's to add. */
   log?: (line: string) => void;
 }
@@ -79,7 +85,12 @@ export function makeBuildEntry(
     // in one place.
     const hostLog = (line: string): void => log(`[${host}] ${line}`);
 
-    // 1. The pooled ssh session dialing `pulam --stdio` on this host.
+    // 1. The pooled ssh session dialing `pulam --stdio` on this host. Pin the
+    //    remote kaval ONLY when this host named a socket (a multi-kaval box);
+    //    otherwise leave `extraArgs` undefined and let pulam discover its single
+    //    running kaval — the one site that knows the args ARE `--kaval <socket>`,
+    //    mirroring pulam-tui's `hostConnect.ts`.
+    const kavalSocket = deps.kavalSockets?.get(host);
     const session = getHostSession<ArivuContract>({
       host,
       binary: "pulam",
@@ -87,6 +98,7 @@ export function makeBuildEntry(
       // fixed per session); the shared resolver is per-host, so close `host`
       // over it here.
       resolveDrvPath: () => deps.resolveDrvPath(host),
+      extraArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
       connectTimeoutMs: deps.connectTimeoutMs ?? 60_000,
       onLog: hostLog,
     });

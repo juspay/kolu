@@ -37,6 +37,15 @@ export const PULAM_WEB_HOSTS_ENV = "PULAM_WEB_HOSTS";
  *  messages and the `process.env` read can't silently drift. */
 export const PULAM_AGENT_DRVS_ENV = "PULAM_AGENT_DRVS_JSON";
 
+/** The env var carrying per-host kaval socket overrides — `host=socket` pairs,
+ *  comma-separated. A host running SEVERAL kaval daemons (e.g. a box with both a
+ *  kolu-server and a standalone kaval) is AMBIGUOUS to pulam's default discovery
+ *  (`resolveRunningKavalSocket` reports "more than one kaval"), so the dial must
+ *  name the socket: pulam-web forwards it as `pulam --stdio --kaval <socket>` —
+ *  the same pin pulam-tui's `--kaval host=socket` rides (`hostConnect.ts`). A
+ *  host with one kaval needs no entry (discovery is unambiguous). */
+export const PULAM_WEB_KAVAL_SOCKETS_ENV = "PULAM_WEB_KAVAL_SOCKETS";
+
 /** The HTTP+WebSocket port. `4800` is pulam-web's default (the `48` echoes the
  *  R4.8 epic). Override with `PULAM_WEB_PORT`. */
 export const DEFAULT_PORT = 4800;
@@ -99,6 +108,36 @@ export function readInitialHosts(env = process.env): string[] {
     );
   }
   return hosts;
+}
+
+/** Parse the per-host kaval socket map from `PULAM_WEB_KAVAL_SOCKETS`. Each
+ *  entry is `host=socketPath`; trimmed; empty entries (a trailing/double comma)
+ *  dropped; an unset/empty env yields an empty map (the common case — every host
+ *  runs one kaval). Fails fast on a malformed entry (no `=`, empty host, empty
+ *  socket): a typo here would otherwise silently fall back to ambiguous
+ *  discovery and surface as an inscrutable per-host `failed`, the exact
+ *  silent-degrade this validation prevents. The host is matched against
+ *  `PULAM_WEB_HOSTS` by the caller (a socket for an undialed host is a typo). */
+export function readKavalSockets(env = process.env): Map<string, string> {
+  const raw = env[PULAM_WEB_KAVAL_SOCKETS_ENV];
+  const map = new Map<string, string>();
+  if (raw === undefined || raw.trim() === "") return map;
+  const pairs = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  for (const pair of pairs) {
+    const eq = pair.indexOf("=");
+    const host = eq === -1 ? "" : pair.slice(0, eq).trim();
+    const socket = eq === -1 ? "" : pair.slice(eq + 1).trim();
+    if (host === "" || socket === "") {
+      throw new Error(
+        `${PULAM_WEB_KAVAL_SOCKETS_ENV}: invalid entry ${JSON.stringify(pair)} — each entry must be 'host=socketPath' (e.g. nix@box=/run/user/1000/kaval/pty-host.sock).`,
+      );
+    }
+    map.set(host, socket);
+  }
+  return map;
 }
 
 /** Parse + validate pulam's `{ system → drvPath }` map from an already-read env

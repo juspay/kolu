@@ -40,9 +40,11 @@ import { buildHostRegistry } from "@kolu/surface-nix-host";
 import {
   DEFAULT_PORT,
   PULAM_WEB_HOSTS_ENV,
+  PULAM_WEB_KAVAL_SOCKETS_ENV,
   makeResolveDrvPath,
   parsePort,
   readInitialHosts,
+  readKavalSockets,
 } from "./config.ts";
 import {
   type ArivuContract,
@@ -68,6 +70,19 @@ async function main(): Promise<void> {
   const resolveDrvPath = makeResolveDrvPath();
   log(`hosts (${initialHosts.length}): ${initialHosts.join(", ")}`);
 
+  // Per-host kaval socket overrides (for a multi-kaval host). A socket named for
+  // a host we don't dial is a typo — fail loud (matching pulam-tui's --kaval
+  // host validation) rather than silently ignoring it.
+  const kavalSockets = readKavalSockets();
+  for (const host of kavalSockets.keys()) {
+    if (!initialHosts.includes(host)) {
+      log(
+        `${PULAM_WEB_KAVAL_SOCKETS_ENV}: '${host}' is not in ${PULAM_WEB_HOSTS_ENV} — fix the host or drop the override.`,
+      );
+      process.exit(1);
+    }
+  }
+
   // The per-process id the stale-tab gate and the (unused-in-R4.8a) identity
   // probe single-source. Mints internally; we read it back for `gateStaleSocket`.
   const { processId } = surfaceAppServer();
@@ -76,7 +91,7 @@ async function main(): Promise<void> {
   // No `persist` — the host set is static (env-seeded). `buildEntry` is sync, so
   // an unreachable boot host surfaces as a per-host `failed` state, never a
   // throw that takes the port down.
-  const buildEntry = makeBuildEntry({ resolveDrvPath, log });
+  const buildEntry = makeBuildEntry({ resolveDrvPath, kavalSockets, log });
   const registry = buildHostRegistry<ArivuContract, HostEntry["handler"]>({
     initialHosts,
     buildEntry,
