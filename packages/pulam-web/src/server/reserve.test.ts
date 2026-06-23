@@ -44,7 +44,7 @@ import {
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
-import { createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type ArivuContract, buildReServe } from "./reserve.ts";
 
@@ -60,7 +60,9 @@ const TERM_B = "22222222-2222-4222-8222-222222222222" as TerminalId;
  *  is implemented minimally (it must be: `implementSurface` fail-fast THROWS on
  *  any unimplemented one) — they're never exercised by this test, but their
  *  presence proves the re-serve grafts onto a COMPLETE agent surface. */
-function standUpAgent() {
+function standUpAgent(
+  opts: { activityFeed?: AsyncIterable<TerminalId[]> } = {},
+) {
   const cache = new Map<TerminalId, AwarenessValue>();
   cache.set(TERM_A, seedAwarenessValue("/work/repo-a"));
 
@@ -79,11 +81,22 @@ function standUpAgent() {
       },
     },
     streams: {
-      // Minimal live-set source — yields the current key set once. Not exercised.
+      // Live-set source. By default yields the current key set once (not
+      // exercised); the activity re-notify test drives it from a hand-fed feed so
+      // the live-set frames are deterministic, not snapshot-timing-dependent.
       activity: {
-        source: async function* () {
-          yield [...cache.keys()];
-        },
+        source: opts.activityFeed
+          ? async function* (_input, signal) {
+              for await (const frame of opts.activityFeed as AsyncIterable<
+                TerminalId[]
+              >) {
+                if (signal?.aborted) break;
+                yield frame;
+              }
+            }
+          : async function* () {
+              yield [...cache.keys()];
+            },
       },
       // Minimal watcher sources — one snapshot pulse, then done. Not exercised.
       subscribeRepoChange: {
@@ -157,6 +170,36 @@ async function waitFor(
   await vi.waitFor(() => expect(predicate()).toBe(true), {
     timeout: timeoutMs,
   });
+}
+
+/** A hand-fed async iterable: `push(frame)` enqueues, `close()` ends it. Frames
+ *  are pushed by the test, so the activity stream's order is deterministic rather
+ *  than racing the snapshot timing (drishti's `processesStream.test.ts` pattern). */
+function makeFeed<T>() {
+  const queue: T[] = [];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  return {
+    push(item: T): void {
+      queue.push(item);
+      wake?.();
+    },
+    close(): void {
+      closed = true;
+      wake?.();
+    },
+    iterable: {
+      async *[Symbol.asyncIterator](): AsyncGenerator<T> {
+        while (true) {
+          while (queue.length > 0) yield queue.shift() as T;
+          if (closed) return;
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+        }
+      },
+    } as AsyncIterable<T>,
+  };
 }
 
 describe("buildReServe — agent → mirror → re-serve → browser store", () => {
@@ -398,5 +441,90 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
     // The browser subscription stayed alive the whole time — the upstream error
     // was swallowed as a link blip, never propagated.
     expect(drainThrew).toBeNull();
+  });
+});
+
+/**
+ * The R-pulamweb-3 proof: the dashboard's green activity dot consumes the
+ * `activity` stream — VALUE-BEARING (each frame is the full live set), so it
+ * reads through `.streams.activity.use()` (replace-each-frame), NOT the
+ * delta-accumulate `createSubscription` + reduce path R-pulamweb-1's
+ * `processesSnapshot` needs.
+ *
+ * This pins the value-bearing analog of R-pulamweb-1's same-shape-delta proof:
+ * two consecutive frames of the SAME cardinality (one id each) but different
+ * membership must each re-notify a FINE-GRAINED reader (`liveSet().has(id)` —
+ * exactly how a row reads its dot). The membership is observed into closed-over
+ * vars so the assertion proves the effect RE-RAN, not merely that the accessor
+ * holds a value — the case a coarse copy-into-store would coalesce away. The path
+ * under test is the full agent → mirror → re-serve → browser-store leg.
+ */
+describe("buildReServe — activity stream re-notifies on a same-shape live-set swap", () => {
+  it("flips a fine-grained dot reader across two same-cardinality membership swaps", async () => {
+    const feed = makeFeed<TerminalId[]>();
+    const agent = standUpAgent({ activityFeed: feed.iterable });
+
+    const reServe = buildReServe();
+    const mirrorAbort = new AbortController();
+    const mirror = mirrorRemoteSurface(
+      terminalWorkspaceSurface,
+      agent.client,
+      reServe.makeSink(),
+      { signal: mirrorAbort.signal },
+    );
+    reServe.liveClient.current = agent.client;
+    reServe.liveClient.onChange?.();
+    disposers.push(() => {
+      reServe.liveClient.current = null;
+      reServe.liveClient.onChange?.();
+      mirrorAbort.abort();
+      feed.close();
+      void mirror.done.catch(() => {});
+    });
+
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browserClient = directLink<ArivuContract>(reServe.router as any);
+
+    // FINE-GRAINED membership readers — exactly how a row reads its green dot.
+    let aLive: boolean | undefined;
+    let bLive: boolean | undefined;
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const live = app.streams.activity.use(() => ({}));
+      const liveSet = createMemo(() => new Set(live() ?? []));
+      createEffect(() => {
+        aLive = liveSet().has(TERM_A);
+      });
+      createEffect(() => {
+        bLive = liveSet().has(TERM_B);
+      });
+    });
+
+    // Establish the live set as {A}. The `activity` bus only delivers FUTURE
+    // publishes (no replay), so a frame pushed before the browser's bus
+    // subscription registers is dropped — re-push [A] each tick until the dot
+    // lights, which deterministically covers that race (re-pushing the same
+    // membership is idempotent). Once a frame lands, the subscription is live and
+    // the ordered swaps below deliver reliably.
+    await vi.waitFor(
+      () => {
+        feed.push([TERM_A]);
+        expect(aLive).toBe(true);
+      },
+      { timeout: 2000 },
+    );
+    expect(bLive).toBe(false);
+
+    // Swap 1 — same cardinality (one id), A out / B in. The coalescing regression
+    // would drop this same-shape frame; the fine-grained readers must flip.
+    feed.push([TERM_B]);
+    await waitFor(() => bLive === true && aLive === false);
+
+    // Swap 2 — same cardinality again, B out / A in. A second same-shape frame
+    // must ALSO re-notify (the exact case R-pulamweb-1 found a coarse reader drops
+    // on the second consecutive same-shape delta).
+    feed.push([TERM_A]);
+    await waitFor(() => aLive === true && bLive === false);
   });
 });

@@ -1,8 +1,8 @@
 # `@kolu/pulam-web`
 
-**A browser view of a fleet of pulam terminals. One Node parent server dials many remote pulam boxes over ssh, re-serves each box's `terminalWorkspaceSurface` to the browser over a per-host WebSocket, and renders a dark monospace list of every terminal across the fleet.**
+**A browser view of a fleet of pulam terminals. One Node parent server dials many remote pulam boxes over ssh, re-serves each box's `terminalWorkspaceSurface` to the browser over a per-host WebSocket, and renders a dark monospace agent dashboard — every agent across the fleet, sorted by what needs you.**
 
-This is the web companion to `pulam-tui`: where the TUI draws one host's terminals in an alt-screen board, pulam-web draws *all* configured hosts' terminals in a browser, grouped by host. R4.8a (this package's first cut) is read-only — a live terminal list per host, no git status and no drill-in (those are R4.8b).
+This is the web companion to `pulam-tui`: where the TUI draws the fleet in an alt-screen board, pulam-web draws it in a browser. Per host, agents are bucketed and sorted **needs-you-first** — a blocked agent (`awaiting_user`) floats to the top and its glyph breathes, working agents spin, idle ones sit dim — and each row carries a green **activity dot** when it's moving bytes right now. Terminals not running an agent are hidden by default; footer toggles fold in idle agents, non-agent terminals, and sleeping shells. The dashboard reads each host's `awareness` collection (state · repo · branch · recency) and `activity` stream (the dot) — both already-proven consumers, no surface change. Still read-only: the per-agent git **dirty/clean count** and the changed-file **drill-in** need `git.getStatus` and are R-pulamweb-4.
 
 ## The three-tier bridge
 
@@ -19,14 +19,14 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 - **The parent entry** (`src/server/main.ts`): the Hono app, the `/api/hosts` list endpoint, the static client bundle, and the `?host=` WebSocket upgrade dispatch (origin gate → stale-tab gate → heartbeat → handler upgrade).
 - **The re-serve** (`src/server/reserve.ts`): the local `implementSurface` fragment that mirrors one remote host's awareness surface to the browser, its `makeSink` (PUSH fold) and live-client/procedure holders (PULL forward).
 - **Boot config** (`src/server/config.ts`): the static host set (`PULAM_WEB_HOSTS`), the per-host `.drv` resolver over pulam's baked `{ system → drv }` map (`PULAM_AGENT_DRVS_JSON`), and strict port parsing. Fail-fast at boot, no fallback.
-- **The browser client** (`src/client/`): a SolidJS fleet list — one `surfaceClient` per host over a reconnecting `PartySocket`, rendering each host's `awareness` collection.
+- **The browser client** (`src/client/`): the SolidJS agent dashboard — one `surfaceClient` per host over a reconnecting `PartySocket`. `fleet.ts` is the pure projection (bucket · needs-you-first sort · recency · colours, ported from `pulam-tui` and pinned by `fleet.test.ts`); `HostGroup.tsx` consumes each host's `awareness` collection + `activity` stream (the green dot) and renders the sorted/filtered rows fine-grained; `App.tsx` owns the view filters, the shared 1s clock, and the fleet-wide "needs you" strip.
 
 ## What it deliberately does NOT know
 
 - **How a host becomes a session, reconnects, or respawns.** That hard volatility (ssh subprocess lifecycle, Nix provisioning, backoff, the keyed host registry, the reconnect-mirror pump) is `@kolu/surface-nix-host`'s — pulam-web only supplies the surface-specific `makeSink` / `buildEntry` and reads the result. The dependency arrow points *out*.
 - **What the awareness surface contains.** The `terminalWorkspaceSurface` contract, its schemas, and `DEFAULT_VERSION` live in `@kolu/terminal-workspace` and are shared verbatim with `pulam`, `pulam-tui`, and the daemon. pulam-web re-serves it; it does not define it.
 - **The freshness / PWA / origin-gate mechanics.** Static-bundle freshness (`installFreshStatic`), the ws origin gate, the stale-tab gate, and the heartbeat are `@kolu/surface-app` / `@kolu/surface`; pulam-web wires them, it does not reimplement them.
-- **Git status and drill-in** — those primitives are forwarded but unused by the R4.8a UI; the rendered drill-in is R4.8b.
+- **Git status and the drill-in** — the `git.*` procedures are forwarded but the dashboard doesn't consume them yet. The awareness `git` info carries only `repoName`/`branch` (no file counts), so the per-agent dirty/clean count and the changed-file drill-in — both needing `git.getStatus` — are R-pulamweb-4.
 
 ## Coupling
 
