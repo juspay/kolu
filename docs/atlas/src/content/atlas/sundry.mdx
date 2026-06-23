@@ -35,9 +35,14 @@ Items here are **self-contained enough to hand to an autonomous overnight run** 
 a clear target, a public reference to follow, and a definition of done an agent
 can check itself against without a human in the loop.
 
-| Item | What | Goal |
-| --- | --- | --- |
-| **Upgrade to Vite 8.1, repo-wide** | Kolu's Vite-built surfaces (client, docs/atlas, website) lag behind Vite 8.1. | Bump every Vite-built package to 8.1 and *adopt*, not just install, the [8.1 features](https://vite.dev/blog/announcing-vite8-1): experimental bundled dev mode (≈15× faster startup, 10× faster full reloads), experimental chunk import map (no hash cascading), Wasm ESM integration, Lightning CSS progress (external CSS imports + plugin file-dependency registration), `import.meta.glob` `caseSensitive`, and `html.additionalAssetSources` for custom-element asset discovery. Done = all surfaces build and pass CI on 8.1 with each applicable feature wired in. |
+_No open items._ The **Upgrade to Vite 8.1, repo-wide** loop shipped in
+[#1543](https://github.com/juspay/kolu/pull/1543): every Vite-built surface is on
+8.1, and the client + pulam-web dev servers adopt Vite 8.1's experimental bundled
+dev mode (~7× faster cold page load). The build-output experiments (chunk import
+map, Wasm-as-build) were deliberately left off so the reproducible `nix build`
+artifact never depends on an experimental flag; the stable features
+(`import.meta.glob` `caseSensitive`, Wasm ESM, `html.additionalAssetSources`) had
+no call sites to wire in.
 
 ## Graduating an item
 
