@@ -80,6 +80,18 @@ eager heavy import). When the change **banks** an opportunity or **surfaces** a
 new one, update that note via `/atlas` so the map stays current — measured, not
 guessed (a faithfully-reproduced negative counts too).
 
+When **performance is the deliverable** — a toolchain/build migration, a
+render-loop or bundle or caching speedup, anything whose *whole point* is "make it
+faster/smaller" — a measured **before/after is part of the evidence, not an
+extra**: benchmark `master` (baseline) vs the branch on the **same pinned
+toolchain** and post the numbers (the speedup table / the byte delta) in a
+`## Performance` PR comment **and** the PR body, unprompted. Shipping a "make it
+faster" change with green CI and a screenshot but **no number** is a premature
+"done" — the metric is the proof the change did what it set out to do, exactly the
+gap a human otherwise has to flag ("post the performance improvement metrics").
+This is distinct from the regression guard above: there the rule is *don't lose* a
+banked win; here it is *show* the win you set out to bank.
+
 ## 5. Ship — CI and evidence in parallel
 
 **Heavy work runs on a pu box, never locally — production kolu lives on this
