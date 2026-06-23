@@ -1,0 +1,38 @@
+{
+  "name": "@kolu/pulam-web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev:server": "tsx watch src/server/main.ts",
+    "dev:client": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.13",
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-app": "workspace:*",
+    "@kolu/surface-nix-host": "workspace:*",
+    "@kolu/terminal-workspace": "workspace:*",
+    "@orpc/client": "^1.13.13",
+    "@orpc/contract": "^1.13.13",
+    "@orpc/server": "^1.13.13",
+    "hono": "^4.12.25",
+    "partysocket": "^1.1.16",
+    "solid-js": "^1.9.0",
+    "ws": "^8.21.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.4.3",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.0"
+  }
+}
