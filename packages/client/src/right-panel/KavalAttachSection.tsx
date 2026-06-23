@@ -104,10 +104,11 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
       {/* Key by the stable primitive terminal id (not a wrapper object) so a
           metadata/sub-terminal recompute that leaves the ids unchanged reuses
           the existing rows — preserving each `CopyCommandButton`'s "copied"
-          flash and avoiding needless DOM churn. The role (main vs. the 1-based
-          Nth split) is derived from `<For>`'s index accessor: item 0 is the
-          main pane, every later item is split `i`. Both the human label and the
-          0-based testid suffix read from that single `i`, so the main/split
+          flash and avoiding needless DOM churn. The role is derived from
+          `<For>`'s index accessor `i()`: item 0 is the main pane, every later
+          item is the 1-based Nth split. The label uses `i()` directly (so the
+          first split reads "Split 1"); the testid suffix uses `i() - 1` (so it
+          reads `-split-0`). Both read from that single `i`, so the main/split
           decision and the off-by-one live in one place. */}
       <For each={terminals()}>
         {(id, i) => {
