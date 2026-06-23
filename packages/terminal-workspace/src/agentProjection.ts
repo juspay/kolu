@@ -1,19 +1,30 @@
 /**
- * The renderer-agnostic agent-state projection — the ONE copy of "how an
- * `AwarenessValue`/`AgentInfo` folds to a coarse bucket, an urgency, a recency
- * string, a short agent name, and a needs-you-first ordering". Pure functions
- * over the schema types, no colours, no labels, no DOM, no OpenTUI — so both the
- * pulam-tui dashboard and the pulam-web fleet board import the SAME logic and a
- * new agent state can't drift between them.
+ * The agent-state projection — the ONE schema-fenced home for "how an
+ * `AwarenessValue`/`AgentInfo['state']` folds to a coarse class". Pure functions
+ * over the schema types, no colours, no labels, no DOM, no OpenTUI, so a new
+ * agent state can't drift across the consumers that fold it. Each fold is a
+ * switch over the closed state set ({thinking, tool_use, running_background,
+ * awaiting_user, waiting}) with a `state satisfies never` fence, so a literal
+ * added to `AgentInfoSchema` compile-fails HERE — beside the schema — rather
+ * than in a hand-copied switch downstream. It depends on nothing but the
+ * `AgentInfo['state']` type: no transport, no renderer, no `@kolu/pulam-tui`.
  *
- * This is the freshness-critical vocabulary `AgentInfoSchema` owns: the closed
- * state set ({thinking, tool_use, running_background, awaiting_user, waiting})
- * and how it folds to {need, work, idle}. It belongs here, beside that schema,
- * because the projection depends on nothing but the `AgentInfo['state']` type —
- * it has no transport, no renderer, no `@kolu/pulam-tui` coupling. Each consumer
- * keeps only its PRESENTATION layer over this core: the TUI maps urgency→tone
- * (`palette.ts`) and labels it "awaiting you"; the web maps urgency→hex
- * (`URGENCY.color`) and labels it "needs you".
+ * Three folds live here, grouped by who reads them — not because every consumer
+ * reads every fold, but because every fold over `AgentInfo['state']` wants the
+ * same fence beside the schema:
+ *  - `agentUrgency` (→ {need, work, idle}) + `URGENCY_RANK` — the
+ *    renderer-agnostic needs-you ordering, shared by the pulam-tui dashboard,
+ *    the pulam-web fleet board, AND kolu's Dock (all three rank identically).
+ *  - `agentPaintClass` (→ {awaiting, working, none}) — the tile/pip paint class
+ *    (kolu client). It deliberately differs from urgency on `waiting`: a
+ *    just-finished agent paints `awaiting` (a lingering dot) but ranks idle.
+ *  - `alertClass` (→ {notify, quiet}) — the fire-a-notification membership
+ *    (kolu's `useTerminalAlerts`). It notifies on a finished agent (`waiting`)
+ *    too — "notify me something happened" ≠ "rank by what needs my action".
+ *
+ * Each consumer keeps only its PRESENTATION layer over this core: the TUI maps
+ * urgency→tone (`palette.ts`) and labels it "awaiting you"; the web maps
+ * urgency→hex (`URGENCY.color`) and labels it "needs you".
  */
 
 import type { AgentInfo, AwarenessValue } from "./schema.ts";
