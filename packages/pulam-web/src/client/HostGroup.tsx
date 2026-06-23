@@ -160,29 +160,45 @@ const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
 /** The per-host connection indicator — the transport status the half-open
- *  watchdog acts on, surfaced so its recovery is visible. Shows only when the
- *  link is NOT live (amber "reconnecting…" while partysocket retries, red
- *  "disconnected — reload" after a stale-close retired the socket); a healthy
- *  `live`/initial `connecting` host shows nothing (the body already carries the
- *  first-connect "connecting…"). */
+ *  watchdog acts on, surfaced as a persistent status dot (like kolu's header
+ *  dot): a solid **green** dot when the link is healthy, an amber pulsing
+ *  "connecting…" / "reconnecting…" while it's establishing or recovering, and a
+ *  red "disconnected — reload" after a stale-close retired the socket. Always
+ *  shows *something* so a connected host reads as positively connected, not
+ *  merely "no error". */
 function ConnectionIndicator(props: {
   status: () => SurfaceConnectionStatus;
 }): JSX.Element {
   return (
-    <Switch>
-      <Match when={props.status() === "reconnecting"}>
-        <span class="ml-auto flex flex-none items-center gap-1 text-[12px] text-[#e6a23c]">
-          <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#e6a23c] motion-safe:animate-pulse" />
-          reconnecting…
-        </span>
-      </Match>
-      <Match when={props.status() === "down"}>
-        <span class="ml-auto flex flex-none items-center gap-1 text-[12px] text-[#ff8d8d]">
-          <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#ff8d8d]" />
-          disconnected — reload
-        </span>
-      </Match>
-    </Switch>
+    <span class="ml-auto flex flex-none items-center gap-1 text-[12px]">
+      <Switch>
+        <Match when={props.status() === "live"}>
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-[#7ec699]"
+            title="connected"
+          />
+        </Match>
+        <Match when={props.status() === "connecting"}>
+          {/* Bare dot — the body already shows the first-connect "connecting…". */}
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-[#8b94a6] motion-safe:animate-pulse"
+            title="connecting"
+          />
+        </Match>
+        <Match when={props.status() === "reconnecting"}>
+          <span class="flex items-center gap-1 text-[#e6a23c]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#e6a23c] motion-safe:animate-pulse" />
+            reconnecting…
+          </span>
+        </Match>
+        <Match when={props.status() === "down"}>
+          <span class="flex items-center gap-1 text-[#ff8d8d]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#ff8d8d]" />
+            disconnected — reload
+          </span>
+        </Match>
+      </Switch>
+    </span>
   );
 }
 
