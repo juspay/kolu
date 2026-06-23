@@ -1,0 +1,94 @@
+---
+/**
+ * PhaseTree — a bird's-eye roadmap tree with drill-down links.
+ *
+ * Renders a nested phase list (depth-indented) with a status glyph per row, a
+ * title + legend header, and an optional right-aligned meta that can be a link
+ * (the "drill in" target). Built for plan-of-record notes whose phases carry a
+ * nested identifier (e.g. R8 → R-compose-1 / R-compose-2); the `d` (depth)
+ * field draws the tree, the `l` label carries the id + name.
+ *
+ * Usage (in an .mdx note):
+ *   import PhaseTree from "../../components/PhaseTree.astro";
+ *   export const PT = [
+ *     { d: 0, g: "✓", c: "ship", l: "R1 · Foundation", m: "#981" },
+ *     { d: 1, g: "▶", c: "prog", l: "R-pulamweb-3 · features", m: "◀ do next", h: "pulam-web.html#r-pulamweb-3" },
+ *   ];
+ *   <PhaseTree title="ROADMAP — remote terminals (#951)" phases={PT} />
+ *
+ * Glyph convention (free-form, but the default legend assumes): ✓ shipped ·
+ * ▶ do-next · ◐ build-clean · ○ todo. `c` picks the glyph colour:
+ * ship (green) · prog (amber) · last (slate).
+ */
+interface Phase {
+  /** indent depth (0 = top-level milestone); draws the tree */
+  d?: number;
+  /** status glyph: ✓ ▶ ◐ ○ … */
+  g: string;
+  /** colour key for the glyph */
+  c?: "ship" | "prog" | "last";
+  /** the row label — id · name (e.g. "R-compose-1 · awareness") */
+  l: string;
+  /** right-aligned meta (PR ids, "do next", "→ note") */
+  m?: string;
+  /** optional drill-down href; makes the meta a link */
+  h?: string;
+}
+interface Props {
+  title: string;
+  legend?: string;
+  phases: Phase[];
+}
+const {
+  title,
+  legend = "✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in",
+  phases,
+} = Astro.props;
+const C = {
+  ship: "#15803d",
+  prog: "#b45309",
+  last: "#64748b",
+  txt: "#1f2937",
+  sub: "#6b7280",
+  line: "#cbd5e1",
+};
+---
+
+<div
+  style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"
+>
+  <div
+    style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"
+  >
+    <span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">{title}</span>
+    <span style="color:#94a3b8;font-size:.8em">{legend}</span>
+  </div>
+  {
+    phases.map((r) => {
+      const d = r.d ?? 0;
+      const col = C[r.c ?? "prog"];
+      return (
+        <div
+          style={`display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:${d * 1.6}rem`}
+        >
+          <span style={`color:${col};width:1.2ch;flex:none;text-align:center`}>{r.g}</span>
+          <span style={`color:${C.txt};font-weight:${d === 0 ? 600 : 400}`}>{r.l}</span>
+          <span
+            style={`color:${C.sub};margin-left:auto;white-space:nowrap;font-size:.92em`}
+          >
+            {r.h ? (
+              <a
+                href={r.h}
+                style={`color:${C.sub};text-decoration:underline;text-decoration-color:${C.line};text-underline-offset:2px`}
+              >
+                {r.m}
+              </a>
+            ) : (
+              r.m
+            )}
+          </span>
+        </div>
+      );
+    })
+  }
+</div>
