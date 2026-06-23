@@ -11,6 +11,8 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
+    "./heartbeat": "./src/heartbeat.ts",
+    "./liveness": "./src/liveness.ts",
     "./first-frame": "./src/firstFrame.ts",
     "./loopback": "./src/loopback.ts",
     "./mirror": "./src/mirrorRemoteSurface.ts",

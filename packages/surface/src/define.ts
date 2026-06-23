@@ -32,6 +32,12 @@ import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
 import { type ZodType, z } from "zod";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { cell, collection, event, stream } from "./index";
+import {
+  LIVENESS_NAMESPACE,
+  LIVENESS_VERB,
+  livenessContractEntry,
+  type ReservedLivenessContract,
+} from "./liveness";
 
 // ── Spec types ─────────────────────────────────────────────────────────
 
@@ -221,9 +227,11 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
 type EmptyObj = NonNullable<unknown>;
 
 /** Wire shape for `defineSurface(spec).contract`: every entry lives
- *  under one `surface` namespace. */
+ *  under one `surface` namespace. The reserved `system.live` liveness proc
+ *  (`./liveness`) is intersected in so it's present on every surface contract —
+ *  the type counterpart to the runtime `claim` in `defineSurface`. */
 export type SurfaceContractFor<S extends SurfaceSpec> = {
-  surface: SurfaceInnerContract<S>;
+  surface: SurfaceInnerContract<S> & ReservedLivenessContract;
 };
 
 type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
@@ -600,6 +608,12 @@ export function defineSurface<const S extends SurfaceSpec>(
     }
     claim(ns, procEntries);
   }
+  // Reserve the framework liveness verb on EVERY surface (see ./liveness). It is
+  // contract-only (never in `spec`, so `implementSurface`'s procedures walk never
+  // demands a dep for it — it is auto-answered instead). `claim` merges it into
+  // any app-owned `system` namespace and rejects only a duplicate `live` verb, so
+  // it can't silently clobber an app procedure.
+  claim(LIVENESS_NAMESPACE, { [LIVENESS_VERB]: livenessContractEntry() });
 
   // Descriptor handles for the manual escape hatch.
   const descriptors = {

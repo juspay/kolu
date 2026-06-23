@@ -28,9 +28,8 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateStaleSocket,
+  acceptSurfaceSocket,
   installFreshStatic,
-  startWsHeartbeat,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
@@ -149,9 +148,22 @@ async function main(): Promise<void> {
     maxPayload: 8 * 1024 * 1024,
   });
 
-  // Liveness heartbeat: ping accepted sockets, terminate any that stop ponging —
-  // reaps the server-side zombie a half-open browser would otherwise leak.
-  const heartbeat = startWsHeartbeat(wss);
+  // The acceptance seam owns the liveness reaper AND bundles the per-socket
+  // stale-tab gate + reaper enrolment into one sequenced `accept(...)` call — so a
+  // socket can't be dispatched to a host handler without first being gated and
+  // enrolled. (Reaps the server-side zombie a half-open browser would leak.)
+  const acceptor = acceptSurfaceSocket({
+    server: wss,
+    liveProcessId: processId,
+    onError: (err, url) =>
+      log(
+        `browser ws error (host=${url.searchParams.get("host")}): ${err.message}`,
+      ),
+    onReject: (_pid, url) =>
+      log(
+        `rejecting stale browser ws (host=${url.searchParams.get("host")}) — parent restarted`,
+      ),
+  });
 
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "", `http://${req.headers.host}`);
@@ -183,43 +195,28 @@ async function main(): Promise<void> {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      // Stale-tab gate: a tab that reconnects after a PARENT restart carries the
-      // previous process's `pid`. `gateStaleSocket` installs the `error`
-      // listener FIRST (the one crash-free order), reads the claimed `pid` off
-      // the URL, and closes a stale tab before the handler upgrades. An absent
-      // `pid` (first connect) always passes.
-      if (
-        gateStaleSocket(ws, url, processId, {
-          onError: (err) =>
-            log(`browser ws error (host=${host}): ${err.message}`),
-          onReject: () =>
-            log(`rejecting stale browser ws (host=${host}) — parent restarted`),
-        })
-      ) {
-        return;
-      }
-      const handler = registry.getHandler(host);
-      if (handler === undefined) {
-        // Race: host removed between the `has` check above and here. Close
-        // before enrolling in the heartbeat or registry so the socket's
-        // lifecycle is clean — no register without a corresponding unregister.
-        ws.close(1008, `unknown host: ${host}`);
-        return;
-      }
-      // Accepted: enrol in the heartbeat and the registry's per-host socket set
-      // (so a host removal could close it — R4.8a never removes, but the wiring
-      // is the same the registry owns). Enrollment happens AFTER the handler
-      // guard so the heartbeat only tracks fully-accepted sockets.
-      heartbeat.register(ws);
-      registry.registerConnection(host, ws);
-      log(`browser ws connect (host=${host})`);
-      ws.on("close", (code, reason) => {
-        registry.unregisterConnection(host, ws);
-        log(
-          `browser ws disconnect (host=${host}) (code=${code} reason=${reason.toString() || "<none>"})`,
-        );
+      // `accept` runs the stale-tab gate (installs the `error` listener first, the
+      // one crash-free order; closes a stale tab carrying a previous process's
+      // `pid`) → enrols the socket in the liveness reaper → then runs our dispatch.
+      // The dispatch never runs for a stale tab, and the socket can't be
+      // dispatched un-enrolled.
+      acceptor.accept(ws, url, () => {
+        const handler = registry.getHandler(host);
+        if (handler === undefined) {
+          // Race: host removed between the `has` check above and here.
+          ws.close(1008, `unknown host: ${host}`);
+          return;
+        }
+        registry.registerConnection(host, ws);
+        log(`browser ws connect (host=${host})`);
+        ws.on("close", (code, reason) => {
+          registry.unregisterConnection(host, ws);
+          log(
+            `browser ws disconnect (host=${host}) (code=${code} reason=${reason.toString() || "<none>"})`,
+          );
+        });
+        void handler.upgrade(ws as Parameters<typeof handler.upgrade>[0]);
       });
-      void handler.upgrade(ws as Parameters<typeof handler.upgrade>[0]);
     });
   });
 
@@ -228,7 +225,7 @@ async function main(): Promise<void> {
     log(`${sig}: destroying host sessions`);
     registry.destroyAll();
     destroyAllSessions();
-    heartbeat.stop();
+    acceptor.stop();
     wss.close();
     for (const ws of wss.clients) {
       try {

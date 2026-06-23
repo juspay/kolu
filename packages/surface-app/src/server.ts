@@ -439,7 +439,7 @@ export function gateStaleSocket(
  *  Must comfortably exceed the client's worst-case recovery (createHeartbeat's
  *  intervalMs + timeoutMs, ~25s) so the client's reconnect wins the race and this
  *  reaper never terminates a socket the client is about to revive. */
-const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
+export const DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** A server-side WebSocket the liveness heartbeat acts on — the structural subset
  *  of the `ws` package's socket the reaper pings and reaps. Kept structural (the
@@ -521,4 +521,91 @@ export function startWsHeartbeat(
   );
   handle.unref?.();
   return { register, stop: () => clearInterval(handle) };
+}
+
+/** The single seam an accepted WS passes through: stale-tab gate → enrol in the
+ *  liveness reaper → dispatch — in the one correct order, sequenced so an app
+ *  CANNOT do any one without the others. `acceptSurfaceSocket` returns this. */
+export interface SurfaceSocketAcceptor {
+  /** Gate (stale-tab), then enrol the socket in the liveness reaper, then run
+   *  `onAccepted` (the app's dispatch — `handler.upgrade(ws)`, possibly per-host).
+   *  A stale tab is closed and `onAccepted` NEVER runs (a closing socket is never
+   *  enrolled or dispatched). Call exactly once per socket the WS server accepts,
+   *  inside the `handleUpgrade` callback. */
+  accept(
+    ws: GateableSocket & HeartbeatableSocket,
+    requestUrl: URL,
+    onAccepted: () => void,
+  ): void;
+  /** Stop the liveness heartbeat — call on server shutdown. */
+  stop(): void;
+}
+
+/**
+ * The server-side acceptance seam: own the liveness heartbeat for a WS server
+ * AND bundle the per-socket `gateStaleSocket` → `register` → dispatch into one
+ * sequenced `accept(...)` call — the server twin of the client's `connectSurface`
+ * / `createServerLifecycle` default-on heartbeat.
+ *
+ * Why this exists: a server used to hand-wire THREE separable, order-sensitive
+ * steps — `startWsHeartbeat(wss)`, then per accepted socket `gateStaleSocket(...)`
+ * and `heartbeat.register(ws)` in the right order before `handler.upgrade(ws)`.
+ * Forgetting `register` leaks a half-open browser as a server-side zombie holding
+ * stream subscriptions open forever; doing the steps out of order reintroduces
+ * kolu#1231's crash. This collapses the heartbeat lifecycle (owned internally —
+ * no `startWsHeartbeat` call to forget) and the per-socket gate+enrol into one
+ * call, so a socket cannot be dispatched without first being gated and enrolled.
+ *
+ * Structural-only (no `ws` dependency, like `gateStaleSocket`/`startWsHeartbeat`):
+ * `accept`'s socket is `GateableSocket & HeartbeatableSocket`, which every real
+ * `ws` socket satisfies. The pieces that stay at the call site are the genuinely
+ * app-specific ones the seam can't generically own: the **origin gate**
+ * (`gateWsOrigin`, which acts on the raw pre-upgrade socket/request — a different
+ * phase) and the **dispatch** itself (`?host=` routing, an `__admin__` sentinel)
+ * — supplied as the `onAccepted` closure. `liveProcessId` MUST be the id the
+ * `identity.info` probe reports (`surfaceAppServer().processId`).
+ */
+export function acceptSurfaceSocket(opts: {
+  /** The WS server whose accepted-socket population the reaper sweeps (a `ws`
+   *  `WebSocketServer` IS this structurally). */
+  server: { clients: Iterable<HeartbeatableSocket> };
+  /** The live server process id the stale-tab gate compares the echoed `pid`
+   *  against — `surfaceAppServer().processId` / the externally-minted id. */
+  liveProcessId: string;
+  /** Heartbeat sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
+  intervalMs?: number;
+  /** Standing transport-error handler installed on every accepted socket by the
+   *  stale gate (defaults to a loud `console.error`, like `gateStaleSocket`). The
+   *  socket's upgrade `requestUrl` is passed alongside the error so a multi-host
+   *  server can re-derive its `?host=` for the log line (a single-socket consumer
+   *  ignores it). */
+  onError?: (err: Error, requestUrl: URL) => void;
+  /** Report a rejected stale tab (the claimed `pid` no longer matches). The
+   *  upgrade `requestUrl` is passed alongside for the same per-host log context. */
+  onReject?: (claimedPid: string, requestUrl: URL) => void;
+}): SurfaceSocketAcceptor {
+  const heartbeat = startWsHeartbeat(opts.server, {
+    intervalMs: opts.intervalMs,
+  });
+  return {
+    accept(ws, requestUrl, onAccepted) {
+      // Stale-tab gate FIRST (installs the `error` listener, closes a stale tab).
+      // A rejected socket is closing — never enrol or dispatch it. The per-socket
+      // callbacks carry `requestUrl` so a fleet server keeps its per-host context.
+      if (
+        gateStaleSocket(ws, requestUrl, opts.liveProcessId, {
+          onError: opts.onError && ((err) => opts.onError?.(err, requestUrl)),
+          onReject:
+            opts.onReject && ((pid) => opts.onReject?.(pid, requestUrl)),
+        })
+      ) {
+        return;
+      }
+      // Enrol in the liveness reaper, THEN dispatch — sequenced so a socket can't
+      // be dispatched without first being gated and enrolled.
+      heartbeat.register(ws);
+      onAccepted();
+    },
+    stop: heartbeat.stop,
+  };
 }
