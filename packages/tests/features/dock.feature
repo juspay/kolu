@@ -13,11 +13,27 @@ Feature: Dock
     Then the dock should be visible
     And the dock should default to cards mode
 
-  Scenario: Dock surfaces awaiting Claude session as a full card
-    When a Claude Code session is mocked with state "waiting"
+  Scenario: Dock surfaces an awaiting-input Claude session as a full card
+    # `awaiting_user` is the agent actually BLOCKED on you — it floats to the
+    # awaiting row and gets the full card. (Contrast the just-finished `waiting`
+    # lull below, which now ranks idle since R-dock-unify shares the dock's
+    # needs-you ordering with `agentProjection`.)
+    When a Claude Code session is mocked with state "awaiting_user"
     Then the dock should be visible
     When the dock is expanded
     Then the dock should show 1 card
+
+  Scenario: Dock surfaces a just-finished (waiting) Claude session as a quiet row, not a card
+    # `waiting` is the post-turn lull — the agent finished its turn and yielded,
+    # it is NOT blocked on you. It ranks idle now (shared
+    # `agentProjection.agentUrgency`), so it is neither a full card (awaiting)
+    # nor a working pill — it drops to a quiet one-liner. Pins the R-dock-unify
+    # ranking change end-to-end.
+    When a Claude Code session is mocked with state "waiting"
+    Then the dock should be visible
+    When the dock is expanded
+    Then the dock should show 0 cards
+    And the dock should show 0 working pills
 
   Scenario: Dock surfaces working Claude session as a compact pill
     When a Claude Code session is mocked with state "thinking"
