@@ -4,10 +4,9 @@ import { serve } from "@hono/node-server";
 import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import { createDirServer } from "@kolu/serve-dir";
 import {
-  gateStaleSocket,
+  acceptSurfaceSocket,
   installFreshStatic,
   installPwaManifest,
-  startWsHeartbeat,
 } from "@kolu/surface-app/server";
 import {
   gateHttpRpcOrigin,
@@ -429,54 +428,46 @@ const wss = new WebSocketServer({ noServer: true });
 const wsRpcHandler = new WsRPCHandler(appRouter as any, {
   plugins: rpcPlugins,
 });
-// Liveness heartbeat: ping accepted sockets and terminate any that stop ponging,
-// reaping the server-side zombie (and its stream subscriptions) a half-open
-// client would otherwise leak. The client half (`createHeartbeat`) un-freezes
-// the tab; this half frees the server. Stale tabs are closed before the oRPC
-// upgrade and never register (the ws upgrade has already accepted them), so
-// #1231's gate is untouched.
-const heartbeat = startWsHeartbeat(wss);
+// The acceptance seam (`@kolu/surface-app/server`) owns the liveness reaper AND
+// sequences the per-socket stale-tab gate → reaper enrolment → dispatch in one
+// `accept(...)` call. Reaping the server-side zombie (and its stream
+// subscriptions) a half-open client would leak is the server half; the client
+// half (the watchdog folded into `createServerLifecycle`) un-freezes the tab.
+// The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE oRPC
+// upgrades the socket (so dead-terminal subscriptions never replay and storm the
+// logs with NOT_FOUND) and such a socket never enrols — so #1231's gate is
+// untouched. `serverProcessId` is the same id the `identity.info` probe reports.
+const acceptor = acceptSurfaceSocket({
+  server: wss,
+  liveProcessId: serverProcessId,
+  onError: (err) => log.error({ err }, "ws error"),
+  onReject: (claimedPid) =>
+    log.info(
+      { claimedPid, serverProcessId },
+      "rejecting stale client — server restarted since it last connected",
+    ),
+});
 
 let nextConnId = 0;
 wss.on("connection", (ws: WebSocket, _req: IncomingMessage, url: URL) => {
   const connId = ++nextConnId;
   const connLog = log.child({ ws: connId });
-
-  // Stale-tab handshake gate (`@kolu/surface-app/server`): installs the `error`
-  // handler in the correct order, reads the `pid` echo off the URL, and closes a
-  // stale tab — one bound to a PREVIOUS instance — BEFORE oRPC upgrades the
-  // socket, so dead-terminal stream subscriptions never replay and storm the logs
-  // with NOT_FOUND. An absent `pid` (the first-ever connect) always passes. The
-  // ordering + close are the library's so kolu never re-derives them;
-  // `serverProcessId` is the same id the `identity.info` probe reports.
-  if (
-    gateStaleSocket(ws, url, serverProcessId, {
-      onError: (err) => connLog.error({ err }, "error"),
-      onReject: (claimedPid) =>
-        connLog.info(
-          { claimedPid, serverProcessId },
-          "rejecting stale client — server restarted since it last connected",
-        ),
-    })
-  ) {
-    return;
-  }
-
-  connLog.info({ total: wss.clients.size }, "connected");
-  // Accepted socket: enrol it in the liveness heartbeat (its `pong` keeps it
-  // alive; a missed ping terminates it) so a half-open client is reaped here.
-  heartbeat.register(ws);
-  wsRpcHandler.upgrade(ws, { context: {} });
-  ws.on("close", (code, reason) => {
-    const reasonStr = reason.toString();
-    connLog.info(
-      {
-        code,
-        ...(reasonStr && { reason: reasonStr }),
-        remaining: wss.clients.size,
-      },
-      "disconnected",
-    );
+  // `accept` gates (stale-tab) → enrols in the reaper → runs our dispatch. A
+  // stale tab is closed and never dispatched or enrolled.
+  acceptor.accept(ws, url, () => {
+    connLog.info({ total: wss.clients.size }, "connected");
+    wsRpcHandler.upgrade(ws, { context: {} });
+    ws.on("close", (code, reason) => {
+      const reasonStr = reason.toString();
+      connLog.info(
+        {
+          code,
+          ...(reasonStr && { reason: reasonStr }),
+          remaining: wss.clients.size,
+        },
+        "disconnected",
+      );
+    });
   });
 });
 

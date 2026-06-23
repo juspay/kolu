@@ -149,8 +149,8 @@ export function createSurfaceSocket(opts: SurfaceSocketOptions): SurfaceSocket {
  *  probe in milliseconds, so the 10s timeout is a confident dead-signal; the 15s
  *  interval keeps the keep-alive cheap. Worst-case auto-recovery after a socket
  *  goes silently dead is one interval + one timeout (~25s). */
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
-const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
+export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
 
 /** The structural socket `createHeartbeat` drives — a partysocket reduced to the
  *  two verbs the watchdog touches: read `readyState`/`OPEN` (only probe a live

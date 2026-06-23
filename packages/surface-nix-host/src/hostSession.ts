@@ -54,6 +54,10 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import {
+  probeSurfaceLive,
+  type SurfaceLiveProbeable,
+} from "@kolu/surface/liveness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -157,6 +161,24 @@ export interface HostSessionOptions {
    *  are still accumulated in `progressLines`/`remoteProgressLines` regardless,
    *  so a diverting sink loses nothing a failure-reason read would want. */
   onLog?: (line: string) => void;
+  /** Disable the periodic liveness watchdog (default ON). While `connected`, the
+   *  watchdog probes the framework-reserved `system.live` round-trip
+   *  (`@kolu/surface/liveness`) over the live link on an interval; a probe that
+   *  TIMES OUT means the remote is SILENTLY wedged (process alive, app hung — so
+   *  no stdio EOF fires, and ssh keepalive won't notice for ~30s) and the child
+   *  is force-cycled through the same path `recheck()` uses. The ssh-leg twin of
+   *  the browser leg's `createHeartbeat`. A probe REJECTION still counts as alive
+   *  (the round-trip completed — even an agent too old to answer `system.live`
+   *  just degrades to today's no-watchdog behaviour), so only a true non-answer
+   *  triggers a cycle. Probing is gated on `connected`, so the (possibly
+   *  minutes-long) copying/connecting window is never disturbed. */
+  liveness?: false;
+  /** Liveness probe interval while connected. Default 15s (matches the browser
+   *  leg's `createHeartbeat`). */
+  livenessIntervalMs?: number;
+  /** How long to wait for a liveness probe before declaring the link wedged and
+   *  force-cycling. Default 10s. */
+  livenessTimeoutMs?: number;
 }
 
 /** The typed RPC client produced by a successful `acquire`/`pin`/
@@ -214,6 +236,18 @@ export class HostSession<C extends AnyContractRouter> {
    *  loop would otherwise spam forever). Reset to 0 on a successful
    *  `markConnected` or a manual `reconnect()`. */
   private consecutiveFailures = 0;
+  /** The periodic liveness watchdog's interval handle (the ssh-leg twin of the
+   *  browser's `createHeartbeat`). Born at the first `markConnected` (so it can
+   *  never probe before the first RPC — deferred-first-probe by construction),
+   *  then self-gates on `connected` for the session's life. Separate from
+   *  `pendingTimer` (phase transitions) — different lifecycle, lives DURING
+   *  `connected`. `null` until started / after `stopLiveness`. */
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
+  /** The in-flight liveness probe's timeout (force-cycle if it fires). */
+  private livenessProbeTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** A probe is outstanding — skip overlapping ticks (a wedged link's probe
+   *  never resolves, so without this every interval would stack another). */
+  private livenessInFlight = false;
 
   constructor(private readonly opts: HostSessionOptions) {}
 
@@ -633,7 +667,89 @@ export class HostSession<C extends AnyContractRouter> {
     if (this.stateCell.current().connection === "connecting") {
       this.consecutiveFailures = 0;
       this.updateState({ connection: "connected" });
+      // Birth the liveness watchdog here, at the FIRST successful connect — so it
+      // can never probe before the first RPC roundtripped (the deferred-first-
+      // probe rule, satisfied by construction rather than by a guard). Idempotent:
+      // later reconnects re-enter `connected` but the interval already exists and
+      // self-gates on the `connected` state.
+      this.startLiveness();
     }
+  }
+
+  /** Start the periodic liveness watchdog (idempotent; no-op if disabled). The
+   *  interval is `unref`'d so it never keeps the process alive on its own, and
+   *  the tick self-gates on `connected`, so the (possibly minutes-long) copying/
+   *  connecting/backoff windows are never probed. */
+  private startLiveness(): void {
+    if (this.opts.liveness === false || this.livenessTimer !== null) return;
+    const intervalMs = this.opts.livenessIntervalMs ?? 15_000;
+    this.livenessTimer = setInterval(() => this.livenessTick(), intervalMs);
+    this.livenessTimer.unref?.();
+  }
+
+  /** One liveness probe, raced against `livenessTimeoutMs`. Only fires while the
+   *  link is `connected` and a client is in hand; a timeout means the remote is
+   *  silently wedged → force-cycle. A probe REJECTION (the round-trip completed,
+   *  even with an error — e.g. an older agent that lacks `system.live`) counts as
+   *  ALIVE, so only a true non-answer triggers a cycle. */
+  private livenessTick(): void {
+    if (this.livenessInFlight || this.destroyed) return;
+    if (this.stateCell.current().connection !== "connected") return;
+    const pending = this.clientPromise;
+    if (pending === null) return;
+    this.livenessInFlight = true;
+    const timeoutMs = this.opts.livenessTimeoutMs ?? 10_000;
+    this.livenessProbeTimeout = setTimeout(
+      () => this.livenessSettle(true),
+      timeoutMs,
+    );
+    this.livenessProbeTimeout.unref?.();
+    // The reserved `system.live` round-trip — contract-agnostic, so no consumer
+    // probe is needed (or can be forgotten). Resolution OR rejection settles
+    // "alive"; only the timeout above settles "wedged".
+    pending
+      .then((client) =>
+        probeSurfaceLive(client as unknown as SurfaceLiveProbeable),
+      )
+      .then(
+        () => this.livenessSettle(false),
+        () => this.livenessSettle(false),
+      );
+  }
+
+  /** Resolve the current probe exactly once (its answer or the timeout wins). On
+   *  a `wedged` timeout, force-cycle the ssh child the same way `recheck()` does
+   *  — the link is "lying" (connected but not answering), so cycle it and let the
+   *  reconnect loop re-establish. Routed through `recheck()` so the cycle is
+   *  classified a `"network"` retry (recovery, not a budget-consuming fault). */
+  private livenessSettle(wedged: boolean): void {
+    if (!this.livenessInFlight || this.destroyed) return;
+    this.livenessInFlight = false;
+    if (this.livenessProbeTimeout !== null) {
+      clearTimeout(this.livenessProbeTimeout);
+      this.livenessProbeTimeout = null;
+    }
+    if (wedged) {
+      this.addLocalProgress(
+        "liveness probe timed out — remote wedged, force-cycling ssh child",
+      );
+      this.recheck();
+    }
+  }
+
+  /** Stop the liveness watchdog and any in-flight probe timeout. Called from
+   *  `teardown` (which covers both ref-count-zero and `destroy()`), so a probe
+   *  outstanding at teardown can't fire a late force-cycle. */
+  private stopLiveness(): void {
+    if (this.livenessTimer !== null) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
+    }
+    if (this.livenessProbeTimeout !== null) {
+      clearTimeout(this.livenessProbeTimeout);
+      this.livenessProbeTimeout = null;
+    }
+    this.livenessInFlight = false;
   }
 
   /** Re-arm a session that gave up (`connection === "failed"`). Resets
@@ -769,6 +885,7 @@ export class HostSession<C extends AnyContractRouter> {
 
   private teardown(reason: string): void {
     this.clearTimer();
+    this.stopLiveness();
     if (this.child !== null) {
       this.addLocalProgress(`tearing down (${reason})`);
       try {

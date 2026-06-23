@@ -45,6 +45,8 @@ This is a workspace-private package. Wire it into both server and client package
 - `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
 - `surfaceClient(surface, link)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side). The `link` is any member of the link family below — `surfaceClient` is transport-agnostic.
 
+Every surface also carries one **framework-reserved procedure**, `surface.system.live` (`@kolu/surface/liveness`), injected by `defineSurface` and auto-answered by `implementSurface` — no app declares or implements it. It is a contract-agnostic liveness round-trip a client-side watchdog can call to tell a live link from a silently half-open one, *without* each app nominating its own probe verb. `probeSurfaceLive(client)` is the one-liner that calls it; the browser-leg `createHeartbeat` (`@kolu/surface-app`) and the ssh-leg `HostSession` watchdog (`@kolu/surface-nix-host`) both default their probe to it, so liveness is on by construction and there is no probe for an app to forget. It merges into an app's own `system` namespace (e.g. kaval's `system.heartbeat`) and only rejects a duplicate `live` verb.
+
 A surface is reached through one of several **links**. A link maps "a way to reach the served contract" to a `ContractRouterClient<contract>` (the client is the only abstraction that spans all of them — the direct link has no transport at all):
 
 - `websocketLink(ws)` (`@kolu/surface/links/websocket`) — over a WebSocket; the browser path.

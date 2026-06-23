@@ -40,6 +40,15 @@ export {
 import { createHeartbeat } from "../connect";
 import { reloadForUpdate, retireSocket } from "../lifecycle";
 
+// The turnkey single-surface connect seam (socket + client + default-on
+// heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
+// subpath, not the framework-free `/connect`.
+export {
+  connectSurface,
+  type ConnectSurfaceOptions,
+  type SurfaceConnection,
+} from "./connectSurface";
+
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
 
@@ -117,8 +126,23 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
 export function createServerLifecycle<
   P extends ServerProbe = ServerProbe,
 >(opts: {
-  ws: WsLike;
+  // The lifecycle OWNS this socket — it observes open/close, retires it on a
+  // stale restart, AND (below) keeps it alive with a heartbeat — so its `ws` is
+  // `WsLike` PLUS the verbs `createHeartbeat` needs (`reconnect`/`readyState`/
+  // `OPEN`). Every real partysocket satisfies this.
+  ws: WsLike & {
+    reconnect(): void;
+    readyState: number;
+    readonly OPEN: number;
+  };
   probe: () => Promise<P>;
+  /** Disable or tune the built-in liveness heartbeat (default ON). The watchdog
+   *  reuses `probe` on an interval and forces `ws.reconnect()` on a silently
+   *  half-open socket. Pass `false` only if you wire your own `createHeartbeat`;
+   *  pass an object to tune its `intervalMs` / `timeoutMs` / `onStale`. */
+  heartbeat?:
+    | false
+    | { intervalMs?: number; timeoutMs?: number; onStale?: () => void };
   /** Surface a failed identity probe. A broken `identity.info` otherwise leaves
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
@@ -243,9 +267,27 @@ export function createServerLifecycle<
   };
   opts.ws.addEventListener("open", onOpen);
   opts.ws.addEventListener("close", onClose);
+  // The lifecycle OWNS this socket, so it also owns its LIVENESS: a default-on
+  // heartbeat reuses `probe` on an interval and forces `ws.reconnect()` on a
+  // SILENTLY half-open socket (laptop sleep / Wi-Fi roam / NAT idle-eviction —
+  // TCP dead with no FIN/RST, so neither `open` nor `close` fires and the
+  // lifecycle alone would never notice; every stream hangs). This folds in the
+  // watchdog that used to be a SECOND hand-wired `createHeartbeat({ ws, probe })`
+  // beside every `createServerLifecycle` call (kolu's `rpc.ts`, the provider's
+  // turnkey branch) — so deriving a lifecycle can no longer leave the socket
+  // without one. A missed probe just warns and reconnects (a routine recovery).
+  const heartbeat =
+    opts.heartbeat === false
+      ? undefined
+      : createHeartbeat({
+          ws: opts.ws,
+          probe: opts.probe,
+          ...(typeof opts.heartbeat === "object" ? opts.heartbeat : {}),
+        });
   const dispose = () => {
     opts.ws.removeEventListener?.("open", onOpen);
     opts.ws.removeEventListener?.("close", onClose);
+    heartbeat?.dispose();
   };
   if (getOwner()) onCleanup(dispose);
   return {
@@ -530,19 +572,11 @@ export function SurfaceAppProvider<
         props.onError?.(err instanceof Error ? err : new Error(String(err))),
     });
     status = lifecycle.status;
-    // The turnkey source owns the socket, so it also owns its LIVENESS: start a
-    // heartbeat that turns a silently half-open socket (no `close`/`error` ever
-    // fires) into a real reconnect, the same way it already owns the stale-restart
-    // retire above. A consumer using this `{ ws, probe }` shape (e.g. drishti's
-    // admin control plane) gets the watchdog for free — no extra wiring. The
-    // `{ status }` source never reaches here: that app owns the socket and wires
-    // its own `createHeartbeat` beside the `createServerLifecycle` it derived
-    // (e.g. kolu's `rpc.ts`). Re-uses the SAME `probe` as the liveness signal; a
-    // missed probe just warns and reconnects (a routine recovery, not an app
-    // error, so it stays off `onError`). Disposed with the provider so the
-    // interval never outlives the component.
-    const heartbeat = createHeartbeat({ ws, probe: props.probe });
-    onCleanup(heartbeat.dispose);
+    // The turnkey source owns the socket's LIVENESS too — but that watchdog now
+    // lives INSIDE `createServerLifecycle` (default-on, disposed with the
+    // lifecycle), so there is no separate `createHeartbeat` to wire here. A
+    // consumer using this `{ ws, probe }` shape (e.g. drishti's admin control
+    // plane) gets the half-open watchdog for free.
   } else {
     status = () => "live";
   }

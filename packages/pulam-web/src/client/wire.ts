@@ -27,16 +27,9 @@
  *  always passes the gate — exactly the contract `createProcessIdEcho` encodes.
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClient } from "@kolu/surface/solid";
-import {
-  createProcessIdEcho,
-  createSurfaceSocket,
-} from "@kolu/surface-app/connect";
-import {
-  type ArivuContract,
-  terminalWorkspaceSurface,
-} from "../shared/contract.ts";
+import { createProcessIdEcho } from "@kolu/surface-app/connect";
+import { connectSurface } from "@kolu/surface-app/solid";
+import { terminalWorkspaceSurface } from "../shared/contract.ts";
 
 /** The shared `pid` echo every per-host socket reads. One instance for the whole
  *  app (all hosts dial the SAME server, so they echo ONE identity), populated by
@@ -66,7 +59,14 @@ function buildHostSurface(host: string) {
   // thunk re-reads the shared echo each reconnect (how a tab re-presents its now-
   // stale `pid` and is re-rejected), and `retireOnStaleClose` retires the socket
   // when the server closes it as stale (no lifecycle watches these sockets).
-  const { ws } = createSurfaceSocket({
+  //
+  // `connectSurface` builds the socket + client AND wires the half-open liveness
+  // watchdog by default (probing the framework-reserved `system.live`) — so these
+  // per-host fleet sockets, which previously had NO client-side heartbeat, now
+  // recover from a silently half-open server (laptop sleep / Wi-Fi roam) instead
+  // of freezing the terminal streams until a manual reload.
+  const { ws, client } = connectSurface({
+    surface: terminalWorkspaceSurface,
     url: () => wsUrlFor(host),
     echo: processIdEcho,
     socketOptions: {
@@ -76,10 +76,6 @@ function buildHostSurface(host: string) {
     },
     retireOnStaleClose: true,
   });
-  const client = surfaceClient(
-    terminalWorkspaceSurface,
-    websocketLink<ArivuContract>(ws as unknown as WebSocket),
-  );
   return { ws, client };
 }
 
