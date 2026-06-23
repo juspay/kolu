@@ -319,8 +319,8 @@ local_deployed_files:
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
-  .agents/skills/be-review/SKILL.md: sha256:07cf8b3e4261e26983d686bd834ac02865195c3ede3c5845293fb13ab234f2dd
-  .agents/skills/be/SKILL.md: sha256:4f44403143b4d28055b35eb51219d6ff00793e339d8deefe6cd8be90aefbfb25
+  .agents/skills/be-review/SKILL.md: sha256:2559181daa2a8a491d285bad4287f734964f296011fb5be085f1ae43610a8c73
+  .agents/skills/be/SKILL.md: sha256:edd4b15e50cf2f9acaa0fadf28d454c72bba3b55c6d1337a90925ec7e8a94157
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .agents/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .agents/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f
@@ -354,8 +354,8 @@ local_deployed_file_hashes:
   .claude/rules/surface.md: sha256:2d6e1255e1e277ef8498b0e0e630b411155d35862c15532b253d96b244c8af89
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
-  .claude/skills/be-review/SKILL.md: sha256:07cf8b3e4261e26983d686bd834ac02865195c3ede3c5845293fb13ab234f2dd
-  .claude/skills/be/SKILL.md: sha256:4f44403143b4d28055b35eb51219d6ff00793e339d8deefe6cd8be90aefbfb25
+  .claude/skills/be-review/SKILL.md: sha256:2559181daa2a8a491d285bad4287f734964f296011fb5be085f1ae43610a8c73
+  .claude/skills/be/SKILL.md: sha256:edd4b15e50cf2f9acaa0fadf28d454c72bba3b55c6d1337a90925ec7e8a94157
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
   .claude/skills/codex-debate/SKILL.md: sha256:04bff5a353ec49df08815e8f85dff5b5d3932f5f6453c81ef103c010315cf9bf
   .claude/skills/codex-debate/answer.workflow.js: sha256:c7d78f5445d64a985ed6e4bf2a25f1522a1f64d2b66218049a5f3b10a7665f0f

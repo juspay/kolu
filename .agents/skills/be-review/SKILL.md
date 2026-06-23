@@ -51,7 +51,22 @@ police summary. No PR comment can reference a local-only commit.
   as the `base` to every step (their own merge-base resolution is idempotent on a
   SHA) so each reviews the change against the identical fork point. Note that each
   step sees the *commits the previous step added* as part of the diff — that is
-  intended: a later reviewer reviews the earlier reviewer's fixes too.
+  intended: a later reviewer reviews the earlier reviewer's fixes too. Run every
+  `git` here with `git -C "$repoPath"` (below) so a cross-repo run resolves the
+  *target* repo's base, not the cwd's.
+- **Pin `repoPath` — the repo under review may NOT be the cwd.** A `/be` run can
+  carry the work in a *companion repo* (e.g. the drishti PR a `@kolu/surface`
+  change requires per `/be` §5) while the session is rooted in a kolu worktree.
+  Set `repoPath` to that target repo's absolute path (default: the cwd worktree
+  root) and thread it into **every** step. **The debate steps run as a `Workflow`,
+  whose `args` MUST be a real object** — `Workflow({ scriptPath, args: { repoPath,
+  base: MB, … } })`. Passing `args` as a **stringified JSON** silently fails: the
+  script does `const a = args || {}; const repoPath = a.repoPath || '.'`, so a
+  *string* `a` has no `.repoPath`, `repoPath` degrades to `.`, the debate runs
+  `git -C .` against the (clean) cwd, and you get a **vacuous false "clean"** — a
+  silently-skipped review gate, the worst gauntlet failure. If a cross-repo step
+  returns `clean` with `rounds: 0` against a non-empty *target* diff, suspect this
+  before trusting it.
 - **codex login** (unless `--tracks` excludes it): `codex login status`. If not
   logged in, tell the user to run `codex login` (suggest the `!` prefix) and
   continue with the remaining steps.
