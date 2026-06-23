@@ -34,7 +34,7 @@ export const CodeTreePrototype = () => {
     <span style={`padding:.2rem .55rem;border-radius:6px;font:600 .68rem/1 ui-sans-serif,system-ui;${active ? "background:#2d4a8a;color:#dbe7ff;border:1px solid #3b82f6" : "color:#8b929d;border:1px solid transparent"}`}>{label}</span>
   );
   const swatch = (letter, color, word) => (
-    <span><b style={`color:${color}`}>{letter}</b> {word}</span>
+    <span><b style={`color:${color}`}>{letter}</b>{" "}{word}</span>
   );
   return (
     <div style="margin:1.5rem 0;max-width:30rem;border:1px solid #2a2e37;border-radius:12px;overflow:hidden;background:#15171c;box-shadow:0 4px 18px rgba(0,0,0,.28)">

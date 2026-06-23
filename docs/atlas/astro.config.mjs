@@ -24,10 +24,11 @@ export default defineConfig({
   // the chunks inlined into unrelated pages (issue #1209). Runs after mdx().
   integrations: [mdx(), stableInlineStyles()],
   markdown: {
-    // GFM (tables/strikethrough/autolinks) is native to Astro 7's default
-    // Sätteri pipeline — its pulldown-cmark parser covers `.md` and `.mdx`
-    // alike, so the explicit `remark-gfm` plugin that Astro 6 needed for the
-    // MDX path is no longer required.
+    // GFM (tables/strikethrough/autolinks) needs no project-level plugin on
+    // Astro 7: plain `.md` gets it from the new default Sätteri/pulldown-cmark
+    // parser, and `.mdx` gets it from `@astrojs/mdx@7`, which now bundles
+    // `remark-gfm` itself (Astro 6's `@astrojs/mdx@5` did not — hence the
+    // explicit `remark-gfm` we used to need here).
     shikiConfig: { theme: "github-light", wrap: false },
   },
 });
