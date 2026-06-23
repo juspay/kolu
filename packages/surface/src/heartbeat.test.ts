@@ -73,6 +73,38 @@ describe("createHeartbeat (lifted primitive)", () => {
     dispose();
   });
 
+  it("surfaces a throwing onStale via console.error and keeps the interval alive", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const onStale = vi.fn(() => {
+      throw new Error("recovery blew up");
+    });
+    let live = true;
+    const { dispose } = createHeartbeat({
+      isLive: () => live,
+      onStale,
+      probe: () => new Promise<never>(() => {}), // never answers
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(1500); // tick + probe timeout → onStale throws
+    expect(onStale).toHaveBeenCalledTimes(1);
+    // The throw was surfaced, not swallowed.
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("onStale recovery action threw"),
+      expect.any(Error),
+    );
+    // The interval survived the throw: a later tick still probes.
+    live = false; // gate the next probe so the assertion is about the interval, not a 2nd stale
+    await vi.advanceTimersByTimeAsync(1000);
+    live = true;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onStale).toHaveBeenCalledTimes(2);
+    dispose();
+    consoleError.mockRestore();
+  });
+
   it("treats a probe REJECTION as alive — a completed round-trip, not half-open", async () => {
     const onStale = vi.fn();
     const { dispose } = createHeartbeat({

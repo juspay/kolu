@@ -91,7 +91,10 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   // Resolve the current probe exactly once (the answer or the timeout wins, the
   // other becomes a no-op). On a timeout we run `onStale` FIRST and report SECOND,
   // each in a guarded block, so a throwing `onStale`/reporter can never defeat the
-  // recovery this helper exists to provide. No-op once disposed.
+  // recovery this helper exists to provide. A guarded throw is surfaced via
+  // `console.error` (not swallowed) — a recovery action that throws leaves the
+  // link half-open with no recovery applied, which must never go silent. No-op
+  // once disposed.
   const settled = (stale: boolean) => {
     if (!inFlight || disposed) return;
     inFlight = false;
@@ -102,13 +105,24 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     if (stale) {
       try {
         opts.onStale();
-      } catch {
-        // A throwing recovery action must never unwind the watchdog timer.
+      } catch (error) {
+        // A throwing recovery action must never unwind the watchdog timer — but
+        // it must not vanish either: a recovery that throws means the link is
+        // still half-open with NO recovery attempted, the exact "silent
+        // half-open" this watchdog exists to prevent. Surface it loudly (the
+        // package's fail-loud posture — `caught-error-must-not-collapse-to-empty`)
+        // instead of swallowing, then keep the interval alive.
+        console.error(
+          "heartbeat: onStale recovery action threw — link may still be half-open, recovery NOT applied",
+          error,
+        );
       }
       try {
         opts.onStaleReport?.();
-      } catch {
-        // A throwing status reporter must never unwind anything either.
+      } catch (error) {
+        // A throwing status reporter must never unwind anything either — but
+        // surface it rather than swallow (same fail-loud posture as above).
+        console.error("heartbeat: onStaleReport reporter threw", error);
       }
     }
   };
@@ -135,8 +149,10 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // spurious `onStale()` (and an uncaught error in the timer).
       try {
         opts.onProbeError?.(error);
-      } catch {
-        // A throwing status reporter must never defeat the settle below.
+      } catch (reportError) {
+        // A throwing status reporter must never defeat the settle below — but
+        // surface it rather than swallow (the package's fail-loud posture).
+        console.error("heartbeat: onProbeError reporter threw", reportError);
       }
       settled(false);
       return;
