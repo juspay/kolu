@@ -68,6 +68,17 @@ export default defineConfig({
   define: {
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
+  // Vite 8's experimental bundled dev mode: Rolldown bundles the app up front
+  // instead of serving thousands of unbundled ESM modules, cutting cold dev
+  // startup ~15× and full reloads ~10× on a graph this size. Strictly a
+  // dev-server knob — it does NOT touch `vite build`, so the Nix-built,
+  // content-hashed production bundle (koluStamped) is byte-for-byte unaffected
+  // and stays reproducible. (The build-output experiments — chunk import map,
+  // Wasm-as-build — are deliberately left off for exactly that reproducibility
+  // reason.)
+  experimental: {
+    bundledDev: true,
+  },
   // Pierre's syntax-highlight worker (@pierre/diffs/worker, spawned by
   // @kolu/solid-pierre's CodeView as a `{ type: "module" }` worker) code-splits
   // its Shiki grammars via dynamic import, which Vite's default `iife` worker

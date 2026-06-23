@@ -66,4 +66,11 @@ export default defineConfig({
   optimizeDeps: {
     esbuildOptions: { target: "esnext" },
   },
+  // Vite 8's experimental bundled dev mode (twin of packages/client): Rolldown
+  // bundles up front for ~15× faster cold `pnpm dev:client` startup. Dev-only —
+  // never affects the Nix-built `dist/` the production server serves, so the
+  // build stays reproducible.
+  experimental: {
+    bundledDev: true,
+  },
 });
