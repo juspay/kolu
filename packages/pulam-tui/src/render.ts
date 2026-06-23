@@ -337,6 +337,12 @@ export interface FleetRow {
   where: DashCell;
   pr: DashCell;
   state: DashCell;
+  /** The leading pip's tone — the agent's PAINT class (`agentTone`), mirroring
+   *  kolu's Dock pip: a just-finished `waiting` agent paints `awaiting` (the
+   *  lingering amber) even though `state.tone` (the label) reads idle. COLOUR +
+   *  shape follow paint here; the label, sort, and breathing strip follow
+   *  urgency — the Dock's order≠colour split. */
+  glyphTone: FieldTone;
   /** The repo's full live status, or undefined until the first
    *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo). The
    *  ONE git value on the row: both the compact working-tree cell (`gitCell`) and
@@ -384,12 +390,15 @@ export function fleetRow(
     state: {
       // needs read "awaiting you", work "working" (the TUI's URGENCY_LABELS); an
       // idle terminal overrides with its agent's own state label via the shared
-      // idle-fork, or "idle" when no agent runs. The label follows URGENCY; the
-      // COLOUR follows the PAINT class (`agentTone`), mirroring kolu's Dock — so a
-      // `waiting` agent reads "waiting" in the lingering amber, not idle grey.
+      // idle-fork, or "idle" when no agent runs. The LABEL tone follows URGENCY
+      // (a `waiting` agent reads calm grey); the paint cue rides the pip
+      // (`glyphTone`) instead — the Dock's order≠colour split.
       text: fleetStateLabel(v.agent, URGENCY_LABELS),
-      tone: agentTone(v.agent),
+      tone: URGENCY[urgency].tone,
     },
+    // The pip's paint tone — amber for a `waiting`/`awaiting_user` agent, cyan
+    // for a working one — mirroring the Dock pip, decoupled from the label above.
+    glyphTone: agentTone(v.agent),
     gitStatus,
     // Recency is NOT pre-formatted here: it's the one cell that changes with the
     // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and
