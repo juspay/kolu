@@ -52,8 +52,8 @@ PULAM_WEB_HOSTS=localhost,nix@box nix run .#pulam-web
 A host running **kolu** has **more than one kaval daemon** (kolu-server's, plus any standalone `kaval`), so pulam can't guess which one to read — that host renders **`no terminals`**. You must name its socket with **`PULAM_WEB_KAVAL_SOCKETS`**, so against real kolu hosts you pass **both** env vars:
 
 ```sh
-PULAM_WEB_HOSTS=localhost,srid@box \
-PULAM_WEB_KAVAL_SOCKETS="localhost=/run/user/1000/kaval-7692/pty-host.sock,srid@box=/tmp/kaval-7692-501/pty-host.sock" \
+PULAM_WEB_HOSTS=localhost,srid@zest \
+PULAM_WEB_KAVAL_SOCKETS="localhost=/run/user/1000/kaval-7692/pty-host.sock,srid@zest=/tmp/kaval-7692-501/pty-host.sock" \
   nix run .#pulam-web
 ```
 
