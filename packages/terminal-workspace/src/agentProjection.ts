@@ -114,6 +114,42 @@ export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
   }
 }
 
+/** The agent-state ALERT class — the partition the terminal alert layer
+ *  (`useTerminalAlerts`) fires on. `notify` = the agent just finished its turn
+ *  and yielded (`waiting`) or actively blocks on the user (`awaiting_user`);
+ *  `quiet` = everything else. Folding the two notify states into ONE class means
+ *  flipping between them within a session doesn't double-alert.
+ *
+ *  Deliberately a DIFFERENT partition from `agentUrgency` (where `waiting` is
+ *  idle — a finished agent isn't asking you to *act*) and from `agentPaintClass`:
+ *  "notify me something happened" and "rank by what needs my action" are
+ *  different questions, so they classify `waiting` differently, on purpose. The
+ *  three folds disagree on `waiting` by design; they live here together only so
+ *  the closed state set is folded in ONE schema-fenced file. */
+export type AlertClass = "notify" | "quiet";
+
+/** Map an agent's state to its ALERT class. Switches exhaustively over the
+ *  closed `AgentInfo['state']` set with a `state satisfies never` fence on the
+ *  default arm, so a new state literal added to `AgentInfoSchema` compile-fails
+ *  HERE — forcing an alert decision in the single shared definition — rather
+ *  than silently staying `quiet` and dropping the notification. */
+export function alertClass(state: AgentInfo["state"]): AlertClass {
+  switch (state) {
+    case "awaiting_user":
+    case "waiting":
+      return "notify";
+    case "thinking":
+    case "tool_use":
+    case "running_background":
+      return "quiet";
+    default:
+      // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
+      // compiling, forcing an alert decision here rather than falling to `quiet`.
+      state satisfies never;
+      return "quiet";
+  }
+}
+
 /** The coarse urgency of a terminal — drives the glyph, the colour/tone, and the
  *  needs-you-first sort. `need` = an agent awaiting you; `work` = an agent
  *  working; `idle` = everything else (waiting / unknown / no agent). */

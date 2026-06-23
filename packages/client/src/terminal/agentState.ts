@@ -14,27 +14,25 @@
  *  "rank by what needs my action" are different questions, so they classify
  *  `waiting` differently, on purpose. */
 
-import { type AgentInfo, agentBucket } from "kolu-common/surface";
+import { type AgentInfo, alertClass } from "kolu-common/surface";
 
 export type AttentionState = "waiting" | "awaiting_user";
 
 /** True when the agent state belongs to the alert/notify class above. Type
  *  predicate so consumers can narrow `AgentInfo["state"]` to `AttentionState`.
  *
- *  Membership rides the shared, compile-fenced closed set rather than a hand-
- *  listed pair of literals: an `awaiting_user`/`waiting` agent is exactly the
- *  one whose shared `agentBucket` is `awaiting` or `waiting`. A state rename in
- *  `AgentInfoSchema` then trips the projection's `satisfies never` fence (which
- *  reroutes the bucket) instead of silently leaving a now-dead string-equality
- *  here that quietly stops the notification firing.
+ *  A thin re-projection of the shared `alertClass` fold — the {waiting,
+ *  awaiting_user} membership now lives in ONE schema-fenced file (`agentProjection`),
+ *  beside `agentBucket`/`agentUrgency`/`agentPaintClass`, so a state rename in
+ *  `AgentInfoSchema` trips that file's `satisfies never` fence instead of
+ *  silently leaving a dead literal here that quietly stops the notification.
  *
  *  Accepts `string | undefined` because callers reading from reactive history
- *  (`createEffect`'s previous-value tracking) lose the literal type — the
- *  bucket fold's own `default` arm handles an unknown string. */
+ *  (`createEffect`'s previous-value tracking) lose the literal type — `alertClass`'s
+ *  own `default` arm handles an unknown string. */
 export function isAttentionState(
   state: string | undefined,
 ): state is AttentionState {
   if (state === undefined) return false;
-  const bucket = agentBucket(state as AgentInfo["state"]);
-  return bucket === "awaiting" || bucket === "waiting";
+  return alertClass(state as AgentInfo["state"]) === "notify";
 }

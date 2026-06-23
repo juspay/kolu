@@ -95,10 +95,12 @@ export {
   agentBucket,
   agentPaintClass,
   agentUrgency,
+  alertClass,
   URGENCY_RANK,
 } from "@kolu/terminal-workspace/agentProjection";
 export type {
   AgentPaintClass,
+  AlertClass,
   Urgency,
 } from "@kolu/terminal-workspace/agentProjection";
 
