@@ -85,7 +85,17 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
     props.terminalId,
     ...store.getSubTerminalIds(props.terminalId),
   ];
-  const hasSplits = () => terminals().length > 1;
+  // One terminal's role in the tile, computed once: item 0 is the main pane,
+  // every later item is the (1-based) Nth split. Both the human label and the
+  // 0-based testid suffix below read from this single `kind`/`n`, so the
+  // main/split decision and the off-by-one live in one place.
+  const roles = () =>
+    terminals().map((id, i) =>
+      i === 0
+        ? ({ id, kind: "main" } as const)
+        : ({ id, kind: "split", n: i } as const),
+    );
+  const hasSplits = () => roles().length > 1;
   return (
     <div class="space-y-2.5">
       <p class="text-[11px] leading-relaxed text-fg-3">
@@ -103,14 +113,18 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
           Learn more&nbsp;↗
         </a>
       </p>
-      <For each={terminals()}>
-        {(id, i) => (
+      <For each={roles()}>
+        {(role) => (
           <TerminalCommands
-            terminalId={id}
+            terminalId={role.id}
             label={
-              hasSplits() ? (i() === 0 ? "Main" : `Split ${i()}`) : undefined
+              role.kind === "main"
+                ? hasSplits()
+                  ? "Main"
+                  : undefined
+                : `Split ${role.n}`
             }
-            testIdSuffix={i() === 0 ? "" : `-split-${i() - 1}`}
+            testIdSuffix={role.kind === "main" ? "" : `-split-${role.n - 1}`}
           />
         )}
       </For>
