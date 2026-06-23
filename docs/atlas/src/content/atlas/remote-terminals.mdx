@@ -125,6 +125,7 @@ export const PT = [
   { d: 2, g: "✓", c: "ship", l: "R-pulamweb-3 · agent dashboard — agents by state", m: "#1535", h: "pulam-web.html#r-pulamweb-3" },
   { d: 2, g: "▶", c: "prog", l: "R-pulamweb-4 · git status — dirty cell + drill-in (live file tree)", m: "◀ DO NEXT · gates R-compose-2", h: "pulam-web.html#r-pulamweb-4" },
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop (independent — any time)", m: "defined ↓", h: "#r5" },
+  { d: 0, g: "○", c: "prog", l: "R-dock-unify · kolu's Dock reads the shared agentProjection (consistency)", m: "ready · enabled by R-pulamweb-3", h: "#r-dock-unify" },
   { d: 0, g: "✓", c: "ship", l: "R6 · terminal-workspace — one fs/git impl, two homes", m: "#1506", h: "#r6" },
   { d: 0, g: "✓", c: "ship", l: "R7 · mirrorRemoteSurface → total dual", m: "#1505", h: "#r7" },
   { d: 0, g: "○", c: "prog", l: "R8 · compose terminal-workspace into kolu-server (the fold vanishes)", m: "defined ↓", h: "#r8" },
@@ -136,7 +137,7 @@ export const PT = [
 
 <PhaseTree title="ROADMAP — remote terminals over ssh (#951)" phases={PT} />
 
-Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel, **R5** (overflow) is independent, and **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference; **R9** is blocked-on R-compose-2; **R10** needs R9. Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
+Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel and ready now: **R5** (overflow) is independent, **[R-dock-unify](#r-dock-unify)** makes kolu's Dock consume R-pulamweb-3's shared `agentProjection` so the dashboard and the Dock are one source, and **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference; **R9** is blocked-on R-compose-2; **R10** needs R9. Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
 
 <a id="r5"></a>
 
@@ -148,6 +149,22 @@ Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** (
 ~130 LoC w/ tests; the next step. kaval sheds a slow attach subscriber by *ending* its iterator, today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` reset), distinct from PTY-exit. **Ships independently of the remote work**: a slow subscriber is reproducible on the *local* socket, so it is CI-testable today, and the fix hardens the attach contract for *both* transports — a clean prerequisite for the remote reconnect R8 leans on. [herdr vs kolu](herdr-vs-kolu.html) flagged the same gap.
 
 <a id="r6"></a>
+
+<a id="r-dock-unify"></a>
+
+### R-dock-unify — kolu's Dock reads the shared `agentProjection`
+
+<Phase id="R-dock-unify" name="Dock + dashboard, one source" status="todo" needs={["R-pulamweb-3"]} links={[{ label: "born in #1535", href: "https://github.com/juspay/kolu/pull/1535" }]} />
+
+R-pulamweb-3 extracted the agent-state projection — `agentBucket` · `agentUrgency` · `compareAgents` · `URGENCY_RANK` · `relativeTime` — into **[`@kolu/terminal-workspace/agentProjection`](pulam-web.html#r-pulamweb-3)** as a shared source of truth, and both `pulam-tui` and `pulam-web` consume it. **kolu's own Dock does not**: it still ranks and paints agents through its own parallel modules — `dockRowRanking.ts` (`DockRowBucket` / `rankDockRows`), `pipVariant.ts`, and the activity dot via `useTerminalActivity`. So "needs-you" is *defined twice* — once in the shared projection, once in the Dock — and the two can drift.
+
+This phase makes the Dock the **third consumer** of the shared SoT, so the dashboard and the Dock agree by construction:
+
+- **Share the core** — the Dock's needs-you / working / idle determination imports `agentUrgency` + `URGENCY_RANK` (+ `agentBucket`) from `agentProjection`, replacing its own equivalents. `@kolu/terminal-workspace` is already a kolu-client dependency, so this is an import swap, not a new boundary.
+- **Keep the Dock's overlays local** — `parked` (the staleness window) and `unread` (the fresh-transition signal), plus the tile/workspace ranking over `TerminalMetadata`, are Dock-specific and stay in `dockRowRanking`; they layer *on top of* the shared urgency, they don't replace it.
+- **Pin it with the missing differential test** — add the cross-consumer test the #1535 review flagged as absent: a representative set of agent states yields the **same urgency in the Dock as in `agentProjection`**. That makes "consistent with pulam-web" structural, not prose.
+
+**Done when** a given agent state produces the same urgency/bucket semantics in the Dock, `pulam-tui`, and `pulam-web` (one source); the Dock's existing `dockRowRanking` tests still pass (parked/unread preserved); and the new differential test asserts the Dock's urgency derivation `===` `agentProjection.agentUrgency` across representative states. A pure kolu-side refactor — no surface change, no new package.
 
 ### R6 — `@kolu/terminal-workspace`: one library, one fs/git impl, two homes
 
