@@ -113,10 +113,19 @@ function publishSnapshotAndDirty(
 }
 
 /** Publish a terminal's current metadata snapshot AND arm the session autosave —
- *  for a lifecycle STATE FLIP (active↔sleeping) that REPLACES the registry entry
- *  rather than mutating one field in place, so it can't ride the field mutators
- *  above. Accepts the union: a freshly-flipped sleeping entry publishes its
- *  persisted base; `publishSnapshot` narrows the live overlay away by `state`. */
+ *  for a lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the
+ *  registry entry rather than mutating one field in place, so it can't ride the
+ *  field mutators above. Accepts the union: a freshly-flipped sleeping entry
+ *  publishes its persisted base; `publishSnapshot` narrows the live overlay away
+ *  by `state`.
+ *
+ *  THE SOLE PUSH CHANNEL: `terminalMetadata`'s collection `upsert` is a no-op
+ *  that only pushes to subscribers — the registry IS the store — so this call is
+ *  the ONLY way a lifecycle flip reaches the client; `terminals:dirty` alone
+ *  never re-reads the registry. Every authored active↔sleeping flip and fresh
+ *  spawn MUST call this (sleep, wake/spawn, and the failed-wake restore all do).
+ *  `adoptTerminal` deliberately omits it — the saved session already pinned the
+ *  client (see its comment). */
 export function publishTerminalState(
   entry: TerminalProcess,
   terminalId: string,

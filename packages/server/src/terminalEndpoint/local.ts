@@ -423,16 +423,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       handle: proxy,
     };
     registerTerminal(id, entry);
-    // Push the authored active snapshot — mirroring the sleep path
-    // (`beginSleep` → `publishTerminalState(sleeping, id)`). `terminalMetadata`'s
-    // collection `upsert` is a no-op that only PUSHES to subscribers (the
-    // registry IS the store), so a state change reaches the client ONLY through
-    // this call; `terminals:dirty` alone never re-reads it. A WAKE flips the
-    // registry's `entry.meta` to active on the SAME id the sleep last pushed as
-    // sleeping — without this push the client stays pinned to that stale sleeping
-    // snapshot (`isLive` false → the dormant tile body never yields to the live
-    // xterm). Fresh spawns push their birth record here too. `publishTerminalState`
-    // fires `terminals:dirty` internally, so it subsumes the prior `emitTerminalsDirty()`.
+    // A lifecycle flip must PUBLISH, mirroring the sleep path — see
+    // `publishTerminalState` for why `terminals:dirty` alone can't reach the
+    // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
+    // pushed as sleeping; fresh spawns push their birth record through here too.
     publishTerminalState(entry, id);
     emitTerminalListChanged();
 
