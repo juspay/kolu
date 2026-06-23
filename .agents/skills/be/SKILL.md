@@ -8,6 +8,8 @@ argument-hint: "<issue-url | prompt>"
 
 Take a task to a shipped, reviewed PR. Unlike `/do` (autonomous start to finish), `/be` **opens with a short interview** — and is then **fully autonomous**, exactly like `/do`, from §1 onward. The interview is the *only* place `/be` asks the user anything; after it, make sensible defaults and keep moving — no further `AskUserQuestion`, no stopping between steps. The single exception is the optional plan-review pause in §1, and only when "plan first" was chosen. Concise by design — defer mechanics to the skills it calls.
 
+**Autonomy doesn't inherit — propagate it to every subagent you delegate to.** When you hand work to a fresh subagent (a §2 package build, a §5 "finish the ship" CI+gate+cleanup pass), its prompt must say *execute now; do not wait for confirmation, do not ask me to "say go"* — a subagent starts without your interview's "no stopping between steps" contract, so a prompt that merely lays out a plan gets a plan **back** (zero tool uses) instead of done work, and you're the one who has to type "go." Bake the directive into the delegation, and if a subagent still returns a plan-and-waits with no tool uses, resume it with "execute now" rather than surfacing the stall to the user.
+
 **Requires Claude Code's `Skill` tool** (the debate reviewers it calls are `Workflow`-backed).
 
 ## 0. Interview (the differentiator)
@@ -38,7 +40,7 @@ Add a question only when something material is genuinely unclear — don't pad. 
 
 **Add a changelog entry.** For any **user-facing** change, append one line to `website/src/content/changelog/unreleased.mdx` under the right `###` heading — `Added` / `Fixed` / `Changed` / `Heads-up` (the editorial home for disruptive changes: a removed feature, a changed default, a migration). Create the heading if a freshly-reset section doesn't have it yet. Write it as prose a *user* reads, not a commit subject — no PR link yet (the PR doesn't exist until §3; you backfill the link there). Skip only when the change has no user-visible effect (pure refactor/chore/internal). The file is `merge=union`, so a plain append (or a new heading) never conflicts.
 
-Run **check** and **fmt**, then commit (conventional message) and push the feature branch.
+Run **check** and **fmt**, then commit (conventional message) and push the feature branch. **`just check` (tsc + biome) green is not proof the shipped artifact *builds*** — when the change adds or edits a bundler/server entrypoint (a `vite.config.ts`, a `nix run` server wrapper, any module the real build loads) that **imports a workspace package**, tsc resolves extensionless imports that native ESM / the bundler will *reject*, so a clean typecheck can sit on top of a `vite build` / `nix run .#<pkg>` that doesn't build at all. For that kind of change the §5 venue gate fires early: actually run the real build on a pu box (`nix run .#<pkg>` / `vite build`), don't infer it from the typecheck. Leaving it for CI/evidence to surface is how a non-building entrypoint reaches the gauntlet.
 
 ## 3. Open the PR
 
