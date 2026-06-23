@@ -36,13 +36,14 @@ const SHORT_ID_LEN = 8;
  *  follow the same WYSIWYG contract — show/copy the short id, full id on hover. */
 const TerminalCommands: Component<{
   terminalId: TerminalId;
+  /** This server's kaval socket, resolved once by the section and threaded in. */
+  socket: string | undefined;
   /** Shown above the pair when the tile has splits; omitted for a lone terminal. */
   label?: string;
   /** Appended to the `inspector-{verb}-command` testid (`""` for the main). */
   testIdSuffix: string;
 }> = (props) => {
   const short = () => props.terminalId.slice(0, SHORT_ID_LEN);
-  const socket = () => localDaemonStatus()?.socketPath;
   return (
     <div class="space-y-1">
       <Show when={props.label}>
@@ -53,15 +54,15 @@ const TerminalCommands: Component<{
         )}
       </Show>
       <CopyCommandButton
-        command={kavalCmd("attach", short(), socket())}
-        title={kavalCmd("attach", props.terminalId, socket())}
+        command={kavalCmd("attach", short(), props.socket)}
+        title={kavalCmd("attach", props.terminalId, props.socket)}
         testId={`inspector-attach-command${props.testIdSuffix}`}
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
       />
       <CopyCommandButton
-        command={kavalCmd("snapshot", short(), socket())}
-        title={kavalCmd("snapshot", props.terminalId, socket())}
+        command={kavalCmd("snapshot", short(), props.socket)}
+        title={kavalCmd("snapshot", props.terminalId, props.socket)}
         testId={`inspector-snapshot-command${props.testIdSuffix}`}
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
@@ -80,6 +81,9 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
     ...store.getSubTerminalIds(props.terminalId),
   ];
   const hasSplits = () => terminals().length > 1;
+  // This server's kaval socket, resolved once and threaded to every row's
+  // command builder (kavalCmd pins it after the id; see kavalCmd.ts).
+  const socket = () => localDaemonStatus()?.socketPath;
   return (
     <div class="space-y-2.5">
       <p class="text-[11px] leading-relaxed text-fg-3">
@@ -111,6 +115,7 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
           return (
             <TerminalCommands
               terminalId={id}
+              socket={socket()}
               label={
                 isMain() ? (hasSplits() ? "Main" : undefined) : `Split ${i()}`
               }
