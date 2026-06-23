@@ -26,6 +26,7 @@ import type {
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
+import type { Accessor } from "solid-js";
 import type { WebSocket as PartySocket } from "partysocket";
 import {
   createHeartbeat,
@@ -35,6 +36,10 @@ import {
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
+import {
+  createSocketStatus,
+  type SurfaceConnectionStatus,
+} from "./socketStatus";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends SurfaceSocketOptions {
@@ -43,18 +48,22 @@ export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   /** Disable or tune the default-on liveness heartbeat. Default ON, probing the
    *  framework-reserved `system.live` round-trip — so an app needn't (and can't
    *  forget to) supply a probe. Pass `false` only if a different layer owns this
-   *  socket's liveness; pass an object to tune `intervalMs`/`timeoutMs`/`onStale`
-   *  or to override the probe with a domain-specific liveness verb. The same
-   *  {@link HeartbeatConfig} knob `createServerLifecycle` accepts. */
+   *  socket's liveness; pass an object to tune `intervalMs`/`timeoutMs`/`onStale`.
+   *  The same {@link HeartbeatConfig} knob `createServerLifecycle` accepts. */
   heartbeat?: HeartbeatConfig;
 }
 
 /** A live single-surface connection: the socket, its `pid` echo, the reactive
- *  client, and a `dispose` that stops the liveness heartbeat. */
+ *  client, a reactive transport `status` (for a per-connection indicator), and a
+ *  `dispose` that stops the liveness heartbeat. */
 export interface SurfaceConnection<S extends SurfaceSpec> {
   ws: PartySocket;
   echo: ProcessIdEcho;
   client: SurfaceClient<S>;
+  /** Reactive transport status — `connecting` / `live` / `reconnecting` / `down`
+   *  — derived from the socket's own open/close (no identity probe). Render it so
+   *  the watchdog's recovery is VISIBLE rather than silent. */
+  status: Accessor<SurfaceConnectionStatus>;
   /** Stop the liveness heartbeat. A per-app-lifetime socket (cached for the
    *  page's life, like pulam-web's per-host clients) needn't call this. */
   dispose: () => void;
@@ -71,12 +80,15 @@ export function connectSurface<const S extends SurfaceSpec>(
   );
   // One normalizer, not four `typeof hb === "object" ? hb.x : undefined` ternaries.
   // The base `probe` is the framework-reserved `system.live` round-trip — every
-  // surface answers it, so this needs no per-app probe; a `heartbeat.probe`
-  // override wins if an app supplies its own verb.
+  // surface answers it, so this needs no per-app probe.
   const heartbeatOptions = normalizeHeartbeat(hb, {
     ws,
     probe: () => probeSurfaceLive(client.rpc),
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
-  return { ws, echo, client, dispose: () => heartbeat?.dispose() };
+  const status = createSocketStatus(ws, {
+    retireOnStaleClose: socketOptions.retireOnStaleClose,
+    restartCloseCode: socketOptions.restartCloseCode,
+  });
+  return { ws, echo, client, status, dispose: () => heartbeat?.dispose() };
 }

@@ -244,26 +244,26 @@ export function createHeartbeat(opts: HeartbeatOptions): {
 
 /** The "tune-or-disable the watchdog" knob, as ONE shape both client seams accept
  *  (`connectSurface` and `createServerLifecycle`). `false` disables it; an object
- *  tunes `intervalMs`/`timeoutMs`/`onStale` (the reporter) and may override the
- *  liveness `probe` with a domain-specific verb. Single-sourced so the two seams
- *  carry the SAME knob and normalize it the SAME way, instead of each re-declaring
- *  the union and hand-unpacking it per field. */
+ *  tunes `intervalMs`/`timeoutMs`/`onStale` (the reporter). Single-sourced so the
+ *  two seams carry the SAME knob and normalize it the SAME way, instead of each
+ *  re-declaring the union and hand-unpacking it per field. The liveness `probe`
+ *  is NOT tunable here on purpose — each seam supplies the framework-reserved
+ *  `system.live` round-trip as the one liveness verb, which is the whole point of
+ *  the reserved receptacle (no app nominates or overrides a probe). */
 export type HeartbeatConfig =
   | false
   | {
       intervalMs?: number;
       timeoutMs?: number;
       onStale?: () => void;
-      probe?: () => Promise<unknown>;
     };
 
 /** Normalize a {@link HeartbeatConfig} + the seam's `{ ws, probe }` base into the
  *  {@link HeartbeatOptions} `createHeartbeat` takes — `undefined` when the config
- *  is `false` (watchdog disabled). The base `probe` is the DEFAULT liveness verb
- *  (each seam passes the framework-reserved `system.live` round-trip); a
- *  `config.probe` OVERRIDE wins. This replaces the per-field
- *  `typeof cfg === "object" ? cfg.x : undefined` ternaries each seam used to
- *  hand-roll — one spread, one place. */
+ *  is `false` (watchdog disabled). The base `probe` is the seam's liveness verb
+ *  (each seam passes the framework-reserved `system.live` round-trip). This
+ *  replaces the per-field `typeof cfg === "object" ? cfg.x : undefined` ternaries
+ *  each seam used to hand-roll — one spread, one place. */
 export function normalizeHeartbeat(
   config: HeartbeatConfig | undefined,
   base: { ws: HeartbeatSocket; probe: () => Promise<unknown> },
@@ -272,8 +272,7 @@ export function normalizeHeartbeat(
   const tuned = typeof config === "object" ? config : {};
   return {
     ws: base.ws,
-    // The override wins; the seam's reserved-verb default is the fallback.
-    probe: tuned.probe ?? base.probe,
+    probe: base.probe,
     intervalMs: tuned.intervalMs,
     timeoutMs: tuned.timeoutMs,
     onStale: tuned.onStale,

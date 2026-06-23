@@ -52,6 +52,10 @@ export {
   type ConnectSurfaceOptions,
   type SurfaceConnection,
 } from "./connectSurface";
+export {
+  createSocketStatus,
+  type SurfaceConnectionStatus,
+} from "./socketStatus";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";

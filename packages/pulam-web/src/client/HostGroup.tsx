@@ -36,14 +36,17 @@ import type {
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
+import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
   type JSX,
+  Match,
   onCleanup,
   Show,
+  Switch,
 } from "solid-js";
 import {
   agentShortName,
@@ -65,7 +68,7 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-import { surfaceForHost } from "./wire.ts";
+import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
   host: string;
@@ -156,8 +159,36 @@ function AgentRow(props: {
 const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
+/** The per-host connection indicator — the transport status the half-open
+ *  watchdog acts on, surfaced so its recovery is visible. Shows only when the
+ *  link is NOT live (amber "reconnecting…" while partysocket retries, red
+ *  "disconnected — reload" after a stale-close retired the socket); a healthy
+ *  `live`/initial `connecting` host shows nothing (the body already carries the
+ *  first-connect "connecting…"). */
+function ConnectionIndicator(props: {
+  status: () => SurfaceConnectionStatus;
+}): JSX.Element {
+  return (
+    <Switch>
+      <Match when={props.status() === "reconnecting"}>
+        <span class="ml-auto flex flex-none items-center gap-1 text-[12px] text-[#e6a23c]">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#e6a23c] motion-safe:animate-pulse" />
+          reconnecting…
+        </span>
+      </Match>
+      <Match when={props.status() === "down"}>
+        <span class="ml-auto flex flex-none items-center gap-1 text-[12px] text-[#ff8d8d]">
+          <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#ff8d8d]" />
+          disconnected — reload
+        </span>
+      </Match>
+    </Switch>
+  );
+}
+
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
+  const status = statusForHost(props.host);
   // Surface the FIRST subscription error (version, awareness, or activity) rather
   // than letting it collapse into the empty/connecting state.
   const [error, setError] = createSignal<string | null>(null);
@@ -228,6 +259,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <span class="text-[12px] text-[#5b6678]">
           · {awareness.keys().length} terminals
         </span>
+        <ConnectionIndicator status={status} />
       </header>
       <Show
         when={error() === null}

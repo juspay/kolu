@@ -28,7 +28,11 @@
  */
 
 import { createProcessIdEcho } from "@kolu/surface-app/connect";
-import { connectSurface } from "@kolu/surface-app/solid";
+import {
+  connectSurface,
+  type SurfaceConnectionStatus,
+} from "@kolu/surface-app/solid";
+import type { Accessor } from "solid-js";
 import { terminalWorkspaceSurface } from "../shared/contract.ts";
 
 /** The shared `pid` echo every per-host socket reads. One instance for the whole
@@ -49,7 +53,7 @@ function wsUrlFor(host: string): string {
   return `${proto}//${location.host}/rpc/ws?host=${encodeURIComponent(host)}`;
 }
 
-/** One host's live surface client + the socket backing it. */
+/** One host's live surface connection (client + socket + reactive status). */
 type HostSurface = ReturnType<typeof buildHostSurface>;
 
 function buildHostSurface(host: string) {
@@ -64,8 +68,10 @@ function buildHostSurface(host: string) {
   // watchdog by default (probing the framework-reserved `system.live`) — so these
   // per-host fleet sockets, which previously had NO client-side heartbeat, now
   // recover from a silently half-open server (laptop sleep / Wi-Fi roam) instead
-  // of freezing the terminal streams until a manual reload.
-  const { ws, client } = connectSurface({
+  // of freezing the terminal streams until a manual reload. The reactive `status`
+  // it returns is what `<HostGroup>` renders as the per-host connection indicator,
+  // so that recovery is VISIBLE rather than silent.
+  return connectSurface({
     surface: terminalWorkspaceSurface,
     url: () => wsUrlFor(host),
     echo: processIdEcho,
@@ -76,19 +82,33 @@ function buildHostSurface(host: string) {
     },
     retireOnStaleClose: true,
   });
-  return { ws, client };
 }
 
+// Page-lifetime cache: R4.8a never removes a host, so a connection is built once
+// per host and lives until the page unloads — its `dispose` (the watchdog
+// teardown) is intentionally never called (the socket and watchdog die with the
+// page), exactly as `SurfaceConnection.dispose` documents for a cached socket.
 const cache = new Map<string, HostSurface>();
 
-/** Get the (cached) surface client for `host`. The first call opens the socket;
- *  later calls return the same instance so a tab remount preserves the live
- *  connection. */
-export function surfaceForHost(host: string): HostSurface["client"] {
+function entryFor(host: string): HostSurface {
   let entry = cache.get(host);
   if (entry === undefined) {
     entry = buildHostSurface(host);
     cache.set(host, entry);
   }
-  return entry.client;
+  return entry;
+}
+
+/** Get the (cached) surface client for `host`. The first call opens the socket;
+ *  later calls return the same instance so a tab remount preserves the live
+ *  connection. */
+export function surfaceForHost(host: string): HostSurface["client"] {
+  return entryFor(host).client;
+}
+
+/** The (cached) reactive transport status for `host` — `connecting` / `live` /
+ *  `reconnecting` / `down` — for the per-host connection indicator. Shares the
+ *  same cached socket as `surfaceForHost`. */
+export function statusForHost(host: string): Accessor<SurfaceConnectionStatus> {
+  return entryFor(host).status;
 }
