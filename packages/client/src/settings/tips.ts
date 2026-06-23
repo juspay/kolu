@@ -71,7 +71,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector-attach",
-    text: "The Inspector tab's Attach row copies a `kaval-tui attach …` command — grab the active terminal from any shell with kaval-tui",
+    text: "The Inspector tab's Attach section copies `kaval-tui attach …` and `snapshot …` commands for the main terminal and each split — drive any pane from any shell with kaval-tui",
   },
   {
     id: "amb-canvas-zoom",

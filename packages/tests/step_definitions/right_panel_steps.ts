@@ -160,6 +160,117 @@ Then(
 );
 
 Then(
+  "the inspector should show attach and snapshot commands for the main terminal and its split",
+  async function (this: KoluWorld) {
+    // Each terminal — the tile's main pane plus every split — carries its own
+    // attach/snapshot pair, since each split is its own PTY in the daemon. The
+    // testids are `inspector-{verb}-command` for the main and
+    // `inspector-{verb}-command-split-N` for the Nth split, so a tile with one
+    // split resolves the prefix selectors to exactly two buttons per verb.
+    const attachAll = this.page.locator(
+      '[data-testid^="inspector-attach-command"]',
+    );
+    await attachAll
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // Poll until the split's metadata has streamed in and its pair mounted.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid^="inspector-attach-command"]')
+          .length === 2 &&
+        document.querySelectorAll('[data-testid^="inspector-snapshot-command"]')
+          .length === 2,
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+
+    // The 8-char short-id token a given command button carries.
+    const shortId = async (testId: string, verb: string): Promise<string> => {
+      const shown =
+        (
+          await this.page.locator(`[data-testid="${testId}"]`).textContent()
+        )?.trim() ?? "";
+      const id =
+        shown.match(new RegExp(`^kaval-tui ${verb} ([0-9a-f]{8})\\b`))?.[1] ??
+        "";
+      assert.ok(
+        /^[0-9a-f]{8}$/.test(id),
+        `Expected "${testId}" to show a "kaval-tui ${verb} <short id>" command, got "${shown}"`,
+      );
+      return id;
+    };
+
+    const mainAttach = await shortId("inspector-attach-command", "attach");
+    const mainSnapshot = await shortId(
+      "inspector-snapshot-command",
+      "snapshot",
+    );
+    const splitAttach = await shortId(
+      "inspector-attach-command-split-0",
+      "attach",
+    );
+    const splitSnapshot = await shortId(
+      "inspector-snapshot-command-split-0",
+      "snapshot",
+    );
+
+    // attach and snapshot for the same terminal target the same id…
+    assert.equal(
+      mainSnapshot,
+      mainAttach,
+      "main snapshot must target the same terminal as main attach",
+    );
+    assert.equal(
+      splitSnapshot,
+      splitAttach,
+      "split snapshot must target the same terminal as split attach",
+    );
+    // …and the split is a DIFFERENT terminal than the main (not a duplicated row).
+    assert.notEqual(
+      splitAttach,
+      mainAttach,
+      "the split's commands must target a different terminal than the main",
+    );
+
+    // The hover/title carries the FULL uuid for the split too (the on-hover
+    // disambiguator), same contract the main attach command already keeps.
+    const splitTitle =
+      (await this.page
+        .locator('[data-testid="inspector-attach-command-split-0"]')
+        .getAttribute("title")) ?? "";
+    const splitFull =
+      splitTitle.match(/^kaval-tui attach ([0-9a-f-]+)/)?.[1] ?? "";
+    assert.ok(
+      splitFull.startsWith(splitAttach) && splitFull.length >= 36,
+      `Expected the split attach title to carry the full uuid, got "${splitTitle}"`,
+    );
+  },
+);
+
+Then(
+  "the inspector should not show a kaval-tui attach command",
+  async function (this: KoluWorld) {
+    // A sleeping tile released its PTY (and its splits were closed), so it is no
+    // longer one of kaval's terminals — the Attach section must disappear, not
+    // hand the user a `kaval-tui attach <id>` that can't connect. Assert the
+    // inspector is still rendered (so this isn't a vacuous pass from a closed
+    // panel) yet carries no attach OR snapshot command for any terminal.
+    await this.page
+      .locator('[data-testid="inspector-cwd"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid^="inspector-attach-command"]')
+          .length === 0 &&
+        document.querySelectorAll('[data-testid^="inspector-snapshot-command"]')
+          .length === 0,
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the inspector toggle should not be active",
   async function (this: KoluWorld) {
     // The header toggle drops its `data-active` marker when the panel isn't

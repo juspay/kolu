@@ -22,7 +22,7 @@ import {
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
-import KavalAttachCommand from "./KavalAttachCommand";
+import KavalAttachSection from "./KavalAttachSection";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
@@ -286,12 +286,16 @@ const MetadataInspector: Component<{
             )}
           </Show>
 
-          {/* Attach — the shell-side handle on this terminal via kaval-tui;
-           *  copy the command and grab it from any shell. */}
-          <Show when={props.terminalId}>
+          {/* Attach/snapshot commands per terminal (main + splits) — see
+           *  KavalAttachSection for the socket-pinning + short-id rationale.
+           *  Gated on the ACTIVE arm: a sleeping tile released its PTY (and its
+           *  splits were closed), so it is no longer one of kaval's terminals —
+           *  a `kaval-tui attach`/`snapshot` command would have nothing to
+           *  reach. Same liveness narrow the PR/Agent/Foreground sections use. */}
+          <Show when={activeArm(meta()) && props.terminalId}>
             {(id) => (
               <Section title="Attach">
-                <KavalAttachCommand terminalId={id()} />
+                <KavalAttachSection terminalId={id()} />
               </Section>
             )}
           </Show>
