@@ -136,10 +136,20 @@ export function createServerLifecycle<
     readonly OPEN: number;
   };
   probe: () => Promise<P>;
+  /** The liveness round-trip the half-open watchdog uses — independent of `probe`.
+   *  `probe` answers "WHICH process is on the other end?" (identity, for lifecycle
+   *  classification); the watchdog answers the separate "is this link answering AT
+   *  ALL?". Pass the framework-reserved verb (`() => probeSurfaceLive(client.rpc)`),
+   *  exactly as `connectSurface` does, so every watchdog asks the one reserved
+   *  question instead of an app-nominated verb. Omit it ONLY when no surface client
+   *  `.rpc` is on hand (the `<SurfaceAppProvider>` `{ ws, probe }` turnkey path),
+   *  where the watchdog falls back to `probe` — documented at the heartbeat site. */
+  livenessProbe?: () => Promise<unknown>;
   /** Disable or tune the built-in liveness heartbeat (default ON). The watchdog
-   *  reuses `probe` on an interval and forces `ws.reconnect()` on a silently
-   *  half-open socket. Pass `false` only if you wire your own `createHeartbeat`;
-   *  pass an object to tune its `intervalMs` / `timeoutMs` / `onStale`. */
+   *  probes `livenessProbe` (the reserved `system.live`) on an interval and forces
+   *  `ws.reconnect()` on a silently half-open socket. Pass `false` only if you wire
+   *  your own `createHeartbeat`; pass an object to tune its `intervalMs` /
+   *  `timeoutMs` / `onStale`. */
   heartbeat?:
     | false
     | { intervalMs?: number; timeoutMs?: number; onStale?: () => void };
@@ -268,20 +278,29 @@ export function createServerLifecycle<
   opts.ws.addEventListener("open", onOpen);
   opts.ws.addEventListener("close", onClose);
   // The lifecycle OWNS this socket, so it also owns its LIVENESS: a default-on
-  // heartbeat reuses `probe` on an interval and forces `ws.reconnect()` on a
-  // SILENTLY half-open socket (laptop sleep / Wi-Fi roam / NAT idle-eviction —
+  // heartbeat probes `livenessProbe` on an interval and forces `ws.reconnect()` on
+  // a SILENTLY half-open socket (laptop sleep / Wi-Fi roam / NAT idle-eviction —
   // TCP dead with no FIN/RST, so neither `open` nor `close` fires and the
   // lifecycle alone would never notice; every stream hangs). This folds in the
   // watchdog that used to be a SECOND hand-wired `createHeartbeat({ ws, probe })`
   // beside every `createServerLifecycle` call (kolu's `rpc.ts`, the provider's
   // turnkey branch) — so deriving a lifecycle can no longer leave the socket
   // without one. A missed probe just warns and reconnects (a routine recovery).
+  //
+  // The watchdog's job (is the link answering AT ALL?) is independent of the
+  // lifecycle's job (WHICH process is on the other end?), so it does NOT reuse the
+  // identity `probe`: it probes `livenessProbe` — the framework-reserved
+  // `system.live` round-trip, like `connectSurface` and the ssh-leg HostSession.
+  // It falls back to `opts.probe` ONLY when no `livenessProbe` was supplied — the
+  // `<SurfaceAppProvider>` `{ ws, probe }` turnkey path has the transport and the
+  // identity probe but no surface client `.rpc` to build `system.live` from, so
+  // there the identity probe doubles as the liveness round-trip.
   const heartbeat =
     opts.heartbeat === false
       ? undefined
       : createHeartbeat({
           ws: opts.ws,
-          probe: opts.probe,
+          probe: opts.livenessProbe ?? opts.probe,
           ...(typeof opts.heartbeat === "object" ? opts.heartbeat : {}),
         });
   const dispose = () => {

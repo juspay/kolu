@@ -14,6 +14,10 @@
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
 
+import {
+  probeSurfaceLive,
+  type SurfaceLiveProbeable,
+} from "@kolu/surface/liveness";
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   createServerLifecycle,
@@ -43,6 +47,15 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
   // that defines the probe — not re-cast here.
   probe: () => surfaceAppProbe(surfaceApp),
+  // The half-open watchdog asks a SEPARATE question from `probe` ("is the link
+  // answering at all?" vs "which process is on the other end?"), so it probes the
+  // framework-reserved `system.live` round-trip — not `identity.info`. Every
+  // surface answers `system.live`, so this is the same reserved verb the ssh-leg
+  // HostSession and `connectSurface` use; the watchdog no longer reaches for an
+  // app-nominated probe. `surfaceApp.rpc` is the SCOPED link, so `system.live`
+  // resolves on it just like the identity probe above.
+  livenessProbe: () =>
+    probeSurfaceLive(surfaceApp.rpc as unknown as SurfaceLiveProbeable),
   // Echo each observed identity back as the `pid` handshake param on the next
   // reconnect — that's how the server recognizes a stale tab after a restart and
   // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
@@ -75,7 +88,8 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // half-open socket — TCP dead with no FIN/RST after a laptop sleep / Wi-Fi roam /
 // NAT idle-eviction — would otherwise sit `OPEN` forever, every stream hung, the
 // UI frozen until a manual reload) is now folded INTO `createServerLifecycle`
-// above: it reuses the same `surfaceApp.identity.info` probe and forces
+// above: it probes the framework-reserved `system.live` round-trip (via the
+// `livenessProbe` above, NOT the `identity.info` lifecycle probe) and forces
 // `ws.reconnect()` on a missed probe, default-on. There is no separate
 // `createHeartbeat` call to wire (or forget) here anymore.
 
