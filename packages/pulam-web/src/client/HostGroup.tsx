@@ -48,6 +48,7 @@ import {
 import {
   agentShortName,
   agentUrgency,
+  DASH,
   relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import {
@@ -100,7 +101,7 @@ function AgentRow(props: {
         const name = (): string => {
           const v = value();
           if (v.agent) return agentShortName(v.agent.kind);
-          return v.foreground?.name ?? "—";
+          return v.foreground?.name ?? DASH;
         };
         return (
           <li
