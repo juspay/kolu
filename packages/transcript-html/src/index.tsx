@@ -267,7 +267,7 @@ function timestampHtml(ts: number | null): string {
 async function renderChatEvent(
   event: Extract<TranscriptEvent, { kind: "user" | "assistant" }>,
 ): Promise<string> {
-  const role = event.kind === "user" ? "You" : "AI";
+  const role = event.kind === "user" ? "Human" : "AI";
   const body =
     event.kind === "user"
       ? await renderUserMarkdown(event.text)
@@ -276,8 +276,8 @@ async function renderChatEvent(
     event.kind === "assistant" && event.model
       ? `<span class="model">${escapeHtml(event.model)}</span>`
       : "";
-  return `<section class="message ${event.kind}">
-  <header><strong>${role}</strong>${model}${timestampHtml(event.ts)}</header>
+  return `<section class="message ${event.kind}" aria-label="${role} message">
+  <header><strong class="speaker">${role}</strong>${model}${timestampHtml(event.ts)}</header>
   <div class="body">${body}</div>
 </section>`;
 }

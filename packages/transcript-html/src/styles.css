@@ -6,8 +6,12 @@
   --muted: #6f6b61;
   --line: #dfddd5;
   --line-strong: #b8b3a6;
-  --you: #1e7a58;
-  --ai: #2f5f9a;
+  --you: #0f6b48;
+  --you-bg: #ecf8f1;
+  --you-label-ink: #ffffff;
+  --ai: #1f5f99;
+  --ai-bg: #eef5ff;
+  --ai-label-ink: #ffffff;
   --detail: #7b5f18;
   --error: #a53a34;
   --code-bg: #f3f2ed;
@@ -21,8 +25,12 @@
     --muted: #a9a295;
     --line: #3b382f;
     --line-strong: #585143;
-    --you: #73c79b;
-    --ai: #8eb6e6;
+    --you: #74e0a1;
+    --you-bg: #10261b;
+    --you-label-ink: #062214;
+    --ai: #93c5fd;
+    --ai-bg: #101d2c;
+    --ai-label-ink: #071a2c;
     --detail: #d3ad4c;
     --error: #e07870;
     --code-bg: #11110e;
@@ -109,37 +117,65 @@ h1 {
 .conversation {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 
 .message {
-  border-left: 3px solid var(--line-strong);
-  padding-left: 1rem;
+  width: fit-content;
+  max-width: min(100%, 42rem);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  padding: 0.85rem 1rem 0.95rem;
 }
 
 .message.user {
-  border-color: var(--you);
+  align-self: flex-end;
+  background: var(--you-bg);
+  border-color: color-mix(in srgb, var(--you) 55%, var(--line));
+  border-right: 4px solid var(--you);
 }
 
 .message.assistant {
-  border-color: var(--ai);
+  align-self: flex-start;
+  background: var(--ai-bg);
+  border-color: color-mix(in srgb, var(--ai) 55%, var(--line));
+  border-left: 4px solid var(--ai);
 }
 
 .message header {
   display: flex;
-  align-items: baseline;
-  gap: 0.55rem;
-  margin-bottom: 0.22rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.42rem;
+}
+
+.message.user header {
+  justify-content: flex-end;
 }
 
 .message strong {
-  color: var(--ink);
-  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.16rem 0.52rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
   text-transform: uppercase;
 }
 
+.message.user .speaker {
+  background: var(--you);
+  color: var(--you-label-ink);
+}
+
+.message.assistant .speaker {
+  background: var(--ai);
+  color: var(--ai-label-ink);
+}
+
 .message time {
-  margin-left: auto;
   white-space: nowrap;
 }
 
@@ -270,15 +306,8 @@ footer {
   }
 
   .message {
-    padding-left: 0.75rem;
-  }
-
-  .message header {
-    flex-wrap: wrap;
-  }
-
-  .message time {
-    margin-left: 0;
+    width: 100%;
+    padding: 0.75rem;
   }
 }
 

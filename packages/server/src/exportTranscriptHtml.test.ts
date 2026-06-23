@@ -45,6 +45,10 @@ describe("transcriptToHtml export modes", () => {
 
     expect(html).toContain("Chat log");
     expect(html).toContain("Can you explain this?");
+    expect(html).toContain('aria-label="Human message"');
+    expect(html).toContain('aria-label="AI message"');
+    expect(html).toContain('<strong class="speaker">Human</strong>');
+    expect(html).toContain('<strong class="speaker">AI</strong>');
     expect(html).toContain("const answer = 42;");
     expect(html).not.toContain("secret-output");
     expect(html).not.toContain("<script");
