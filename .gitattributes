@@ -9,8 +9,14 @@ CLAUDE.md linguist-generated
 .opencode/** linguist-generated
 
 # Generated Astro output, committed for in-app (Code tab) preview of the Atlas.
+# dist/ is a pure function of src/, so a 3-way text merge of the HTML is never
+# meaningful — it only splatters conflict markers into generated pages. `-merge`
+# keeps our side intact (no markers) and flags the path conflicted; resolve by
+# rebuilding (`just atlas::build && git add docs/atlas/dist`). The atlas-sync CI
+# gate is the backstop: a stale dist/ fails loudly, so picking a side is safe.
 docs/atlas/dist/** linguist-generated
 docs/atlas/dist/** -diff
+docs/atlas/dist/** -merge
 
 # Release notes are append-only — every PR adds a line under Unreleased. `union`
 # auto-resolves concurrent appends (keep both sides) so PRs never conflict here.
