@@ -423,7 +423,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       handle: proxy,
     };
     registerTerminal(id, entry);
-    emitTerminalsDirty();
+    // A lifecycle flip must PUBLISH, mirroring the sleep path — see
+    // `publishTerminalState` for why `terminals:dirty` alone can't reach the
+    // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
+    // pushed as sleeping; fresh spawns push their birth record through here too.
+    publishTerminalState(entry, id);
     emitTerminalListChanged();
 
     void this.spawnAndWire(id, opts, proxy, entry, prior, tlog);
