@@ -85,6 +85,25 @@ export type {
 } from "@kolu/terminal-workspace/schema";
 export { TerminalIdSchema };
 
+// The renderer-agnostic agent-state projection (bucket · urgency · needs-you
+// rank) is OWNED by `@kolu/terminal-workspace/agentProjection` — the ONE source
+// pulam-tui and pulam-web already share. The kolu client reaches it through the
+// SAME door it already uses for the awareness schema (this module) rather than a
+// second, direct `@kolu/terminal-workspace` edge, so the Dock joins as a third
+// consumer of the same definition instead of re-deriving "needs-you".
+export {
+  agentBucket,
+  agentPaintClass,
+  agentUrgency,
+  alertClass,
+  URGENCY_RANK,
+} from "@kolu/terminal-workspace/agentProjection";
+export type {
+  AgentPaintClass,
+  AlertClass,
+  Urgency,
+} from "@kolu/terminal-workspace/agentProjection";
+
 export const CanvasLayoutSchema = z.object({
   x: z.number(),
   y: z.number(),

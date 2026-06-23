@@ -19,6 +19,7 @@ import {
   SW_SOURCE,
 } from "./index";
 import {
+  acceptSurfaceSocket,
   buildInfoServer,
   gateStaleSocket,
   type GateableSocket,
@@ -400,5 +401,95 @@ describe("startWsHeartbeat — the interval-driven sweep", () => {
     stop();
     vi.advanceTimersByTime(5000);
     expect(ws.ping).not.toHaveBeenCalled();
+  });
+});
+
+/** A socket that is BOTH gateable (stale-tab) AND heartbeatable (reaper) — what
+ *  `acceptSurfaceSocket.accept` receives. Tracks closes + ping/terminate, and a
+ *  combined `on(event)` for both `"error"` and `"pong"`. */
+function fakeAcceptable(readyState = 1) {
+  const pongHandlers: Array<() => void> = [];
+  const closes: { code: number; reason?: string }[] = [];
+  const ws = {
+    readyState,
+    OPEN: 1,
+    ping: vi.fn(),
+    terminate: vi.fn(),
+    close: vi.fn((code: number, reason?: string) => {
+      closes.push({ code, reason });
+    }),
+    on: vi.fn((event: string, cb: () => void) => {
+      if (event === "pong") pongHandlers.push(cb);
+      return ws;
+    }),
+  };
+  return {
+    ws: ws as unknown as GateableSocket & HeartbeatableSocket,
+    closes,
+    ping: ws.ping,
+    terminate: ws.terminate,
+    pong: () => {
+      for (const h of pongHandlers) h();
+    },
+  };
+}
+
+describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("enrols EVERY accepted socket in the reaper — a socket can't be dispatched un-enrolled", () => {
+    const t = fakeAcceptable();
+    const acceptor = acceptSurfaceSocket({
+      server: { clients: new Set([t.ws]) },
+      liveProcessId: "live-1",
+      intervalMs: 1000,
+    });
+    const onAccepted = vi.fn();
+    acceptor.accept(t.ws, upgradeUrl("live-1"), onAccepted);
+    // Dispatch ran (matching pid)...
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    // ...AND the socket was enrolled: the first sweep PINGS it (it's alive)
+    // rather than terminating it — proof the accept path can't skip `register`.
+    vi.advanceTimersByTime(1000);
+    expect(t.ping).toHaveBeenCalledTimes(1);
+    expect(t.terminate).not.toHaveBeenCalled();
+    acceptor.stop();
+  });
+
+  it("closes a stale tab and NEVER dispatches or enrols it", () => {
+    const t = fakeAcceptable();
+    const acceptor = acceptSurfaceSocket({
+      server: { clients: new Set([t.ws]) },
+      liveProcessId: "live-1",
+      intervalMs: 1000,
+    });
+    const onAccepted = vi.fn();
+    // pid `dead-0` ≠ live `live-1` ⇒ stale.
+    acceptor.accept(t.ws, upgradeUrl("dead-0"), onAccepted);
+    expect(onAccepted).not.toHaveBeenCalled();
+    expect(t.closes).toEqual([
+      { code: STALE_PROCESS_CLOSE_CODE, reason: "stale server process" },
+    ]);
+    // Never enrolled, so the reaper terminates it on the first sweep (it's a
+    // closing zombie, not a live client).
+    vi.advanceTimersByTime(1000);
+    expect(t.terminate).toHaveBeenCalledTimes(1);
+    expect(t.ping).not.toHaveBeenCalled();
+    acceptor.stop();
+  });
+
+  it("stop() halts the owned heartbeat", () => {
+    const t = fakeAcceptable();
+    const acceptor = acceptSurfaceSocket({
+      server: { clients: new Set([t.ws]) },
+      liveProcessId: "live-1",
+      intervalMs: 1000,
+    });
+    acceptor.accept(t.ws, upgradeUrl("live-1"), () => {});
+    acceptor.stop();
+    vi.advanceTimersByTime(5000);
+    expect(t.ping).not.toHaveBeenCalled();
+    expect(t.terminate).not.toHaveBeenCalled();
   });
 });

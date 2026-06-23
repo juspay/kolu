@@ -7,24 +7,37 @@
 
 import { shouldNotRetryORPCError } from "@kolu/surface/client";
 import { createRoot } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createServerLifecycle, retireSocket, type WsLike } from "./index";
 
 /** A minimal transport whose `open`/`close` we fire by hand. `close` can carry a
- *  code so the restart-close-code path is exercisable. */
-function fakeWs() {
+ *  code so the restart-close-code path is exercisable. `readyState` defaults to
+ *  NON-`OPEN` so the now-default-on liveness heartbeat's tick early-returns and
+ *  never probes — the lifecycle-derivation cases test that in isolation (the
+ *  heartbeat has its own cases below, which pass `readyState: 1`). `reconnect` is
+ *  a spy so those cases can assert the half-open watchdog fired. */
+function fakeWs(readyState = 0) {
   const listeners: Record<
     "open" | "close",
     Array<(event?: { code?: number }) => void>
   > = { open: [], close: [] };
-  const ws: WsLike = {
+  const reconnect = vi.fn();
+  const ws: WsLike & {
+    reconnect(): void;
+    readyState: number;
+    readonly OPEN: number;
+  } = {
     addEventListener: (type, fn) => listeners[type].push(fn),
     removeEventListener: (type, fn) => {
       listeners[type] = listeners[type].filter((l) => l !== fn);
     },
+    reconnect,
+    readyState,
+    OPEN: 1,
   };
   return {
     ws,
+    reconnect,
     fire: (type: "open" | "close", code?: number) => {
       const event = code === undefined ? undefined : { code };
       for (const l of listeners[type].slice()) l(event);
@@ -32,6 +45,57 @@ function fakeWs() {
     count: (type: "open" | "close") => listeners[type].length,
   };
 }
+
+describe("createServerLifecycle — default-on liveness heartbeat", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("forces ws.reconnect() on a half-open socket — the watchdog is on by default", () => {
+    const t = fakeWs(1); // OPEN, so the heartbeat tick probes
+    createRoot((dispose) => {
+      // A probe that never settles ⇒ the socket is silently half-open.
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => new Promise<{ processId: string }>(() => {}),
+      });
+      // One interval (default 15s) arms the probe; one timeout (default 10s)
+      // with no answer declares it half-open and forces a reconnect.
+      vi.advanceTimersByTime(15_000);
+      expect(t.reconnect).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(10_000);
+      expect(t.reconnect).toHaveBeenCalledTimes(1);
+      dispose();
+    });
+  });
+
+  it("`heartbeat: false` opts out — no watchdog, no reconnect", () => {
+    const t = fakeWs(1);
+    createRoot((dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => new Promise<{ processId: string }>(() => {}),
+        heartbeat: false,
+      });
+      vi.advanceTimersByTime(60_000);
+      expect(t.reconnect).not.toHaveBeenCalled();
+      dispose();
+    });
+  });
+
+  it("dispose() stops the heartbeat so a late probe can't reconnect", () => {
+    const t = fakeWs(1);
+    createRoot((dispose) => {
+      createServerLifecycle({
+        ws: t.ws,
+        probe: () => new Promise<{ processId: string }>(() => {}),
+      });
+      vi.advanceTimersByTime(15_000); // arm a probe
+      dispose(); // tears down the lifecycle AND its heartbeat
+      vi.advanceTimersByTime(60_000);
+      expect(t.reconnect).not.toHaveBeenCalled();
+    });
+  });
+});
 
 describe("createServerLifecycle", () => {
   it("first open is connected; same id reconnects, changed id restarts", async () => {

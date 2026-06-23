@@ -50,12 +50,41 @@ describe("shortId", () => {
 describe("agentTone", () => {
   const agent = (state: string): AwarenessValue["agent"] =>
     ({ kind: "claude-code", state }) as AwarenessValue["agent"];
-  it("tones by bucket; no agent is muted, unknown is plain", () => {
+  it("tones by PAINT class (mirrors the Dock pip); no agent is muted, unknown is plain", () => {
     expect(agentTone(null)).toBe("muted");
     expect(agentTone(agent("thinking"))).toBe("working");
     expect(agentTone(agent("awaiting_user"))).toBe("awaiting");
-    expect(agentTone(agent("waiting"))).toBe("idle");
+    // `waiting` paints `awaiting` — the lingering amber cue — even though its
+    // idle urgency sorts it down (the Dock's order≠colour split), NOT idle grey.
+    expect(agentTone(agent("waiting"))).toBe("awaiting");
     expect(agentTone(agent("??"))).toBe("plain");
+  });
+});
+
+describe("fleetRow — the pip paints by agentPaintClass, the label tones by urgency", () => {
+  const row = (state: string | null): FleetRow =>
+    fleetRow(
+      "zest",
+      "zest",
+      id("t"),
+      val({ agent: state === null ? null : agentVal(state) }),
+      false,
+    );
+  it("a just-finished `waiting` agent: pip paints awaiting (amber) but label + sort stay idle", () => {
+    const r = row("waiting");
+    expect(r.glyphTone).toBe("awaiting"); // the lingering amber pip — mirrors the Dock
+    expect(r.state.tone).toBe("idle"); // the LABEL stays calm urgency grey
+    expect(r.urgency).toBe("idle"); // …and it SORTS idle (order≠colour)
+  });
+  it("an `awaiting_user` agent: pip, label, and sort are all need-amber (genuinely blocked)", () => {
+    const r = row("awaiting_user");
+    expect(r.glyphTone).toBe("awaiting");
+    expect(r.state.tone).toBe("awaiting");
+    expect(r.urgency).toBe("need");
+  });
+  it("a working agent pips working; no agent pips muted", () => {
+    expect(row("thinking").glyphTone).toBe("working");
+    expect(row(null).glyphTone).toBe("muted");
   });
 });
 

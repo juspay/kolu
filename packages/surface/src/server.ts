@@ -43,6 +43,7 @@ import {
 // working.
 export { composeSurfaceContracts };
 import type { Cell, Collection, Event, Stream } from "./index";
+import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 
 // `projectSurface` and its derive helpers are server-side (they import
 // `implementSurface` from here), so they live in `./project` and are imported
@@ -1404,6 +1405,20 @@ function walkSurface<const S extends SurfaceSpec>(
       );
     }
   }
+
+  // Auto-answer the framework-reserved liveness probe (see @kolu/surface
+  // ./liveness). It lives only in the contract (`defineSurface` injects it),
+  // never in `spec`, so the procedures loop above neither demanded a dep nor
+  // bound it — bind it here, merged into any app-owned `system.*` handlers, with
+  // a trivial `{}` reply (resolution is the liveness signal). No app implements
+  // it, so a client heartbeat / ssh watchdog gets a contract-agnostic round-trip
+  // for free.
+  namespaces[LIVENESS_NAMESPACE] = {
+    ...(namespaces[LIVENESS_NAMESPACE] ?? {}),
+    [LIVENESS_VERB]: root[LIVENESS_NAMESPACE][LIVENESS_VERB].handler(
+      () => ({}),
+    ),
+  };
 
   return { namespaces, ctx: ctx as SurfaceCtx<S> };
 }

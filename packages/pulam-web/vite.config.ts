@@ -63,7 +63,8 @@ export default defineConfig({
     target: "esnext",
     outDir: "dist",
   },
-  optimizeDeps: {
-    esbuildOptions: { target: "esnext" },
-  },
+  // NOTE: Vite 8.1's experimental bundled dev mode (`experimental.bundledDev`)
+  // is deliberately NOT enabled — twin of packages/client. It crashes the
+  // client at runtime (`__reExport is not defined`), so the app never mounts
+  // under dev; standard Vite 8 dev works. Revisit when the upstream bug is fixed.
 });

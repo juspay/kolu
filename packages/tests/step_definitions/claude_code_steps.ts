@@ -34,6 +34,7 @@ type MockState =
   | "thinking"
   | "tool_use"
   | "waiting"
+  | "awaiting_user"
   | "running_background"
   | "orphaned_workflow"
   | "journalless_workflow"
@@ -127,6 +128,33 @@ function buildTranscript(state: MockState): string {
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
+  // "awaiting_user": the turn ended on a user-input tool (AskUserQuestion /
+  // ExitPlanMode), so `deriveState`'s `toolUseOrAwaitingUser` sees only
+  // awaiting-user tools pending and reports `awaiting_user` — the genuinely
+  // blocked-on-you state that ranks `need` and gets the dock's full card.
+  // (Distinct from `waiting`, the post-turn lull that now ranks idle.)
+  if (state === "awaiting_user") {
+    lines.push(
+      JSON.stringify({
+        type: "assistant",
+        uuid: "a1",
+        timestamp: new Date().toISOString(),
+        message: {
+          model: "claude-opus-4-6",
+          role: "assistant",
+          stop_reason: "tool_use",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu-ask",
+              name: "AskUserQuestion",
+              input: {},
+            },
+          ],
+        },
+      }),
+    );
+  }
   // "running_background": a launched-but-uncompleted `Workflow` task (carries a
   // Run ID → has a journal) followed by an end-of-turn — deriveState promotes
   // the bare `waiting` to `running_background`. "orphaned_workflow" uses the

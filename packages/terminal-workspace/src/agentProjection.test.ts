@@ -9,9 +9,11 @@
 import { describe, expect, it } from "vitest";
 import {
   agentBucket,
+  agentPaintClass,
   agentShortName,
   agentStatusLabel,
   agentUrgency,
+  alertClass,
   compareAgents,
   DASH,
   fleetStateLabel,
@@ -54,6 +56,36 @@ describe("agentStatusLabel", () => {
     expect(agentStatusLabel("brand_new_state" as AgentInfo["state"])).toBe(
       "brand_new_state",
     );
+  });
+});
+
+describe("agentPaintClass", () => {
+  it("paints the working states", () => {
+    expect(agentPaintClass("thinking")).toBe("working");
+    expect(agentPaintClass("tool_use")).toBe("working");
+    expect(agentPaintClass("running_background")).toBe("working");
+  });
+  it("paints awaiting_user AND waiting as awaiting — the glow lingers past the turn", () => {
+    expect(agentPaintClass("awaiting_user")).toBe("awaiting");
+    expect(agentPaintClass("waiting")).toBe("awaiting");
+  });
+  it("paints an unknown state as none (no glow)", () => {
+    expect(agentPaintClass("brand_new_state" as AgentInfo["state"])).toBe(
+      "none",
+    );
+  });
+});
+
+describe("alertClass", () => {
+  it("notifies on the two attention states", () => {
+    expect(alertClass("awaiting_user")).toBe("notify");
+    expect(alertClass("waiting")).toBe("notify");
+  });
+  it("stays quiet on working states and unknowns", () => {
+    expect(alertClass("thinking")).toBe("quiet");
+    expect(alertClass("tool_use")).toBe("quiet");
+    expect(alertClass("running_background")).toBe("quiet");
+    expect(alertClass("brand_new_state" as AgentInfo["state"])).toBe("quiet");
   });
 });
 

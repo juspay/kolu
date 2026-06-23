@@ -5,13 +5,14 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { SW_MESSAGE_TYPE } from "@kolu/surface-app";
 import {
   activeArm,
+  type AgentInfo,
+  alertClass,
   type TerminalId,
   type TerminalMetadata,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
-import { isAttentionState } from "./agentState";
 import { useStaleCheck } from "./staleness";
 import type { TerminalSubject } from "./terminalSubject";
 import {
@@ -104,16 +105,26 @@ export function useTerminalAlerts(deps: {
     ),
   );
 
+  // Whether a reactive-history state value belongs to the shared alert/notify
+  // class (`waiting` or `awaiting_user`). Membership rides the projection's
+  // compile-fenced `alertClass` fold — a state rename trips its `satisfies never`
+  // fence rather than silently dropping the notification. Accepts the
+  // `string | undefined` that `createEffect`'s previous-value tracking yields
+  // (the literal type is lost); `alertClass`'s own `default` arm handles an
+  // unknown string, and `undefined` is never an attention state.
+  const notifies = (state: string | undefined): boolean =>
+    state !== undefined && alertClass(state as AgentInfo["state"]) === "notify";
+
   function checkAgentFinished(
     id: TerminalId,
     prev: string | undefined,
     next: string | undefined,
   ) {
     if (!activityAlerts()) return;
-    // Fire on entry into the "needs-attention" class (waiting or
-    // awaiting_user). Treating the two as one class means we don't
-    // double-alert when the agent flips between them in one session.
-    if (!isAttentionState(next) || isAttentionState(prev)) return;
+    // Fire on ENTRY into the notify class (waiting or awaiting_user). Treating
+    // the two as one class means we don't double-alert when the agent flips
+    // between them in one session.
+    if (!notifies(next) || notifies(prev)) return;
     alertForTerminal(id);
   }
 

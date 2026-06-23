@@ -1,5 +1,5 @@
 /** Reactive socket: turns a terminal id into its canvas aura tier, reusing the
- *  same upstream classifiers the dock reads (`agentBucket`, the unread flag,
+ *  same upstream classifiers the dock reads (`paintBucket`, the unread flag,
  *  `useStaleCheck`) so the canvas border and the dock can't drift. Called once;
  *  the returned resolver is read per-tile inside a tracking context (JSX /
  *  `createMemo`) by the canvas tile border, and the 60s staleness tick re-runs

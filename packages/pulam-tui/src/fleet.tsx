@@ -98,12 +98,15 @@ function whereWidth(termWidth: number, showHost: boolean): number {
   return Math.max(MIN_WHERE, termWidth - 2 - fixed);
 }
 
-/** The leading glyph for a row, animated for a working agent. */
+/** The leading glyph for a row — shape follows the PAINT class (`glyphTone`),
+ *  mirroring kolu's Dock pip, so a just-finished `waiting` agent shows the filled
+ *  `awaiting` dot (not the idle ring) even though it sorts idle. A working agent
+ *  spins; everything quiet is the idle ring. (Colour rides the same `glyphTone`
+ *  at the call site; the label tone + sort stay urgency — the order≠colour split.) */
 function rowGlyph(row: FleetRow, frame: number): string {
-  if (row.urgency === "need") return NEED_GLYPH;
-  if (row.urgency === "work")
+  if (row.glyphTone === "working")
     return SPINNER[frame % SPINNER.length] ?? IDLE_GLYPH;
-  return IDLE_GLYPH;
+  return row.glyphTone === "awaiting" ? NEED_GLYPH : IDLE_GLYPH;
 }
 
 /** The host group header's badge — the honest degraded states. `connected`
@@ -157,7 +160,7 @@ function Row(props: {
           `activity` stream), blank otherwise. Orthogonal to the urgency glyph: one
           says "output flowing", the other says "agent blocked/working/idle". */}
       <text fg={LIVE}>{cell(props.row.live ? "●" : "", W_LIVE)}</text>
-      <text fg={TONE_COLOR[props.row.state.tone]}>
+      <text fg={TONE_COLOR[props.row.glyphTone]}>
         {cell(rowGlyph(props.row, props.frame()), W_GLYPH)}
       </text>
       <text fg={HOST}>

@@ -16,11 +16,13 @@
  * re-derives; nothing survives the link.
  *
  * pulam's only volatile differences from the other one-shot CLIs (kaval-tui):
- * the binary name, the per-system drv-map env var, and the connectivity probe.
- * pulam has no `system.heartbeat` (its surface is the `awareness` collection + a
- * `version` cell), so the probe reads the first frame of the `version` cell —
- * which doubles as exercising the seam the kolu fold's version-skew gate later
- * consumes.
+ * the binary name, the per-system drv-map env var, and a deliberate OVERRIDE of
+ * the dial's default `system.live` probe. Where the default just proves the link
+ * is alive, pulam overrides it with a PROTOCOL ASSERTION: it reads the first frame
+ * of the `version` cell (its surface is the `awareness` collection + a `version`
+ * cell), proving the remote pulam surface yielded its snapshot — which doubles as
+ * exercising the seam the kolu fold's version-skew gate later consumes. This is
+ * the documented exception, not the norm.
  *
  * This is the ONLY place pulam-tui imports `@kolu/surface-nix-host` — it must
  * never leak into the pulam daemon closure (the staleKey allow-list).
@@ -85,13 +87,14 @@ export function connectArivuViaHost(
     // `extraArgs` is `dialAgentOnce`'s generic spawn-arg passthrough — this is
     // the one site that knows the args ARE `--kaval <socket>`.
     extraArgs: kavalSocket ? ["--kaval", kavalSocket] : undefined,
-    // pulam has no `system.heartbeat`, so read the first frame of the `version`
-    // cell as the connectivity probe. A `version` cell ALWAYS opens with a
-    // snapshot frame, so an empty stream is a protocol/link failure, not a
-    // benign "no value yet" — the probe exists to PROVE the remote pulam surface
-    // yielded its snapshot, and `dialAgentOnce` discards the value before
-    // `markConnected`, so `firstFrameOrThrow` surfaces the empty-stream failure
-    // rather than collapsing it into a "connected" session.
+    // OVERRIDE of `dialAgentOnce`'s default `system.live` probe — and this is the
+    // documented exception, NOT the norm. It is a deliberate PROTOCOL ASSERTION,
+    // not a liveness check: the `version` cell ALWAYS opens with a snapshot frame,
+    // so reading its first frame proves the remote pulam surface actually yielded
+    // its snapshot — a contract guarantee `system.live` does not exercise. An empty
+    // stream is a protocol/link failure, not a benign "no value yet"; `dialAgentOnce`
+    // discards the value before `markConnected`, so `firstFrameOrThrow` surfaces the
+    // empty-stream failure rather than collapsing it into a "connected" session.
     probe: async (client) =>
       firstFrameOrThrow(
         await client.surface.version.get({}),

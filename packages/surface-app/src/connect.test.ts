@@ -13,9 +13,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createHeartbeat,
   createProcessIdEcho,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
   retireOnStaleClose,
 } from "./connect";
 import { STALE_PROCESS_CLOSE_CODE } from "./index";
+import { DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS } from "./server";
+
+describe("heartbeat timing — client reconnect wins the race vs the server reaper", () => {
+  it("the server's reap window exceeds the client's worst-case recovery", () => {
+    // The client detects a half-open socket and reconnects within (one probe
+    // interval + one probe timeout); the server terminates a socket that misses
+    // ONE ping window. If the server window were <= the client's worst case, the
+    // reaper could terminate a socket the client is about to revive — a spurious
+    // double-recovery. The server window must comfortably exceed it. This pins
+    // the cross-file relationship between two constants in two modules so an edit
+    // to either can't silently break the race.
+    const clientWorstCase =
+      DEFAULT_HEARTBEAT_INTERVAL_MS + DEFAULT_HEARTBEAT_TIMEOUT_MS;
+    expect(DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS).toBeGreaterThan(
+      clientWorstCase,
+    );
+  });
+});
 
 describe("createProcessIdEcho", () => {
   it("is a no-op until an id is observed (the first-ever connect omits `pid`)", () => {

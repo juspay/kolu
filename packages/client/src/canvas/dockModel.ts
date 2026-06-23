@@ -1,6 +1,8 @@
 import {
   activeArm,
   type AgentInfo,
+  agentPaintClass,
+  type AgentPaintClass,
   type PrResult,
   type TerminalId,
   type TerminalMetadata,
@@ -11,7 +13,6 @@ import {
   type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
-import { isAttentionState, isWorkingState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
@@ -59,7 +60,14 @@ export function sortDockEntriesByRecency(
   });
 }
 
-export type AgentBucketKind = "awaiting" | "working" | "idle" | "none";
+/** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
+ *  (awaiting | working | none) plus the dock's own `idle` triage column.
+ *  Declared as an EXTENSION of `AgentPaintClass` (not a re-spelled literal set)
+ *  so `Exclude<AgentBucketKind, "idle">` resolves to exactly `AgentPaintClass` —
+ *  the paint fold's return type — making the value `paintBucket` feeds into
+ *  `StatePip` (typed `DockRowBucket`) a DECLARED widening rather than a literal
+ *  coincidence. */
+export type AgentBucketKind = AgentPaintClass | "idle";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *
@@ -193,34 +201,46 @@ export type DockModel = {
   columns: DockColumn[];
 };
 
-/** Classify live agent metadata into the agent-state buckets. Pure — does
- *  not consider staleness. Callers that have a staleness signal should
- *  prefer `entryBucket()` so parked terminals route to the Idle column;
- *  this function stays exported for the minimap badge, which colors tiles
- *  by agent state regardless of age. */
-export function agentBucket(
+/** Classify live agent metadata into the dock's agent-state PAINT buckets — the
+ *  canvas tile aura, the minimap badge, the expanded-switcher columns. Pure —
+ *  does not consider staleness. Callers that have a staleness signal should
+ *  prefer `entryBucket()` so parked terminals route to the Idle column.
+ *
+ *  Defers the per-state PAINT decision to `agentPaintClass` in
+ *  `@kolu/terminal-workspace/agentProjection`, so the closed agent-state set is
+ *  folded to a paint class in ONE schema-fenced file: a new state literal
+ *  compile-fails THERE (`state satisfies never`) until its paint class is
+ *  decided, rather than silently routing through a hand-copied dock-local
+ *  switch. This function adds only the `null` agent → `none` arm (an absent
+ *  agent has no glow); the live-agent fold is `agentPaintClass`.
+ *
+ *  This is the PAINT fold, NOT the needs-you RANKING (that's `dockRowRanking`'s
+ *  `agentUrgency`). The paint vocabulary — {awaiting, working, none} — has no
+ *  quiet-agent slot, so the post-turn lull (`waiting`) folds to `awaiting`: a
+ *  just-finished agent keeps its tile glow until it parks. The ranking reads
+ *  `agentUrgency`, where `waiting` is idle. The two legitimately differ on
+ *  `waiting` and stay separate functions, co-located behind the schema fence.
+ *
+ *  Named `paintBucket` — NOT `agentBucket` — so the name carries the concept:
+ *  `agentBucket` unambiguously means the shared projection's activity fold
+ *  (`@kolu/terminal-workspace/agentProjection`), and `paintBucket` is this
+ *  agent-optional paint adapter (the per-state fold itself is `agentPaintClass`
+ *  in the projection; this only lifts it over an absent agent). */
+export function paintBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
-  const state = agent?.state;
-  if (state === undefined) return "none";
-  if (isAttentionState(state)) return "awaiting";
-  if (isWorkingState(state)) return "working";
-  // Exhaustiveness fence: AgentInfo["state"] partitions cleanly into
-  // attention + working today. Any future state literal added to the
-  // schema must join one predicate (or earn its own bucket) — `state
-  // satisfies never` compile-fails here until it does.
-  state satisfies never;
-  return "none";
+  if (!agent) return "none";
+  return agentPaintClass(agent.state);
 }
 
-/** Bucket a terminal by its live agent — `agentBucket` over the active arm. A
+/** Bucket a terminal by its live agent — `paintBucket` over the active arm. A
  *  sleeping/absent terminal has no live agent, so it folds to the idle/"none"
  *  bucket. The single fold so presence surfaces (dock rows, minimap badge,
  *  canvas aura) don't re-spell the active-narrow + bucket at every call site. */
 export function metaBucket(
   meta: TerminalMetadata,
 ): Exclude<AgentBucketKind, "idle"> {
-  return agentBucket(activeArm(meta)?.agent);
+  return paintBucket(activeArm(meta)?.agent);
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last

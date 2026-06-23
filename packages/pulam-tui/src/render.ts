@@ -13,7 +13,7 @@
  */
 
 import {
-  agentBucket,
+  agentPaintClass,
   agentShortName,
   agentStatusLabel,
   agentUrgency,
@@ -167,20 +167,21 @@ export type FieldTone =
   | "muted"
   | "plain";
 
-/** The agent state's tone, keyed on its bucket: working → cyan, awaiting (blocked
- *  on you) → amber, idle → dim, an unrecognized state → plain, no agent → muted.
- *  The exhaustive switch over the closed bucket means a new bucket forces a tone
- *  decision here rather than silently falling to plain. */
+/** The agent state's tone, keyed on its PAINT class so the fleet MIRRORS kolu's
+ *  Dock pip: working → cyan, awaiting → amber, no agent → muted, an unrecognized
+ *  state → plain. `waiting` (the post-turn lull) paints `awaiting` here — the
+ *  lingering amber cue — even though its idle urgency SORTS it down: the COLOUR
+ *  follows paint, the ORDER follows urgency (the Dock's order≠colour split). The
+ *  exhaustive switch over the closed paint class forces a tone decision on a new
+ *  class rather than silently falling to plain. */
 export function agentTone(agent: AwarenessValue["agent"]): FieldTone {
   if (!agent) return "muted";
-  switch (agentBucket(agent.state)) {
+  switch (agentPaintClass(agent.state)) {
     case "working":
       return "working";
     case "awaiting":
       return "awaiting";
-    case "waiting":
-      return "idle";
-    case "other":
+    case "none":
       return "plain";
   }
 }
@@ -336,6 +337,12 @@ export interface FleetRow {
   where: DashCell;
   pr: DashCell;
   state: DashCell;
+  /** The leading pip's tone — the agent's PAINT class (`agentTone`), mirroring
+   *  kolu's Dock pip: a just-finished `waiting` agent paints `awaiting` (the
+   *  lingering amber) even though `state.tone` (the label) reads idle. COLOUR +
+   *  shape follow paint here; the label, sort, and breathing strip follow
+   *  urgency — the Dock's order≠colour split. */
+  glyphTone: FieldTone;
   /** The repo's full live status, or undefined until the first
    *  `subscribeRepoChange` pulse resolves (or for a terminal not in a repo). The
    *  ONE git value on the row: both the compact working-tree cell (`gitCell`) and
@@ -383,10 +390,15 @@ export function fleetRow(
     state: {
       // needs read "awaiting you", work "working" (the TUI's URGENCY_LABELS); an
       // idle terminal overrides with its agent's own state label via the shared
-      // idle-fork, or "idle" when no agent runs.
+      // idle-fork, or "idle" when no agent runs. The LABEL tone follows URGENCY
+      // (a `waiting` agent reads calm grey); the paint cue rides the pip
+      // (`glyphTone`) instead — the Dock's order≠colour split.
       text: fleetStateLabel(v.agent, URGENCY_LABELS),
       tone: URGENCY[urgency].tone,
     },
+    // The pip's paint tone — amber for a `waiting`/`awaiting_user` agent, cyan
+    // for a working one — mirroring the Dock pip, decoupled from the label above.
+    glyphTone: agentTone(v.agent),
     gitStatus,
     // Recency is NOT pre-formatted here: it's the one cell that changes with the
     // wall clock, not with a store delta. Carrying the raw `activeAt` (above) and

@@ -24,6 +24,8 @@ import {
   type FleetEntry,
   isVisible,
   locationText,
+  PAINT,
+  paintClassFor,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -165,5 +167,37 @@ describe("URGENCY descriptor", () => {
     expect(URGENCY.work.label).toBe("working");
     expect(URGENCY.idle.label).toBe("idle");
     expect(URGENCY.need.color).toMatch(/^#/);
+  });
+});
+
+describe("PAINT mirror (the fleet glyph echoes kolu's Dock pip, decoupled from urgency)", () => {
+  it("paints by agentPaintClass; waiting paints awaiting though its urgency is idle", () => {
+    expect(paintClassFor(withAgent("awaiting_user"))).toBe("awaiting");
+    expect(paintClassFor(withAgent("thinking"))).toBe("working");
+    expect(paintClassFor(withAgent("tool_use"))).toBe("working");
+    // The order≠colour split, made explicit: the SAME just-finished agent paints
+    // `awaiting` (the lingering amber cue) while its urgency SORTS it `idle`.
+    expect(paintClassFor(withAgent("waiting"))).toBe("awaiting");
+    expect(agentUrgency(withAgent("waiting").agent)).toBe("idle");
+  });
+
+  it("a terminal with no agent paints none", () => {
+    const noAgent: AwarenessValue = {
+      ...seedAwarenessValue("/work/repo"),
+      agent: null,
+    };
+    expect(paintClassFor(noAgent)).toBe("none");
+  });
+
+  it("PAINT carries a colour + glyph per class, reusing URGENCY's one palette", () => {
+    for (const cls of ["awaiting", "working", "none"] as const) {
+      expect(PAINT[cls].color).toMatch(/^#/);
+      expect(PAINT[cls].glyph.length).toBeGreaterThan(0);
+    }
+    // No duplicated hex/glyph — the three paint classes index the same three
+    // fleet visual tiers `URGENCY` already owns.
+    expect(PAINT.awaiting.color).toBe(URGENCY.need.color);
+    expect(PAINT.working.color).toBe(URGENCY.work.color);
+    expect(PAINT.none.color).toBe(URGENCY.idle.color);
   });
 });

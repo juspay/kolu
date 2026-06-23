@@ -5,7 +5,9 @@ import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
 import { buildDockTree } from "./dockTree";
 
 function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
-  return { id: id as TerminalId, bucket, ts };
+  // dockTree only reads `bucket`/`ts`; the pip is exercised in dockRowRanking's
+  // own tests, so mirror the order bucket here.
+  return { id: id as TerminalId, bucket, pip: bucket, ts };
 }
 
 function makeGetInfo(

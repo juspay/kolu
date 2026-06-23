@@ -68,6 +68,12 @@ export default defineConfig({
   define: {
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
+  // NOTE: Vite 8.1's experimental bundled dev mode (`experimental.bundledDev`)
+  // is deliberately NOT enabled. It crashes kolu's client at runtime —
+  // `Uncaught ReferenceError: __reExport is not defined` — so the app never
+  // mounts under `just dev` (a Rolldown dev-bundling CJS-interop helper that
+  // 8.1.0 references but doesn't emit). Standard Vite 8 dev works correctly;
+  // revisit bundledDev when the upstream helper bug is fixed.
   // Pierre's syntax-highlight worker (@pierre/diffs/worker, spawned by
   // @kolu/solid-pierre's CodeView as a `{ type: "module" }` worker) code-splits
   // its Shiki grammars via dynamic import, which Vite's default `iife` worker
@@ -75,19 +81,16 @@ export default defineConfig({
   worker: {
     format: "es",
   },
-  // Pin BOTH esbuild targets to esnext. The production build (`build.target`)
-  // and the dev dependency pre-bundle (`optimizeDeps.esbuildOptions.target`) are
-  // separate knobs: build.target covers `vite build`, optimizeDeps covers the
-  // `just dev` pre-bundle. Both must be esnext because esbuild ≥0.27.7 refuses
-  // to lower destructuring to Vite's default browser target — that list includes
-  // Safari 14.0, which esbuild's compat-table flags as not correctly supporting
-  // destructuring (a real Safari 14.0 engine bug), and esbuild has no
-  // destructuring-lowering transform. Dev assumes a modern browser, so there's
-  // no reason to down-level deps there. Setting only build.target (kolu#1387)
-  // left optimizeDeps on the browser default and broke `just dev`.
-  optimizeDeps: {
-    esbuildOptions: { target: "esnext" },
-  },
+  // Production build targets esnext — kolu ships modern code and never
+  // down-levels (`build.target` covers `vite build`).
+  //
+  // The old twin `optimizeDeps.esbuildOptions.target: "esnext"` is gone: Vite 8
+  // pre-bundles dependencies with Rolldown/Oxc, not esbuild, so the esbuild
+  // ≥0.27.7 destructuring-lowering bug that once forced it — esbuild refused to
+  // lower destructuring to Vite's Safari-14-inclusive default target, which
+  // broke `just dev` when only `build.target` was set (kolu#1387) — no longer
+  // applies, and the dev pre-bundle already assumes a modern browser.
+  // `optimizeDeps.esbuildOptions` is deprecated in Vite 8.
   build: {
     target: "esnext",
   },

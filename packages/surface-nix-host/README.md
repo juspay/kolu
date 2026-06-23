@@ -99,6 +99,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
   - `acquire()` is scoped — bumps `refCount` only on successful spawn. A failed provisioning leaves `refCount` untouched (no `try/finally` leak in the caller).
 - **Reconnect terminates only for *remote* faults**: each failure carries a `failureCause` (`"network"` | `"remote"`). A `"remote"` fault — the host answered but rejected the closure (e.g. the parent's user isn't in `trusted-users`) — is bounded by `MAX_CONSECUTIVE_FAILURES` (currently 5); after that the session surfaces the terminal `"failed"` state with the last error, so a misconfigured target fails loudly instead of spamming forever. A `"network"` fault — the host was unreachable (asleep, roaming between Wi-Fi networks, VPN down) — is **never** terminal: the session keeps retrying at the capped backoff indefinitely, so a laptop that closes its lid at home and reopens at a café reconnects on its own with no manual intervention.
 - **`recheck()` vs `reconnect()`**: `reconnect()` is the manual "Reconnect" button — it re-arms a `"failed"`/idle session and deliberately won't disturb a live link. `recheck()` is the wake / network-change companion: it force-cycles *whatever* is there, including a `"connected"` link, because after a sleep that link is often stale (the far end dropped the socket but the local ssh child won't notice until its keepalive fails ~30s later). A long-running parent calls `recheck()` on every session when it observes the machine wake or regain connectivity.
+- **Periodic liveness watchdog (default-on)**: while `connected`, the session probes the framework-reserved `system.live` round-trip (`@kolu/surface/liveness`) on an interval (default 15s / 10s timeout — the **shared `DEFAULT_HEARTBEAT_*` constants** from `@kolu/surface/heartbeat`, so the cadence is pinned to the browser leg by structure, not a comment). A probe that **times out** means the remote is *silently wedged* — the process is alive and the stdio link is open (so no EOF fires, and ssh keepalive won't notice for ~30s), but the agent has stopped answering — so the watchdog force-cycles the child through `recheck()`'s path. This catches exactly the case `recheck()` (which needs an external wake/network signal) and the child-exit handler (which needs an actual EOF) both miss. A probe **rejection** still counts as alive (the round-trip completed — an agent too old to answer `system.live` simply degrades to the prior no-watchdog behaviour), so only a true non-answer cycles. It is built on the SAME lifted `@kolu/surface/heartbeat` watchdog primitive the browser leg wraps — one algorithm, two legs, parameterized only on the live gate (`connected` here, `readyState === OPEN` in the browser) and the on-stale action (`recheck()` here, `ws.reconnect()` in the browser). Born at the first `markConnected` (so it never probes before the first RPC) and gated on `connected` (so the minutes-long copying/connecting window is never disturbed); opt out with `liveness: false`.
 - **Pump-loop pattern**: the stdio link doesn't auto-reconnect mid-stream (the streams die with the agent process). A consumer that re-serves a remote `@kolu/surface` should reach for **`pumpRemoteSurface`** — it owns the whole loop (pin → `makeClientCursor` → one `mirrorRemoteSurface` per spawn → await the next), so the only app code is the per-spawn `makeSink`:
 
   ```ts
@@ -145,10 +146,11 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 >   // stderr as the failure reason. Often differs from `drvNoun` (kaval's
 >   // `--stdio` front writes `kaval --stdio:`, not `kaval:`).
 >   fatalPrefix: "my-agent:",
->   // one cheap RPC proves the link; the surface client is namespaced under
->   // `surface` (e.g. kaval-tui: `c.surface.system.heartbeat({})`, pulam-tui:
->   // the first frame of `c.surface.version.get({})`).
->   probe: (c) => c.surface.system.heartbeat({}),
+>   // No `probe` needed: the dial defaults to the framework-reserved `system.live`
+>   // round-trip (every `defineSurface` agent answers it — the same receptacle the
+>   // periodic watchdog uses), so an agent is provable without nominating a verb.
+>   // Override `probe` ONLY for a protocol assertion beyond liveness (e.g.
+>   // pulam-tui asserts `c.surface.version.get({})` yields a first frame).
 > });
 > ```
 >

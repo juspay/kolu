@@ -54,6 +54,12 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import {
+  createHeartbeat,
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
+} from "@kolu/surface/heartbeat";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
@@ -157,6 +163,27 @@ export interface HostSessionOptions {
    *  are still accumulated in `progressLines`/`remoteProgressLines` regardless,
    *  so a diverting sink loses nothing a failure-reason read would want. */
   onLog?: (line: string) => void;
+  /** Disable the periodic liveness watchdog (default ON). While `connected`, the
+   *  watchdog probes the framework-reserved `system.live` round-trip
+   *  (`@kolu/surface/liveness`) over the live link on an interval; a probe that
+   *  TIMES OUT means the remote is SILENTLY wedged (process alive, app hung — so
+   *  no stdio EOF fires, and ssh keepalive won't notice for ~30s) and the child
+   *  is force-cycled through the same path `recheck()` uses. Built on the SAME
+   *  lifted `@kolu/surface/heartbeat` primitive the browser leg wraps — one
+   *  watchdog algorithm, two legs. A probe REJECTION still counts as alive (the
+   *  round-trip completed — even an agent too old to answer `system.live` just
+   *  degrades to today's no-watchdog behaviour), so only a true non-answer
+   *  triggers a cycle. Probing is gated on `connected`, so the (possibly
+   *  minutes-long) copying/connecting window is never disturbed.
+   *
+   *  ONE knob — `false` to disable, or an object to tune — so the illegal "tune a
+   *  disabled watchdog" state is unrepresentable, and the ssh leg models the
+   *  watchdog knob the SAME way the browser legs' `HeartbeatConfig` does. The
+   *  `intervalMs`/`timeoutMs` default to the shared `DEFAULT_HEARTBEAT_*` constants
+   *  (15s/10s), so the cadence is pinned across legs by structure, not a comment.
+   *  (No `onStale`/`probe` here — those are partysocket-leg-only: the ssh leg's
+   *  on-stale action is fixed to `recheck()` and its probe to `system.live`.) */
+  liveness?: false | { intervalMs?: number; timeoutMs?: number };
 }
 
 /** The typed RPC client produced by a successful `acquire`/`pin`/
@@ -214,6 +241,16 @@ export class HostSession<C extends AnyContractRouter> {
    *  loop would otherwise spam forever). Reset to 0 on a successful
    *  `markConnected` or a manual `reconnect()`. */
   private consecutiveFailures = 0;
+  /** The periodic liveness watchdog — ONE `@kolu/surface/heartbeat` handle, the
+   *  SAME primitive the browser leg's `createHeartbeat` wraps (race a `system.live`
+   *  probe against a timeout, settle once, skip overlapping ticks, dispose clears
+   *  the in-flight probe). The race/settle/skip state lives INSIDE the handle, not
+   *  as loose fields on this class. Born at the first `markConnected` (so it can
+   *  never probe before the first RPC — deferred-first-probe by construction),
+   *  then self-gates on `connected` via the handle's `isLive`. Separate lifecycle
+   *  from `pendingTimer` (phase transitions) — this lives DURING `connected`.
+   *  `null` until started / after teardown disposes it. */
+  private liveness: { dispose: () => void } | null = null;
 
   constructor(private readonly opts: HostSessionOptions) {}
 
@@ -633,6 +670,70 @@ export class HostSession<C extends AnyContractRouter> {
     if (this.stateCell.current().connection === "connecting") {
       this.consecutiveFailures = 0;
       this.updateState({ connection: "connected" });
+      // Birth the liveness watchdog here, at the FIRST successful connect — so it
+      // can never probe before the first RPC roundtripped (the deferred-first-
+      // probe rule, satisfied by construction rather than by a guard). Idempotent:
+      // later reconnects re-enter `connected` but the interval already exists and
+      // self-gates on the `connected` state.
+      this.startLiveness();
+    }
+  }
+
+  /** Start the periodic liveness watchdog (idempotent; no-op if disabled). Holds
+   *  ONE `@kolu/surface/heartbeat` handle, the SAME primitive the browser leg
+   *  wraps — so the race/settle/skip-overlap/late-fire-safe-dispose algorithm is
+   *  shared, not re-derived here. The two ssh-leg variation points are the
+   *  injected callbacks:
+   *
+   *   - `isLive` gates on `connected`, so the (possibly minutes-long) copying/
+   *     connecting/backoff windows are never probed;
+   *   - `onStale` force-cycles the ssh child through `recheck()` — the link is
+   *     "lying" (connected but not answering), so cycle it and let the reconnect
+   *     loop re-establish. `recheck()` classifies the cycle a `"network"` retry
+   *     (recovery, not a budget-consuming fault).
+   *
+   *  The probe is the reserved `system.live` round-trip — contract-agnostic, so no
+   *  consumer probe is needed (or can be forgotten). A probe REJECTION (the
+   *  round-trip completed, even with an error — e.g. an older agent that lacks
+   *  `system.live`) counts as ALIVE; only a true non-answer (timeout) cycles. The
+   *  cadence defaults to the SHARED `DEFAULT_HEARTBEAT_*` constants, so the ssh leg
+   *  and the browser leg pin the same 15s/10s by structure, not a comment. */
+  private startLiveness(): void {
+    if (this.opts.liveness === false || this.liveness !== null) return;
+    // `liveness` is `false | { intervalMs?, timeoutMs? } | undefined`: an object
+    // tunes the cadence, anything else (undefined / the default) leaves it shared.
+    const tuning =
+      typeof this.opts.liveness === "object" ? this.opts.liveness : {};
+    this.liveness = createHeartbeat({
+      intervalMs: tuning.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+      timeoutMs: tuning.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
+      isLive: () =>
+        !this.destroyed &&
+        this.stateCell.current().connection === "connected" &&
+        this.clientPromise !== null,
+      probe: () => {
+        // Resolve the in-flight client, then probe its reserved `system.live`.
+        const pending = this.clientPromise;
+        if (pending === null) return Promise.reject(new Error("no client"));
+        return pending.then((client) => probeSurfaceLive(client));
+      },
+      onStale: () => {
+        if (this.destroyed) return;
+        this.addLocalProgress(
+          "liveness probe timed out — remote wedged, force-cycling ssh child",
+        );
+        this.recheck();
+      },
+    });
+  }
+
+  /** Stop the liveness watchdog and any in-flight probe timeout. Called from
+   *  `teardown` (which covers both ref-count-zero and `destroy()`), so a probe
+   *  outstanding at teardown can't fire a late force-cycle. */
+  private stopLiveness(): void {
+    if (this.liveness !== null) {
+      this.liveness.dispose();
+      this.liveness = null;
     }
   }
 
@@ -769,6 +870,7 @@ export class HostSession<C extends AnyContractRouter> {
 
   private teardown(reason: string): void {
     this.clearTimer();
+    this.stopLiveness();
     if (this.child !== null) {
       this.addLocalProgress(`tearing down (${reason})`);
       try {

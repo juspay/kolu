@@ -36,14 +36,17 @@ import type {
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
+import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
   type JSX,
+  Match,
   onCleanup,
   Show,
+  Switch,
 } from "solid-js";
 import {
   agentShortName,
@@ -61,11 +64,13 @@ import {
   isVisible,
   LIVE_COLOR,
   locationText,
+  PAINT,
+  paintClassFor,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-import { surfaceForHost } from "./wire.ts";
+import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
   host: string;
@@ -77,11 +82,15 @@ export interface HostGroupProps {
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
 
-/** One agent/terminal row. The urgency carries the colour (leading glyph + state
- *  cell) so the eye lands on a blocked row's amber; the green dot rides the
- *  activity stream, orthogonal to the agent state. Reads its value fine-grained
- *  off `value()` (a per-key subscription) so only this row re-renders on its own
- *  delta. */
+/** One agent/terminal row, MIRRORING kolu's Dock. The leading glyph's COLOUR +
+ *  shape follow the PAINT class (`PAINT[paintClassFor(value)]`) — so a
+ *  just-finished `waiting` agent keeps the lingering amber dot rather than the
+ *  idle grey its sort implies — while the SORT, the needs-you row tint, the
+ *  state-cell label colour, and the pulse/spin animation stay keyed off
+ *  `urgency`. That order≠colour split is the Dock's, one fold over from the dock
+ *  pip. The green dot rides the activity stream, orthogonal to agent state.
+ *  Reads its value fine-grained off `value()` (a per-key subscription) so only
+ *  this row re-renders on its own delta. */
 function AgentRow(props: {
   value: () => AwarenessValue | undefined;
   live: () => boolean;
@@ -92,7 +101,8 @@ function AgentRow(props: {
       {(value) => {
         const urgency = () => agentUrgency(value().agent);
         const tone = () => URGENCY[urgency()];
-        const glyph = () => tone().glyph;
+        const paint = () => PAINT[paintClassFor(value())];
+        const glyph = () => paint().glyph;
         // A needs-you glyph breathes (Tailwind's `animate-pulse`); a working
         // glyph spins about the glyph's visual centre (`origin-[50%_54%]` —
         // `◜` sits slightly high in its box). Both hold still under
@@ -127,7 +137,7 @@ function AgentRow(props: {
             />
             <span
               class={glyphClass()}
-              style={`color:${tone().color};width:1.3ch;flex:none`}
+              style={`color:${paint().color};width:1.3ch;flex:none`}
             >
               {glyph()}
             </span>
@@ -156,8 +166,52 @@ function AgentRow(props: {
 const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
+/** The per-host connection indicator — the transport status the half-open
+ *  watchdog acts on, surfaced as a persistent status dot (like kolu's header
+ *  dot): a solid **green** dot when the link is healthy, an amber pulsing
+ *  "connecting…" / "reconnecting…" while it's establishing or recovering, and a
+ *  red "disconnected — reload" after a stale-close retired the socket. Always
+ *  shows *something* so a connected host reads as positively connected, not
+ *  merely "no error". */
+function ConnectionIndicator(props: {
+  status: () => SurfaceConnectionStatus;
+}): JSX.Element {
+  return (
+    <span class="ml-auto flex flex-none items-center gap-1 text-[12px]">
+      <Switch>
+        <Match when={props.status() === "live"}>
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-[#7ec699]"
+            title="connected"
+          />
+        </Match>
+        <Match when={props.status() === "connecting"}>
+          {/* Bare dot — the body already shows the first-connect "connecting…". */}
+          <span
+            class="inline-block h-1.5 w-1.5 rounded-full bg-[#8b94a6] motion-safe:animate-pulse"
+            title="connecting"
+          />
+        </Match>
+        <Match when={props.status() === "reconnecting"}>
+          <span class="flex items-center gap-1 text-[#e6a23c]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#e6a23c] motion-safe:animate-pulse" />
+            reconnecting…
+          </span>
+        </Match>
+        <Match when={props.status() === "down"}>
+          <span class="flex items-center gap-1 text-[#ff8d8d]">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#ff8d8d]" />
+            disconnected — reload
+          </span>
+        </Match>
+      </Switch>
+    </span>
+  );
+}
+
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
+  const status = statusForHost(props.host);
   // Surface the FIRST subscription error (version, awareness, or activity) rather
   // than letting it collapse into the empty/connecting state.
   const [error, setError] = createSignal<string | null>(null);
@@ -228,6 +282,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <span class="text-[12px] text-[#5b6678]">
           · {awareness.keys().length} terminals
         </span>
+        <ConnectionIndicator status={status} />
       </header>
       <Show
         when={error() === null}
