@@ -77,7 +77,7 @@ function classifyDockRow(
   // everything else — a `waiting` post-turn agent, an unknown state, or no
   // agent at all — → idle. A never-touched plain shell (`lastActivityAt === 0`,
   // no agent) keeps its quieter `none` bucket below idle.
-  switch (agentUrgency(activeArm(meta)?.agent ?? null)) {
+  switch (agentUrgency(activeArm(meta)?.agent)) {
     case "need":
       return "awaiting";
     case "work":

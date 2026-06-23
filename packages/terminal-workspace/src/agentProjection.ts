@@ -157,8 +157,13 @@ export type Urgency = "need" | "work" | "idle";
 
 /** Map an agent to its urgency. The exhaustive switch over the closed
  *  `agentBucket` union means a new bucket forces a decision here rather than
- *  silently falling to idle. */
-export function agentUrgency(agent: AwarenessValue["agent"]): Urgency {
+ *  silently falling to idle. Accepts `undefined` as well as the schema's
+ *  `AgentInfo | null` so a caller threading an optional-chained active arm
+ *  (`activeArm(meta)?.agent`) needn't normalize `undefined`→`null` first — the
+ *  truthiness check below treats both as "no agent". */
+export function agentUrgency(
+  agent: AwarenessValue["agent"] | undefined,
+): Urgency {
   if (!agent) return "idle";
   switch (agentBucket(agent.state)) {
     case "awaiting":
