@@ -78,6 +78,42 @@ export function agentStatusLabel(state: AgentInfo["state"]): string {
   return bucket === "other" ? state : bucket;
 }
 
+/** The coarse PAINT class an agent's state glows as — the canvas tile aura, the
+ *  minimap badge, the expanded-switcher columns, and the title pip all read it.
+ *  A *different* partition from urgency: the paint vocabulary has no quiet-agent
+ *  slot, so the post-turn lull (`waiting`) folds to `awaiting` — a just-finished
+ *  agent keeps its glow until it parks — whereas `agentUrgency` ranks `waiting`
+ *  as idle. The two legitimately disagree on `waiting`; they are co-located here
+ *  (one schema-fenced file) but stay separate functions. `none` is the absent /
+ *  unknown class (no glow). */
+export type AgentPaintClass = "awaiting" | "working" | "none";
+
+/** Map an agent's state to its PAINT class. Switches exhaustively over the
+ *  closed `AgentInfo['state']` set with a `state satisfies never` fence on the
+ *  default arm, so a new state literal added to `AgentInfoSchema` compile-fails
+ *  HERE — forcing a paint decision in the single shared definition — rather than
+ *  silently routing to `none` (a plain shell) in a hand-copied dock-local
+ *  switch. */
+export function agentPaintClass(state: AgentInfo["state"]): AgentPaintClass {
+  switch (state) {
+    case "thinking":
+    case "tool_use":
+    case "running_background":
+      return "working";
+    // The post-turn lull keeps its glow: a just-finished agent paints
+    // `awaiting` until it parks (contrast `agentUrgency`, where `waiting` is
+    // idle — paint and rank deliberately disagree here).
+    case "awaiting_user":
+    case "waiting":
+      return "awaiting";
+    default:
+      // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
+      // compiling, forcing a paint decision here rather than falling to `none`.
+      state satisfies never;
+      return "none";
+  }
+}
+
 /** The coarse urgency of a terminal — drives the glyph, the colour/tone, and the
  *  needs-you-first sort. `need` = an agent awaiting you; `work` = an agent
  *  working; `idle` = everything else (waiting / unknown / no agent). */

@@ -93,10 +93,14 @@ export { TerminalIdSchema };
 // consumer of the same definition instead of re-deriving "needs-you".
 export {
   agentBucket,
+  agentPaintClass,
   agentUrgency,
   URGENCY_RANK,
 } from "@kolu/terminal-workspace/agentProjection";
-export type { Urgency } from "@kolu/terminal-workspace/agentProjection";
+export type {
+  AgentPaintClass,
+  Urgency,
+} from "@kolu/terminal-workspace/agentProjection";
 
 export const CanvasLayoutSchema = z.object({
   x: z.number(),

@@ -1,6 +1,6 @@
 import {
   activeArm,
-  agentBucket as projectionBucket,
+  agentPaintClass,
   type AgentInfo,
   type PrResult,
   type TerminalId,
@@ -198,31 +198,25 @@ export type DockModel = {
  *  does not consider staleness. Callers that have a staleness signal should
  *  prefer `entryBucket()` so parked terminals route to the Idle column.
  *
- *  Sources its membership from the shared `agentBucket` in
- *  `@kolu/terminal-workspace/agentProjection` (imported as `projectionBucket`),
- *  so the closed agent-state set lives in ONE place; the exhaustiveness fence
- *  that catches a newly-added state now lives there, not in a hand-copied list.
+ *  Defers the per-state PAINT decision to `agentPaintClass` in
+ *  `@kolu/terminal-workspace/agentProjection`, so the closed agent-state set is
+ *  folded to a paint class in ONE schema-fenced file: a new state literal
+ *  compile-fails THERE (`state satisfies never`) until its paint class is
+ *  decided, rather than silently routing through a hand-copied dock-local
+ *  switch. This function adds only the `null` agent → `none` arm (an absent
+ *  agent has no glow); the live-agent fold is `agentPaintClass`.
  *
  *  This is the PAINT fold, NOT the needs-you RANKING (that's `dockRowRanking`'s
  *  `agentUrgency`). The paint vocabulary — {awaiting, working, none} — has no
  *  quiet-agent slot, so the post-turn lull (`waiting`) folds to `awaiting`: a
  *  just-finished agent keeps its tile glow until it parks. The ranking reads
  *  `agentUrgency`, where `waiting` is idle. The two legitimately differ on
- *  `waiting`, exactly as the shared projection's own `agentBucket` (activity)
- *  and `agentUrgency` (urgency) do. */
+ *  `waiting` and stay separate functions, co-located behind the schema fence. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
   if (!agent) return "none";
-  switch (projectionBucket(agent.state)) {
-    case "awaiting":
-    case "waiting":
-      return "awaiting";
-    case "working":
-      return "working";
-    case "other":
-      return "none";
-  }
+  return agentPaintClass(agent.state);
 }
 
 /** Bucket a terminal by its live agent — `agentBucket` over the active arm. A
