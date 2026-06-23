@@ -32,13 +32,6 @@
  *     than relaying into a dead client.
  */
 
-import { implement } from "@orpc/server";
-import type {
-  AgentClient,
-  LiveSpawnHolder,
-  ObservableHolder,
-} from "@kolu/surface-nix-host";
-import { observableHolder } from "@kolu/surface-nix-host";
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
   type CellStore,
@@ -48,13 +41,20 @@ import {
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
+import type {
+  AgentClient,
+  LiveSpawnHolder,
+  ObservableHolder,
+} from "@kolu/surface-nix-host";
+import { observableHolder } from "@kolu/surface-nix-host";
 import {
   type AwarenessValue,
   DEFAULT_VERSION,
   type TerminalId,
-  type Version,
   terminalWorkspaceSurface,
+  type Version,
 } from "@kolu/terminal-workspace/surface";
+import { implement } from "@orpc/server";
 import type { ArivuContract } from "../shared/contract.ts";
 
 export type { ArivuContract };
@@ -320,8 +320,14 @@ function forwardInputStream<I, P>(
   log: (line: string) => void,
 ): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<P> {
   return async function* (input, signal) {
+    // `signal?.aborted` read as a fresh boolean each time — a plain `while
+    // (signal?.aborted !== true)` would let TS NARROW `.aborted` to `false |
+    // undefined` for the body, so the post-`await` re-checks below (the signal
+    // can flip mid-await) would be flagged as dead comparisons. The thunk reads
+    // the live value with no narrowing.
+    const isAborted = (): boolean => signal?.aborted === true;
     yield lead;
-    while (signal?.aborted !== true) {
+    while (!isAborted()) {
       const client = holder.current;
       if (client === null) {
         // No live remote yet (pre-handshake, or between a dropped link and the
@@ -336,14 +342,42 @@ function forwardInputStream<I, P>(
         }
         continue;
       }
-      // Relay this spawn's pulses until ITS stream ends (link death / respawn),
-      // then loop back to rebind to the next live client.
-      for await (const pulse of await select(client.surface).get(input, {
-        signal,
-      })) {
-        yield pulse;
+      // Relay this spawn's pulses until ITS stream ends, then loop back to
+      // rebind to the next live client. A stdio link drop mid-stream surfaces
+      // here as a THROW (the `.get()` rejects, or the `for await` iterator
+      // throws on the dropped link) — NOT a clean `return`. Treat that exactly
+      // like a clean end: a remote-side blip must NOT kill the browser's
+      // subscription, or the watcher silently goes dead until a manual reload.
+      // This mirrors `mirrorRemoteSurface`, which logs an upstream stream error
+      // and ends the loop rather than propagating it. The ONLY exit is the
+      // browser aborting (the `while` guard / the `whenChanged` reject).
+      try {
+        for await (const pulse of await select(client.surface).get(input, {
+          signal,
+        })) {
+          yield pulse;
+        }
+        log(`${label}: remote stream ended — awaiting next spawn`);
+      } catch (err) {
+        // The browser aborting is not an upstream fault — let teardown propagate
+        // so the generator stops (and we don't log a phantom "link blip").
+        if (isAborted()) return;
+        log(
+          `${label}: remote stream errored (link blip) — awaiting next spawn: ${(err as Error).message}`,
+        );
       }
-      log(`${label}: remote stream ended — awaiting next spawn`);
+      // Whether the spawn's stream ended cleanly or blipped, don't busy-loop
+      // back onto the SAME just-dead client: wait for the pump to swap in the
+      // next one (or clear it). `holder.current` may already hold a fresh client
+      // — `whenChanged` would then block until the spawn AFTER it — so re-check
+      // first and only wait when nothing new is live.
+      if (holder.current === client || holder.current === null) {
+        try {
+          await holder.whenChanged(signal);
+        } catch {
+          return; // aborted: the browser unsubscribed
+        }
+      }
     }
   };
 }

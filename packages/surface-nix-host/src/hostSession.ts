@@ -121,8 +121,8 @@ export interface HostSessionOptions {
    *  rejection gives up into `failed`). See `FailureCause`. To mark a
    *  resolver rejection as a NON-transport, bounded → terminal fault (it
    *  probed the host fine but no derivation is baked for that system),
-   *  reject with a {@link ResolveDrvError} carrying `cause: "remote"`; the
-   *  session reads its `.cause` instead of defaulting to `"network"`. The session
+   *  reject with a {@link ResolveDrvError} carrying `failureCause: "remote"`; the
+   *  session reads its `.failureCause` instead of defaulting to `"network"`. The session
    *  ships the resolved derivation to the target host (no-op for localhost)
    *  and realises it there to get a target-arch-correct output path.
    *
@@ -483,11 +483,11 @@ export class HostSession<C extends AnyContractRouter> {
       // so the DEFAULT is `"network"` (host unreachable → retry forever). But a
       // resolver that probed fine and then found no derivation baked for that
       // system throws a `ResolveDrvError` carrying `"remote"` — a non-transport,
-      // bounded → terminal config error, NOT a sleeping host. Read its `.cause`
+      // bounded → terminal config error, NOT a sleeping host. Read its `.failureCause`
       // so an unsupported/mis-baked system fails loudly into `failed` instead of
       // spinning forever (the case F4 flagged).
       const cause: FailureCause =
-        err instanceof ResolveDrvError ? err.cause : "network";
+        err instanceof ResolveDrvError ? err.failureCause : "network";
       this.updateState({
         connection: "disconnected",
         lastError: reason,
@@ -814,12 +814,30 @@ export function getHostSession<C extends AnyContractRouter>(
   opts: HostSessionOptions,
 ): HostSession<C> {
   const key = `${opts.host}::${opts.binary}`;
-  let session = pool.get(key);
-  if (session === undefined) {
-    session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
-    pool.set(key, session);
+  const existing = pool.get(key);
+  // A pooled session that's already been `destroy()`-ed is INERT — its pump
+  // loop has exited and it never reconnects. Reusing it would hand a caller a
+  // dead session: `buildHostRegistry.remove()` destroys a host's session, so a
+  // later `add()` of the SAME host (via a `buildEntry` that calls
+  // `getHostSession`) would otherwise get back the destroyed instance and the
+  // re-added host would never reconnect. Treat a destroyed entry as absent:
+  // build a fresh session and replace the stale one in the pool.
+  if (existing !== undefined && !existing.isDestroyed()) {
+    return existing as HostSession<C>;
   }
+  const session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
+  pool.set(key, session);
   return session as HostSession<C>;
+}
+
+/** Drop a pooled session from the pool WITHOUT destroying it — the caller owns
+ *  the destroy (e.g. `buildHostRegistry.remove()` destroys the entry's session
+ *  itself, then evicts here so the key is free for a clean re-add). A no-op for
+ *  an unknown `(host, binary)`. Pairs with `getHostSession`, which also treats a
+ *  still-pooled-but-destroyed session as absent — so eviction is belt-and-
+ *  suspenders against a destroyed session lingering as a stale pool entry. */
+export function evictHostSession(host: string, binary: string): void {
+  pool.delete(`${host}::${binary}`);
 }
 
 /** Destroy every pooled session (e.g. on server shutdown). */

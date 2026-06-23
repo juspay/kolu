@@ -102,7 +102,12 @@ pulam-web: install
     set -euo pipefail
     export PULAM_AGENT_DRVS_JSON="${PULAM_AGENT_DRVS_JSON:-$(nix eval --raw .#pulamAgentDrvsJson)}"
     cd packages/pulam-web
-    {{ nix_shell }} bash -c 'pnpm dev:client & client=$!; pnpm dev:server; kill "$client" 2>/dev/null || true'
+    # Start Vite (client) in the background, then run the server in the
+    # foreground. An EXIT trap — armed the instant the client starts — kills it on
+    # ANY exit of this shell: a clean server stop, a non-zero server exit, OR a
+    # Ctrl+C / SIGTERM that would otherwise interrupt before a trailing `kill` ran
+    # and orphan the background Vite. The trap is the only reliable teardown.
+    {{ nix_shell }} bash -c 'pnpm dev:client & client=$!; trap "kill \"$client\" 2>/dev/null || true" EXIT; pnpm dev:server'
 
 # Run unit tests (vitest) across server and client packages
 test-unit: install

@@ -26,21 +26,21 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
-import { WebSocketServer } from "ws";
-import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   gateStaleSocket,
   installFreshStatic,
   startWsHeartbeat,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
+import { Hono } from "hono";
+import { WebSocketServer } from "ws";
 import {
   DEFAULT_PORT,
+  makeResolveDrvPath,
   PULAM_WEB_HOSTS_ENV,
   PULAM_WEB_KAVAL_SOCKETS_ENV,
-  makeResolveDrvPath,
   parsePort,
   readInitialHosts,
   readKavalSockets,
@@ -101,8 +101,13 @@ async function main(): Promise<void> {
   const app = new Hono();
 
   // `/api/hosts` — the client fetches this, then opens one ws per host. Returns
-  // the registry's live host set (insertion order preserved).
-  app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts() }));
+  // the registry's live host set (insertion order preserved) AND this server's
+  // `processId`, so the client can echo it as the `?pid=` stale-tab token on
+  // every per-host (re)connect. After a parent restart the live `processId`
+  // changes; a tab still carrying the OLD one is rejected by `gateStaleSocket`
+  // below (and retired client-side) instead of silently replaying onto a fresh
+  // instance. The first-ever connect omits `pid` and always passes.
+  app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
 
   // Serve the built Vite client. `PULAM_WEB_DIST_DIR` overrides the default
   // `../../dist` (relative to this file's runtime location), so the Nix wrapper

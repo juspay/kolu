@@ -26,7 +26,6 @@
  * knowledge stays in the app's `makeSink` / `buildEntry`.
  */
 
-import type { AnyContractRouter } from "@orpc/contract";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import {
   mirrorRemoteSurface,
@@ -34,6 +33,7 @@ import {
   type SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import type { AnyContractRouter } from "@orpc/contract";
 import type { AgentClient, HostSession } from "./hostSession";
 import { makeClientCursor } from "./waitForNextClient";
 
@@ -290,6 +290,21 @@ export function buildHostRegistry<C extends AnyContractRouter, H>(
   const entries = new Map<string, HostEntry<C, H>>();
   const socketsByHost = new Map<string, Set<ClosableSocket>>();
 
+  // Reject a duplicate in the seed list BEFORE building any entry. `Map.set`
+  // would otherwise silently collapse the second occurrence onto the first —
+  // but `buildEntry` has ALREADY run for it (started a pump, pinned a session),
+  // so a config typo (`PULAM_WEB_HOSTS=box,box`) would leak a second session's
+  // background reconnect loop under an overwritten map slot. Fail loud at the
+  // seam where the duplicate is introduced, before any side effect.
+  const seen = new Set<string>();
+  for (const host of opts.initialHosts) {
+    if (seen.has(host)) {
+      throw new Error(
+        `duplicate host in initialHosts: ${JSON.stringify(host)} — each host must appear once`,
+      );
+    }
+    seen.add(host);
+  }
   // Seed every configured host synchronously — `buildEntry` doesn't await
   // (the per-host probe lives inside the session's spawn cycle), so seeding
   // can't reject, and an unreachable boot host surfaces as a per-host `failed`

@@ -29,8 +29,8 @@
  * reactivity as the parent folds the mirror's deltas into its cache.
  */
 
-import { createSignal, For, type JSX, Show } from "solid-js";
 import type { AwarenessValue } from "@kolu/terminal-workspace/surface";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import { surfaceForHost } from "./wire.ts";
 
 /** The last path segment of `cwd` — the terminal's working dir at a glance.
@@ -88,9 +88,20 @@ export function HostGroup(props: { host: string }): JSX.Element {
               <For each={awareness.keys()}>
                 {(id) => {
                   const sub = awareness.byKey(id);
+                  // Render the value ONLY once the per-key subscription is no
+                  // longer pending — `sub.pending()` is the truthful loading
+                  // signal (true until the stream yields its first frame), NOT
+                  // `sub() === undefined`, which conflates pending / no-value /
+                  // error and bypasses the subscription's pending accessor (the
+                  // repo's sub()-as-loading-proxy rule). A key still registering
+                  // has no `sub` yet → also pending. The `when` accessor returns
+                  // the settled value (so the child reads it directly); per-key
+                  // errors already surface via the collection's `onError` above.
+                  const settled = (): AwarenessValue | undefined =>
+                    sub !== undefined && !sub.pending() ? sub() : undefined;
                   return (
                     <li class="overflow-hidden text-ellipsis whitespace-nowrap border-b border-[#161b22] px-3 py-1.5 text-[13px]">
-                      <Show when={sub?.()} fallback={<span>…</span>}>
+                      <Show when={settled()} fallback={<span>…</span>}>
                         {(value) => <span>{describe(value())}</span>}
                       </Show>
                     </li>

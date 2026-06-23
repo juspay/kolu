@@ -9,16 +9,19 @@
 
 import { createResource, For, type JSX, Show } from "solid-js";
 import { HostGroup } from "./HostGroup.tsx";
+import { rememberServerProcessId } from "./wire.ts";
 
-/** Fetch the parent's static host set. Fails LOUD on a non-2xx or a malformed
- *  body (no fallback to an empty list — a broken host API is a real error the
- *  user must see, not a silently-empty fleet). */
+/** Fetch the parent's static host set + this server's `processId`, and remember
+ *  the `processId` for the stale-tab `?pid=` echo BEFORE returning (so it's set
+ *  before any `<HostGroup>` opens a socket — see `wire.ts`). Fails LOUD on a
+ *  non-2xx or a malformed body (no fallback to an empty list — a broken host API
+ *  is a real error the user must see, not a silently-empty fleet). */
 async function fetchHosts(): Promise<string[]> {
   const res = await fetch("/api/hosts");
   if (!res.ok) {
     throw new Error(`GET /api/hosts failed: ${res.status} ${res.statusText}`);
   }
-  const body = (await res.json()) as { hosts?: unknown };
+  const body = (await res.json()) as { hosts?: unknown; processId?: unknown };
   if (
     !Array.isArray(body.hosts) ||
     body.hosts.some((h) => typeof h !== "string")
@@ -27,6 +30,15 @@ async function fetchHosts(): Promise<string[]> {
       "GET /api/hosts: malformed body (expected { hosts: string[] })",
     );
   }
+  if (typeof body.processId !== "string" || body.processId.length === 0) {
+    throw new Error(
+      "GET /api/hosts: malformed body (expected a non-empty processId)",
+    );
+  }
+  // Seed the stale-tab echo before any host socket opens. The render order
+  // (this resource resolves → `<HostGroup>` renders → `surfaceForHost`) makes
+  // this strictly-before-first-connect.
+  rememberServerProcessId(body.processId);
   return body.hosts as string[];
 }
 

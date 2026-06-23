@@ -107,6 +107,19 @@ export function readInitialHosts(env = process.env): string[] {
       `${PULAM_WEB_HOSTS_ENV}: invalid host ${JSON.stringify(bad)} — a host must contain no whitespace and not start with '-' (a leading '-' is parsed by ssh as an option).`,
     );
   }
+  // Reject a duplicate at THIS boundary, naming the env var — clearer than the
+  // generic registry error `buildHostRegistry` would throw on the same list.
+  // `PULAM_WEB_HOSTS=box,box` is a typo, not "two of the same box": each host
+  // maps to one session, so a duplicate would only start a redundant pump.
+  const seen = new Set<string>();
+  for (const h of hosts) {
+    if (seen.has(h)) {
+      throw new Error(
+        `${PULAM_WEB_HOSTS_ENV}: duplicate host ${JSON.stringify(h)} — list each host once.`,
+      );
+    }
+    seen.add(h);
+  }
   return hosts;
 }
 

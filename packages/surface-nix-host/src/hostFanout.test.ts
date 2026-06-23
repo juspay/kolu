@@ -62,6 +62,30 @@ describe("buildHostRegistry", () => {
     expect(persist).not.toHaveBeenCalled();
   });
 
+  it("rejects a DUPLICATE in the seed before building any entry (F6)", () => {
+    // A duplicate would otherwise `Map.set`-collapse onto the first AFTER
+    // `buildEntry` already started a pump/pinned a session for it — a leaked
+    // background loop for a config typo. The throw must fire before any
+    // `buildEntry` side effect.
+    const built = new Map<string, HostEntry<AnyContractRouter, Handler>>();
+    expect(() =>
+      buildHostRegistry<AnyContractRouter, Handler>({
+        initialHosts: ["alpha", "beta", "alpha"],
+        buildEntry: (host) => {
+          const entry: HostEntry<AnyContractRouter, Handler> = {
+            session: fakeSession(),
+            handler: { id: host },
+          };
+          built.set(host, entry);
+          return entry;
+        },
+      }),
+    ).toThrow(/duplicate host.*alpha/);
+    // The duplicate is rejected up front (before the build loop), so NO entry —
+    // and thus no pump/pinned session — was created for any host.
+    expect(built.size).toBe(0);
+  });
+
   it("add() builds an entry, persists the full set, and rejects duplicates", async () => {
     const { registry, persist } = harness(["alpha"]);
     await registry.add("beta");

@@ -570,13 +570,22 @@ let
     '';
   };
 
+  # Launched as `node --import <tsx loader> main.ts`, NOT `tsx main.ts`: the tsx
+  # CLI forks a child, and that fork does NOT relay SIGTERM/SIGINT to the long-
+  # lived server — so its `shutdown` handler (destroy host sessions, stop the
+  # heartbeat, close the WS server + sockets) would be skipped and it would leak
+  # ssh subprocesses + sockets on stop, exactly the failure `kaval`/`pulam`'s
+  # wrappers use the single-process loader form to avoid. openssh + nix + git + gh
+  # are on PATH for the per-host provision (resolveSystem's ssh arch-probe +
+  # provisionAgent's `nix copy`/`nix-store`, and the awareness sensors' git/gh).
   pulam-web = pkgs.runCommand "pulam-web"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
       meta.mainProgram = "pulam-web";
     } ''
     mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/pulam-web \
+    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/pulam-web \
+      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
       --add-flags "${kolu}/packages/pulam-web/src/server/main.ts" \
       --set PULAM_WEB_DIST_DIR "${pulamWebDist}/dist" \
       --set PULAM_AGENT_DRVS_JSON '${pulamAgentDrvsJson}' \

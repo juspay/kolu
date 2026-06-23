@@ -11,13 +11,13 @@
  * partial mock spreads the actual module).
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResolveDrvError } from "@kolu/surface-nix-host";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   makeResolveDrvPath,
-  parsePort,
   PULAM_AGENT_DRVS_ENV,
   PULAM_WEB_KAVAL_SOCKETS_ENV,
+  parsePort,
   readInitialHosts,
   readKavalSockets,
 } from "./config.ts";
@@ -63,7 +63,7 @@ describe("makeResolveDrvPath", () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(ResolveDrvError);
-    expect((err as ResolveDrvError).cause).toBe("remote");
+    expect((err as ResolveDrvError).failureCause).toBe("remote");
     expect((err as Error).message).toContain("aarch64-darwin");
     expect((err as Error).message).toContain("x86_64-linux"); // names what IS baked
   });

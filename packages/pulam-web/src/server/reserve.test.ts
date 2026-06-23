@@ -29,16 +29,14 @@
  * re-notifies, keys become {B}. That re-notify is the proof.
  */
 
-import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
 import { directLink } from "@kolu/surface/links/direct";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import { surfaceClient } from "@kolu/surface/solid";
 import {
   implementSurface,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
+import { surfaceClient } from "@kolu/surface/solid";
 import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import {
   type AwarenessValue,
@@ -46,6 +44,8 @@ import {
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
+import { createRoot } from "solid-js";
+import { afterEach, describe, expect, it } from "vitest";
 import { type ArivuContract, buildReServe } from "./reserve.ts";
 
 // Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
@@ -258,12 +258,17 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
     const queue: Array<{ seq: number }> = [];
     let wake: (() => void) | null = null;
     let done = false;
+    let failure: Error | null = null;
     const surface = {
       subscribeRepoChange: {
         get: async (_input: { repoPath: string }) => ({
           async *[Symbol.asyncIterator]() {
             while (true) {
               while (queue.length > 0) yield queue.shift() as { seq: number };
+              // A link drop mid-stream surfaces as a THROW from the iterator —
+              // the F2 path. The forward must treat it like a clean end (hold +
+              // rebind), never let it kill the browser subscription.
+              if (failure !== null) throw failure;
               if (done) return;
               await new Promise<void>((r) => {
                 wake = r;
@@ -282,6 +287,12 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
       },
       end: () => {
         done = true;
+        wake?.();
+      },
+      /** The live link dropped mid-stream: the iterator THROWS instead of
+       *  completing — the F2 case the clean-end path doesn't cover. */
+      throwError: (message: string) => {
+        failure = new Error(message);
         wake?.();
       },
     };
@@ -337,5 +348,58 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
     await waitFor(() => seen.includes(2));
 
     expect(seen).toEqual([0, 1, 2]);
+  });
+
+  it("survives a remote stream ERROR (not just a clean end) — holds open and rebinds (F2)", async () => {
+    const reServe = buildReServe();
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browser = directLink<ArivuContract>(reServe.router as any);
+
+    const ac = new AbortController();
+    const seen: number[] = [];
+    let drainThrew: unknown = null;
+    const iterable = await browser.surface.subscribeRepoChange.get(
+      { repoPath: "/work/repo" },
+      { signal: ac.signal },
+    );
+    const drain = (async () => {
+      try {
+        for await (const pulse of iterable) seen.push(pulse.seq);
+      } catch (err) {
+        // The browser subscription must NOT throw on an upstream link blip —
+        // record it so the test fails loudly if F2's guard regresses.
+        drainThrew = err;
+      }
+    })();
+    disposers.push(() => {
+      ac.abort();
+      void drain.catch(() => {});
+    });
+
+    await waitFor(() => seen.includes(0));
+
+    // First spawn forwards a pulse, then its link DROPS mid-stream (the iterator
+    // throws, not a clean end).
+    const spawn1 = fakeClient();
+    reServe.liveClient.current = spawn1.client;
+    reServe.liveClient.onChange?.();
+    spawn1.pulse(1);
+    await waitFor(() => seen.includes(1));
+    spawn1.throwError("stdio link dropped");
+    reServe.liveClient.current = null;
+    reServe.liveClient.onChange?.();
+
+    // The next spawn appears: the forward must have HELD across the error and now
+    // REBINDS — its pulse flows through the SAME browser subscription.
+    const spawn2 = fakeClient();
+    reServe.liveClient.current = spawn2.client;
+    reServe.liveClient.onChange?.();
+    spawn2.pulse(2);
+    await waitFor(() => seen.includes(2));
+
+    expect(seen).toEqual([0, 1, 2]);
+    // The browser subscription stayed alive the whole time — the upstream error
+    // was swallowed as a link blip, never propagated.
+    expect(drainThrew).toBeNull();
   });
 });

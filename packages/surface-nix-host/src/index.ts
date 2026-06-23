@@ -9,9 +9,17 @@
 export { resolveSystem } from "./arch";
 export {
   type AgentDial,
-  dialAgentOnce,
   type DialAgentOnceOptions,
+  dialAgentOnce,
 } from "./dialAgentOnce";
+export {
+  buildAgentCommand,
+  buildSshProbeCommand,
+  forEachLine,
+  isLocalHost,
+  ResolveDrvError,
+  SSH_COMMON_OPTS,
+} from "./host";
 export {
   buildHostRegistry,
   type ClosableSocket,
@@ -25,17 +33,10 @@ export {
   pumpRemoteSurface,
 } from "./hostFanout";
 export {
-  buildAgentCommand,
-  buildSshProbeCommand,
-  forEachLine,
-  isLocalHost,
-  ResolveDrvError,
-  SSH_COMMON_OPTS,
-} from "./host";
-export {
   type AgentClient,
   type ConnectionState,
   destroyAllSessions,
+  evictHostSession,
   type FailureCause,
   getHostSession,
   HostSession,
