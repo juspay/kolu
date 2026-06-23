@@ -89,8 +89,9 @@ function makeSession(extra: Record<string, unknown> = {}) {
     resolveDrvPath: () => Promise.resolve("/nix/store/x-agent.drv"),
     binary: "agent",
     reconnectDelayMs: 50,
-    livenessIntervalMs: 15_000,
-    livenessTimeoutMs: 10_000,
+    // One `liveness` knob: tune the cadence as an object (the same 15s/10s the
+    // shared `DEFAULT_HEARTBEAT_*` constants default to), or `false` to disable.
+    liveness: { intervalMs: 15_000, timeoutMs: 10_000 },
     ...extra,
   });
 }

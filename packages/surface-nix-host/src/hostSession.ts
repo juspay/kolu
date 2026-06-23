@@ -174,16 +174,16 @@ export interface HostSessionOptions {
    *  round-trip completed — even an agent too old to answer `system.live` just
    *  degrades to today's no-watchdog behaviour), so only a true non-answer
    *  triggers a cycle. Probing is gated on `connected`, so the (possibly
-   *  minutes-long) copying/connecting window is never disturbed. */
-  liveness?: false;
-  /** Liveness probe interval while connected. Default `DEFAULT_HEARTBEAT_INTERVAL_MS`
-   *  (15s) — the SAME shared constant the browser leg uses, so the cadence is
-   *  pinned across legs by structure, not a comment. */
-  livenessIntervalMs?: number;
-  /** How long to wait for a liveness probe before declaring the link wedged and
-   *  force-cycling. Default `DEFAULT_HEARTBEAT_TIMEOUT_MS` (10s) — the same shared
-   *  constant. */
-  livenessTimeoutMs?: number;
+   *  minutes-long) copying/connecting window is never disturbed.
+   *
+   *  ONE knob — `false` to disable, or an object to tune — so the illegal "tune a
+   *  disabled watchdog" state is unrepresentable, and the ssh leg models the
+   *  watchdog knob the SAME way the browser legs' `HeartbeatConfig` does. The
+   *  `intervalMs`/`timeoutMs` default to the shared `DEFAULT_HEARTBEAT_*` constants
+   *  (15s/10s), so the cadence is pinned across legs by structure, not a comment.
+   *  (No `onStale`/`probe` here — those are partysocket-leg-only: the ssh leg's
+   *  on-stale action is fixed to `recheck()` and its probe to `system.live`.) */
+  liveness?: false | { intervalMs?: number; timeoutMs?: number };
 }
 
 /** The typed RPC client produced by a successful `acquire`/`pin`/
@@ -700,9 +700,13 @@ export class HostSession<C extends AnyContractRouter> {
    *  and the browser leg pin the same 15s/10s by structure, not a comment. */
   private startLiveness(): void {
     if (this.opts.liveness === false || this.liveness !== null) return;
+    // `liveness` is `false | { intervalMs?, timeoutMs? } | undefined`: an object
+    // tunes the cadence, anything else (undefined / the default) leaves it shared.
+    const tuning =
+      typeof this.opts.liveness === "object" ? this.opts.liveness : {};
     this.liveness = createHeartbeat({
-      intervalMs: this.opts.livenessIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
-      timeoutMs: this.opts.livenessTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
+      intervalMs: tuning.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+      timeoutMs: tuning.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
       isLive: () =>
         !this.destroyed &&
         this.stateCell.current().connection === "connected" &&
