@@ -1,0 +1,180 @@
+---
+title: pulam-web — the browser twin (kolu's surface-consumption leg, proven standalone)
+description: A browser ↔ Bun/Node ↔ ssh app (drishti's twin for the terminal-workspace surface) that proves kolu's exact browser-consumption leg before remote-terminals R8b — a live git-status view reaching a browser over websocketLink + surfaceClient + Solid reconcile, sourced from a mirrored pulam, auto-provisioned over ssh. Two phases — R4.8a hello-world (the leg in isolation), then R4.8b the full fleet + autoprovision + git-status proof. The runtime is immaterial (the surface leg is identical @kolu/surface code on Bun or Node); reuse drishti wholesale.
+parents: [pulam, feature]
+status: proposed
+maturity: seedling
+updated: 2026-06-22
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import D2 from "../../components/D2.astro";
+import Pill from "../../components/Pill.astro";
+
+**pulam-web is [drishti](electricity.html)'s twin, pointed at the terminal-workspace surface.** Where drishti monitors per-host *processes* in a browser, pulam-web monitors per-host *terminals* — the fleet you already see in `pulam-tui`, but in a browser, **auto-provisioned over ssh**. It exists for one engineering reason on top of being a real product: it is **kolu's own browser-consumption leg, minus kolu** — `websocketLink` → `surfaceClient` → Solid `reconcile` — so it graduates the path [remote-terminals **R8b**](remote-terminals.html#r8) is blocked on, in a build whose console you can actually see.
+
+## User-facing description
+
+export const UIPAL = { txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", red: "#e06c75", violet: "#a78bfa" };
+
+export const GitCell = ({ s, m, u, ahead, behind, clean }) => (
+  <span style="display:inline-flex;align-items:center;gap:.5ch;font-size:.82em">
+    {clean
+      ? <span style={`color:${UIPAL.green}`}>✓ clean</span>
+      : <>
+          {s ? <span style={`color:${UIPAL.green}`}>●{s}</span> : null}
+          {m ? <span style={`color:${UIPAL.amber}`}>✎{m}</span> : null}
+          {u ? <span style={`color:${UIPAL.dim}`}>?{u}</span> : null}
+        </>}
+    {(ahead || behind) ? <span style={`color:${UIPAL.sub}`}>{ahead ? `↑${ahead}` : ""}{behind ? `↓${behind}` : ""}</span> : null}
+  </span>
+);
+
+export const FRow = ({ agent, repo, branch, s, m, u, ahead, behind, clean, sel, state }) => (
+  <div style={`display:flex;align-items:center;gap:.6rem;padding:.28rem .5rem;border-radius:6px;${sel ? `background:rgba(167,139,250,.14);border:1px solid rgba(167,139,250,.4)` : "border:1px solid transparent"}`}>
+    <span style={`color:${state === "need" ? UIPAL.amber : state === "work" ? UIPAL.cyan : UIPAL.dim};width:1.2ch`}>{state === "need" ? "●" : state === "work" ? "◜" : "○"}</span>
+    <span style={`color:${UIPAL.txt};width:6ch;flex:none`}>{agent}</span>
+    <span style={`color:${UIPAL.sub};flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`}>{repo} <span style={`color:${UIPAL.dim}`}>· {branch}</span></span>
+    <GitCell s={s} m={m} u={u} ahead={ahead} behind={behind} clean={clean} />
+  </div>
+);
+
+export const PulamWebUI = () => (
+  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;box-shadow:0 12px 36px rgba(0,0,0,.45);max-width:46rem">
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .7rem;background:#0b0d12;border-bottom:1px solid #222838">
+      <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#27c93f"></span>
+      <span style="margin-left:.5rem;flex:1;background:#161922;border:1px solid #2a2f3a;border-radius:6px;padding:.16rem .6rem;color:#6b7488;font-size:.8em">pulam.local — every terminal, every host</span>
+      <span style="color:#5b6678;font-size:.78em">⟳ live</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:.4rem;padding:.4rem .7rem;background:#0d0f15;border-bottom:1px solid #1c2231">
+      <span style="color:#5b6678;font-size:.78em;margin-right:.15rem">hosts</span>
+      <span style="display:inline-flex;align-items:center;gap:.4ch;padding:.16rem .55rem;border-radius:6px;background:rgba(126,198,153,.13);border:1px solid rgba(126,198,153,.4);color:#c8d0de;font-size:.8em"><span style="width:6px;height:6px;border-radius:50%;background:#7ec699"></span>local</span>
+      <span style="display:inline-flex;align-items:center;gap:.4ch;padding:.16rem .55rem;border-radius:6px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.4);color:#c8d0de;font-size:.8em"><span style="width:6px;height:6px;border-radius:50%;background:#a78bfa"></span>nix@prod <span style="color:#7fb0ff;border:1px solid #38507a;border-radius:3px;padding:0 .3ch;font-size:.85em">ssh</span></span>
+      <span style="display:inline-flex;align-items:center;gap:.4ch;padding:.16rem .55rem;border-radius:6px;color:#5b6678;font-size:.8em"><span style="width:6px;height:6px;border-radius:50%;background:#e6a23c"></span>staging <span style="font-size:.8em;color:#7a5a24">copying…</span></span>
+      <span style="color:#3f4858;font-size:.8em">+ host</span>
+    </div>
+    <div style="display:flex">
+      <div style="flex:1;min-width:0;padding:.5rem .55rem">
+        <div style="color:#a78bfa;font-size:.78em;padding:0 .45rem .15rem">▌ zest <span style="color:#5b6678">· 3</span></div>
+        <FRow agent="claude" repo="kolu" branch="feat/dial-ssh" s={2} m={3} ahead={2} state="need" sel />
+        <FRow agent="codex" repo="drishti" branch="master" clean state="work" />
+        <FRow agent="claude" repo="anyforge" branch="fix/checks" m={1} u={4} behind={1} state="work" />
+        <div style="color:#a78bfa;font-size:.78em;padding:.4rem .45rem .15rem">▌ nix@prod <span style="color:#5b6678">· 2 · ssh</span></div>
+        <FRow agent="claude" repo="infra" branch="deploy" m={2} state="work" />
+        <FRow agent="—" repo="notes" branch="main" clean state="idle" />
+      </div>
+      <div style="width:15rem;flex:none;border-left:1px solid #1c2231;padding:.55rem .6rem;background:#0c0e14">
+        <div style="color:#aeb7c7;font-weight:600;font-size:.82em">kolu · feat/dial-ssh</div>
+        <div style="color:#5b6678;font-size:.76em;margin:.1rem 0 .5rem">↑2 ahead of origin/feat/dial-ssh</div>
+        <div style="display:flex;gap:.7rem;font-size:.78em;margin-bottom:.4rem">
+          <span style="color:#7ec699">●2 staged</span><span style="color:#e6a23c">✎3 modified</span>
+        </div>
+        <div style="font-size:.76em;color:#8b94a6;line-height:1.7">
+          <div><span style="color:#7ec699">A</span> packages/server/src/ssh.ts</div>
+          <div><span style="color:#7ec699">M</span> packages/server/src/wire.ts</div>
+          <div><span style="color:#e6a23c">M</span> packages/client/src/Code.tsx</div>
+          <div><span style="color:#e6a23c">M</span> docs/atlas/.../pulam.mdx</div>
+          <div><span style="color:#e6a23c">M</span> flake.nix</div>
+        </div>
+        <div style="color:#3f4858;font-size:.72em;margin-top:.5rem">↵ open · esc close · live</div>
+      </div>
+    </div>
+  </div>
+);
+
+<PulamWebUI />
+
+Leave it open on a second monitor: a **fleet of every terminal across every host**, grouped by host, each row a live **git-status cell** (`●staged ✎modified ?untracked ↑ahead↓behind`). Click a row and a **drill-in pane** shows that repo's full status — branch tracking, the staged/modified/untracked split, and the changed-file list — exactly `pulam-tui`'s view, in a browser. Hosts are **added on demand and auto-provisioned over ssh** (the `copying…` chip is the live provision state), so a teammate opens one URL and watches the whole fleet. It is `git status`, never file *content* — the changed-file **list**, not bodies or diffs (the same scope as R4.7).
+
+## Architecture-level changes
+
+<D2
+  caption="pulam-web is browser ↔ backend ↔ N pulam over ssh. The backend auto-provisions + mirrors each remote pulam (getHostSession + provisionAgent + mirrorRemoteSurface), wraps git status into a value-bearing stream server-side, and re-serves the aggregate to the browser over one /rpc/ws per host via oRPC's RPCHandler. The browser reads it through websocketLink + surfaceClient + Solid reconcile — the SAME @kolu/surface code kolu's own Code tab uses, which is why a green pulam-web proves kolu's R8b leg. Green = shipped @kolu/* primitives reused as-is; violet = the new pulam-web wiring."
+  code={`direction: down
+classes: {
+  cli: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
+  new: { style.fill: "#efebff"; style.stroke: "#d4cbff"; style.font-color: "#5a3ff0" }
+  ship: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+  host: { style.fill: "#f1f5f9"; style.stroke: "#e2e8f0"; style.font-color: "#475569" }
+}
+browser: "browser (SolidJS)\\nsurfaceClients(websocketLink) · .streams.use() + reconcile" { class: cli }
+be: "pulam-web backend (Bun or Node)\\nper-host RPCHandler.upgrade(ws) on /rpc/ws" { class: new }
+mirror: "per host: getHostSession + provisionAgent\\nmirrorRemoteSurface → value-bearing gitStatus wrap" { class: new }
+agg: "startFleet · FleetSink · RepoWatchSet\\n(pulam-tui core, renderer-agnostic)" { class: ship }
+pulam1: "pulam (host A) — terminal-workspace surface" { class: host }
+pulam2: "pulam (host B) — terminal-workspace surface" { class: host }
+browser -> be: "ws · oRPC (kolu's exact leg)"
+be -> mirror: serves
+mirror -> agg: reuses
+mirror -> pulam1: "ssh stdio · nix copy --derivation"
+mirror -> pulam2: "ssh stdio"
+`}
+/>
+
+**It is the same `@kolu/surface` code kolu and drishti run — that is the whole point.** Serve side: `implementSurface` → oRPC `RPCHandler` (`@orpc/server/ws`) → `handler.upgrade(ws)` on a `/rpc/ws` socket. Consume side: `websocketLink` → `surfaceClient`/`surfaceClients` → the reactive `.use()` hooks (`surfaceClient.ts` owns snapshot-then-deltas + `reconcile`). drishti proves this trio is electricity; kolu's Code tab proves `.streams.use()` for a **value-bearing** `gitStatus` stream. pulam-web is the first *standalone* app to put those together — value-bearing git status, over `.streams.use()`, **sourced from a mirror** — which is precisely R8b's path.
+
+**The runtime is immaterial — reuse drishti's stack.** The surface leg is identical on Bun or Node (drishti even writes its server Node-style — `@hono/node-server` + the `ws` package — and runs it on Bun *only* for its `Bun.build` client bundler). kolu-server is pure Node and serves the same way. So pulam-web copies drishti's template wholesale (Bun bundler + bun2nix packaging — least work, since pulam-web *is* drishti's shape); a Node + Vite client is equally faithful if preferred. **There is no `serveOverWebSocket` helper** — the ~18-line ws-serve block is copied from the surface example (`packages/surface/example/src/server/main.ts:94-111`) or kolu-server (`packages/server/src/index.ts:427-510`).
+
+<Callout kind="note" title="The design fork R8b rides on — resolve it here, grounded">
+Two ways git status reaches a browser. **Design A** (what #1510 did, and stuck): ship terminal-workspace's raw `{seq}` pulse to the browser and re-query `getStatus` client-side via `useWatchedRead`. **Design B** (what `koluSurface` *already* does — `packages/server/src/surface.ts:271-277`, `{read:getStatus, install:subscribeRepoChange, isEqual}` — and the Code tab proves daily): wrap it into one **value-bearing** stream *server-side*; the browser consumes an ordinary value-bearing stream via `.streams.use()`. **Lead: Design B.** For a remote host the backend wraps the **mirrored** `subscribeRepoChange` + **forwarded** `getStatus` (R7) into that value-bearing stream — so the raw `{seq}` pulse never crosses to the browser, and the "ungraduated primitive" dissolves as an artifact of A. pulam-web confirms B end-to-end from a mirrored source; that becomes R8b's recipe.
+</Callout>
+
+## Implementation details
+
+Three steps, cheapest-first. **Step 0 graduates the riskiest piece — the reactive stream consumer — in drishti**, the tool that already has the browser ⇄ ssh ⇄ mirror stack. **R4.8a** then proves the full leg in isolation (a failure has nowhere to hide); **R4.8b** builds the real product on top. R8b is gated on **R4.8b**.
+
+### Step 0 (in drishti) — graduate the reactive stream consumer
+
+Before pulam-web exists, prove its riskiest piece — **`.streams.use()` + Solid `reconcile` for a *mirrored, value-bearing* stream** — where the browser ⇄ ssh ⇄ mirror stack already runs: **drishti**. drishti's `processesSnapshot` (a value-bearing snapshot-then-delta stream it mirrors per host, `packages/common/src/surface.ts:279`) is consumed today **imperatively** — `streamCall(app.rpc.surface.processesSnapshot.get)` + `for await` + a teardown controller (`packages/app/src/client/App.tsx:749,879`). Switch that one call site to **`app.streams.processesSnapshot.use(() => ({}))`** + render `.value()`. That proves the exact R8b consumer — a mirrored value-bearing stream → re-served → browser `.streams.use()` + `reconcile` — in a real browser with a visible console, and *deletes* the hand-rolled controller. It is the **R7 pattern again** (drishti graduated forwarded procedures via "Kill process"; here it graduates the reactive *stream* consumer via its process list) — a genuine drishti improvement (declarative replacing imperative), not a throwaway. **It de-risks the consumer; the git-status wrap (Design B) and the fleet UI stay pulam-web's.** A drishti PR, gating R4.8a.
+
+### R4.8a — pulam-web "hello world" (the leg, in isolation)
+
+The smallest end-to-end loop: **browser ↔ backend ↔ ONE pulam, ONE live value over `/rpc/ws`.** No fan-out, no autoprovision yet (dial a *local* pulam over its unix socket via `connectArivu`, or one host). ~5 files, all patterned on the surface example + drishti's `wire.ts`:
+
+1. **`shared/surface.ts`** — import `terminalWorkspaceSurface` from `@kolu/terminal-workspace/surface` (don't redefine); or, for the very first smoke, its `version` cell alone.
+2. **`server/router.ts`** — `implementSurface(surface, …)` → `implement(contract).router({...fragment.router})`; mirror one pulam with `mirrorRemoteSurface(surface, conn.client, sinks)` and publish a **value-bearing `gitStatus`** wrap (`read:getStatus, install:subscribeRepoChange, isEqual`) onto the local fragment.
+3. **`server/main.ts`** — copy the ~18-line ws-serve block (`@hono/node-server` `serve` + `new WsRPCHandler(router)` + `WebSocketServer({noServer:true})` + `server.on("upgrade", …)` on `/rpc/ws`, gated by `gateWsOrigin`).
+4. **`client/wire.ts`** — copy `packages/client/src/wire.ts:39-79`: `websocketLink<contract>(ws)` → `surfaceClients(link, surfaces)`.
+5. **`client/App.tsx`** — `app.streams.gitStatus.use(() => ({ repoPath }))` and render `.value()`. **This `.use()` + `reconcile` hook is the leg — not `pulam-tui`'s raw `mirrorRemoteSurface` loop, not drishti's `for await` `streamCall`.**
+
+**Done when:** the rendered value updates live in the browser within ~1s of a `touch`/`git add`, over the **real ws** (not directLink) — captured as evidence.
+
+### R4.8b — the full fleet (the R8b proof + the product)
+
+Builds on R4.8a's proven loop:
+
+- **Fan-out + autoprovision** — per host, `getHostSession({ binary:"pulam", … })` + `provisionAgent` (drishti's `hostRegistry.ts` + pulam-tui's `connectArivuViaHost` are the templates), keyed in a `Map<host,{session,handler}>`, one `/rpc/ws?host=<id>` per host. Surface the `copying→connecting→connected` lifecycle to the browser via a `connection` cell (drishti's `router.ts:221-228`).
+- **Aggregation reused** — drive `startFleet({ hosts, connect, sink, log })` with a `FleetSink` implemented over a SolidJS `createStore` (the core is renderer-agnostic by construction — `fleet.ts:6-7`; `RepoWatchSet` and the `(host,terminalId)` keying come free). Replace only `fleet.tsx` (the OpenTUI renderer) with web DOM.
+- **The git-status view** — the value-bearing stream from the fork above, consumed via `.streams.use()`; render the row cell + drill-in by porting `pulam-tui`'s pure `gitCell`/`gitDetail` projections (`render.ts`) to DOM.
+
+<Callout kind="warn" title="The trap — three consumers, only one is kolu's">
+`pulam-tui` reads streams by **raw `mirrorRemoteSurface` iteration**; drishti reads streams by **raw `for await` over `streamCall`**. *Neither* exercises the `.streams.use()` + Solid `reconcile` hook — the path kolu's Code tab uses and #1510 stuck on. Copy drishti for the *backend mirror + provision + ws-serve* and for *cells/collections* (`.use()`), but the **git-status stream must go through `.streams.use()` + `reconcile`, value-bearing (Design B)** — that consumer is the reason pulam-web exists.
+</Callout>
+
+**Reuse map (verified on master / in `/home/srid/code/drishti`).**
+
+| Concern | Copy from | Note |
+| --- | --- | --- |
+| ws-serve (~18 lines) | `surface/example/src/server/main.ts:94-111` (or `server/src/index.ts:427-510`) | no `serveOverWebSocket` helper exists |
+| per-host mirror + re-serve | drishti `app/src/server/router.ts` (`implementSurface` + `bridgeAgentToParent` + `mirrorRemoteSurface`) | forwarded-procedure holder for R7 procs |
+| fan-out registry | drishti `app/src/server/hostRegistry.ts` (`Map<host,{session,handler}>`) | `?host=` upgrade dispatch |
+| autoprovision | `@kolu/surface-nix-host` `getHostSession`/`provisionAgent`; wrapper = `pulam-tui/src/hostConnect.ts:60-101` | pins `binary:"pulam"`, `PULAM_AGENT_DRVS_JSON` |
+| aggregation | `pulam-tui/src/fleet.ts` (`startFleet`, `FleetSink`, `RepoWatchSet`) | renderer-agnostic; replace `fleet.tsx` only |
+| projections | `pulam-tui/src/render.ts` (`gitCell`, `gitDetail`) | Solid-free, port to DOM |
+| browser bootstrap | drishti `app/src/client/wire.ts` + kolu `client/src/wire.ts:39-79` | `websocketLink` + `surfaceClients` |
+| bundler + nix | drishti `app/src/server/build.ts` (`buildSurfaceClient`), `default.nix`, `flake.nix` | Bun.build; bun2nix; hydrate `@kolu/*` from npins |
+
+**The hermetic test.** No in-memory `websocketLink` double exists (only `directLink`/`stdio`/unix-socket). Model on R7's `mirrorRemoteSurface.test.ts` (`implementSurface → directLink → consume`) **but drive it through `surfaceClient` + a Solid `reconcile` store**, asserting the reactive value re-notifies on the second delta. That catches a reconcile break deterministically; a ws-flush break only shows over a real socket — so **pulam-web over real ws is the full proof**, the unit test necessary-but-not-sufficient.
+
+**Definition of done.** (1) pulam-web's browser shows a live fleet git-status cell + drill-in updating within ~1s of a working-tree change, **video/screenshot over the real ws**. (2) The consumer is `.streams.use()` + `reconcile`, **value-bearing** — confirmed in code, not asserted. (3) Autoprovision works: adding a host shows `copying→connected` and its terminals appear. (4) The hermetic test is committed and green. (5) The note records the adopted design (A or B) and the exact wrap as **R8b's recipe**.
+
+<Callout kind="warn" title="Shared @kolu/surface* — drishti gate">
+`@kolu/surface`, `@kolu/surface-app`, `@kolu/surface-nix-host` are shared with [drishti](https://github.com/srid/drishti). pulam-web *consuming* them read-only needs no drishti PR — but any *API-facing* change to those packages requires a linked drishti PR with green CI (`.claude/rules/surface.md`). Design B + the reuse map above are all read-only consumption, so no gate is expected.
+</Callout>
+
+## History
+
+- **Planned** (2026-06-22) — branched out of [pulam](pulam.html)'s R4.8 once it grew two phases (hello-world + full) and its own UI. Grounded against `/home/srid/code/drishti` (the runtime is immaterial — same `@kolu/surface` leg; Bun is drishti's *bundler*, not a requirement; autoprovision is `getHostSession`+`provisionAgent`) and against `pulam-tui` (the `startFleet`/`FleetSink`/`RepoWatchSet` core is renderer-agnostic and reusable). Gates [remote-terminals R8b](remote-terminals.html#r8).
