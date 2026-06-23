@@ -13,6 +13,16 @@ export {
   type DialAgentOnceOptions,
 } from "./dialAgentOnce";
 export {
+  buildHostRegistry,
+  type ClosableSocket,
+  type HostEntry,
+  type HostRegistry,
+  type HostRegistryOptions,
+  type ProcedureHolder,
+  type PumpRemoteSurfaceOptions,
+  pumpRemoteSurface,
+} from "./hostFanout";
+export {
   buildAgentCommand,
   buildSshProbeCommand,
   forEachLine,
