@@ -13,41 +13,45 @@ import D2 from "../../components/D2.astro";
 import Pill from "../../components/Pill.astro";
 import Phase from "../../components/Phase.astro";
 
-**pulam-web is [drishti](electricity.html)'s twin, pointed at the terminal-workspace surface.** Where drishti monitors per-host *processes* in a browser, pulam-web monitors per-host *terminals* — the fleet you already see in `pulam-tui`, but in a browser, **auto-provisioned over ssh**. It exists for one engineering reason on top of being a real product: it is **kolu's own browser-consumption leg, minus kolu** — `websocketLink` → `surfaceClient` → Solid `reconcile` — so it graduates the path [remote-terminals **R-compose-2**](remote-terminals.html#r8) is blocked on, in a build whose console you can actually see.
+**pulam-web is [drishti](electricity.html)'s twin, pointed at the terminal-workspace surface.** Where drishti monitors per-host *processes* in a browser, pulam-web is an **agent dashboard** — a bird's-eye view of **every agent across every host, sorted by what needs you** (needs-you · working · idle), auto-provisioned over ssh. It's the `pulam-tui` fleet board, in a browser. And on top of being a real product, it earns its engineering keep: it is **kolu's own browser-consumption leg, minus kolu** — `websocketLink` → `surfaceClient` → Solid `reconcile` — so it graduates the path [remote-terminals **R-compose-2**](remote-terminals.html#r8) is blocked on, in a build whose console you can actually see.
 
 ## User-facing description
 
 export const UIPAL = { txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", red: "#e06c75", violet: "#a78bfa" };
 
-export const GitCell = ({ s, m, u, ahead, behind, clean }) => (
-  <span style="display:inline-flex;align-items:center;gap:.5ch;font-size:.82em">
-    {clean
-      ? <span style={`color:${UIPAL.green}`}>✓ clean</span>
-      : <>
-          {s ? <span style={`color:${UIPAL.green}`}>●{s}</span> : null}
-          {m ? <span style={`color:${UIPAL.amber}`}>✎{m}</span> : null}
-          {u ? <span style={`color:${UIPAL.dim}`}>?{u}</span> : null}
-        </>}
-    {(ahead || behind) ? <span style={`color:${UIPAL.sub}`}>{ahead ? `↑${ahead}` : ""}{behind ? `↓${behind}` : ""}</span> : null}
-  </span>
-);
+export const ARow = ({ agent, where, dirty, clean, state, when }) => {
+  const c = state === "need" ? UIPAL.amber : state === "work" ? UIPAL.cyan : UIPAL.dim;
+  const g = state === "need" ? "●" : state === "work" ? "◜" : "○";
+  const label = state === "need" ? "needs you" : state === "work" ? "working" : "idle";
+  return (
+    <div style={`display:flex;align-items:center;gap:.6rem;padding:.26rem .5rem;border-radius:6px;${state === "need" ? "background:rgba(230,162,60,.1);" : ""}`}>
+      <span class={state === "need" ? "pw-pulse" : state === "work" ? "pw-spin" : ""} style={`color:${c};width:1.3ch;flex:none`}>{g}</span>
+      <span style={`color:${UIPAL.txt};width:6.5ch;flex:none`}>{agent}</span>
+      <span style={`color:${UIPAL.sub};flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`}>{where}</span>
+      <span style={`color:${clean ? UIPAL.dim : UIPAL.amber};width:3.5ch;flex:none;font-size:.82em`}>{clean ? "✓" : `✎${dirty}`}</span>
+      <span style={`color:${c};width:8ch;flex:none;font-size:.85em`}>{label}</span>
+      <span style={`color:${UIPAL.dim};width:3.5ch;text-align:right;flex:none;font-size:.82em`}>{when}</span>
+    </div>
+  );
+};
 
-export const FRow = ({ agent, repo, branch, s, m, u, ahead, behind, clean, sel, state }) => (
-  <div style={`display:flex;align-items:center;gap:.6rem;padding:.28rem .5rem;border-radius:6px;${sel ? `background:rgba(167,139,250,.14);border:1px solid rgba(167,139,250,.4)` : "border:1px solid transparent"}`}>
-    <span style={`color:${state === "need" ? UIPAL.amber : state === "work" ? UIPAL.cyan : UIPAL.dim};width:1.2ch`}>{state === "need" ? "●" : state === "work" ? "◜" : "○"}</span>
-    <span style={`color:${UIPAL.txt};width:6ch;flex:none`}>{agent}</span>
-    <span style={`color:${UIPAL.sub};flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis`}>{repo} <span style={`color:${UIPAL.dim}`}>· {branch}</span></span>
-    <GitCell s={s} m={m} u={u} ahead={ahead} behind={behind} clean={clean} />
+export const Grp = ({ host, n, ssh, children }) => (
+  <div style="margin:.35rem 0 .1rem">
+    <div style="display:flex;gap:.4rem;align-items:center;font-size:.78em;padding:0 .45rem .12rem">
+      <span style="color:#a78bfa">▌</span><span style="color:#aeb7c7;font-weight:600">{host}</span>
+      <span style="color:#5b6678">· {n}</span>{ssh && <span style="color:#7fb0ff;border:1px solid #38507a;border-radius:3px;padding:0 .3ch;font-size:.82em">ssh</span>}
+    </div>
+    {children}
   </div>
 );
 
 export const PulamWebUI = () => (
-  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;box-shadow:0 12px 36px rgba(0,0,0,.45);max-width:46rem">
+  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;box-shadow:0 12px 36px rgba(0,0,0,.45);max-width:44rem">
     <div style="display:flex;align-items:center;gap:.5rem;padding:.45rem .7rem;background:#0b0d12;border-bottom:1px solid #222838">
       <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56"></span>
       <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e"></span>
       <span style="width:11px;height:11px;border-radius:50%;background:#27c93f"></span>
-      <span style="margin-left:.5rem;flex:1;background:#161922;border:1px solid #2a2f3a;border-radius:6px;padding:.16rem .6rem;color:#6b7488;font-size:.8em">pulam.local — every terminal, every host</span>
+      <span style="margin-left:.5rem;flex:1;background:#161922;border:1px solid #2a2f3a;border-radius:6px;padding:.16rem .6rem;color:#6b7488;font-size:.8em">pulam.local — every agent, every host</span>
       <span style="color:#5b6678;font-size:.78em">⟳ live</span>
     </div>
     <div style="display:flex;align-items:center;gap:.4rem;padding:.4rem .7rem;background:#0d0f15;border-bottom:1px solid #1c2231">
@@ -57,38 +61,44 @@ export const PulamWebUI = () => (
       <span style="display:inline-flex;align-items:center;gap:.4ch;padding:.16rem .55rem;border-radius:6px;color:#5b6678;font-size:.8em"><span style="width:6px;height:6px;border-radius:50%;background:#e6a23c"></span>staging <span style="font-size:.8em;color:#7a5a24">copying…</span></span>
       <span style="color:#3f4858;font-size:.8em">+ host</span>
     </div>
-    <div style="display:flex">
-      <div style="flex:1;min-width:0;padding:.5rem .55rem">
-        <div style="color:#a78bfa;font-size:.78em;padding:0 .45rem .15rem">▌ zest <span style="color:#5b6678">· 3</span></div>
-        <FRow agent="claude" repo="kolu" branch="feat/dial-ssh" s={2} m={3} ahead={2} state="need" sel />
-        <FRow agent="codex" repo="drishti" branch="master" clean state="work" />
-        <FRow agent="claude" repo="anyforge" branch="fix/checks" m={1} u={4} behind={1} state="work" />
-        <div style="color:#a78bfa;font-size:.78em;padding:.4rem .45rem .15rem">▌ nix@prod <span style="color:#5b6678">· 2 · ssh</span></div>
-        <FRow agent="claude" repo="infra" branch="deploy" m={2} state="work" />
-        <FRow agent="—" repo="notes" branch="main" clean state="idle" />
+    <div style="padding:.5rem .55rem .65rem">
+      <div class="pw-pulse" style="display:flex;align-items:center;gap:.5rem;margin:.1rem .1rem .45rem;padding:.32rem .55rem;border-radius:7px;background:rgba(230,162,60,.14);border:1px solid rgba(230,162,60,.42);color:#f0b860">
+        <span style="font-size:1.05em">●</span><span style="font-weight:600">2 agents need you</span><span style="color:#b9863a">— zest · nix@prod</span>
       </div>
-      <div style="width:15rem;flex:none;border-left:1px solid #1c2231;padding:.55rem .6rem;background:#0c0e14">
-        <div style="color:#aeb7c7;font-weight:600;font-size:.82em">kolu · feat/dial-ssh</div>
-        <div style="color:#5b6678;font-size:.76em;margin:.1rem 0 .5rem">↑2 ahead of origin/feat/dial-ssh</div>
-        <div style="display:flex;gap:.7rem;font-size:.78em;margin-bottom:.4rem">
-          <span style="color:#7ec699">●2 staged</span><span style="color:#e6a23c">✎3 modified</span>
-        </div>
-        <div style="font-size:.76em;color:#8b94a6;line-height:1.7">
-          <div><span style="color:#7ec699">A</span> packages/server/src/ssh.ts</div>
-          <div><span style="color:#7ec699">M</span> packages/server/src/wire.ts</div>
-          <div><span style="color:#e6a23c">M</span> packages/client/src/Code.tsx</div>
-          <div><span style="color:#e6a23c">M</span> docs/atlas/.../pulam.mdx</div>
-          <div><span style="color:#e6a23c">M</span> flake.nix</div>
-        </div>
-        <div style="color:#3f4858;font-size:.72em;margin-top:.5rem">↵ open · esc close · live</div>
+      <Grp host="zest" n="3 agents">
+        <ARow agent="claude" where="kolu · feat/dial-ssh   #1412 ✓" dirty={5} state="need" when="3s" />
+        <ARow agent="codex" where="drishti · master" clean state="work" when="0s" />
+        <ARow agent="claude" where="anyforge · fix/checks   #1408 ✗" dirty={5} state="work" when="4s" />
+      </Grp>
+      <Grp host="nix@prod" n="2 agents" ssh>
+        <ARow agent="claude" where="kolu · fix/heap-oom   #1427 ✓" dirty={2} state="need" when="9s" />
+        <ARow agent="claude" where="infra · deploy" dirty={2} state="work" when="1s" />
+      </Grp>
+      <div style="display:flex;gap:.4rem;align-items:center;font-size:.78em;padding:.3rem .45rem .1rem;color:#5b6678">
+        <span style="color:#a78bfa">▌</span><span style="color:#7c8395">staging</span><span style="color:#7a5a24">· provisioning…</span>
+      </div>
+      <div style="display:flex;gap:.8rem;align-items:center;margin:.5rem .15rem 0;padding-top:.42rem;border-top:1px solid #1c2231;font-size:.82em">
+        <span style="color:#94a3b8">showing <b style="color:#c8d0de">agents</b></span>
+        <span style="color:#475569">+ idle</span>
+        <span style="color:#475569">+ non-agent terminals</span>
+        <span style="color:#475569">+ sleeping</span>
+        <span style="margin-left:auto;color:#e6a23c">● 2 need you</span>
+        <span style="color:#56b6c2">◜ 3 working</span>
       </div>
     </div>
   </div>
 );
 
+<style>{`
+  .pw-pulse { animation: pwpulse 1.8s ease-in-out infinite; }
+  @keyframes pwpulse { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
+  .pw-spin { display:inline-block; animation: pwspin 1.1s linear infinite; transform-origin: 50% 54%; }
+  @keyframes pwspin { to { transform: rotate(360deg) } }
+`}</style>
+
 <PulamWebUI />
 
-Leave it open on a second monitor: a **fleet of every terminal across every host**, grouped by host, each row a live **git-status cell** (`●staged ✎modified ?untracked ↑ahead↓behind`). Click a row and a **drill-in pane** shows that repo's full status — branch tracking, the staged/modified/untracked split, and the changed-file list — exactly `pulam-tui`'s view, in a browser. Hosts are **added on demand and auto-provisioned over ssh** (the `copying…` chip is the live provision state), so a teammate opens one URL and watches the whole fleet. It is `git status`, never file *content* — the changed-file **list**, not bodies or diffs (the same scope as R4.7).
+Leave it open on a second monitor: **every agent across every host, sorted by what needs you.** A blocked agent (`awaiting_user`) floats to the top and a warm strip **breathes**, so a glance tells you *someone's waiting* before you've read a word; working agents spin cyan, idle ones sit dim. Each row carries its `repo · branch`, a compact **dirty/clean** mark, and how long it's been in that state. You don't care about terminals *not* running an agent, or sleeping ones — so they're **hidden by default**, with one-click toggles to fold them back in. Hosts are added on demand and auto-provisioned over ssh (the `provisioning…` row is the live state), so a teammate opens one URL and watches the whole fleet. The per-agent **git drill-in** — a live changed-file tree — is the one heavier piece; it's split out as **[R-pulamweb-4](#r-pulamweb-4)**.
 
 <Callout kind="note" title="What R-pulamweb-2 ships (this PR) vs the picture above">
 The screenshot + description above are the **R-pulamweb-3** target — the live **git-status cells** and the **drill-in** pane. **R-pulamweb-2** (<PrLink pr={1524} />, shipping now) stands up the *framework* beneath them: the whole pipeline — auto-provision · dial N pulam over ssh · mirror · fan-out · re-serve · browser-consume — rendering a **plain live terminal list grouped by host**, with **no git status and no drill-in yet**. It's proven end-to-end (a live two-host fleet across a Linux box **and a real macOS host**, over the live ws); the git cells + drill-in layer onto this proven framework in R-pulamweb-3.
@@ -168,18 +178,30 @@ R-pulamweb-2 stands up **everything hard** — auto-provision + dial N pulam ove
 
 <a id="r-pulamweb-3"></a>
 
-### R-pulamweb-3 — the user-facing features (live git status + drill-in) ◀ do next
+### R-pulamweb-3 — the agent dashboard ◀ do next
 
-<Phase id="R-pulamweb-3" name="features — live git status · drill-in" status="next" needs={["R-pulamweb-1", "R-pulamweb-2"]} blocks={["R-compose-2"]} links={[{ label: "repaint prep #1534", href: "https://github.com/juspay/kolu/issues/1534" }, { label: "deselect #1533", href: "https://github.com/juspay/kolu/issues/1533" }]} />
+<Phase id="R-pulamweb-3" name="agent dashboard — agents by state" status="next" needs={["R-pulamweb-2"]} blocks={["R-pulamweb-4"]} />
 
-The framework (R-pulamweb-2) and the reactive consumer (R-pulamweb-1) are proven, so R-pulamweb-3 is **two features on the pipeline** — and #1510 showed the work is the *renderer*, not the data.
+The dashboard you actually want — *every agent across the fleet, sorted by what needs you* — has **nothing to build underneath it.** The state you sort by (`awaiting_user · working · idle`) already lives in the `awareness` collection R-pulamweb-2 consumes (`AgentInfoSchema`, `terminal-workspace/schema.ts:54`; `HostGroup.tsx:49` reads `value.agent` today), and `pulam-tui` already has the state-bucketing, needs-you-first sort, and colour map (`render.ts:79-201`, renderer-agnostic). So R-pulamweb-3 is a **render / sort / filter layer** — **no surface change, no `@pierre/trees`, nothing gated**:
 
-- **The git-status cell — the easy half.** `gitStatus` is value-bearing (each frame *is* the full status), so serve it as one stream and consume via **`.streams.use()` read fine-grained** — read its fields off the subscription, never coarse-read-and-copy (R-pulamweb-1's rule, or same-shape frames coalesce). Port `pulam-tui`'s `gitCell` / `gitDetail` projections + `RepoWatchSet` (`render.ts` / `fleet.ts`, renderer-agnostic) to web DOM.
-- **The live file tree — the hard half, and the whole point.** Where the discarded #1510 spent months, and the block was the **renderer, not the data**: `@pierre/trees` swallows the first emit after a re-subscribe, so a live change into a *mounted* tree updates the model but never repaints. So render the git view into a **persistently-mounted** tree (mirror kolu's Code tab, not a throwaway list) and **prove it repaints** — carrying the prep in **[#1534](https://github.com/juspay/kolu/issues/1534)** (the `@pierre/trees` patch · keep-mounted-on-empty · a `reconcile`-into-store write), and watching for the deselect bug **[#1533](https://github.com/juspay/kolu/issues/1533)**.
+- **Sort by what needs you** — port pulam-tui's bucket + sort: a blocked agent (`awaiting_user`) floats to the top with a breathing alert strip; working spins cyan; idle sits dim. Per row: `repo · branch`, a dirty/clean mark (from `awareness.git`), the state, and how long it's been there.
+- **Agents, not terminals** — show only terminals running an agent by default; one-click toggles fold in idle agents, non-agent terminals, and sleeping ones.
 
-**Done when** a live git cell + drill-in update within ~1s of a working-tree change over the real ws (**video**), and the hermetic test asserts a **DOM repaint of a *mounted* tree on a same-shape change** — not just a store re-notify. That repaint proof is exactly what R-compose-2 inherits.
+**Done when** the browser shows the live agent dashboard across the fleet — blocked agents floated and breathing, states colour-coded, updating live over the real ws (**video**), with the toggles working. No file tree yet — that's R-pulamweb-4.
 
-**Reuse map — how the framework (R-pulamweb-1/2) was built** (grounded against installed code + `/home/srid/code/drishti`). *Shared* = consumed from the surface family, not copied; *app-local* = pulam-web's own. The only row R-pulamweb-3 adds is the last (git cells + drill-in); everything else here already shipped.
+<a id="r-pulamweb-4"></a>
+
+### R-pulamweb-4 — the live git drill-in (file tree)
+
+<Phase id="R-pulamweb-4" name="git drill-in — live changed-file tree" status="todo" needs={["R-pulamweb-3"]} blocks={["R-compose-2"]} links={[{ label: "repaint prep #1534", href: "https://github.com/juspay/kolu/issues/1534" }, { label: "deselect #1533", href: "https://github.com/juspay/kolu/issues/1533" }]} />
+
+The one heavier piece: clicking an agent **drills in to its live changed-file tree** — the file tree, like kolu's Code tab, not just `git status` text. This is the part that needs the renderer work, and it is **the exact leg R-compose-2 inherits** (which is why it, not the dashboard, gates R-compose-2).
+
+The *data* is easy — `gitStatus` is value-bearing, so consume via `.streams.use()` read fine-grained and reuse `pulam-tui`'s `gitDetail`. The **renderer** is the hard part: the discarded #1510 spent months here, and the block was `@pierre/trees` swallowing the first emit after a re-subscribe — a live change into a *mounted* tree updates the model but never repaints. So R-pulamweb-4 renders into a **persistently-mounted** tree and **proves it repaints**, carrying the prep in **[#1534](https://github.com/juspay/kolu/issues/1534)** (the `@pierre/trees` patch · keep-mounted-on-empty · a `reconcile`-into-store write) and watching for the deselect bug **[#1533](https://github.com/juspay/kolu/issues/1533)**.
+
+**Done when** the drill-in's file tree updates within ~1s of a working-tree change over the real ws (**video**), and the hermetic test asserts a **DOM repaint of a mounted tree on a same-shape change** — not just a store re-notify. That repaint proof is what R-compose-2 backing-swaps onto.
+
+**Reuse map — how the framework (R-pulamweb-1/2) was built** (grounded against installed code + `/home/srid/code/drishti`). *Shared* = consumed from the surface family, not copied; *app-local* = pulam-web's own. The rows R-pulamweb-3/4 add are the last (agent-state cells, then the drill-in); everything else here already shipped.
 
 | Concern | Source | Note |
 | --- | --- | --- |
@@ -190,12 +212,13 @@ The framework (R-pulamweb-2) and the reactive consumer (R-pulamweb-1) are proven
 | autoprovision + dial | **shared** `@kolu/surface-nix-host` `getHostSession` (+ `resolveSystem`) | dial template = `pulam-tui/src/hostConnect.ts`; pins `binary:"pulam"`, `PULAM_AGENT_DRVS_JSON`. Provisioning lives *inside* the session's reconnect cycle — no hand-rolled `provisionAgent` call |
 | browser bootstrap | drishti `app/src/client/wire.ts` (pattern) | one `surfaceClient(terminalWorkspaceSurface, websocketLink(ws?host=))` per host (`@kolu/surface/solid` + `@kolu/surface/links/websocket`) |
 | serve the bundle | **shared** `installFreshStatic` (`@kolu/surface-app/server`) | the same fresh-static contract kolu-server uses |
-| `fleet.ts` / `render.ts` (`gitCell`, `gitDetail`, `RepoWatchSet`) | `pulam-tui` — **R-pulamweb-3** | git cells + drill-in; renderer-agnostic core ports then, not now |
+| `render.ts` (state buckets · sort · `gitCell`) | `pulam-tui` — **R-pulamweb-3** | the agent rows + needs-you-first sort + dirty/clean cell; renderer-agnostic, ports to web |
+| `render.ts` / `fleet.ts` (`gitDetail`, `RepoWatchSet`) | `pulam-tui` — **R-pulamweb-4** | the live file-tree drill-in |
 | bundler + nix | **Vite + `vite-plugin-solid`** (kolu's `packages/client` toolchain), Node | in-repo package: `@kolu/*` are **workspace deps** (no npins); nix derivation + flake/justfile wiring modeled on `packages/client` |
 
 **The hermetic test.** No in-memory `websocketLink` double exists (only `directLink`/`stdio`/unix-socket). Model on R7's `mirrorRemoteSurface.test.ts`: stand up a real `terminalWorkspaceSurface` agent via `implementSurface`, connect it with `directLink`, drive pulam-web's `buildReServe` fold path (the mirror sink) with that client, then consume the **re-served** surface through a second `surfaceClient` + a Solid `reconcile` store — asserting the re-served value re-notifies on the second delta (agent → mirror → re-serve → browser-store). `buildReServe` is split so the mirror step takes an injected client, which is exactly what makes it driveable without ssh. Per **R-pulamweb-1's correction**, R-pulamweb-3's value-bearing git-status consumer must read **fine-grained** and the test must drive a **same-shape** second frame (the coalescing regression a coarse copy-into-store silently drops); R-pulamweb-2's awareness consumer asserts the simpler key re-notify. That catches a coalescing/reconcile break deterministically; a ws-flush break only shows over a real socket — so **pulam-web over real ws is the full proof**, the unit test necessary-but-not-sufficient.
 
-**Definition of done — by phase.** **R-pulamweb-1 (drishti):** ✅ shipped ([drishti #72](https://github.com/srid/drishti/pull/72)) — `processesSnapshot` rendered live via `createSubscription` + `reduce`, read fine-grained, guarded by a same-shape-delta regression test. **R-pulamweb-2:** a live terminal list across N auto-provisioned hosts over the real ws — the *framework*, no features. **R-pulamweb-3:** a live git-status cell + drill-in updating within ~1s of a working-tree change (**video/screenshot over the real ws**), the consumer confirmed *in code* as `.streams.use()` read fine-grained + `reconcile`, the **file tree repainting on a same-shape change** (DOM, not just store) with #1510's `@pierre/trees` patch carried, the hermetic test green, and the recipe recorded for **R-compose-2**.
+**Definition of done — by phase.** **R-pulamweb-1 (drishti):** ✅ shipped ([drishti #72](https://github.com/srid/drishti/pull/72)) — `processesSnapshot` rendered live via `createSubscription` + `reduce`, read fine-grained, guarded by a same-shape-delta regression test. **R-pulamweb-2:** a live terminal list across N auto-provisioned hosts over the real ws — the *framework*, no features. **R-pulamweb-3 (◀ next):** the live **agent dashboard** across the fleet — blocked agents floated + breathing, states colour-coded, the toggles working, updating live over the real ws (**video**); no file tree, nothing gated. **R-pulamweb-4:** the drill-in's file tree **repaints on a same-shape change** (DOM, not just store) with #1510's `@pierre/trees` patch carried, the hermetic test green — the recipe **R-compose-2** inherits.
 
 <Callout kind="warn" title="Shared @kolu/surface* — the drishti gate APPLIES this round">
 `@kolu/surface`, `@kolu/surface-app`, `@kolu/surface-nix-host` are shared with [drishti](https://github.com/srid/drishti), and any *API-facing* change to them requires a linked drishti PR with green CI (`.claude/rules/surface.md`). The *common-it-up* extraction **adds two exports** to `@kolu/surface-nix-host` — `pumpRemoteSurface` + `buildHostRegistry` — so the gate is in scope (additive, non-breaking, but API-facing). The linked drishti PR refactors drishti's `bridgeAgentToParent` + `hostRegistry.ts` to consume the shared helpers (dropping its hand-rolled copies), bumps drishti's npins kolu pin to this branch, and goes green — its passing CI is what proves the lift behaviour-preserving. pulam-web's *consumption* of the rest (`mirrorRemoteSurface`, `getHostSession`, `gateStaleSocket`, …) stays read-only.
