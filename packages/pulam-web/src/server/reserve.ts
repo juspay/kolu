@@ -200,14 +200,15 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     // browser as the call's rejection.
     procedures: {
       fs: {
-        listAll: ({ input }) => forwardFs(liveProcedures).listAll(input),
-        readFile: ({ input }) => forwardFs(liveProcedures).readFile(input),
+        listAll: ({ input }) => liveProcs(liveProcedures).fs.listAll(input),
+        readFile: ({ input }) => liveProcs(liveProcedures).fs.readFile(input),
         statFileMtimeMs: ({ input }) =>
-          forwardFs(liveProcedures).statFileMtimeMs(input),
+          liveProcs(liveProcedures).fs.statFileMtimeMs(input),
       },
       git: {
-        getStatus: ({ input }) => forwardGit(liveProcedures).getStatus(input),
-        getDiff: ({ input }) => forwardGit(liveProcedures).getDiff(input),
+        getStatus: ({ input }) =>
+          liveProcs(liveProcedures).git.getStatus(input),
+        getDiff: ({ input }) => liveProcs(liveProcedures).git.getDiff(input),
       },
     },
   });
@@ -270,26 +271,16 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   };
 }
 
-/** Read the live `fs` forwarders or fail loud. A `fs.*` call with no live remote
- *  is a real fault (the browser thinks it's connected), not a benign degraded
- *  state — surface it. */
-function forwardFs(
+/** Read the live procedure forwarders or fail loud. A `fs.*`/`git.*` call with no
+ *  live remote is a real fault (the browser thinks it's connected), not a benign
+ *  degraded state — surface it. The call site names the procedure path, so the
+ *  error stays generic over the namespace. */
+function liveProcs(
   holder: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>,
-): ProcedureForwarders<ArivuSpec>["fs"] {
+): ProcedureForwarders<ArivuSpec> {
   const procs = holder.current;
   if (procs === null) {
-    throw new Error("fs procedure forwarded with no live pulam connection");
+    throw new Error("procedure forwarded with no live pulam connection");
   }
-  return procs.fs;
-}
-
-/** Read the live `git` forwarders or fail loud (same fail-fast stance as `fs`). */
-function forwardGit(
-  holder: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>,
-): ProcedureForwarders<ArivuSpec>["git"] {
-  const procs = holder.current;
-  if (procs === null) {
-    throw new Error("git procedure forwarded with no live pulam connection");
-  }
-  return procs.git;
+  return procs;
 }
