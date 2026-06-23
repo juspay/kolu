@@ -2,6 +2,7 @@ import {
   activeArm,
   type ActiveTerminal,
   type AgentInfo,
+  agentBucket as projectionBucket,
   LOCAL_LOCATION,
 } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
@@ -112,6 +113,45 @@ describe("agentBucket", () => {
   it("maps missing agents to none", () => {
     expect(agentBucket(null)).toBe("none");
   });
+});
+
+describe("dock paint fold ⇄ agentProjection bucket parity (the cross-consumer differential)", () => {
+  // Sibling to the urgency-parity test in dockRowRanking.test.ts: that one pins
+  // the dock RANK path back to the shared projection; this one pins the dock
+  // PAINT path. For every agent state, the dock paint fold (`agentBucket`) maps
+  // back to the shared activity bucket (`agentProjection.agentBucket`) under the
+  // DELIBERATE {waiting→awaiting, other→none} fold — so the divergence on
+  // `waiting` is asserted intentional-and-stable, not left to an inline switch
+  // staying correct by hand. If the paint fold ever re-grows a state that
+  // disagrees with the projection's bucket beyond this declared fold, it goes
+  // red.
+  const PAINT_FOR_BUCKET: Record<
+    ReturnType<typeof projectionBucket>,
+    ReturnType<typeof agentBucket>
+  > = {
+    awaiting: "awaiting",
+    // Deliberate divergence: a just-finished agent keeps its glow until it
+    // parks, so `waiting` paints `awaiting` (the rank fold calls it idle).
+    waiting: "awaiting",
+    working: "working",
+    other: "none",
+  };
+
+  const STATES: AgentInfo["state"][] = [
+    "thinking",
+    "tool_use",
+    "running_background",
+    "awaiting_user",
+    "waiting",
+  ];
+
+  for (const state of STATES) {
+    it(`paints a ${state} agent at the projection bucket's declared fold`, () => {
+      expect(agentBucket(makeAgent({ state }))).toBe(
+        PAINT_FOR_BUCKET[projectionBucket(state)],
+      );
+    });
+  }
 });
 
 describe("sortDockEntriesByRecency", () => {
