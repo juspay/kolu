@@ -47,6 +47,30 @@ import {
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
+/** A surface ctx that RECORDS every `terminalMetadata.upsert` into `sink` (id +
+ *  state), so a test can assert the authored snapshot was actually PUSHED to the
+ *  collection — not merely that a `terminals:dirty` trigger fired. Built off the
+ *  no-op ctx, overriding only the collections proxy. */
+function recordingSurfaceCtx(
+  sink: Array<{ id: string; state: string }>,
+): ReturnType<typeof noopSurfaceCtxForTest> {
+  const noop = () => {};
+  return {
+    ...noopSurfaceCtxForTest(),
+    collections: new Proxy({} as never, {
+      get: (_t, name) => ({
+        upsert: (id: string, value: { state: string }) => {
+          if (name === "terminalMetadata")
+            sink.push({ id, state: value.state });
+        },
+        remove: noop,
+        readAll: () => new Map(),
+        readOne: () => undefined,
+      }),
+    }),
+  } as ReturnType<typeof noopSurfaceCtxForTest>;
+}
+
 function activeEntry(): ActiveTerminalProcess {
   return {
     info: { id: ID, pid: 4242 },
@@ -315,6 +339,54 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
     expect(entry.meta.sleptAt).toBe(222);
     expect(entry.handle).toBeUndefined();
+  });
+});
+
+describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
+  // The general invariant: a no-op-upsert collection backed by an external store
+  // (the registry) reaches the client SOLELY through an explicit publish, so
+  // every authored lifecycle flip — especially sleep↔active and spawn — must
+  // publish, not merely fire `terminals:dirty`. Sleep already does
+  // (`publishTerminalState(sleeping, id)`); before this fix the wake/spawn core
+  // (`registerActiveAndSpawn`) emitted only the dirty trigger, so a woken
+  // terminal's registry meta flipped to active while the client stayed pinned to
+  // the stale sleeping snapshot (`isLive` false → the dormant tile body never
+  // yielded to the live xterm).
+  const PUB_ID = "44444444-4444-4444-8444-444444444444";
+  const sleepingRecord = () => ({
+    id: PUB_ID,
+    state: "sleeping" as const,
+    sleptAt: 222,
+    cwd: "/work/repo",
+    git: null,
+    location: LOCAL_LOCATION,
+    lastActivityAt: 7,
+    lastAgentCommand: "claude --model sonnet",
+  });
+
+  let upserts: Array<{ id: string; state: string }>;
+
+  beforeEach(() => {
+    // Replace the suite-wide no-op ctx with a recording one (the double-call
+    // guard forbids swapping ctx without a reset first).
+    __resetSurfaceCtxForTest();
+    upserts = [];
+    setSurfaceCtx(recordingSurfaceCtx(upserts));
+  });
+
+  afterEach(() => unregisterTerminal(PUB_ID));
+
+  it("pushes the active snapshot on wake, not just a dirty signal", () => {
+    expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
+    // The seed itself doesn't publish; start from a clean slate regardless.
+    upserts.length = 0;
+
+    // Wake registers the active sync-shadow synchronously, publishing the active
+    // snapshot BEFORE the async spawn tail (which fails in the unit env — no
+    // kaval — and then restores the sleeping record). Assert at that sync point.
+    wakeLocalTerminal(PUB_ID);
+    expect(getTerminal(PUB_ID)?.meta.state).toBe("active");
+    expect(upserts).toContainEqual({ id: PUB_ID, state: "active" });
   });
 });
 
