@@ -575,10 +575,14 @@ export function acceptSurfaceSocket(opts: {
   /** Heartbeat sweep cadence (defaults to `startWsHeartbeat`'s 30s). */
   intervalMs?: number;
   /** Standing transport-error handler installed on every accepted socket by the
-   *  stale gate (defaults to a loud `console.error`, like `gateStaleSocket`). */
-  onError?: (err: Error) => void;
-  /** Report a rejected stale tab (the claimed `pid` no longer matches). */
-  onReject?: (claimedPid: string) => void;
+   *  stale gate (defaults to a loud `console.error`, like `gateStaleSocket`). The
+   *  socket's upgrade `requestUrl` is passed alongside the error so a multi-host
+   *  server can re-derive its `?host=` for the log line (a single-socket consumer
+   *  ignores it). */
+  onError?: (err: Error, requestUrl: URL) => void;
+  /** Report a rejected stale tab (the claimed `pid` no longer matches). The
+   *  upgrade `requestUrl` is passed alongside for the same per-host log context. */
+  onReject?: (claimedPid: string, requestUrl: URL) => void;
 }): SurfaceSocketAcceptor {
   const heartbeat = startWsHeartbeat(opts.server, {
     intervalMs: opts.intervalMs,
@@ -586,11 +590,13 @@ export function acceptSurfaceSocket(opts: {
   return {
     accept(ws, requestUrl, onAccepted) {
       // Stale-tab gate FIRST (installs the `error` listener, closes a stale tab).
-      // A rejected socket is closing — never enrol or dispatch it.
+      // A rejected socket is closing — never enrol or dispatch it. The per-socket
+      // callbacks carry `requestUrl` so a fleet server keeps its per-host context.
       if (
         gateStaleSocket(ws, requestUrl, opts.liveProcessId, {
-          onError: opts.onError,
-          onReject: opts.onReject,
+          onError: opts.onError && ((err) => opts.onError?.(err, requestUrl)),
+          onReject:
+            opts.onReject && ((pid) => opts.onReject?.(pid, requestUrl)),
         })
       ) {
         return;

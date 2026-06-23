@@ -155,8 +155,14 @@ async function main(): Promise<void> {
   const acceptor = acceptSurfaceSocket({
     server: wss,
     liveProcessId: processId,
-    onError: (err) => log(`browser ws error: ${err.message}`),
-    onReject: () => log("rejecting stale browser ws — parent restarted"),
+    onError: (err, url) =>
+      log(
+        `browser ws error (host=${url.searchParams.get("host")}): ${err.message}`,
+      ),
+    onReject: (_pid, url) =>
+      log(
+        `rejecting stale browser ws (host=${url.searchParams.get("host")}) — parent restarted`,
+      ),
   });
 
   server.on("upgrade", (req, socket, head) => {
