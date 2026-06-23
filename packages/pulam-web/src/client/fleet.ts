@@ -17,7 +17,6 @@
 import {
   agentUrgency,
   compareAgents,
-  fleetStateLabel,
   type Urgency,
 } from "@kolu/terminal-workspace/agentProjection";
 import type {
@@ -53,18 +52,14 @@ export const URGENCY: Record<
 };
 
 /** The web label set, keyed off `URGENCY`, that the shared `fleetStateLabel`
- *  three-way idle fork reads — the only thing this renderer customizes. */
-const URGENCY_LABELS: Record<Urgency, string> = {
+ *  three-way idle fork reads — the only thing this renderer customizes. Read by
+ *  the row directly (`fleetStateLabel(agent, URGENCY_LABELS)`), so there's no
+ *  one-line wrapper in between. */
+export const URGENCY_LABELS: Record<Urgency, string> = {
   need: URGENCY.need.label,
   work: URGENCY.work.label,
   idle: URGENCY.idle.label,
 };
-
-/** The pointed state label for a row, via the shared idle-fork helper with the
- *  web's labels. */
-export function stateLabel(agent: AwarenessValue["agent"]): string {
-  return fleetStateLabel(agent, URGENCY_LABELS);
-}
 
 /** The green live-output dot — a terminal moving bytes right now (the fleet echo
  *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to the agent-state

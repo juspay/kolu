@@ -294,14 +294,6 @@ const URGENCY_LABELS: Record<FleetUrgency, string> = {
   idle: URGENCY.idle.label,
 };
 
-/** The fleet row's pointed state label, via the shared idle-fork helper with the
- *  TUI's labels: needs read as "awaiting you", work as "working"; an idle
- *  terminal overrides with its agent's own label (e.g. "waiting") or falls back
- *  to the `idle` label when no agent runs. */
-function fleetStateText(agent: AwarenessValue["agent"]): string {
-  return fleetStateLabel(agent, URGENCY_LABELS);
-}
-
 /** One terminal as a fleet row. The agent name stays calm; the urgency carries
  *  the colour (the leading glyph + the state cell), so the eye lands on a `need`
  *  row's amber, not on every agent name. Reuses the single-host projection
@@ -389,7 +381,10 @@ export function fleetRow(
     where: { text: repoBranchText(repoName, branch), tone: "plain" },
     pr: { text: prValueText(v.pr), tone: prTone(v.pr) },
     state: {
-      text: fleetStateText(v.agent),
+      // needs read "awaiting you", work "working" (the TUI's URGENCY_LABELS); an
+      // idle terminal overrides with its agent's own state label via the shared
+      // idle-fork, or "idle" when no agent runs.
+      text: fleetStateLabel(v.agent, URGENCY_LABELS),
       tone: URGENCY[urgency].tone,
     },
     gitStatus,

@@ -13,7 +13,10 @@ import type {
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
-import { agentUrgency } from "@kolu/terminal-workspace/agentProjection";
+import {
+  agentUrgency,
+  fleetStateLabel,
+} from "@kolu/terminal-workspace/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
   basename,
@@ -21,9 +24,9 @@ import {
   type FleetEntry,
   isVisible,
   locationText,
-  stateLabel,
   terminalCategory,
   URGENCY,
+  URGENCY_LABELS,
 } from "./fleet.ts";
 
 /** Build an awareness value with a given agent state. Only `kind`/`state` are
@@ -46,14 +49,20 @@ function withAgent(
 const id = (n: number): TerminalId =>
   `${n}${n}${n}${n}${n}${n}${n}${n}-1111-4111-8111-111111111111` as TerminalId;
 
-describe("stateLabel (web labels over the shared idle fork)", () => {
+describe("fleetStateLabel with the web URGENCY_LABELS", () => {
   it("need reads the web label 'needs you'", () => {
-    expect(stateLabel(withAgent("awaiting_user").agent)).toBe("needs you");
-    expect(stateLabel(withAgent("thinking").agent)).toBe("working");
+    expect(
+      fleetStateLabel(withAgent("awaiting_user").agent, URGENCY_LABELS),
+    ).toBe("needs you");
+    expect(fleetStateLabel(withAgent("thinking").agent, URGENCY_LABELS)).toBe(
+      "working",
+    );
   });
   it("an idle agent shows its own state; no agent reads idle", () => {
-    expect(stateLabel(withAgent("waiting").agent)).toBe("waiting");
-    expect(stateLabel(null)).toBe("idle");
+    expect(fleetStateLabel(withAgent("waiting").agent, URGENCY_LABELS)).toBe(
+      "waiting",
+    );
+    expect(fleetStateLabel(null, URGENCY_LABELS)).toBe("idle");
   });
 });
 

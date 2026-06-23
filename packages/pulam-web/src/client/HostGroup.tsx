@@ -49,6 +49,7 @@ import {
   agentShortName,
   agentUrgency,
   DASH,
+  fleetStateLabel,
   relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import {
@@ -60,9 +61,9 @@ import {
   isVisible,
   LIVE_COLOR,
   locationText,
-  stateLabel,
   terminalCategory,
   URGENCY,
+  URGENCY_LABELS,
 } from "./fleet.ts";
 import { surfaceForHost } from "./wire.ts";
 
@@ -140,7 +141,7 @@ function AgentRow(props: {
               {locationText(value())}
             </span>
             <span class="flex-none text-[12px]" style={`color:${tone().color}`}>
-              {stateLabel(value().agent)}
+              {fleetStateLabel(value().agent, URGENCY_LABELS)}
             </span>
             <span class="w-[4ch] flex-none text-right text-[12px] text-[#5b6678]">
               {relativeTime(value().lastActivityAt, props.now())}
