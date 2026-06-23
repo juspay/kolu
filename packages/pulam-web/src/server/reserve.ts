@@ -154,43 +154,29 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
       },
       // Browser-facing `subscribeRepoChange` — a per-repo watcher the parent
       // can't subscribe up front (the input is the browser's). FORWARD to the
-      // live remote: yield the `{ seq: 0 }` snapshot first (the streaming
-      // contract's required leading frame, so a browser that subscribes before
-      // the link is live still gets a snapshot), then relay each remote pulse.
-      // No live client → the snapshot stands until a spawn populates the holder,
-      // at which point the next subscribe forwards for real.
+      // live remote via `forwardInputStream`: yield the `{ seq: 0 }` snapshot
+      // first (the streaming contract's required leading frame, so a browser that
+      // subscribes before the link is live still gets a snapshot), then relay each
+      // remote pulse. No live client → the snapshot stands until a spawn populates
+      // the holder, at which point the next subscribe forwards for real.
       subscribeRepoChange: {
-        source: async function* (input, signal) {
-          yield { seq: 0 };
-          const client = liveClient.current;
-          if (client === null) {
-            log("subscribeRepoChange: no live client — holding at seq 0");
-            return;
-          }
-          for await (const pulse of await client.surface.subscribeRepoChange.get(
-            input,
-            { signal },
-          )) {
-            yield pulse;
-          }
-        },
+        source: forwardInputStream(
+          liveClient,
+          (surface) => surface.subscribeRepoChange,
+          { seq: 0 },
+          "subscribeRepoChange",
+          log,
+        ),
       },
       // Browser-facing `subscribeFileChange` — same per-file forward shape.
       subscribeFileChange: {
-        source: async function* (input, signal) {
-          yield { seq: 0 };
-          const client = liveClient.current;
-          if (client === null) {
-            log("subscribeFileChange: no live client — holding at seq 0");
-            return;
-          }
-          for await (const pulse of await client.surface.subscribeFileChange.get(
-            input,
-            { signal },
-          )) {
-            yield pulse;
-          }
-        },
+        source: forwardInputStream(
+          liveClient,
+          (surface) => surface.subscribeFileChange,
+          { seq: 0 },
+          "subscribeFileChange",
+          log,
+        ),
       },
     },
     // The `fs.*`/`git.*` procedures are pure FORWARDS — the parent owns no
@@ -283,4 +269,48 @@ function liveProcs(
     throw new Error("procedure forwarded with no live pulam connection");
   }
   return procs;
+}
+
+/** A surface stream method as the re-serve forwards it: `.get(input, { signal })`
+ *  → an async pulse stream. The one shape the input-param forwarders plug into. */
+interface ForwardableStream<I, P> {
+  get: (
+    input: I,
+    opts: { signal: AbortSignal | undefined },
+  ) => Promise<AsyncIterable<P>>;
+}
+
+/**
+ * Build a browser-facing source that forwards an INPUT-PARAMETERIZED stream to
+ * the live remote, snapshot-then-relay with a hold in the gap. The single
+ * encoding of "yield the leading frame, then relay the live remote's pulses — or
+ * hold at the lead while no client is up" that `subscribeRepoChange` and
+ * `subscribeFileChange` both need (and any future per-input stream will too).
+ *
+ * The hold-at-`lead` gap policy is deliberately app-local: it's a re-serve
+ * convention, not a pump primitive, so it stays here rather than in
+ * `pumpRemoteSurface`.
+ */
+function forwardInputStream<I, P>(
+  holder: LiveSpawnHolder<AgentClient<ArivuContract>>,
+  select: (
+    surface: AgentClient<ArivuContract>["surface"],
+  ) => ForwardableStream<I, P>,
+  lead: P,
+  label: string,
+  log: (line: string) => void,
+): (input: I, signal: AbortSignal | undefined) => AsyncGenerator<P> {
+  return async function* (input, signal) {
+    yield lead;
+    const client = holder.current;
+    if (client === null) {
+      log(`${label}: no live client — holding`);
+      return;
+    }
+    for await (const pulse of await select(client.surface).get(input, {
+      signal,
+    })) {
+      yield pulse;
+    }
+  };
 }
