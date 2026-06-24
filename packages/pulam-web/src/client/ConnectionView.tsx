@@ -31,6 +31,14 @@ import {
 } from "solid-js";
 import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
 
+/** WHICH leg the resolved health came from — so a consumer can tell a real
+ *  mirror failure (the host gave up; show the error card + Reconnect) apart from
+ *  a transport-shadowed one (the dashboard ws died; show "reload"), even though
+ *  both resolve to `state: "failed"`. The body gate keys the FailedCard on
+ *  `source === "mirror"` so a transport-down host whose stale mirror cell still
+ *  reads `failed` never paints a stale error + a Reconnect that can't run. */
+export type HealthSource = "transport" | "mirror";
+
 /** The single fold over BOTH volatility axes — the browser↔backend transport
  *  (`status`) and the backend↔remote mirror (`info.state`) — into one resolved
  *  health. The precedence is "transport trouble shadows the mirror": a `down` or
@@ -38,15 +46,18 @@ import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
  *  live/connecting pipe the mirror IS the real signal. Resolves to a `state` so
  *  one consumer ("is this host effectively connected?") and the header dot read
  *  the SAME answer — `down`/`reconnecting` resolve to a non-`connected` state so
- *  a transport-down host can never read as connected. Both `HostHealthIndicator`
- *  and `HostGroup`'s body gate consume this; the precedence lives here, once. */
+ *  a transport-down host can never read as connected. It also carries `source`
+ *  (transport vs mirror) so the body can render the FailedCard only for a REAL
+ *  mirror failure, not a transport-shadowed one. Both `HostHealthIndicator` and
+ *  `HostGroup`'s body gate consume this; the precedence lives here, once. */
 export function effectiveHealth(
   status: SurfaceConnectionStatus,
   info: ConnectionInfo,
-): ConnPresentation & { state: ConnectionState } {
+): ConnPresentation & { state: ConnectionState; source: HealthSource } {
   if (status === "down")
     return {
       state: "failed",
+      source: "transport",
       dot: "#ff8d8d",
       text: "#ff8d8d",
       label: "disconnected — reload",
@@ -56,6 +67,7 @@ export function effectiveHealth(
   if (status === "reconnecting")
     return {
       state: "disconnected",
+      source: "transport",
       dot: "#e6a23c",
       text: "#e6a23c",
       label: "reconnecting…",
@@ -63,16 +75,29 @@ export function effectiveHealth(
       pending: true,
     };
   // Transport live/connecting → the MIRROR's health is the real signal.
-  return { state: info.state, ...CONN_STATE[info.state] };
+  return { state: info.state, source: "mirror", ...CONN_STATE[info.state] };
 }
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls
- *  `registry.getSession(host).reconnect()`. */
+ *  `registry.getSession(host).reconnect()`. THROWS on a non-2xx response (or a
+ *  dead HTTP leg, which rejects `fetch` itself) so the caller can surface the
+ *  failure — a silent drop would leave the user thinking the re-arm took. */
 async function requestReconnect(host: string): Promise<void> {
-  await fetch(`/api/reconnect?host=${encodeURIComponent(host)}`, {
-    method: "POST",
-  });
+  const response = await fetch(
+    `/api/reconnect?host=${encodeURIComponent(host)}`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    // Prefer the route's own `{ error }` body (a 404 unknown-host) or any text
+    // it sent; fall back to the status line when the body is unreadable.
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      detail.length > 0
+        ? detail
+        : `reconnect failed (${response.status} ${response.statusText})`,
+    );
+  }
 }
 
 /** The per-host header indicator. Paints the single `effectiveHealth` fold —
@@ -105,9 +130,13 @@ export function HostHealthIndicator(props: {
  *  transport-`down` host whose mirror cell is stale at `connected` reads
  *  "Lost the connection… reload", never a stale "Connected." The failed CARD
  *  (real error + log + Reconnect) keys on a genuine MIRROR failure
- *  (`info.state === "failed"`), the only state that carries those details. */
+ *  (`health.state === "failed" && health.source === "mirror"`) — NOT on the raw
+ *  `info.state`. When the transport is `down`, the effective health is a
+ *  transport `failed` ("reload"); a stale mirror cell that still reads `failed`
+ *  must NOT then surface its old error + a Reconnect button that can't run while
+ *  the dashboard ws is dead — the `source` discriminator is what splits them. */
 export function ConnectionView(props: {
-  health: ConnPresentation & { state: ConnectionState };
+  health: ConnPresentation & { state: ConnectionState; source: HealthSource };
   info: ConnectionInfo;
   host: string;
 }): JSX.Element {
@@ -140,7 +169,9 @@ export function ConnectionView(props: {
   return (
     <div class="p-3">
       <Show
-        when={props.info.state === "failed"}
+        when={
+          props.health.state === "failed" && props.health.source === "mirror"
+        }
         fallback={
           <div class="text-[13px]">
             <span style={`color:${props.health.text}`}>{message()}</span>
@@ -166,10 +197,19 @@ function FailedCard(props: {
   host: string;
 }): JSX.Element {
   const [reconnecting, setReconnecting] = createSignal(false);
+  // The reconnect request's OWN error (the route 404'd, the server 500'd, or the
+  // HTTP leg is dead) — distinct from the mirror `lastError` above. Surfaced
+  // inline so a failed re-arm isn't silently swallowed; cleared on each retry.
+  const [reconnectError, setReconnectError] = createSignal<string | null>(null);
   const logTail = (): readonly string[] => props.info.progressLines.slice(-8);
   const onReconnect = (): void => {
     setReconnecting(true);
-    void requestReconnect(props.host).finally(() => setReconnecting(false));
+    setReconnectError(null);
+    requestReconnect(props.host)
+      .catch((err: unknown) =>
+        setReconnectError(err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setReconnecting(false));
   };
   return (
     <div class="rounded-md border border-[#e06c75]/40 bg-[#e06c75]/[0.06] p-3 text-left">
@@ -200,6 +240,13 @@ function FailedCard(props: {
       >
         {reconnecting() ? "reconnecting…" : "↻ Reconnect"}
       </button>
+      <Show when={reconnectError()}>
+        {(err) => (
+          <div class="mt-2 text-[12px] text-[#ff8d8d]">
+            Reconnect request failed: {err()}
+          </div>
+        )}
+      </Show>
     </div>
   );
 }

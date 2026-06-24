@@ -72,7 +72,14 @@ export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
     dot: "#ff8d8d",
     text: "#ff8d8d",
     label: "failed",
-    message: "Couldn't reach this host",
+    // Terminal `failed` is ALWAYS a `remote` fault: the host WAS reached but
+    // rejected the session or its agent crashed (e.g. the pty-host build skew),
+    // and the reconnect budget then ran out. A `network` fault (unreachable
+    // host) retries forever and never lands here — see `connection.ts`'s
+    // `CONNECTION_STATES` note. So "couldn't reach this host" would point the
+    // user at a network diagnosis when the real cause is remote config/build
+    // skew; the neutral heading keeps that honest, with the real error below.
+    message: "Remote connection failed",
     pending: false,
   },
 };

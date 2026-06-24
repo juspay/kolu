@@ -26,7 +26,11 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
+import {
+  gateHttpRpcOrigin,
+  gateWsOrigin,
+  parseAllowedOrigins,
+} from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
@@ -111,6 +115,15 @@ async function main(): Promise<void> {
     log,
   });
 
+  // The RPC surface is unauthenticated; allowlist extra browser origins (a
+  // reverse-proxy FQDN) via `PULAM_WEB_ALLOWED_ORIGINS` for the proxied case.
+  // Declared up here (not just before `serve`) because the mutating
+  // `POST /api/reconnect` route below must apply the SAME CSWSH Origin gate the
+  // ws upgrade does — so the policy has to exist before the routes are wired.
+  const allowedOrigins = parseAllowedOrigins(
+    process.env.PULAM_WEB_ALLOWED_ORIGINS,
+  );
+
   // ── HTTP app: the host-list API + the built client bundle ────────────────
   const app = new Hono();
 
@@ -128,6 +141,20 @@ async function main(): Promise<void> {
   // explicit re-arm (or a parent restart); `reconnect()` is that re-arm, here
   // exposed to the browser. Unknown host → 404 (fail loud, no silent no-op).
   app.post("/api/reconnect", (c) => {
+    // CSWSH gate, the HTTP analogue of the `/rpc/ws` upgrade gate: this route
+    // MUTATES host-session state (`session.reconnect()`), and a cross-site page
+    // can issue a CORS-"simple" no-body POST here without a preflight. It can't
+    // read the 403, but the gate is the whole point — the side effect below
+    // must never run for a disallowed Origin. Non-browser clients (no Origin)
+    // and same host:port browser traffic pass, exactly as on the ws transport.
+    const rejected = gateHttpRpcOrigin(c.req.raw, {
+      allowedOrigins,
+      onReject: (origin) =>
+        log(
+          `rejecting reconnect POST: disallowed Origin ${JSON.stringify(origin)}`,
+        ),
+    });
+    if (rejected) return rejected;
     const host = c.req.query("host");
     if (host === undefined || host.length === 0 || !registry.has(host)) {
       return c.json({ error: `unknown host: ${host ?? "<none>"}` }, 404);
@@ -181,12 +208,6 @@ async function main(): Promise<void> {
     ? process.env.PULAM_WEB_DIST_DIR
     : resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
   installFreshStatic(app, { root: distDir, serviceWorker: "notify" });
-
-  // The RPC surface is unauthenticated; allowlist extra browser origins (a
-  // reverse-proxy FQDN) via `PULAM_WEB_ALLOWED_ORIGINS` for the proxied case.
-  const allowedOrigins = parseAllowedOrigins(
-    process.env.PULAM_WEB_ALLOWED_ORIGINS,
-  );
 
   // Fail-fast on a malformed/0 port rather than silently binding the default.
   const port = parsePort(
