@@ -21,9 +21,14 @@ interface Props {
   svg: string;
   /** Optional caption rendered under the diagram. */
   caption?: string;
+  /**
+   * Break out of the note's text column and span a wider, viewport-centered
+   * band — for large diagrams that turn unreadably small at the 46rem measure.
+   */
+  wide?: boolean;
 }
 
-const { svg, caption } = Astro.props;
+const { svg, caption, wide = false } = Astro.props;
 
 // Fail loudly rather than inline an empty figure: an absent/garbled import must
 // surface, never collapse to a blank diagram in the committed dist/.
@@ -37,7 +42,7 @@ if (!svg || !svg.trimStart().startsWith("<svg")) {
 const inlined = svg.replace(/^<\?xml[^>]*\?>\s*/, "");
 ---
 
-<figure class="diagram">
+<figure class:list={["diagram", { wide }]}>
   <Fragment set:html={inlined} />
   {caption && <figcaption>{caption}</figcaption>}
 </figure>
@@ -46,6 +51,13 @@ const inlined = svg.replace(/^<\?xml[^>]*\?>\s*/, "");
   .diagram {
     margin: 1.75rem 0;
     text-align: center;
+  }
+  /* Full-bleed: escape the centered text column and center in the viewport,
+     capped so it never triggers horizontal scroll. */
+  .diagram.wide {
+    width: min(84rem, 94vw);
+    margin-left: 50%;
+    transform: translateX(-50%);
   }
   .diagram :global(svg) {
     max-width: 100%;

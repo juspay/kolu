@@ -62,7 +62,7 @@
   <text class="psub"   x="380" y="242">git fetch · branch off origin/HEAD · read .agency/do.md</text>
   <text class="psub"   x="380" y="258">feature branch only — never commit to master</text>
 
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/atlas/SKILL.md" target="_blank" rel="noopener">
     <path class="link" d="M750,228 L800,228"/>
     <rect class="chip" x="800" y="204" width="340" height="50" rx="8"/>
     <text class="skill"  x="818" y="226">/atlas</text>
@@ -78,19 +78,19 @@
   <text class="psub"   x="380" y="368">honor design philosophy · changelog · check + fmt</text>
 
   <path class="link" d="M750,338 L800,338"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/test/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/test/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="800" y="302" width="160" height="32" rx="8"/>
     <text class="skill" x="816" y="323">/test</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="968" y="302" width="172" height="32" rx="8"/>
     <text class="skill" x="984" y="323">/dev-server</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/nix-typescript/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/skills/blob/main/skills/nix-typescript/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="800" y="342" width="160" height="32" rx="8"/>
     <text class="skill" x="816" y="363">/nix-typescript</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/project-unknown/blob/main/.apm/skills/pu/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="968" y="342" width="172" height="32" rx="8"/>
     <text class="skill" x="984" y="363">/pu  (heavy work)</text>
   </a>
@@ -104,11 +104,11 @@
   <text class="psub"   x="380" y="478">backfill changelog link · finalize plan note</text>
 
   <path class="link" d="M750,448 L800,448"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/forge-pr/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/srid/agency/blob/master/.apm/skills/forge-pr/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="800" y="424" width="160" height="48" rx="8"/>
     <text class="skill" x="816" y="453">/forge-pr</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/atlas/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="968" y="424" width="172" height="48" rx="8"/>
     <text class="skill"  x="984" y="446">/atlas</text>
     <text class="skilln" x="984" y="463">status: implemented</text>
@@ -121,7 +121,7 @@
   <text class="ptitle" x="380" y="550">Review gauntlet</text>
   <text class="psub"   x="380" y="572">four reviewers, SERIAL — each sole editor, commits in turn</text>
 
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/be-review/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" target="_blank" rel="noopener">
     <path class="link" d="M750,555 L800,555"/>
     <rect class="chip" x="800" y="531" width="340" height="48" rx="8"/>
     <text class="skill"  x="818" y="553">/be-review</text>
@@ -132,26 +132,26 @@
   <path class="serial" d="M540,588 L540,608 L150,608 L150,636" marker-end="url(#arrowSerial)"/>
 
   <!-- 4 serial reviewers -->
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="50" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="68" y="660">/lens-debate</text>
     <text class="skilln" x="68" y="678">boundaries ⇄ simplicity</text>
   </a>
   <path class="serial" d="M250,664 L320,664" marker-end="url(#arrowSerial)"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="320" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="338" y="660">/codex-debate</text>
     <text class="skilln" x="338" y="678">codex ⇄ claude, to consensus</text>
   </a>
   <path class="serial" d="M520,664 L590,664" marker-end="url(#arrowSerial)"/>
-  <!-- /simplify is a built-in skill (no repo SKILL.md) — node kept, unlinked -->
-  <g>
+  <!-- /simplify is a built-in Claude Code skill → links to the docs, not a repo -->
+  <a xlink:href="https://docs.claude.com/en/docs/claude-code/slash-commands" target="_blank" rel="noopener">
     <rect class="chip" x="590" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="608" y="660">/simplify</text>
     <text class="skilln" x="608" y="678">reuse · efficiency · altitude</text>
-  </g>
+  </a>
   <path class="serial" d="M790,664 L860,664" marker-end="url(#arrowSerial)"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/code-police/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/srid/agency/blob/master/.apm/skills/code-police/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="860" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="878" y="660">/code-police</text>
     <text class="skilln" x="878" y="678">--no-elegance in gauntlet</text>
@@ -160,18 +160,18 @@
   <!-- lens sub-lenses -->
   <path class="link" d="M110,692 L110,708"/>
   <path class="link" d="M190,692 L190,708"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/lowy/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://kolu.dev/blog/hickey-lowy" target="_blank" rel="noopener">
     <rect class="chip" x="40" y="708" width="100" height="30" rx="8"/>
     <text class="skill" x="56" y="728">/lowy</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/hickey/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://kolu.dev/blog/hickey-lowy" target="_blank" rel="noopener">
     <rect class="chip" x="150" y="708" width="110" height="30" rx="8"/>
     <text class="skill" x="166" y="728">/hickey</text>
   </a>
 
   <!-- police sub-passes -->
   <path class="link" d="M920,692 L920,708"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/fact-check/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/srid/agency/blob/master/.apm/skills/fact-check/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="860" y="708" width="135" height="30" rx="8"/>
     <text class="skill" x="876" y="728">/fact-check</text>
   </a>
@@ -182,7 +182,7 @@
   <path class="serial" d="M1060,664 L1130,664 L1130,762 L540,762 L540,798" marker-end="url(#arrowSerial)"/>
 
   <!-- performance pass note -->
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/perf-diagnose/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/perf-diagnose/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="1180" y="636" width="270" height="56" rx="8"/>
     <text class="skill"  x="1198" y="660">perf pass → atlas/performance</text>
     <text class="skilln" x="1198" y="678">if a perf-sensitive surface changed</text>
@@ -202,12 +202,12 @@
   <!-- CI lane -->
   <rect class="phase" x="120" y="904" width="400" height="120" rx="12" fill="#fcfcfe" stroke="#9a6a00"/>
   <text class="ptitle" x="140" y="934" font-size="16">CI pipeline (backgrounded first)</text>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/ci/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/odu/blob/master/.apm/skills/ci/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="140" y="948" width="170" height="56" rx="8"/>
     <text class="skill"  x="156" y="972">/ci</text>
     <text class="skilln" x="156" y="990">odu run → settle → rerun</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/odu-mcp/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/odu/blob/master/.apm/skills/odu-mcp/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="322" y="948" width="180" height="56" rx="8"/>
     <text class="skill"  x="338" y="972">/odu-mcp</text>
     <text class="skilln" x="338" y="990">drive CI via MCP face</text>
@@ -216,19 +216,19 @@
   <!-- Evidence lane -->
   <rect class="phase" x="700" y="904" width="400" height="120" rx="12" fill="#fcfcfe" stroke="#9a6a00"/>
   <text class="ptitle" x="720" y="934" font-size="16">Evidence (concurrent)</text>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/evidence/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/evidence/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="720" y="948" width="170" height="56" rx="8"/>
     <text class="skill"  x="736" y="972">/evidence</text>
     <text class="skilln" x="736" y="990">screenshot / video on pu</text>
   </a>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="902" y="948" width="180" height="56" rx="8"/>
     <text class="skill"  x="918" y="972">/dev-server</text>
     <text class="skilln" x="918" y="990">venue gate (local vs pu)</text>
   </a>
 
   <!-- pu underpins ship -->
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/project-unknown/blob/main/.apm/skills/pu/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="1140" y="948" width="200" height="56" rx="8"/>
     <text class="skill"  x="1156" y="972">/pu</text>
     <text class="skilln" x="1156" y="990">ephemeral host for both</text>
@@ -248,7 +248,7 @@
   <text class="psub"   x="380" y="1167">report PR · gauntlet outcome · CI status</text>
   <text class="psub"   x="380" y="1182">never merge — the human reviews &amp; merges</text>
 
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/self-improve/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md" target="_blank" rel="noopener">
     <path class="link" d="M750,1152 L800,1152"/>
     <rect class="chip" x="800" y="1126" width="340" height="52" rx="8"/>
     <text class="skill"  x="818" y="1148">/self-improve  (forked)</text>

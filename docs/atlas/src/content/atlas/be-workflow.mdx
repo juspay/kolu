@@ -12,21 +12,48 @@ import Callout from "../../components/Callout.astro";
 import PrLink from "../../components/PrLink.astro";
 import workflow from "../../diagrams/be-workflow.svg?raw";
 
-export const Skill = (props) => (
-  <a href={`https://github.com/juspay/kolu/blob/master/.claude/skills/${props.name}/SKILL.md`}
-     style={{ fontFamily: "var(--mono)", fontWeight: 600, whiteSpace: "nowrap" }}>
-    /{props.name}
-  </a>
-);
+{/* Each skill links to its CANONICAL .apm source, which lives in different
+    repos: kolu-local skills in juspay/kolu, the review lenses + police in
+    srid/agency, CI in juspay/odu, etc. */}
+export const SKILL_URL = {
+  atlas: "https://github.com/juspay/kolu/blob/master/.apm/skills/atlas/SKILL.md",
+  test: "https://github.com/juspay/kolu/blob/master/.apm/skills/test/SKILL.md",
+  "dev-server": "https://github.com/juspay/kolu/blob/master/.apm/skills/dev-server/SKILL.md",
+  "be-review": "https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md",
+  "lens-debate": "https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md",
+  "codex-debate": "https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md",
+  evidence: "https://github.com/juspay/kolu/blob/master/.apm/skills/evidence/SKILL.md",
+  "self-improve": "https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md",
+  do: "https://github.com/srid/agency/blob/master/.apm/skills/do/SKILL.md",
+  "forge-pr": "https://github.com/srid/agency/blob/master/.apm/skills/forge-pr/SKILL.md",
+  "code-police": "https://github.com/srid/agency/blob/master/.apm/skills/code-police/SKILL.md",
+  "fact-check": "https://github.com/srid/agency/blob/master/.apm/skills/fact-check/SKILL.md",
+  ci: "https://github.com/juspay/odu/blob/master/.apm/skills/ci/SKILL.md",
+  "odu-mcp": "https://github.com/juspay/odu/blob/master/.apm/skills/odu-mcp/SKILL.md",
+  "nix-typescript": "https://github.com/juspay/skills/blob/main/skills/nix-typescript/SKILL.md",
+  pu: "https://github.com/juspay/project-unknown/blob/main/.apm/skills/pu/SKILL.md",
+};
+
+export const Skill = (props) => {
+  const href = SKILL_URL[props.name];
+  if (!href) throw new Error(`be-workflow: no SKILL_URL for "${props.name}"`);
+  return (
+    <a href={href} style={{ fontFamily: "var(--mono)", fontWeight: 600, whiteSpace: "nowrap" }}>
+      /{props.name}
+    </a>
+  );
+};
 
 > **`/be` is how kolu ships.** You type `/be <task>`, answer a couple of
 > questions, and walk away — the agent takes it from a fresh branch to a draft
 > PR that has already survived a four-reviewer gauntlet, with green CI and visual
 > evidence attached. This note is the map of that pipeline: what each phase does,
-> which skill runs it, and how they hand off. **Every blue node in the diagram
-> links to that skill's `SKILL.md`** — start there, then read the source.
+> which skill runs it, and how they hand off. **Every blue node in the diagram is
+> a link** — to the skill's canonical `SKILL.md` in whichever repo it lives
+> (kolu, [agency](https://github.com/srid/agency/tree/master/.apm/skills), odu),
+> or to deeper reading where there is some.
 
-<Svg svg={workflow} caption="The /be pipeline. The spine (top to bottom) is the six phases; skills attach to the right of each. The magenta loop is the review gauntlet — four reviewers run strictly one after another, each the sole editor of the branch while it runs. Ship fans into two parallel lanes (CI and evidence) that rejoin before Done. Click any skill node to open its SKILL.md on GitHub." />
+<Svg svg={workflow} wide caption="The /be pipeline. The spine (top to bottom) is the six phases; skills attach to the right of each. The magenta loop is the review gauntlet — four reviewers run strictly one after another, each the sole editor of the branch while it runs. Ship fans into two parallel lanes (CI and evidence) that rejoin before Done. Click any skill node to open its source." />
 
 ## One interview, then autonomy
 
@@ -87,14 +114,17 @@ half-edited state. Running one at a time means every reviewer reads a clean,
 committed tree and applies its own fixes directly — no snapshot machinery, no
 separate apply pass.
 
-1. <Skill name="lens-debate" /> — two structural lenses, <Skill name="lowy" />
-   (volatility-based boundaries) and <Skill name="hickey" /> (structural
-   simplicity), review independently, cross-examine every finding to consensus,
-   then apply the agreed fixes.
+1. <Skill name="lens-debate" /> — two structural lenses,
+   [lowy](https://kolu.dev/blog/hickey-lowy) (volatility-based boundaries) and
+   [hickey](https://kolu.dev/blog/hickey-lowy) (structural simplicity), review
+   independently, cross-examine every finding to consensus, then apply the agreed
+   fixes. Both lenses — and why kolu reviews with them — are explained in the blog
+   post [Hickey & Lowy](https://kolu.dev/blog/hickey-lowy).
 2. <Skill name="codex-debate" /> — codex (reviewer) and a Claude author debate the
    diff to consensus, each round auto-committing its `fix(…)`.
-3. **/simplify** — the self-applying reuse, simplification, and efficiency pass
-   over the changed code. *(A built-in skill, so no repo `SKILL.md` to link.)*
+3. [/simplify](https://docs.claude.com/en/docs/claude-code/slash-commands) — the
+   self-applying reuse, simplification, and efficiency pass over the changed code.
+   *(A built-in Claude Code skill, so this links to its docs rather than a repo.)*
 4. <Skill name="code-police" /> — its rule-checklist and <Skill name="fact-check" />
    passes, applying their fixes. It runs `--no-elegance` here, because the
    elegance pass would just re-invoke `/simplify`, which step 3 already ran over
