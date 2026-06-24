@@ -55,6 +55,14 @@ function makeMarked(options: { breaks: boolean }): Marked {
             : "";
         return `<pre><code${langAttr}>${escapeHtml(token.text)}</code></pre>`;
       },
+      html(token) {
+        // marked passes raw HTML tokens (block and inline) through verbatim by
+        // default. This document is built to be shared, so an assistant or user
+        // message containing `<img src=x onerror=…>` or `<script>` would be
+        // stored XSS in whoever opens the file. Escape raw HTML to its literal
+        // text — also the faithful rendering of a transcript.
+        return escapeHtml(token.text);
+      },
       heading(token) {
         const text = this.parser.parseInline(token.tokens);
         const level = Math.min(token.depth + 2, 6);
@@ -364,7 +372,7 @@ function headerHtml(
 /** Convert a Transcript to a self-contained HTML document. */
 export async function transcriptToHtml(
   transcript: Transcript,
-  options: TranscriptHtmlOptions = { mode: "chat" },
+  options: TranscriptHtmlOptions,
 ): Promise<string> {
   const prepared = relativizeTranscript(transcript);
   const title = deriveDisplayTitle(prepared);

@@ -88,6 +88,33 @@ describe("transcriptToHtml export modes", () => {
     expect(html).not.toContain("diffs-container");
   });
 
+  it("escapes raw HTML inside messages so a shared export can't run scripts", async () => {
+    const attackTranscript: Transcript = {
+      ...transcript,
+      events: [
+        {
+          kind: "user",
+          text: "Render this: <img src=x onerror=alert(1)>",
+          ts: null,
+        },
+        {
+          kind: "assistant",
+          text: "Sure.\n\n<script>alert(2)</script>\n\nAnd a <div onclick=evil()>block</div>.",
+          model: "gpt-test",
+          ts: null,
+        },
+      ],
+    };
+
+    const html = await transcriptToHtml(attackTranscript, { mode: "chat" });
+
+    expect(html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(html).not.toContain("<script>alert(2)</script>");
+    expect(html).not.toContain("<div onclick=evil()>");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(html).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
+  });
+
   it("adds prompt-jump controls for multi-prompt conversations", async () => {
     const html = await transcriptToHtml(navigationTranscript, {
       mode: "chat",
