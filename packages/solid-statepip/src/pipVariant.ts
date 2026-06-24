@@ -14,7 +14,15 @@
  *  Each surface layers only its OWN overlays on top: the Dock adds
  *  `unread`→attention, `parked`→empty and its deliberate `sleeping`; pulam-web
  *  adds structural sleeping (no agent + no foreground). Neither surface's local
- *  triage concepts leak in here. */
+ *  triage concepts leak in here.
+ *
+ *  This module is exposed on its OWN `./pipVariant` subpath (the same shape
+ *  `@kolu/solid-pierre` uses for its `./paths` reconcile fold), so the pure-logic
+ *  consumers — the Dock's `pipVariant`, pulam-web's `pipVariantFor`, and their
+ *  unit tests — import the fold WITHOUT pulling in `StatePip` (the barrel's JSX),
+ *  which a node-environment Vitest can't transform out of a workspace dependency.
+ *  The rendering call sites import `StatePip` from the barrel; the two entry
+ *  points are a deliberate value/JSX split, not redundancy. */
 
 import type { AgentPaintClass } from "@kolu/terminal-workspace/agentProjection";
 
