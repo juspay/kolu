@@ -27,11 +27,15 @@
  * NO git dirty/clean count and NO drill-in — those need `git.getStatus`
  * (R-pulamweb-4), which the awareness `git` info does not carry.
  *
- * Connection / loading / error states, truthfully (unchanged from R-pulamweb-2):
- *   - "connecting…" is the version subscription's REAL `pending()` — true only
- *     until the parent↔browser ws delivers its first frame.
- *   - A subscription FAILURE (version, awareness, or the activity stream) is
- *     surfaced via `onError` and rendered — never collapsed into the empty state.
+ * Connection / loading / error states, truthfully:
+ *   - The body is gated on the host being EFFECTIVELY connected — the
+ *     `effectiveHealth` fold over BOTH the `connection` cell's mirror state AND
+ *     the browser↔backend transport (`status`). Off-`connected` renders the
+ *     honest `ConnectionView` (connecting / provisioning / reconnecting / failed)
+ *     instead of a healthy-looking empty fleet; the header dot reads the same
+ *     fold, so they always agree.
+ *   - A subscription FAILURE (awareness or the activity stream) is surfaced via
+ *     `onError` and rendered — never collapsed into the empty state.
  */
 
 import type {
@@ -172,8 +176,8 @@ const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
   const status = statusForHost(props.host);
-  // Surface the FIRST subscription error (version, awareness, or activity) rather
-  // than letting it collapse into the empty/connecting state.
+  // Surface the FIRST subscription error (awareness or activity) rather than
+  // letting it collapse into the empty/connecting state.
   const [error, setError] = createSignal<string | null>(null);
   const onError = (err: Error): void => {
     setError((prev) => prev ?? err.message);
