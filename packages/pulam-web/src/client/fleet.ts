@@ -150,8 +150,9 @@ export function terminalCategory(value: AwarenessValue): TerminalCategory {
   return value.foreground ? "nonagent" : "sleeping";
 }
 
-/** The view filters — `active` agents always show; the rest are opt-in toggles,
- *  matching the "showing agents + idle + non-agent + sleeping" footer. */
+/** The view filters. `active` agents always show, and `idle` defaults ON (the
+ *  full agent board — see DEFAULT_FLEET_FILTERS); `nonagent` and `sleeping`
+ *  (agentless terminals) are opt-in toggles, matching the footer. */
 export interface FleetFilters {
   idle: boolean;
   nonagent: boolean;
