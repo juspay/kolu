@@ -25,7 +25,7 @@ import { useTileStore } from "../../tile/useTileStore";
 import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_GRID_TOUCH,
+  DOCK_ROW_GRID,
 } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
@@ -90,7 +90,7 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID_TOUCH} gap-x-3 pl-3 pr-3`}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-3 pl-3 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"

@@ -85,7 +85,7 @@ import {
   DOCK_CARDS_GUTTER_NEG_CLASS,
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   DOCK_ROW_BRANCH_COL,
-  DOCK_ROW_GRID_DESKTOP,
+  DOCK_ROW_GRID,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -373,7 +373,7 @@ const RepoSection: Component<{
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID_DESKTOP} gap-x-2 pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID} gap-x-2 pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
     {/* Header is a sticky band tinted with the repo colour (see
      *  `.dock-cards-section-header`), riding above the repo-colour
