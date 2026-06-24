@@ -28,6 +28,7 @@
 import { type Component, createMemo, Show } from "solid-js";
 import {
   indicatorWrapperClass,
+  indicatorWrapperStyle,
   PIP_BODY,
   PIP_TITLES,
   type PipVariant,
@@ -50,8 +51,14 @@ export const StatePip: Component<{
   // `StatePip`'s memo forward across the lift).
   const variant = createMemo(() => props.variant);
   const body = createMemo(() => PIP_BODY[variant()]);
-  const wrapper = createMemo(() =>
-    indicatorWrapperClass(props.live ?? false, props.alert ?? false),
+  const wrapperClass = createMemo(() =>
+    indicatorWrapperClass(props.alert ?? false),
+  );
+  // The live ring + alert halo are box-shadow rings (one mechanism, one radius)
+  // so they never disagree in diameter the way a border-ring + box-shadow-halo
+  // did. Empty string when neither axis is set → no inline style.
+  const wrapperStyle = createMemo(() =>
+    indicatorWrapperStyle(props.live ?? false, props.alert ?? false),
   );
   return (
     // `data-testid="dock-row-pip"` is the established e2e selector, now spanning
@@ -61,7 +68,8 @@ export const StatePip: Component<{
     // scenarios keep matching. `data-live`/`data-alert` expose the outer axes for
     // tests/inspection.
     <span
-      class={wrapper()}
+      class={wrapperClass()}
+      style={wrapperStyle()}
       data-testid="dock-row-pip"
       data-pip={variant()}
       data-live={props.live ? "" : undefined}
