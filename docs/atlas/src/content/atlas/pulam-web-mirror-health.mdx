@@ -2,18 +2,19 @@
 title: "pulam-web: a dead mirror lies as an empty fleet — surface the connection"
 description: "pulam-web shows a green connected dot + no terminals when the backend↔remote ssh mirror is actually down/failed (build mismatch, unreachable host). Root cause — the browser only ever sees its own socket health, never the mirror's. Fix (one PR) — graduate a thin onState→cell projection into @kolu/surface-nix-host, declare a gate-closed connection cell on the surface, pipe the session's health into it, and gate the browser UI on it (drishti's proven shape, now shared)."
 parents: [pulam-web, bug]
-status: proposed
+status: implemented
 maturity: seedling
 updated: 2026-06-24
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
 import Svg from "../../components/Svg.astro";
 import diagram from "../../diagrams/pulam-web-mirror-health.svg?raw";
 
 **pulam-web can sit in a state where a host reads as a healthy, empty fleet when its data link is dead** — a green “connected” dot and “0 terminals / no terminals”, while that host actually has live terminals running on it. It is a confident lie: nothing on screen says “this host is unreachable”. Reproduced in the wild by a kolu **build-version mismatch** between the two ends of the mirror ([gist](https://gist.github.com/srid/6309facf79fbe92703da49306c6ea3e2): remote `kaval` speaks pty-host **3.2**, local `pulam` needs **3.3**, so the remote agent exits and the session gives up — terminal `failed` — yet the browser stays green). Filed as [#1564](https://github.com/juspay/kolu/issues/1564). The mismatch is only the *trigger*; **any** dead backend↔remote leg collapses into the same silent empty state.
 
-The fix is small and already proven next door: **[drishti](electricity.html) does not have this bug** — it surfaces the mirror's health to the browser as a first-class `connection` cell and gates its UI on it. pulam-web is the lone consumer that never plugged in. This note is the plan to make pulam-web match it.
+The fix is small and already proven next door: **[drishti](electricity.html) does not have this bug** — it surfaces the mirror's health to the browser as a first-class `connection` cell and gates its UI on it. pulam-web is the lone consumer that never plugged in. Shipped in <PrLink pr={1568} /> (with the linked drishti gate PR adopting the shared cell).
 
 ## User-facing description
 
