@@ -1,11 +1,15 @@
+import { defineSurface } from "@kolu/surface/define";
 import type { AnyContractRouter } from "@orpc/contract";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   buildHostRegistry,
   type ClosableSocket,
   type HostEntry,
+  type LiveSpawnHolder,
+  pumpRemoteSurface,
 } from "./hostFanout";
-import type { HostSession } from "./hostSession";
+import type { AgentClient, HostSession } from "./hostSession";
 
 /** A stand-in for the slice of `HostSession` the registry touches
  *  (`destroy`/`reconnect`/`recheck`). `HostSession` is a class, so we mint a
@@ -209,5 +213,121 @@ describe("buildHostRegistry", () => {
     // add still works; it just skips persistence.
     await registry.add("beta");
     expect(registry.hosts()).toEqual(["alpha", "beta"]);
+  });
+});
+
+// ── pumpRemoteSurface — the `onLinkDown` wiring ────────────────────────────
+
+/**
+ * The pump's reconnect loop is the production caller of `onLinkDown` (pulam-web
+ * wires it to `resetRemoteFold`). A regression that stops invoking it from the
+ * `finally` would leave the consumer's fold-reset test green while the real
+ * ghost-on-reconnect bug returns. These tests pin the pump-side guarantee
+ * directly: `onLinkDown` fires when a spawn's mirror ends, AFTER the live
+ * holders have been cleared.
+ */
+
+const pumpSurface = defineSurface({
+  cells: {},
+  collections: {},
+  // One open stream — the mirror stays live until the source generator returns.
+  streams: { ticks: { inputSchema: z.object({}), outputSchema: z.number() } },
+  events: {},
+});
+
+/** A fake session exposing only the slice the pump + client-cursor read
+ *  (`pin`/`isDestroyed`/`currentClient`/`onState`), driving exactly ONE spawn
+ *  then destruction. `currentClient()` returns a stable promise (the cursor
+ *  compares the promise identity, not the awaited client). Listeners fire on
+ *  `destroy()` so the cursor's next wait observes `isDestroyed()` and the loop
+ *  exits. */
+function fakePumpSession(client: AgentClient<AnyContractRouter>) {
+  const listeners = new Set<() => void>();
+  let destroyed = false;
+  const clientPromise = Promise.resolve(client);
+  const session = {
+    pin: () => clientPromise,
+    isDestroyed: () => destroyed,
+    currentClient: () => (destroyed ? null : clientPromise),
+    onState: (cb: () => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    destroy: () => {
+      destroyed = true;
+      for (const cb of [...listeners]) cb();
+    },
+  };
+  return session as typeof session & HostSession<AnyContractRouter>;
+}
+
+describe("pumpRemoteSurface — onLinkDown", () => {
+  it("fires onLinkDown after a mirror ends, AFTER the live holders are cleared", async () => {
+    // A `ticks` stream the test holds open, then closes to end the mirror.
+    let closeTicks!: () => void;
+    const ticksOpen = new Promise<void>((r) => {
+      closeTicks = r;
+    });
+    const client = {
+      surface: {
+        ticks: {
+          get: async () =>
+            (async function* () {
+              yield 1;
+              await ticksOpen; // stay live until the test closes the link
+            })(),
+        },
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: structural fake client; the mirror reads `.surface` structurally.
+    } as any as AgentClient<AnyContractRouter>;
+
+    const session = fakePumpSession(client);
+
+    // Live holders the pump must clear BEFORE firing onLinkDown — assert that
+    // ordering by snapshotting the holder's `.current` from inside the hook.
+    const liveClient: LiveSpawnHolder<AgentClient<AnyContractRouter>> = {
+      current: null,
+    };
+    let clientAtLinkDown: unknown = "unset";
+    let linkDowns = 0;
+    const onLinkDown = vi.fn(() => {
+      linkDowns += 1;
+      clientAtLinkDown = liveClient.current;
+    });
+
+    const pumping = pumpRemoteSurface({
+      source: pumpSurface,
+      session,
+      // Subscribe `ticks` in the sink so the mirror actually holds it open — a
+      // stream with NO sink entry is skipped, and `done` would settle at once.
+      makeSink: () => ({
+        cells: {},
+        collections: {},
+        streams: { ticks: { input: {}, onFrame: () => {} } },
+        events: {},
+      }),
+      liveClient,
+      onLinkDown,
+    });
+
+    // The spawn is live: the holder points at this client and onLinkDown has
+    // not fired yet (the mirror is still open on the held `ticks` stream).
+    await vi.waitFor(() => expect(liveClient.current).toBe(client));
+    expect(onLinkDown).not.toHaveBeenCalled();
+
+    // Link death: closing the stream ends the mirror → the pump's `finally`
+    // clears the holders and fires onLinkDown.
+    closeTicks();
+    await vi.waitFor(() => expect(onLinkDown).toHaveBeenCalledOnce());
+    // The hook saw the holder ALREADY cleared (the contract: per-link local
+    // state resets only after the live client is gone, never against a stale
+    // pointer to the dead spawn).
+    expect(clientAtLinkDown).toBeNull();
+    expect(liveClient.current).toBeNull();
+
+    // End the loop and let the pump settle.
+    session.destroy();
+    await pumping;
+    expect(linkDowns).toBe(1);
   });
 });

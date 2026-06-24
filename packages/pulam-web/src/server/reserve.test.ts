@@ -624,3 +624,178 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     );
   });
 });
+
+/**
+ * Issue #1549 — a stale awareness row must NOT survive an ssh-link respawn.
+ *
+ * pulam-web's awareness cache is built ONCE per host session (`buildReServe`)
+ * and closed over by every (re)spawn's sink, while each fresh mirror's per-key
+ * `open` set starts EMPTY. So a key that left the remote while the link was down
+ * is absent from the new snapshot AND unknown to the new mirror — its `onRemove`
+ * never fires, and the cache pins a phantom row indefinitely (the Dock, reading
+ * kolu's in-process awareness, correctly shows it gone). The pump fires
+ * `onLinkDown` on each link death; the re-serve answers with `resetRemoteFold()`,
+ * dropping the fold so the NEXT spawn rebuilds from the remote's authoritative
+ * snapshot. One reset collapses both flavors: a finished agent's `working` is
+ * overwritten by the fresh snapshot, and a departed terminal's ghost is dropped.
+ *
+ * The activity live-set is the SAME per-host-session local state with the same
+ * pathology, so `resetRemoteFold` clears it too (`activityLatest = []` + an
+ * empty bus frame) — the second test below pins that.
+ *
+ * The first test drives two spawns through ONE re-serve exactly as
+ * `pumpRemoteSurface` does — spawn #1 with terminal A, link death (+ the pump's
+ * `onLinkDown` → `resetRemoteFold`), then spawn #2 whose snapshot no longer has
+ * A — and asserts an ALREADY-subscribed browser sees A depart rather than keep
+ * painting the ghost (a fresh-subscribe browser would merely read the rebuilt
+ * cache).
+ */
+describe("buildReServe — resets the remote-derived fold on link death (#1549)", () => {
+  it("drops a terminal that departed during the link-down window across the respawn", async () => {
+    const reServe = buildReServe();
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browserClient = directLink<ArivuContract>(reServe.router as any);
+
+    // A browser subscribed BEFORE the reconnect — the one that must see the
+    // ghost depart, not a fresh-subscribe browser reading the rebuilt cache.
+    let keysNow: () => TerminalId[] = () => [];
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const awareness = app.collections.awareness.use({});
+      keysNow = () => awareness.keys();
+    });
+
+    // ── Spawn #1: terminal A is present. ──
+    const spawn1 = standUpAgent(); // seeds TERM_A
+    const abort1 = new AbortController();
+    const mirror1 = mirrorRemoteSurface(
+      terminalWorkspaceSurface,
+      spawn1.client,
+      reServe.makeSink(),
+      { signal: abort1.signal },
+    );
+    reServe.liveClient.current = spawn1.client;
+    reServe.liveClient.onChange?.();
+    await waitFor(() => keysNow().includes(TERM_A));
+
+    // ── Link death: the pump aborts the mirror, clears the live client, and
+    //    fires `onLinkDown`. The mirror's teardown fires NO `onRemove` for A
+    //    (it only aborts the per-key controllers), so the cache still pins A —
+    //    `resetRemoteFold` is what drops it. ──
+    abort1.abort();
+    // Abort-driven teardown RESOLVES `.done` (mirrorRemoteSurface swallows
+    // abort-time rejections; only a `SinkError` — a broken local fold — rejects).
+    // So await it bare, NOT `.catch(() => {})`: a swallow here would hide a real
+    // sink failure or setup regression while the test marched on to pass.
+    await mirror1.done;
+    reServe.liveClient.current = null;
+    reServe.liveClient.onChange?.();
+    reServe.resetRemoteFold(); // ← the pump's `onLinkDown` hook
+
+    // The subscribed browser sees A depart the instant the fold resets — not
+    // keep the stale row pinned across the down window.
+    await waitFor(() => !keysNow().includes(TERM_A));
+
+    // ── Spawn #2: A departed while the link was down — its snapshot is empty. ──
+    const spawn2 = standUpAgent();
+    spawn2.cache.delete(TERM_A); // the terminal is gone on the remote now
+    const abort2 = new AbortController();
+    const mirror2 = mirrorRemoteSurface(
+      terminalWorkspaceSurface,
+      spawn2.client,
+      reServe.makeSink(),
+      { signal: abort2.signal },
+    );
+    reServe.liveClient.current = spawn2.client;
+    reServe.liveClient.onChange?.();
+    disposers.push(() => {
+      reServe.liveClient.current = null;
+      reServe.liveClient.onChange?.();
+      abort2.abort();
+      void mirror2.done.catch(() => {});
+    });
+
+    // The rebuilt fold has no A and no respawn ever re-adds it — the ghost is
+    // gone for good.
+    await waitFor(() => keysNow().length === 0);
+    expect([...keysNow()]).toEqual([]);
+  });
+
+  it("clears the activity live-set on link death — for both an existing and a fresh subscriber", async () => {
+    const feed = makeFeed<TerminalId[]>();
+    const agent = standUpAgent({ activityFeed: feed.iterable });
+
+    const reServe = buildReServe();
+    const abort = new AbortController();
+    const mirror = mirrorRemoteSurface(
+      terminalWorkspaceSurface,
+      agent.client,
+      reServe.makeSink(),
+      { signal: abort.signal },
+    );
+    reServe.liveClient.current = agent.client;
+    reServe.liveClient.onChange?.();
+    disposers.push(() => {
+      reServe.liveClient.current = null;
+      reServe.liveClient.onChange?.();
+      abort.abort();
+      feed.close();
+      void mirror.done.catch(() => {});
+    });
+
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browserClient = directLink<ArivuContract>(reServe.router as any);
+
+    // An ALREADY-subscribed browser — the one that must hear the dot go dark on
+    // link death, not just a fresh-subscribe browser reading the reset snapshot.
+    let aLive: boolean | undefined;
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const live = app.streams.activity.use(() => ({}));
+      const liveSet = createMemo(() => new Set(live() ?? []));
+      createEffect(() => {
+        aLive = liveSet().has(TERM_A);
+      });
+    });
+
+    // Light A live (re-push until the bus subscription registers — same race the
+    // re-notify test documents). `activityLatest` now pins `[TERM_A]`.
+    await vi.waitFor(
+      () => {
+        feed.push([TERM_A]);
+        expect(aLive).toBe(true);
+      },
+      { timeout: 2000 },
+    );
+
+    // ── Link death + the pump's `onLinkDown` → `resetRemoteFold`. WITHOUT the
+    //    activity half of the reset, `activityLatest` would still pin `[TERM_A]`:
+    //    the existing subscriber never hears it leave, and a fresh subscriber
+    //    reads the stale snapshot — a dead link's last frame painting a quiet
+    //    terminal live across the reconnect. ──
+    abort.abort();
+    await mirror.done;
+    reServe.liveClient.current = null;
+    reServe.liveClient.onChange?.();
+    reServe.resetRemoteFold();
+
+    // The existing subscriber sees A go dark (the empty bus frame reached it).
+    await waitFor(() => aLive === false);
+
+    // A FRESH subscriber's snapshot is empty too (`activityLatest` was reset, so
+    // it no longer reads the dead link's last frame).
+    let freshLive: TerminalId[] | undefined;
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const live = app.streams.activity.use(() => ({}));
+      createEffect(() => {
+        freshLive = live();
+      });
+    });
+    await waitFor(() => freshLive !== undefined);
+    expect([...(freshLive ?? [])]).toEqual([]);
+  });
+});
