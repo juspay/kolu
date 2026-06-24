@@ -130,6 +130,7 @@ const TerminalMeta: Component<{
                 <StatePip
                   variant={pipVariant(paintBucket(agent()))}
                   alert={props.unread}
+                  alertLabel="unread alert"
                   class={TITLE_PIP_BOX}
                 />
               )}

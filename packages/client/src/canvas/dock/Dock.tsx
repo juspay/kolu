@@ -421,12 +421,14 @@ const RepoSection: Component<{
 
 /** A row in cards mode — two lines:
  *
- *    Line 1: `activity · agent · branch · sub-count · time`
+ *    Line 1: `indicator · branch · sub-count · time`
  *    Line 2: `[PR pip] subline`  (branch col → end)
  *
- *  The PR pip rides on line 2 at the leftmost X (anchored to the
- *  branch column's left edge, col 3) so PR icons align across every
- *  section. Sub-count cell
+ *  A single leading status indicator (`StatePip`) folds the old
+ *  activity/agent glyphs into one column; the branch column starts at
+ *  col 2 (`DOCK_ROW_BRANCH_COL = col-start-2`). The PR pip rides on
+ *  line 2 at the leftmost X (anchored to the branch column's left edge,
+ *  col 2) so PR icons align across every section. Sub-count cell
  *  is empty when the row has none, collapsing the column back into
  *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock

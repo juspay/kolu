@@ -12,9 +12,11 @@
  *     like drishti's `processesSnapshot`).
  *
  * Rows sort needs-you-first (a blocked agent floats to the top, its glyph
- * breathing) and filter by category (active agents shown by default; idle agents,
- * non-agent terminals, and sleeping shells fold in via App's toggles). The
- * projection (bucket / urgency / sort / labels / colours) is `fleet.ts`.
+ * breathing) and filter by category. By default the board shows EVERY agent
+ * (active *and* idle — see `DEFAULT_FLEET_FILTERS`); the two agentless
+ * categories, non-agent terminals and sleeping shells, fold in via App's
+ * toggles. The projection (bucket / urgency / sort / labels / colours) is
+ * `fleet.ts`.
  *
  * The list `<For>` is keyed by the primitive terminal id and the id ordering is
  * an array-equality memo, so a value-only delta (an agent ticking state) updates
