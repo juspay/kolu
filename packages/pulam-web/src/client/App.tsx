@@ -23,6 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { type PipVariant, StatePip } from "@kolu/solid-statepip";
 import { DEFAULT_FLEET_FILTERS, type FleetFilters, URGENCY } from "./fleet.ts";
 import { HostGroup } from "./HostGroup.tsx";
 import { rememberServerProcessId } from "./wire.ts";
@@ -94,6 +95,59 @@ function createNow(): () => number {
     document.removeEventListener("visibilitychange", onVisibility);
   });
   return now;
+}
+
+/** One legend entry — the REAL `StatePip` beside its meaning, so the legend can
+ *  never drift from what the rows actually draw (it renders the same component
+ *  over the same `(variant, live, alert)` axes). */
+function LegendItem(props: {
+  variant: PipVariant;
+  live?: boolean;
+  alert?: boolean;
+  label: string;
+}): JSX.Element {
+  return (
+    <span class="inline-flex items-center gap-1.5">
+      <StatePip variant={props.variant} live={props.live} alert={props.alert} />
+      <span>{props.label}</span>
+    </span>
+  );
+}
+
+/** The indicator legend — what each row's status indicator means, drawn from the
+ *  shared `StatePip` so it stays honest. Three axes: the agent-state CORE (shape),
+ *  the green live RING (moving bytes), and the amber alert HALO (unread). The
+ *  live/alert rows use a plain idle core so each outer axis reads in isolation. */
+function Legend(): JSX.Element {
+  return (
+    <section class="mt-3 border-t border-[#1c2231] pt-2 text-[12px] text-[#8b94a6]">
+      <div class="mb-1.5 font-semibold text-[#aeb7c7]">Legend</div>
+      <div class="mb-1 text-[11px] uppercase tracking-[0.1em] text-[#5b6678]">
+        agent state
+      </div>
+      <div class="mb-2 flex flex-wrap gap-x-4 gap-y-1.5">
+        <LegendItem variant="working" label="working" />
+        <LegendItem variant="awaiting" label="needs you" />
+        <LegendItem variant="idle" label="idle" />
+        <LegendItem variant="sleeping" label="sleeping" />
+      </div>
+      <div class="mb-1 text-[11px] uppercase tracking-[0.1em] text-[#5b6678]">
+        activity &amp; alerts
+      </div>
+      <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+        <LegendItem
+          variant="idle"
+          live
+          label="live — moving bytes (green ring)"
+        />
+        <LegendItem
+          variant="idle"
+          alert
+          label="unread alert — a notification fired (amber halo)"
+        />
+      </div>
+    </section>
+  );
 }
 
 /** One filter toggle in the footer — `+ label` off, `✓ label` on. */
@@ -229,6 +283,7 @@ export function App(): JSX.Element {
                 )}
               </For>
             </footer>
+            <Legend />
           </Show>
         </Show>
       </Show>
