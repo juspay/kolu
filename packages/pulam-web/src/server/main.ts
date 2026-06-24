@@ -132,7 +132,15 @@ async function main(): Promise<void> {
     if (host === undefined || host.length === 0 || !registry.has(host)) {
       return c.json({ error: `unknown host: ${host ?? "<none>"}` }, 404);
     }
-    registry.getSession(host)?.reconnect();
+    // `has` just proved the host exists, and `has`/`getSession` read the SAME
+    // `entries` map, so the session is present. Resolve `getSession`'s
+    // `| undefined` with a thrown guard rather than a silent `?.`: were the
+    // session ever absent, this route must CRASH (fail loud), never return
+    // `{ ok: true }` while quietly skipping the reconnect.
+    const session = registry.getSession(host);
+    if (session === undefined)
+      throw new Error(`reconnect: session missing for known host ${host}`);
+    session.reconnect();
     log(`reconnect requested (host=${host})`);
     return c.json({ ok: true });
   });
