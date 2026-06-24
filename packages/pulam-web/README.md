@@ -2,7 +2,7 @@
 
 **A browser view of a fleet of pulam terminals. One Node parent server dials many remote pulam boxes over ssh, re-serves each box's `terminalWorkspaceSurface` to the browser over a per-host WebSocket, and renders a dark monospace agent dashboard — every agent across the fleet, sorted by what needs you.**
 
-This is the web companion to `pulam-tui`: where the TUI draws the fleet in an alt-screen board, pulam-web draws it in a browser. Per host, agents are bucketed and sorted **needs-you-first** — a blocked agent (`awaiting_user`) floats to the top and its glyph breathes, working agents spin, idle ones sit dim — and each row carries a green **activity dot** when it's moving bytes right now. Terminals not running an agent are hidden by default; footer toggles fold in idle agents, non-agent terminals, and sleeping shells. The dashboard reads each host's `awareness` collection (state · repo · branch · recency) and `activity` stream (the dot) — both already-proven consumers, no surface change. Still read-only: the per-agent git **dirty/clean count** and the changed-file **drill-in** need `git.getStatus` and are R-pulamweb-4.
+This is the web companion to `pulam-tui`: where the TUI draws the fleet in an alt-screen board, pulam-web draws it in a browser. Per host, agents are bucketed and sorted **needs-you-first** — a blocked agent (`awaiting_user`) floats to the top, working agents below, idle ones at the bottom — and each row carries a green **activity dot** when it's moving bytes right now. Every row renders the **same `StatePip` as kolu's Dock** (`@kolu/solid-statepip`, on the shared `@kolu/theme` palette), so a given agent state shows the identical pip — a hollow ring spins for working, a dim violet dot for awaiting, a muted dot for idle, a ☾ for a sleeping shell — while the fleet-wide **needs-you strip** breathes when any agent is blocked. Terminals not running an agent are hidden by default; footer toggles fold in idle agents, non-agent terminals, and sleeping shells. The dashboard reads each host's `awareness` collection (state · repo · branch · recency) and `activity` stream (the dot) — both already-proven consumers, no surface change. Still read-only: the per-agent git **dirty/clean count** and the changed-file **drill-in** need `git.getStatus` and are R-pulamweb-4.
 
 ## The three-tier bridge
 
@@ -16,27 +16,29 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 
 ## What it owns
 
-- **The parent entry** (`src/server/main.ts`): the Hono app, the `/api/hosts` list endpoint, the static client bundle, and the `?host=` WebSocket upgrade dispatch (origin gate → stale-tab gate → heartbeat → handler upgrade).
+- **The parent entry** (`src/server/main.ts`): the Hono app, the `/api/hosts` list endpoint, the dynamic `/manifest.webmanifest` (`installPwaManifest`), the static client bundle, and the `?host=` WebSocket upgrade dispatch (origin gate → stale-tab gate → heartbeat → handler upgrade).
 - **The re-serve** (`src/server/reserve.ts`): the local `implementSurface` fragment that mirrors one remote host's awareness surface to the browser, its `makeSink` (PUSH fold) and live-client/procedure holders (PULL forward).
 - **Boot config** (`src/server/config.ts`): the static host set (`PULAM_WEB_HOSTS`), the per-host `.drv` resolver over pulam's baked `{ system → drv }` map (`PULAM_AGENT_DRVS_JSON`), and strict port parsing. Fail-fast at boot, no fallback.
-- **The browser client** (`src/client/`): the SolidJS agent dashboard — one `surfaceClient` per host over a reconnecting `PartySocket`. `fleet.ts` is the pure projection (bucket · needs-you-first sort · recency · colours, ported from `pulam-tui` and pinned by `fleet.test.ts`); `HostGroup.tsx` consumes each host's `awareness` collection + `activity` stream (the green dot) and renders the sorted/filtered rows fine-grained; `App.tsx` owns the view filters, the shared 1s clock, and the fleet-wide "needs you" strip.
+- **The browser client** (`src/client/`): the SolidJS agent dashboard — one `surfaceClient` per host over a reconnecting `PartySocket`. `fleet.ts` is the pure projection (bucket · needs-you-first sort · recency · the shared `@kolu/theme` colour tokens · the `pipVariantFor` → `StatePip` mapping, pinned by `fleet.test.ts`); `HostGroup.tsx` consumes each host's `awareness` collection + `activity` stream (the green dot) and renders the sorted/filtered rows fine-grained, each agent's status drawn by the shared `StatePip` (`@kolu/solid-statepip`, the same component kolu's Dock renders); `App.tsx` owns the view filters, the shared 1s clock, and the fleet-wide "needs you" strip.
 
 ## What it deliberately does NOT know
 
 - **How a host becomes a session, reconnects, or respawns.** That hard volatility (ssh subprocess lifecycle, Nix provisioning, backoff, the keyed host registry, the reconnect-mirror pump) is `@kolu/surface-nix-host`'s — pulam-web only supplies the surface-specific `makeSink` / `buildEntry` and reads the result. The dependency arrow points *out*.
 - **What the awareness surface contains.** The `terminalWorkspaceSurface` contract, its schemas, and `DEFAULT_VERSION` live in `@kolu/terminal-workspace` and are shared verbatim with `pulam`, `pulam-tui`, and the daemon. pulam-web re-serves it; it does not define it.
-- **The freshness / PWA / origin-gate mechanics.** Static-bundle freshness (`installFreshStatic`), the ws origin gate, the stale-tab gate, and the heartbeat are `@kolu/surface-app` / `@kolu/surface`; pulam-web wires them, it does not reimplement them.
+- **The freshness / PWA / origin-gate mechanics.** Static-bundle freshness (`installFreshStatic`), the dynamic manifest (`installPwaManifest`), the fetch-less notification worker (`registerServiceWorker`), the ws origin gate, the stale-tab gate, and the heartbeat are `@kolu/surface-app` / `@kolu/surface`; pulam-web *wires* them into an installable PWA (manifest + icons + worker, the kolu twin) — it does not reimplement them. It deliberately does NOT add the `surfaceApp()` Vite commit-stamp plugin: that feeds kolu's client-staleness update prompt, which pulam-web doesn't render.
 - **Git status and the drill-in** — the `git.*` procedures are forwarded but the dashboard doesn't consume them yet. The awareness `git` info carries only `repoName`/`branch` (no file counts), so the per-agent dirty/clean count and the changed-file drill-in — both needing `git.getStatus` — are R-pulamweb-4.
 
 ## Coupling
 
-pulam-web sits downstream of three workspace packages and breaks if any of their contracts shift:
+pulam-web sits downstream of these workspace packages and breaks if any of their contracts shift — the transport/contract core, plus the shared UI/theme it renders the fleet in:
 
 | Package | What pulam-web depends on |
 | --- | --- |
 | `@kolu/terminal-workspace` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
 | `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `LiveSpawnHolder`, `ResolveDrvError` |
 | `@kolu/surface` / `@kolu/surface-app` | the mirror (`mirrorRemoteSurface`), the Solid client (`surfaceClient`), the server shell (static serving, gates, heartbeat) |
+| `@kolu/solid-statepip` | the shared `StatePip` component + `pipVariantFor`/`pipForPaintClass` the rows render, so a given agent state draws the identical pip as kolu's Dock |
+| `@kolu/theme` | the shared colour palette (`--color-alert`, `--color-accent`, …) the pips + labels resolve, so the fleet reads the same tokens as the Dock |
 
 ## Run it
 
@@ -65,4 +67,18 @@ PULAM_WEB_KAVAL_SOCKETS="localhost=/run/user/1000/kaval-7692/pty-host.sock,srid@
 - **`PULAM_WEB_KAVAL_SOCKETS`** — `host=socket` pairs (see above). **Required** for any host with several kavals — i.e. **every host running kolu**; omit only for single-kaval hosts. The web twin of `pulam-tui --kaval host=socket`. A socket named for a host you don't dial fails fast.
 - **`PULAM_WEB_PORT`** (default `4800`), **`PULAM_WEB_BIND`** (default `127.0.0.1` — the RPC surface is unauthenticated, so bind loopback unless firewalled or behind a trusted proxy). A malformed port fails fast rather than silently falling back.
 
-For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api` + `/rpc`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
+For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api`, `/rpc`, and the dynamic `/manifest.webmanifest`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
+
+## App icon
+
+The canonical pulam mark — the `> pulam` / புலம் logo — lives at [`packages/pulam/logo.svg`](../pulam/logo.svg), next to the namesake daemon and mirroring [`packages/kaval/logo.svg`](../kaval/logo.svg); it's also what `kolu.dev/kaval` renders for the pulam sibling. The PWA-only maskable variant (`logo-maskable.svg`, full-bleed with content inside the safe zone) stays here. The served PWA raster — `public/{icon-192,icon-512,icon-512-maskable}.png` plus `public/favicon.svg` — is rendered from those two with [`resvg`](https://github.com/linebender/resvg), which needs the wordmark + Tamil fonts on a fonts dir:
+
+```sh
+FONTS=$(mktemp -d)
+cp "$(nix build --no-link --print-out-paths nixpkgs#jetbrains-mono)"/share/fonts/truetype/*.ttf "$FONTS/"
+cp "$(nix build --no-link --print-out-paths nixpkgs#noto-fonts)"/share/fonts/noto/NotoSansTamil.ttf "$FONTS/"
+cd public
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 192 -h 192 ../../pulam/logo.svg icon-192.png
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../../pulam/logo.svg icon-512.png
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../logo-maskable.svg  icon-512-maskable.png
+```

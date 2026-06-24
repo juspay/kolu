@@ -30,6 +30,7 @@ import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
+  installPwaManifest,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
@@ -53,6 +54,20 @@ import {
 const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
 };
+
+// The colour the pulam shell paints behind everything (the PWA splash/background).
+// Named once here — mirroring the kolu twin's `PWA_BACKGROUND_COLOR`
+// (packages/server/src/index.ts) — so the manifest can't drift from intent. NOT
+// `--color-surface-0` (#0c0c0e): pulam-web uses a distinct shell background. The
+// <body> in index.html carries the same literal (`bg-[#0b0d10]`); static HTML
+// can't read this const, so the two stay paired by value, not by this comment.
+const SHELL_BG = "#0b0d10";
+
+// The PWA theme colour — the teal `--color-accent` (packages/theme/theme.css:26)
+// the dashboard already paints, which is the authority. Named once here so the
+// manifest's theme_color is the only literal to keep in step with the token,
+// matching kolu's twin which likewise keeps themeColor server-side.
+const PULAM_THEME_COLOR = "#5a9ea0";
 
 async function main(): Promise<void> {
   // ── Static config (fail-fast at boot, no fallback) ───────────────────────
@@ -108,10 +123,38 @@ async function main(): Promise<void> {
   // instance. The first-ever connect omits `pid` and always passes.
   app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
 
+  // PWA manifest — served dynamically so it's one source of truth with the
+  // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
+  // single fleet view, not a per-host instance, so the identity is static (no
+  // hostname-hashed name/theme like kolu's): the teal `--color-accent` the
+  // dashboard already paints is the theme colour, and the shell background
+  // (`SHELL_BG`) is the splash colour. `display: standalone` + the maskable icon
+  // make it installable. Registered BEFORE `installFreshStatic` so the manifest
+  // route wins over the static `/` catch-all.
+  installPwaManifest(app, {
+    name: "pulam-web — every agent, every host",
+    short_name: "pulam",
+    description:
+      "One browser view over every coding agent on every host in your fleet — sorted by what needs you.",
+    themeColor: PULAM_THEME_COLOR,
+    backgroundColor: SHELL_BG,
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/icon-512-maskable.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  });
+
   // Serve the built Vite client. `PULAM_WEB_DIST_DIR` overrides the default
   // `../../dist` (relative to this file's runtime location), so the Nix wrapper
   // can point at a prebuilt bundle. `serviceWorker: "notify"` keeps the
-  // freshness contract (no-store shell, immutable hashed assets, 404 on a miss).
+  // freshness contract (no-store shell, immutable hashed assets, 404 on a miss)
+  // AND serves the fetch-less `/sw.js` the client registers (see `main.tsx`).
   const distDir = process.env.PULAM_WEB_DIST_DIR
     ? process.env.PULAM_WEB_DIST_DIR
     : resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");

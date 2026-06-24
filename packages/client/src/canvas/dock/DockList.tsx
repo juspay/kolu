@@ -30,13 +30,9 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
-import {
-  ActivityPip,
-  createDockRowData,
-  PrPip,
-  StatePip,
-  SubCountCell,
-} from "./RowPips";
+import { StatePip } from "@kolu/solid-statepip";
+import { ActivityPip, createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { pipVariant } from "./pipVariant";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -182,7 +178,7 @@ function DockListRow(props: {
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           <ActivityPip id={props.id} />
-          <StatePip bucket={props.pip} unread={unread()} />
+          <StatePip variant={pipVariant(props.pip, unread())} />
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{

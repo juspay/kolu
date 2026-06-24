@@ -34,7 +34,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | screen output  | `node-pty` `onData`             | `attach` (snapshot+deltas)|
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
-| command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun`     |
+| command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun` / `getLastCommand` |
 | exit           | child exit code                 | `exitPromise`             |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 

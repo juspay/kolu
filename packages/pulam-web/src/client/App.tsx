@@ -155,8 +155,8 @@ export function App(): JSX.Element {
 
       <Show when={needTotal() > 0}>
         <div
-          class="mb-3 flex animate-pulse items-center gap-2 rounded-lg border border-[rgba(230,162,60,.42)] bg-[rgba(230,162,60,.14)] px-3 py-2 motion-reduce:animate-none"
-          style={`color:${URGENCY.need.color}`}
+          class="mb-3 flex animate-pulse items-center gap-2 rounded-lg border px-3 py-2 motion-reduce:animate-none"
+          style={`color:${URGENCY.need.color};border-color:color-mix(in oklch, var(--color-alert) 42%, transparent);background:color-mix(in oklch, var(--color-alert) 14%, transparent)`}
         >
           <span>{URGENCY.need.glyph}</span>
           <span class="font-semibold">

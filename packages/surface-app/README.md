@@ -103,9 +103,9 @@ extension-carrying package would impose.
 | `@kolu/surface-app` | `cacheControlFor`, `isImmutableAssetPath`, `clientIsStale`, `isCleanRef`, `SHELL_COMMIT_GLOBAL`, `shellCommitScript`, `injectShellCommit`, `SW_SOURCE`, `NOTIFICATION_SW_SOURCE`, `SERVER_PROCESS_ID_PARAM`, `STALE_PROCESS_CLOSE_CODE`, `rejectStaleProcess` — the pure, framework-free kernels (incl. the shell-carried commit and the stale-tab handshake wire contract) | core |
 | `@kolu/surface-app/server` | `installSurfaceApp`, `installFreshStatic`, `installPwaManifest`, `buildInfoServer`, `serverIdentity`, `surfaceAppServer` (Hono; `serverIdentity`/`surfaceAppServer` expose the minted `processId` for the gate), `gateStaleSocket` (the WS-upgrade handshake gate — error-handler-first, `rejectStaleProcess`, close `4001` — in the one correct order), `startWsHeartbeat` (the server-side liveness reaper), `acceptSurfaceSocket` (owns the reaper AND sequences stale-gate → enrol → dispatch in one `accept(...)`, so a socket can't be dispatched un-enrolled) | server |
 | `@kolu/surface-app/surface` | `buildInfo`, `defineBuildInfo`, `surfaceAppSurface`, `surfaceAppSurfaceWith`, `ServerProbeSchema` — the standalone surface | common |
-| `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (derives the lifecycle AND, default-on, runs the half-open liveness heartbeat — `onProcessId` / `onStaleRestart` / `restartCloseCode` / `heartbeat`), `connectSurface` (the turnkey single-surface seam: socket + client + default-on heartbeat in one call, for per-host fleet sockets), `retireSocket` | client |
+| `@kolu/surface-app/solid` | `retireServiceWorker`, `registerServiceWorker`, `registerOrRetireServiceWorker`, `reloadForUpdate`, `SurfaceAppProvider` (turnkey `{ ws, probe }` source handles the whole stale-tab handshake), `useSurfaceApp`, `createServerLifecycle` (derives the lifecycle AND, default-on, runs the half-open liveness heartbeat — `onProcessId` / `onStaleRestart` / `restartCloseCode` / `heartbeat`), `connectSurface` (the turnkey single-surface seam: socket + client + default-on heartbeat in one call, for per-host fleet sockets), `retireSocket` | client |
 | `@kolu/surface-app/connect` | `createProcessIdEcho`, `createSurfaceSocket`, `createHeartbeat`, `retireOnStaleClose` — framework-free client transport: the shared `pid`-echo, the `new PartySocket(...)` construction with that echo'd URL thunk, the half-open-socket watchdog, and the per-socket stale-close self-retire. The link + clients + lifecycle stay with the consumer (they differ per app) | client |
-| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `reloadForUpdate`, `shellCommit`, `retireSocket` — framework-free, for root setup before any component (`shellCommit()` reads the shell-carried build commit; `retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
+| `@kolu/surface-app/lifecycle` | `retireServiceWorker`, `registerServiceWorker`, `registerOrRetireServiceWorker`, `reloadForUpdate`, `shellCommit`, `retireSocket` — framework-free, for root setup before any component (`registerOrRetireServiceWorker()` is the boot-time register-or-retire policy both kolu and pulam-web call — register the notification worker, fall back to `retireServiceWorker()` if it fails; `shellCommit()` reads the shell-carried build commit; `retireSocket` is the stale-tab transport teardown the `/solid` lifecycle's `onStaleRestart` calls; it lives here because it's pure transport manipulation, no SolidJS) | client |
 | `@kolu/surface-app/vite` | `surfaceApp()` plugin, `resolveCommit()` | build (Vite) |
 | `@kolu/surface-app/bun` | `buildSurfaceClient()`, `ASSET_DIR` — the content-hashed Bun client build | build (Bun) |
 | `@kolu/surface-app/client` | the `window.__SURFACE_APP_COMMIT__` shell-global type, via `/// <reference>` | client types |
@@ -181,6 +181,28 @@ installSurfaceApp(app, {
 
 `installFreshStatic` / `installPwaManifest` are exported for apps that compose by hand; `installSurfaceApp` is the greenfield convenience that wires both in the right order.
 
+#### The HTML head + icon set the manifest assumes (the one un-injectable seam)
+
+`installPwaManifest` serves `/manifest.webmanifest`, but the **shell still has to point at it** and ship the icon files it names — and that lives in the consumer's static `index.html`, which surface-app can't inject (only the build commit `<script>` rides the `surfaceApp()` Vite plugin). So every installable consumer hand-writes the **same three head links**, against the **same icon filenames** the manifest's `icons` default to. They're a fixed convention; copy them verbatim and swap only the favicon art:
+
+```html
+<!-- in <head> — the install triad every surface-app PWA repeats verbatim -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+```
+
+Ship these under the client's `public/` (served from `/`), matching the `icons` you pass `installPwaManifest`:
+
+| File | Manifest entry |
+| --- | --- |
+| `public/icon-192.png` | `{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }` — also the `apple-touch-icon` |
+| `public/icon-512.png` | `{ src: "/icon-512.png", sizes: "512x512", type: "image/png" }` |
+| `public/icon-512-maskable.png` | `{ …, sizes: "512x512", purpose: "maskable" }` — content inside the central safe zone |
+| `public/favicon.svg` | the `rel="icon"` tab glyph (not in the manifest) |
+
+Live consumers of this exact convention: `packages/client` (kolu), `packages/pulam-web`, and `drishti`. The links and filenames are stable boilerplate; only the *art* (and the manifest `name`/`themeColor`) is app identity. *There is intentionally no helper for this — static-HTML head tags aren't injectable like the commit script, so the convention is documented rather than coded.*
+
 ### build — the commit, resolved once
 
 ```ts
@@ -240,11 +262,18 @@ import { SurfaceAppProvider, useSurfaceApp } from "@kolu/surface-app/solid";
 import { appSurface } from "../common/surface";
 import { surfaceAppSurface } from "@kolu/surface-app/surface";
 
-// retireServiceWorker() runs at root setup, before any component — import it from
-// the framework-free /lifecycle subpath (re-exported from /solid for convenience).
-// shellCommit() reads the build commit the shell carries (window.__SURFACE_APP_COMMIT__):
-import { retireServiceWorker, shellCommit } from "@kolu/surface-app/lifecycle";
-retireServiceWorker();   // unregister any worker an earlier build left + drop its caches
+// registerOrRetireServiceWorker() runs at root setup, before any component —
+// import it from the framework-free /lifecycle subpath (re-exported from /solid
+// for convenience). It registers the notification worker and, if that fails (dev,
+// where /sw.js isn't served), retires any worker instead — the boot policy both
+// kolu and pulam-web call. An app that wants NO worker at all calls the bare
+// retireServiceWorker() instead. shellCommit() reads the build commit the shell
+// carries (window.__SURFACE_APP_COMMIT__):
+import {
+  registerOrRetireServiceWorker,
+  shellCommit,
+} from "@kolu/surface-app/lifecycle";
+void registerOrRetireServiceWorker(); // register the notify worker; retire if it fails
 
 // One client per sibling surface, scoped by key over the one link. Each client's
 // `.rpc` is the scoped link `{ surface: link.surface[key] }`, so the key is
@@ -381,7 +410,7 @@ The ban is on a *caching* worker — one with a `fetch` handler that intercepts 
 
 By default surface-app ships `SW_SOURCE` (a self-destructing worker `installSurfaceApp` serves at `/sw.js`) plus `retireServiceWorker()` (run on load) — together they retire a worker an earlier build registered, with no user action.
 
-**The fetch-less notification opt-in.** An installed PWA can only raise an OS notification through `ServiceWorkerRegistration.showNotification()` — the page-level `new Notification()` constructor is an *illegal constructor* in `standalone` display mode on Chromium, so it silently throws and no banner appears. So an app that needs notifications opts in: serve `NOTIFICATION_SW_SOURCE` (`installFreshStatic({ serviceWorker: "notify" })`) and register it with `registerServiceWorker()`. That worker has **no `fetch` handler**, so it never intercepts the network and the freshness contract holds structurally — the ban was always on caching, not on the existence of a worker. It also subsumes retirement: registering at the `/` scope replaces any legacy caching worker, which it purges on `activate`. An app does one or the other — `registerServiceWorker()` (notify) **or** `retireServiceWorker()` (none) — never both.
+**The fetch-less notification opt-in.** An installed PWA can only raise an OS notification through `ServiceWorkerRegistration.showNotification()` — the page-level `new Notification()` constructor is an *illegal constructor* in `standalone` display mode on Chromium, so it silently throws and no banner appears. So an app that needs notifications opts in: serve `NOTIFICATION_SW_SOURCE` (`installFreshStatic({ serviceWorker: "notify" })`) and register it. Boot setup calls `registerOrRetireServiceWorker()`, which registers the worker and falls back to `retireServiceWorker()` if registration fails (dev, where `/sw.js` isn't served) — so the register-or-retire invariant lives in one primitive rather than re-authored per surface; the bare `registerServiceWorker()` / `retireServiceWorker()` leaves remain the escape hatch for an app that composes them differently. That worker has **no `fetch` handler**, so it never intercepts the network and the freshness contract holds structurally — the ban was always on caching, not on the existence of a worker. It also subsumes retirement: registering at the `/` scope replaces any legacy caching worker, which it purges on `activate`. An app does one or the other — register (notify) **or** retire (none) — never both. (Registering the worker is the *infrastructure* notifications need; the app still wires the actual permission-request + `showNotification()` trigger itself, e.g. kolu's `useActivityAlerts.ts`.)
 
 Gate any SW logic on `window.isSecureContext`, **never** `location.protocol === "https:"` (that misses `localhost` and flag-secured origins — the bug that orphaned kolu's worker).
 

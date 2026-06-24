@@ -31,6 +31,7 @@ import {
 // subpath; re-exported here so `<SurfaceAppProvider>` consumers reach them from
 // one import. Apps with no component in scope (root setup) import `/lifecycle`.
 export {
+  registerOrRetireServiceWorker,
   registerServiceWorker,
   reloadForUpdate,
   retireServiceWorker,

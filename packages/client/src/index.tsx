@@ -1,8 +1,7 @@
 /// <reference types="vite/client" />
 
 import {
-  registerServiceWorker,
-  retireServiceWorker,
+  registerOrRetireServiceWorker,
   shellCommit,
 } from "@kolu/surface-app/lifecycle";
 import { SurfaceAppProvider } from "@kolu/surface-app/solid";
@@ -26,15 +25,10 @@ import "./index.css";
 // activate. If registration fails (e.g. dev, where `/sw.js` isn't served) we
 // fall back to `retireServiceWorker()` so the origin is still left with NO
 // caching worker — never just "no OS banner" while a legacy stale-serving worker
-// lingers. Either way the in-app dock + sound still fire. Run before any
-// component — the framework-free `/lifecycle` subpath.
-void registerServiceWorker().catch((err) => {
-  console.debug(
-    "notification worker registration failed, retiring any SW:",
-    err,
-  );
-  retireServiceWorker();
-});
+// lingers. Either way the in-app dock + sound still fire. The register-or-retire
+// policy itself lives in `registerOrRetireServiceWorker` (`/lifecycle`), shared
+// with pulam-web. Run before any component — the framework-free `/lifecycle` subpath.
+void registerOrRetireServiceWorker();
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to
 // the same diagnostic probes DiagnosticInfo renders. See debug/consoleHooks.ts.

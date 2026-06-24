@@ -1,6 +1,7 @@
+import type { PipVariant } from "@kolu/solid-statepip";
 import { describe, expect, it } from "vitest";
 import type { DockRowBucket } from "./dockRowRanking";
-import { type PipVariant, pipVariant } from "./pipVariant";
+import { pipVariant } from "./pipVariant";
 
 const cases: Array<[DockRowBucket, boolean, PipVariant]> = [
   // unread dominates the bucket — even working rows read as "attention"

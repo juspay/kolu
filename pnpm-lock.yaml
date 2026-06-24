@@ -88,6 +88,9 @@ importers:
       '@kolu/solid-pwa-install':
         specifier: workspace:*
         version: link:../solid-pwa-install
+      '@kolu/solid-statepip':
+        specifier: workspace:*
+        version: link:../solid-statepip
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -97,6 +100,9 @@ importers:
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
+      '@kolu/theme':
+        specifier: workspace:*
+        version: link:../theme
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -701,6 +707,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.13(hono@4.12.25)
+      '@kolu/solid-statepip':
+        specifier: workspace:*
+        version: link:../solid-statepip
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -713,6 +722,9 @@ importers:
       '@kolu/terminal-workspace':
         specifier: workspace:*
         version: link:../terminal-workspace
+      '@kolu/theme':
+        specifier: workspace:*
+        version: link:../theme
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
@@ -1043,6 +1055,25 @@ importers:
 
   packages/solid-pwa-install:
     dependencies:
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@22.19.15)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/solid-statepip:
+    dependencies:
+      '@kolu/terminal-workspace':
+        specifier: workspace:*
+        version: link:../terminal-workspace
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1539,6 +1570,8 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+
+  packages/theme: {}
 
   packages/transcript-core:
     dependencies:

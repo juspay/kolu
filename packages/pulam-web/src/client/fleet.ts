@@ -6,10 +6,13 @@
  * surfaces that render it (pulam-tui, pulam-web, AND kolu's Dock — the two fleet
  * views MIRROR the Dock UX), fenced by the schema's `AgentInfo['state']` union so
  * a new agent state can't drift between them. This module keeps ONLY what is
- * genuinely web-specific: the urgency→{colour, label, glyph} and PAINT→{colour,
- * glyph} descriptors the rows paint (the glyph follows PAINT — mirroring the Dock
- * pip — while the row tint + state label follow urgency), the web chrome colours,
- * the cwd/location helpers, and the terminal-category filter the toggles read.
+ * genuinely web-specific: the per-agent ROW pip — `pipVariantFor`, which folds an
+ * awareness value to a `PipVariant` the shared `StatePip` (`@kolu/solid-statepip`)
+ * renders, the SAME component + theme palette kolu's Dock paints; the urgency→
+ * {colour, label, glyph} descriptor the fleet-wide needs-you strip + footer
+ * counters still read (its glyph serves only those aggregates now — the row's own
+ * glyph moved into `StatePip`); the web chrome colours; the cwd/location helpers;
+ * and the terminal-category filter the toggles read.
  *
  * What this does NOT do: dirty/clean counts. The awareness `git` info carries
  * only `repoName`/`branch`/remote — the file counts come from the `git.getStatus`
@@ -17,7 +20,10 @@
  */
 
 import {
-  type AgentPaintClass,
+  pipForPaintClass,
+  type PipVariant,
+} from "@kolu/solid-statepip/pipVariant";
+import {
   agentPaintClass,
   agentUrgency,
   compareAgents,
@@ -37,22 +43,23 @@ export function basename(cwd: string): string {
   return base.length > 0 ? base : cwd;
 }
 
-/** One descriptor per urgency — its web colour, the user-facing label, and the
- *  leading glyph — so urgency fully describes its own presentation and the row
- *  colour, the state cell, the footer counters, and the needs-you strip all read
- *  a SINGLE definition rather than re-spelling the hex/label/glyph at each render
- *  site. The sort rank lives in the shared projection (`URGENCY_RANK`); the
- *  colour/label/glyph are this renderer's own presentation choice. Labels follow
- *  the reviewed mockup ("needs you"); the TUI spells "awaiting you" in its own
- *  table. (The pulse/spin ANIMATION stays a render-local class keyed off
- *  urgency, not a field here — it's a behaviour, not a static descriptor.) */
+/** One descriptor per urgency — its colour (a shared `@kolu/theme` token, so the
+ *  fleet reads the SAME palette as kolu's Dock — "your turn" violet, working
+ *  teal, idle grey — rather than a render-local hex that drifts), the user-facing
+ *  label, and the leading glyph the fleet-wide needs-you strip + footer counters
+ *  paint. The per-agent ROW renders the shared `StatePip` now (see
+ *  `pipVariantFor`), so the glyph here serves only those aggregate counters. The
+ *  sort rank lives in the shared projection (`URGENCY_RANK`); only the label
+ *  words stay this renderer's own ("needs you"; the TUI spells "awaiting you").
+ *  (The pulse/spin ANIMATION lives in `StatePip` / the strip class, not a field
+ *  here — it's a behaviour, not a static descriptor.) */
 export const URGENCY: Record<
   Urgency,
   { color: string; label: string; glyph: string }
 > = {
-  need: { color: "#e6a23c", label: "needs you", glyph: "●" },
-  work: { color: "#56b6c2", label: "working", glyph: "◜" },
-  idle: { color: "#5b6678", label: "idle", glyph: "○" },
+  need: { color: "var(--color-alert)", label: "needs you", glyph: "●" },
+  work: { color: "var(--color-accent)", label: "working", glyph: "◜" },
+  idle: { color: "var(--color-fg-3)", label: "idle", glyph: "○" },
 };
 
 /** The web label set, keyed off `URGENCY`, that the shared `fleetStateLabel`
@@ -65,32 +72,30 @@ export const URGENCY_LABELS: Record<Urgency, string> = {
   idle: URGENCY.idle.label,
 };
 
-/** The paint class an awareness value renders its glyph from — the agent's
- *  `agentPaintClass`, or `none` for a terminal with no agent (the fleet echo of
- *  kolu's Dock paint fold, `dockModel.paintBucket`'s null-arm). */
-export function paintClassFor(value: AwarenessValue): AgentPaintClass {
-  return value.agent ? agentPaintClass(value.agent.state) : "none";
+/** The shared status pip a terminal renders — the fleet's half of R-pip-unify.
+ *  An agent folds through the SAME `pipForPaintClass` kolu's Dock uses, so a
+ *  given agent state shows the IDENTICAL pip (glyph · colour · animation) on both
+ *  surfaces — and a just-finished `waiting` agent keeps the lingering `awaiting`
+ *  dot rather than dropping to idle (order≠colour, the dock-fleet-mirror
+ *  contract). A terminal with NO agent is the fleet's own overlay: a dormant ☾
+ *  when nothing's running, a quiet idle dot when a foreground process is. There
+ *  is no `attention` here — that loud unread variant is the Dock's alone (the
+ *  fleet has no unread obligation to surface). */
+export function pipVariantFor(value: AwarenessValue): PipVariant {
+  if (value.agent) return pipForPaintClass(agentPaintClass(value.agent.state));
+  return value.foreground ? "idle" : "sleeping";
 }
 
-/** One descriptor per PAINT class — the colour + glyph the agent cue paints —
- *  so the fleet MIRRORS kolu's Dock pip: the cue follows `agentPaintClass`, NOT
- *  urgency, so a just-finished `waiting` agent keeps the lingering "awaiting"
- *  amber dot rather than dropping to the idle grey its sort would imply. This is
- *  the Dock's order≠colour split: COLOUR is paint (here), while the sort, the
- *  needs-you row tint, and the pulse/spin ANIMATION stay keyed off urgency. The
- *  three paint classes index the SAME three visual tiers `URGENCY` defines
- *  (attention amber · working cyan · quiet grey) — one palette, two folds onto
- *  it — so the hex/glyph live once, in `URGENCY`. */
-export const PAINT: Record<AgentPaintClass, { color: string; glyph: string }> =
-  {
-    awaiting: { color: URGENCY.need.color, glyph: URGENCY.need.glyph },
-    working: { color: URGENCY.work.color, glyph: URGENCY.work.glyph },
-    none: { color: URGENCY.idle.color, glyph: URGENCY.idle.glyph },
-  };
-
+/** Fleet *chrome* colours — the live-output dot, the per-host accent, the dormant
+ *  dot. These are deliberately NOT `@kolu/theme` tokens: R-pip-unify moved the
+ *  **agent-state** palette (pip + urgency colour/label) onto the shared tokens so
+ *  the pip matches kolu's Dock, but pulam-web's surrounding chrome stays its own
+ *  (dark-only) literals — they're not part of the cross-surface pip contract, so
+ *  the residual hexes here (and a few in `HostGroup.tsx`) are intentional, not
+ *  drift the theme package was meant to prevent. `HOST_COLOR` re-spelling
+ *  `--color-alert`'s dark value is a coincidence of palette, not a shared token. */
 /** The green live-output dot — a terminal moving bytes right now (the fleet echo
- *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to the agent-state
- *  colours. */
+ *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to agent state. */
 export const LIVE_COLOR = "#7ee787";
 /** The per-host group accent (violet), echoing the mockup + pulam-tui's HOST. */
 export const HOST_COLOR = "#a78bfa";
