@@ -202,7 +202,8 @@ warm session, so re-feeding it the sections would just duplicate its context.
   **not** a clean consensus: a human must reconcile the uncommitted round(s)
   (e.g. commit the outstanding tree) before relying on the per-round history. Do
   **not** report it as a plain consensus (see step 3).
-- **reviewer-error** — the one *abnormal* terminus: codex itself failed to
+- **reviewer-error** — an *abnormal* terminus the workflow still **returns**:
+  codex itself failed to
   produce a verdict (broken/unavailable CLI), so the workflow synthesized an
   error verdict and aborted rather than spin forever on a dead reviewer. This is
   **infrastructure failure, not a debate outcome** — `finalVerdict.summary`
@@ -212,6 +213,17 @@ warm session, so re-feeding it the sections would just duplicate its context.
   (default 3 attempts; tune via `CODEX_REVIEW_RETRIES` / `CODEX_REVIEW_BACKOFF`)
   and only synthesizes the reviewer-error verdict once every attempt comes back
   empty — so a single codex hiccup no longer sinks the round.
+- **a thrown Workflow (no returned `status`)** — the *other* infrastructure
+  failure: one of the schema-constrained `agent({schema})` calls (the codex
+  verdict / Claude response / merge-base resolver) exhausts its own retries and
+  throws `TelemetrySafeError: StructuredOutput retry cap (N) exceeded`, which
+  aborts the whole Workflow mid-debate (the task-notification shows
+  `status: failed`, not one of the three returned termini above). Like
+  `reviewer-error` this is **a harness hiccup, not a debate outcome** — and the
+  **same remedy**: re-launch with the same args. Any per-round fix already
+  committed is preserved in git, and the next launch wipes its own stale
+  `section-*.md` ledger, so a fresh attempt owns a fresh ledger — **don't
+  hand-clean scratch.**
 
 ### 3. Present the result
 

@@ -127,15 +127,24 @@ the workflow's notification arrives or it has provably errored.
    body to post** — per `/codex-debate`, an unresolved reviewer error is not a
    consensus to report; skip the codex comment in that case.)
 
-   **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   in `consensus`, `commit-incomplete` (see below), or `reviewer-error` — the
-   last meaning codex never
+   **Retry codex (up to 3 attempts) on `reviewer-error` _or_ a workflow-level
+   crash.** `/codex-debate` ends in `consensus`, `commit-incomplete` (see below),
+   or `reviewer-error` — the last meaning codex never
    produced a structured verdict even after `codex-review.sh`'s built-in
-   per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
-   outcome*: re-launch it immediately with the same args. Stop the moment an
-   attempt reaches `consensus`. Only if **all 3** come back `reviewer-error` do
-   you give up on codex — report the persistent reviewer-error honestly (no false
-   consensus comment) and move on to the simplify step.
+   per-`codex exec` retries. The **same retry rule covers a thrown Workflow** —
+   a task-notification with `status: failed` and a `TelemetrySafeError`
+   (e.g. `agent({schema}): StructuredOutput retry cap (5) exceeded`) instead of a
+   returned `status`: that is the schema-constrained `agent()` call inside the
+   debate workflow failing, an *infrastructure hiccup, not a debate outcome*,
+   exactly like `reviewer-error`. Both paths: **re-launch immediately with the
+   same args.** The per-round commits the crashed/errored attempt already landed
+   are preserved in git (so each retry reviews an *already-cleaner* diff and may
+   converge in round 1), and the workflow wipes its own stale `section-*.md`
+   ledger on every fresh launch — so **do not hand-clear scratch or cherry-pick
+   the partial round; just re-launch.** Stop the moment an attempt reaches
+   `consensus`. Only if **all 3** come back `reviewer-error`/crash do you give up
+   on codex — report the persistent failure honestly (no false consensus comment),
+   keep the committed round fixes, and move on to the simplify step.
 
    **On `commit-incomplete`,** the debate converged but a round's author left its
    edits uncommitted (round numbers in `commitGaps`). The edits are still in the
