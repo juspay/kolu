@@ -346,8 +346,7 @@ async function renderEvents(
     : `<p class="empty">No conversation events found.</p>`;
 }
 
-function promptJumpHtml(humanTotal: number): string {
-  if (humanTotal < 2) return "";
+function promptJumpHtml(): string {
   return `<nav class="prompt-jump" aria-label="Human message navigation" data-prompt-nav>
   <button type="button" data-prompt-nav-action="prev" aria-label="Previous human message" title="Previous human message">↑</button>
   <button type="button" data-prompt-nav-action="next" aria-label="Next human message" title="Next human message">↓</button>
@@ -380,8 +379,11 @@ export async function transcriptToHtml(
   const title = deriveDisplayTitle(prepared);
   const humanTotal = humanMessageCount(prepared.events);
   const events = await renderEvents(prepared.events, options.mode);
-  const promptJump = promptJumpHtml(humanTotal);
-  const script = humanTotal >= 2 ? `<script>${SCRIPT}</script>` : "";
+  // The prompt-jump nav and its script are one feature, gated on the same
+  // threshold — more than one human message to jump between.
+  const hasPromptJump = humanTotal >= 2;
+  const promptJump = hasPromptJump ? promptJumpHtml() : "";
+  const script = hasPromptJump ? `<script>${SCRIPT}</script>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
