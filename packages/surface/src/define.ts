@@ -269,14 +269,53 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
     : EmptyObj
 >;
 
+/** The verb set a cell exposes — the TYPE counterpart of the runtime resolution
+ *  in {@link cellContractEntries}: `spec.verbs` when present, else the
+ *  patch/no-patch default. Honoring `verbs` here is load-bearing, not cosmetic:
+ *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
+ *  connection-health cell) must NOT type a `.set` the runtime contract router
+ *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
+ *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
+ *  exact cell whose stale-health safety relies on `set` being absent. */
+type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
+  verbs: readonly CellVerb[];
+}
+  ? S["verbs"][number]
+  : S extends { patchSchema: ZodType<any> }
+    ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
+    : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
+
+/** One contract entry per resolved verb — `get` streams the schema, `set` /
+ *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the
+ *  runtime `entries[v] = …` switch in {@link cellContractEntries} 1:1. */
+type CellVerbEntry<V extends CellVerb, T, P> = V extends "get"
+  ? { get: ReturnType<typeof buildCellGet<T>> }
+  : V extends "set"
+    ? { set: ReturnType<typeof buildCellSet<T>> }
+    : V extends "patch"
+      ? { patch: ReturnType<typeof buildCellPatch<P>> }
+      : V extends "test__set"
+        ? { test__set: ReturnType<typeof buildCellSet<T>> }
+        : EmptyObj;
+
 type CellContract<S extends CellSpec<any, any>> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
-  ? ReturnType<typeof buildCellWithPatch<T, P>>
+  ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, P>>
   : S extends { schema: ZodType<infer T> }
-    ? ReturnType<typeof buildCellNoPatch<T>>
+    ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, never>>
     : never;
+
+/** Fold the per-verb entry union into one object type — the type-level dual of
+ *  the runtime `entries` accumulation. */
+type UnionToIntersection<U> = (
+  U extends unknown
+    ? (k: U) => void
+    : never
+) extends (k: infer I) => void
+  ? I
+  : never;
 
 type CollectionContract<S extends CollectionSpec<any, any>> = S extends {
   keySchema: ZodType<infer K>;
@@ -449,21 +488,22 @@ export type SurfaceEventPayload<
 // runtime `xxxContractEntries` (above) AND the matching `build*`
 // oracle (below).
 
-function buildCellWithPatch<T, P>(opts: {
-  schema: ZodType<T>;
-  patchSchema: ZodType<P>;
-}) {
-  return {
-    get: oc.output(eventIterator(opts.schema)),
-    patch: oc.input(opts.patchSchema).output(z.void()),
-  };
+// One oracle per cell VERB (was `buildCellNoPatch` / `buildCellWithPatch`,
+// which baked the verb SET into the function): `CellContract<S>` now resolves
+// the verb set from `S["verbs"]` and maps each verb to its entry, so a
+// `verbs`-narrowed cell (`["get"]`) types exactly the verbs the runtime
+// contract router carries — no phantom `set`. Mirrors the per-verb `entries[v]`
+// switch in `cellContractEntries` 1:1 (drift watch above applies).
+function buildCellGet<T>(opts: { schema: ZodType<T> }) {
+  return oc.output(eventIterator(opts.schema));
 }
 
-function buildCellNoPatch<T>(opts: { schema: ZodType<T> }) {
-  return {
-    get: oc.output(eventIterator(opts.schema)),
-    set: oc.input(opts.schema).output(z.void()),
-  };
+function buildCellSet<T>(opts: { schema: ZodType<T> }) {
+  return oc.input(opts.schema).output(z.void());
+}
+
+function buildCellPatch<P>(opts: { patchSchema: ZodType<P> }) {
+  return oc.input(opts.patchSchema).output(z.void());
 }
 
 function buildCollection<K, T>(opts: {

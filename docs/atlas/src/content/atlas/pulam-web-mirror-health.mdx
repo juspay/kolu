@@ -143,7 +143,15 @@ export const DEFAULT_CONNECTION: ConnectionInfo = {
 };
 
 // The composable cell — apps spread this into their surface's `cells`.
-export const connectionCell = { schema: ConnectionInfoSchema, default: DEFAULT_CONNECTION } as const;
+// `verbs: ["get"]` makes it READ-ONLY over the wire: the parent host owns it
+// (writes server-side off `session.onState`), so a remote client must never be
+// able to `connection.set` the health to `connected` and forge the gate's
+// signal. Without it, a no-`patchSchema` cell defaults to `["get", "set"]`.
+export const connectionCell = {
+  schema: ConnectionInfoSchema,
+  default: DEFAULT_CONNECTION,
+  verbs: ["get"],
+} as const;
 ```
 
 ```ts
@@ -197,8 +205,11 @@ cells: {
 const connectionStore = inMemoryStore({ ...DEFAULT_CONNECTION });
 // …inside implementSurface(...): cells: { version: { store: versionStore },
 //   connection: { store: connectionStore } }
-// …and expose a setter on the ReServe result:
-setConnection: (info: ConnectionInfo) => connectionStore.set(info),
+// …and expose a setter on the ReServe result. Go through the FRAMEWORK-wrapped
+// `ctx.cells.connection.set` (persist + PUBLISH the delta to subscribers), NOT
+// a bare `connectionStore.set` — the latter updates the snapshot but a browser
+// already subscribed across the reconnect would never hear the new state.
+setConnection: (info: ConnectionInfo) => fragment.ctx.cells.connection.set(info),
 ```
 
 **4 — The parent pipes session state into the live cell.** In `packages/pulam-web/src/server/hostEntry.ts` (lines 112–122, where `pumpRemoteSurface` already receives `markConnected`/`onLinkDown`), one line carries the session's mirror health onto the browser cell. The session's existing lifecycle (first-version `markConnected`, the connect watchdog, give-up-into-`failed`) already drives every transition; this only observes it.

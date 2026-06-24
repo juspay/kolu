@@ -124,7 +124,15 @@
 <span class="line"><span style="color:#24292E">};</span></span>
 <span class="line"></span>
 <span class="line"><span style="color:#6A737D">// The composable cell — apps spread this into their surface's `cells`.</span></span>
-<span class="line"><span style="color:#D73A49">export</span><span style="color:#D73A49"> const</span><span style="color:#005CC5"> connectionCell</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> { schema: ConnectionInfoSchema, default: </span><span style="color:#005CC5">DEFAULT_CONNECTION</span><span style="color:#24292E"> } </span><span style="color:#D73A49">as</span><span style="color:#D73A49"> const</span><span style="color:#24292E">;</span></span></code></pre>
+<span class="line"><span style="color:#6A737D">// `verbs: ["get"]` makes it READ-ONLY over the wire: the parent host owns it</span></span>
+<span class="line"><span style="color:#6A737D">// (writes server-side off `session.onState`), so a remote client must never be</span></span>
+<span class="line"><span style="color:#6A737D">// able to `connection.set` the health to `connected` and forge the gate's</span></span>
+<span class="line"><span style="color:#6A737D">// signal. Without it, a no-`patchSchema` cell defaults to `["get", "set"]`.</span></span>
+<span class="line"><span style="color:#D73A49">export</span><span style="color:#D73A49"> const</span><span style="color:#005CC5"> connectionCell</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> {</span></span>
+<span class="line"><span style="color:#24292E">  schema: ConnectionInfoSchema,</span></span>
+<span class="line"><span style="color:#24292E">  default: </span><span style="color:#005CC5">DEFAULT_CONNECTION</span><span style="color:#24292E">,</span></span>
+<span class="line"><span style="color:#24292E">  verbs: [</span><span style="color:#032F62">"get"</span><span style="color:#24292E">],</span></span>
+<span class="line"><span style="color:#24292E">} </span><span style="color:#D73A49">as</span><span style="color:#D73A49"> const</span><span style="color:#24292E">;</span></span></code></pre>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// @kolu/surface-nix-host (node main entry)</span></span>
 <span class="line"><span style="color:#D73A49">import</span><span style="color:#D73A49"> type</span><span style="color:#24292E"> { ConnectionInfo } </span><span style="color:#D73A49">from</span><span style="color:#032F62"> "./connection"</span><span style="color:#24292E">;</span></span>
 <span class="line"></span>
@@ -168,8 +176,11 @@
 <span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> connectionStore</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> inMemoryStore</span><span style="color:#24292E">({ </span><span style="color:#D73A49">...</span><span style="color:#005CC5">DEFAULT_CONNECTION</span><span style="color:#24292E"> });</span></span>
 <span class="line"><span style="color:#6A737D">// …inside implementSurface(...): cells: { version: { store: versionStore },</span></span>
 <span class="line"><span style="color:#6A737D">//   connection: { store: connectionStore } }</span></span>
-<span class="line"><span style="color:#6A737D">// …and expose a setter on the ReServe result:</span></span>
-<span class="line"><span style="color:#6F42C1">setConnection</span><span style="color:#24292E">: (</span><span style="color:#E36209">info</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> ConnectionInfo</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> connectionStore.</span><span style="color:#6F42C1">set</span><span style="color:#24292E">(info),</span></span></code></pre>
+<span class="line"><span style="color:#6A737D">// …and expose a setter on the ReServe result. Go through the FRAMEWORK-wrapped</span></span>
+<span class="line"><span style="color:#6A737D">// `ctx.cells.connection.set` (persist + PUBLISH the delta to subscribers), NOT</span></span>
+<span class="line"><span style="color:#6A737D">// a bare `connectionStore.set` — the latter updates the snapshot but a browser</span></span>
+<span class="line"><span style="color:#6A737D">// already subscribed across the reconnect would never hear the new state.</span></span>
+<span class="line"><span style="color:#6F42C1">setConnection</span><span style="color:#24292E">: (</span><span style="color:#E36209">info</span><span style="color:#D73A49">:</span><span style="color:#6F42C1"> ConnectionInfo</span><span style="color:#24292E">) </span><span style="color:#D73A49">=></span><span style="color:#24292E"> fragment.ctx.cells.connection.</span><span style="color:#6F42C1">set</span><span style="color:#24292E">(info),</span></span></code></pre>
 <p><strong>4 — The parent pipes session state into the live cell.</strong> In <code>packages/pulam-web/src/server/hostEntry.ts</code> (lines 112–122, where <code>pumpRemoteSurface</code> already receives <code>markConnected</code>/<code>onLinkDown</code>), one line carries the session’s mirror health onto the browser cell. The session’s existing lifecycle (first-version <code>markConnected</code>, the connect watchdog, give-up-into-<code>failed</code>) already drives every transition; this only observes it.</p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// packages/pulam-web/src/server/hostEntry.ts</span></span>
 <span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> reServe</span><span style="color:#D73A49"> =</span><span style="color:#6F42C1"> buildReServe</span><span style="color:#24292E">({ log: hostLog });</span></span>

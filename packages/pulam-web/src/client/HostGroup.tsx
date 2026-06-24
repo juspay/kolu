@@ -77,11 +77,8 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-import {
-  ConnectionView,
-  effectiveHealth,
-  HostHealthIndicator,
-} from "./ConnectionView.tsx";
+import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
+import { effectiveHealth } from "./connectionHealth.ts";
 import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
