@@ -12,8 +12,9 @@
  *      pulam-web's `pipVariantFor`), both folding the shared agent-paint classes
  *      through `pipForPaintClass`.
  *    - `live` (the RING) — this terminal is moving bytes right now: a thin green
- *      arc that gently sweeps around the core (the old `LiveActivityDot`, folded
- *      into the indicator's edge).
+ *      arc that gently sweeps around the core (the row/title live signal, folded
+ *      into the indicator's edge; the glyph-only rail + sub-tabs keep the
+ *      standalone `LiveActivityDot` corner dot, which has no core to ring).
  *    - `alert` (the BADGE) — a fired notification you haven't opened (the Dock's
  *      `unread`, pulam-web's notify-class): a small amber corner badge, NOT a
  *      ring — a surrounding alert ring (especially nested with the live ring)

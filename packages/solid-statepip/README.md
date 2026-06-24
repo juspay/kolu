@@ -12,8 +12,10 @@ small amber **alert badge** in the corner when a fired notification is unopened.
   a *precomputed* `PipVariant` for the core and two optional booleans for the
   outer axes:
   - `live` → the green `--color-ok` **ring** (a thin conic-gradient arc that
-    gently sweeps — the terminal is moving bytes right now; the old standalone
-    live-activity dot, now folded into the indicator's edge);
+    gently sweeps — the terminal is moving bytes right now; the standalone
+    live-activity dot, folded into the indicator's edge **on surfaces with a
+    state core** — the glyph-only rail and sub-tabs still render the standalone
+    `LiveActivityDot` corner dot, which has no core to ring);
   - `alert` → a small amber `--color-attention` **corner badge** (an unopened
     notification — the Dock's `unread`, pulam-web's notify-class). A badge, NOT a
     ring: a surrounding alert ring (especially nested with the live ring) read as
