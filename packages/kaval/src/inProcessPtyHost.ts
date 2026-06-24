@@ -144,13 +144,19 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
         },
       },
+      // Preexec command marks — the last command first so a sensor that
+      // attaches AFTER the mark (a lazily-attaching or restarted pulam) still
+      // learns it and resolves a command-only agent like codex, then live
+      // deltas. Mirrors `foreground` below; a replayed command is harmless —
+      // the consumer's reconcile is idempotent and the `shellIdle` gate keeps
+      // a stale replay from resolving to an agent once the shell goes idle.
       commandRun: {
         source: async function* (input, signal) {
           requirePty(input.id as PtyId);
-          for await (const command of host.subscribeCommandRun(
-            input.id,
-            signal,
-          )) {
+          const sub = host.subscribeCommandRun(input.id, signal);
+          const last = host.getLastCommand(input.id);
+          if (last !== undefined) yield { command: last };
+          for await (const command of sub) {
             yield { command };
           }
         },

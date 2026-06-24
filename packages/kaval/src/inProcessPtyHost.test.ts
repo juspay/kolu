@@ -122,4 +122,40 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
     expect(deliveredExit).toBe(false);
     await client.surface.terminal.kill({ id });
   });
+
+  it("commandRun replays the last command to a late subscriber (snapshot-first)", async () => {
+    // The bug this fixes (issue #1558): a sensor that subscribes AFTER the
+    // OSC 633;E mark — a pulam that attaches lazily, or one that restarts
+    // mid-session — never learned the command, so a command-only agent like
+    // codex (it runs as `node`) showed as a non-agent `node`. The retention
+    // `commandRun` source now replays the last command snapshot-first, exactly
+    // as `foreground` already replays the current process.
+    const client = makeClient();
+    const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
+
+    // Drive a command-run and confirm an EARLY subscriber sees it live, so the
+    // host's retention is in place before the late subscriber joins.
+    const ac1 = new AbortController();
+    const early = (
+      await client.surface.commandRun.get({ id }, { signal: ac1.signal })
+    )[Symbol.asyncIterator]();
+    await client.surface.terminal.write({
+      id,
+      data: "printf '\\033]633;E;codex\\033\\\\'\n",
+    });
+    expect((await nextFrame(early)).command).toContain("codex");
+    ac1.abort();
+
+    // The repro: a NEW subscriber, joining after the mark, must still receive
+    // the command — snapshot-first, on its very first frame. Before the fix it
+    // got nothing and this hangs to the nextFrame timeout.
+    const ac2 = new AbortController();
+    const late = (
+      await client.surface.commandRun.get({ id }, { signal: ac2.signal })
+    )[Symbol.asyncIterator]();
+    expect((await nextFrame(late)).command).toContain("codex");
+
+    ac2.abort();
+    await client.surface.terminal.kill({ id });
+  });
 });
