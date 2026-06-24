@@ -127,18 +127,20 @@ export const PT = [
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop (independent — any time)", m: "defined ↓", h: "#r5" },
   { d: 0, g: "✓", c: "ship", l: "R-dock-unify · kolu's Dock reads the shared agentProjection (consistency)", m: "#1541", h: "#r-dock-unify" },
   { d: 0, g: "✓", c: "ship", l: "R-pip-unify · one status pip — Dock + dashboard render the same icon", m: "#1551", h: "#r-pip-unify" },
+  { d: 0, g: "▶", c: "prog", l: "R-activity-merge · merge the activity dot into the state pip, one shared indicator", m: "◀ tackle next", h: "#r-activity-merge" },
   { d: 0, g: "✓", c: "ship", l: "R6 · terminal-workspace — one fs/git impl, two homes", m: "#1506", h: "#r6" },
   { d: 0, g: "✓", c: "ship", l: "R7 · mirrorRemoteSurface → total dual", m: "#1505", h: "#r7" },
   { d: 0, g: "○", c: "prog", l: "R8 · compose terminal-workspace into kolu-server (the fold vanishes)", m: "defined ↓", h: "#r8" },
   { d: 1, g: "◐", c: "prog", l: "R-compose-1 · awareness — kolu reads (validated green in #1510)", m: "build clean ↓", h: "#r8" },
   { d: 1, g: "○", c: "prog", l: "R-compose-2 · git-status over ws (needs the file-tree repaint fix)", m: "needs R-pulamweb-4 ↓", h: "#r8" },
   { d: 0, g: "○", c: "prog", l: "R9 · kolu dials remotes", m: "blocked-on R-compose-2 ↓", h: "#r9" },
+  { d: 1, g: "○", c: "prog", l: "R9a · localhost dedup — one sensor set (fixes the live state desync)", m: "needs R-compose-1 served ↓", h: "#r9a" },
   { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "defined ↓", h: "#r10" },
 ];
 
 <PhaseTree title="ROADMAP — remote terminals over ssh (#951)" phases={PT} />
 
-Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel: **R5** (overflow) is independent, and **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference; **R9** is blocked-on R-compose-2; **R10** needs R9. **[R-dock-unify](#r-dock-unify)** has shipped (<PrLink pr={1541} />) — kolu's Dock is now the third consumer of the shared `agentProjection` (one source for the *semantics*) — and **[R-pip-unify](#r-pip-unify)** has shipped too (<PrLink pr={1551} />), making the *visuals* one source: the Dock and dashboard render the same `StatePip` from one leaf. Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
+Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel: **R5** (overflow) is independent, and **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference; **R9** is blocked-on R-compose-2; **R10** needs R9. **[R-dock-unify](#r-dock-unify)** has shipped (<PrLink pr={1541} />) — kolu's Dock is now the third consumer of the shared `agentProjection` (one source for the *semantics*) — and **[R-pip-unify](#r-pip-unify)** has shipped too (<PrLink pr={1551} />), making the *visuals* one source: the Dock and dashboard render the same `StatePip` from one leaf. **Next on that web-UI thread: [R-activity-merge](#r-activity-merge)** — fold the live-activity dot into the pip as one nested indicator (and retire the last drifted green). And the live state-desync users actually see is **[R9a](#r9a)** — localhost dedup, one sensor set (the semantic/visual unifies sit *downstream* of it and can't fix a two-derivation problem). Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
 
 <a id="r5"></a>
 
@@ -183,6 +185,19 @@ This phase makes the Dock the **third consumer** of the shared SoT, so the dashb
 
 **Done:** a given agent state renders the **identical pip** (glyph · colour · animation) in the Dock and pulam-web from the one component — pinned by the shared `pipForPaintClass` + a cross-surface differential test (`solid-statepip`), pulam-web's `pipVariantFor` test, and the Dock's existing `pipVariant.test.ts` kept green; the `@theme`-in-`@import` + cross-package `@source` CSS pipeline verified by a real build. Landed independently of R-pulamweb-4 (a different part of pulam-web's render).
 
+<a id="r-activity-merge"></a>
+
+### R-activity-merge — merge the activity dot into the state pip
+
+R-pip-unify unified the *state* pip; the green **live-activity** dot ("moving bytes") is the *other* axis, and it's the **last drifted indicator**. Two problems compound: across surfaces, the Dock's `LiveActivityDot` (`bg-ok` token + `ring-ok/25` halo) and pulam-web's inline `<span>` (hardcoded `LIVE_COLOR = "#7ee787"`, no halo) already disagree (the un-themed literal from #1551's review nit #3); and *within* the Dock, each row shows **two** dots — terminal-activity and the agent pip — with dead space on the left ([Sundry](sundry.html), graduated here). This phase resolves both:
+
+- **One nested indicator** — make the terminal-activity dot the **ring** that envelops the agent-state pip **core**, so one glance reads *overall* activity (ring = terminal alive / moving bytes; core = agent state). It stays honest when the agent is wrongly paused but the terminal is still live, and reclaims the dead left margin. The two axes stay legible (ring vs core), not blurred — exactly why #1551 kept green off the agent palette.
+- **Single-sourced across both surfaces** — extend `@kolu/solid-statepip` so the ring composes with `StatePip` from one place; pulam-web drops `#7ee787` for the `--color-ok` token. The activity indicator stops being defined twice — the move R-pip-unify made for the pip, finished.
+
+*(Lighter fallback if the nested merge isn't wanted: single-source a shared `LiveDot` leaf — `bg-ok` + ring + reduced-motion-safe pulse — and retire `#7ee787`, keeping the two dots separate. Closes the cross-surface drift but not the Dock's dead-margin problem.)*
+
+**Done when** a given (terminal-activity, agent-state) pair renders the **identical nested indicator** in the Dock and pulam-web from one component, the drifted `#7ee787` is gone (`--color-ok` everywhere), the Dock's dead left margin is reclaimed, and a render test pins the ring+core class set. Independent of the R8/R9 track — a pure web-UI consolidation, the sequel to R-pip-unify.
+
 ### R6 — `@kolu/terminal-workspace`: one library, one fs/git impl, two homes
 
 <Phase id="R6" name="terminal-workspace — one fs/git impl, two homes" status="shipped" needs={["R4"]} blocks={["R8"]} links={[{ label: "#1506", href: "https://github.com/juspay/kolu/pull/1506" }]} />
@@ -211,7 +226,7 @@ This kills the duplication wart: without it, pulam would **reimplement** fs/git 
 <Phase id="R-compose-1" name="awareness — kolu reads (one writer per fact)" status="build-clean" needs={["R6"]} blocks={["R9"]} links={[{ label: "wake fix ✓ #1531", href: "https://github.com/juspay/kolu/pull/1531" }]} />
 <Phase id="R-compose-2" name="git-status stream over ws" status="todo" needs={["R6", "R-pulamweb-4"]} blocks={["R9"]} links={[{ label: "carry patch #1534", href: "https://github.com/juspay/kolu/issues/1534" }]} />
 
-R6 left **one impl, two contract shapes**: kolu re-exposes fs/git on `koluSurface`'s own streams (in-process), pulam serves `terminalWorkspaceSurface` (remote). R8 collapses that to **one surface** — and settles the question the epic kept reopening, *who owns awareness?* The answer is **not kolu**.
+R6 left **one impl, two contract shapes**: kolu re-exposes fs/git on `koluSurface`'s own streams (in-process), pulam serves `terminalWorkspaceSurface` (remote). R8 collapses that to **one surface** — and settles the question the epic kept reopening, *who owns awareness?* The answer is **not kolu**. (Prereq for [R9a](#r9a): for the localhost dedup to read this collection from a second process, R-compose-1 must make it **reachable cross-process** — *served*, not only folded in-process — else R9a's backing doesn't exist yet.)
 
 **Two moves, very different risk** — a prototype (<PrLink pr={1510} />, *discarded as a branch*) built both and reached **full green CI**, which tells us a lot. **R-compose-1 — awareness:** the one-writer-per-fact compose below. #1510 implemented it cleanly and it passed end-to-end, so it's **validated — a clean build from a working reference**, not an open question. **R-compose-2 — git-status over the ws:** moving the Code tab's git status onto `terminalWorkspaceSurface`'s `{seq}` watcher **stream**. #1510's months-long fight here turned out **not** to be the transport (the pulse reached the browser fine) but the **file-tree renderer** not repainting under change-pulse churn — detail in its subsection. R-compose-2 still goes through [pulam-web](pulam-web.html)'s standalone graduation first (the drishti discipline), now sharpened to prove a *live DOM repaint*, not just data delivery. The architecture below is **R-compose-1**; R-compose-2 is its own subsection at the end.
 
@@ -266,6 +281,14 @@ The linchpin — it **needs R7** (the total mirror) and is **blocked-on R-compos
 | unreachable (bad dial) | bounded retry, then **degraded — never killed** |
 
 One kaval per remote host: dialing *joins* its terminals ("the prod terminals"), never racing to kill them.
+
+<a id="r9a"></a>
+
+**R9a — localhost dedup (the desync the dashboard actually shows).** A fact-check (verified against master) pinned the real `working`-in-pulam-web vs `idle`-in-Dock split: under `PULAM_WEB_HOSTS=localhost`, pulam-web spawns its **own** pulam (`host.ts:203` — direct spawn, no ssh), so **two independent sensor sets** observe the same terminal — kolu-server's (`local.ts:696`) and the spawned pulam's (`daemon.ts:245`) — never reconciled. (This is *not* the reconnect-staleness #1550 fixed — the localhost link is an in-process stdio pipe that doesn't blip like ssh.) **`R-dock-unify` and `R-pip-unify` sit downstream of this**: they unified the *projection* and the *pixels*, but one shared fold applied to two independently-derived inputs still renders divergent — only collapsing to **one sensor** resolves it. The fix is R9's backing-swap **applied locally**: when the host is local, don't spawn a second pulam — point pulam-web's `awarenessFor` at kolu-server's awareness surface. One sensor set, one collection, two readers — the one-writer-per-fact R-compose-1 establishes.
+
+<Callout kind="warn" title="R9a's prerequisite, and what one sensor does NOT fix">
+**Prereq on R-compose-1:** R9a can only read kolu's awareness if R-compose-1's single collection is **reachable cross-process** — as written it folds purely in-process (`koluSurface.terminalMetadata`), so R9a isn't build-clean until kolu-server *serves* `terminalWorkspaceSurface.awareness`. **Intrinsic single-sensor gaps** (these survive the collapse — track separately): a lone `fs.watch` can still drop an event or miss a WAL inode-replacement; a state that settles while the agent is non-pollable (`isPollable`, `sensors.ts:705`) has no pulse to correct it until the next turn (the real residue of the analysis's "Bug 7" — long, not infinite); and `opencode` has no scrape/timer backstop at all.
+</Callout>
 
 <a id="r10"></a>
 
