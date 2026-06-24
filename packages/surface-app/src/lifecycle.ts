@@ -97,6 +97,27 @@ export function registerServiceWorker(
   return navigator.serviceWorker.register(path);
 }
 
+/** Boot-time composition of the two leaves above: register the notification
+ *  worker, and if registration fails (e.g. dev, where `/sw.js` isn't served)
+ *  fall back to `retireServiceWorker()` so the origin is still left with NO
+ *  caching worker — never just "no OS banner" while a legacy stale-serving
+ *  worker lingers. This IS the register-or-retire invariant the two leaves'
+ *  docstrings describe ("an app shows notifications OR retires its worker, never
+ *  both") — owned here as ONE primitive rather than re-authored per surface, so a
+ *  change to the policy (the log, the fallback) lands in one place. Every root
+ *  setup that wants notifications calls this; the granular
+ *  `registerServiceWorker`/`retireServiceWorker` remain the escape hatch for an
+ *  app that needs to compose them differently. */
+export function registerOrRetireServiceWorker(path = "/sw.js"): void {
+  void registerServiceWorker(path).catch((err) => {
+    console.debug(
+      "notification worker registration failed, retiring any SW:",
+      err,
+    );
+    retireServiceWorker();
+  });
+}
+
 /** Apply the latest build with a plain `location.reload()`. A normal reload
  *  always REVALIDATES the `no-store` shell with the server (browsers bypass
  *  cache freshness for the main document on reload), so the reloaded page IS

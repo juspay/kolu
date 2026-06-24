@@ -5,10 +5,7 @@
  * we throw loudly rather than no-op into a blank page.
  */
 
-import {
-  registerServiceWorker,
-  retireServiceWorker,
-} from "@kolu/surface-app/lifecycle";
+import { registerOrRetireServiceWorker } from "@kolu/surface-app/lifecycle";
 import { render } from "solid-js/web";
 import { App } from "./App.tsx";
 import "./index.css";
@@ -29,13 +26,7 @@ render(() => <App />, root);
 // home-screen pulam able to alert when a fleet agent needs you. The worker has
 // NO fetch handler, so it never caches and the freshness contract still holds;
 // registering it at `/` also retires (and purges the caches of) any legacy
-// caching worker. If registration fails (e.g. dev, where `/sw.js` isn't served)
-// fall back to `retireServiceWorker()` so the origin is still left with NO
-// caching worker.
-void registerServiceWorker().catch((err) => {
-  console.debug(
-    "notification worker registration failed, retiring any SW:",
-    err,
-  );
-  retireServiceWorker();
-});
+// caching worker. The register-or-retire policy itself (register, falling back
+// to `retireServiceWorker()` so the origin is still left with NO caching worker)
+// lives in `registerOrRetireServiceWorker` (`/lifecycle`), shared with the kolu twin.
+registerOrRetireServiceWorker();
