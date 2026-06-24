@@ -24,6 +24,11 @@ export interface ConnPresentation {
   label: string;
   /** Verbose body line (the full-pane connecting / failed view). */
   message: string;
+  /** When a state's body line varies on a SECOND axis (`failureCause`), the row
+   *  carries that whole variation as data here, so the per-state message stays
+   *  single-sourced in this table — the consumer reads `messageFor?.(cause) ??
+   *  message` uniformly and never special-cases a state. */
+  messageFor?: (cause: FailureCause | null) => string;
   /** In-flight state whose dot should pulse. */
   pending: boolean;
 }
@@ -55,6 +60,12 @@ export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
     text: "#e6a23c",
     label: "reconnecting…",
     message: "Reconnecting…",
+    // The body line varies on WHY the link is down: a `network` fault means the
+    // host is unreachable (retries forever), which the base "Reconnecting…"
+    // undersells; any other cause (or none yet) keeps the base message. This
+    // (state × cause) variation lives in the table as data, not a bolt-on.
+    messageFor: (cause) =>
+      cause === "network" ? "Host unreachable — retrying…" : "Reconnecting…",
     pending: true,
   },
   failed: {
@@ -65,12 +76,3 @@ export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
     pending: false,
   },
 };
-
-/** Refine a `disconnected` line by WHY the link is down: a `network` fault means
- *  the host is unreachable (retries forever), which "Reconnecting…" undersells.
- *  Any other cause (or none yet) keeps the base message. */
-export function disconnectedMessage(cause: FailureCause | null): string {
-  return cause === "network"
-    ? "Host unreachable — retrying…"
-    : CONN_STATE.disconnected.message;
-}

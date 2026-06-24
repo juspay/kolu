@@ -29,11 +29,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import {
-  CONN_STATE,
-  type ConnPresentation,
-  disconnectedMessage,
-} from "./connectionStates.ts";
+import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
 
 /** The single fold over BOTH volatility axes — the browser↔backend transport
  *  (`status`) and the backend↔remote mirror (`info.state`) — into one resolved
@@ -112,10 +108,11 @@ export function ConnectionView(props: {
 }): JSX.Element {
   const state = (): ConnectionInfo["state"] => props.info.state;
   const pres = () => CONN_STATE[state()];
+  // Read the body line uniformly off the row: a row that varies on
+  // `failureCause` carries that as `messageFor` (today only `disconnected`), so
+  // no branch special-cases a state here.
   const message = (): string =>
-    state() === "disconnected"
-      ? disconnectedMessage(props.info.failureCause)
-      : pres().message;
+    pres().messageFor?.(props.info.failureCause) ?? pres().message;
 
   // Seconds in the CURRENT pending state — reset on every state change, so it
   // counts time-in-this-phase. A connect that drags ("Connecting… 18s") reads
