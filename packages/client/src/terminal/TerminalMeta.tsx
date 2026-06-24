@@ -113,7 +113,7 @@ const TerminalMeta: Component<{
              *  awaiting), reused verbatim so a working/awaiting agent
              *  reads identically in the title and the dock, and sits
              *  beside the same branch/intent context it does there.
-             *  `unread` rides as the indicator's amber HALO (the
+             *  `unread` rides as the indicator's amber corner BADGE (the
              *  `alert` prop) rather than replacing the state core — the
              *  dock-row treatment, one fold over. No live ring here: the
              *  title bar has never shown the byte-motion axis. Gated on a

@@ -1,5 +1,5 @@
-/* The merged status indicator's two OUTER rings — the live RING and the alert
- * HALO that `StatePip` wraps around its state core (R-activity-merge). Shipped as
+/* The merged status indicator's two OUTER axes — the live RING and the alert
+ * BADGE that `StatePip` adds around its state core (R-activity-merge). Shipped as
  * a CSS leaf rather than Tailwind utilities because the live ring is a thin
  * conic-gradient arc that gently rotates — a `mask` + `conic-gradient` that
  * doesn't express cleanly as utility classes. kolu's client AND pulam-web both
@@ -32,7 +32,7 @@
 /* live = this terminal is moving bytes right now: a thin green arc that sweeps
  * gently around the core (the old standalone live-activity dot, now the
  * indicator's rotating edge). `inset: -2px` so its outer edge matches the alert
- * halo's; the `mask` cuts the centre so only a 1.5px ring remains; the conic arc
+ * badge's; the `mask` cuts the centre so only a 1.5px ring remains; the conic arc
  * fades at both ends so the rotation reads as a soft sweep, not a hard spinner. */
 .statepip-live-ring {
   position: absolute;

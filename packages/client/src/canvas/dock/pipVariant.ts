@@ -10,8 +10,9 @@
  *
  *  `unread` is NO LONGER folded in here (R-activity-merge): an unread alert used
  *  to REPLACE the whole pip with a loud `attention` disk; it now rides as the
- *  indicator's amber HALO (`StatePip`'s `alert` prop) WRAPPING the live state
- *  core instead of hiding it — so the obligation and the state read at once. The
+ *  indicator's amber corner BADGE (`StatePip`'s `alert` prop) BESIDE the live
+ *  state core instead of hiding it — so the obligation and the state read at
+ *  once. The
  *  core is just the bucket's state; the caller passes `alert` separately. */
 
 import {

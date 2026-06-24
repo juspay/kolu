@@ -211,10 +211,10 @@ describe("pipVariantFor (the shared StatePip variant — fleet ≡ Dock)", () =>
   });
 });
 
-describe("fleetAlert (the per-row halo — fleet ≡ the Dock's alert membership)", () => {
+describe("fleetAlert (the per-row badge — fleet ≡ the Dock's alert membership)", () => {
   it("the notify-class states (blocked + just-finished) raise the alert", () => {
     // Folds through the shared `alertClass`, the SAME membership kolu's
-    // useTerminalAlerts fires on — so the fleet halo can't drift from the Dock.
+    // useTerminalAlerts fires on — so the fleet badge can't drift from the Dock.
     expect(fleetAlert(withAgent("awaiting_user"))).toBe(true);
     expect(fleetAlert(withAgent("waiting"))).toBe(true);
   });

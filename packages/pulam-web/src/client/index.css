@@ -7,8 +7,8 @@
 @import "@kolu/theme/theme.css";
 
 /* `@kolu/solid-statepip`'s CSS leaf — the status indicator's live RING (a
- * rotating conic-gradient arc) + alert HALO. Imported by BOTH this surface and
- * kolu's client, so the rings are single-sourced and can't drift. */
+ * rotating conic-gradient arc) + alert corner BADGE. Imported by BOTH this
+ * surface and kolu's client, so they're single-sourced and can't drift. */
 @import "@kolu/solid-statepip/statepip.css";
 
 /* `@kolu/solid-statepip` ships the shared `StatePip` and its Tailwind classes

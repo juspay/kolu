@@ -87,14 +87,14 @@ export function pipVariantFor(value: AwarenessValue): PipVariant {
   return value.foreground ? "idle" : "sleeping";
 }
 
-/** Whether a terminal carries an unopened-notification ALERT — the amber halo
- *  the merged `StatePip` wraps around its core (R-activity-merge). Driven by the
+/** Whether a terminal carries an unopened-notification ALERT — the amber corner
+ *  badge the merged `StatePip` draws on its core (R-activity-merge). Driven by the
  *  shared `alertClass` fold — the SAME notify membership kolu's `useTerminalAlerts`
  *  fires on (an agent that blocks on you, `awaiting_user`, or just finished its
  *  turn, `waiting`) — so the per-row alert pulam-web gains here can't drift from
  *  the Dock's. A terminal with no agent has nothing to notify about. Unlike the
  *  Dock's `unread` (which outlives the state until you open the row), the fleet
- *  keeps no per-terminal read state, so the halo tracks the live notify-class
+ *  keeps no per-terminal read state, so the badge tracks the live notify-class
  *  membership directly. */
 export function fleetAlert(value: AwarenessValue): boolean {
   return value.agent ? alertClass(value.agent.state) === "notify" : false;

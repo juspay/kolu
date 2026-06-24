@@ -493,8 +493,8 @@ const DockRow: Component<{
         >
           {/* One merged status indicator — the agent-state CORE
            *  (`pipVariant`), wrapped by the green live RING when the
-           *  terminal is moving bytes and the amber unread HALO when a
-           *  fired alert is unopened. The old standalone ActivityPip
+           *  terminal is moving bytes and the amber unread corner BADGE
+           *  when a fired alert is unopened. The old standalone ActivityPip
            *  column is gone (its dot is now the ring), reclaiming the
            *  dead left margin. `row-span-2 self-center` centres it across
            *  both row lines rather than pinning it to line 1. */}
