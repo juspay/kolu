@@ -1,0 +1,332 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat-Native Agents and kolu — have the cake, eat it too · the kolu Atlas</title><meta name="description" content="Anthropic's Claude Tag (and Karpathy's read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu's live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Chat-Native Agents and kolu — have the cake, eat it too · the kolu Atlas"><meta property="og:description" content="Anthropic's Claude Tag (and Karpathy's read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu's live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/chat-native-agents-and-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-24T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Chat-Native Agents and kolu — have the cake, eat it too · the kolu Atlas"><meta name="twitter:description" content="Anthropic's Claude Tag (and Karpathy's read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu's live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Chat-Native Agents and kolu — have the cake, eat it too</h1><div class="meta-row"><span>Comparisons</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-06-24T00:00:00.000Z">JUN 24, 2026</time></div><p class="note-sub">Anthropic&#39;s Claude Tag (and Karpathy&#39;s read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu&#39;s live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-shift-the-agent-moves-into-the-chat" data-astro-cid-rda6bqd5>The shift: the agent moves into the chat</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#kolus-two-halves-the-cockpit-erodes-the-substrate-is-the-same-bet" data-astro-cid-rda6bqd5>kolu’s two halves: the cockpit erodes, the substrate is the same bet</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-bridge-terminal-grade-control-chat-grade-reach" data-astro-cid-rda6bqd5>The bridge: terminal-grade control, chat-grade reach</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-stands-in-the-way" data-astro-cid-rda6bqd5>What stands in the way</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-call-build-the-front-door-not-a-chat-app" data-astro-cid-rda6bqd5>The call: build the front door, not a chat app</a></li></ul></nav></header><div class="prose"><p><em>A read of Anthropic’s <a href="https://www.anthropic.com/news/introducing-claude-tag"><strong>Claude Tag</strong></a> (Claude joins Slack as a tagged teammate), its <a href="https://claude.com/blog/agent-identity-access-model">agent identity &amp; access model</a>, and <a href="https://x.com/karpathy/status/2069547676849557725">Karpathy’s framing of it</a> as “the 3rd major redesign of LLM UIUX” — held against what kolu actually is, and read alongside the <a href="https://news.ycombinator.com/item?id=48648039">Hacker News reaction</a>. Grounded in a four-lens analysis (threat · bridge · moat · moves) with an adversarial red-team pass; the optimistic claims below are the ones that survived it.</em></p>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Headline</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The chat-native paradigm threatens <strong>the half of kolu you stare at</strong> — the canvas — not the half that matters. kolu’s live-PTY substrate (<strong>kaval</strong>) and its read-only awareness daemon (<strong>pulam</strong>) are exactly the org-wide telemetry a “work from Slack” world needs and chat doesn’t have. So kolu isn’t facing extinction; it’s at risk of <strong>shipping the wrong half</strong>. The cake-and-eat-it move is to keep terminal-grade control <em>and</em> gain chat-grade reach through <strong>one authenticated, model-agnostic ingress beside kaval</strong> — the only leg not already built. The wiring is cheap; the front door is the product.</p></div></aside>
+<h2 id="the-shift-the-agent-moves-into-the-chat">The shift: the agent moves into the chat</h2>
+<p>Karpathy isn’t describing a chatbot you ask questions. He’s describing a coworker:
+a persistent agent that lives where the team already works, holds org-wide tools
+and context, and runs tasks on its own while you do something else. You @-tag it,
+walk away, and it pings you when it needs you.</p>
+<blockquote>
+<p>It is a self-contained, <strong>persistent, asynchronous</strong> entity with org-wide tools
+and context, working alongside teams of humans. … it’s writing the majority of
+code, it’s deeply integrated, <strong>multiplayer</strong>, and it starts to feel like
+<strong>everyone is a manager</strong>. … I work from Slack now.</p>
+<p>— <a href="https://x.com/karpathy/status/2069547676849557725">Andrej Karpathy</a></p>
+</blockquote>
+<p>His own warning is the load-bearing part: it’s <em>not</em> “LLM Q&amp;A with RAG over
+Slack.” The work itself moves into chat, and the human’s job shifts from <em>driving
+keystrokes</em> to <em>managing agents</em>. That’s the bet to react to.</p>
+<p>The <a href="https://www.anthropic.com/news/introducing-claude-tag">announcement</a> fills in
+the shape: <strong>one shared Claude per channel</strong> (a teammate, not a bot-per-person),
+work it <em>“schedule[s] … for itself”</em> and pursues <em>“over hours or days,”</em> memory
+that carries across channels with permission, an admin <strong>audit log of every task
+and who asked for it</strong>, and per-channel tool and token limits — all on Opus 4.8.
+It’s <strong>Slack-only today</strong>, explicitly aiming to reach <em>“the many other places they
+work,”</em> and the proof-point is blunt: <em>“65% of our product team’s code is created
+by our internal version.”</em> This is the “it actually works” Karpathy meant — not a
+toy to wave off.</p>
+<h2 id="kolus-two-halves-the-cockpit-erodes-the-substrate-is-the-same-bet">kolu’s two halves: the cockpit erodes, the substrate is the same bet</h2>
+<p>Be honest about the bear case first. The place you <em>sit</em> moves off the terminal.
+A manager who delegates and walks away has no use for an infinite canvas of live
+terminal tiles — panning, zooming, splitting. The canvas is kolu’s headline,
+demoable identity, and it’s exactly what a “work from Slack” user doesn’t want to
+look at. Worse, the one ergonomic Claude Tag sells — <em>kick off a task from your
+phone</em> — is the one thing kolu <strong>cannot do today</strong>: there’s no submit-from-outside,
+no remote trigger; an agent only runs if it’s live in a terminal inside kolu. If
+the center of gravity is async delegation, kolu’s current shape is a structural
+mismatch, not a missing button.</p>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>What an agent actually is (Andreessen) — and why it&#39;s already kolu&#39;s blueprint</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Marc Andreessen, <a href="https://www.youtube.com/watch?v=knx2wrILP1M">on what decades of agent research quietly converged on</a>:
+<em>“an agent is … a language model, and above that a bash shell … and then a file
+system, and the state is stored in files … markdown … plus cron,”</em> and <em>“every
+part of that other than the model is something we already completely know.”</em> The
+kicker: <em>“your agent is now actually independent of the model … you can swap out a
+different LLM underneath … all of the state stored in the files will be retained”</em>
+— like <em>“swapping out a chip and recompiling, but it’s still your agent with all
+its memories.”</em> On protocols: <em>“this whole idea where we need MCP and these fancy
+protocols — no, we just need a command-line thing.”</em></p><p>That is kolu’s architecture, line for line: the <strong>shell</strong> is the interface to
+every tool (kolu <em>watches</em> it, doesn’t wrap it), the <strong>files</strong> are the real
+intelligence (the <a href="./meta.html">Atlas</a> is the markdown knowledgebase — a
+Zettelkasten knowledge graph, not chat exhaust), and the <strong>model is the swappable
+chip</strong> (claude · codex · opencode). Claude Tag inverts all three — model fixed
+(Opus 4.8), shell and files hidden inside a cloud sandbox, memory as lossy Slack
+scrollback. kolu keeps the durable substance — shell, files, your own infra — and
+lets the chip swap. It’s the same simplicity that made the web (HTTP, JSON,
+human-readable text), arriving for agents.</p></div></aside>
+<p>Now the other half, which the bear case misses:</p>
+<ul>
+<li><strong>The terminal isn’t nostalgia — it’s a capability chat doesn’t have.</strong> Chat is
+async text; it is not a live PTY. The moment a task needs a human to drop to
+bash, answer an interactive prompt, or watch raw streaming output, the terminal
+is the only surface that works. Chat hides that gap; it doesn’t close it. As one
+HN commenter put it, <em>“you don’t tend to have long sessions with agents in Slack
+like you would in the terminal”</em> — chat suits short, fire-and-forget delegations;
+the deep, interactive work still wants a terminal.</li>
+<li><strong>Agent-agnosticism is a structural moat, not a feature.</strong> kolu runs claude,
+codex, opencode, or anything in a shell and reads its state with no per-agent
+wrapping. Claude Tag is single-vendor <em>by construction</em> — Anthropic will never
+ship a console that ranks a competitor’s agent next to its own. An org running
+several agents cannot get one neutral “who needs me” board from Anthropic.</li>
+<li><strong>kolu already built the manager’s dashboard.</strong> The awareness daemon
+<a href="./pulam.html">pulam</a> serves “what is every agent doing” as one live surface,
+and three read-only mirrors (the Dock plus the TUI and web fleet boards) read
+one ranking and stay in lockstep. Slack gives you a thread per task; it does not
+give you a ranked, needs-you-first board of every agent’s live state.</li>
+<li><strong>The other hard problem is a real isolated environment — and kolu runs on your
+own.</strong> The sharpest line in the <a href="https://news.ycombinator.com/item?id=48648039">HN thread</a>:
+<em>“the hard problem is giving a shared agent durable organizational memory and a
+real isolated environment.”</em> Anthropic’s answer is a service account inside its
+cloud; kolu’s is a real PTY on a host you control. kolu’s
+<a href="./remote-terminals.html">remote-terminals</a> work is heading toward running agents
+on <strong>sandboxed hosts — an Incus cluster, say</strong> — your own isolated infra, not a
+vendor’s opaque sandbox. (On the roadmap; kolu is open source, so the integration
+point is in the open.)</li>
+<li><strong>Durable memory that isn’t lossy Slack scrollback.</strong> The other half of “org
+memory” is the rear-facing brain, and HN’s verdict on keeping it in chat is
+brutal: <em>“Slack as a memory store is lossy,”</em> <em>“75% of Slack shouldn’t be
+remembered.”</em> kolu already has the opposite — the <a href="./meta.html">Atlas</a>: a
+git-versioned, PR-reviewed, agent-cheap markdown knowledgebase (this very note
+lives in it). A curated second-brain, not chat exhaust.</li>
+</ul>
+<p>The liability isn’t the product — it’s narrating the canvas <em>as</em> the product. The
+canvas is the half a manager walks away from; the substrate is the half that wins.</p>
+<h2 id="the-bridge-terminal-grade-control-chat-grade-reach">The bridge: terminal-grade control, chat-grade reach</h2>
+<p>kolu already has the async <strong>awareness</strong> shipped. What it lacks is async
+<strong>action</strong>. The whole bridge is the asymmetry in this one picture:</p>
+<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="A messaging seam (Slack, Discord, WhatsApp, Telegram) sits above kolu's own server. The outbound awareness path — a live terminal tile observed by pulam, folded to an alert, pinged out to the seam — ships today (green). The inbound action path — submit and approve flowing from the seam into a new authenticated ingress daemon beside kaval, which writes into the live tile — is the missing leg to build (red, dashed).">
+  <defs>
+    <marker id="cb-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#b42318"/>
+    </marker>
+    <marker id="cb-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#0b6478"/>
+    </marker>
+    <marker id="cb-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1b7a3a"/>
+    </marker>
+    <filter id="cb-redglow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#b42318" flood-opacity="0.28"/>
+    </filter>
+    <style>
+      .host      { fill:#fafbfc; stroke:#9aa0a6; stroke-width:1.5; stroke-dasharray:5 4; }
+      .hostlabel { fill:#7a8089; font-size:11px; font-weight:700; letter-spacing:0.09em; }
+      .seam      { fill:#fbf4e6; stroke:#b4690e; stroke-width:1.75; }
+      .seamtitle { fill:#92400e; font-weight:700; font-size:13.5px; }
+      .seamsub   { fill:#9a6a1a; font-size:11px; }
+      .prim      { fill:#eef6f8; stroke:#0b6478; stroke-width:1.6; }
+      .primtitle { fill:#0b4a5a; font-weight:700; font-size:14px; }
+      .primnote  { fill:#3f7d8c; font-size:10.5px; font-style:italic; }
+      .tile      { fill:#f4f6f8; stroke:#5a6270; stroke-width:1.5; }
+      .tiletitle { fill:#2a2f36; font-weight:700; font-size:13.5px; }
+      .missing   { fill:#fcf0ef; stroke:#b42318; stroke-width:2.5; }
+      .misstitle { fill:#b42318; font-weight:700; font-size:14px; }
+      .badge     { fill:#b42318; font-size:10px; font-weight:700; letter-spacing:0.05em; }
+      .sub       { fill:#5a6270; font-size:11px; }
+      .mono      { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .er        { stroke:#b42318; stroke-width:2.25; fill:none; }
+      .erd       { stroke:#b42318; stroke-width:2.25; fill:none; stroke-dasharray:6 5; }
+      .et        { stroke:#0b6478; stroke-width:2; fill:none; }
+      .eg        { stroke:#1b7a3a; stroke-width:2.25; fill:none; }
+      .lblr      { fill:#b42318; font-size:11px; font-style:italic; }
+      .lblrb     { fill:#b42318; font-size:10.5px; font-weight:700; letter-spacing:0.04em; }
+      .lblt      { fill:#0b6478; font-size:10.5px; font-style:italic; }
+      .lblg      { fill:#1b7a3a; font-size:11px; font-style:italic; }
+      .lblgb     { fill:#1b7a3a; font-size:10.5px; font-weight:700; letter-spacing:0.04em; }
+      .leg       { fill:#5a6270; font-size:10.5px; }
+    </style>
+  </defs>
+
+  <!-- messaging seam (external, amber) -->
+  <rect class="seam" x="180" y="20" width="360" height="54" rx="9"/>
+  <text class="seamtitle" x="360" y="43" text-anchor="middle">messaging seam — one adapter</text>
+  <text class="seamsub mono" x="360" y="61" text-anchor="middle">Slack · Discord · WhatsApp · Telegram</text>
+
+  <!-- host container -->
+  <rect class="host" x="40" y="118" width="640" height="405" rx="12"/>
+  <text class="hostlabel" x="58" y="140" text-anchor="start">YOUR OWN SERVER — SINGLE HOST TODAY</text>
+
+  <!-- ingress daemon (NEW, red, the missing leg) -->
+  <g filter="url(#cb-redglow)">
+    <rect class="missing" x="70" y="165" width="270" height="94" rx="8"/>
+  </g>
+  <text class="misstitle" x="205" y="190" text-anchor="middle">ingress daemon</text>
+  <text class="badge" x="205" y="208" text-anchor="middle">NEW · THE ONE MISSING LEG</text>
+  <text class="sub" x="205" y="229" text-anchor="middle">authenticated · default-deny</text>
+  <text class="sub mono" x="205" y="247" text-anchor="middle" font-size="10.5px">submit · approve / reply</text>
+
+  <!-- kaval (existing primitive, teal) -->
+  <rect class="prim" x="70" y="322" width="270" height="86" rx="8"/>
+  <text class="primtitle" x="205" y="348" text-anchor="middle">kaval — durable PTY host</text>
+  <text class="sub" x="205" y="368" text-anchor="middle">spawn · write bytes · sleep/wake</text>
+  <text class="primnote" x="205" y="389" text-anchor="middle">full write path exists today</text>
+
+  <!-- pulam (existing primitive, teal) -->
+  <rect class="prim" x="420" y="165" width="230" height="94" rx="8"/>
+  <text class="primtitle" x="535" y="194" text-anchor="middle">pulam</text>
+  <text class="sub" x="535" y="214" text-anchor="middle">read-only awareness</text>
+  <text class="primnote" x="535" y="236" text-anchor="middle">observe · rank · alert fold</text>
+
+  <!-- live tile (shared, neutral) -->
+  <rect class="tile" x="420" y="322" width="230" height="86" rx="8"/>
+  <text class="tiletitle" x="535" y="352" text-anchor="middle">live terminal tile</text>
+  <text class="sub mono" x="535" y="374" text-anchor="middle" font-size="10.5px">claude · codex · opencode</text>
+
+  <!-- EDGE 1: seam -> ingress (RED dashed — the missing inbound leg) -->
+  <path class="erd" d="M255 75 L212 162" marker-end="url(#cb-red)"/>
+  <text class="lblr"  x="120" y="108" text-anchor="middle">submit · approve</text>
+  <text class="lblrb" x="120" y="124" text-anchor="middle">THE MISSING LEG</text>
+
+  <!-- EDGE 2: ingress -> kaval (RED — new call onto an existing path) -->
+  <path class="er" d="M205 259 L205 319" marker-end="url(#cb-red)"/>
+  <text class="lblr mono" x="216" y="285" text-anchor="start" font-size="10.5px">call kaval.write</text>
+  <text class="lblr"      x="216" y="300" text-anchor="start">y⏎ into a named tile</text>
+
+  <!-- EDGE 3: kaval -> tile (TEAL — ships today) -->
+  <path class="et" d="M340 365 L417 365" marker-end="url(#cb-teal)"/>
+  <text class="lblt" x="379" y="356" text-anchor="middle">spawn · write</text>
+
+  <!-- EDGE 4: tile -> pulam (TEAL — ships today) -->
+  <path class="et" d="M535 322 L535 262" marker-end="url(#cb-teal)"/>
+  <text class="lblt" x="546" y="290" text-anchor="start">observe</text>
+  <text class="lblt" x="546" y="304" text-anchor="start">screen + session</text>
+
+  <!-- EDGE 5: pulam -> seam (GREEN — ships today) -->
+  <path class="eg" d="M535 164 L450 75" marker-end="url(#cb-green)"/>
+  <text class="lblg"  x="606" y="108" text-anchor="middle">ping when blocked</text>
+  <text class="lblgb" x="606" y="124" text-anchor="middle">SHIPS TODAY</text>
+
+  <!-- legend -->
+  <line class="erd" x1="78" y1="470" x2="110" y2="470"/>
+  <text class="leg" x="116" y="474" text-anchor="start">to build (the ingress leg)</text>
+  <line class="eg" x1="290" y1="470" x2="322" y2="470"/>
+  <text class="leg" x="328" y="474" text-anchor="start">ships today (the ping out)</text>
+  <line class="et" x1="500" y1="470" x2="532" y2="470"/>
+  <text class="leg" x="538" y="474" text-anchor="start">existing primitive</text>
+
+  <!-- structural note -->
+  <text class="leg" x="360" y="502" text-anchor="middle" font-style="italic">the ingress sits beside kaval (the write path) — never inside pulam (read-only)</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The outbound loop (green / teal) ships today: a live tile is observed by pulam, folded to an alert, and pinged out — &#39;you get pinged when blocked&#39; needs no new detection. The inbound loop (red) is the one missing leg: a small authenticated ingress that turns an outside message into a spawn/write on kaval. It sits beside kaval (the write path), never inside pulam (read-only).</figcaption></figure>
+<p>The smallest end-to-end loop:</p>
+<ol>
+<li>From any chat: <em>“@kolu run claude ‘fix the failing auth test’ on repo/branch”</em> →
+spawns a <strong>real kolu terminal</strong> on your server.</li>
+<li>The agent works in a live tile; state and activity are tracked exactly as today.</li>
+<li>It blocks on you (<code>awaiting_user</code>) → the existing alert fold fires → a new sink
+posts to chat with the screen tail and approve/deny buttons.</li>
+<li>You tap approve on your phone → a single keystroke (<code>y⏎</code>) is written into that
+live PTY.</li>
+<li>The agent finishes → the tile parks to a <a href="./sleeping-terminals.html">sleeping terminal</a>;
+the final diff is posted back to the thread.</li>
+</ol>
+<p>Every leg but one reuses something already built:</p>
+<table>
+<thead>
+<tr>
+<th>Leg</th>
+<th>Reuses</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>spawn an agent · write <code>y⏎</code></strong></td>
+<td>kaval already exposes the full write path (spawn · write bytes · kill · resize) — kolu’s own tiles call it</td>
+<td>shipped</td>
+</tr>
+<tr>
+<td><strong>forward across hosts</strong></td>
+<td>the mirror path already drives a remote action over browser → ssh → host with no kolu-specific code</td>
+<td>shipped</td>
+</tr>
+<tr>
+<td><strong>ping out when blocked</strong></td>
+<td>the <code>awaiting_user</code> → alert fold that already pulses the tile, toasts, and fires an OS notification</td>
+<td>shipped</td>
+</tr>
+<tr>
+<td><strong>park + resume</strong></td>
+<td>sleeping terminals, survive a full restart</td>
+<td>shipped</td>
+</tr>
+<tr>
+<td><strong>submit / approve from chat</strong></td>
+<td>— nothing —</td>
+<td><strong>to build</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The one missing leg is an <strong>authenticated ingress</strong>: a small daemon <em>beside</em>
+kaval (the PTY owner), not inside pulam (the read-only observer), exposing exactly
+two verbs — <code>submit</code> (spawn an agent with a given argv) and <code>approve/reply</code> (write
+bytes into a named live tile) — behind a real front door: per-user identity, and
+default-deny on which argv may run and which tiles are writable. Per your steer,
+it’s <strong>one generic messaging seam</strong> — Slack, Discord, WhatsApp, Telegram behind a
+single adapter — not a Slack-shaped wrapper, so the agent-agnostic moat extends to
+the transport too.</p>
+<aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Two things the red-team insisted we not soft-pedal</p><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>The leg is not a tenth of the work.</strong> The plumbing — <em>bytes can move</em> — is cheap
+and done. The <em>front door</em> is most of the value and <strong>all</strong> of the risk: <code>spawn</code> /
+<code>write</code> is full remote code execution on your box, over a surface that is
+unauthenticated today (gated only by same-origin + socket permissions). The auth
+model <strong>is</strong> the project — and it’s exactly the “heavy under-the-hood security
+work” Karpathy names as the gap between a hackathon demo and a product. Anthropic
+just shipped a whole <a href="https://claude.com/blog/agent-identity-access-model">agent identity &amp; access model</a>
+for precisely this — channel-scoped service identities, default-deny tool <em>and</em>
+network-egress allowlists, per-action audit, least-privilege, and <em>“just-in-time”</em>
+approval of a single sensitive action — the strongest possible proof the <strong>door is
+the work</strong>. It also hands kolu the spec to mirror, and the JIT <em>“approve one action
+in the moment”</em> grant <em>is</em> the approve-from-phone gate above; kolu’s edge is doing
+it <strong>self-hosted, on infra you own</strong>, not in a vendor’s console.</p><p><strong>The honest unit of chat control is approve / deny / one-line reply at a blocked
+gate — not “steer.”</strong> Raw bytes are perfect for <code>y⏎</code>; they are a bad way to drive a
+full-screen TUI’s arrow keys through a chat box. Don’t promise interactive driving
+from Slack.</p></div></aside>
+<h2 id="what-stands-in-the-way">What stands in the way</h2>
+<ul>
+<li><strong>Self-hosted, single-user today.</strong> A moat for the solo / own-iron / no-procurement
+crowd; a structural <em>disqualifier</em> for the enterprise-cloud deployments Karpathy
+points at (no SSO, no audit, no central control). Defensible and small can both
+be true.</li>
+<li><strong>No offline — the live WebSocket <em>is</em> the app.</strong> Push-<em>out</em> (the ping) is free;
+reply-<em>in</em> needs a new always-listening authenticated endpoint your phone reaches.
+It cannot be a background service-worker reply.</li>
+<li><strong>No submit-from-outside today.</strong> This is the single fatal gap for the
+chat-delegation thesis. Unshipped — not “nearly there.”</li>
+<li><strong>Remote multi-host is in flight, not shipped</strong> (see <a href="./remote-terminals.html">remote terminals</a>).
+A chat ingress today is <strong>single-host</strong> — the box pulam/kaval already run on.
+Fleet-wide ingress waits on the remote-host work.</li>
+<li><strong>Multiplayer is essentially zero.</strong> The awareness <em>read</em> is shared; real
+multiplayer (identity, who-claimed-what, two humans on one tile) has no
+primitives yet and is a separate epic — and a chat ingress implicitly invites
+multiple taggers, so the auth leg must answer “who is this” too.</li>
+<li><strong>Stay vendor-neutral.</strong> A model-agnostic ingress (any argv) and a neutral fleet
+board — never a Claude-shaped or Slack-shaped wrapper, which would spend the one
+structural moat kolu has. It’s HN’s loudest refrain too — model-agnosticism and
+token-cost control as the moat, and <strong>Slack-only as a “moat-killer”</strong> (Anthropic
+itself plans to expand past Slack). So chat-surface breadth is table stakes; the
+substrate is the differentiation.</li>
+</ul>
+<h2 id="the-call-build-the-front-door-not-a-chat-app">The call: build the front door, not a chat app</h2>
+<p>kolu is <strong>not threatened with extinction — it’s at risk of shipping the wrong
+half.</strong> The canvas-as-cockpit erodes in a manage-from-chat world; the awareness
+daemon and the live-PTY substrate are exactly what that world needs and Slack
+lacks. kolu is <strong>complementary today and positioned to win the neutral console</strong> —
+the one place an org sees claude, codex, and opencode ranked side by side, with
+real terminals underneath, on infrastructure it controls (down to sandboxed hosts
+like an Incus cluster).</p>
+<p>The single highest-leverage move is <strong>not a Slack app</strong>. It’s the <strong>authenticated,
+default-deny, model-agnostic ingress beside kaval</strong> that turns the read-only fleet
+board into a delegate-and-approve surface, with a phone-friendly version of the
+existing web board as its face. Sequence it behind the remote-host work, scope it
+to single-user, and ship the <strong>approve-from-phone</strong> loop first. And resist the
+temptation to call the front door a one-liner: the wiring is cheap; the door is
+the product.</p>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Beyond the bridge — the forward-facing opening</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The most-upvoted “killer feature” in the thread isn’t chat-as-IDE; it’s an
+<strong>auto-assembling, forward-facing punchlist</strong> — discussion decomposed into
+subtasks, blocking relationships tracked, specs and facts filed into the right
+task: <em>“Company Brain / Knowledgebase is rear-facing, whereas todo is
+future-facing.”</em> kolu already owns both ends of that axis: <a href="./pulam.html">pulam</a>
+is the <strong>present tense</strong> (“what is every agent doing”), and the
+<a href="./meta.html">Atlas</a> is the <strong>rear-facing</strong> brain. The gap — and the opening — is
+the <strong>future tense</strong>: a task/punchlist layer the awareness substrate and the chat
+ingress could feed. Out of scope for the bridge itself, but the natural place it
+grows next.</p></div></aside></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>
