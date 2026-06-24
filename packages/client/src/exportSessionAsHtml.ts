@@ -40,24 +40,26 @@ function downloadExport(html: string, filename: string): void {
 
 export async function exportSessionAsHtml(
   id: TerminalId,
-  mode: TranscriptHtmlMode | "both",
+  modes: TranscriptHtmlMode[],
 ): Promise<void> {
+  const [first, ...rest] = modes;
+  if (first === undefined) throw new Error("No export modes requested");
+  const multiple = rest.length > 0;
   const loadingId = toast.loading(
-    mode === "both" ? "Exporting session files…" : "Exporting session…",
+    multiple ? "Exporting session files…" : "Exporting session…",
   );
   try {
-    if (mode === "both") {
-      const exports = await Promise.all([
-        fetchHtml(id, "chat"),
-        fetchHtml(id, "full"),
-      ]);
+    if (multiple) {
+      const exports = await Promise.all(
+        modes.map((mode) => fetchHtml(id, mode)),
+      );
       for (const { html, filename } of exports) downloadExport(html, filename);
       toast.success("Session files exported", { id: loadingId });
     } else {
-      const { html, filename } = await fetchHtml(id, mode);
+      const { html, filename } = await fetchHtml(id, first);
       openExport(html, filename);
       toast.success(
-        mode === "chat" ? "Chat log exported" : "Full transcript exported",
+        first === "chat" ? "Chat log exported" : "Full transcript exported",
         { id: loadingId },
       );
     }

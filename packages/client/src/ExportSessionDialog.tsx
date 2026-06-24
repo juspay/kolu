@@ -18,9 +18,9 @@ const ExportSessionDialog: Component = () => {
   const chrome = surface({ portalled: true });
   let chatRef: HTMLButtonElement | undefined;
 
-  const exportMode = (mode: TranscriptHtmlMode | "both") => {
+  const exportMode = (modes: TranscriptHtmlMode[]) => {
     exportSessionDialog.onOpenChange(false);
-    void crud.exportSessionHtml(mode);
+    void crud.exportSessionHtml(modes);
   };
 
   return (
@@ -47,7 +47,7 @@ const ExportSessionDialog: Component = () => {
             type="button"
             ref={chatRef}
             class="text-left rounded-lg border border-edge bg-surface-2 px-3 py-2.5 hover:bg-surface-3 transition-colors cursor-pointer"
-            onClick={() => exportMode("chat")}
+            onClick={() => exportMode(["chat"])}
           >
             <span class="block text-fg font-medium">Chat log</span>
             <span class="block text-fg-3 text-xs mt-0.5">
@@ -58,7 +58,7 @@ const ExportSessionDialog: Component = () => {
           <button
             type="button"
             class="text-left rounded-lg border border-edge bg-surface-2 px-3 py-2.5 hover:bg-surface-3 transition-colors cursor-pointer"
-            onClick={() => exportMode("full")}
+            onClick={() => exportMode(["full"])}
           >
             <span class="block text-fg font-medium">Full transcript</span>
             <span class="block text-fg-3 text-xs mt-0.5">
@@ -78,7 +78,7 @@ const ExportSessionDialog: Component = () => {
           <button
             type="button"
             class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
-            onClick={() => exportMode("both")}
+            onClick={() => exportMode(["chat", "full"])}
           >
             Export both
           </button>
