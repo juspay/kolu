@@ -136,6 +136,15 @@ export interface PumpRemoteSurfaceOptions<
    *  re-serve's stream source can forward `client.surface.<stream>(input)` on
    *  demand. Omit when every primitive is folded through the sink. */
   liveClient?: LiveSpawnHolder<AgentClient<C>>;
+  /** Optional hook fired each time a spawn's mirror ENDS — the link died (stdio
+   *  process death) or the session was destroyed — AFTER the live holders are
+   *  cleared. The cue to drop any per-link LOCAL state the next spawn must
+   *  rebuild from the fresh snapshot rather than inherit stale: a sink folds
+   *  deltas into a cache that lives ACROSS spawns, but each new mirror's per-key
+   *  bookkeeping starts empty, so a value that changed or departed while the link
+   *  was down is never reconciled on reconnect unless the cache is reset here. A
+   *  read-only mirror with no standing local fold omits it. */
+  onLinkDown?: () => void;
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
 }
@@ -207,6 +216,10 @@ export async function pumpRemoteSurface<
         opts.liveClient.current = null;
         opts.liveClient.onChange?.();
       }
+      // The link to this spawn is down: let the consumer drop any per-link local
+      // state (e.g. a re-serve's awareness fold) so the NEXT spawn rebuilds from
+      // the fresh snapshot instead of painting a stale row across the reconnect.
+      opts.onLinkDown?.();
     }
     log(`pump: mirror ended for client #${seq} — awaiting next client`);
   }
