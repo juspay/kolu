@@ -1,0 +1,379 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The /be Workflow · the kolu Atlas</title><meta name="description" content="How kolu takes a task to a shipped, reviewed PR — one interview up front, then a fully autonomous pipeline of skills. The whole flow, every skill in place, in one diagram."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/be-workflow.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="The /be Workflow · the kolu Atlas"><meta property="og:description" content="How kolu takes a task to a shipped, reviewed PR — one interview up front, then a fully autonomous pipeline of skills. The whole flow, every skill in place, in one diagram."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/be-workflow.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-24T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="The /be Workflow · the kolu Atlas"><meta name="twitter:description" content="How kolu takes a task to a shipped, reviewed PR — one interview up front, then a fully autonomous pipeline of skills. The whole flow, every skill in place, in one diagram."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">The /be Workflow</h1><div class="meta-row"><span>Reference</span><span class="meta-sep">·</span><span>budding</span><span class="meta-sep">·</span><span>implemented</span><span class="meta-sep">·</span><time datetime="2026-06-24T00:00:00.000Z">JUN 24, 2026</time></div><p class="note-sub">How kolu takes a task to a shipped, reviewed PR — one interview up front, then a fully autonomous pipeline of skills. The whole flow, every skill in place, in one diagram.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#one-interview-then-autonomy" data-astro-cid-rda6bqd5>One interview, then autonomy</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-six-phases" data-astro-cid-rda6bqd5>The six phases</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-review-gauntlet" data-astro-cid-rda6bqd5>The review gauntlet</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#ship-in-parallel-then-close-the-loop" data-astro-cid-rda6bqd5>Ship in parallel, then close the loop</a></li></ul></nav></header><div class="prose"><blockquote>
+<p><strong><code>/be</code> is how kolu ships.</strong> You type <code>/be &lt;task&gt;</code>, answer a couple of
+questions, and walk away — the agent takes it from a fresh branch to a draft
+PR that has already survived a four-reviewer gauntlet, with green CI and visual
+evidence attached. This note is the map of that pipeline: what each phase does,
+which skill runs it, and how they hand off. <strong>Every blue node in the diagram
+links to that skill’s <code>SKILL.md</code></strong> — start there, then read the source.</p>
+</blockquote>
+<figure class="diagram" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1500 1320" font-family="ui-sans-serif, system-ui, sans-serif" role="img"
+     aria-label="The /be workflow: one interview up front, then autonomous — set up, implement test-first, open a draft PR, run the four-reviewer serial gauntlet, ship CI and evidence in parallel on a pu box, then report and self-improve. Every skill node links to its SKILL.md on GitHub.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6472"/>
+    </marker>
+    <marker id="arrowSerial" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b5316f"/>
+    </marker>
+    <style>
+      .phase   { stroke-width:2; }
+      .pnum    { font-size:13px; font-weight:700; fill:#ffffff; }
+      .ptitle  { font-size:19px; font-weight:700; fill:#11203a; }
+      .psub    { font-size:12.5px; fill:#6b7280; }
+      .chip    { fill:#F7F8FE; stroke:#c9d2f5; stroke-width:1; }
+      .skill   { font-size:13.5px; font-weight:700; fill:#0D32B2; }
+      .skilln  { font-size:11px; fill:#6b7280; }
+      .tool    { font-size:13.5px; font-weight:700; fill:#11203a; }
+      .flow    { stroke:#5b6472; stroke-width:2; fill:none; }
+      .link    { stroke:#b6bdc9; stroke-width:1.4; fill:none; }
+      .serial  { stroke:#b5316f; stroke-width:2.2; fill:none; }
+      .ttl     { font-size:30px; font-weight:800; fill:#11203a; }
+      .ttlsub  { font-size:14.5px; fill:#6b7280; }
+      a:hover .chip { stroke:#0D32B2; stroke-width:1.8; }
+      a { cursor:pointer; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="1320" fill="#ffffff"/>
+
+  <!-- ============ Title ============ -->
+  <text class="ttl"    x="60" y="54">/be — kolu's autonomous build pipeline</text>
+  <text class="ttlsub" x="62" y="80">One interview up front, then fully autonomous to a shipped, reviewed PR.  Every blue node is a skill — click it to open its SKILL.md on GitHub.</text>
+
+  <!-- ============ Spine flow arrows ============ -->
+  <path class="flow" d="M540,154 L540,192" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,264 L540,302" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,374 L540,412" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,484 L540,522" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,738 L540,798" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,1058 L540,1118" marker-end="url(#arrow)"/>
+
+  <!-- ============ §0 Interview ============ -->
+  <rect class="phase" x="330" y="88" width="420" height="66" rx="12" fill="#fdf3e3" stroke="#b76e00"/>
+  <circle cx="356" cy="121" r="13" fill="#b76e00"/>
+  <text class="pnum"   x="356" y="125" text-anchor="middle">0</text>
+  <text class="ptitle" x="380" y="116">Interview — the differentiator</text>
+  <text class="psub"   x="380" y="138">the one &amp; only place /be asks you anything</text>
+
+  <!-- AskUserQuestion (built-in tool, no link) -->
+  <path class="link" d="M750,121 L800,121"/>
+  <rect class="chip" x="800" y="94" width="340" height="54" rx="8"/>
+  <text class="tool"   x="818" y="116">AskUserQuestion  (batched, once)</text>
+  <text class="skilln" x="818" y="135">Plan first?  ·  Task kind  ·  Ultracode?</text>
+
+  <!-- ============ §1 Set up ============ -->
+  <rect class="phase" x="330" y="192" width="420" height="72" rx="12" fill="#E3E9FD" stroke="#0D32B2"/>
+  <circle cx="356" cy="228" r="13" fill="#0D32B2"/>
+  <text class="pnum"   x="356" y="232" text-anchor="middle">1</text>
+  <text class="ptitle" x="380" y="221">Set up</text>
+  <text class="psub"   x="380" y="242">git fetch · branch off origin/HEAD · read .agency/do.md</text>
+  <text class="psub"   x="380" y="258">feature branch only — never commit to master</text>
+
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" target="_blank" rel="noopener">
+    <path class="link" d="M750,228 L800,228"/>
+    <rect class="chip" x="800" y="204" width="340" height="50" rx="8"/>
+    <text class="skill"  x="818" y="226">/atlas</text>
+    <text class="skilln" x="818" y="244">plan-of-record note (optional · "plan first")</text>
+  </a>
+
+  <!-- ============ §2 Implement ============ -->
+  <rect class="phase" x="330" y="302" width="420" height="72" rx="12" fill="#EAF6EC" stroke="#2f8132"/>
+  <circle cx="356" cy="338" r="13" fill="#2f8132"/>
+  <text class="pnum"   x="356" y="342" text-anchor="middle">2</text>
+  <text class="ptitle" x="380" y="331">Implement — test-first</text>
+  <text class="psub"   x="380" y="352">repro red→green (bug) · cover (feature) · sync docs</text>
+  <text class="psub"   x="380" y="368">honor design philosophy · changelog · check + fmt</text>
+
+  <path class="link" d="M750,338 L800,338"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/test/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="800" y="302" width="160" height="32" rx="8"/>
+    <text class="skill" x="816" y="323">/test</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="968" y="302" width="172" height="32" rx="8"/>
+    <text class="skill" x="984" y="323">/dev-server</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/nix-typescript/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="800" y="342" width="160" height="32" rx="8"/>
+    <text class="skill" x="816" y="363">/nix-typescript</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="968" y="342" width="172" height="32" rx="8"/>
+    <text class="skill" x="984" y="363">/pu  (heavy work)</text>
+  </a>
+
+  <!-- ============ §3 Open PR ============ -->
+  <rect class="phase" x="330" y="412" width="420" height="72" rx="12" fill="#f0eafb" stroke="#6b3fb5"/>
+  <circle cx="356" cy="448" r="13" fill="#6b3fb5"/>
+  <text class="pnum"   x="356" y="452" text-anchor="middle">3</text>
+  <text class="ptitle" x="380" y="441">Open the PR (draft)</text>
+  <text class="psub"   x="380" y="462">before any review — findings land on a real PR</text>
+  <text class="psub"   x="380" y="478">backfill changelog link · finalize plan note</text>
+
+  <path class="link" d="M750,448 L800,448"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/forge-pr/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="800" y="424" width="160" height="48" rx="8"/>
+    <text class="skill" x="816" y="453">/forge-pr</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="968" y="424" width="172" height="48" rx="8"/>
+    <text class="skill"  x="984" y="446">/atlas</text>
+    <text class="skilln" x="984" y="463">status: implemented</text>
+  </a>
+
+  <!-- ============ §4 Review gauntlet ============ -->
+  <rect class="phase" x="330" y="522" width="420" height="66" rx="12" fill="#fbe9f1" stroke="#b5316f"/>
+  <circle cx="356" cy="555" r="13" fill="#b5316f"/>
+  <text class="pnum"   x="356" y="559" text-anchor="middle">4</text>
+  <text class="ptitle" x="380" y="550">Review gauntlet</text>
+  <text class="psub"   x="380" y="572">four reviewers, SERIAL — each sole editor, commits in turn</text>
+
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/be-review/SKILL.md" target="_blank" rel="noopener">
+    <path class="link" d="M750,555 L800,555"/>
+    <rect class="chip" x="800" y="531" width="340" height="48" rx="8"/>
+    <text class="skill"  x="818" y="553">/be-review</text>
+    <text class="skilln" x="818" y="570">orchestrates the four · pushes once · then comments</text>
+  </a>
+
+  <!-- gauntlet feeder -->
+  <path class="serial" d="M540,588 L540,608 L150,608 L150,636" marker-end="url(#arrowSerial)"/>
+
+  <!-- 4 serial reviewers -->
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="50" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
+    <text class="skill"  x="68" y="660">/lens-debate</text>
+    <text class="skilln" x="68" y="678">boundaries ⇄ simplicity</text>
+  </a>
+  <path class="serial" d="M250,664 L320,664" marker-end="url(#arrowSerial)"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="320" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
+    <text class="skill"  x="338" y="660">/codex-debate</text>
+    <text class="skilln" x="338" y="678">codex ⇄ claude, to consensus</text>
+  </a>
+  <path class="serial" d="M520,664 L590,664" marker-end="url(#arrowSerial)"/>
+  <!-- /simplify is a built-in skill (no repo SKILL.md) — node kept, unlinked -->
+  <g>
+    <rect class="chip" x="590" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
+    <text class="skill"  x="608" y="660">/simplify</text>
+    <text class="skilln" x="608" y="678">reuse · efficiency · altitude</text>
+  </g>
+  <path class="serial" d="M790,664 L860,664" marker-end="url(#arrowSerial)"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/code-police/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="860" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
+    <text class="skill"  x="878" y="660">/code-police</text>
+    <text class="skilln" x="878" y="678">--no-elegance in gauntlet</text>
+  </a>
+
+  <!-- lens sub-lenses -->
+  <path class="link" d="M110,692 L110,708"/>
+  <path class="link" d="M190,692 L190,708"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/lowy/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="40" y="708" width="100" height="30" rx="8"/>
+    <text class="skill" x="56" y="728">/lowy</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/hickey/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="150" y="708" width="110" height="30" rx="8"/>
+    <text class="skill" x="166" y="728">/hickey</text>
+  </a>
+
+  <!-- police sub-passes -->
+  <path class="link" d="M920,692 L920,708"/>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/fact-check/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="860" y="708" width="135" height="30" rx="8"/>
+    <text class="skill" x="876" y="728">/fact-check</text>
+  </a>
+  <rect class="chip" x="1005" y="708" width="170" height="30" rx="8" stroke-dasharray="4 3"/>
+  <text class="skilln" x="1021" y="728">elegance — skipped</text>
+
+  <!-- gauntlet return to spine -->
+  <path class="serial" d="M1060,664 L1130,664 L1130,762 L540,762 L540,798" marker-end="url(#arrowSerial)"/>
+
+  <!-- performance pass note -->
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/perf-diagnose/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="1180" y="636" width="270" height="56" rx="8"/>
+    <text class="skill"  x="1198" y="660">perf pass → atlas/performance</text>
+    <text class="skilln" x="1198" y="678">if a perf-sensitive surface changed</text>
+  </a>
+
+  <!-- ============ §5 Ship ============ -->
+  <rect class="phase" x="330" y="798" width="420" height="66" rx="12" fill="#fbf3df" stroke="#9a6a00"/>
+  <circle cx="356" cy="831" r="13" fill="#9a6a00"/>
+  <text class="pnum"   x="356" y="835" text-anchor="middle">5</text>
+  <text class="ptitle" x="380" y="826">Ship — CI ∥ evidence</text>
+  <text class="psub"   x="380" y="848">run concurrently on a pu box · join before Done</text>
+
+  <!-- split into two parallel lanes -->
+  <path class="flow" d="M540,864 L540,880 L320,880 L320,904" marker-end="url(#arrow)"/>
+  <path class="flow" d="M540,864 L540,880 L900,880 L900,904" marker-end="url(#arrow)"/>
+
+  <!-- CI lane -->
+  <rect class="phase" x="120" y="904" width="400" height="120" rx="12" fill="#fcfcfe" stroke="#9a6a00"/>
+  <text class="ptitle" x="140" y="934" font-size="16">CI pipeline (backgrounded first)</text>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/ci/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="140" y="948" width="170" height="56" rx="8"/>
+    <text class="skill"  x="156" y="972">/ci</text>
+    <text class="skilln" x="156" y="990">odu run → settle → rerun</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/odu-mcp/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="322" y="948" width="180" height="56" rx="8"/>
+    <text class="skill"  x="338" y="972">/odu-mcp</text>
+    <text class="skilln" x="338" y="990">drive CI via MCP face</text>
+  </a>
+
+  <!-- Evidence lane -->
+  <rect class="phase" x="700" y="904" width="400" height="120" rx="12" fill="#fcfcfe" stroke="#9a6a00"/>
+  <text class="ptitle" x="720" y="934" font-size="16">Evidence (concurrent)</text>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/evidence/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="720" y="948" width="170" height="56" rx="8"/>
+    <text class="skill"  x="736" y="972">/evidence</text>
+    <text class="skilln" x="736" y="990">screenshot / video on pu</text>
+  </a>
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/dev-server/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="902" y="948" width="180" height="56" rx="8"/>
+    <text class="skill"  x="918" y="972">/dev-server</text>
+    <text class="skilln" x="918" y="990">venue gate (local vs pu)</text>
+  </a>
+
+  <!-- pu underpins ship -->
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" target="_blank" rel="noopener">
+    <rect class="chip" x="1140" y="948" width="200" height="56" rx="8"/>
+    <text class="skill"  x="1156" y="972">/pu</text>
+    <text class="skilln" x="1156" y="990">ephemeral host for both</text>
+  </a>
+  <path class="link" d="M520,976 L700,976"/>
+  <path class="link" d="M1100,976 L1140,976"/>
+
+  <!-- lanes join into Done -->
+  <path class="flow" d="M320,1024 L320,1042 L540,1042 L540,1118" marker-end="url(#arrow)"/>
+  <path class="flow" d="M900,1024 L900,1042 L540,1042"/>
+
+  <!-- ============ Done ============ -->
+  <rect class="phase" x="330" y="1118" width="420" height="68" rx="12" fill="#EAF6EC" stroke="#2f8132"/>
+  <circle cx="356" cy="1152" r="13" fill="#2f8132"/>
+  <path d="M350,1152 l4,4 l8,-9" stroke="#ffffff" stroke-width="2.4" fill="none"/>
+  <text class="ptitle" x="380" y="1146">Done</text>
+  <text class="psub"   x="380" y="1167">report PR · gauntlet outcome · CI status</text>
+  <text class="psub"   x="380" y="1182">never merge — the human reviews &amp; merges</text>
+
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/.claude/skills/self-improve/SKILL.md" target="_blank" rel="noopener">
+    <path class="link" d="M750,1152 L800,1152"/>
+    <rect class="chip" x="800" y="1126" width="340" height="52" rx="8"/>
+    <text class="skill"  x="818" y="1148">/self-improve  (forked)</text>
+    <text class="skilln" x="818" y="1166">mine the session → sharpen the skill-set</text>
+  </a>
+
+  <!-- ============ Legend ============ -->
+  <g transform="translate(60,1235)">
+    <text class="psub" x="0" y="0" font-size="13">Legend:</text>
+    <rect class="chip" x="60" y="-13" width="20" height="18" rx="4"/>
+    <text class="psub" x="88" y="0" font-size="12.5">skill (links to SKILL.md)</text>
+    <line x1="280" y1="-4" x2="320" y2="-4" class="flow" marker-end="url(#arrow)"/>
+    <text class="psub" x="330" y="0" font-size="12.5">phase flow</text>
+    <line x1="430" y1="-4" x2="470" y2="-4" class="serial" marker-end="url(#arrowSerial)"/>
+    <text class="psub" x="480" y="0" font-size="12.5">serial gauntlet</text>
+    <line x1="610" y1="-4" x2="650" y2="-4" class="link"/>
+    <text class="psub" x="660" y="0" font-size="12.5">attached skill / tool</text>
+    <text class="psub" x="840" y="0" font-size="12.5">Autonomy propagates to every subagent · heavy work runs on a pu box.</text>
+  </g>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The /be pipeline. The spine (top to bottom) is the six phases; skills attach to the right of each. The magenta loop is the review gauntlet — four reviewers run strictly one after another, each the sole editor of the branch while it runs. Ship fans into two parallel lanes (CI and evidence) that rejoin before Done. Click any skill node to open its SKILL.md on GitHub.</figcaption></figure>
+<h2 id="one-interview-then-autonomy">One interview, then autonomy</h2>
+<p><code>/be</code> differs from its ancestor <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/do/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/do</a> in exactly one place: it
+<strong>opens with a short interview</strong> and is <strong>autonomous everywhere after</strong>. The
+interview is a single batched <code>AskUserQuestion</code> call — the one and only moment
+<code>/be</code> asks you anything — covering three things:</p>
+<ul>
+<li><strong>Plan first?</strong> Write the plan as an <a href="/atlas/meta.html">Atlas note</a> for review
+before implementing, or go straight to code. Default: straight, unless the task
+is large or ambiguous.</li>
+<li><strong>Task kind</strong> — bug · feature · refactor. This picks the test strategy: a bug
+needs a red-then-green reproduction; a feature needs a covering test written
+first; a refactor leans on existing coverage.</li>
+<li><strong>Ultracode?</strong> — only asked when it isn’t already on. With it, the review
+gauntlet fans out deeper and adversarially verifies each finding.</li>
+</ul>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>Autonomy doesn’t inherit — it’s propagated.</strong> Every subagent <code>/be</code> delegates to
+is told <em>execute now, don’t wait for confirmation</em>. A subagent starts without the
+interview’s “no stopping” contract, so a prompt that merely describes a plan gets
+a plan back instead of done work. The directive is baked into each delegation.</p></div></aside>
+<h2 id="the-six-phases">The six phases</h2>
+<p>The spine of the diagram is six phases, run in order. The first is the interview
+above; the rest are fully autonomous.</p>
+<ol>
+<li><strong>Set up</strong> — <code>git fetch</code>, branch off <code>origin/HEAD</code> (never commit to master),
+and read <code>.agency/do.md</code> for the project’s check / fmt / test / ci commands.
+If “plan first” was chosen, the plan of record is an Atlas note authored via
+<a href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/atlas</a>.</li>
+<li><strong>Implement</strong> — test-first. A bug is <em>reproduced red</em> before it’s theorized
+about, then fixed until the repro flips green — via the <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/test/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/test</a>
+harness when a failing e2e can express it. Heavy work (builds, the dev server,
+reproductions) runs off-machine on a <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/pu</a> box, launched through
+<a href="https://github.com/juspay/kolu/blob/master/.claude/skills/dev-server/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/dev-server</a>, because production kolu lives on the same
+machine. A lockfile change refreshes the Nix FOD hash via
+<a href="https://github.com/juspay/kolu/blob/master/.claude/skills/nix-typescript/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/nix-typescript</a>. Docs and the changelog are synced in the same
+commit.</li>
+<li><strong>Open the PR</strong> — a draft PR, written with <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/forge-pr/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/forge-pr</a>, <em>before
+any review</em>, so every reviewer’s findings land as comments on a real PR. The
+changelog link is backfilled and, if there’s a plan note, it’s finalized to
+<code>status: implemented</code> via <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/atlas/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/atlas</a>.</li>
+<li><strong>Review gauntlet</strong> — the heart of <code>/be</code> (next section).</li>
+<li><strong>Ship</strong> — CI and evidence, in parallel (section after next).</li>
+<li><strong>Done</strong> — report the PR, the gauntlet outcome, and CI status. <code>/be</code> <em>never
+merges</em>; the human reviews the commits and merges when satisfied. Then it runs
+<a href="https://github.com/juspay/kolu/blob/master/.claude/skills/self-improve/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/self-improve</a> to mine the session for recurring friction.</li>
+</ol>
+<h2 id="the-review-gauntlet">The review gauntlet</h2>
+<p>Phase 4 is <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a>, which runs four reviewers <strong>serially</strong> —
+each the <strong>sole editor of the branch while it runs</strong>. Serial, not parallel, by
+design: two reviewers writing the same worktree at once would see torn,
+half-edited state. Running one at a time means every reviewer reads a clean,
+committed tree and applies its own fixes directly — no snapshot machinery, no
+separate apply pass.</p>
+<ol>
+<li><a href="https://github.com/juspay/kolu/blob/master/.claude/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a> — two structural lenses, <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/lowy/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lowy</a>
+(volatility-based boundaries) and <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/hickey/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/hickey</a> (structural
+simplicity), review independently, cross-examine every finding to consensus,
+then apply the agreed fixes.</li>
+<li><a href="https://github.com/juspay/kolu/blob/master/.claude/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a> — codex (reviewer) and a Claude author debate the
+diff to consensus, each round auto-committing its <code>fix(…)</code>.</li>
+<li><strong>/simplify</strong> — the self-applying reuse, simplification, and efficiency pass
+over the changed code. <em>(A built-in skill, so no repo <code>SKILL.md</code> to link.)</em></li>
+<li><a href="https://github.com/juspay/kolu/blob/master/.claude/skills/code-police/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/code-police</a> — its rule-checklist and <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/fact-check/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/fact-check</a>
+passes, applying their fixes. It runs <code>--no-elegance</code> here, because the
+elegance pass would just re-invoke <code>/simplify</code>, which step 3 already ran over
+this same tree.</li>
+</ol>
+<p><code>be-review</code> commits each step locally but <strong>pushes once at the end, then posts
+the PR comments</strong> — so no comment ever advertises a commit that’s still
+local-only. If the diff touches a perf-sensitive surface, a performance pass
+checks it against the <a href="/atlas/performance.html">performance map</a> and updates that
+note when a win is banked or a new one surfaces.</p>
+<h2 id="ship-in-parallel-then-close-the-loop">Ship in parallel, then close the loop</h2>
+<p>Phase 5 runs two independent lanes at once — there’s no reason to wait for green
+before capturing:</p>
+<ul>
+<li><strong>CI</strong> — <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/ci/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/ci</a> kicks off the pipeline first, backgrounded, driven
+through the odu MCP face (<a href="https://github.com/juspay/kolu/blob/master/.claude/skills/odu-mcp/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/odu-mcp</a>): <code>run</code> → wait for settle →
+read the red node’s log → rerun. It reacts to failures the moment they land.</li>
+<li><strong>Evidence</strong> — <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/evidence/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/evidence</a> captures on-screen behavior (a
+screenshot or a video) for any change with a visible effect, then posts it under
+an <code>## Evidence</code> comment. Even a backend bug fix demonstrates the now-fixed
+behavior.</li>
+</ul>
+<p>Both lanes run on a <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/pu/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/pu</a> box, never locally — a prior run piled
+local builds beside production kolu and the OOM-killer took production down. The
+lanes rejoin before Done: CI must be green on the final <code>HEAD</code> <em>and</em> evidence
+posted.</p>
+<p>After Done, <code>/be</code> closes the loop with <a href="https://github.com/juspay/kolu/blob/master/.claude/skills/self-improve/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/self-improve</a>, which runs
+<strong>forked</strong> (off the main context) to mine this session’s transcript for every
+point a human had to intervene. It produces nothing unless a lesson durably
+recurs; when one does, it ships a small fix to the skill sources on its <em>own</em>
+draft PR for a human to review — never on the <code>/be</code> branch, never merged.</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>This note is kept in sync with the skills it describes.</strong> The skill sources
+live under <code>.apm/</code>; an instruction file
+(<code>.apm/instructions/be-workflow-atlas.instructions.md</code>) reminds anyone editing
+<code>.apm/skills/be/**</code> or <code>.apm/skills/be-review/**</code> to revisit this note and its
+diagram so the map never drifts from the pipeline.</p></div></aside></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>

@@ -272,6 +272,7 @@ local_deployed_files:
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
 - .claude/rules/atlas.md
+- .claude/rules/be-workflow-atlas.md
 - .claude/rules/conventions.md
 - .claude/rules/dock-fleet-mirror.md
 - .claude/rules/docs.md
@@ -345,6 +346,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
+  .claude/rules/be-workflow-atlas.md: sha256:543874c621c56943dc5d7cf765dab27045f27eea1a766f9d845bb18bcbe17dc4
   .claude/rules/conventions.md: sha256:33edfa92cf1a1bbbf6c205a45f9f91a9d5c15b6f0355002993987bde5a5e7d47
   .claude/rules/dock-fleet-mirror.md: sha256:58060c451b893b971fa700d7ff36234b3a93a7ec8a255ac032afa1f2bad59c76
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c

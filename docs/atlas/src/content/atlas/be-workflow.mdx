@@ -1,0 +1,139 @@
+---
+title: The /be Workflow
+description: How kolu takes a task to a shipped, reviewed PR — one interview up front, then a fully autonomous pipeline of skills. The whole flow, every skill in place, in one diagram.
+parents: [reference, llm-autonomy]
+status: implemented
+maturity: budding
+updated: 2026-06-24
+---
+
+import Svg from "../../components/Svg.astro";
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import workflow from "../../diagrams/be-workflow.svg?raw";
+
+export const Skill = (props) => (
+  <a href={`https://github.com/juspay/kolu/blob/master/.claude/skills/${props.name}/SKILL.md`}
+     style={{ fontFamily: "var(--mono)", fontWeight: 600, whiteSpace: "nowrap" }}>
+    /{props.name}
+  </a>
+);
+
+> **`/be` is how kolu ships.** You type `/be <task>`, answer a couple of
+> questions, and walk away — the agent takes it from a fresh branch to a draft
+> PR that has already survived a four-reviewer gauntlet, with green CI and visual
+> evidence attached. This note is the map of that pipeline: what each phase does,
+> which skill runs it, and how they hand off. **Every blue node in the diagram
+> links to that skill's `SKILL.md`** — start there, then read the source.
+
+<Svg svg={workflow} caption="The /be pipeline. The spine (top to bottom) is the six phases; skills attach to the right of each. The magenta loop is the review gauntlet — four reviewers run strictly one after another, each the sole editor of the branch while it runs. Ship fans into two parallel lanes (CI and evidence) that rejoin before Done. Click any skill node to open its SKILL.md on GitHub." />
+
+## One interview, then autonomy
+
+`/be` differs from its ancestor <Skill name="do" /> in exactly one place: it
+**opens with a short interview** and is **autonomous everywhere after**. The
+interview is a single batched `AskUserQuestion` call — the one and only moment
+`/be` asks you anything — covering three things:
+
+- **Plan first?** Write the plan as an [Atlas note](/atlas/meta.html) for review
+  before implementing, or go straight to code. Default: straight, unless the task
+  is large or ambiguous.
+- **Task kind** — bug · feature · refactor. This picks the test strategy: a bug
+  needs a red-then-green reproduction; a feature needs a covering test written
+  first; a refactor leans on existing coverage.
+- **Ultracode?** — only asked when it isn't already on. With it, the review
+  gauntlet fans out deeper and adversarially verifies each finding.
+
+<Callout type="note">
+**Autonomy doesn't inherit — it's propagated.** Every subagent `/be` delegates to
+is told *execute now, don't wait for confirmation*. A subagent starts without the
+interview's "no stopping" contract, so a prompt that merely describes a plan gets
+a plan back instead of done work. The directive is baked into each delegation.
+</Callout>
+
+## The six phases
+
+The spine of the diagram is six phases, run in order. The first is the interview
+above; the rest are fully autonomous.
+
+1. **Set up** — `git fetch`, branch off `origin/HEAD` (never commit to master),
+   and read `.agency/do.md` for the project's check / fmt / test / ci commands.
+   If "plan first" was chosen, the plan of record is an Atlas note authored via
+   <Skill name="atlas" />.
+2. **Implement** — test-first. A bug is *reproduced red* before it's theorized
+   about, then fixed until the repro flips green — via the <Skill name="test" />
+   harness when a failing e2e can express it. Heavy work (builds, the dev server,
+   reproductions) runs off-machine on a <Skill name="pu" /> box, launched through
+   <Skill name="dev-server" />, because production kolu lives on the same
+   machine. A lockfile change refreshes the Nix FOD hash via
+   <Skill name="nix-typescript" />. Docs and the changelog are synced in the same
+   commit.
+3. **Open the PR** — a draft PR, written with <Skill name="forge-pr" />, *before
+   any review*, so every reviewer's findings land as comments on a real PR. The
+   changelog link is backfilled and, if there's a plan note, it's finalized to
+   `status: implemented` via <Skill name="atlas" />.
+4. **Review gauntlet** — the heart of `/be` (next section).
+5. **Ship** — CI and evidence, in parallel (section after next).
+6. **Done** — report the PR, the gauntlet outcome, and CI status. `/be` *never
+   merges*; the human reviews the commits and merges when satisfied. Then it runs
+   <Skill name="self-improve" /> to mine the session for recurring friction.
+
+## The review gauntlet
+
+Phase 4 is <Skill name="be-review" />, which runs four reviewers **serially** —
+each the **sole editor of the branch while it runs**. Serial, not parallel, by
+design: two reviewers writing the same worktree at once would see torn,
+half-edited state. Running one at a time means every reviewer reads a clean,
+committed tree and applies its own fixes directly — no snapshot machinery, no
+separate apply pass.
+
+1. <Skill name="lens-debate" /> — two structural lenses, <Skill name="lowy" />
+   (volatility-based boundaries) and <Skill name="hickey" /> (structural
+   simplicity), review independently, cross-examine every finding to consensus,
+   then apply the agreed fixes.
+2. <Skill name="codex-debate" /> — codex (reviewer) and a Claude author debate the
+   diff to consensus, each round auto-committing its `fix(…)`.
+3. **/simplify** — the self-applying reuse, simplification, and efficiency pass
+   over the changed code. *(A built-in skill, so no repo `SKILL.md` to link.)*
+4. <Skill name="code-police" /> — its rule-checklist and <Skill name="fact-check" />
+   passes, applying their fixes. It runs `--no-elegance` here, because the
+   elegance pass would just re-invoke `/simplify`, which step 3 already ran over
+   this same tree.
+
+`be-review` commits each step locally but **pushes once at the end, then posts
+the PR comments** — so no comment ever advertises a commit that's still
+local-only. If the diff touches a perf-sensitive surface, a performance pass
+checks it against the [performance map](/atlas/performance.html) and updates that
+note when a win is banked or a new one surfaces.
+
+## Ship in parallel, then close the loop
+
+Phase 5 runs two independent lanes at once — there's no reason to wait for green
+before capturing:
+
+- **CI** — <Skill name="ci" /> kicks off the pipeline first, backgrounded, driven
+  through the odu MCP face (<Skill name="odu-mcp" />): `run` → wait for settle →
+  read the red node's log → rerun. It reacts to failures the moment they land.
+- **Evidence** — <Skill name="evidence" /> captures on-screen behavior (a
+  screenshot or a video) for any change with a visible effect, then posts it under
+  an `## Evidence` comment. Even a backend bug fix demonstrates the now-fixed
+  behavior.
+
+Both lanes run on a <Skill name="pu" /> box, never locally — a prior run piled
+local builds beside production kolu and the OOM-killer took production down. The
+lanes rejoin before Done: CI must be green on the final `HEAD` *and* evidence
+posted.
+
+After Done, `/be` closes the loop with <Skill name="self-improve" />, which runs
+**forked** (off the main context) to mine this session's transcript for every
+point a human had to intervene. It produces nothing unless a lesson durably
+recurs; when one does, it ships a small fix to the skill sources on its *own*
+draft PR for a human to review — never on the `/be` branch, never merged.
+
+<Callout type="note">
+**This note is kept in sync with the skills it describes.** The skill sources
+live under `.apm/`; an instruction file
+(`.apm/instructions/be-workflow-atlas.instructions.md`) reminds anyone editing
+`.apm/skills/be/**` or `.apm/skills/be-review/**` to revisit this note and its
+diagram so the map never drifts from the pipeline.
+</Callout>
