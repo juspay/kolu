@@ -17,8 +17,6 @@ import {
 } from "@kolu/solid-statepip/pipVariant";
 import type { DockRowBucket } from "./dockRowRanking";
 
-export type { PipVariant };
-
 export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
   if (unread) return "attention";
   switch (bucket) {
