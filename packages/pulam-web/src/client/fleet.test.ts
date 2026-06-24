@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   compareFleetEntries,
+  DEFAULT_FLEET_FILTERS,
   type FleetEntry,
   fleetAlert,
   isVisible,
@@ -134,6 +135,21 @@ describe("isVisible", () => {
     expect(isVisible("nonagent", { ...allOff, nonagent: true })).toBe(true);
     expect(isVisible("sleeping", allOff)).toBe(false);
     expect(isVisible("sleeping", { ...allOff, sleeping: true })).toBe(true);
+  });
+});
+
+describe("DEFAULT_FLEET_FILTERS (the full agent board out of the box)", () => {
+  it("shows every agent by default — active AND idle, agentless hidden", () => {
+    // idle ON so the board reads as a full agent board, not just "who needs me".
+    expect(DEFAULT_FLEET_FILTERS.idle).toBe(true);
+    expect(DEFAULT_FLEET_FILTERS.nonagent).toBe(false);
+    expect(DEFAULT_FLEET_FILTERS.sleeping).toBe(false);
+  });
+  it("with the default, both agent categories show; the agentless ones don't", () => {
+    expect(isVisible("active", DEFAULT_FLEET_FILTERS)).toBe(true);
+    expect(isVisible("idle", DEFAULT_FLEET_FILTERS)).toBe(true);
+    expect(isVisible("nonagent", DEFAULT_FLEET_FILTERS)).toBe(false);
+    expect(isVisible("sleeping", DEFAULT_FLEET_FILTERS)).toBe(false);
   });
 });
 

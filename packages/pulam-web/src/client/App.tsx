@@ -23,7 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { type FleetFilters, URGENCY } from "./fleet.ts";
+import { DEFAULT_FLEET_FILTERS, type FleetFilters, URGENCY } from "./fleet.ts";
 import { HostGroup } from "./HostGroup.tsx";
 import { rememberServerProcessId } from "./wire.ts";
 
@@ -123,11 +123,11 @@ export function App(): JSX.Element {
   const [hosts] = createResource(fetchHosts);
   const now = createNow();
 
-  // View filters — `active` agents always show; the rest are opt-in (default off).
+  // View filters — `active` agents always show; idle agents show by default too
+  // (the full agent board), with non-agent/sleeping shells opt-in. See
+  // DEFAULT_FLEET_FILTERS.
   const [filters, setFilters] = createStore<FleetFilters>({
-    idle: false,
-    nonagent: false,
-    sleeping: false,
+    ...DEFAULT_FLEET_FILTERS,
   });
   const toggle = (key: keyof FleetFilters): void => setFilters(key, (v) => !v);
 

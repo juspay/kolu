@@ -150,14 +150,26 @@ export function terminalCategory(value: AwarenessValue): TerminalCategory {
   return value.foreground ? "nonagent" : "sleeping";
 }
 
-/** The view filters — `active` agents always show; the rest are opt-in toggles
- *  (all default off), matching the mockup's "showing agents + idle + non-agent +
- *  sleeping" footer. */
+/** The view filters — `active` agents always show; the rest are opt-in toggles,
+ *  matching the "showing agents + idle + non-agent + sleeping" footer. */
 export interface FleetFilters {
   idle: boolean;
   nonagent: boolean;
   sleeping: boolean;
 }
+
+/** The default view — **every agent shows** (active *and* idle), while the
+ *  non-agent and sleeping shells stay opt-in. `idle` defaults ON so the board
+ *  answers "what's every agent doing?" out of the box, not just "who needs me?";
+ *  a fleet whose agents have all gone quiet should still read as a full board,
+ *  not an empty one. The two agentless categories stay off — they're terminals,
+ *  not agents, and this is an agent dashboard. Single-sourced here (not inlined
+ *  in `App.tsx`) so the default is pinned by `fleet.test.ts`. */
+export const DEFAULT_FLEET_FILTERS: FleetFilters = {
+  idle: true,
+  nonagent: false,
+  sleeping: false,
+};
 
 export function isVisible(
   category: TerminalCategory,
