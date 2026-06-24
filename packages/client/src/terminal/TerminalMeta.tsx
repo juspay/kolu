@@ -14,8 +14,9 @@
 
 import { prValue } from "anyforge/schemas";
 import { activeArm, prUnavailableSource } from "kolu-common/surface";
+import { StatePip } from "@kolu/solid-statepip";
 import { type Component, Show } from "solid-js";
-import { StatePip } from "../canvas/dock/RowPips";
+import { pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -118,7 +119,9 @@ const TerminalMeta: Component<{
              *  triage states — which fold in recency/staleness — dock-only. */}
             <Show when={activeArm(info().meta)?.agent}>
               {(agent) => (
-                <StatePip bucket={paintBucket(agent())} unread={props.unread} />
+                <StatePip
+                  variant={pipVariant(paintBucket(agent()), props.unread)}
+                />
               )}
             </Show>
             <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>

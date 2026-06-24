@@ -1,17 +1,28 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
+/* The shared kolu colour palette (`--color-alert`, `--color-accent`, …) — the
+ * ONE definition both this surface and the pulam-web fleet dashboard resolve, so
+ * a `bg-alert` pip renders the identical colour on both. The app-specific tokens
+ * (`--breakpoint-sm`, `--font-sans`) stay local, below. */
+@import "@kolu/theme/theme.css";
+
 /* `@kolu/solid-markdown`'s rendered-Markdown stylesheet (`.kolu-md`). The
  * package ships the structural + scale rules; we inline them here — rather
  * than via a component-level CSS import the package's `sideEffects:false`
  * could tree-shake — so the rendered preview, intent body, and dock all pick
- * them up. Theme palette stays here (the sheet reads `--color-accent`). */
+ * them up. The sheet reads `--color-accent` (now from `@kolu/theme`). */
 @import "@kolu/solid-markdown/markdown.css";
 
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise
  * the toggle and preview-container utilities are tree-shaken away. */
 @source "../../solid-fileview/src";
+
+/* `@kolu/solid-statepip` ships the shared `StatePip` and its Tailwind classes
+ * (`bg-alert`, `border-accent`, `text-moonlit`, the spin/pulse animations), so
+ * scan it — otherwise the pip utilities are tree-shaken away. */
+@source "../../solid-statepip/src";
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the
@@ -24,8 +35,8 @@ body {
 }
 
 /*
- * @theme registers color names with Tailwind and generates :root CSS custom properties.
- * Values here double as the dark palette — :root:not(.dark) overrides them for light mode.
+ * App-specific Tailwind tokens. The colour palette lives in `@kolu/theme`
+ * (imported above); only the tokens unique to this on-canvas surface stay here.
  */
 @theme {
   /* The single definition of the `sm` breakpoint — where "mobile" begins.
@@ -34,52 +45,6 @@ body {
   --breakpoint-sm: 40rem; /* 640px */
 
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-
-  --color-surface-0: #0c0c0e;
-  --color-surface-1: #161618;
-  --color-surface-2: #1f1f23;
-  --color-surface-3: #2a2a30;
-
-  --color-edge: #27272c;
-  --color-edge-bright: #3a3a42;
-
-  --color-fg: #e4e4e8;
-  --color-fg-2: #a0a0a8;
-  --color-fg-3: #838390;
-
-  --color-accent: #5a9ea0;
-  /* "Your turn" — agent needs you. Cool violet, deliberately outside the
-   * warm/pending family (busy rust, CI yellow) so it never reads as
-   * "machine in flight". See AgentIndicator + StatePip. */
-  --color-alert: #a78bfa;
-
-  --color-ok: #4ade80;
-  --color-warning: #facc15;
-  --color-danger: #f87171;
-  --color-busy: #d97757;
-}
-
-/* ── Light mode (default when .dark is absent) ───────────────── */
-:root:not(.dark) {
-  --color-surface-0: #ffffff;
-  --color-surface-1: #f4f4f6;
-  --color-surface-2: #e8e8ec;
-  --color-surface-3: #dcdce2;
-
-  --color-edge: #d0d0d8;
-  --color-edge-bright: #b8b8c2;
-
-  --color-fg: #1a1a1e;
-  --color-fg-2: #5c5c66;
-  --color-fg-3: #8a8a96;
-
-  --color-accent: #3d8486;
-  --color-alert: #7c3aed;
-
-  --color-ok: #16a34a;
-  --color-warning: #ca8a04;
-  --color-danger: #dc2626;
-  --color-busy: #c4623e;
 }
 
 /* ── Pill border channels ────────────────────────────────────

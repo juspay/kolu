@@ -94,13 +94,9 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
-import {
-  ActivityPip,
-  createDockRowData,
-  PrPip,
-  StatePip,
-  SubCountCell,
-} from "./RowPips";
+import { StatePip } from "@kolu/solid-statepip";
+import { ActivityPip, createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { pipVariant } from "./pipVariant";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
@@ -493,7 +489,7 @@ const DockRow: Component<{
           title="Jump to this terminal"
         >
           <ActivityPip id={props.id} />
-          <StatePip bucket={props.pip} unread={unread()} />
+          <StatePip variant={pipVariant(props.pip, unread())} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{

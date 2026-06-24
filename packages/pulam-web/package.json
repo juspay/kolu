@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.13",
+    "@kolu/solid-statepip": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-nix-host": "workspace:*",
     "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/theme": "workspace:*",
     "@orpc/server": "^1.13.13",
     "hono": "^4.12.25",
     "partysocket": "^1.1.16",

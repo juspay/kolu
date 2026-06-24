@@ -24,8 +24,7 @@ import {
   type FleetEntry,
   isVisible,
   locationText,
-  PAINT,
-  paintClassFor,
+  pipVariantFor,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -162,42 +161,35 @@ describe("basename", () => {
 });
 
 describe("URGENCY descriptor", () => {
-  it("carries the web colour + label per urgency", () => {
+  it("carries the web label per urgency + a shared-theme colour token", () => {
     expect(URGENCY.need.label).toBe("needs you");
     expect(URGENCY.work.label).toBe("working");
     expect(URGENCY.idle.label).toBe("idle");
-    expect(URGENCY.need.color).toMatch(/^#/);
+    // The colour is a shared `@kolu/theme` token now — the fleet reads the SAME
+    // palette as kolu's Dock ("your turn" violet) rather than a render-local hex.
+    expect(URGENCY.need.color).toBe("var(--color-alert)");
+    expect(URGENCY.work.color).toBe("var(--color-accent)");
+    expect(URGENCY.idle.color).toBe("var(--color-fg-3)");
   });
 });
 
-describe("PAINT mirror (the fleet glyph echoes kolu's Dock pip, decoupled from urgency)", () => {
-  it("paints by agentPaintClass; waiting paints awaiting though its urgency is idle", () => {
-    expect(paintClassFor(withAgent("awaiting_user"))).toBe("awaiting");
-    expect(paintClassFor(withAgent("thinking"))).toBe("working");
-    expect(paintClassFor(withAgent("tool_use"))).toBe("working");
-    // The order≠colour split, made explicit: the SAME just-finished agent paints
-    // `awaiting` (the lingering amber cue) while its urgency SORTS it `idle`.
-    expect(paintClassFor(withAgent("waiting"))).toBe("awaiting");
+describe("pipVariantFor (the shared StatePip variant — fleet ≡ Dock)", () => {
+  it("an agent folds through the shared agent-paint → pip mapping", () => {
+    expect(pipVariantFor(withAgent("thinking"))).toBe("working");
+    expect(pipVariantFor(withAgent("tool_use"))).toBe("working");
+    expect(pipVariantFor(withAgent("awaiting_user"))).toBe("awaiting");
+    // order≠colour: a just-finished `waiting` agent PAINTS `awaiting` (the
+    // lingering dot) though its urgency SORTS it idle — same as kolu's Dock.
+    expect(pipVariantFor(withAgent("waiting"))).toBe("awaiting");
     expect(agentUrgency(withAgent("waiting").agent)).toBe("idle");
   });
 
-  it("a terminal with no agent paints none", () => {
-    const noAgent: AwarenessValue = {
-      ...seedAwarenessValue("/work/repo"),
-      agent: null,
+  it("no agent is the fleet's own overlay: foreground → idle, bare shell → sleeping", () => {
+    const withForeground: AwarenessValue = {
+      ...seedAwarenessValue("/x"),
+      foreground: { name: "vim", title: null },
     };
-    expect(paintClassFor(noAgent)).toBe("none");
-  });
-
-  it("PAINT carries a colour + glyph per class, reusing URGENCY's one palette", () => {
-    for (const cls of ["awaiting", "working", "none"] as const) {
-      expect(PAINT[cls].color).toMatch(/^#/);
-      expect(PAINT[cls].glyph.length).toBeGreaterThan(0);
-    }
-    // No duplicated hex/glyph — the three paint classes index the same three
-    // fleet visual tiers `URGENCY` already owns.
-    expect(PAINT.awaiting.color).toBe(URGENCY.need.color);
-    expect(PAINT.working.color).toBe(URGENCY.work.color);
-    expect(PAINT.none.color).toBe(URGENCY.idle.color);
+    expect(pipVariantFor(withForeground)).toBe("idle");
+    expect(pipVariantFor(seedAwarenessValue("/x"))).toBe("sleeping");
   });
 });

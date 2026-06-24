@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="en" class="h-full">
+<!-- `dark`: the shared `@kolu/theme` palette ships its DARK values as the
+     `@theme` default and overrides to light under `:root:not(.dark)`, so the
+     dark monospace dashboard carries `dark` to keep the dark token values
+     (`--color-alert` violet, etc.) the agent-state pips + labels resolve. -->
+<html lang="en" class="h-full dark">
   <head>
     <meta charset="UTF-8" />
     <meta
