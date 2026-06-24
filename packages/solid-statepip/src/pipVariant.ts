@@ -133,6 +133,15 @@ export const INDICATOR_BASE =
  *  workspace column header) pass nothing and get an intrinsically-sized pip. */
 export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
 
+/** The tile-title pip BOX — a smaller fixed circle the canvas title bar passes to
+ *  `StatePip`. The title pip carries the `alert` BADGE (the row's `unread`), and
+ *  the badge anchors to the wrapper's top-right corner; a content-sized wrapper
+ *  for a 6 px core would pin that 6 px badge ON the core and bury it. A reserved
+ *  14 px box gives the core (≤10 px, centred) clearance so the corner badge reads
+ *  beside it, not over it — sized to the `text-xs` annotation row it leads rather
+ *  than the taller dock-row track. Caller's geometry, same as `DOCK_ROW_PIP_BOX`. */
+export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
+
 /** The live RING overlay class — a thin green arc that gently rotates while the
  *  terminal is moving bytes (the old standalone live dot, folded into the
  *  indicator's edge). The visual (conic-gradient + mask + spin) lives in

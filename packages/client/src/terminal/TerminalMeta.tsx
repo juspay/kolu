@@ -15,6 +15,7 @@
 import { prValue } from "anyforge/schemas";
 import { activeArm, prUnavailableSource } from "kolu-common/surface";
 import { StatePip } from "@kolu/solid-statepip";
+import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { type Component, Show } from "solid-js";
 import { pipVariant } from "../canvas/dock/pipVariant";
 import { paintBucket } from "../canvas/dockModel";
@@ -115,8 +116,11 @@ const TerminalMeta: Component<{
              *  beside the same branch/intent context it does there.
              *  `unread` rides as the indicator's amber corner BADGE (the
              *  `alert` prop) rather than replacing the state core — the
-             *  dock-row treatment, one fold over. No live ring here: the
-             *  title bar has never shown the byte-motion axis. Gated on a
+             *  dock-row treatment, one fold over. A reserved `TITLE_PIP_BOX`
+             *  (smaller than the dock's box, sized to this `text-xs` row) gives
+             *  the badge a corner to anchor to instead of pinning it on the
+             *  6 px core. No live ring here: the title bar has never shown the
+             *  byte-motion axis. Gated on a
              *  live agent: when none is attached the title shows no pip
              *  (exactly as its agent-kind indicator vanishes when the
              *  session ends), leaving the dock's idle/parked triage
@@ -126,6 +130,7 @@ const TerminalMeta: Component<{
                 <StatePip
                   variant={pipVariant(paintBucket(agent()))}
                   alert={props.unread}
+                  class={TITLE_PIP_BOX}
                 />
               )}
             </Show>

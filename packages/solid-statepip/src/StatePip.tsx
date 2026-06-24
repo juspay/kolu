@@ -28,7 +28,14 @@
  *  utilities). Both surfaces `@import` that CSS, so the rings can't drift; the
  *  class data is pinned by a pure test (no DOM harness, matching the other
  *  `@kolu/solid-*` leaves). Colours are the shared `@kolu/theme` tokens, so both
- *  surfaces resolve them identically. */
+ *  surfaces resolve them identically.
+ *
+ *  Accessibility: the overlay spans are decoration (`aria-hidden`), so the
+ *  wrapper's `title` / `aria-label` carry the meaning of ALL THREE axes — the
+ *  core's `PIP_TITLES` entry plus "live output" / "unread alert" when those
+ *  props are set — so an unread row still announces its alert (the old
+ *  `attention` variant's "Needs attention" affordance, now one axis over)
+ *  instead of reading only its core or nothing at all. */
 
 import { type Component, createMemo, Show } from "solid-js";
 import {
@@ -63,6 +70,20 @@ export const StatePip: Component<{
   // `StatePip`'s memo forward across the lift).
   const variant = createMemo(() => props.variant);
   const body = createMemo(() => PIP_BODY[variant()]);
+  // The accessible label folds in ALL THREE axes, not just the core. The
+  // overlay spans are aria-hidden (pure decoration), so without this an unread
+  // row would read only its core ("Awaiting input") or nothing at all (an
+  // `empty` core) — silently dropping the old `attention` variant's "Needs
+  // attention" affordance. Compose the core title with the active outer axes so
+  // the live/alert meaning survives a hover or a screen reader.
+  const label = createMemo(() => {
+    const parts = [
+      PIP_TITLES[variant()],
+      props.live && "live output",
+      props.alert && "unread alert",
+    ].filter((p): p is string => Boolean(p));
+    return parts.join(" · ");
+  });
   return (
     // `data-testid="state-pip"` is the surface-neutral e2e selector for this
     // shared leaf, spanning all three surfaces it renders on — the dock row pip,
@@ -75,7 +96,14 @@ export const StatePip: Component<{
       data-pip={variant()}
       data-live={props.live ? "" : undefined}
       data-alert={props.alert ? "" : undefined}
-      title={PIP_TITLES[variant()]}
+      title={label()}
+      // `role="img"` so the wrapper is a single labelled graphic — `aria-label`
+      // is only valid on a role that accepts a name, not a bare generic span.
+      // An empty label is the decorative case (an `empty` core, no live/alert):
+      // `aria-label=""` is the `alt=""` equivalent, so the pip announces nothing
+      // rather than reading raw markup.
+      role="img"
+      aria-label={label()}
     >
       <Show when={body()}>
         {(b) => <span class={b().class}>{b().glyph}</span>}

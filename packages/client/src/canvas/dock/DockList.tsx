@@ -74,12 +74,13 @@ function DockListSection(props: {
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }) {
-  // Subgrid container — same shape as the desktop dock. Five cols:
-  // activity · agent · branch · sub-count · time. The leading 12px
-  // activity track is fixed (not `auto`) so the live dot never shifts
-  // the agent column. PR pip lives on line 2 (left) alongside the
-  // subline, anchored to the branch column's left edge so PR icons
-  // align across every section.
+  // Subgrid container — same shape as the desktop dock (the shared
+  // `DOCK_ROW_GRID`). Four cols: indicator · branch · sub-count · time.
+  // The leading 18px indicator track is fixed (not `auto`) holding the
+  // merged `StatePip` (its green live ring replacing the old standalone
+  // activity dot), so the indicator never shifts as its axes flip. PR
+  // pip lives on line 2 (left) alongside the subline, anchored to the
+  // branch column's left edge so PR icons align across every section.
   //
   // Right gutter (`pr-3` / `-mr-3`) happens to match the desktop
   // `DOCK_CARDS_GUTTER_*` value today, but the two are kept separate
@@ -123,11 +124,10 @@ function DockListSection(props: {
 }
 
 /** Touch counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
- *  (two-line subgrid, activity + agent slot + branch + sub-count +
- *  time on line 1, PR pip + subline on line 2); the two diverge on touch
- *  target sizing, the Corvu drag-to-dismiss pointer-down trap, and
- *  the absence of a `Cmd+N` shortcut hint. Update both files when
- *  row geometry changes. */
+ *  (two-line subgrid, indicator + branch + sub-count + time on line 1,
+ *  PR pip + subline on line 2); the two diverge on touch target sizing,
+ *  the Corvu drag-to-dismiss pointer-down trap, and the absence of a
+ *  `Cmd+N` shortcut hint. Update both files when row geometry changes. */
 function DockListRow(props: {
   id: TerminalId;
   /** ORDER bucket — drives `data-bucket`. */

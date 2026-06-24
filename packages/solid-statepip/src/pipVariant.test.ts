@@ -11,6 +11,7 @@ import {
   PIP_BODY,
   PIP_TITLES,
   type PipVariant,
+  TITLE_PIP_BOX,
   pipForPaintClass,
 } from "./pipVariant.ts";
 
@@ -122,6 +123,13 @@ describe("the indicator wrapper + outer-axis overlays", () => {
     const cls = DOCK_ROW_PIP_BOX.split(/\s+/);
     expect(cls).toContain("w-[18px]");
     expect(cls).toContain("h-[18px]");
+    expect(cls).toContain("rounded-full");
+  });
+
+  it("TITLE_PIP_BOX is the smaller caller-supplied 14px box the tile title reserves so the alert badge anchors to a corner, not onto the core", () => {
+    const cls = TITLE_PIP_BOX.split(/\s+/);
+    expect(cls).toContain("w-[14px]");
+    expect(cls).toContain("h-[14px]");
     expect(cls).toContain("rounded-full");
   });
 

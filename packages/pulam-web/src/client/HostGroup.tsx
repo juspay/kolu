@@ -90,7 +90,7 @@ export interface HostGroupProps {
  *  state-cell label colour stay keyed off `urgency`. That order≠colour split is
  *  the Dock's, one fold over from the dock pip. The indicator folds in two more
  *  axes the Dock's does (R-activity-merge): the green live RING off the activity
- *  stream and the amber unread HALO off the shared `alertClass` fold. Reads its
+ *  stream and the amber unread corner BADGE off the shared `alertClass` fold. Reads its
  *  value fine-grained off `value()` (a per-key subscription) so only this row
  *  re-renders on its own delta. */
 function AgentRow(props: {
@@ -121,7 +121,7 @@ function AgentRow(props: {
              *  renders, folding three axes into one glyph: the agent-state CORE
              *  (`pipVariantFor`), the green live RING (this terminal moving
              *  bytes, off the `activity` stream — the old standalone dot, now
-             *  the indicator's edge), and the amber unread HALO (the per-row
+             *  the indicator's edge), and the amber unread corner BADGE (the per-row
              *  alert pulam-web gains via the shared `alertClass` fold). So the
              *  (state, live, alert) triple reads byte-identically here and in
              *  the Dock; its fixed size keeps the name column aligned. */}

@@ -610,7 +610,12 @@ body {
   border: 2px solid var(--color-accent);
   pointer-events: none;
 }
-/* Unread badge — alert colour (same as the cards-mode attention pip). */
+/* Unread badge — the rail's STANDALONE unread corner badge. The glyph-only
+ * rail chip has no StatePip core to anchor a ring/badge onto, so it draws its
+ * own. Uses `--color-attention` (the shared unread-alert amber token) so it
+ * reads as the same "you have an unopened notification" cue the StatePip rows
+ * paint with their corner badge — not the cool `--color-alert` "your turn"
+ * violet that paints the awaiting *state*. */
 .dock-rail-chip[data-unread]::after {
   content: "";
   position: absolute;
@@ -619,7 +624,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-alert);
+  background: var(--color-attention);
   border: 2px solid var(--color-surface-1);
   animation: dock-chip-unread-pulse 1.2s ease-in-out infinite;
 }

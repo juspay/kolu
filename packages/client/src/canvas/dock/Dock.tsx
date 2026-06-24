@@ -358,18 +358,21 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => (
-  // Section is the grid container. Five columns: activity · agent ·
-  // branch · sub-count · time. The leading activity column is a fixed
-  // 12px reserved track (not `auto`) so the live dot's presence never
-  // shifts the StatePip column — pips stay aligned across rows whether
-  // or not each is streaming. PR pip is NOT a grid column — it lives
-  // inline on line 2 (left of the subline text), anchored to the branch
-  // column's left edge so its X stays consistent across every section.
-  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
-  // and time are `auto`, so an empty sub-count column collapses to 0 and
-  // gives its width back to the branch. Each DockRow is a subgrid item
-  // that inherits these columns, keeping the icons aligned vertically
-  // across rows in one section.
+  // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
+  // template): indicator · branch · sub-count · time. The leading
+  // indicator column is a fixed 18px reserved track (not `auto`) holding
+  // the merged `StatePip` — R-activity-merge collapsed the old leading
+  // pair (a 12px live-activity track + a separate state-pip track) into
+  // this one column, the live dot now folded into the pip's green ring —
+  // so the indicator never shifts as its axes flip and pips stay aligned
+  // across rows whether or not each is streaming. PR pip is NOT a grid
+  // column — it lives inline on line 2 (left of the subline text),
+  // anchored to the branch column's left edge so its X stays consistent
+  // across every section. Branch is `minmax(0,1fr)` so it stretches and
+  // truncates; sub-count and time are `auto`, so an empty sub-count
+  // column collapses to 0 and gives its width back to the branch. Each
+  // DockRow is a subgrid item that inherits these columns, keeping the
+  // icons aligned vertically across rows in one section.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
