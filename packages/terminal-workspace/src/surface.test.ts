@@ -75,4 +75,19 @@ describe("terminal-workspace surface", () => {
     );
     expect(DEFAULT_CONNECTION.state).toBe("connecting");
   });
+
+  it("exposes `connection.get` over the wire but NOT `connection.set`", () => {
+    // The cell is read-only over RPC: the parent host writes it server-side off
+    // `session.onState`; a browser-facing client must never be able to
+    // `connection.set` the host's health and forge the stale-health gate. The
+    // surface contract is the wire shape RPC clients can reach, so assert the
+    // composed contract carries `get` and has no `set` verb on `connection`.
+    const connection = (
+      terminalWorkspaceSurface.contract as {
+        surface: { connection: Record<string, unknown> };
+      }
+    ).surface.connection;
+    expect(connection.get).toBeTruthy();
+    expect("set" in connection).toBe(false);
+  });
 });

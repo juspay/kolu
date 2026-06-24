@@ -20,6 +20,16 @@ describe("connection cell", () => {
     expect(connectionCell.schema).toBe(ConnectionInfoSchema);
   });
 
+  it("is read-only over the wire — verbs is ['get'], never 'set'", () => {
+    // The parent host OWNS this cell (it writes it server-side off
+    // `session.onState`). A cell with no `patchSchema` would otherwise default to
+    // `["get", "set"]` and leak `set` onto the browser-facing surface — letting a
+    // remote client forge the host's health to `connected` and defeat the
+    // stale-health gate. Pin the verbs so the contract can't silently regrow `set`.
+    expect([...connectionCell.verbs]).toEqual(["get"]);
+    expect(connectionCell.verbs).not.toContain("set");
+  });
+
   it("CONNECTION_STATES mirrors the HostSession lifecycle 1:1", () => {
     expect([...CONNECTION_STATES]).toEqual([
       "copying",

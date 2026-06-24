@@ -89,15 +89,39 @@ async function requestReconnect(host: string): Promise<void> {
     { method: "POST" },
   );
   if (!response.ok) {
-    // Prefer the route's own `{ error }` body (a 404 unknown-host) or any text
-    // it sent; fall back to the status line when the body is unreadable.
-    const detail = await response.text().catch(() => "");
+    // Prefer the route's own `{ error }` body (a 404 unknown-host, sent as JSON
+    // by `/api/reconnect`) — parse the JSON and pull `.error` out so the user
+    // sees "unknown host: …", not the raw `{"error":"unknown host: …"}`. Fall
+    // back to the body text, then to the status line, when it isn't that shape.
+    const raw = await response.text().catch(() => "");
+    const detail = parseReconnectError(raw);
     throw new Error(
       detail.length > 0
         ? detail
         : `reconnect failed (${response.status} ${response.statusText})`,
     );
   }
+}
+
+/** Pull a human message out of a reconnect error body. The route sends JSON
+ *  (`{ error: "unknown host: …" }`); read `.error` when the body parses to that
+ *  shape, else return the raw text unchanged (an empty/odd body falls through to
+ *  the status line in the caller). */
+function parseReconnectError(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "error" in parsed &&
+      typeof (parsed as { error: unknown }).error === "string"
+    ) {
+      return (parsed as { error: string }).error;
+    }
+  } catch {
+    // Not JSON — fall through to the raw text.
+  }
+  return raw;
 }
 
 /** The per-host header indicator. Paints the single `effectiveHealth` fold —

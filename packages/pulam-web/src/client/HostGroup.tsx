@@ -225,7 +225,18 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // the WHOLE host before view filters — a blocked agent must alert even when its
   // category is toggled off — and clears on unmount so a closed host stops
   // contributing.
+  //
+  // Gated on the SAME `effectiveHealth` the body is: when the host is not
+  // effectively connected, report zero. Off-`connected` we hide the rows as
+  // disconnected, but the awareness store keeps its LAST values — during a
+  // browser↔backend transport loss it can't receive a reset frame — so counting
+  // `entries()` would let the global alert strip keep tallying stale agents from a
+  // host the user is told is down. Zeroing here keeps the strip honest with the rows.
   createEffect(() => {
+    if (health().state !== "connected") {
+      props.reportCounts(props.host, { need: 0, work: 0 });
+      return;
+    }
     let need = 0;
     let work = 0;
     for (const { value } of entries()) {
@@ -256,9 +267,16 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
       <header class="flex items-center gap-2 border-b border-[#1b2026] bg-[#141922] px-3 py-2">
         <span style={`color:${HOST_COLOR}`}>▌</span>
         <span class="font-semibold text-[#aeb7c7]">{props.host}</span>
-        <span class="text-[12px] text-[#5b6678]">
-          · {awareness.keys().length} terminals
-        </span>
+        {/* The terminal count rides the SAME `effectiveHealth` gate as the body
+            and the fleet-wide counts: when the host isn't effectively connected
+            the rows are hidden and the awareness key set is stale (no reset frame
+            crosses a dead transport), so showing "N terminals" beside a "down"
+            dot would lie. Drop it until the host is genuinely connected. */}
+        <Show when={health().state === "connected"}>
+          <span class="text-[12px] text-[#5b6678]">
+            · {awareness.keys().length} terminals
+          </span>
+        </Show>
         <HostHealthIndicator status={status} info={connInfo} />
       </header>
       <Show

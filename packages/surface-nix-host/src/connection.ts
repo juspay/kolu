@@ -70,8 +70,17 @@ export const DEFAULT_CONNECTION: ConnectionInfo = {
 
 /** The composable cell descriptor — spread into a surface's `cells`
  *  (`cells: { …, connection: connectionCell }`). One source of truth for the
- *  schema AND the gate-closed default, so every composing app inherits both. */
+ *  schema AND the gate-closed default, so every composing app inherits both.
+ *
+ *  Read-only over the wire (`verbs: ["get"]`): the parent host OWNS this cell —
+ *  it writes it server-side from `session.onState` (`pipeSessionStateToCell`,
+ *  which goes through the server-internal `ctx.cells.connection.set`, NOT a wire
+ *  verb). A remote RPC client must never be able to `connection.set` the host's
+ *  health to `connected` (or anything) — that would forge the very signal the
+ *  stale-health gate trusts. Without this, a cell with no `patchSchema` would
+ *  default to `["get", "set"]` and leak `set` onto the browser-facing surface. */
 export const connectionCell = {
   schema: ConnectionInfoSchema,
   default: DEFAULT_CONNECTION,
+  verbs: ["get"],
 } as const;
