@@ -84,19 +84,23 @@ export interface ReServe {
   /** The live-procedures holder for forwarding `fs.*`/`git.*`. Read on demand
    *  (a procedure call reads `.current` at call time), so a plain holder. */
   liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>;
-  /** Drop the whole awareness fold — the pump's `onLinkDown` hook. The cache is
-   *  built once per host session and reused across every (re)spawn, while each
-   *  fresh mirror's per-key `open` set starts empty; so a row that changed
-   *  (`working→idle`) or departed while the link was down is never reconciled by
-   *  the next spawn on its own (the mirror's link-death teardown fires no
-   *  `onRemove`, and a departed key is absent from the new snapshot). Clearing on
-   *  every link death lets the next spawn rebuild cleanly from the remote's
-   *  authoritative snapshot rather than paint a stale row across the reconnect —
-   *  a caught link death must surface, never collapse to retained-but-wrong state
-   *  (the project's no-fallback convention). Each removal publishes through the
-   *  awareness collection's channels, so a browser subscribed across the
-   *  reconnect sees the stale rows depart, not just a fresh-subscribe one. */
-  resetAwareness: () => void;
+  /** Drop the whole remote-derived fold — the pump's `onLinkDown` hook. BOTH
+   *  the awareness cache AND the activity live-set are per-host-session local
+   *  state, built once and reused across every (re)spawn while each fresh
+   *  mirror's per-key/per-frame bookkeeping starts empty; so a row that changed
+   *  (`working→idle`) or departed, or a live-set that went quiet, while the link
+   *  was down is never reconciled by the next spawn on its own (the mirror's
+   *  link-death teardown fires no `onRemove` and no clearing activity frame, and
+   *  a departed key is absent from the new snapshot). Clearing on every link
+   *  death lets the next spawn rebuild cleanly from the remote's authoritative
+   *  snapshot rather than paint a stale row — or a stale live dot — across the
+   *  reconnect — a caught link death must surface, never collapse to
+   *  retained-but-wrong state (the project's no-fallback convention). Each
+   *  awareness removal publishes through the collection's channels and the empty
+   *  activity frame publishes on the bus, so a browser subscribed ACROSS the
+   *  reconnect sees the stale rows depart and the dots go dark — not just a
+   *  fresh-subscribe one. */
+  resetRemoteFold: () => void;
 }
 
 export interface BuildReServeOptions {
@@ -281,17 +285,30 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     };
   };
 
-  // Drop the whole awareness fold on link death (the pump's `onLinkDown`). Go
-  // through the framework-wrapped `remove` — NOT a bare `awarenessCache.clear()`
-  // — so each departure publishes the shortened key set through the collection's
-  // channels and a browser subscribed across the reconnect sees the stale rows
-  // leave (a raw `.clear()` would only help a browser that subscribes AFTER, via
-  // `readAll`). Snapshot the keys first: the wrapped remove deletes from the map
-  // as it goes, so iterating the live map would skip entries.
-  const resetAwareness = (): void => {
+  // Drop the whole remote-derived fold on link death (the pump's `onLinkDown`):
+  // BOTH the awareness cache and the activity live-set, the two pieces of
+  // per-host-session local state a stale link can pin.
+  //
+  // Awareness: go through the framework-wrapped `remove` — NOT a bare
+  // `awarenessCache.clear()` — so each departure publishes the shortened key set
+  // through the collection's channels and a browser subscribed across the
+  // reconnect sees the stale rows leave (a raw `.clear()` would only help a
+  // browser that subscribes AFTER, via `readAll`). Snapshot the keys first: the
+  // wrapped remove deletes from the map as it goes, so iterating the live map
+  // would skip entries.
+  //
+  // Activity: the live-set has the identical staleness pathology — if the last
+  // frame before the link died named a terminal, `activityLatest` pins it as the
+  // snapshot a fresh subscriber reads, and an already-subscribed browser never
+  // hears it go quiet. Reset `activityLatest = []` AND publish `[]` on the bus,
+  // mirroring the awareness path: the empty snapshot for fresh subscribers, the
+  // empty frame for ones subscribed across the reconnect.
+  const resetRemoteFold = (): void => {
     for (const key of [...awarenessCache.keys()]) {
       fragment.ctx.collections.awareness.remove(key);
     }
+    activityLatest = [];
+    activityBus.publish([]);
   };
 
   return {
@@ -299,7 +316,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     makeSink,
     liveClient,
     liveProcedures,
-    resetAwareness,
+    resetRemoteFold,
   };
 }
 

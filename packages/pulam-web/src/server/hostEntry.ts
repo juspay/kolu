@@ -115,10 +115,11 @@ export function makeBuildEntry(
       makeSink: () => reServe.makeSink(() => session.markConnected()),
       liveProcedures: reServe.liveProcedures,
       liveClient: reServe.liveClient,
-      // On each link death, drop the awareness fold so the next spawn rebuilds
-      // from the remote's fresh snapshot — never paint a finished agent's stale
-      // `working` (or a departed terminal's ghost) across the reconnect (#1549).
-      onLinkDown: () => reServe.resetAwareness(),
+      // On each link death, drop the whole remote-derived fold (awareness +
+      // activity) so the next spawn rebuilds from the remote's fresh snapshot —
+      // never paint a finished agent's stale `working` (or a departed terminal's
+      // ghost), nor a dead link's last live dot, across the reconnect (#1549).
+      onLinkDown: () => reServe.resetRemoteFold(),
       log: hostLog,
     });
 
