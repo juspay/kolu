@@ -16,7 +16,10 @@
  *     `failed` — the real error + the link-log tail + a Reconnect button.
  */
 
-import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
+import type {
+  ConnectionInfo,
+  ConnectionState,
+} from "@kolu/surface-nix-host/connection";
 import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import {
   createEffect,
@@ -26,7 +29,46 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { CONN_STATE, disconnectedMessage } from "./connectionStates.ts";
+import {
+  CONN_STATE,
+  type ConnPresentation,
+  disconnectedMessage,
+} from "./connectionStates.ts";
+
+/** The single fold over BOTH volatility axes — the browser↔backend transport
+ *  (`status`) and the backend↔remote mirror (`info.state`) — into one resolved
+ *  health. The precedence is "transport trouble shadows the mirror": a `down` or
+ *  `reconnecting` ws makes the mirror cell stale, so report the pipe first; on a
+ *  live/connecting pipe the mirror IS the real signal. Resolves to a `state` so
+ *  one consumer ("is this host effectively connected?") and the header dot read
+ *  the SAME answer — `down`/`reconnecting` resolve to a non-`connected` state so
+ *  a transport-down host can never read as connected. Both `HostHealthIndicator`
+ *  and `HostGroup`'s body gate consume this; the precedence lives here, once. */
+export function effectiveHealth(
+  status: SurfaceConnectionStatus,
+  info: ConnectionInfo,
+): ConnPresentation & { state: ConnectionState } {
+  if (status === "down")
+    return {
+      state: "failed",
+      dot: "#ff8d8d",
+      text: "#ff8d8d",
+      label: "disconnected — reload",
+      message: "Lost the connection to the dashboard. Reload to reconnect.",
+      pending: false,
+    };
+  if (status === "reconnecting")
+    return {
+      state: "disconnected",
+      dot: "#e6a23c",
+      text: "#e6a23c",
+      label: "reconnecting…",
+      message: "Reconnecting to the dashboard…",
+      pending: true,
+    };
+  // Transport live/connecting → the MIRROR's health is the real signal.
+  return { state: info.state, ...CONN_STATE[info.state] };
+}
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls
@@ -37,38 +79,14 @@ async function requestReconnect(host: string): Promise<void> {
   });
 }
 
-/** The per-host header indicator. Transport (browser↔backend ws) trouble takes
- *  precedence — if the pipe to the backend is down/reconnecting the mirror cell
- *  is stale, so report the pipe first; otherwise paint the MIRROR's health. */
+/** The per-host header indicator. Paints the single `effectiveHealth` fold —
+ *  the transport-shadows-mirror precedence lives there, not here, so the dot and
+ *  the body gate (`HostGroup`) can't disagree about whether a host is up. */
 export function HostHealthIndicator(props: {
   status: () => SurfaceConnectionStatus;
   info: () => ConnectionInfo;
 }): JSX.Element {
-  const view = (): {
-    dot: string;
-    text: string;
-    label: string;
-    pending: boolean;
-  } => {
-    const s = props.status();
-    if (s === "down")
-      return {
-        dot: "#ff8d8d",
-        text: "#ff8d8d",
-        label: "disconnected — reload",
-        pending: false,
-      };
-    if (s === "reconnecting")
-      return {
-        dot: "#e6a23c",
-        text: "#e6a23c",
-        label: "reconnecting…",
-        pending: true,
-      };
-    // Transport live/connecting → the MIRROR's health is the real signal.
-    const p = CONN_STATE[props.info().state];
-    return { dot: p.dot, text: p.text, label: p.label, pending: p.pending };
-  };
+  const view = () => effectiveHealth(props.status(), props.info());
   return (
     <span
       class="ml-auto flex flex-none items-center gap-1 text-[12px]"
