@@ -63,6 +63,12 @@ const log = (line: string): void => {
 // can't read this const, so the two stay paired by value, not by this comment.
 const SHELL_BG = "#0b0d10";
 
+// The PWA theme colour — the teal `--color-accent` (packages/theme/theme.css:26)
+// the dashboard already paints, which is the authority. Named once here so the
+// manifest's theme_color is the only literal to keep in step with the token,
+// matching kolu's twin which likewise keeps themeColor server-side.
+const PULAM_THEME_COLOR = "#5a9ea0";
+
 async function main(): Promise<void> {
   // ── Static config (fail-fast at boot, no fallback) ───────────────────────
   const initialHosts = readInitialHosts();
@@ -130,7 +136,7 @@ async function main(): Promise<void> {
     short_name: "pulam",
     description:
       "One browser view over every coding agent on every host in your fleet — sorted by what needs you.",
-    themeColor: "#5a9ea0",
+    themeColor: PULAM_THEME_COLOR,
     backgroundColor: SHELL_BG,
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
