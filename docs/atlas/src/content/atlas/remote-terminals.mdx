@@ -126,6 +126,7 @@ export const PT = [
   { d: 2, g: "▶", c: "prog", l: "R-pulamweb-4 · git status — dirty cell + drill-in (live file tree)", m: "◀ DO NEXT · gates R-compose-2", h: "pulam-web.html#r-pulamweb-4" },
   { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop (independent — any time)", m: "defined ↓", h: "#r5" },
   { d: 0, g: "✓", c: "ship", l: "R-dock-unify · kolu's Dock reads the shared agentProjection (consistency)", m: "#1541", h: "#r-dock-unify" },
+  { d: 0, g: "○", c: "prog", l: "R-pip-unify · one status pip — Dock + dashboard render the same icon", m: "ready · visual sequel to R-dock-unify", h: "#r-pip-unify" },
   { d: 0, g: "✓", c: "ship", l: "R6 · terminal-workspace — one fs/git impl, two homes", m: "#1506", h: "#r6" },
   { d: 0, g: "✓", c: "ship", l: "R7 · mirrorRemoteSurface → total dual", m: "#1505", h: "#r7" },
   { d: 0, g: "○", c: "prog", l: "R8 · compose terminal-workspace into kolu-server (the fold vanishes)", m: "defined ↓", h: "#r8" },
@@ -137,7 +138,7 @@ export const PT = [
 
 <PhaseTree title="ROADMAP — remote terminals over ssh (#951)" phases={PT} />
 
-Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel: **R5** (overflow) is independent and **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference; **R9** is blocked-on R-compose-2; **R10** needs R9. **[R-dock-unify](#r-dock-unify)** has shipped (<PrLink pr={1541} />) — kolu's Dock is now the third consumer of the shared `agentProjection`, so the dashboard and the Dock are one source. Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
+Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now [R-pulamweb-4](pulam-web.html#r-pulamweb-4)** — the live git status (the per-agent dirty/clean cell + the file-tree drill-in), the renderer proof **R-compose-2** actually needs. In parallel: **R5** (overflow) is independent, **R-compose-1** (the awareness compose) is a *clean build* off the green #1510 reference, and **[R-pip-unify](#r-pip-unify)** (one shared status pip so the Dock and dashboard render the *same* icon — the visual sequel to R-dock-unify) is ready now too; **R9** is blocked-on R-compose-2; **R10** needs R9. **[R-dock-unify](#r-dock-unify)** has shipped (<PrLink pr={1541} />) — kolu's Dock is now the third consumer of the shared `agentProjection` (one source for the *semantics*); R-pip-unify makes the *visuals* one source too. Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
 
 <a id="r5"></a>
 
@@ -167,6 +168,20 @@ This phase makes the Dock the **third consumer** of the shared SoT, so the dashb
 - **Pin it with the missing differential test** — add the cross-consumer test the #1535 review flagged as absent: a representative set of agent states yields the **same urgency in the Dock as in `agentProjection`**. That makes "consistent with pulam-web" structural, not prose.
 
 **Done when** a given agent state produces the same urgency/bucket semantics in the Dock, `pulam-tui`, and `pulam-web` (one source); the Dock's existing `dockRowRanking` tests still pass (parked/unread preserved); and the new differential test asserts the Dock's urgency derivation `===` `agentProjection.agentUrgency` across representative states. A pure kolu-side refactor — no surface change, no new package.
+
+<a id="r-pip-unify"></a>
+
+### R-pip-unify — one status pip across the web surfaces
+
+<Phase id="R-pip-unify" name="Dock + dashboard render the same icon" status="todo" needs={["R-dock-unify"]} />
+
+R-dock-unify unified the *semantics* (one `agentProjection`), but each web surface still renders its **own** status icon — the Dock's `pipVariant` (disk · spinning ring · dot · `☾`) vs pulam-web's inline `●/◜/○`. Same "defined twice → drifts" hazard, one layer up in pixels. This phase makes them render the **same pip from one component**:
+
+- **Lift the Dock's pip into a shared web-UI leaf** — move `pipVariant` + `PipVariant` *and* the `StatePip` Solid component (the icon render + colours + animations; already pure and exhaustiveness-checked) out of `packages/client/src/canvas/dock/` into a small shared package (a new Solid-UI leaf both `kolu-client` and `pulam-web` import — the way `agentProjection` got its home; **not** `terminal-workspace`, which stays presentation-neutral).
+- **Both surfaces render it** — the Dock imports it (a mechanical move); pulam-web's row computes its variant from the shared projection (`agentUrgency` → `PipVariant`) and renders the same `StatePip`, layout-flexible (size/placement per surface). pulam-web inherits the `sleeping ☾` and unread-`attention` states it's missing for free.
+- **The TUI stays separate** — `pulam-tui` renders terminal glyphs and can't share a DOM component; it already shares the semantics, which is what matters there.
+
+**Done when** a given agent state renders the **identical pip** (glyph · colour · animation) in the Dock and pulam-web from the one component, pinned by a snapshot/differential test, and the Dock's existing pip tests still pass. Independent of R-pulamweb-4 (a different part of pulam-web's render), so it can land in parallel.
 
 ### R6 — `@kolu/terminal-workspace`: one library, one fs/git impl, two homes
 
