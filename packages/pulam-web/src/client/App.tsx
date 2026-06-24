@@ -116,8 +116,8 @@ function LegendItem(props: {
 
 /** The indicator legend — what each row's status indicator means, drawn from the
  *  shared `StatePip` so it stays honest. Three axes: the agent-state CORE (shape),
- *  the green live RING (moving bytes), and the amber alert HALO (unread). The
- *  live/alert rows use a plain idle core so each outer axis reads in isolation. */
+ *  the green live RING (moving bytes), and the amber alert corner BADGE (unread).
+ *  The live/alert rows use a plain idle core so each outer axis reads in isolation. */
 function Legend(): JSX.Element {
   return (
     <section class="mt-3 border-t border-[#1c2231] pt-2 text-[12px] text-[#8b94a6]">
@@ -143,7 +143,7 @@ function Legend(): JSX.Element {
         <LegendItem
           variant="idle"
           alert
-          label="unread alert — a notification fired (amber halo)"
+          label="unread alert — a notification fired (amber badge)"
         />
       </div>
     </section>
