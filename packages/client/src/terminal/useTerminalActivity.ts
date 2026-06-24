@@ -46,10 +46,21 @@ export const useTerminalActivity = createSharedRoot(() => {
   // terminal's flag wakes only the dots reading that terminal, not every row.
   const [live, setLive] = createStore<Record<TerminalId, boolean>>({});
   const timers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
+  // Terminals whose output should NOT count as "live" right now — a window the
+  // caller arms around output IT caused, not the user/agent. The motivating case:
+  // revealing or resizing a tile resizes the server PTY (SIGWINCH), and the shell
+  // REPAINTS in response — a genuine PTY delta, but not real activity. Without
+  // this, switching to a quiet terminal blips its live ring for a beat off that
+  // repaint. See `noteOutput` (it early-returns while suppressed).
+  const suppressTimers = new Map<TerminalId, ReturnType<typeof setTimeout>>();
+  const suppressed = new Set<TerminalId>();
 
   /** Record a chunk of PTY output for `id` — lights its live flag and arms
-   *  (or re-arms) the quiet-period timer that flips it back to static. */
+   *  (or re-arms) the quiet-period timer that flips it back to static. Output
+   *  arriving inside a `suppress` window is ignored (it's repaint noise from a
+   *  resize the client triggered, not real activity). */
   function noteOutput(id: TerminalId): void {
+    if (suppressed.has(id)) return;
     if (!live[id]) setLive(id, true);
     const pending = timers.get(id);
     if (pending) clearTimeout(pending);
@@ -62,6 +73,24 @@ export const useTerminalActivity = createSharedRoot(() => {
         timers.delete(id);
         setLive(produce((s) => void delete s[id]));
       }, IDLE_AFTER_MS),
+    );
+  }
+
+  /** Suppress activity for `id` for the next `ms` — output that lands in the
+   *  window won't light the live flag. The caller arms this around output it
+   *  KNOWS isn't real activity (a resize-triggered shell repaint on reveal), so
+   *  a quiet terminal doesn't falsely flash live when you switch to it. A fresh
+   *  call re-arms the window. Genuine output after the window lights it as usual. */
+  function suppress(id: TerminalId, ms: number): void {
+    suppressed.add(id);
+    const prev = suppressTimers.get(id);
+    if (prev) clearTimeout(prev);
+    suppressTimers.set(
+      id,
+      setTimeout(() => {
+        suppressTimers.delete(id);
+        suppressed.delete(id);
+      }, ms),
     );
   }
 
@@ -78,8 +107,12 @@ export const useTerminalActivity = createSharedRoot(() => {
     const pending = timers.get(id);
     if (pending) clearTimeout(pending);
     timers.delete(id);
+    const pendingSuppress = suppressTimers.get(id);
+    if (pendingSuppress) clearTimeout(pendingSuppress);
+    suppressTimers.delete(id);
+    suppressed.delete(id);
     setLive(produce((s) => void delete s[id]));
   }
 
-  return { noteOutput, isLive, forget };
+  return { noteOutput, isLive, suppress, forget };
 });

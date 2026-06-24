@@ -40,6 +40,35 @@ describe("useTerminalActivity", () => {
     expect(a.isLive(id)).toBe(false);
   });
 
+  it("suppress(id, ms) swallows output in the window (resize repaint), then lights again", () => {
+    const a = useTerminalActivity();
+    const id = tid("suppress");
+    // Arm the window (as publishDimensions does around a PTY resize), then the
+    // resize's repaint lands — it must NOT light the live ring.
+    a.suppress(id, 600);
+    a.noteOutput(id);
+    expect(a.isLive(id)).toBe(false);
+    // Still suppressed right up to the threshold…
+    vi.advanceTimersByTime(599);
+    a.noteOutput(id);
+    expect(a.isLive(id)).toBe(false);
+    // …then the window closes and genuine output lights it as usual.
+    vi.advanceTimersByTime(1);
+    a.noteOutput(id);
+    expect(a.isLive(id)).toBe(true);
+  });
+
+  it("forget(id) clears a pending suppression window too", () => {
+    const a = useTerminalActivity();
+    const id = tid("forget-suppress");
+    a.suppress(id, 600);
+    a.forget(id);
+    // No suppress timer survives a close; a later note lights normally.
+    expect(vi.getTimerCount()).toBe(0);
+    a.noteOutput(id);
+    expect(a.isLive(id)).toBe(true);
+  });
+
   it("forget(id) drops the key and clears its pending timer", () => {
     const a = useTerminalActivity();
     const id = tid("forget");

@@ -111,6 +111,12 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** How long to suppress the live-activity ping after the client resizes a PTY.
+ *  Covers the resize round-trip + the shell's repaint so a reveal/resize of a
+ *  quiet tile doesn't flash its live ring; short enough not to swallow genuine
+ *  output for long. (See `publishDimensions` + `useTerminalActivity.suppress`.) */
+const RESIZE_ACTIVITY_SUPPRESS_MS = 600;
+
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
@@ -371,6 +377,12 @@ const Terminal: Component<{
     if (!terminal) return;
     const { cols, rows } = terminal;
     if (cols <= 0 || rows <= 0) return;
+    // A PTY resize makes the shell REPAINT (SIGWINCH) — a genuine delta on the
+    // attach stream, but not real activity. Suppress the live-activity ping for
+    // a beat so revealing/resizing a quiet tile doesn't blip its live ring off
+    // the resize's own repaint (the round-trip + repaint settles well inside the
+    // window). Armed BEFORE the resize so the repaint can't slip in first.
+    activity.suppress(props.terminalId, RESIZE_ACTIVITY_SUPPRESS_MS);
     try {
       await client.terminal.resize({ id: props.terminalId, cols, rows });
     } catch {
