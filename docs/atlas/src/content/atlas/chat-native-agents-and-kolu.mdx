@@ -11,7 +11,7 @@ import Callout from "../../components/Callout.astro";
 import Svg from "../../components/Svg.astro";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
 
-*A read of Anthropic's [Claude Tag](https://www.anthropic.com/news/claude-in-slack) (Claude joins Slack as a tagged teammate) and [Karpathy's framing of it](https://x.com/karpathy/status/2069547676849557725) as "the 3rd major redesign of LLM UIUX," held against what kolu actually is. Grounded in a four-lens analysis (threat · bridge · moat · moves) with an adversarial red-team pass; the optimistic claims below are the ones that survived it.*
+*A read of Anthropic's **Claude Tag** (Claude joins Slack as a tagged teammate) and [Karpathy's framing of it](https://x.com/karpathy/status/2069547676849557725) as "the 3rd major redesign of LLM UIUX," held against what kolu actually is. Grounded in a four-lens analysis (threat · bridge · moat · moves) with an adversarial red-team pass; the optimistic claims below are the ones that survived it.*
 
 <Callout kind="accent" title="Headline">
 The chat-native paradigm threatens **the half of kolu you stare at** — the canvas — not the half that matters. kolu's live-PTY substrate (**kaval**) and its read-only awareness daemon (**pulam**) are exactly the org-wide telemetry a "work from Slack" world needs and chat doesn't have. So kolu isn't facing extinction; it's at risk of **shipping the wrong half**. The cake-and-eat-it move is to keep terminal-grade control *and* gain chat-grade reach through **one authenticated, model-agnostic ingress beside kaval** — the only leg not already built. The wiring is cheap; the front door is the product.
