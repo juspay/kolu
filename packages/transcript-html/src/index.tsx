@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { escapeHtml } from "@kolu/html-escape";
 import {
+  MODE_LABEL,
   relativizeTranscript,
   type ToolInput,
   type Transcript,
@@ -204,7 +205,7 @@ function metaParts(transcript: Transcript, mode: TranscriptHtmlMode): string[] {
   const counts = eventCounts(transcript.events);
   const parts = [
     AGENT_LABEL[transcript.agentKind],
-    mode === "chat" ? "Chat log" : "Full transcript",
+    MODE_LABEL[mode],
     `${counts.user} prompts`,
     `${counts.assistant} replies`,
   ];
@@ -386,7 +387,7 @@ export async function transcriptToHtml(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)} — kolu ${options.mode === "chat" ? "chat log" : "full transcript"}</title>
+<title>${escapeHtml(title)} — kolu ${MODE_LABEL[options.mode].toLowerCase()}</title>
 <style>${STYLES}</style>
 </head>
 <body data-export-mode="${options.mode}">

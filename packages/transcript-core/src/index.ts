@@ -7,7 +7,11 @@
  *  others later) consume IR; they don't redefine it. */
 
 export type { Fetcher, FetcherInput } from "./fetcher.ts";
-export { TRANSCRIPT_HTML_MODES, type TranscriptHtmlMode } from "./mode.ts";
+export {
+  MODE_LABEL,
+  TRANSCRIPT_HTML_MODES,
+  type TranscriptHtmlMode,
+} from "./mode.ts";
 export {
   AGENT_KINDS,
   type AgentKindLiteral,

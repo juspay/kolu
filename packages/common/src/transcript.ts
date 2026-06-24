@@ -10,6 +10,7 @@ import { z } from "zod";
 import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
 
 export {
+  MODE_LABEL,
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,

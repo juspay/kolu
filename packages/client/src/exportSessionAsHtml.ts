@@ -11,7 +11,7 @@
  *  on the server because the transcript only exists there. */
 
 import type { TerminalId } from "kolu-common/surface";
-import type { TranscriptHtmlMode } from "kolu-common/transcript";
+import { MODE_LABEL, type TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 import { client } from "./wire";
@@ -62,10 +62,7 @@ export async function exportSessionAsHtml(
     } else {
       const { html, filename } = await fetchHtml(id, first);
       openExport(html, filename);
-      toast.success(
-        first === "chat" ? "Chat log exported" : "Full transcript exported",
-        { id: loadingId },
-      );
+      toast.success(`${MODE_LABEL[first]} exported`, { id: loadingId });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
