@@ -181,6 +181,28 @@ installSurfaceApp(app, {
 
 `installFreshStatic` / `installPwaManifest` are exported for apps that compose by hand; `installSurfaceApp` is the greenfield convenience that wires both in the right order.
 
+#### The HTML head + icon set the manifest assumes (the one un-injectable seam)
+
+`installPwaManifest` serves `/manifest.webmanifest`, but the **shell still has to point at it** and ship the icon files it names — and that lives in the consumer's static `index.html`, which surface-app can't inject (only the build commit `<script>` rides the `surfaceApp()` Vite plugin). So every installable consumer hand-writes the **same three head links**, against the **same icon filenames** the manifest's `icons` default to. They're a fixed convention; copy them verbatim and swap only the favicon art:
+
+```html
+<!-- in <head> — the install triad every surface-app PWA repeats verbatim -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+```
+
+Ship these under the client's `public/` (served from `/`), matching the `icons` you pass `installPwaManifest`:
+
+| File | Manifest entry |
+| --- | --- |
+| `public/icon-192.png` | `{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }` — also the `apple-touch-icon` |
+| `public/icon-512.png` | `{ src: "/icon-512.png", sizes: "512x512", type: "image/png" }` |
+| `public/icon-512-maskable.png` | `{ …, sizes: "512x512", purpose: "maskable" }` — content inside the central safe zone |
+| `public/favicon.svg` | the `rel="icon"` tab glyph (not in the manifest) |
+
+Live consumers of this exact convention: `packages/client` (kolu), `packages/pulam-web`, and `drishti`. The links and filenames are stable boilerplate; only the *art* (and the manifest `name`/`themeColor`) is app identity. *There is intentionally no helper for this — static-HTML head tags aren't injectable like the commit script, so the convention is documented rather than coded.*
+
 ### build — the commit, resolved once
 
 ```ts
