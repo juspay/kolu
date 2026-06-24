@@ -30,13 +30,15 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 
 ## Coupling
 
-pulam-web sits downstream of three workspace packages and breaks if any of their contracts shift:
+pulam-web sits downstream of these workspace packages and breaks if any of their contracts shift — the transport/contract core, plus the shared UI/theme it renders the fleet in:
 
 | Package | What pulam-web depends on |
 | --- | --- |
 | `@kolu/terminal-workspace` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
 | `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `LiveSpawnHolder`, `ResolveDrvError` |
 | `@kolu/surface` / `@kolu/surface-app` | the mirror (`mirrorRemoteSurface`), the Solid client (`surfaceClient`), the server shell (static serving, gates, heartbeat) |
+| `@kolu/solid-statepip` | the shared `StatePip` component + `pipVariantFor`/`pipForPaintClass` the rows render, so a given agent state draws the identical pip as kolu's Dock |
+| `@kolu/theme` | the shared colour palette (`--color-alert`, `--color-accent`, …) the pips + labels resolve, so the fleet reads the same tokens as the Dock |
 
 ## Run it
 
