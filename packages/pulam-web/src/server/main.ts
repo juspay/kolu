@@ -55,6 +55,14 @@ const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
 };
 
+// The colour the pulam shell paints behind everything (the PWA splash/background).
+// Named once here — mirroring the kolu twin's `PWA_BACKGROUND_COLOR`
+// (packages/server/src/index.ts) — so the manifest can't drift from intent. NOT
+// `--color-surface-0` (#0c0c0e): pulam-web uses a distinct shell background. The
+// <body> in index.html carries the same literal (`bg-[#0b0d10]`); static HTML
+// can't read this const, so the two stay paired by value, not by this comment.
+const SHELL_BG = "#0b0d10";
+
 async function main(): Promise<void> {
   // ── Static config (fail-fast at boot, no fallback) ───────────────────────
   const initialHosts = readInitialHosts();
@@ -113,8 +121,8 @@ async function main(): Promise<void> {
   // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
   // single fleet view, not a per-host instance, so the identity is static (no
   // hostname-hashed name/theme like kolu's): the teal `--color-accent` the
-  // dashboard already paints is the theme colour, and `#0b0d10` (the <body>
-  // background) is the splash colour. `display: standalone` + the maskable icon
+  // dashboard already paints is the theme colour, and the shell background
+  // (`SHELL_BG`) is the splash colour. `display: standalone` + the maskable icon
   // make it installable. Registered BEFORE `installFreshStatic` so the manifest
   // route wins over the static `/` catch-all.
   installPwaManifest(app, {
@@ -123,7 +131,7 @@ async function main(): Promise<void> {
     description:
       "One browser view over every coding agent on every host in your fleet — sorted by what needs you.",
     themeColor: "#5a9ea0",
-    backgroundColor: "#0b0d10",
+    backgroundColor: SHELL_BG,
     icons: [
       { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
