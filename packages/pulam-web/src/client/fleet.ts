@@ -26,6 +26,7 @@ import {
 import {
   agentPaintClass,
   agentUrgency,
+  alertClass,
   compareAgents,
   type Urgency,
 } from "@kolu/terminal-workspace/agentProjection";
@@ -86,21 +87,27 @@ export function pipVariantFor(value: AwarenessValue): PipVariant {
   return value.foreground ? "idle" : "sleeping";
 }
 
-/** Fleet *chrome* colours — the live-output dot, the per-host accent, the dormant
- *  dot. These are deliberately NOT `@kolu/theme` tokens: R-pip-unify moved the
- *  **agent-state** palette (pip + urgency colour/label) onto the shared tokens so
- *  the pip matches kolu's Dock, but pulam-web's surrounding chrome stays its own
- *  (dark-only) literals — they're not part of the cross-surface pip contract, so
- *  the residual hexes here (and a few in `HostGroup.tsx`) are intentional, not
- *  drift the theme package was meant to prevent. `HOST_COLOR` re-spelling
+/** Whether a terminal carries an unopened-notification ALERT — the amber halo
+ *  the merged `StatePip` wraps around its core (R-activity-merge). Driven by the
+ *  shared `alertClass` fold — the SAME notify membership kolu's `useTerminalAlerts`
+ *  fires on (an agent that blocks on you, `awaiting_user`, or just finished its
+ *  turn, `waiting`) — so the per-row alert pulam-web gains here can't drift from
+ *  the Dock's. A terminal with no agent has nothing to notify about. Unlike the
+ *  Dock's `unread` (which outlives the state until you open the row), the fleet
+ *  keeps no per-terminal read state, so the halo tracks the live notify-class
+ *  membership directly. */
+export function fleetAlert(value: AwarenessValue): boolean {
+  return value.agent ? alertClass(value.agent.state) === "notify" : false;
+}
+
+/** Fleet *chrome* colours — the per-host accent. Deliberately NOT a `@kolu/theme`
+ *  token: R-pip-unify moved the **agent-state** palette (pip + urgency colour/
+ *  label) onto the shared tokens so the pip matches kolu's Dock, and
+ *  R-activity-merge moved the live-output dot onto the shared `StatePip` ring
+ *  (`--color-ok`) — but pulam-web's surrounding chrome stays its own (dark-only)
+ *  literals, not part of the cross-surface pip contract. `HOST_COLOR` re-spelling
  *  `--color-alert`'s dark value is a coincidence of palette, not a shared token. */
-/** The green live-output dot — a terminal moving bytes right now (the fleet echo
- *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to agent state. */
-export const LIVE_COLOR = "#7ee787";
-/** The per-host group accent (violet), echoing the mockup + pulam-tui's HOST. */
 export const HOST_COLOR = "#a78bfa";
-/** A dormant activity dot — present but not moving bytes. */
-export const DOT_OFF_COLOR = "#262b38";
 
 /** `repo · branch` from the awareness git info, or the cwd basename when not in a
  *  repo. No dirty/clean count — that needs `git.getStatus` (R-pulamweb-4). */

@@ -1,8 +1,8 @@
 /** Dock recency cell — renders a terminal's "Xs ago" (`formatTimeAgo`).
  *
  *  The live-output signal no longer rides here: it leads the row as the
- *  `ActivityPip` column (left of the `StatePip`), so the timestamp stays
- *  put and the two axes — "when last" (right) and "moving now" (left) —
+ *  green RING around the `StatePip` indicator (left edge), so the timestamp
+ *  stays put and the two axes — "when last" (right) and "moving now" (left) —
  *  read on separate edges instead of fighting for one slot.
  *
  *  The fixed `w-[8ch]` reserves the WIDEST `formatTimeAgo` string ("just now" =

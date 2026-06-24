@@ -26,16 +26,16 @@
  *     row count) that pins to the scrollport top until the next
  *     repo's header pushes it off — so a row's repo is legible at a
  *     glance and the label survives the scroll. Rows below stack as
- *     `activity · state · branch · pips · time` lines. The leading
- *     **activity pip** (`ActivityPip`) is a soft green pulse while the
- *     terminal streams output and nothing otherwise — the orthogonal
- *     "moving bytes right now" axis, sitting in a fixed-width reserved
- *     column so its presence never shifts the pips to its right. The
- *     **state pip** (`StatePip`) beside it encodes agent urgency by
- *     shape: filled orange disk + pulse for unread
- *     attention, dim small disk for already-seen awaiting, hollow
- *     spinning ring for working, muted dot for idle, nothing for
- *     parked/none. Agent kind is not surfaced here — it lives on
+ *     `indicator · branch · pips · time` lines. The leading **status
+ *     indicator** (`StatePip`) folds three axes into one glyph: the
+ *     agent-state CORE by shape (dim small disk for already-seen
+ *     awaiting, hollow spinning ring for working, muted dot for idle,
+ *     nothing for parked/none), a green **live ring** around it while
+ *     the terminal is moving bytes ("moving bytes right now", orthogonal
+ *     to agent state), and an amber **unread halo** + pulse wrapping the
+ *     whole thing while a fired alert is unopened — so one glance reads
+ *     overall activity and the state stays visible under the alert.
+ *     Agent kind is not surfaced here — it lives on
  *     the terminal title bar where there's room. PR pip is a link
  *     to the PR with the live checks verdict in its
  *     tooltip; the sub-terminal chip surfaces when there are nested
@@ -95,7 +95,7 @@ import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { StatePip } from "@kolu/solid-statepip";
-import { ActivityPip, createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { pipVariant } from "./pipVariant";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -447,6 +447,7 @@ const DockRow: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileStore = useTileStore();
+  const activity = useTerminalActivity();
   const combined = createDockRowData(props.id);
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
@@ -488,8 +489,17 @@ const DockRow: Component<{
           class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} ${DOCK_CARDS_GUTTER_NEG_CLASS} ${DOCK_CARDS_GUTTER_CLASS} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
           title="Jump to this terminal"
         >
-          <ActivityPip id={props.id} />
-          <StatePip variant={pipVariant(props.pip, unread())} />
+          {/* One merged status indicator — the agent-state CORE
+           *  (`pipVariant`), wrapped by the green live RING when the
+           *  terminal is moving bytes and the amber unread HALO when a
+           *  fired alert is unopened. The old standalone ActivityPip
+           *  column is gone (its dot is now the ring), reclaiming the
+           *  dead left margin. */}
+          <StatePip
+            variant={pipVariant(props.pip)}
+            live={activity.isLive(props.id)}
+            alert={unread()}
+          />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{
@@ -503,7 +513,7 @@ const DockRow: Component<{
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — "Xs ago". Shared with the touch drawer; the
            *  no-reflow width contract lives in RecencyCell. The live signal
-           *  rides the leading ActivityPip column, not here. */}
+           *  rides the leading StatePip's ring, not here. */}
           <RecencyCell
             lastActivityAt={c().meta.lastActivityAt}
             textSize="text-[0.6rem]"

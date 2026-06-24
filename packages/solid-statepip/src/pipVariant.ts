@@ -1,24 +1,37 @@
-/** The status-pip vocabulary + the shared agent-paint → pip fold.
+/** The status-pip vocabulary + the shared agent-paint → pip fold + the two
+ *  outer-layer folds the merged status indicator wraps around the core.
  *
- *  A `PipVariant` is the ONE render variant the `StatePip` component switches
+ *  A `PipVariant` is the agent-state CORE the `StatePip` component switches
  *  over — the cross-surface vocabulary kolu's on-canvas **Dock** and the
  *  **pulam-web** fleet dashboard both speak, so a given agent state renders the
  *  IDENTICAL pip (glyph · colour · animation) on both. `StatePip` lives here, in
  *  a presentation leaf both surfaces import, rather than in `dock/` where it
  *  used to — location is structure.
  *
+ *  The core is only ONE of three axes the indicator now folds into one glyph
+ *  (R-activity-merge). The other two — terminal **liveness** (moving bytes) and
+ *  an unread-notification **alert** — were each a SEPARATE dot before, defined
+ *  (and drifting) per surface; they now compose here, once, as the indicator's
+ *  outer layers via `indicatorWrapperClass`:
+ *    - the live RING — a green `--color-ok` border, the old `LiveActivityDot`
+ *      folded into the indicator's edge instead of a second dot beside it;
+ *    - the alert HALO — an amber `--color-attention` ring + pulse, the Dock's
+ *      old loud `attention` pip turned into a halo that WRAPS the live state
+ *      core instead of REPLACING it (you read needs-attention AND the state).
+ *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
+ *
  *  `pipForPaintClass` is the single definition of "which pip an agent's paint
  *  class shows", imported by BOTH the Dock's `pipVariant` and pulam-web's
  *  `pipVariantFor`, so the agent-paint → pip mapping can't be spelled — and
  *  drift — twice (the exact "defined twice → drifts" hazard R-pip-unify closes).
- *  Each surface layers only its OWN overlays on top: the Dock adds
- *  `unread`→attention, `parked`→empty and its deliberate `sleeping`; pulam-web
- *  adds structural sleeping (no agent + no foreground). Neither surface's local
- *  triage concepts leak in here. So the IDENTICAL-pip guarantee is precisely for
- *  **agent** states (everything the shared fold decides); the **non-agent**
- *  overlays deliberately diverge — a touched-but-idle shell paints `idle` on the
- *  Dock (folded on recency) but `sleeping` on pulam-web (folded on foreground),
- *  by design, because each surface owns what an agentless terminal means to it.
+ *  Each surface layers only its OWN core overlays on top: the Dock adds
+ *  `parked`→empty and its deliberate `sleeping`; pulam-web adds structural
+ *  sleeping (no agent + no foreground). Neither surface's local triage concepts
+ *  leak in here. So the IDENTICAL-pip guarantee is precisely for **agent**
+ *  states (everything the shared fold decides); the **non-agent** overlays
+ *  deliberately diverge — a touched-but-idle shell paints `idle` on the Dock
+ *  (folded on recency) but `sleeping` on pulam-web (folded on foreground), by
+ *  design, because each surface owns what an agentless terminal means to it.
  *
  *  This module is exposed on its OWN `./pipVariant` subpath (the same shape
  *  `@kolu/solid-pierre` uses for its `./paths` reconcile fold), so the pure-logic
@@ -31,7 +44,6 @@
 import type { AgentPaintClass } from "@kolu/terminal-workspace/agentProjection";
 
 export type PipVariant =
-  | "attention" // unread: loud filled disk + halo + pulse
   | "awaiting" // awaiting, already seen: quiet dim dot (lingering)
   | "working" // hollow spinning ring
   | "idle" // muted small dot
@@ -72,11 +84,6 @@ export function pipForPaintClass(paint: AgentPaintClass): PipVariant {
 export type PipBody = { class: string; glyph?: string };
 
 export const PIP_BODY: Record<PipVariant, PipBody | null> = {
-  // unread: loud filled disk + halo + pulse
-  attention: {
-    class:
-      "w-2 h-2 rounded-full bg-alert animate-pulse motion-reduce:animate-none ring-4 ring-alert/25",
-  },
   // awaiting, already seen: quiet dim dot (lingering)
   awaiting: { class: "w-1.5 h-1.5 rounded-full bg-alert/55" },
   // working: hollow spinning ring
@@ -96,10 +103,34 @@ export const PIP_BODY: Record<PipVariant, PipBody | null> = {
 /** The hover-title for each variant (a11y/affordance). Pure data so it stays
  *  beside `PIP_BODY` and out of the JSX. */
 export const PIP_TITLES: Record<PipVariant, string> = {
-  attention: "Needs attention",
   awaiting: "Awaiting input",
   working: "Working",
   idle: "Idle",
   sleeping: "Sleeping",
   empty: "",
 };
+
+/** The merged status indicator's WRAPPER — the fixed-size circle the state core
+ *  sits centred inside, carrying the two outer axes the indicator folds in
+ *  (R-activity-merge). It is the single source for both the Dock's and
+ *  pulam-web's ring + halo, so the two surfaces can't drift:
+ *    - `live`  → the green `--color-ok` border RING: this terminal is moving
+ *      bytes right now (the old `LiveActivityDot`, now the indicator's edge).
+ *    - `alert` → the amber `--color-attention` HALO (`ring` + a reduced-motion
+ *      -safe pulse): a fired notification you haven't opened yet. It wraps the
+ *      whole thing so the state core stays legible underneath.
+ *  The border width is constant (transparent when not live) so the core never
+ *  shifts as liveness flips. With neither axis set the wrapper is an invisible
+ *  fixed box that just reserves the column — a bare pip reads as before. */
+export const INDICATOR_BASE =
+  "flex flex-none items-center justify-center w-[18px] h-[18px] rounded-full border-2";
+
+export function indicatorWrapperClass(live: boolean, alert: boolean): string {
+  return [
+    INDICATOR_BASE,
+    live ? "border-ok" : "border-transparent",
+    alert ? "ring-2 ring-attention motion-safe:animate-pulse" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}

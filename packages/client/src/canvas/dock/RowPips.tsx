@@ -1,16 +1,11 @@
 /** Presence pips that ride on every dock row.
  *
- *  Three independent change axes share this file because each
+ *  Two independent change axes share this file because each
  *  produces a small JSX cell consumed identically by both the
  *  desktop dock and the mobile drawer. The file groups them so the
- *  two callers can `import { ActivityPip, PrPip, SubCountCell }`
- *  rather than reach into three single-export modules:
+ *  two callers can `import { PrPip, SubCountCell }`
+ *  rather than reach into separate single-export modules:
  *
- *    - `ActivityPip` (live-output presence) — first grid column,
- *      left of the state pip. Holds the `LiveActivityDot` while the
- *      terminal streams output and an empty width-reserved cell
- *      otherwise (full definition below). "Moving bytes right now",
- *      a distinct axis from the agent's working/awaiting state.
  *    - `PrPip` (PR state + checks tooltip) — leading glyph on
  *      row line 2. Inline, not a grid cell: wherever the caller
  *      puts it, the PR icon sits at that X. The desktop and
@@ -28,10 +23,15 @@
  *      width back to the branch label. Volatility axis: sub-
  *      terminal presence visualization (low-volatility today).
  *
+ *  The live-output presence axis used to live here too, as
+ *  `ActivityPip` (a standalone green dot in its own leading column);
+ *  R-activity-merge folded that dot into the row's `StatePip` as its
+ *  green live RING, so there is no separate activity cell anymore.
+ *
  *  Each export could be split into its own file the moment one of
  *  these axes diverges enough to justify the boundary; for now
  *  the location grouping is honest because the file is small and
- *  the three pieces are consumed together. The file name is
+ *  the two pieces are consumed together. The file name is
  *  `RowPips` (a noun for the thing) rather than `RowIcons` (a
  *  noun for the file). */
 
@@ -43,10 +43,8 @@ import {
 import type { PrInfo } from "anyforge/schemas";
 import { type Component, createMemo, Show } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
-import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
@@ -67,25 +65,6 @@ export function createDockRowData(
     return { info, meta };
   });
 }
-
-/** Leading activity cell — first grid column, left of the `StatePip`.
- *  Holds the `LiveActivityDot` while the terminal is streaming output and
- *  an empty (width-reserved) cell otherwise, so the StatePip column to its
- *  right stays aligned across rows whether or not a given row is live. The
- *  `isLive` gate is consulted here, once per call site, exactly as the
- *  title bar and rail overlays consult it at theirs. Distinct axis from the
- *  StatePip: this is "moving bytes right now" (a compile, a `tail -f`, any
- *  shell), not the agent's working/awaiting state. */
-export const ActivityPip: Component<{ id: TerminalId }> = (props) => {
-  const activity = useTerminalActivity();
-  return (
-    <span class="flex items-center justify-center">
-      <Show when={activity.isLive(props.id)}>
-        <LiveActivityDot />
-      </Show>
-    </span>
-  );
-};
 
 /** Inline PR pip — leading glyph on row line 2. Caller controls
  *  layout (typically a flex container alongside the subline text).

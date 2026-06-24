@@ -1,24 +1,37 @@
 # @kolu/solid-statepip
 
-**The shared agent-status *pip* presentation leaf** — one SolidJS component that
-renders an agent's coarse run-state as a small glyph (a filled disk · a spinning
-ring · a muted dot · a sleeping `☾`).
+**The shared agent-status *indicator* presentation leaf** — one SolidJS
+component that folds three axes into a single glyph: the agent's coarse run-state
+**core** (a spinning ring · a muted dot · a sleeping `☾`), a green **live ring**
+around it when the terminal is moving bytes, and an amber **alert halo** when a
+fired notification is unopened.
 
 ## What it owns
 
-- **`<StatePip variant={…}>`** — pure presentation. It takes a *precomputed*
-  `PipVariant` and renders the matching shape · colour · animation. The
-  pulse/spin animations carry `motion-reduce:animate-none`, so a
-  `prefers-reduced-motion: reduce` preference holds the pip still on **every**
-  consumer — the reduced-motion behaviour is owned here once, not re-spelled per
-  surface.
-- **`PipVariant`** — the variant vocabulary (`attention` · `awaiting` ·
-  `working` · `idle` · `sleeping` · `empty`).
-- **`pipForPaintClass`** (the `./pipVariant` subpath) — the shared agent-paint →
-  pip fold. Both kolu's Dock (`pipVariant`) and pulam-web's fleet
-  (`pipVariantFor`) route their state→variant mapping through it, so the pip a
-  given agent state shows is defined **once** and cannot drift between the two
-  surfaces.
+- **`<StatePip variant={…} live={…} alert={…}>`** — pure presentation. It takes
+  a *precomputed* `PipVariant` for the core and two optional booleans for the
+  outer axes:
+  - `live` → the green `--color-ok` **ring** (the terminal is moving bytes right
+    now — the old standalone live-activity dot, now folded into the indicator's
+    edge);
+  - `alert` → the amber `--color-attention` **halo** + pulse (an unopened
+    notification — the Dock's `unread`, pulam-web's notify-class), wrapping the
+    state core instead of replacing it, so you read needs-attention *and* the
+    live state at once.
+
+  Both default off, so a bare `<StatePip variant={…} />` reads as a plain pip.
+  The pulse/spin animations carry `motion-reduce:animate-none` /
+  `motion-safe:`, so a `prefers-reduced-motion: reduce` preference holds the
+  indicator still on **every** consumer — the reduced-motion behaviour is owned
+  here once, not re-spelled per surface.
+- **`PipVariant`** — the core-state vocabulary (`awaiting` · `working` · `idle` ·
+  `sleeping` · `empty`).
+- **`pipForPaintClass`** + **`indicatorWrapperClass`** (the `./pipVariant`
+  subpath) — the shared agent-paint → pip fold *and* the ring/halo class fold.
+  Both kolu's Dock (`pipVariant`) and pulam-web's fleet (`pipVariantFor`) route
+  their state→variant mapping through the first, and both surfaces' ring + halo
+  through the second, so the indicator a given (state, live, alert) triple shows
+  is defined **once** and cannot drift between the two surfaces.
 
 This exists so kolu's on-canvas **Dock** and the **pulam-web** fleet dashboard
 render the *byte-identical* pip — the two fleet views mirror the Dock's

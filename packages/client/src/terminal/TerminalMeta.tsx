@@ -113,14 +113,19 @@ const TerminalMeta: Component<{
              *  awaiting), reused verbatim so a working/awaiting agent
              *  reads identically in the title and the dock, and sits
              *  beside the same branch/intent context it does there.
-             *  Gated on a live agent: when none is attached the title
-             *  shows no pip (exactly as its agent-kind indicator vanishes
-             *  when the session ends), leaving the dock's idle/parked
-             *  triage states — which fold in recency/staleness — dock-only. */}
+             *  `unread` rides as the indicator's amber HALO (the
+             *  `alert` prop) rather than replacing the state core — the
+             *  dock-row treatment, one fold over. No live ring here: the
+             *  title bar has never shown the byte-motion axis. Gated on a
+             *  live agent: when none is attached the title shows no pip
+             *  (exactly as its agent-kind indicator vanishes when the
+             *  session ends), leaving the dock's idle/parked triage
+             *  states — which fold in recency/staleness — dock-only. */}
             <Show when={activeArm(info().meta)?.agent}>
               {(agent) => (
                 <StatePip
-                  variant={pipVariant(paintBucket(agent()), props.unread)}
+                  variant={pipVariant(paintBucket(agent()))}
+                  alert={props.unread}
                 />
               )}
             </Show>

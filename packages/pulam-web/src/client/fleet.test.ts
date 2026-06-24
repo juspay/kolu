@@ -22,6 +22,7 @@ import {
   basename,
   compareFleetEntries,
   type FleetEntry,
+  fleetAlert,
   isVisible,
   locationText,
   pipVariantFor,
@@ -191,5 +192,27 @@ describe("pipVariantFor (the shared StatePip variant — fleet ≡ Dock)", () =>
     };
     expect(pipVariantFor(withForeground)).toBe("idle");
     expect(pipVariantFor(seedAwarenessValue("/x"))).toBe("sleeping");
+  });
+});
+
+describe("fleetAlert (the per-row halo — fleet ≡ the Dock's alert membership)", () => {
+  it("the notify-class states (blocked + just-finished) raise the alert", () => {
+    // Folds through the shared `alertClass`, the SAME membership kolu's
+    // useTerminalAlerts fires on — so the fleet halo can't drift from the Dock.
+    expect(fleetAlert(withAgent("awaiting_user"))).toBe(true);
+    expect(fleetAlert(withAgent("waiting"))).toBe(true);
+  });
+  it("the quiet working states do not", () => {
+    expect(fleetAlert(withAgent("thinking"))).toBe(false);
+    expect(fleetAlert(withAgent("tool_use"))).toBe(false);
+    expect(fleetAlert(withAgent("running_background"))).toBe(false);
+  });
+  it("a terminal with no agent has nothing to notify about", () => {
+    expect(fleetAlert(seedAwarenessValue("/x"))).toBe(false);
+    const withForeground: AwarenessValue = {
+      ...seedAwarenessValue("/x"),
+      foreground: { name: "vim", title: null },
+    };
+    expect(fleetAlert(withForeground)).toBe(false);
   });
 });

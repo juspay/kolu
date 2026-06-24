@@ -77,16 +77,19 @@ export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-6 pl-6";
 
 /** Dock row column geometry — single invariant shared by the desktop
  *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one
- *  concept: `[activity 12px][agent 16px desktop / 20px touch][branch
- *  minmax(0,1fr)][sub-count auto][time auto]`, with the line-2 flex row
- *  (PR pip + subline) starting at the branch column. The line-2 start is
- *  derived, not free: branch = (pre-branch track count) + 1 =
- *  (activity + agent = 2) + 1 = col-start-3. Insert or remove a track
- *  and you MUST update the track list and `DOCK_ROW_BRANCH_COL`
- *  together, here, so the two stay in agreement. The desktop / touch
- *  templates differ only in the agent track width (16 px vs 20 px). */
-export const DOCK_ROW_GRID_DESKTOP =
-  "grid-cols-[12px_16px_minmax(0,1fr)_auto_auto]";
-export const DOCK_ROW_GRID_TOUCH =
-  "grid-cols-[12px_20px_minmax(0,1fr)_auto_auto]";
-export const DOCK_ROW_BRANCH_COL = "col-start-3";
+ *  concept: `[indicator 18px][branch minmax(0,1fr)][sub-count auto][time
+ *  auto]`, with the line-2 flex row (PR pip + subline) starting at the
+ *  branch column. The line-2 start is derived, not free: branch =
+ *  (pre-branch track count) + 1 = (indicator = 1) + 1 = col-start-2.
+ *  Insert or remove a track and you MUST update the track list and
+ *  `DOCK_ROW_BRANCH_COL` together, here, so the two stay in agreement.
+ *
+ *  R-activity-merge collapsed the old leading pair — a 12 px live-activity
+ *  track + a 16/20 px state-pip track — into ONE 18 px column holding the
+ *  merged `StatePip` (its green live RING replacing the standalone dot), so
+ *  the row's dead left margin is reclaimed and desktop/touch no longer differ
+ *  in this geometry. 18 px fits the indicator's circle (its halo bleeds into
+ *  the surrounding gutter/gap, which don't clip). */
+export const DOCK_ROW_GRID_DESKTOP = "grid-cols-[18px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_GRID_TOUCH = "grid-cols-[18px_minmax(0,1fr)_auto_auto]";
+export const DOCK_ROW_BRANCH_COL = "col-start-2";

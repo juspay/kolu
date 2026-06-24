@@ -58,12 +58,11 @@ import {
 import { StatePip } from "@kolu/solid-statepip";
 import {
   compareFleetEntries,
-  DOT_OFF_COLOR,
   type FleetEntry,
+  fleetAlert,
   type FleetFilters,
   HOST_COLOR,
   isVisible,
-  LIVE_COLOR,
   locationText,
   pipVariantFor,
   terminalCategory,
@@ -88,9 +87,11 @@ export interface HostGroupProps {
  *  agent keeps the lingering `awaiting` dot (theme alert violet) rather than the
  *  idle grey its sort implies — while the SORT, the needs-you row tint, and the
  *  state-cell label colour stay keyed off `urgency`. That order≠colour split is
- *  the Dock's, one fold over from the dock pip. The green dot rides the activity
- *  stream, orthogonal to agent state. Reads its value fine-grained off `value()`
- *  (a per-key subscription) so only this row re-renders on its own delta. */
+ *  the Dock's, one fold over from the dock pip. The indicator folds in two more
+ *  axes the Dock's does (R-activity-merge): the green live RING off the activity
+ *  stream and the amber unread HALO off the shared `alertClass` fold. Reads its
+ *  value fine-grained off `value()` (a per-key subscription) so only this row
+ *  re-renders on its own delta. */
 function AgentRow(props: {
   value: () => AwarenessValue | undefined;
   live: () => boolean;
@@ -115,25 +116,19 @@ function AgentRow(props: {
                 : undefined
             }
           >
-            <span
-              class="inline-block h-1.5 w-1.5 flex-none rounded-full"
-              classList={{
-                "animate-pulse motion-reduce:animate-none": props.live(),
-              }}
-              style={`background:${props.live() ? LIVE_COLOR : DOT_OFF_COLOR}`}
-              title="moving bytes"
+            {/* One merged status indicator — the SAME component kolu's Dock
+             *  renders, folding three axes into one glyph: the agent-state CORE
+             *  (`pipVariantFor`), the green live RING (this terminal moving
+             *  bytes, off the `activity` stream — the old standalone dot, now
+             *  the indicator's edge), and the amber unread HALO (the per-row
+             *  alert pulam-web gains via the shared `alertClass` fold). So the
+             *  (state, live, alert) triple reads byte-identically here and in
+             *  the Dock; its fixed size keeps the name column aligned. */}
+            <StatePip
+              variant={pipVariantFor(value())}
+              live={props.live()}
+              alert={fleetAlert(value())}
             />
-            {/* The shared `StatePip` — the SAME component kolu's Dock renders, so
-             *  a given agent state shows the byte-identical pip (shape · colour ·
-             *  spin/pulse, all owned by the component) on both surfaces. The
-             *  width-reserved cell keeps the name column aligned whether the pip
-             *  draws a shape or (for an unknown state) nothing. */}
-            <span
-              class="flex flex-none items-center justify-center"
-              style="width:1.3ch"
-            >
-              <StatePip variant={pipVariantFor(value())} />
-            </span>
             <span
               class="w-[9ch] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[#c8d0de]"
               title={name()}

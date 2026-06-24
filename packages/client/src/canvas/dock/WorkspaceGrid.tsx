@@ -319,11 +319,11 @@ const ColumnView: Component<{
         {/* Bucket-state pip — the same StatePip the dock row and tile
          *  title lead with, here labelling the whole column: the Working
          *  header carries the spinning ring, Awaiting/Idle a quiet dot.
-         *  `unread` is a per-terminal notion, so a column header never
-         *  escalates to the attention variant. Rendered unconditionally,
-         *  like the dock and mobile rows — StatePip draws an empty cell
-         *  for the No-agent ('none') bucket. */}
-        <StatePip variant={pipVariant(props.column.key, false)} />
+         *  A column header is not a terminal, so it carries neither the
+         *  live ring nor the unread halo (both per-terminal). Rendered
+         *  unconditionally, like the dock and mobile rows — StatePip
+         *  draws an empty cell for the No-agent ('none') bucket. */}
+        <StatePip variant={pipVariant(props.column.key)} />
         <div
           class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
         >

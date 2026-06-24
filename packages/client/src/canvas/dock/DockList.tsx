@@ -2,7 +2,7 @@
  *  layouts: the phone's left-edge swipe drawer (inlined in `MobileTileView`)
  *  and the compact layout's persistent left rail (`CompactTileView`).
  *
- *  Rows match the desktop bare-dock layout — `[activity] [agent] branch [pips] time`
+ *  Rows match the desktop bare-dock layout — `[indicator] branch [pips] time`
  *  over a CSS subgrid — but with uniform `py-3` so every tap target clears the iOS /
  *  Android 44-48 px minimum. No reply input and no xterm buffer tail; the user's
  *  intent here is "switch to that other terminal", not "respond inline".
@@ -19,6 +19,7 @@ import { activeArm, type TerminalId } from "kolu-common/surface";
 import { For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import { useTerminalActivity } from "../../terminal/useTerminalActivity";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
 import {
@@ -31,7 +32,7 @@ import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { StatePip } from "@kolu/solid-statepip";
-import { ActivityPip, createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { pipVariant } from "./pipVariant";
 import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
@@ -137,6 +138,7 @@ function DockListRow(props: {
 }) {
   const store = useTerminalStore();
   const tileStore = useTileStore();
+  const activity = useTerminalActivity();
   const combined = createDockRowData(props.id);
   const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
@@ -177,8 +179,13 @@ function DockListRow(props: {
           // as one symbol.
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
-          <ActivityPip id={props.id} />
-          <StatePip variant={pipVariant(props.pip, unread())} />
+          {/* One merged status indicator — agent-state core, green live
+           *  ring, amber unread halo. See Dock.tsx's DockRow. */}
+          <StatePip
+            variant={pipVariant(props.pip)}
+            live={activity.isLive(props.id)}
+            alert={unread()}
+          />
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{
@@ -192,7 +199,7 @@ function DockListRow(props: {
           <SubCountCell subCount={c().info.subCount} />
           {/* Recency cell — "Xs ago", same no-reflow width as the desktop
            *  dock, shared via RecencyCell. Live signal rides the leading
-           *  ActivityPip column. */}
+           *  StatePip's ring. */}
           <RecencyCell
             lastActivityAt={c().meta.lastActivityAt}
             textSize="text-[0.65rem]"
