@@ -18,7 +18,7 @@ const ExportSessionDialog: Component = () => {
   const chrome = surface({ portalled: true });
   let chatRef: HTMLButtonElement | undefined;
 
-  const exportMode = (modes: TranscriptHtmlMode[]) => {
+  const exportMode = (modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]]) => {
     exportSessionDialog.close();
     void crud.exportSessionHtml(modes);
   };

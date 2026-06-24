@@ -329,7 +329,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Export the active terminal's session as a standalone HTML page. */
-  async function exportSessionHtml(modes: TranscriptHtmlMode[]) {
+  async function exportSessionHtml(
+    modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
+  ) {
     const id = store.activeId();
     if (id === null) return;
     await exportSessionAsHtml(id, modes);

@@ -222,8 +222,10 @@ function detailSummary(input: ToolInput): string {
       return `Edited ${shortenPath(input.filePath)}`;
     case "write":
       return `Wrote ${shortenPath(input.filePath)}`;
-    case "patch":
-      return `Applied patch${firstLine(input.text) ? `: ${compactText(firstLine(input.text), 90)}` : ""}`;
+    case "patch": {
+      const head = firstLine(input.text);
+      return `Applied patch${head ? `: ${compactText(head, 90)}` : ""}`;
+    }
     case "read":
       return `Read ${shortenPath(input.filePath)}`;
     case "bash":
@@ -268,7 +270,7 @@ function detailSummary(input: ToolInput): string {
 function prettyJson(value: unknown): string {
   if (value === undefined) return "";
   if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2) ?? String(value);
+  return JSON.stringify(value, null, 2);
 }
 
 function detailPre(value: unknown): string {
@@ -305,7 +307,9 @@ async function renderChatEvent(
 </section>`;
 }
 
-function renderDetailEvent(event: TranscriptEvent): string {
+type DetailEvent = Exclude<TranscriptEvent, { kind: "user" | "assistant" }>;
+
+function renderDetailEvent(event: DetailEvent): string {
   switch (event.kind) {
     case "reasoning":
       return `<details class="detail reasoning"><summary>Reasoning ${timestampHtml(event.ts)}</summary><div class="detail-body">${detailPre(event.text)}</div></details>`;
@@ -317,18 +321,15 @@ function renderDetailEvent(event: TranscriptEvent): string {
       return `<details class="detail subtask"><summary>Subtask: ${escapeHtml(event.description)} ${timestampHtml(event.ts)}</summary><div class="detail-body">${event.agentName ? `<p>Agent: ${escapeHtml(event.agentName)}</p>` : ""}${event.sessionId ? `<p>Session: <code>${escapeHtml(event.sessionId)}</code></p>` : ""}</div></details>`;
     case "subtask_end":
       return `<div class="detail-marker">End subtask</div>`;
-    case "user":
-    case "assistant":
-      return "";
   }
 }
 
 async function renderEvents(
   events: TranscriptEvent[],
   mode: TranscriptHtmlMode,
+  humanTotal: number,
 ): Promise<string> {
   const chunks: string[] = [];
-  const humanTotal = humanMessageCount(events);
   let humanIndex = 0;
   for (const event of events) {
     if (event.kind === "user" || event.kind === "assistant") {
@@ -338,7 +339,7 @@ async function renderEvents(
           : null;
       chunks.push(await renderChatEvent(event, humanPosition));
     } else if (mode === "full") {
-      chunks.push(renderDetailEvent(event));
+      chunks.push(renderDetailEvent(event as DetailEvent));
     }
   }
   return chunks.length > 0
@@ -378,7 +379,7 @@ export async function transcriptToHtml(
   const prepared = relativizeTranscript(transcript);
   const title = deriveDisplayTitle(prepared);
   const humanTotal = humanMessageCount(prepared.events);
-  const events = await renderEvents(prepared.events, options.mode);
+  const events = await renderEvents(prepared.events, options.mode, humanTotal);
   // The prompt-jump nav and its script are one feature, gated on the same
   // threshold — more than one human message to jump between.
   const hasPromptJump = humanTotal >= 2;

@@ -16,10 +16,6 @@ import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 import { client } from "./wire";
 
-async function fetchHtml(id: TerminalId, mode: TranscriptHtmlMode) {
-  return await client.terminal.exportTranscriptHtml({ id, mode });
-}
-
 /** Own the object-URL lifecycle once: mint a blob URL for the document, hand
  *  it to a delivery strategy, and revoke after a generous delay so the new tab
  *  (or download) has time to fetch and parse it while this document is alive. */
@@ -44,10 +40,9 @@ function downloadExport(html: string, filename: string): void {
 
 export async function exportSessionAsHtml(
   id: TerminalId,
-  modes: TranscriptHtmlMode[],
+  modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
 ): Promise<void> {
   const [first, ...rest] = modes;
-  if (first === undefined) throw new Error("No export modes requested");
   const multiple = rest.length > 0;
   const loadingId = toast.loading(
     multiple ? "Exporting session files…" : "Exporting session…",
@@ -55,12 +50,15 @@ export async function exportSessionAsHtml(
   try {
     if (multiple) {
       const exports = await Promise.all(
-        modes.map((mode) => fetchHtml(id, mode)),
+        modes.map((mode) => client.terminal.exportTranscriptHtml({ id, mode })),
       );
       for (const { html, filename } of exports) downloadExport(html, filename);
       toast.success("Session files exported", { id: loadingId });
     } else {
-      const { html, filename } = await fetchHtml(id, first);
+      const { html, filename } = await client.terminal.exportTranscriptHtml({
+        id,
+        mode: first,
+      });
       openExport(html, filename);
       toast.success(`${MODE_LABEL[first]} exported`, { id: loadingId });
     }
