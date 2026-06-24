@@ -227,12 +227,12 @@ export const ActivityMergeProto = () => (
       <tbody>
         <tr><td style="padding:.3rem .6rem;color:#e6a23c">needs-you</td><AMCell s="need" /><AMCell s="need" live /><AMCell s="need" live unread /></tr>
         <tr><td style="padding:.3rem .6rem;color:#56b6c2">working</td><AMCell s="work" /><AMCell s="work" live /><AMCell s="work" live unread /></tr>
-        <tr><td style="padding:.3rem .6rem;color:#8b94a6">idle</td><AMCell s="idle" /><AMCell s="idle" live /><AMCell s="idle" dash /></tr>
+        <tr><td style="padding:.3rem .6rem;color:#8b94a6">idle</td><AMCell s="idle" /><AMCell s="idle" live /><AMCell s="idle" unread /></tr>
         <tr><td style="padding:.3rem .6rem;color:#8b94a6">sleeping</td><AMCell s="sleep" /><AMCell s="sleep" dash /><AMCell s="sleep" dash /></tr>
         <tr><td style="padding:.3rem .6rem;color:#6b7480">non-agent shell</td><AMCell s="none" /><AMCell s="none" live /><AMCell s="none" dash /></tr>
       </tbody>
     </table>
-    <div style="color:#5b6678;font-size:.8em;margin-top:.55rem">A non-agent shell still shows the live ring (honest when an agent is wrongly paused but bytes are moving). Idle &amp; sleeping never alert.</div>
+    <div style="color:#5b6678;font-size:.8em;margin-top:.55rem">A non-agent shell still shows the live ring (honest when an agent is wrongly paused but bytes are moving). An <span style="color:#8b94a6">idle</span> agent that just <em>finished its turn</em> (<code style="color:#8b94a6">waiting</code>) carries the unread halo — the most common ping; only sleeping / non-agent shells (no agent) never alert. <code style="color:#56b6c2">working</code> states stay quiet, but a row stays unread <em>across</em> a resume until you open it.</div>
   </div>
 );
 
