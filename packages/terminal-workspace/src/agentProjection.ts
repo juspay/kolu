@@ -29,7 +29,9 @@
  *
  * Each consumer keeps only its PRESENTATION over this core: the TUI maps
  * urgency/paint→tone (`agentTone`/`URGENCY`) and labels "awaiting you"; the web
- * maps them → hex (`PAINT`/`URGENCY`) and labels "needs you".
+ * folds paint → the shared `StatePip` for each ROW pip (`pipVariantFor`) and
+ * keeps `URGENCY` only for the needs-you strip + footer aggregate colours and
+ * the "needs you" labels.
  */
 
 import type { AgentInfo, AwarenessValue } from "./schema.ts";

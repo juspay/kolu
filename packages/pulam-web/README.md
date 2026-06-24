@@ -2,7 +2,7 @@
 
 **A browser view of a fleet of pulam terminals. One Node parent server dials many remote pulam boxes over ssh, re-serves each box's `terminalWorkspaceSurface` to the browser over a per-host WebSocket, and renders a dark monospace agent dashboard — every agent across the fleet, sorted by what needs you.**
 
-This is the web companion to `pulam-tui`: where the TUI draws the fleet in an alt-screen board, pulam-web draws it in a browser. Per host, agents are bucketed and sorted **needs-you-first** — a blocked agent (`awaiting_user`) floats to the top and its glyph breathes, working agents spin, idle ones sit dim — and each row carries a green **activity dot** when it's moving bytes right now. Terminals not running an agent are hidden by default; footer toggles fold in idle agents, non-agent terminals, and sleeping shells. The dashboard reads each host's `awareness` collection (state · repo · branch · recency) and `activity` stream (the dot) — both already-proven consumers, no surface change. Still read-only: the per-agent git **dirty/clean count** and the changed-file **drill-in** need `git.getStatus` and are R-pulamweb-4.
+This is the web companion to `pulam-tui`: where the TUI draws the fleet in an alt-screen board, pulam-web draws it in a browser. Per host, agents are bucketed and sorted **needs-you-first** — a blocked agent (`awaiting_user`) floats to the top, working agents below, idle ones at the bottom — and each row carries a green **activity dot** when it's moving bytes right now. Every row renders the **same `StatePip` as kolu's Dock** (`@kolu/solid-statepip`, on the shared `@kolu/theme` palette), so a given agent state shows the identical pip — a hollow ring spins for working, a dim violet dot for awaiting, a muted dot for idle, a ☾ for a sleeping shell — while the fleet-wide **needs-you strip** breathes when any agent is blocked. Terminals not running an agent are hidden by default; footer toggles fold in idle agents, non-agent terminals, and sleeping shells. The dashboard reads each host's `awareness` collection (state · repo · branch · recency) and `activity` stream (the dot) — both already-proven consumers, no surface change. Still read-only: the per-agent git **dirty/clean count** and the changed-file **drill-in** need `git.getStatus` and are R-pulamweb-4.
 
 ## The three-tier bridge
 
@@ -19,7 +19,7 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 - **The parent entry** (`src/server/main.ts`): the Hono app, the `/api/hosts` list endpoint, the static client bundle, and the `?host=` WebSocket upgrade dispatch (origin gate → stale-tab gate → heartbeat → handler upgrade).
 - **The re-serve** (`src/server/reserve.ts`): the local `implementSurface` fragment that mirrors one remote host's awareness surface to the browser, its `makeSink` (PUSH fold) and live-client/procedure holders (PULL forward).
 - **Boot config** (`src/server/config.ts`): the static host set (`PULAM_WEB_HOSTS`), the per-host `.drv` resolver over pulam's baked `{ system → drv }` map (`PULAM_AGENT_DRVS_JSON`), and strict port parsing. Fail-fast at boot, no fallback.
-- **The browser client** (`src/client/`): the SolidJS agent dashboard — one `surfaceClient` per host over a reconnecting `PartySocket`. `fleet.ts` is the pure projection (bucket · needs-you-first sort · recency · colours, ported from `pulam-tui` and pinned by `fleet.test.ts`); `HostGroup.tsx` consumes each host's `awareness` collection + `activity` stream (the green dot) and renders the sorted/filtered rows fine-grained; `App.tsx` owns the view filters, the shared 1s clock, and the fleet-wide "needs you" strip.
+- **The browser client** (`src/client/`): the SolidJS agent dashboard — one `surfaceClient` per host over a reconnecting `PartySocket`. `fleet.ts` is the pure projection (bucket · needs-you-first sort · recency · the shared `@kolu/theme` colour tokens · the `pipVariantFor` → `StatePip` mapping, pinned by `fleet.test.ts`); `HostGroup.tsx` consumes each host's `awareness` collection + `activity` stream (the green dot) and renders the sorted/filtered rows fine-grained, each agent's status drawn by the shared `StatePip` (`@kolu/solid-statepip`, the same component kolu's Dock renders); `App.tsx` owns the view filters, the shared 1s clock, and the fleet-wide "needs you" strip.
 
 ## What it deliberately does NOT know
 
@@ -30,13 +30,15 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 
 ## Coupling
 
-pulam-web sits downstream of three workspace packages and breaks if any of their contracts shift:
+pulam-web sits downstream of these workspace packages and breaks if any of their contracts shift — the transport/contract core, plus the shared UI/theme it renders the fleet in:
 
 | Package | What pulam-web depends on |
 | --- | --- |
 | `@kolu/terminal-workspace` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
 | `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `LiveSpawnHolder`, `ResolveDrvError` |
 | `@kolu/surface` / `@kolu/surface-app` | the mirror (`mirrorRemoteSurface`), the Solid client (`surfaceClient`), the server shell (static serving, gates, heartbeat) |
+| `@kolu/solid-statepip` | the shared `StatePip` component + `pipVariantFor`/`pipForPaintClass` the rows render, so a given agent state draws the identical pip as kolu's Dock |
+| `@kolu/theme` | the shared colour palette (`--color-alert`, `--color-accent`, …) the pips + labels resolve, so the fleet reads the same tokens as the Dock |
 
 ## Run it
 

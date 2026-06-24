@@ -1,8 +1,19 @@
 @import "tailwindcss";
 
+/* The shared kolu colour palette (`--color-alert`, `--color-accent`, …) — the
+ * ONE definition this fleet dashboard and kolu's on-canvas Dock both resolve, so
+ * the agent-state pip (the shared `StatePip`) and the row labels render the
+ * identical colour on both. `<html class="dark">` selects its dark values. */
+@import "@kolu/theme/theme.css";
+
+/* `@kolu/solid-statepip` ships the shared `StatePip` and its Tailwind classes
+ * (`bg-alert`, `border-accent`, `text-moonlit`, the spin/pulse animations), so
+ * scan it — otherwise the pip utilities are tree-shaken away. */
+@source "../../../solid-statepip/src";
+
 /* The document chrome (dark monospace canvas) is Tailwind utilities on <html>/
- * <body> in index.html, and the three dashboard animations (the breathing
- * needs-you strip + glyph, the working spinner, the blinking live-output dot)
- * are Tailwind's built-in `animate-pulse` / `animate-spin` in the markup, each
- * paired with `motion-reduce:animate-none` so a reduced-motion preference holds
- * them still. No custom keyframes are needed here. */
+ * <body> in index.html, and the dashboard animations (the breathing needs-you
+ * strip, the StatePip spin/pulse, the blinking live-output dot) are Tailwind's
+ * built-in `animate-pulse` / `animate-spin` in the markup, each paired with
+ * `motion-reduce:animate-none` so a reduced-motion preference holds them still.
+ * No custom keyframes are needed here. */

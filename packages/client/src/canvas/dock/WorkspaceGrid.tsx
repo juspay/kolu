@@ -40,8 +40,9 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
+import { StatePip } from "@kolu/solid-statepip";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
-import { StatePip } from "./RowPips";
+import { pipVariant } from "./pipVariant";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -322,7 +323,7 @@ const ColumnView: Component<{
          *  escalates to the attention variant. Rendered unconditionally,
          *  like the dock and mobile rows — StatePip draws an empty cell
          *  for the No-agent ('none') bucket. */}
-        <StatePip bucket={props.column.key} unread={false} />
+        <StatePip variant={pipVariant(props.column.key, false)} />
         <div
           class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
         >

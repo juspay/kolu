@@ -76,11 +76,13 @@ let
       ./packages/solid-pwa-install
       ./packages/solid-fileview
       ./packages/solid-browser
+      ./packages/solid-statepip
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
       ./packages/shared
       ./packages/terminal-themes
+      ./packages/theme
       ./packages/memorable-names
       ./packages/terminal-workspace
       ./packages/terminal-protocol

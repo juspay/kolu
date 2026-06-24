@@ -1,0 +1,66 @@
+/* The shared kolu colour theme — the ONE definition of the design palette both
+ * the on-canvas client (the Dock) and the pulam-web fleet dashboard resolve, so
+ * a `bg-alert` / `border-accent` / `text-fg-3` pip renders the identical colour
+ * on both surfaces. Each surface `@import "@kolu/theme/theme.css"` right after
+ * `@import "tailwindcss"`; app-specific tokens (`--breakpoint-sm`, `--font-sans`)
+ * stay in each app's own `index.css`.
+ *
+ * `@theme` registers the colour names with Tailwind — generating the `bg-*` /
+ * `text-*` / `border-*` utilities AND the `--color-*` custom properties. The
+ * values here double as the DARK palette; `:root:not(.dark)` overrides them for
+ * light mode — so a surface that wants dark carries `class="dark"` on <html>
+ * (the client toggles it; pulam-web sets it statically). */
+@theme {
+  --color-surface-0: #0c0c0e;
+  --color-surface-1: #161618;
+  --color-surface-2: #1f1f23;
+  --color-surface-3: #2a2a30;
+
+  --color-edge: #27272c;
+  --color-edge-bright: #3a3a42;
+
+  --color-fg: #e4e4e8;
+  --color-fg-2: #a0a0a8;
+  --color-fg-3: #838390;
+
+  --color-accent: #5a9ea0;
+  /* "Your turn" — agent needs you. Cool violet, deliberately outside the
+   * warm/pending family (busy rust, CI yellow) so it never reads as
+   * "machine in flight". See AgentIndicator + StatePip. */
+  --color-alert: #a78bfa;
+
+  --color-ok: #4ade80;
+  --color-warning: #facc15;
+  --color-danger: #f87171;
+  --color-busy: #d97757;
+
+  /* The sleeping/dormant accent — the `StatePip` ☾, shared with the client's
+   * dormant tile + minimap (`MOONLIT.accent`, same literal `#8895ad`, pinned
+   * equal by `packages/client/src/terminal/moonlit.test.ts`). Deliberately
+   * FIXED: it has no `:root:not(.dark)` override, so a sleeping surface reads
+   * "asleep" identically in light and dark. */
+  --color-moonlit: #8895ad;
+}
+
+/* ── Light mode (default when .dark is absent) ───────────────── */
+:root:not(.dark) {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f4f4f6;
+  --color-surface-2: #e8e8ec;
+  --color-surface-3: #dcdce2;
+
+  --color-edge: #d0d0d8;
+  --color-edge-bright: #b8b8c2;
+
+  --color-fg: #1a1a1e;
+  --color-fg-2: #5c5c66;
+  --color-fg-3: #8a8a96;
+
+  --color-accent: #3d8486;
+  --color-alert: #7c3aed;
+
+  --color-ok: #16a34a;
+  --color-warning: #ca8a04;
+  --color-danger: #dc2626;
+  --color-busy: #c4623e;
+}

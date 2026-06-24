@@ -55,6 +55,7 @@ import {
   fleetStateLabel,
   relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
+import { StatePip } from "@kolu/solid-statepip";
 import {
   compareFleetEntries,
   DOT_OFF_COLOR,
@@ -64,8 +65,7 @@ import {
   isVisible,
   LIVE_COLOR,
   locationText,
-  PAINT,
-  paintClassFor,
+  pipVariantFor,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -82,15 +82,15 @@ export interface HostGroupProps {
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
 
-/** One agent/terminal row, MIRRORING kolu's Dock. The leading glyph's COLOUR +
- *  shape follow the PAINT class (`PAINT[paintClassFor(value)]`) — so a
- *  just-finished `waiting` agent keeps the lingering amber dot rather than the
- *  idle grey its sort implies — while the SORT, the needs-you row tint, the
- *  state-cell label colour, and the pulse/spin animation stay keyed off
- *  `urgency`. That order≠colour split is the Dock's, one fold over from the dock
- *  pip. The green dot rides the activity stream, orthogonal to agent state.
- *  Reads its value fine-grained off `value()` (a per-key subscription) so only
- *  this row re-renders on its own delta. */
+/** One agent/terminal row, MIRRORING kolu's Dock. The leading pip is the shared
+ *  `StatePip` (`@kolu/solid-statepip`) over `pipVariantFor(value)` — the SAME
+ *  component + theme palette kolu's Dock renders, so a just-finished `waiting`
+ *  agent keeps the lingering `awaiting` dot (theme alert violet) rather than the
+ *  idle grey its sort implies — while the SORT, the needs-you row tint, and the
+ *  state-cell label colour stay keyed off `urgency`. That order≠colour split is
+ *  the Dock's, one fold over from the dock pip. The green dot rides the activity
+ *  stream, orthogonal to agent state. Reads its value fine-grained off `value()`
+ *  (a per-key subscription) so only this row re-renders on its own delta. */
 function AgentRow(props: {
   value: () => AwarenessValue | undefined;
   live: () => boolean;
@@ -101,18 +101,6 @@ function AgentRow(props: {
       {(value) => {
         const urgency = () => agentUrgency(value().agent);
         const tone = () => URGENCY[urgency()];
-        const paint = () => PAINT[paintClassFor(value())];
-        const glyph = () => paint().glyph;
-        // A needs-you glyph breathes (Tailwind's `animate-pulse`); a working
-        // glyph spins about the glyph's visual centre (`origin-[50%_54%]` —
-        // `◜` sits slightly high in its box). Both hold still under
-        // `motion-reduce` — the colour + sort still convey state.
-        const glyphClass = () =>
-          urgency() === "need"
-            ? "animate-pulse motion-reduce:animate-none"
-            : urgency() === "work"
-              ? "inline-block origin-[50%_54%] animate-spin motion-reduce:animate-none"
-              : "";
         const name = (): string => {
           const v = value();
           if (v.agent) return agentShortName(v.agent.kind);
@@ -123,7 +111,7 @@ function AgentRow(props: {
             class="flex items-center gap-2 border-b border-[#161b22] px-3 py-1.5 text-[13px]"
             style={
               urgency() === "need"
-                ? "background:rgba(230,162,60,.10)"
+                ? "background:color-mix(in oklch, var(--color-alert) 10%, transparent)"
                 : undefined
             }
           >
@@ -135,11 +123,16 @@ function AgentRow(props: {
               style={`background:${props.live() ? LIVE_COLOR : DOT_OFF_COLOR}`}
               title="moving bytes"
             />
+            {/* The shared `StatePip` — the SAME component kolu's Dock renders, so
+             *  a given agent state shows the byte-identical pip (shape · colour ·
+             *  spin/pulse, all owned by the component) on both surfaces. The
+             *  width-reserved cell keeps the name column aligned whether the pip
+             *  draws a shape or (for an unknown state) nothing. */}
             <span
-              class={glyphClass()}
-              style={`color:${paint().color};width:1.3ch;flex:none`}
+              class="flex flex-none items-center justify-center"
+              style="width:1.3ch"
             >
-              {glyph()}
+              <StatePip variant={pipVariantFor(value())} />
             </span>
             <span
               class="w-[9ch] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[#c8d0de]"
