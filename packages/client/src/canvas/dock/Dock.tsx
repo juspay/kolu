@@ -96,6 +96,7 @@ import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
 import { StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
 import { pipVariant } from "./pipVariant";
 import { rowSubline } from "./rowSubline";
@@ -503,6 +504,7 @@ const DockRow: Component<{
               variant={pipVariant(props.pip)}
               live={activity.isLive(props.id)}
               alert={unread()}
+              class={DOCK_ROW_PIP_BOX}
             />
           </span>
           <span

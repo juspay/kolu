@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,
+  DOCK_ROW_PIP_BOX,
   INDICATOR_BASE,
   LIVE_RING_CLASS,
   PIP_BODY,
@@ -107,13 +108,21 @@ describe("PIP_BODY — the rendered class set per variant", () => {
 // import the same CSS, so this is the one definition — the "defined twice →
 // drifts" hazard the two separate dots had, closed the way R-pip-unify closed it.
 describe("the indicator wrapper + outer-axis overlays", () => {
-  it("the wrapper is a fixed-size relative box (anchors the absolute overlays)", () => {
+  it("the leaf wrapper is a content-sized relative box (anchors the absolute overlays), no surface geometry", () => {
     const cls = INDICATOR_BASE.split(/\s+/);
     expect(cls).toContain("relative"); // positioning context for the overlays
+    expect(cls).toContain("flex-none"); // never stretch/shrink beside flexed siblings
+    // The leaf owns NO fixed box — a surface that reserves a column passes the
+    // box in via `DOCK_ROW_PIP_BOX`, so an inline caller sizes to its own text.
+    expect(cls).not.toContain("w-[18px]");
+    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
+  });
+
+  it("DOCK_ROW_PIP_BOX is the caller-supplied 18px column box, not baked into the leaf", () => {
+    const cls = DOCK_ROW_PIP_BOX.split(/\s+/);
     expect(cls).toContain("w-[18px]");
     expect(cls).toContain("h-[18px]");
     expect(cls).toContain("rounded-full");
-    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
   });
 
   it("the live ring + alert badge are the shared statepip.css classes", () => {

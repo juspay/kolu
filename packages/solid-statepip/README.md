@@ -54,6 +54,11 @@ half of that contract.
 - **App chrome / transport / layout.** It is a leaf: the dependency arrow points
   *out* — `kolu-client → @kolu/solid-statepip` and
   `pulam-web → @kolu/solid-statepip`, neither importing the other through it.
+- **Its own box size.** The wrapper is content-sized (it fits whatever
+  text/gap context it lands in); a surface that reserves a fixed column passes
+  that box in via the `class` prop (the dock + fleet rows use the exported
+  `DOCK_ROW_PIP_BOX` 18 px circle), so the dock's column geometry never gets
+  baked into the shared leaf and inline callers stay text-sized.
 
 ## Consumers
 

@@ -56,6 +56,7 @@ import {
   relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import { StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import {
   compareFleetEntries,
   type FleetEntry,
@@ -128,6 +129,7 @@ function AgentRow(props: {
               variant={pipVariantFor(value())}
               live={props.live()}
               alert={fleetAlert(value())}
+              class={DOCK_ROW_PIP_BOX}
             />
             <span
               class="w-[9ch] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[#c8d0de]"

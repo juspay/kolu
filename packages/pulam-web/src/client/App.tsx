@@ -24,6 +24,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { type PipVariant, StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { DEFAULT_FLEET_FILTERS, type FleetFilters, URGENCY } from "./fleet.ts";
 import { HostGroup } from "./HostGroup.tsx";
 import { rememberServerProcessId } from "./wire.ts";
@@ -108,7 +109,14 @@ function LegendItem(props: {
 }): JSX.Element {
   return (
     <span class="inline-flex items-center gap-1.5">
-      <StatePip variant={props.variant} live={props.live} alert={props.alert} />
+      {/* The same `DOCK_ROW_PIP_BOX` the fleet rows reserve, so the legend pip
+       *  is pixel-for-pixel what a row draws. */}
+      <StatePip
+        variant={props.variant}
+        live={props.live}
+        alert={props.alert}
+        class={DOCK_ROW_PIP_BOX}
+      />
       <span>{props.label}</span>
     </span>
   );

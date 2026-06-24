@@ -50,6 +50,11 @@ export const StatePip: Component<{
    *  ring into nested circles; the state core stays fully visible (the Dock's
    *  `unread`, pulam-web's notify-class). Default off. */
   alert?: boolean;
+  /** Extra wrapper classes a surface adds on top of the content-sized leaf —
+   *  e.g. the `DOCK_ROW_PIP_BOX` fixed circle the dock/fleet rows pass to reserve
+   *  their column. Omitted by inline callers (the tile title, the column header),
+   *  which then size to their text/gap context. */
+  class?: string;
 }> = (props) => {
   // Read each prop ONCE per change. Callers pass them as JSX-prop expressions
   // (`pipVariantFor(value())` / `activity.isLive(id)` / `unread()`), which Solid
@@ -65,7 +70,7 @@ export const StatePip: Component<{
     // packages/tests/step_definitions). `data-live`/`data-alert` expose the outer
     // axes for tests/inspection.
     <span
-      class={INDICATOR_BASE}
+      class={props.class ? `${INDICATOR_BASE} ${props.class}` : INDICATOR_BASE}
       data-testid="state-pip"
       data-pip={variant()}
       data-live={props.live ? "" : undefined}

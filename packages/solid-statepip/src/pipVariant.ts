@@ -112,14 +112,26 @@ export const PIP_TITLES: Record<PipVariant, string> = {
   empty: "",
 };
 
-/** The merged status indicator's WRAPPER class — the fixed-size circle the state
- *  core sits centred inside, and the positioning context for the two outer-axis
- *  overlays (R-activity-merge). `relative` so the live ring + alert badge
- *  (absolutely positioned, see `@kolu/solid-statepip/statepip.css`) anchor to it.
- *  Fixed size with no border, so the core never shifts as the axes flip and an
- *  axis-less pip is an invisible box that just reserves the column. */
+/** The merged status indicator's leaf-intrinsic WRAPPER class — content-sized
+ *  (no fixed box, so it fits whatever text/gap context the surface drops it in),
+ *  and the positioning context for the two outer-axis overlays (R-activity-merge).
+ *  `relative` so the live ring + alert badge (absolutely positioned, see
+ *  `@kolu/solid-statepip/statepip.css`) anchor to it; `flex-none` so it never
+ *  stretches or shrinks beside flexed siblings. A surface that reserves a
+ *  fixed-size column passes that box in via `StatePip`'s `class` prop (the dock
+ *  rows / fleet rows use `DOCK_ROW_PIP_BOX`); the leaf itself owns no surface
+ *  geometry. */
 export const INDICATOR_BASE =
-  "relative flex flex-none items-center justify-center w-[18px] h-[18px] rounded-full";
+  "relative inline-flex flex-none items-center justify-center";
+
+/** The dock-row / fleet-row pip BOX — the fixed 18 px circle a surface that
+ *  reserves a column passes to `StatePip` via its `class` prop. 18 px matches the
+ *  `DOCK_ROW_GRID` leading track, so the indicator never shifts as the axes flip
+ *  and an axis-less pip is an invisible box that still reserves the column. Lives
+ *  here beside `INDICATOR_BASE` so the box and the leaf stay co-described, but it
+ *  is a CALLER's geometry, not the leaf's — non-row callers (the tile title, the
+ *  workspace column header) pass nothing and get an intrinsically-sized pip. */
+export const DOCK_ROW_PIP_BOX = "w-[18px] h-[18px] rounded-full";
 
 /** The live RING overlay class — a thin green arc that gently rotates while the
  *  terminal is moving bytes (the old standalone live dot, folded into the
