@@ -26,9 +26,11 @@ const PIP_TITLES: Record<PipVariant, string> = {
 
 export const StatePip: Component<{ variant: PipVariant }> = (props) => {
   return (
-    // `data-testid="dock-row-pip"` is the established e2e selector (the dock row
-    // pip + the canvas tile-title pip; see packages/tests/step_definitions);
-    // kept stable across the lift so the scenarios keep matching.
+    // `data-testid="dock-row-pip"` is the established e2e selector, now spanning
+    // all three surfaces this component renders on — the dock row pip, the canvas
+    // tile-title pip, and the pulam-web fleet row pip (see
+    // packages/tests/step_definitions); kept stable across the lift so the
+    // scenarios keep matching.
     <span
       class="flex items-center justify-center"
       data-testid="dock-row-pip"
