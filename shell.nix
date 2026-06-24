@@ -55,7 +55,8 @@ pkgs.mkShell {
     # these in nativeBuildInputs; the dev shell needs them so `just install`
     # works outside the nix build.
     python3
-    nodePackages.node-gyp
+    # node-gyp moved to the top level (nodePackages was removed from nixpkgs).
+    node-gyp
     pkg-config
   ];
 }
