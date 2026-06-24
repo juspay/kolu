@@ -2,36 +2,38 @@
 
 **The shared agent-status *indicator* presentation leaf** — one SolidJS
 component that folds three axes into a single glyph: the agent's coarse run-state
-**core** (a spinning ring · a muted dot · a sleeping `☾`), a green **live ring**
-around it when the terminal is moving bytes, and an amber **alert halo** when a
-fired notification is unopened.
+**core** (a spinning ring · a muted dot · a sleeping `☾`), a thin green **live
+ring** that gently sweeps around it when the terminal is moving bytes, and a
+small amber **alert badge** in the corner when a fired notification is unopened.
 
 ## What it owns
 
 - **`<StatePip variant={…} live={…} alert={…}>`** — pure presentation. It takes
   a *precomputed* `PipVariant` for the core and two optional booleans for the
   outer axes:
-  - `live` → the green `--color-ok` **ring** (the terminal is moving bytes right
-    now — the old standalone live-activity dot, now folded into the indicator's
-    edge);
-  - `alert` → the amber `--color-attention` **halo** + pulse (an unopened
-    notification — the Dock's `unread`, pulam-web's notify-class), wrapping the
-    state core instead of replacing it, so you read needs-attention *and* the
-    live state at once.
+  - `live` → the green `--color-ok` **ring** (a thin conic-gradient arc that
+    gently sweeps — the terminal is moving bytes right now; the old standalone
+    live-activity dot, now folded into the indicator's edge);
+  - `alert` → a small amber `--color-attention` **corner badge** (an unopened
+    notification — the Dock's `unread`, pulam-web's notify-class). A badge, NOT a
+    ring: a surrounding alert ring (especially nested with the live ring) read as
+    overwhelming, so the two axes use different shapes and the state core stays
+    fully visible.
 
   Both default off, so a bare `<StatePip variant={…} />` reads as a plain pip.
-  The pulse/spin animations carry `motion-reduce:animate-none` /
-  `motion-safe:`, so a `prefers-reduced-motion: reduce` preference holds the
-  indicator still on **every** consumer — the reduced-motion behaviour is owned
-  here once, not re-spelled per surface.
+  The ring + badge visuals live in **`./statepip.css`** (a conic-gradient + mask
+  sweep, an absolutely-positioned badge — neither expressible as Tailwind
+  utilities); both consumers `@import` it. Their motion is gated under
+  `prefers-reduced-motion: reduce`, owned here once, not re-spelled per surface.
 - **`PipVariant`** — the core-state vocabulary (`awaiting` · `working` · `idle` ·
   `sleeping` · `empty`).
-- **`pipForPaintClass`** + **`indicatorWrapperClass`** (the `./pipVariant`
-  subpath) — the shared agent-paint → pip fold *and* the ring/halo class fold.
-  Both kolu's Dock (`pipVariant`) and pulam-web's fleet (`pipVariantFor`) route
-  their state→variant mapping through the first, and both surfaces' ring + halo
-  through the second, so the indicator a given (state, live, alert) triple shows
-  is defined **once** and cannot drift between the two surfaces.
+- **`pipForPaintClass`** + the ring/badge class constants (`LIVE_RING_CLASS`,
+  `ALERT_BADGE_CLASS`) on the `./pipVariant` subpath — the shared agent-paint →
+  pip fold plus the overlay class names. Both kolu's Dock (`pipVariant`) and
+  pulam-web's fleet (`pipVariantFor`) route their state→variant mapping through
+  the fold, and both render the same overlay classes (defined once in
+  `statepip.css`), so the indicator a given (state, live, alert) triple shows is
+  defined **once** and cannot drift between the two surfaces.
 
 This exists so kolu's on-canvas **Dock** and the **pulam-web** fleet dashboard
 render the *byte-identical* pip — the two fleet views mirror the Dock's

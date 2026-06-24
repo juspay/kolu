@@ -11,19 +11,23 @@
  *      surface owns its own state→variant mapping (the Dock's `pipVariant`,
  *      pulam-web's `pipVariantFor`), both folding the shared agent-paint classes
  *      through `pipForPaintClass`.
- *    - `live` (the RING) — this terminal is moving bytes right now (the old
- *      `LiveActivityDot`, folded into the indicator's green edge).
- *    - `alert` (the HALO) — a fired notification you haven't opened (the Dock's
- *      `unread`, pulam-web's notify-class). An amber halo wraps the whole thing
- *      while the state core stays visible underneath — needs-attention AND the
- *      live state at once, not a loud disk that hides the state.
+ *    - `live` (the RING) — this terminal is moving bytes right now: a thin green
+ *      arc that gently sweeps around the core (the old `LiveActivityDot`, folded
+ *      into the indicator's edge).
+ *    - `alert` (the BADGE) — a fired notification you haven't opened (the Dock's
+ *      `unread`, pulam-web's notify-class): a small amber corner badge, NOT a
+ *      ring — a surrounding alert ring (especially nested with the live ring)
+ *      read as overwhelming, so the two axes use different shapes and never
+ *      compound into concentric circles. The state core stays fully visible.
  *
- *  Pure presentation: the per-variant CORE class set lives in `PIP_BODY` and the
- *  ring/halo class set in `indicatorWrapperClass`, both as data, so the agreed
- *  look is a single source pinned by a pure test (no DOM harness, matching the
- *  other `@kolu/solid-*` leaves). Colours are the shared `@kolu/theme` tokens, so
- *  both surfaces — which each `@import "@kolu/theme/theme.css"` — resolve them
- *  identically. */
+ *  Pure presentation: the per-variant CORE class set lives in `PIP_BODY`; the
+ *  ring + badge are overlay elements whose class names (`LIVE_RING_CLASS`,
+ *  `ALERT_BADGE_CLASS`) and visuals live in `statepip.css` (a conic-gradient +
+ *  mask sweep, an absolutely-positioned badge — neither expressible as Tailwind
+ *  utilities). Both surfaces `@import` that CSS, so the rings can't drift; the
+ *  class data is pinned by a pure test (no DOM harness, matching the other
+ *  `@kolu/solid-*` leaves). Colours are the shared `@kolu/theme` tokens, so both
+ *  surfaces resolve them identically. */
 
 import { type Component, createMemo, Show } from "solid-js";
 import {

@@ -4,7 +4,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import { pipVariant } from "./pipVariant";
 
 // The bucket carries only the CORE state now — `unread` is no longer folded in
-// (R-activity-merge moved it to the indicator's `alert` halo). awaiting is the
+// (R-activity-merge moved it to the indicator's `alert` corner badge). awaiting is the
 // quiet lingering dot; working is the spinning ring; idle is muted; none/parked
 // render empty; sleeping is its own moonlit ☾ (never folded into idle/empty).
 const cases: Array<[DockRowBucket, PipVariant]> = [

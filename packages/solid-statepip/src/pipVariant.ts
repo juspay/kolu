@@ -11,13 +11,15 @@
  *  The core is only ONE of three axes the indicator now folds into one glyph
  *  (R-activity-merge). The other two — terminal **liveness** (moving bytes) and
  *  an unread-notification **alert** — were each a SEPARATE dot before, defined
- *  (and drifting) per surface; they now compose here, once, as the indicator's
- *  outer layers via `indicatorWrapperClass`:
- *    - the live RING — a green `--color-ok` border, the old `LiveActivityDot`
- *      folded into the indicator's edge instead of a second dot beside it;
- *    - the alert HALO — an amber `--color-attention` ring + pulse, the Dock's
- *      old loud `attention` pip turned into a halo that WRAPS the live state
- *      core instead of REPLACING it (you read needs-attention AND the state).
+ *  (and drifting) per surface; they now compose here, once, as overlay elements
+ *  (`LIVE_RING_CLASS`, `ALERT_BADGE_CLASS`; visuals in `statepip.css`):
+ *    - the live RING — a thin green `--color-ok` arc that gently sweeps, the old
+ *      `LiveActivityDot` folded into the indicator's edge instead of a second
+ *      dot beside it;
+ *    - the alert BADGE — a small amber `--color-attention` corner badge, the
+ *      Dock's old loud `attention` pip retired: a different SHAPE from the ring
+ *      (not another circle/halo), so the two never compound into nested rings,
+ *      and the live state core stays fully visible.
  *  Both default off, so a bare `<StatePip variant=… />` reads exactly as before.
  *
  *  `pipForPaintClass` is the single definition of "which pip an agent's paint
@@ -112,10 +114,10 @@ export const PIP_TITLES: Record<PipVariant, string> = {
 
 /** The merged status indicator's WRAPPER class — the fixed-size circle the state
  *  core sits centred inside, and the positioning context for the two outer-axis
- *  rings (R-activity-merge). `relative` so the live ring + alert halo (absolutely
- *  positioned, see `@kolu/solid-statepip/statepip.css`) anchor to it. Fixed size
- *  with no border, so the core never shifts as the axes flip and an axis-less pip
- *  is an invisible box that just reserves the column. */
+ *  overlays (R-activity-merge). `relative` so the live ring + alert badge
+ *  (absolutely positioned, see `@kolu/solid-statepip/statepip.css`) anchor to it.
+ *  Fixed size with no border, so the core never shifts as the axes flip and an
+ *  axis-less pip is an invisible box that just reserves the column. */
 export const INDICATOR_BASE =
   "relative flex flex-none items-center justify-center w-[18px] h-[18px] rounded-full";
 

@@ -30,11 +30,12 @@
  *     indicator** (`StatePip`) folds three axes into one glyph: the
  *     agent-state CORE by shape (dim small disk for already-seen
  *     awaiting, hollow spinning ring for working, muted dot for idle,
- *     nothing for parked/none), a green **live ring** around it while
- *     the terminal is moving bytes ("moving bytes right now", orthogonal
- *     to agent state), and an amber **unread halo** + pulse wrapping the
- *     whole thing while a fired alert is unopened — so one glance reads
- *     overall activity and the state stays visible under the alert.
+ *     nothing for parked/none), a thin green **live ring** that gently
+ *     sweeps around it while the terminal is moving bytes ("moving bytes
+ *     right now", orthogonal to agent state), and a small amber **unread
+ *     corner badge** while a fired alert is unopened (a badge, not a
+ *     ring, so the two never compound into nested circles) — so one
+ *     glance reads overall activity and the state stays fully visible.
  *     Agent kind is not surfaced here — it lives on
  *     the terminal title bar where there's room. PR pip is a link
  *     to the PR with the live checks verdict in its

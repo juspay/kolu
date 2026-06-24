@@ -180,8 +180,8 @@ function DockListRow(props: {
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           {/* One merged status indicator — agent-state core, green live
-           *  ring, amber unread halo; centred across both row lines. See
-           *  Dock.tsx's DockRow. */}
+           *  ring, amber unread corner badge; centred across both row lines.
+           *  See Dock.tsx's DockRow. */}
           <span class="row-span-2 flex self-center">
             <StatePip
               variant={pipVariant(props.pip)}
