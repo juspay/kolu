@@ -20,10 +20,11 @@ import {
   type ToolInput,
   type Transcript,
   type TranscriptEvent,
+  type TranscriptHtmlMode,
 } from "kolu-transcript-core";
 import { Marked } from "marked";
 
-export type TranscriptHtmlMode = "chat" | "full";
+export type { TranscriptHtmlMode };
 
 export interface TranscriptHtmlOptions {
   mode: TranscriptHtmlMode;

@@ -7,17 +7,21 @@
 
 import { z } from "zod";
 
+import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
+
 export {
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,
+  type TranscriptHtmlMode,
   type TranscriptPr,
   TranscriptPrSchema,
   TranscriptSchema,
 } from "kolu-transcript-core";
 
-export const TranscriptHtmlModeSchema = z.enum(["chat", "full"]);
-export type TranscriptHtmlMode = z.infer<typeof TranscriptHtmlModeSchema>;
+/** Derived from the canonical mode list in kolu-transcript-core so the RPC
+ *  contract and the renderer provably agree on one value set. */
+export const TranscriptHtmlModeSchema = z.enum(TRANSCRIPT_HTML_MODES);
 
 export const ExportTranscriptHtmlInputSchema = z.object({
   id: z.string().uuid(),
