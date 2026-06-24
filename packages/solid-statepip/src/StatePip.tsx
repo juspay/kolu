@@ -44,9 +44,10 @@ export const StatePip: Component<{
   /** Terminal moving bytes right now → the green live-output RING around the
    *  core. The activity dot, folded into the indicator's edge. Default off. */
   live?: boolean;
-  /** A fired notification not yet opened → the amber ALERT HALO + pulse around
-   *  the whole indicator (the Dock's `unread`, pulam-web's notify-class), the
-   *  state core staying visible underneath. Default off. */
+  /** A fired notification not yet opened → a small amber `--color-attention`
+   *  corner badge (top-right), NOT a ring, so it never compounds with the live
+   *  ring into nested circles; the state core stays fully visible (the Dock's
+   *  `unread`, pulam-web's notify-class). Default off. */
   alert?: boolean;
 }> = (props) => {
   // Read each prop ONCE per change. Callers pass them as JSX-prop expressions
