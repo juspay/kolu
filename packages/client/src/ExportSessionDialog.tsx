@@ -19,7 +19,7 @@ const ExportSessionDialog: Component = () => {
   let chatRef: HTMLButtonElement | undefined;
 
   const exportMode = (modes: TranscriptHtmlMode[]) => {
-    exportSessionDialog.onOpenChange(false);
+    exportSessionDialog.close();
     void crud.exportSessionHtml(modes);
   };
 
@@ -71,7 +71,7 @@ const ExportSessionDialog: Component = () => {
           <button
             type="button"
             class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
-            onClick={() => exportSessionDialog.onOpenChange(false)}
+            onClick={() => exportSessionDialog.close()}
           >
             Cancel
           </button>
