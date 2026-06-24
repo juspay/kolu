@@ -277,13 +277,23 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
  *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
  *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
  *  exact cell whose stale-health safety relies on `set` being absent. */
-type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
+export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
   verbs: readonly CellVerb[];
 }
   ? S["verbs"][number]
   : S extends { patchSchema: ZodType<any> }
     ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
     : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
+
+/** Whether a cell's resolved verbs include ANY wire-mutation verb (`set` /
+ *  `patch` / `test__set`). A get-only cell (`verbs: ["get"]`) resolves `false`,
+ *  so the Solid client (`surfaceClient`) can type it as read-only: no `.set` /
+ *  `.patch` / local-authority path the runtime contract router doesn't carry.
+ *  This is the client-side dual of {@link CellVerbsOf} honoring `verbs` in the
+ *  raw contract — both must agree, or a get-only cell regrows a phantom mutate
+ *  API on one side. */
+export type CellIsMutable<S extends CellSpec<any, any>> =
+  CellVerbsOf<S> extends "get" ? false : true;
 
 /** One contract entry per resolved verb — `get` streams the schema, `set` /
  *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the

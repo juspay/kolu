@@ -26,11 +26,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
@@ -54,6 +50,7 @@ import {
   type HostEntry,
   makeBuildEntry,
 } from "./hostEntry.ts";
+import { registerReconnectRoute } from "./reconnectRoute.ts";
 
 const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
@@ -139,38 +136,10 @@ async function main(): Promise<void> {
   // `POST /api/reconnect?host=<id>` — the failed-card Reconnect button. A
   // session that gave up into the terminal `failed` state only retries on an
   // explicit re-arm (or a parent restart); `reconnect()` is that re-arm, here
-  // exposed to the browser. Unknown host → 404 (fail loud, no silent no-op).
-  app.post("/api/reconnect", (c) => {
-    // CSWSH gate, the HTTP analogue of the `/rpc/ws` upgrade gate: this route
-    // MUTATES host-session state (`session.reconnect()`), and a cross-site page
-    // can issue a CORS-"simple" no-body POST here without a preflight. It can't
-    // read the 403, but the gate is the whole point — the side effect below
-    // must never run for a disallowed Origin. Non-browser clients (no Origin)
-    // and same host:port browser traffic pass, exactly as on the ws transport.
-    const rejected = gateHttpRpcOrigin(c.req.raw, {
-      allowedOrigins,
-      onReject: (origin) =>
-        log(
-          `rejecting reconnect POST: disallowed Origin ${JSON.stringify(origin)}`,
-        ),
-    });
-    if (rejected) return rejected;
-    const host = c.req.query("host");
-    if (host === undefined || host.length === 0 || !registry.has(host)) {
-      return c.json({ error: `unknown host: ${host ?? "<none>"}` }, 404);
-    }
-    // `has` just proved the host exists, and `has`/`getSession` read the SAME
-    // `entries` map, so the session is present. Resolve `getSession`'s
-    // `| undefined` with a thrown guard rather than a silent `?.`: were the
-    // session ever absent, this route must CRASH (fail loud), never return
-    // `{ ok: true }` while quietly skipping the reconnect.
-    const session = registry.getSession(host);
-    if (session === undefined)
-      throw new Error(`reconnect: session missing for known host ${host}`);
-    session.reconnect();
-    log(`reconnect requested (host=${host})`);
-    return c.json({ ok: true });
-  });
+  // exposed to the browser. The route's gate / unknown-host-404 / fail-loud
+  // missing-session / rearm branches live in `reconnectRoute.ts` so each is
+  // reachable from a route-level test (`reconnectRoute.test.ts`).
+  registerReconnectRoute(app, { registry, allowedOrigins, log });
 
   // PWA manifest — served dynamically so it's one source of truth with the
   // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a

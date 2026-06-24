@@ -16,6 +16,7 @@ import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
 import type {
+  CellIsMutable,
   CellSpec,
   CollectionSpec,
   EventSpec,
@@ -54,6 +55,29 @@ export type BoundCellOptions<T, P = T> = T extends object
 
 export interface BoundCell<T, P = T> {
   use(opts?: BoundCellOptions<T, P>): UseCellResult<T, P>;
+}
+
+/** `.use()` options for a READ-ONLY cell (`verbs: ["get"]`) — server
+ *  subscription only. No `authority: "local"` branch: a get-only cell has no
+ *  wire mutation verb, so the local-authority path (which `set`s back to the
+ *  server) would resolve to a `mutate` the contract router doesn't carry. */
+export interface ReadOnlyBoundCellOptions {
+  onError?: (err: Error) => void;
+}
+
+/** The reactive view a read-only cell yields — value/pending/error/sub WITHOUT
+ *  `set` / `patch`. The runtime dual: `surfaceClient` binds no `mutate` for a
+ *  get-only cell, so a `set`/`patch` would throw "no mutate handler" anyway;
+ *  hiding them at the type keeps the client API honest about the wire contract
+ *  (the client-side half of {@link CellVerbsOf} honoring `verbs`). */
+export interface ReadOnlyUseCellResult<T>
+  extends Pick<
+    UseCellResult<T, never>,
+    "value" | "pending" | "error" | "sub"
+  > {}
+
+export interface ReadOnlyBoundCell<T> {
+  use(opts?: ReadOnlyBoundCellOptions): ReadOnlyUseCellResult<T>;
 }
 
 /** Bound collection result — `useCollection`'s reactive view augmented
@@ -104,7 +128,11 @@ type BoundCellsFor<S extends SurfaceSpec> = {
     infer T,
     infer P
   >
-    ? BoundCell<T, P>
+    ? // A get-only cell (no wire mutation verb) gets a read-only bound type —
+      // no `.set` / `.patch` / local-authority path the contract router lacks.
+      CellIsMutable<NonNullable<S["cells"]>[K]> extends false
+      ? ReadOnlyBoundCell<T>
+      : BoundCell<T, P>
     : never;
 };
 
@@ -182,7 +210,21 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
     const ns = (link as any).surface[key];
     const source: StreamingProcedure<undefined, unknown> = ns.get;
-    const mutate = cellSpec.patchSchema ? ns.patch : ns.set;
+    // Resolve the cell's mutation verb the SAME way the contract derivation does
+    // (`cellContractEntries`): `patch` when a `patchSchema` is declared, else
+    // `set` — but ONLY when that verb is actually exposed. A get-only cell
+    // (`verbs: ["get"]`) carries no `set`/`patch` on the wire, so binding
+    // `ns.set` would capture `undefined`; leave `mutate` undefined and let the
+    // read-only `.use()` type (no `set`/`patch`) keep callers off the mutate
+    // path entirely — the client-side dual of the contract honoring `verbs`.
+    const wireVerb = cellSpec.patchSchema ? "patch" : "set";
+    // No `verbs` → the contract default already includes `wireVerb` (`["get",
+    // "patch"]` / `["get", "set"]`); an explicit `verbs` must list it to expose
+    // it. A get-only cell lists neither, so `mutate` stays undefined.
+    const exposesMutate = cellSpec.verbs
+      ? cellSpec.verbs.includes(wireVerb)
+      : true;
+    const mutate = exposesMutate ? ns[wireVerb] : undefined;
     // Spec-declared `patch` doubles as the default `applyPatch` for
     // authority-`local` cells, so server and client merge with the same
     // function without the consumer importing it twice.
