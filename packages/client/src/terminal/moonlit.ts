@@ -11,7 +11,11 @@
  *  resolves its own accent from the `--color-moonlit` token in `@kolu/theme`,
  *  which carries the SAME value (`#8895ad`) — so the pip and these client tiles
  *  each read from their own home, both fixed across light/dark (no
- *  `:root:not(.dark)` override). */
+ *  `:root:not(.dark)` override). The two literals are pinned equal by
+ *  `moonlit.test.ts` so the cross-file value can't drift silently — kept
+ *  separate (not folded onto the token) because the other five MOONLIT colours
+ *  have no theme token and the dormant tile + minimap need the raw value to
+ *  string-interpolate a `border:` / `background:`. */
 export const MOONLIT = {
   /** DormantTileBody panel background. */
   bg: "#171a20",

@@ -10,7 +10,12 @@
  *  `pipVariantFor`), both folding the shared agent-paint classes through
  *  `pipForPaintClass`. Colours are the shared `@kolu/theme` tokens (`bg-alert`,
  *  `border-accent`, `bg-fg-3`, `text-moonlit`), so both surfaces — which each
- *  `@import "@kolu/theme/theme.css"` — resolve them identically. */
+ *  `@import "@kolu/theme/theme.css"` — resolve them identically.
+ *
+ *  The pulse/spin animations carry `motion-reduce:animate-none`, so a
+ *  `prefers-reduced-motion: reduce` preference holds the pip still on EVERY
+ *  consumer (shape + colour still convey the state) — the behaviour is owned
+ *  here once, not re-spelled per surface. */
 
 import { type Component, Match, Switch } from "solid-js";
 import type { PipVariant } from "./pipVariant.ts";
@@ -39,13 +44,13 @@ export const StatePip: Component<{ variant: PipVariant }> = (props) => {
     >
       <Switch fallback={null}>
         <Match when={props.variant === "attention"}>
-          <span class="w-2 h-2 rounded-full bg-alert animate-pulse ring-4 ring-alert/25" />
+          <span class="w-2 h-2 rounded-full bg-alert animate-pulse motion-reduce:animate-none ring-4 ring-alert/25" />
         </Match>
         <Match when={props.variant === "awaiting"}>
           <span class="w-1.5 h-1.5 rounded-full bg-alert/55" />
         </Match>
         <Match when={props.variant === "working"}>
-          <span class="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          <span class="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin motion-reduce:animate-none" />
         </Match>
         <Match when={props.variant === "idle"}>
           <span class="w-1.5 h-1.5 rounded-full bg-fg-3/55" />

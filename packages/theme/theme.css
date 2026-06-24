@@ -35,9 +35,10 @@
   --color-busy: #d97757;
 
   /* The sleeping/dormant accent — the `StatePip` ☾, shared with the client's
-   * dormant tile + minimap (`MOONLIT.accent`). Deliberately FIXED: it has no
-   * `:root:not(.dark)` override, so a sleeping surface reads "asleep"
-   * identically in light and dark. */
+   * dormant tile + minimap (`MOONLIT.accent`, same literal `#8895ad`, pinned
+   * equal by `packages/client/src/terminal/moonlit.test.ts`). Deliberately
+   * FIXED: it has no `:root:not(.dark)` override, so a sleeping surface reads
+   * "asleep" identically in light and dark. */
   --color-moonlit: #8895ad;
 }
 

@@ -82,15 +82,15 @@ export interface HostGroupProps {
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
 
-/** One agent/terminal row, MIRRORING kolu's Dock. The leading glyph's COLOUR +
- *  shape follow the PAINT class (`PAINT[paintClassFor(value)]`) — so a
- *  just-finished `waiting` agent keeps the lingering amber dot rather than the
- *  idle grey its sort implies — while the SORT, the needs-you row tint, the
- *  state-cell label colour, and the pulse/spin animation stay keyed off
- *  `urgency`. That order≠colour split is the Dock's, one fold over from the dock
- *  pip. The green dot rides the activity stream, orthogonal to agent state.
- *  Reads its value fine-grained off `value()` (a per-key subscription) so only
- *  this row re-renders on its own delta. */
+/** One agent/terminal row, MIRRORING kolu's Dock. The leading pip is the shared
+ *  `StatePip` (`@kolu/solid-statepip`) over `pipVariantFor(value)` — the SAME
+ *  component + theme palette kolu's Dock renders, so a just-finished `waiting`
+ *  agent keeps the lingering `awaiting` dot (theme alert violet) rather than the
+ *  idle grey its sort implies — while the SORT, the needs-you row tint, and the
+ *  state-cell label colour stay keyed off `urgency`. That order≠colour split is
+ *  the Dock's, one fold over from the dock pip. The green dot rides the activity
+ *  stream, orthogonal to agent state. Reads its value fine-grained off `value()`
+ *  (a per-key subscription) so only this row re-renders on its own delta. */
 function AgentRow(props: {
   value: () => AwarenessValue | undefined;
   live: () => boolean;

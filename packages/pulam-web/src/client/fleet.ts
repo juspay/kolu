@@ -6,10 +6,13 @@
  * surfaces that render it (pulam-tui, pulam-web, AND kolu's Dock — the two fleet
  * views MIRROR the Dock UX), fenced by the schema's `AgentInfo['state']` union so
  * a new agent state can't drift between them. This module keeps ONLY what is
- * genuinely web-specific: the urgency→{colour, label, glyph} and PAINT→{colour,
- * glyph} descriptors the rows paint (the glyph follows PAINT — mirroring the Dock
- * pip — while the row tint + state label follow urgency), the web chrome colours,
- * the cwd/location helpers, and the terminal-category filter the toggles read.
+ * genuinely web-specific: the per-agent ROW pip — `pipVariantFor`, which folds an
+ * awareness value to a `PipVariant` the shared `StatePip` (`@kolu/solid-statepip`)
+ * renders, the SAME component + theme palette kolu's Dock paints; the urgency→
+ * {colour, label, glyph} descriptor the fleet-wide needs-you strip + footer
+ * counters still read (its glyph serves only those aggregates now — the row's own
+ * glyph moved into `StatePip`); the web chrome colours; the cwd/location helpers;
+ * and the terminal-category filter the toggles read.
  *
  * What this does NOT do: dirty/clean counts. The awareness `git` info carries
  * only `repoName`/`branch`/remote — the file counts come from the `git.getStatus`
