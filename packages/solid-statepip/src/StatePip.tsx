@@ -32,10 +32,13 @@
  *
  *  Accessibility: the overlay spans are decoration (`aria-hidden`), so the
  *  wrapper's `title` / `aria-label` carry the meaning of ALL THREE axes — the
- *  core's `PIP_TITLES` entry plus "live output" / "unread alert" when those
- *  props are set — so an unread row still announces its alert (the old
- *  `attention` variant's "Needs attention" affordance, now one axis over)
- *  instead of reading only its core or nothing at all. */
+ *  core's `PIP_TITLES` entry plus "live output" / the per-surface `alertLabel`
+ *  ("unread alert" on the Dock, "needs attention" on pulam-web) when those props
+ *  are set — so an alerting row still announces it (the old `attention` variant's
+ *  "Needs attention" affordance, now one axis over) instead of reading only its
+ *  core. When there's nothing to announce (an `empty` core with no outer axes)
+ *  the whole wrapper is `aria-hidden`, pulling it out of the accessibility tree —
+ *  a decorative placeholder, not an unlabelled image. */
 
 import { type Component, createMemo, Show } from "solid-js";
 import {
@@ -57,6 +60,14 @@ export const StatePip: Component<{
    *  ring into nested circles; the state core stays fully visible (the Dock's
    *  `unread`, pulam-web's notify-class). Default off. */
   alert?: boolean;
+  /** What the alert badge MEANS on this surface, folded into the accessible
+   *  label / tooltip when `alert` is set. The two surfaces drive the badge off
+   *  DIFFERENT signals, so the wording can't be baked in here: the Dock's badge
+   *  is real read/unread terminal state ("unread alert"); pulam-web's is live
+   *  notify-class membership with no read tracking, so it says "needs attention"
+   *  rather than claiming an unread it can't clear. Default the generic "alert"
+   *  so a caller that sets `alert` without a label still announces something. */
+  alertLabel?: string;
   /** Extra wrapper classes a surface adds on top of the content-sized leaf —
    *  e.g. the `DOCK_ROW_PIP_BOX` fixed circle the dock/fleet rows pass to reserve
    *  their column. Omitted by inline callers (the tile title, the column header),
@@ -80,7 +91,7 @@ export const StatePip: Component<{
     const parts = [
       PIP_TITLES[variant()],
       props.live && "live output",
-      props.alert && "unread alert",
+      props.alert && (props.alertLabel ?? "alert"),
     ].filter((p): p is string => Boolean(p));
     return parts.join(" · ");
   });
@@ -96,14 +107,18 @@ export const StatePip: Component<{
       data-pip={variant()}
       data-live={props.live ? "" : undefined}
       data-alert={props.alert ? "" : undefined}
-      title={label()}
+      title={label() || undefined}
       // `role="img"` so the wrapper is a single labelled graphic — `aria-label`
-      // is only valid on a role that accepts a name, not a bare generic span.
-      // An empty label is the decorative case (an `empty` core, no live/alert):
-      // `aria-label=""` is the `alt=""` equivalent, so the pip announces nothing
-      // rather than reading raw markup.
+      // is only valid on a role that accepts a name, not a bare generic span (a
+      // STATIC role here so biome's `useAriaPropsSupportedByRole` can verify the
+      // pairing). When `label()` is empty — the decorative case (an `empty` core,
+      // no live/alert) — `aria-hidden` pulls the whole wrapper OUT of the
+      // accessibility tree, so assistive tech skips the purely-visual placeholder
+      // rather than announcing an unlabelled image (`role="img"` + `aria-label=""`
+      // reads as an unnamed image on some screen readers, not silently ignored).
       role="img"
-      aria-label={label()}
+      aria-label={label() || undefined}
+      aria-hidden={label() ? undefined : "true"}
     >
       <Show when={body()}>
         {(b) => <span class={b().class}>{b().glyph}</span>}

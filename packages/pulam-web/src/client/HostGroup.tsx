@@ -90,7 +90,8 @@ export interface HostGroupProps {
  *  state-cell label colour stay keyed off `urgency`. That order≠colour split is
  *  the Dock's, one fold over from the dock pip. The indicator folds in two more
  *  axes the Dock's does (R-activity-merge): the green live RING off the activity
- *  stream and the amber unread corner BADGE off the shared `alertClass` fold. Reads its
+ *  stream and the amber "needs attention" corner BADGE off the shared `alertClass`
+ *  fold (live notify-class membership, not the Dock's per-row unread). Reads its
  *  value fine-grained off `value()` (a per-key subscription) so only this row
  *  re-renders on its own delta. */
 function AgentRow(props: {
@@ -121,14 +122,18 @@ function AgentRow(props: {
              *  renders, folding three axes into one glyph: the agent-state CORE
              *  (`pipVariantFor`), the green live RING (this terminal moving
              *  bytes, off the `activity` stream — the old standalone dot, now
-             *  the indicator's edge), and the amber unread corner BADGE (the per-row
-             *  alert pulam-web gains via the shared `alertClass` fold). So the
+             *  the indicator's edge), and the amber corner BADGE (the per-row
+             *  alert pulam-web gains via the shared `alertClass` fold). The badge
+             *  announces "needs attention" here, not the Dock's "unread alert":
+             *  pulam-web tracks live notify-class membership, not per-row read
+             *  state, so it can't honestly claim an unread it never clears. So the
              *  (state, live, alert) triple reads byte-identically here and in
              *  the Dock; its fixed size keeps the name column aligned. */}
             <StatePip
               variant={pipVariantFor(value())}
               live={props.live()}
               alert={fleetAlert(value())}
+              alertLabel="needs attention"
               class={DOCK_ROW_PIP_BOX}
             />
             <span

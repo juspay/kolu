@@ -58,11 +58,12 @@
   pointer-events: none;
 }
 
-/* unread alert = a notification fired you haven't opened: a small amber CORNER
- * BADGE at the top-right (the pattern the dock rail already uses), NOT a ring —
- * so it never competes with the live ring or nests into a second circle. The
- * dark separator lifts it off the live ring + the row background; the gentle
- * pulse draws the eye without shouting. */
+/* alert badge = a fired notification a surface wants surfaced (the Dock's
+ * unopened-unread, pulam-web's live notify-class — each names it via `alertLabel`):
+ * a small amber CORNER BADGE at the top-right (the pattern the dock rail already
+ * uses), NOT a ring — so it never competes with the live ring or nests into a
+ * second circle. The dark separator lifts it off the live ring + the row
+ * background; the gentle pulse draws the eye without shouting. */
 .statepip-alert-badge {
   position: absolute;
   top: -1px;

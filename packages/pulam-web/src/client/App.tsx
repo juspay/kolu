@@ -105,16 +105,19 @@ function LegendItem(props: {
   variant: PipVariant;
   live?: boolean;
   alert?: boolean;
+  alertLabel?: string;
   label: string;
 }): JSX.Element {
   return (
     <span class="inline-flex items-center gap-1.5">
       {/* The same `DOCK_ROW_PIP_BOX` the fleet rows reserve, so the legend pip
-       *  is pixel-for-pixel what a row draws. */}
+       *  is pixel-for-pixel what a row draws — and the same `alertLabel`, so its
+       *  a11y wording matches the rows too. */}
       <StatePip
         variant={props.variant}
         live={props.live}
         alert={props.alert}
+        alertLabel={props.alertLabel}
         class={DOCK_ROW_PIP_BOX}
       />
       <span>{props.label}</span>
@@ -151,7 +154,8 @@ function Legend(): JSX.Element {
         <LegendItem
           variant="idle"
           alert
-          label="unread alert — a notification fired (amber badge)"
+          alertLabel="needs attention"
+          label="needs attention — a notification fired (amber badge)"
         />
       </div>
     </section>

@@ -148,8 +148,10 @@ export const TITLE_PIP_BOX = "w-[14px] h-[14px] rounded-full";
  *  `statepip.css`; both surfaces import it, so it can't drift. */
 export const LIVE_RING_CLASS = "statepip-live-ring";
 
-/** The unread alert overlay class — a small amber CORNER BADGE (top-right), not a
- *  ring: a surrounding alert ring (especially nested with the live ring) read as
+/** The alert overlay class — a small amber CORNER BADGE (top-right), not a ring:
+ *  a surrounding alert ring (especially nested with the live ring) read as
  *  overwhelming, so the alert uses a different shape that never competes with the
- *  live ring. The visual lives in `statepip.css`. */
+ *  live ring. What the badge MEANS is the surface's to name (`StatePip`'s
+ *  `alertLabel`): the Dock's unopened-unread, pulam-web's live notify-class. The
+ *  visual lives in `statepip.css`. */
 export const ALERT_BADGE_CLASS = "statepip-alert-badge";

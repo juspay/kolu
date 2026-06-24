@@ -507,6 +507,7 @@ const DockRow: Component<{
               variant={pipVariant(props.pip)}
               live={activity.isLive(props.id)}
               alert={unread()}
+              alertLabel="unread alert"
               class={DOCK_ROW_PIP_BOX}
             />
           </span>
