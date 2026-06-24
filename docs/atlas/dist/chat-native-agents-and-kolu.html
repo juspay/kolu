@@ -35,6 +35,23 @@ phone</em> — is the one thing kolu <strong>cannot do today</strong>: there’s
 no remote trigger; an agent only runs if it’s live in a terminal inside kolu. If
 the center of gravity is async delegation, kolu’s current shape is a structural
 mismatch, not a missing button.</p>
+<aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>What an agent actually is (Andreessen) — and why it&#39;s already kolu&#39;s blueprint</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Marc Andreessen, <a href="https://www.youtube.com/watch?v=knx2wrILP1M">on what decades of agent research quietly converged on</a>:
+<em>“an agent is … a language model, and above that a bash shell … and then a file
+system, and the state is stored in files … markdown … plus cron,”</em> and <em>“every
+part of that other than the model is something we already completely know.”</em> The
+kicker: <em>“your agent is now actually independent of the model … you can swap out a
+different LLM underneath … all of the state stored in the files will be retained”</em>
+— like <em>“swapping out a chip and recompiling, but it’s still your agent with all
+its memories.”</em> On protocols: <em>“this whole idea where we need MCP and these fancy
+protocols — no, we just need a command-line thing.”</em></p><p>That is kolu’s architecture, line for line: the <strong>shell</strong> is the interface to
+every tool (kolu <em>watches</em> it, doesn’t wrap it), the <strong>files</strong> are the real
+intelligence (the <a href="./meta.html">Atlas</a> is the markdown knowledgebase — a
+Zettelkasten knowledge graph, not chat exhaust), and the <strong>model is the swappable
+chip</strong> (claude · codex · opencode). Claude Tag inverts all three — model fixed
+(Opus 4.8), shell and files hidden inside a cloud sandbox, memory as lossy Slack
+scrollback. kolu keeps the durable substance — shell, files, your own infra — and
+lets the chip swap. It’s the same simplicity that made the web (HTTP, JSON,
+human-readable text), arriving for agents.</p></div></aside>
 <p>Now the other half, which the bear case misses:</p>
 <ul>
 <li><strong>The terminal isn’t nostalgia — it’s a capability chat doesn’t have.</strong> Chat is

@@ -57,6 +57,28 @@ no remote trigger; an agent only runs if it's live in a terminal inside kolu. If
 the center of gravity is async delegation, kolu's current shape is a structural
 mismatch, not a missing button.
 
+<Callout kind="accent" title="What an agent actually is (Andreessen) — and why it's already kolu's blueprint">
+Marc Andreessen, [on what decades of agent research quietly converged on](https://www.youtube.com/watch?v=knx2wrILP1M):
+*"an agent is … a language model, and above that a bash shell … and then a file
+system, and the state is stored in files … markdown … plus cron,"* and *"every
+part of that other than the model is something we already completely know."* The
+kicker: *"your agent is now actually independent of the model … you can swap out a
+different LLM underneath … all of the state stored in the files will be retained"*
+— like *"swapping out a chip and recompiling, but it's still your agent with all
+its memories."* On protocols: *"this whole idea where we need MCP and these fancy
+protocols — no, we just need a command-line thing."*
+
+That is kolu's architecture, line for line: the **shell** is the interface to
+every tool (kolu *watches* it, doesn't wrap it), the **files** are the real
+intelligence (the [Atlas](./meta.html) is the markdown knowledgebase — a
+Zettelkasten knowledge graph, not chat exhaust), and the **model is the swappable
+chip** (claude · codex · opencode). Claude Tag inverts all three — model fixed
+(Opus 4.8), shell and files hidden inside a cloud sandbox, memory as lossy Slack
+scrollback. kolu keeps the durable substance — shell, files, your own infra — and
+lets the chip swap. It's the same simplicity that made the web (HTTP, JSON,
+human-readable text), arriving for agents.
+</Callout>
+
 Now the other half, which the bear case misses:
 
 - **The terminal isn't nostalgia — it's a capability chat doesn't have.** Chat is
