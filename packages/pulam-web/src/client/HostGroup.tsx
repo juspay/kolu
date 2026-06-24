@@ -275,7 +275,13 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             truthful — and the header dot reads the SAME fold, so they agree. */}
         <Show
           when={health().state === "connected"}
-          fallback={<ConnectionView info={connInfo()} host={props.host} />}
+          fallback={
+            <ConnectionView
+              health={health()}
+              info={connInfo()}
+              host={props.host}
+            />
+          }
         >
           {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
               `entries()`. `entries()` drops keys whose per-key value stream is

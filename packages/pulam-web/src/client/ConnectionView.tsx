@@ -100,48 +100,54 @@ export function HostHealthIndicator(props: {
   );
 }
 
-/** The host body for every NON-`connected` mirror state. Replaces the old
- *  "no terminals" lie a downed mirror used to paint. */
+/** The host body for every NON-`connected` state. Renders off the EFFECTIVE
+ *  `health` (the transport ∘ mirror fold), NOT the raw mirror cell — so a
+ *  transport-`down` host whose mirror cell is stale at `connected` reads
+ *  "Lost the connection… reload", never a stale "Connected." The failed CARD
+ *  (real error + log + Reconnect) keys on a genuine MIRROR failure
+ *  (`info.state === "failed"`), the only state that carries those details. */
 export function ConnectionView(props: {
+  health: ConnPresentation & { state: ConnectionState };
   info: ConnectionInfo;
   host: string;
 }): JSX.Element {
-  const state = (): ConnectionInfo["state"] => props.info.state;
-  const pres = () => CONN_STATE[state()];
-  // Read the body line uniformly off the row: a row that varies on
-  // `failureCause` carries that as `messageFor` (today only `disconnected`), so
-  // no branch special-cases a state here.
+  // The body line, off the effective row: a row that varies on `failureCause`
+  // carries it as `messageFor` (today only the mirror's `disconnected`); the
+  // transport rows have none, so the `?? message` covers them uniformly.
   const message = (): string =>
-    pres().messageFor?.(props.info.failureCause) ?? pres().message;
+    props.health.messageFor?.(props.info.failureCause) ?? props.health.message;
 
-  // Seconds in the CURRENT pending state — reset on every state change, so it
-  // counts time-in-this-phase. A connect that drags ("Connecting… 18s") reads
-  // as abnormal before the parent's watchdog trips it to `failed`.
+  // Seconds in the CURRENT pending phase — reset on every effective-state
+  // change, so it counts time-in-this-phase. A connect that drags
+  // ("Connecting… 18s") reads as abnormal before the parent's watchdog trips it.
   const [elapsed, setElapsed] = createSignal(0);
   createEffect(
-    on(state, (s) => {
-      setElapsed(0);
-      if (!CONN_STATE[s].pending) return;
-      const startedAt = performance.now();
-      const id = setInterval(
-        () => setElapsed(Math.floor((performance.now() - startedAt) / 1000)),
-        1000,
-      );
-      onCleanup(() => clearInterval(id));
-    }),
+    on(
+      () => props.health.state,
+      () => {
+        setElapsed(0);
+        if (!props.health.pending) return;
+        const startedAt = performance.now();
+        const id = setInterval(
+          () => setElapsed(Math.floor((performance.now() - startedAt) / 1000)),
+          1000,
+        );
+        onCleanup(() => clearInterval(id));
+      },
+    ),
   );
 
   return (
     <div class="p-3">
       <Show
-        when={state() === "failed"}
+        when={props.info.state === "failed"}
         fallback={
           <div class="text-[13px]">
-            <span style={`color:${pres().text}`}>{message()}</span>
-            <Show when={pres().pending && elapsed() >= 1}>
+            <span style={`color:${props.health.text}`}>{message()}</span>
+            <Show when={props.health.pending && elapsed() >= 1}>
               <span class="text-[#5b6678]"> {elapsed()}s</span>
             </Show>
-            <Show when={state() === "copying"}>
+            <Show when={props.health.state === "copying"}>
               <span class="text-[#5b6678]"> (nix copy)</span>
             </Show>
           </div>
