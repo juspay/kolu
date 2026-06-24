@@ -11,6 +11,14 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>pulam-web — every agent, every host</title>
+    <!-- PWA wiring (the kolu twin): a maskable-capable icon set + the dynamic
+         `/manifest.webmanifest` the server emits (`installPwaManifest`) make the
+         fleet dashboard installable; the `apple-touch-icon` is iOS's home-screen
+         glyph. The manifest is served by the Node backend, not a static file, so
+         it stays one source of truth with the server's PWA identity. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <!-- The dark monospace document chrome is Tailwind utilities on <body>
          (utilities-only styling, no custom CSS) — index.css owns the Tailwind
          import plus the shared `@kolu/theme` palette and the `@kolu/solid-statepip`

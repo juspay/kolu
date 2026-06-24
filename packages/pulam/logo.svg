@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">pulam — every agent, every host: one browser view over a field of fleets</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1416"/>
+      <stop offset="1" stop-color="#10242a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#5a9ea0" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#5a9ea0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- tile -->
+  <rect x="8" y="8" width="496" height="496" rx="116" fill="url(#bg)"/>
+  <rect x="8" y="8" width="496" height="496" rx="116" fill="url(#glow)"/>
+  <rect x="11" y="11" width="490" height="490" rx="113" fill="none"
+        stroke="#5a9ea0" stroke-opacity="0.26" stroke-width="3"/>
+
+  <!-- wordmark: a shell prompt you reach the whole field from -->
+  <text x="84" y="252" font-size="72" fill="#3d6f70"
+        font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">&gt;</text>
+  <text x="140" y="266" font-size="104" font-weight="700" fill="#e6f0f0" letter-spacing="1"
+        font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">pulam</text>
+
+  <!-- the field (புலம்): a fleet of host cells, a few lit with the agent-state
+       palette the dashboard paints — alert (needs you), busy, ok. -->
+  <g>
+    <!-- row 1 -->
+    <rect x="142" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <rect x="190" y="336" width="36" height="36" rx="8" fill="#a78bfa" fill-opacity="0.14" stroke="#a78bfa" stroke-width="5"/>
+    <rect x="238" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <rect x="286" y="336" width="36" height="36" rx="8" fill="#d97757" fill-opacity="0.14" stroke="#d97757" stroke-width="5"/>
+    <rect x="334" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <!-- row 2 -->
+    <rect x="142" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <rect x="190" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <rect x="238" y="384" width="36" height="36" rx="8" fill="#4ade80" fill-opacity="0.14" stroke="#4ade80" stroke-width="5"/>
+    <rect x="286" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+    <rect x="334" y="384" width="36" height="36" rx="8" fill="#5a9ea0" fill-opacity="0.14" stroke="#5a9ea0" stroke-width="5"/>
+  </g>
+
+  <!-- புலம் — Tamil "field, domain, expanse" -->
+  <text x="256" y="466" text-anchor="middle" font-size="44" fill="#6f9fa0"
+        font-family="'Noto Sans Tamil', 'Tamil MN', 'Tamil Sangam MN', Latha, sans-serif">புலம்</text>
+</svg>

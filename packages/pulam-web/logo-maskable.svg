@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">pulam — maskable icon: full-bleed tile, wordmark + host field inside the safe zone</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1416"/>
+      <stop offset="1" stop-color="#10242a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.85">
+      <stop offset="0" stop-color="#5a9ea0" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#5a9ea0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- full-bleed background: the OS mask crops the corners, so no inset/border. -->
+  <rect x="0" y="0" width="512" height="512" fill="url(#bg)"/>
+  <rect x="0" y="0" width="512" height="512" fill="url(#glow)"/>
+
+  <!-- foreground scaled to ~80% about centre so it survives a circular crop. -->
+  <g transform="translate(256 256) scale(0.8) translate(-256 -256)">
+    <text x="84" y="252" font-size="72" fill="#3d6f70"
+          font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">&gt;</text>
+    <text x="140" y="266" font-size="104" font-weight="700" fill="#e6f0f0" letter-spacing="1"
+          font-family="ui-monospace, 'JetBrains Mono', 'Fira Code', SFMono-Regular, Menlo, Consolas, monospace">pulam</text>
+
+    <g>
+      <rect x="142" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="190" y="336" width="36" height="36" rx="8" fill="#a78bfa" fill-opacity="0.14" stroke="#a78bfa" stroke-width="5"/>
+      <rect x="238" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="286" y="336" width="36" height="36" rx="8" fill="#d97757" fill-opacity="0.14" stroke="#d97757" stroke-width="5"/>
+      <rect x="334" y="336" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="142" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="190" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="238" y="384" width="36" height="36" rx="8" fill="#4ade80" fill-opacity="0.14" stroke="#4ade80" stroke-width="5"/>
+      <rect x="286" y="384" width="36" height="36" rx="8" fill="none" stroke="#2f4a4c" stroke-width="5"/>
+      <rect x="334" y="384" width="36" height="36" rx="8" fill="#5a9ea0" fill-opacity="0.14" stroke="#5a9ea0" stroke-width="5"/>
+    </g>
+
+    <text x="256" y="466" text-anchor="middle" font-size="44" fill="#6f9fa0"
+          font-family="'Noto Sans Tamil', 'Tamil MN', 'Tamil Sangam MN', Latha, sans-serif">புலம்</text>
+  </g>
+</svg>
