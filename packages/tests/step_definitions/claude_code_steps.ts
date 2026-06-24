@@ -604,8 +604,8 @@ Then(
 Then(
   "the tile title state pip should be {string}",
   async function (this: KoluWorld, expectedVariant: string) {
-    // The dock's StatePip is reused verbatim in the canvas-tile title
-    // bar, so it carries the same data-testid ("dock-row-pip") and
+    // The shared StatePip is reused verbatim in the canvas-tile title
+    // bar, so it carries the same data-testid ("state-pip") and
     // data-pip variant — scoped to the title bar here to disambiguate
     // from the dock's own pips. Polled + nudged like the agent-indicator
     // check because the variant derives from server-pushed agent state.
@@ -613,7 +613,7 @@ Then(
       observe: () =>
         this.page.evaluate(() => {
           const el = document.querySelector(
-            '[data-testid="canvas-tile-titlebar"] [data-testid="dock-row-pip"]',
+            '[data-testid="canvas-tile-titlebar"] [data-testid="state-pip"]',
           );
           return el?.getAttribute("data-pip") ?? null;
         }),

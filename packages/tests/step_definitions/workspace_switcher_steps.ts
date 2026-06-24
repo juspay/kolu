@@ -275,14 +275,14 @@ Then(
 Then(
   "the workspace switcher {string} column title should show a {string} state pip",
   async function (this: KoluWorld, bucket: string, expectedVariant: string) {
-    // The dock's StatePip is reused verbatim in the column header, so it
-    // carries the same data-testid ("dock-row-pip") and data-pip variant
+    // The shared StatePip is reused verbatim in the column header, so it
+    // carries the same data-testid ("state-pip") and data-pip variant
     // — scoped here to the column matching `bucket` to disambiguate from
     // the pips on other columns and elsewhere on the surface.
     await this.page.waitForFunction(
       ({ bucketKey, variant }) => {
         const el = document.querySelector(
-          `[data-testid="workspace-switcher-column"][data-agent-bucket="${bucketKey}"] [data-testid="dock-row-pip"]`,
+          `[data-testid="workspace-switcher-column"][data-agent-bucket="${bucketKey}"] [data-testid="state-pip"]`,
         );
         return el?.getAttribute("data-pip") === variant;
       },

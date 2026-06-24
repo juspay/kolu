@@ -58,15 +58,14 @@ export const StatePip: Component<{
   const variant = createMemo(() => props.variant);
   const body = createMemo(() => PIP_BODY[variant()]);
   return (
-    // `data-testid="dock-row-pip"` is the established e2e selector, now spanning
-    // all three surfaces this component renders on — the dock row pip, the canvas
-    // tile-title pip, and the pulam-web fleet row pip (see
-    // packages/tests/step_definitions); kept stable across the lift so the
-    // scenarios keep matching. `data-live`/`data-alert` expose the outer axes for
-    // tests/inspection.
+    // `data-testid="state-pip"` is the surface-neutral e2e selector for this
+    // shared leaf, spanning all three surfaces it renders on — the dock row pip,
+    // the canvas tile-title pip, and the pulam-web fleet row pip (see
+    // packages/tests/step_definitions). `data-live`/`data-alert` expose the outer
+    // axes for tests/inspection.
     <span
       class={INDICATOR_BASE}
-      data-testid="dock-row-pip"
+      data-testid="state-pip"
       data-pip={variant()}
       data-live={props.live ? "" : undefined}
       data-alert={props.alert ? "" : undefined}
