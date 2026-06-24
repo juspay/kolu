@@ -62,12 +62,14 @@ export const Skill = (props) => {
 and asks nothing along the way either, so autonomy is *not* what sets them apart.
 Two things actually do:
 
-- **It's built for Claude Code's `Workflow` tool.** That's the reason `/be`
-  exists as its own skill. `/do` is harness-agnostic; `/be` is optimized for
-  Claude Code so its review gauntlet can run *dynamic, `Workflow`-backed*
-  reviewers — the debate skills <Skill name="be-review" /> drives
-  (<Skill name="lens-debate" />, <Skill name="codex-debate" />) fan out as
-  multi-agent workflows that `/do`'s flow has no way to express.
+- **It's built for Claude Code's [dynamic workflows](https://code.claude.com/docs/en/workflows).**
+  That's the reason `/be` exists as its own skill. A dynamic workflow is a script
+  Claude Code's runtime executes to orchestrate many subagents at scale. `/do` is
+  harness-agnostic; `/be` is optimized for Claude Code so its review gauntlet can
+  run as dynamic workflows — the debate skills <Skill name="be-review" /> drives
+  (<Skill name="lens-debate" />, <Skill name="codex-debate" />) each fan out
+  dozens of subagents from a workflow script, which `/do`'s flow has no way to
+  express.
 - **It opens with a short interview.** Before any work, `/be` asks a single
   batched `AskUserQuestion` — the one and only moment it asks you anything — to
   pin down a few choices up front rather than guessing.

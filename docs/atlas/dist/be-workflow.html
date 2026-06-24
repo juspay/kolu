@@ -290,12 +290,14 @@ or to deeper reading where there is some.</p>
 and asks nothing along the way either, so autonomy is <em>not</em> what sets them apart.
 Two things actually do:</p>
 <ul>
-<li><strong>It’s built for Claude Code’s <code>Workflow</code> tool.</strong> That’s the reason <code>/be</code>
-exists as its own skill. <code>/do</code> is harness-agnostic; <code>/be</code> is optimized for
-Claude Code so its review gauntlet can run <em>dynamic, <code>Workflow</code>-backed</em>
-reviewers — the debate skills <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a> drives
-(<a href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a>, <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a>) fan out as
-multi-agent workflows that <code>/do</code>’s flow has no way to express.</li>
+<li><strong>It’s built for Claude Code’s <a href="https://code.claude.com/docs/en/workflows">dynamic workflows</a>.</strong>
+That’s the reason <code>/be</code> exists as its own skill. A dynamic workflow is a script
+Claude Code’s runtime executes to orchestrate many subagents at scale. <code>/do</code> is
+harness-agnostic; <code>/be</code> is optimized for Claude Code so its review gauntlet can
+run as dynamic workflows — the debate skills <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a> drives
+(<a href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a>, <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a>) each fan out
+dozens of subagents from a workflow script, which <code>/do</code>’s flow has no way to
+express.</li>
 <li><strong>It opens with a short interview.</strong> Before any work, <code>/be</code> asks a single
 batched <code>AskUserQuestion</code> — the one and only moment it asks you anything — to
 pin down a few choices up front rather than guessing.</li>
