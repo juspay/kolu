@@ -55,12 +55,30 @@ export const Skill = (props) => {
 
 <Svg svg={workflow} wide caption="The /be pipeline. The spine (top to bottom) is the six phases; skills attach to the right of each. The magenta loop is the review gauntlet — four reviewers run strictly one after another, each the sole editor of the branch while it runs. Ship fans into two parallel lanes (CI and evidence) that rejoin before Done. Click any skill node to open its source." />
 
-## One interview, then autonomy
+## How /be differs from /do
 
-`/be` differs from its ancestor <Skill name="do" /> in exactly one place: it
-**opens with a short interview** and is **autonomous everywhere after**. The
-interview is a single batched `AskUserQuestion` call — the one and only moment
-`/be` asks you anything — covering three things:
+`/be` is the Claude-Code-native descendant of <Skill name="do" />. Both run
+**fully autonomously** start to finish — `/do` is "mostly autonomous" by design
+and asks nothing along the way either, so autonomy is *not* what sets them apart.
+Two things actually do:
+
+- **It's built for Claude Code's `Workflow` tool.** That's the reason `/be`
+  exists as its own skill. `/do` is harness-agnostic; `/be` is optimized for
+  Claude Code so its review gauntlet can run *dynamic, `Workflow`-backed*
+  reviewers — the debate skills <Skill name="be-review" /> drives
+  (<Skill name="lens-debate" />, <Skill name="codex-debate" />) fan out as
+  multi-agent workflows that `/do`'s flow has no way to express.
+- **It opens with a short interview.** Before any work, `/be` asks a single
+  batched `AskUserQuestion` — the one and only moment it asks you anything — to
+  pin down a few choices up front rather than guessing.
+
+`/be` lives in kolu today, but it's meant to be **upstreamed** — to
+[agency](https://github.com/srid/agency) (where `/do` and most review skills
+already live) or another home — so it can decouple from kolu and be used
+anywhere. The kolu-specific pieces it leans on (the <Skill name="pu" /> box,
+<Skill name="dev-server" />, the Atlas) are the seams that work would tease apart.
+
+The interview covers three things:
 
 - **Plan first?** Write the plan as an [Atlas note](/atlas/meta.html) for review
   before implementing, or go straight to code. Default: straight, unless the task
@@ -142,7 +160,7 @@ Phase 5 runs two independent lanes at once — there's no reason to wait for gre
 before capturing:
 
 - **CI** — <Skill name="ci" /> kicks off the pipeline first, backgrounded, driven
-  through the odu MCP face (<Skill name="odu-mcp" />): `run` → wait for settle →
+  through the [odu](https://kolu.dev/blog/odu/) MCP face (<Skill name="odu-mcp" />): `run` → wait for settle →
   read the red node's log → rerun. It reacts to failures the moment they land.
 - **Evidence** — <Skill name="evidence" /> captures on-screen behavior (a
   screenshot or a video) for any change with a visible effect, then posts it under
