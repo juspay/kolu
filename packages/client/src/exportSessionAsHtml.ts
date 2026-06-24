@@ -20,22 +20,26 @@ async function fetchHtml(id: TerminalId, mode: TranscriptHtmlMode) {
   return await client.terminal.exportTranscriptHtml({ id, mode });
 }
 
-function openExport(html: string, filename: string): void {
+/** Own the object-URL lifecycle once: mint a blob URL for the document, hand
+ *  it to a delivery strategy, and revoke after a generous delay so the new tab
+ *  (or download) has time to fetch and parse it while this document is alive. */
+function withBlobUrl(html: string, deliver: (url: string) => void): void {
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  // Open in a new tab. The blob URL stays valid as long as this document is
-  // alive; revoke after a generous delay so the new tab has time to fetch and
-  // parse it.
-  const win = window.open(url, "_blank", "noopener");
-  if (!win) triggerDownload(url, filename);
+  deliver(url);
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+function openExport(html: string, filename: string): void {
+  withBlobUrl(html, (url) => {
+    // Open in a new tab; fall back to a download when the popup is blocked.
+    const win = window.open(url, "_blank", "noopener");
+    if (!win) triggerDownload(url, filename);
+  });
+}
+
 function downloadExport(html: string, filename: string): void {
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  triggerDownload(url, filename);
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  withBlobUrl(html, (url) => triggerDownload(url, filename));
 }
 
 export async function exportSessionAsHtml(
