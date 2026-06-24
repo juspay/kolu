@@ -35,9 +35,11 @@ be-review pushes only once, after all selected steps finish. A comment that name
 a commit SHA must never be posted while that SHA is local-only — if a later step
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); be-review captures the comment body each returns, pushes once at
-the end, and only then posts the lens comment, the codex comment, and its own
-police summary. No PR comment can reference a local-only commit.
+(`--no-comment`); be-review captures each comment body (the lens skill returns one
+ready; the codex body it assembles from `commentHeader` + the section files —
+step 2), pushes once at the end, and only then posts the lens comment, the codex
+comment, and its own police summary. No PR comment can reference a local-only
+commit.
 
 ## Preflight
 
@@ -122,10 +124,21 @@ the workflow's notification arrives or it has provably errored.
    not just the diff** — every round) and `rationale` (so codex doesn't flag
    deliberate decisions at the source) straight through. Its step-2 `Workflow` runs
    in the background; **wait for it to finish** before starting the simplify step.
-   It commits its rounds and **returns** its rendered comment body — hold onto it
-   to post after the final push. (On persistent `reviewer-error` there is **no
-   body to post** — per `/codex-debate`, an unresolved reviewer error is not a
-   consensus to report; skip the codex comment in that case.)
+   It commits its rounds and returns a `commentHeader` plus the per-round section
+   files under `workDir` (it no longer returns a single pre-rendered comment string).
+   **Assemble the comment body now and hold it** to post after the final push —
+   capture it immediately so a later step can't disturb the scratch:
+
+   ```bash
+   {
+     printf '%s\n' "$commentHeader"
+     for f in "$workDir"/section-*.md; do printf '\n'; cat "$f"; printf '\n'; done
+   } > "$workDir/comment.md"   # hold this path for the post-after-push step
+   ```
+
+   (On persistent `reviewer-error` there is **no body to post** — per
+   `/codex-debate`, an unresolved reviewer error is not a consensus to report; skip
+   the codex comment in that case.)
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
    in `consensus`, `commit-incomplete` (see below), or `reviewer-error` — the
@@ -191,9 +204,10 @@ merges when satisfied.
 When you do post, post **one comment per track that produced a body** — skip any
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (lens on `merge-base-error`, codex on persistent `reviewer-error`): the
-lens body and the codex body verbatim (`gh pr comment -F`), and the police
-summary (the `## [👮 Code-police](https://agency.srid.ca/)` comment described in
-Report).
+lens body and the codex body verbatim (`gh pr comment -F` — the codex body is the
+`$workDir/comment.md` you assembled in step 2 from `commentHeader` + the section
+files), and the police summary (the
+`## [👮 Code-police](https://agency.srid.ca/)` comment described in Report).
 
 ## Report
 
