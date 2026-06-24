@@ -27,6 +27,7 @@ import {
   type AwarenessRecord,
   type AwarenessSignals,
   type AwarenessSink,
+  type CommandRunSample,
   startAwareness,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
@@ -649,7 +650,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const signals: AwarenessSignals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<string>(),
+      commandRun: inMemoryChannel<CommandRunSample>(),
       foreground: inMemoryChannel<ForegroundSample>(),
     };
     const record: AwarenessRecord = {
@@ -682,7 +683,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     void bridgeStream(
       ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
-      (msg) => signals.commandRun.publish(msg.command),
+      (msg) =>
+        signals.commandRun.publish({
+          command: msg.command,
+          replayed: msg.replayed,
+        }),
     );
     void bridgeStream(
       ptyHostClient.surface.foreground.get({ id }, { signal }),

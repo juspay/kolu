@@ -23,7 +23,7 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample, PtyHostClient } from "kaval";
 import type { Logger } from "pino";
-import type { AwarenessSignals } from "./sensors.ts";
+import type { AwarenessSignals, CommandRunSample } from "./sensors.ts";
 import type { TerminalId } from "./schema.ts";
 
 /** Pump a kaval tap stream onto a channel until `signal` aborts. Fire-and-
@@ -64,7 +64,7 @@ export function bridgeKavalTaps(
   const signals: AwarenessSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<string>(),
+    commandRun: inMemoryChannel<CommandRunSample>(),
     foreground: inMemoryChannel<ForegroundSample>(),
   };
   const tapError =
@@ -87,7 +87,11 @@ export function bridgeKavalTaps(
   bridgeStream(
     client.surface.commandRun.get({ id }, { signal }),
     signal,
-    (m) => signals.commandRun.publish(m.command),
+    (m) =>
+      signals.commandRun.publish({
+        command: m.command,
+        replayed: m.replayed,
+      }),
     tapError("commandRun"),
   );
   bridgeStream(

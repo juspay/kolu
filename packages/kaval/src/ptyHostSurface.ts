@@ -246,10 +246,17 @@ export const ptyHostSurface = defineSurface({
       inputSchema: TerminalIdInputSchema,
       outputSchema: z.object({ title: z.string() }),
     },
-    /** OSC 633;E preexec command lines. */
+    /** OSC 633;E preexec command lines. Snapshot-then-deltas: the first frame
+     *  replays the last command seen before subscribe (`replayed: true`) so a
+     *  late/restarted sensor still learns it; subsequent frames are live marks
+     *  (`replayed: false`). The flag lets consumers seed detection from the
+     *  replay WITHOUT re-firing live-only side effects (recent-agent recency). */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.object({ command: z.string() }),
+      outputSchema: z.object({
+        command: z.string(),
+        replayed: z.boolean(),
+      }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */
     foreground: {

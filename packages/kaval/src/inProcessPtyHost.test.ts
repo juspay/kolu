@@ -143,17 +143,24 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
       id,
       data: "printf '\\033]633;E;codex\\033\\\\'\n",
     });
-    expect((await nextFrame(early)).command).toContain("codex");
+    const liveFrame = await nextFrame(early);
+    expect(liveFrame.command).toContain("codex");
+    // A live mark is flagged `replayed: false`.
+    expect(liveFrame.replayed).toBe(false);
     ac1.abort();
 
     // The repro: a NEW subscriber, joining after the mark, must still receive
     // the command — snapshot-first, on its very first frame. Before the fix it
-    // got nothing and this hangs to the nextFrame timeout.
+    // got nothing and this hangs to the nextFrame timeout. The frame is flagged
+    // `replayed: true` so the consumer seeds detection WITHOUT re-firing the
+    // live-only recent-agent recency bump.
     const ac2 = new AbortController();
     const late = (
       await client.surface.commandRun.get({ id }, { signal: ac2.signal })
     )[Symbol.asyncIterator]();
-    expect((await nextFrame(late)).command).toContain("codex");
+    const replayFrame = await nextFrame(late);
+    expect(replayFrame.command).toContain("codex");
+    expect(replayFrame.replayed).toBe(true);
 
     ac2.abort();
     await client.surface.terminal.kill({ id });

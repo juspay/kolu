@@ -97,6 +97,14 @@ export interface AwarenessRecord {
   currentAgent: string | null;
 }
 
+/** A preexec command mark off the `commandRun` tap. `replayed` is true for the
+ *  snapshot-first frame the pty-host emits on subscribe (the last command seen
+ *  before the subscriber joined), false for a live mark. */
+export interface CommandRunSample {
+  command: string;
+  replayed: boolean;
+}
+
 /** Per-terminal signals the sensors subscribe to. The host (kolu-server's
  *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
@@ -104,7 +112,13 @@ export interface AwarenessRecord {
 export interface AwarenessSignals {
   cwd: Channel<string>;
   title: Channel<string>;
-  commandRun: Channel<string>;
+  /** Preexec command marks. `replayed` distinguishes the snapshot-first frame
+   *  (the last command seen before subscribe, replayed so a late/restarted
+   *  sensor still learns it) from a live mark. The agent-command tracker seeds
+   *  detection from BOTH, but fires the live-only recent-agent recency bump
+   *  ONLY on a live mark — a replay must not reorder the MRU as if the user
+   *  just ran the command. */
+  commandRun: Channel<CommandRunSample>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
    *  `ptyHandle.process` / `.foregroundPid` reads, so the sensor set works across a
@@ -383,7 +397,7 @@ function startAgentCommandSensor(
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
-    onEvent: (raw) => {
+    onEvent: ({ command: raw, replayed }) => {
       const normalized = parseAgentCommand(raw);
       record.currentAgent = normalized
         ? agentNameFromCommand(normalized)
@@ -394,7 +408,11 @@ function startAgentCommandSensor(
             m.lastAgentCommand = normalized;
           });
         }
-        sink.trackRecentAgent?.(normalized);
+        // Recent-agent recency stamps `Date.now()` — a LIVE-only effect. A
+        // replayed snapshot (a late/restarted sensor catching up) must seed
+        // detection above WITHOUT re-bumping the MRU as if the command just
+        // ran, or a reconnect would reorder recent-agents spuriously.
+        if (!replayed) sink.trackRecentAgent?.(normalized);
       }
     },
     onError: (err) =>

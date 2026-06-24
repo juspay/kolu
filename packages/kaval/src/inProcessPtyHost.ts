@@ -144,20 +144,23 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
         },
       },
-      // Preexec command marks — the last command first so a sensor that
-      // attaches AFTER the mark (a lazily-attaching or restarted pulam) still
-      // learns it and resolves a command-only agent like codex, then live
-      // deltas. Mirrors `foreground` below; a replayed command is harmless —
-      // the consumer's reconcile is idempotent and the `shellIdle` gate keeps
-      // a stale replay from resolving to an agent once the shell goes idle.
+      // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
+      // last command replays first (`replayed: true`) so a sensor that attaches
+      // AFTER the mark (a lazily-attaching or restarted pulam) still learns it
+      // and resolves a command-only agent like codex; live marks follow with
+      // `replayed: false`. The flag is load-bearing, NOT decorative: unlike
+      // `foreground`, this stream's consumer has a LIVE-ONLY side effect
+      // (recent-agent recency stamps `Date.now()`), so a replay must be
+      // distinguishable or a reconnect/late-subscribe would re-bump an old
+      // command's recency as if the user just ran it.
       commandRun: {
         source: async function* (input, signal) {
           requirePty(input.id as PtyId);
           const sub = host.subscribeCommandRun(input.id, signal);
           const last = host.getLastCommand(input.id);
-          if (last !== undefined) yield { command: last };
+          if (last !== undefined) yield { command: last, replayed: true };
           for await (const command of sub) {
-            yield { command };
+            yield { command, replayed: false };
           }
         },
       },
