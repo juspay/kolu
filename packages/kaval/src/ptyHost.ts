@@ -276,6 +276,10 @@ export interface PtyHost {
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
   getProcess(id: PtyId): string | undefined;
+  /** Last command line seen on an OSC 633;E mark, or `undefined` if none yet /
+   *  gone. The synchronous read the `commandRun` source replays snapshot-first,
+   *  mirroring {@link getProcess} for the `foreground` source. */
+  getLastCommand(id: PtyId): string | undefined;
   /** Current cwd, or `undefined` if gone. */
   getCwd(id: PtyId): string | undefined;
   /** Last OSC 0/2 title (empty string if none yet), or `undefined` if
@@ -312,6 +316,10 @@ interface Entry {
   cwdChannel: Channel<string>;
   titleChannel: Channel<string>;
   commandRunChannel: Channel<string>;
+  /** Last command line seen on an OSC 633;E mark (`undefined` until the first),
+   *  retained so the `commandRun` source can replay it snapshot-first to a late
+   *  subscriber — mirroring how `foreground` replays the current process. */
+  lastCommand: string | undefined;
   foregroundChannel: Channel<ForegroundSample>;
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
@@ -499,6 +507,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cwdChannel: new Channel<string>(),
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
+      lastCommand: undefined,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
       foregroundTimers: [],
@@ -547,6 +556,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // including any secrets; consumers normalize before logging at
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
+        // Retain the command BEFORE publishing so the synchronous
+        // `getLastCommand` is already current for anyone the publish wakes.
+        entry.lastCommand = command;
         entry.commandRunChannel.publish(command);
         // The agent process forks AFTER this mark — re-sample foreground
         // across the settle window so detection sees the real foreground.
@@ -746,6 +758,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     size: () => entries.size,
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
+    getLastCommand: (id) => entries.get(id)?.lastCommand,
     getCwd: (id) => entries.get(id)?.cwd,
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,

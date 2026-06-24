@@ -1,18 +1,14 @@
-/** @jsxRuntime automatic */
-/** @jsxImportSource preact */
-/** Render a `Transcript` to a self-contained HTML document.
+/** Render a `Transcript` to a small, self-contained HTML document.
  *
- *  Thin orchestrator. Heavy lifting lives in:
- *  - `markdown.ts` — `marked` engine for prose
- *  - `pierre.ts` — `@pierre/diffs/ssr` for code surfaces
- *  - `components.tsx` — SolidJS components for the document tree
- *  - `styles.css` — page chrome + role/event styling
- *  - `script.js` — interactive chrome (nav, toggles, theme, collapse)
+ *  The export has two modes:
+ *  - `chat`: just the visible conversation, for reading and sharing
+ *  - `full`: the same conversation plus collapsed audit details
  *
- *  Async because both `marked` (Pierre-routed code blocks) and Pierre
- *  itself produce promises. Per-event work fans out via `Promise.all`
- *  before SSR so the SolidJS component tree renders synchronously and
- *  there's no Suspense boundary needed. */
+ *  Both modes deliberately avoid custom elements and syntax-highlighting
+ *  payloads. Hidden export content is still file weight, so the lightweight
+ *  chat mode omits non-conversation payloads instead of hiding them with CSS.
+ *  The only runtime script is a tiny prompt-jump helper when a transcript has
+ *  multiple human messages. */
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -20,155 +16,393 @@ import { fileURLToPath } from "node:url";
 
 import { escapeHtml } from "@kolu/html-escape";
 import {
+  MODE_LABEL,
   relativizeTranscript,
   type ToolInput,
   type Transcript,
   type TranscriptEvent,
+  type TranscriptHtmlMode,
 } from "kolu-transcript-core";
-import { renderToString } from "preact-render-to-string";
+import { Marked } from "marked";
 
-import {
-  computeDepths,
-  countEvents,
-  Document,
-  deriveDisplayTitle,
-  isEditClass,
-  type RenderedEvent,
-} from "./components.tsx";
-import { renderMarkdown, renderUserMarkdown } from "./markdown.ts";
-import {
-  buildPierreBootstrap,
-  renderEdit,
-  renderPatch,
-  renderWrite,
-} from "./pierre.ts";
+export type { TranscriptHtmlMode };
 
-/** A long body — markdown or Pierre — wraps in a collapse shell when
- *  source-text line count exceeds this. Same threshold across kinds
- *  so the doc reads consistently: anything beyond ~20 lines gets a
- *  "Show all N lines" toggle. */
-const COLLAPSE_THRESHOLD = 20;
+export interface TranscriptHtmlOptions {
+  mode: TranscriptHtmlMode;
+}
 
-/** Read a sibling source file at module-init time and cache the
- *  contents. Used to inline `styles.css` and `script.js` into the
- *  exported document — neither has a build step, so we ship the raw
- *  source from disk via ESM-style resolution. */
 const SRC_DIR = dirname(fileURLToPath(import.meta.url));
 const STYLES = readFileSync(join(SRC_DIR, "styles.css"), "utf8");
 const SCRIPT = readFileSync(join(SRC_DIR, "script.js"), "utf8");
 
-/** Wrap a pre-rendered HTML body in a collapsible shell when it
- *  exceeds the threshold. The same `.msg-collapsible` machinery
- *  drives prose AND code chunks so the toggle UI is consistent. The
- *  body lives inside an inner `<div class="collapse-body">` so the
- *  height clip applies even when the body has multiple top-level
- *  children (e.g. an Edit with several Pierre chunks). */
-function maybeCollapse(html: string, lineCount: number): string {
-  if (lineCount <= COLLAPSE_THRESHOLD) return html;
-  return `<div class="msg-collapsible is-collapsed" data-line-count="${lineCount}"><div class="collapse-body">${html}</div><button type="button" class="collapse-toggle" aria-expanded="false"><span class="collapse-chevron" aria-hidden="true">▼</span><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
+const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
+  "claude-code": "Claude Code",
+  opencode: "OpenCode",
+  codex: "Codex",
+};
+
+const mdProse = makeMarked({ breaks: false });
+const mdUser = makeMarked({ breaks: true });
+
+function makeMarked(options: { breaks: boolean }): Marked {
+  return new Marked({
+    gfm: true,
+    breaks: options.breaks,
+    renderer: {
+      code(token) {
+        const lang = token.lang?.trim();
+        const langAttr =
+          lang && /^[A-Za-z0-9_-]+$/.test(lang)
+            ? ` class="language-${escapeHtml(lang)}"`
+            : "";
+        return `<pre><code${langAttr}>${escapeHtml(token.text)}</code></pre>`;
+      },
+      html(token) {
+        // marked passes raw HTML tokens (block and inline) through verbatim by
+        // default. This document is built to be shared, so an assistant or user
+        // message containing `<img src=x onerror=…>` or `<script>` would be
+        // stored XSS in whoever opens the file. Escape raw HTML to its literal
+        // text — also the faithful rendering of a transcript.
+        return escapeHtml(token.text);
+      },
+      heading(token) {
+        const text = this.parser.parseInline(token.tokens);
+        const level = Math.min(token.depth + 2, 6);
+        return `<h${level}>${text}</h${level}>`;
+      },
+      link(token) {
+        const text = this.parser.parseInline(token.tokens);
+        const titleAttr = token.title
+          ? ` title="${escapeHtml(token.title)}"`
+          : "";
+        return `<a href="${escapeHtml(token.href)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+      },
+    },
+  });
 }
 
-/** Compute a representative line count for a code surface so the
- *  collapse threshold has something to compare against. Sums old +
- *  new for an Edit; raw content for Write/Patch. */
-function codeLineCount(input: ToolInput): number {
-  if (input.kind === "edit") {
-    return input.edits.reduce(
-      (n, e) => n + e.oldText.split("\n").length + e.newText.split("\n").length,
-      0,
-    );
-  }
-  if (input.kind === "write") return input.content.split("\n").length;
-  if (input.kind === "patch") return input.text.split("\n").length;
-  return 0;
+async function renderMarkdown(text: string): Promise<string> {
+  return await mdProse.parse(text);
 }
 
-/** Render the Pierre body for an edit-class tool call. Multi-edit
- *  inputs concatenate their per-edit chunks. */
-async function renderEditBody(input: ToolInput): Promise<string> {
-  if (input.kind === "edit") {
-    const chunks = await Promise.all(
-      input.edits.map((e) => renderEdit(input.filePath, e.oldText, e.newText)),
-    );
-    return chunks.join("");
+async function renderUserMarkdown(text: string): Promise<string> {
+  return await mdUser.parse(text);
+}
+
+function compactText(text: string, max: number): string {
+  const compacted = text.replace(/\s+/g, " ").trim();
+  return compacted.length > max ? `${compacted.slice(0, max - 1)}…` : compacted;
+}
+
+function firstLine(text: string): string {
+  return (
+    text
+      .split(/\r?\n/)
+      .find((line) => line.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+function shortenPath(path: string): string {
+  if (path.startsWith("./") || path.startsWith("../") || !path.includes("/"))
+    return path;
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length <= 2) return path;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+function plainFromMarkdownLine(line: string): string {
+  return line
+    .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+)/, "")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, "$1")
+    .trim();
+}
+
+function plainPreviewFromMarkdown(text: string): string {
+  for (const raw of text.split(/\r?\n/)) {
+    const cleaned = plainFromMarkdownLine(raw);
+    if (cleaned.length > 0) return cleaned;
   }
-  if (input.kind === "write")
-    return await renderWrite(input.filePath, input.content);
-  if (input.kind === "patch") return await renderPatch(input.text);
   return "";
 }
 
-/** Pre-resolve the async body for one event. The output is a string
- *  of HTML that the SolidJS component splats via `innerHTML`. Per
- *  kind:
- *  - user → marked output with hard line breaks, optionally wrapped
- *    in a collapse shell when the prompt is long
- *  - assistant → marked output, optionally collapsed
- *  - reasoning → marked output (already nested inside a `<details>`,
- *    so no outer collapse)
- *  - tool_call (edit-class) → concatenated Pierre chunks, optionally
- *    collapsed
- *  - other kinds → undefined; the component renders inline */
-async function preRenderEvent(
-  event: TranscriptEvent,
-): Promise<string | undefined> {
-  if (event.kind === "user") {
-    const body = `<div class="card-text card-text--user md">${await renderUserMarkdown(event.text)}</div>`;
-    return maybeCollapse(body, event.text.split("\n").length);
+function deriveDisplayTitle(transcript: Transcript): string {
+  for (const event of transcript.events) {
+    if (event.kind === "user") {
+      const preview = plainPreviewFromMarkdown(event.text);
+      if (preview.length > 0)
+        return preview.length > 120 ? `${preview.slice(0, 117)}…` : preview;
+    }
   }
-  if (event.kind === "assistant") {
-    const body = `<div class="card-text card-text--assistant md">${await renderMarkdown(event.text)}</div>`;
-    return maybeCollapse(body, event.text.split("\n").length);
+  if (transcript.title && transcript.title.length > 0) return transcript.title;
+  return `Session ${transcript.sessionId.slice(0, 8)}`;
+}
+
+function formatTimestamp(ts: number | null): string {
+  if (ts === null) return "";
+  try {
+    return new Date(ts).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return "";
   }
-  if (event.kind === "reasoning") {
-    return `<div class="card-text card-text--reasoning md">${await renderMarkdown(event.text)}</div>`;
+}
+
+function formatExportDate(value: number): string {
+  try {
+    return new Date(value).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return String(value);
   }
-  if (event.kind === "tool_call" && isEditClass(event.inputs)) {
-    const body = await renderEditBody(event.inputs);
-    return maybeCollapse(body, codeLineCount(event.inputs));
+}
+
+function formatTokens(value: number | null): string | null {
+  if (value === null) return null;
+  try {
+    return new Intl.NumberFormat("en", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(value);
+  } catch {
+    return String(value);
   }
-  return undefined;
+}
+
+function eventCounts(events: TranscriptEvent[]): {
+  user: number;
+  assistant: number;
+  detail: number;
+} {
+  let user = 0;
+  let assistant = 0;
+  let detail = 0;
+  for (const event of events) {
+    if (event.kind === "user") user++;
+    else if (event.kind === "assistant") assistant++;
+    else detail++;
+  }
+  return { user, assistant, detail };
+}
+
+function humanMessageCount(events: TranscriptEvent[]): number {
+  return events.filter((event) => event.kind === "user").length;
+}
+
+function metaParts(transcript: Transcript, mode: TranscriptHtmlMode): string[] {
+  const counts = eventCounts(transcript.events);
+  const parts = [
+    AGENT_LABEL[transcript.agentKind],
+    MODE_LABEL[mode],
+    `${counts.user} prompts`,
+    `${counts.assistant} replies`,
+  ];
+  if (mode === "full") parts.push(`${counts.detail} details`);
+  const tokens = formatTokens(transcript.contextTokens);
+  if (tokens) parts.push(`${tokens} tokens`);
+  if (transcript.cwd) parts.push(transcript.cwd);
+  return parts;
+}
+
+function detailSummary(input: ToolInput): string {
+  switch (input.kind) {
+    case "edit":
+      return `Edited ${shortenPath(input.filePath)}`;
+    case "write":
+      return `Wrote ${shortenPath(input.filePath)}`;
+    case "patch": {
+      const head = firstLine(input.text);
+      return `Applied patch${head ? `: ${compactText(head, 90)}` : ""}`;
+    }
+    case "read":
+      return `Read ${shortenPath(input.filePath)}`;
+    case "bash":
+      return `Ran ${compactText(input.command, 100)}`;
+    case "glob":
+      return `Glob ${input.pattern}${input.path ? ` in ${shortenPath(input.path)}` : ""}`;
+    case "grep":
+      return `Grep ${input.pattern}${input.path ? ` in ${shortenPath(input.path)}` : ""}`;
+    case "fetch":
+      return `Fetched ${input.url}`;
+    case "web_search":
+      return `Searched ${compactText(input.query, 100)}`;
+    case "skill":
+      return `Skill ${input.name}${input.args ? `: ${compactText(input.args, 90)}` : ""}`;
+    case "task":
+      return `Task ${input.op}${input.summary ? `: ${compactText(input.summary, 90)}` : ""}`;
+    case "ask":
+      return `Asked ${compactText(input.question, 100)}`;
+    case "plan_mode":
+      return `Plan ${input.op}${input.plan ? `: ${compactText(input.plan, 90)}` : ""}`;
+    case "worktree":
+      return `Worktree ${input.op}${input.path ? `: ${input.path}` : ""}`;
+    case "cron":
+      return `Cron ${input.op}${input.summary ? `: ${compactText(input.summary, 90)}` : ""}`;
+    case "monitor":
+      return `Monitored ${compactText(input.command, 100)}`;
+    case "lsp":
+      return `LSP ${input.op}${input.summary ? `: ${compactText(input.summary, 90)}` : ""}`;
+    case "mcp_resource":
+      return `MCP ${input.op}${input.uri ? `: ${input.uri}` : ""}`;
+    case "send_message":
+      return `Message to ${input.to}: ${compactText(input.content, 80)}`;
+    case "team":
+      return `Team ${input.op}${input.summary ? `: ${compactText(input.summary, 90)}` : ""}`;
+    case "tool_search":
+      return `Tool search ${compactText(input.query, 100)}`;
+    case "unknown":
+      return `Tool ${input.toolName}`;
+  }
+}
+
+function prettyJson(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function detailPre(value: unknown): string {
+  return `<pre>${escapeHtml(prettyJson(value))}</pre>`;
+}
+
+function timestampHtml(ts: number | null): string {
+  const formatted = formatTimestamp(ts);
+  return formatted ? `<time>${escapeHtml(formatted)}</time>` : "";
+}
+
+async function renderChatEvent(
+  event: Extract<TranscriptEvent, { kind: "user" | "assistant" }>,
+  humanPosition: { index: number; total: number } | null,
+): Promise<string> {
+  const role = event.kind === "user" ? "Human" : "AI";
+  const humanAttrs = humanPosition
+    ? ` id="human-${humanPosition.index}" data-human-message tabindex="-1"`
+    : "";
+  const ariaLabel = humanPosition
+    ? `${role} message ${humanPosition.index} of ${humanPosition.total}`
+    : `${role} message`;
+  const body =
+    event.kind === "user"
+      ? await renderUserMarkdown(event.text)
+      : await renderMarkdown(event.text);
+  const model =
+    event.kind === "assistant" && event.model
+      ? `<span class="model">${escapeHtml(event.model)}</span>`
+      : "";
+  return `<section class="message ${event.kind}"${humanAttrs} aria-label="${escapeHtml(ariaLabel)}">
+  <header><strong class="speaker">${role}</strong>${model}${timestampHtml(event.ts)}</header>
+  <div class="body">${body}</div>
+</section>`;
+}
+
+type DetailEvent = Exclude<TranscriptEvent, { kind: "user" | "assistant" }>;
+
+function renderDetailEvent(event: DetailEvent): string {
+  switch (event.kind) {
+    case "reasoning":
+      return `<details class="detail reasoning"><summary>Reasoning ${timestampHtml(event.ts)}</summary><div class="detail-body">${detailPre(event.text)}</div></details>`;
+    case "tool_call":
+      return `<details class="detail tool-call"><summary>${escapeHtml(detailSummary(event.inputs))} ${timestampHtml(event.ts)}</summary><div class="detail-body"><p class="muted">${escapeHtml(event.toolName)}</p>${detailPre(event.inputs)}</div></details>`;
+    case "tool_result":
+      return `<details class="detail tool-result${event.isError ? " error" : ""}"><summary>Tool result${event.isError ? " error" : ""} ${timestampHtml(event.ts)}</summary><div class="detail-body">${detailPre(event.output)}</div></details>`;
+    case "subtask_start":
+      return `<details class="detail subtask"><summary>Subtask: ${escapeHtml(event.description)} ${timestampHtml(event.ts)}</summary><div class="detail-body">${event.agentName ? `<p>Agent: ${escapeHtml(event.agentName)}</p>` : ""}${event.sessionId ? `<p>Session: <code>${escapeHtml(event.sessionId)}</code></p>` : ""}</div></details>`;
+    case "subtask_end":
+      return `<div class="detail-marker">End subtask</div>`;
+  }
+}
+
+async function renderEvents(
+  events: TranscriptEvent[],
+  mode: TranscriptHtmlMode,
+  humanTotal: number,
+): Promise<string> {
+  const chunks: string[] = [];
+  let humanIndex = 0;
+  for (const event of events) {
+    if (event.kind === "user" || event.kind === "assistant") {
+      const humanPosition =
+        event.kind === "user"
+          ? { index: ++humanIndex, total: humanTotal }
+          : null;
+      chunks.push(await renderChatEvent(event, humanPosition));
+    } else if (mode === "full") {
+      chunks.push(renderDetailEvent(event as DetailEvent));
+    }
+  }
+  return chunks.length > 0
+    ? chunks.join("\n")
+    : `<p class="empty">No conversation events found.</p>`;
+}
+
+function promptJumpHtml(): string {
+  return `<nav class="prompt-jump" aria-label="Human message navigation" data-prompt-nav>
+  <button type="button" data-prompt-nav-action="prev" aria-label="Previous human message" title="Previous human message">↑</button>
+  <button type="button" data-prompt-nav-action="next" aria-label="Next human message" title="Next human message">↓</button>
+</nav>`;
+}
+
+function headerHtml(
+  transcript: Transcript,
+  title: string,
+  mode: TranscriptHtmlMode,
+): string {
+  const repo =
+    transcript.repoName || transcript.pr
+      ? `<p class="repo-line">${transcript.repoName ? `<span>${escapeHtml(transcript.repoName)}</span>` : ""}${transcript.repoName && transcript.pr ? " · " : ""}${transcript.pr ? `<a href="${escapeHtml(transcript.pr.url)}" target="_blank" rel="noopener noreferrer">PR #${transcript.pr.number}</a>` : ""}</p>`
+      : "";
+  return `<header class="masthead">
+  <p class="eyebrow">Kolu export · ${escapeHtml(formatExportDate(transcript.exportedAt))} · ${escapeHtml(transcript.sessionId.slice(0, 8))}</p>
+  ${repo}
+  <h1>${escapeHtml(title)}</h1>
+  <p class="meta">${metaParts(transcript, mode).map(escapeHtml).join(" · ")}</p>
+</header>`;
 }
 
 /** Convert a Transcript to a self-contained HTML document. */
 export async function transcriptToHtml(
   transcript: Transcript,
+  options: TranscriptHtmlOptions,
 ): Promise<string> {
-  // Rewrite absolute in-cwd paths to ./relative form before render, so
-  // long paths read as `./src/foo.ts` instead of
-  // `/home/srid/code/kolu/.worktrees/damn-booth/packages/foo/src/foo.ts`.
   const prepared = relativizeTranscript(transcript);
-  const counts = countEvents(prepared.events);
-  const depths = computeDepths(prepared.events);
-  const bodies = await Promise.all(prepared.events.map(preRenderEvent));
-  const rendered: RenderedEvent[] = prepared.events.map((event, index) => ({
-    event,
-    index,
-    depth: depths[index] ?? 0,
-    bodyHtml: bodies[index],
-  }));
-  const titleText = deriveDisplayTitle(prepared);
-  const body = renderToString(
-    <Document
-      transcript={prepared}
-      titleText={titleText}
-      counts={counts}
-      rendered={rendered}
-    />,
-  );
-  const pierreBootstrap = buildPierreBootstrap();
+  const title = deriveDisplayTitle(prepared);
+  const humanTotal = humanMessageCount(prepared.events);
+  const events = await renderEvents(prepared.events, options.mode, humanTotal);
+  // The prompt-jump nav and its script are one feature, gated on the same
+  // threshold — more than one human message to jump between.
+  const hasPromptJump = humanTotal >= 2;
+  const promptJump = hasPromptJump ? promptJumpHtml() : "";
+  const script = hasPromptJump ? `<script>${SCRIPT}</script>` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(titleText)} — kolu</title>
+<title>${escapeHtml(title)} — kolu ${MODE_LABEL[options.mode].toLowerCase()}</title>
 <style>${STYLES}</style>
 </head>
-<body data-hide-tools="true" data-hide-edits="false" data-hide-reasoning="true">
-${body}
-<script>${pierreBootstrap}</script>
-<script>${SCRIPT}</script>
+<body data-export-mode="${options.mode}">
+<article class="document">
+${headerHtml(prepared, title, options.mode)}
+<main class="conversation">
+${events}
+</main>
+<footer>Exported by <a href="https://kolu.dev/" target="_blank" rel="noopener noreferrer">Kolu</a>.</footer>
+</article>
+${promptJump}
+${script}
 </body>
 </html>
 `;

@@ -4,6 +4,7 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
@@ -328,10 +329,12 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Export the active terminal's session as a standalone HTML page. */
-  async function exportSessionHtml() {
+  async function exportSessionHtml(
+    modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
+  ) {
     const id = store.activeId();
     if (id === null) return;
-    await exportSessionAsHtml(id);
+    await exportSessionAsHtml(id, modes);
   }
 
   return {

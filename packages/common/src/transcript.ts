@@ -7,25 +7,35 @@
 
 import { z } from "zod";
 
+import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
+
 export {
+  MODE_LABEL,
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,
+  type TranscriptHtmlMode,
   type TranscriptPr,
   TranscriptPrSchema,
   TranscriptSchema,
 } from "kolu-transcript-core";
 
+/** Derived from the canonical mode list in kolu-transcript-core so the RPC
+ *  contract and the renderer provably agree on one value set. */
+export const TranscriptHtmlModeSchema = z.enum(TRANSCRIPT_HTML_MODES);
+
 export const ExportTranscriptHtmlInputSchema = z.object({
   id: z.string().uuid(),
+  /** `chat` is the lightweight conversation document; `full` includes
+   *  collapsed tool/reasoning audit details. */
+  mode: TranscriptHtmlModeSchema,
 });
 
 export const ExportTranscriptHtmlOutputSchema = z.object({
-  /** Full self-contained HTML document. The client wraps it in a Blob
-   *  and opens it in a new tab — no server-side file write. */
+  /** Self-contained HTML document for the requested mode. The client wraps it
+   *  in a Blob and opens/downloads it — no server-side file write. */
   html: z.string(),
-  /** Suggested filename for "Save Page As…", derived from agent kind +
-   *  session id. */
+  /** Suggested filename, derived from agent kind + session id + mode. */
   filename: z.string(),
 });
 

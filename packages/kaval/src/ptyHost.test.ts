@@ -275,6 +275,24 @@ describe("createPtyHost", () => {
     expect(await firstEvent(host.subscribeCommandRun(id))).toBe("git status");
   });
 
+  it("retains the last command line so a late reader catches up (getLastCommand)", async () => {
+    // The retention `commandRun`'s snapshot-first source replays on subscribe:
+    // a sensor attaching AFTER the OSC 633;E mark (e.g. a late/restarted pulam)
+    // must still learn the command, so the agent isn't shown as a non-agent
+    // `node`. A long-lived shell keeps the entry alive past the mark.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf '\\033]633;E;codex\\033\\\\'; sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await waitFor(() => host.getLastCommand(id) === "codex");
+    expect(host.getLastCommand(id)).toBe("codex");
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
   it("publishes title changes on OSC 0/2", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({

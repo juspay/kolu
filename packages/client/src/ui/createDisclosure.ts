@@ -18,6 +18,8 @@ export interface Disclosure {
   openDialog: () => void;
   /** Flip the dialog (the keyboard-chord path). */
   toggle: () => void;
+  /** Close the dialog (the named intent behind `onOpenChange(false)`). */
+  close: () => void;
   /** Bind to the dialog's `onOpenChange`. */
   onOpenChange: (open: boolean) => void;
 }
@@ -28,6 +30,7 @@ export function createDisclosure(): Disclosure {
     open,
     openDialog: () => setOpen(true),
     toggle: () => setOpen((v) => !v),
+    close: () => setOpen(false),
     onOpenChange: setOpen,
   };
 }

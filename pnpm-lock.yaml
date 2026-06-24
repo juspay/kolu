@@ -1597,24 +1597,12 @@ importers:
       '@kolu/html-escape':
         specifier: workspace:*
         version: link:../html-escape
-      '@pierre/diffs':
-        specifier: ^1.2.10
-        version: 1.2.10(@shikijs/themes@4.2.0)(react@19.2.5)
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../transcript-core
       marked:
         specifier: ^18.0.2
         version: 18.0.2
-      preact:
-        specifier: ^10.29.1
-        version: 10.29.1
-      preact-render-to-string:
-        specifier: ^6.6.7
-        version: 6.6.7(preact@10.29.1)
-      ts-pattern:
-        specifier: ^5.9.0
-        version: 5.9.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -4075,14 +4063,6 @@ packages:
     resolution: {integrity: sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA==}
     peerDependencies:
       preact: '>=10 || >= 11.0.0-0'
-
-  preact-render-to-string@6.6.7:
-    resolution: {integrity: sha512-3XdbsX3+vn9dQW+jJI/FsI9rlkgl6dbeUpqLsChak6jp3j3auFqBCkno7VChbMFs5Q8ylBj6DrUkKRwtVN3nvw==}
-    peerDependencies:
-      preact: '>=10 || >= 11.0.0-0'
-
-  preact@10.29.1:
-    resolution: {integrity: sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==}
 
   preact@11.0.0-beta.0:
     resolution: {integrity: sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg==}
@@ -7224,12 +7204,6 @@ snapshots:
   preact-render-to-string@6.6.5(preact@11.0.0-beta.0):
     dependencies:
       preact: 11.0.0-beta.0
-
-  preact-render-to-string@6.6.7(preact@10.29.1):
-    dependencies:
-      preact: 10.29.1
-
-  preact@10.29.1: {}
 
   preact@11.0.0-beta.0: {}
 

@@ -8,6 +8,11 @@
 
 export type { Fetcher, FetcherInput } from "./fetcher.ts";
 export {
+  MODE_LABEL,
+  TRANSCRIPT_HTML_MODES,
+  type TranscriptHtmlMode,
+} from "./mode.ts";
+export {
   AGENT_KINDS,
   type AgentKindLiteral,
   type ToolInput,
