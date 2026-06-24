@@ -67,7 +67,7 @@ PULAM_WEB_KAVAL_SOCKETS="localhost=/run/user/1000/kaval-7692/pty-host.sock,srid@
 - **`PULAM_WEB_KAVAL_SOCKETS`** — `host=socket` pairs (see above). **Required** for any host with several kavals — i.e. **every host running kolu**; omit only for single-kaval hosts. The web twin of `pulam-tui --kaval host=socket`. A socket named for a host you don't dial fails fast.
 - **`PULAM_WEB_PORT`** (default `4800`), **`PULAM_WEB_BIND`** (default `127.0.0.1` — the RPC surface is unauthenticated, so bind loopback unless firewalled or behind a trusted proxy). A malformed port fails fast rather than silently falling back.
 
-For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api` + `/rpc`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
+For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just pulam-web` runs the Vite client (`:5800`, proxying `/api`, `/rpc`, and the dynamic `/manifest.webmanifest`) and the tsx server (`:4800`) side-by-side, sourcing the drv map from the flake.
 
 ## App icon
 

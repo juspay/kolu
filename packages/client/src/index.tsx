@@ -28,7 +28,7 @@ import "./index.css";
 // lingers. Either way the in-app dock + sound still fire. The register-or-retire
 // policy itself lives in `registerOrRetireServiceWorker` (`/lifecycle`), shared
 // with pulam-web. Run before any component — the framework-free `/lifecycle` subpath.
-registerOrRetireServiceWorker();
+void registerOrRetireServiceWorker();
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to
 // the same diagnostic probes DiagnosticInfo renders. See debug/consoleHooks.ts.

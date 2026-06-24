@@ -10,12 +10,12 @@
  * fetch-less notification worker) is wired without it — see `index.html`,
  * `src/server/main.ts` (`installPwaManifest`), and `src/client/main.tsx`.
  *
- * The dev proxy points `/rpc` (WebSocket, `ws: true`) and `/api` at the Node
- * backend (`src/server/main.ts`, default port 4800) so `pnpm dev:client` and
- * `pnpm dev:server` run side-by-side: the browser hits Vite on 5800, Vite
- * forwards the surface socket + the host-list fetch to the backend. Never used
- * in production — there the backend serves the BUILT `dist/` itself via
- * `installFreshStatic`.
+ * The dev proxy points `/rpc` (WebSocket, `ws: true`), `/api`, and the dynamic
+ * `/manifest.webmanifest` at the Node backend (`src/server/main.ts`, default port
+ * 4800) so `pnpm dev:client` and `pnpm dev:server` run side-by-side: the browser
+ * hits Vite on 5800, Vite forwards the surface socket, the host-list fetch, and
+ * the server-rendered manifest to the backend. Never used in production — there
+ * the backend serves the BUILT `dist/` itself via `installFreshStatic`.
  */
 
 import tailwindcss from "@tailwindcss/vite";
@@ -58,6 +58,11 @@ export default defineConfig({
     headers: { "Cache-Control": "no-store" },
     proxy: {
       "/api": `http://localhost:${BACKEND_PORT}`,
+      // The manifest is served DYNAMICALLY by the backend (`installPwaManifest`),
+      // so under HMR Vite must forward it too — otherwise the browser fetches it
+      // from Vite (5800) and gets a 404 / wrong content, and the PWA is
+      // uninstallable in dev. Mirrors `packages/client/vite.config.ts`.
+      "/manifest.webmanifest": `http://localhost:${BACKEND_PORT}`,
       "/rpc": {
         target: `http://localhost:${BACKEND_PORT}`,
         ws: true,

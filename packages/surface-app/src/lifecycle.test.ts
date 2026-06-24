@@ -13,6 +13,10 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHELL_COMMIT_GLOBAL } from "./index";
+// `registerOrRetireServiceWorker` is imported only for its TYPE here — the tests
+// re-import it through a fresh module each case (see `freshLifecycle`) so the
+// module-load-time `swApiAvailable` const reads the stubbed `navigator`.
+import type { registerOrRetireServiceWorker } from "./lifecycle";
 import { reloadForUpdate, shellCommit } from "./lifecycle";
 
 describe("reloadForUpdate", () => {
@@ -59,5 +63,78 @@ describe("shellCommit", () => {
   it('falls back to "dev" on an empty stamp', () => {
     vi.stubGlobal("window", { [SHELL_COMMIT_GLOBAL]: "" });
     expect(shellCommit()).toBe("dev");
+  });
+});
+
+describe("registerOrRetireServiceWorker", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  // `swApiAvailable` is captured at module load, so each case stubs `navigator`
+  // first, then re-imports the module fresh to read it under that stub.
+  async function freshLifecycle(serviceWorker: unknown): Promise<{
+    register: typeof registerOrRetireServiceWorker;
+  }> {
+    // `swApiAvailable` gates on `"serviceWorker" in navigator`, so the absent
+    // case must OMIT the key entirely, not set it to undefined.
+    vi.stubGlobal(
+      "navigator",
+      serviceWorker === undefined ? {} : { serviceWorker },
+    );
+    vi.resetModules();
+    const mod = await import("./lifecycle");
+    return { register: mod.registerOrRetireServiceWorker };
+  }
+
+  it("registers and does NOT retire when registration succeeds", async () => {
+    const register = vi.fn().mockResolvedValue({});
+    const getRegistrations = vi.fn().mockResolvedValue([]);
+    const { register: run } = await freshLifecycle({
+      register,
+      getRegistrations,
+    });
+
+    await run("/sw.js");
+
+    expect(register).toHaveBeenCalledWith("/sw.js");
+    // The success path leaves the registered worker in place — retirement, which
+    // would tear it back down via getRegistrations(), must never fire.
+    expect(getRegistrations).not.toHaveBeenCalled();
+  });
+
+  it("logs and retires when registration rejects (e.g. dev, no /sw.js)", async () => {
+    const unregister = vi.fn();
+    const register = vi.fn().mockRejectedValue(new Error("404"));
+    const getRegistrations = vi.fn().mockResolvedValue([{ unregister }]);
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    // retireServiceWorker also sweeps caches; stub the global so it no-ops.
+    vi.stubGlobal("caches", {
+      keys: vi.fn().mockResolvedValue([]),
+      delete: vi.fn(),
+    });
+    const { register: run } = await freshLifecycle({
+      register,
+      getRegistrations,
+    });
+
+    await run();
+
+    expect(register).toHaveBeenCalledOnce();
+    expect(debug).toHaveBeenCalled();
+    // Retirement ran: it enumerated registrations and unregistered the stale one,
+    // so a failed register leaves the origin with NO worker, never a half-state.
+    expect(getRegistrations).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(unregister).toHaveBeenCalledOnce());
+
+    debug.mockRestore();
+  });
+
+  it("no-ops where the service-worker API is absent", async () => {
+    const { register: run } = await freshLifecycle(undefined);
+    // Resolves without throwing — registerServiceWorker returns null, the policy
+    // settles, nothing to retire.
+    await expect(run()).resolves.toBeUndefined();
   });
 });

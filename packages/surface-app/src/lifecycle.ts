@@ -7,8 +7,8 @@
  * cache-busting navigation (`reloadForUpdate`, below — not a plain reload; see
  * its doc). The `/solid` entrypoint re-exports them so `<SurfaceAppProvider>`
  * consumers reach them from one import; this subpath is the obvious home when
- * there's no component in scope (kolu calls `registerServiceWorker()` in
- * `index.tsx` at boot).
+ * there's no component in scope (kolu and pulam-web both call
+ * `registerOrRetireServiceWorker()` here at boot).
  */
 
 import {
@@ -107,15 +107,19 @@ export function registerServiceWorker(
  *  change to the policy (the log, the fallback) lands in one place. Every root
  *  setup that wants notifications calls this; the granular
  *  `registerServiceWorker`/`retireServiceWorker` remain the escape hatch for an
- *  app that needs to compose them differently. */
-export function registerOrRetireServiceWorker(path = "/sw.js"): void {
-  void registerServiceWorker(path).catch((err) => {
-    console.debug(
-      "notification worker registration failed, retiring any SW:",
-      err,
-    );
-    retireServiceWorker();
-  });
+ *  app that needs to compose them differently. Returns the settled promise so a
+ *  test (or a caller that wants to) can await the policy; root setup `void`s it. */
+export function registerOrRetireServiceWorker(path = "/sw.js"): Promise<void> {
+  return registerServiceWorker(path).then(
+    () => {},
+    (err) => {
+      console.debug(
+        "notification worker registration failed, retiring any SW:",
+        err,
+      );
+      retireServiceWorker();
+    },
+  );
 }
 
 /** Apply the latest build with a plain `location.reload()`. A normal reload
