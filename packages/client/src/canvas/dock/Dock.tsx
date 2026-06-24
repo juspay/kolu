@@ -372,7 +372,7 @@ const RepoSection: Component<{
     data-testid="dock-section"
     data-repo={props.group.name}
     style={{ "--repo-color": props.group.color }}
-    class={`dock-cards-section grid ${DOCK_ROW_GRID_DESKTOP} gap-x-2 pl-6 ${DOCK_CARDS_GUTTER_CLASS}`}
+    class={`dock-cards-section grid ${DOCK_ROW_GRID_DESKTOP} gap-x-2 pl-3 ${DOCK_CARDS_GUTTER_CLASS}`}
   >
     {/* Header is a sticky band tinted with the repo colour (see
      *  `.dock-cards-section-header`), riding above the repo-colour
@@ -380,13 +380,14 @@ const RepoSection: Component<{
      *  `NIXOS-CONFIG` label reads as a coloured section break that
      *  stays pinned while its rows scroll, not a faint label that
      *  blends in and slides away. The name carries the repo colour
-     *  too; count stays neutral. Header text sits at `pl-3` (12 px)
-     *  from the dock's outer edge; row content sits at `pl-6`
-     *  (24 px) inside the section's grid, so the header reads as an
-     *  outdented parent and the rows nest visually beneath it. */}
+     *  too; count stays neutral. Header text and row content both sit
+     *  at `pl-3` (12 px) from the dock's outer edge, so the row's
+     *  leading status indicator aligns with the repo name — the repo
+     *  spine + tinted header band carry the grouping (R-activity-merge
+     *  reclaimed the old `pl-6` row indent). */}
     <div
       data-testid="dock-section-header"
-      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-y border-edge/30`}
+      class={`dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-3 pr-3 py-1.5 border-y border-edge/30`}
     >
       <span
         data-testid="dock-section-name"
@@ -494,12 +495,15 @@ const DockRow: Component<{
            *  terminal is moving bytes and the amber unread HALO when a
            *  fired alert is unopened. The old standalone ActivityPip
            *  column is gone (its dot is now the ring), reclaiming the
-           *  dead left margin. */}
-          <StatePip
-            variant={pipVariant(props.pip)}
-            live={activity.isLive(props.id)}
-            alert={unread()}
-          />
+           *  dead left margin. `row-span-2 self-center` centres it across
+           *  both row lines rather than pinning it to line 1. */}
+          <span class="row-span-2 flex self-center">
+            <StatePip
+              variant={pipVariant(props.pip)}
+              live={activity.isLive(props.id)}
+              alert={unread()}
+            />
+          </span>
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{

@@ -1,0 +1,84 @@
+/* The merged status indicator's two OUTER rings — the live RING and the alert
+ * HALO that `StatePip` wraps around its state core (R-activity-merge). Shipped as
+ * a CSS leaf rather than Tailwind utilities because the live ring is a thin
+ * conic-gradient arc that gently rotates — a `mask` + `conic-gradient` that
+ * doesn't express cleanly as utility classes. kolu's client AND pulam-web both
+ * `@import "@kolu/solid-statepip/statepip.css"`, so the rings are single-sourced
+ * (one definition, can't drift). Colours are the shared `@kolu/theme` CSS vars,
+ * resolved by whichever surface imports the theme.
+ *
+ * The live ring is a ring (it wraps the core); the alert is a small CORNER BADGE,
+ * deliberately NOT a second ring — a surrounding alert ring (especially nested
+ * with the live ring) read as overwhelming, so the two axes use different shapes
+ * and never compound into concentric circles. Motion is transform/opacity only
+ * (compositor-friendly — no per-frame repaint, see performance.mdx), and a
+ * reduced-motion preference holds both still. */
+
+@keyframes statepip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes statepip-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* live = this terminal is moving bytes right now: a thin green arc that sweeps
+ * gently around the core (the old standalone live-activity dot, now the
+ * indicator's rotating edge). `inset: -2px` so its outer edge matches the alert
+ * halo's; the `mask` cuts the centre so only a 1.5px ring remains; the conic arc
+ * fades at both ends so the rotation reads as a soft sweep, not a hard spinner. */
+.statepip-live-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 18%,
+    var(--color-ok) 50%,
+    transparent 82%
+  );
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 1.5px),
+    #000 calc(100% - 1.5px)
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 1.5px),
+    #000 calc(100% - 1.5px)
+  );
+  animation: statepip-spin 3.6s linear infinite;
+  pointer-events: none;
+}
+
+/* unread alert = a notification fired you haven't opened: a small amber CORNER
+ * BADGE at the top-right (the pattern the dock rail already uses), NOT a ring —
+ * so it never competes with the live ring or nests into a second circle. The
+ * dark separator lifts it off the live ring + the row background; the gentle
+ * pulse draws the eye without shouting. */
+.statepip-alert-badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--color-attention);
+  box-shadow: 0 0 0 1.5px var(--color-surface-1);
+  animation: statepip-pulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statepip-live-ring,
+  .statepip-alert-badge {
+    animation: none;
+  }
+}

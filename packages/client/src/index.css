@@ -14,6 +14,12 @@
  * them up. The sheet reads `--color-accent` (now from `@kolu/theme`). */
 @import "@kolu/solid-markdown/markdown.css";
 
+/* `@kolu/solid-statepip`'s CSS leaf — the status indicator's live RING (a
+ * rotating conic-gradient arc) + alert HALO, which can't be expressed as Tailwind
+ * utilities. Both this surface and pulam-web import it, so the rings are
+ * single-sourced and can't drift. */
+@import "@kolu/solid-statepip/statepip.css";
+
 /* `@kolu/solid-fileview` likewise ships its own Tailwind utility classes
  * (the toggle host + image/iframe appliances), so scan it too — otherwise
  * the toggle and preview-container utilities are tree-shaken away. */

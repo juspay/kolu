@@ -110,45 +110,23 @@ export const PIP_TITLES: Record<PipVariant, string> = {
   empty: "",
 };
 
-/** The merged status indicator's WRAPPER — the fixed-size circle the state core
- *  sits centred inside, carrying the two outer axes the indicator folds in
- *  (R-activity-merge). The single source for both the Dock's and pulam-web's
- *  ring + halo, so the two surfaces can't drift.
- *
- *  Both axes draw as BOX-SHADOW rings — NOT a `border` for one and a `ring` for
- *  the other, which put them at different radii (a border sits *inside* the box,
- *  a box-shadow *outside* it), so a live row's ring and an alert row's halo had
- *  visibly different diameters. A box-shadow hugs the box edge and lives outside
- *  the layout box, so:
- *    - a single axis draws ONE 2px ring at the edge — the SAME diameter whether
- *      it's the green `--color-ok` live ring (moving bytes) or the amber
- *      `--color-attention` alert halo (a fired notification), so the column
- *      reads consistently row to row;
- *    - both axes NEST — green inner (2px), amber just outside it (4px) — so the
- *      live state and the unread obligation stay legible at once.
- *  The box itself is a fixed size with NO border, so the core never shifts as the
- *  axes flip, and with neither axis the wrapper is invisible (just reserves the
- *  column). `indicatorWrapperClass` carries the size + the reduced-motion-safe
- *  alert pulse; `indicatorWrapperStyle` carries the ring colours. */
+/** The merged status indicator's WRAPPER class — the fixed-size circle the state
+ *  core sits centred inside, and the positioning context for the two outer-axis
+ *  rings (R-activity-merge). `relative` so the live ring + alert halo (absolutely
+ *  positioned, see `@kolu/solid-statepip/statepip.css`) anchor to it. Fixed size
+ *  with no border, so the core never shifts as the axes flip and an axis-less pip
+ *  is an invisible box that just reserves the column. */
 export const INDICATOR_BASE =
-  "flex flex-none items-center justify-center w-[18px] h-[18px] rounded-full";
+  "relative flex flex-none items-center justify-center w-[18px] h-[18px] rounded-full";
 
-/** The wrapper's class set — fixed size + the alert pulse. The ring COLOURS live
- *  in `indicatorWrapperStyle` (a box-shadow), kept off the class string because a
- *  two-ring live+alert shadow can't be spelled with a single Tailwind `ring-*`. */
-export function indicatorWrapperClass(alert: boolean): string {
-  return [INDICATOR_BASE, alert ? "motion-safe:animate-pulse" : ""]
-    .filter(Boolean)
-    .join(" ");
-}
+/** The live RING overlay class — a thin green arc that gently rotates while the
+ *  terminal is moving bytes (the old standalone live dot, folded into the
+ *  indicator's edge). The visual (conic-gradient + mask + spin) lives in
+ *  `statepip.css`; both surfaces import it, so it can't drift. */
+export const LIVE_RING_CLASS = "statepip-live-ring";
 
-/** The wrapper's box-shadow — the live RING and the alert HALO as concentric
- *  rings at a consistent radius (see `INDICATOR_BASE`'s note). `""` when neither
- *  axis is set. Colours are the shared `@kolu/theme` CSS vars, so both surfaces
- *  resolve them identically (the var, not a hex — single-sourced, no drift). */
-export function indicatorWrapperStyle(live: boolean, alert: boolean): string {
-  const rings: string[] = [];
-  if (live) rings.push("0 0 0 2px var(--color-ok)");
-  if (alert) rings.push(`0 0 0 ${live ? "4px" : "2px"} var(--color-attention)`);
-  return rings.length > 0 ? `box-shadow:${rings.join(",")}` : "";
-}
+/** The unread alert overlay class — a small amber CORNER BADGE (top-right), not a
+ *  ring: a surrounding alert ring (especially nested with the live ring) read as
+ *  overwhelming, so the alert uses a different shape that never competes with the
+ *  live ring. The visual lives in `statepip.css`. */
+export const ALERT_BADGE_CLASS = "statepip-alert-badge";

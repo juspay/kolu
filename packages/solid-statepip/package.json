@@ -9,7 +9,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./pipVariant": "./src/pipVariant.ts"
+    "./pipVariant": "./src/pipVariant.ts",
+    "./statepip.css": "./src/statepip.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

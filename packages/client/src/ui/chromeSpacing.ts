@@ -37,9 +37,10 @@ export const COMPACT_ICON_BUTTON_CLASS =
  *  label, "show all" footer link) sit a consistent distance from the
  *  card's rounded right edge. 12 px matches the section-header
  *  `pr-3` count inset, so every right-aligned element in the dock
- *  reads on the same vertical line. _The left side stays at 24 px
- *  (`pl-6`) because row content nests under an outdented section
- *  header at `pl-3` — the indent is hierarchical, not symmetric._
+ *  reads on the same vertical line. _The left side sits at 12 px
+ *  (`pl-3`), the SAME inset as the section header text, so the row's
+ *  leading indicator aligns with the repo name (R-activity-merge; the
+ *  repo spine + tinted header band carry the grouping, no indent needed)._
  *
  *  Paired with `DOCK_CARDS_GUTTER_NEG_CLASS`: any descendant that
  *  bleeds to the dock card's right edge (hover/active row backgrounds,
@@ -65,15 +66,21 @@ export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
 /** Layout-coupling token (not a density token like the rest of this
  *  file): cancel-and-restore the left dock gutter on a
  *  `grid-cols-subgrid` descendant of `RepoSection`. Both the cancel
- *  (`-ml-6`) and the restore (`pl-6`) have to ride on the same
+ *  (`-ml-3`) and the restore (`pl-3`) have to ride on the same
  *  element, and the left value is identical between desktop and
  *  mobile rows, so the pair lives behind one symbol — applying just
  *  the cancel without the restore would land the subgrid's first
- *  column flush against the dock's left edge. The right-side cancel
- *  + restore stays at the call site because desktop uses
- *  `DOCK_CARDS_GUTTER_*` (24 px) while the touch list uses `pr-3` /
- *  `-mr-3` (12 px); see the comment in `DockList.tsx`. */
-export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-6 pl-6";
+ *  column flush against the dock's left edge. The cancel MUST match
+ *  the section's own `pl-3` so the full-bleed row background lands on
+ *  the section's content edge. Row content sits at `pl-3` (12 px) —
+ *  the SAME inset as the section header text, so the leading indicator
+ *  aligns with the repo name rather than indenting past it
+ *  (R-activity-merge reclaimed the old 24 px `pl-6` waste; the repo
+ *  spine + tinted header band carry the grouping the indent used to).
+ *  The right-side cancel + restore stays at the call site because
+ *  desktop uses `DOCK_CARDS_GUTTER_*` (24 px) while the touch list uses
+ *  `pr-3` / `-mr-3` (12 px); see the comment in `DockList.tsx`. */
+export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-3 pl-3";
 
 /** Dock row column geometry — single invariant shared by the desktop
  *  dock (`Dock.tsx`) and the touch dock (`DockList.tsx`). The row is one

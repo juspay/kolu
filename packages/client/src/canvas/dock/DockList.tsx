@@ -90,11 +90,11 @@ function DockListSection(props: {
       data-testid="mobile-dock-section"
       data-repo={props.group.name}
       style={{ "--repo-color": props.group.color }}
-      class={`dock-cards-section grid ${DOCK_ROW_GRID_TOUCH} gap-x-3 pl-6 pr-3`}
+      class={`dock-cards-section grid ${DOCK_ROW_GRID_TOUCH} gap-x-3 pl-3 pr-3`}
     >
       <div
         data-testid="mobile-dock-section-header"
-        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
+        class="dock-cards-section-header col-span-full flex items-center gap-2 -ml-3 -mr-3 pl-3 pr-3 py-2 border-y border-edge/30"
       >
         <span
           data-testid="mobile-dock-section-name"
@@ -180,12 +180,15 @@ function DockListRow(props: {
           class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           {/* One merged status indicator — agent-state core, green live
-           *  ring, amber unread halo. See Dock.tsx's DockRow. */}
-          <StatePip
-            variant={pipVariant(props.pip)}
-            live={activity.isLive(props.id)}
-            alert={unread()}
-          />
+           *  ring, amber unread halo; centred across both row lines. See
+           *  Dock.tsx's DockRow. */}
+          <span class="row-span-2 flex self-center">
+            <StatePip
+              variant={pipVariant(props.pip)}
+              live={activity.isLive(props.id)}
+              alert={unread()}
+            />
+          </span>
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{

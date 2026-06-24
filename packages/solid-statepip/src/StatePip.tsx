@@ -27,8 +27,9 @@
 
 import { type Component, createMemo, Show } from "solid-js";
 import {
-  indicatorWrapperClass,
-  indicatorWrapperStyle,
+  ALERT_BADGE_CLASS,
+  INDICATOR_BASE,
+  LIVE_RING_CLASS,
   PIP_BODY,
   PIP_TITLES,
   type PipVariant,
@@ -51,15 +52,6 @@ export const StatePip: Component<{
   // `StatePip`'s memo forward across the lift).
   const variant = createMemo(() => props.variant);
   const body = createMemo(() => PIP_BODY[variant()]);
-  const wrapperClass = createMemo(() =>
-    indicatorWrapperClass(props.alert ?? false),
-  );
-  // The live ring + alert halo are box-shadow rings (one mechanism, one radius)
-  // so they never disagree in diameter the way a border-ring + box-shadow-halo
-  // did. Empty string when neither axis is set → no inline style.
-  const wrapperStyle = createMemo(() =>
-    indicatorWrapperStyle(props.live ?? false, props.alert ?? false),
-  );
   return (
     // `data-testid="dock-row-pip"` is the established e2e selector, now spanning
     // all three surfaces this component renders on — the dock row pip, the canvas
@@ -68,8 +60,7 @@ export const StatePip: Component<{
     // scenarios keep matching. `data-live`/`data-alert` expose the outer axes for
     // tests/inspection.
     <span
-      class={wrapperClass()}
-      style={wrapperStyle()}
+      class={INDICATOR_BASE}
       data-testid="dock-row-pip"
       data-pip={variant()}
       data-live={props.live ? "" : undefined}
@@ -78,6 +69,16 @@ export const StatePip: Component<{
     >
       <Show when={body()}>
         {(b) => <span class={b().class}>{b().glyph}</span>}
+      </Show>
+      {/* The two outer-axis overlays — a green arc that sweeps around the core
+          while the terminal is live, and a small amber corner badge while an
+          alert is unread (a badge, not a ring, so the two never compound into
+          nested circles). Visuals in statepip.css. */}
+      <Show when={props.live}>
+        <span class={LIVE_RING_CLASS} aria-hidden="true" />
+      </Show>
+      <Show when={props.alert}>
+        <span class={ALERT_BADGE_CLASS} aria-hidden="true" />
       </Show>
     </span>
   );

@@ -4,8 +4,9 @@ import {
 } from "@kolu/terminal-workspace/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
-  indicatorWrapperClass,
-  indicatorWrapperStyle,
+  ALERT_BADGE_CLASS,
+  INDICATOR_BASE,
+  LIVE_RING_CLASS,
   PIP_BODY,
   PIP_TITLES,
   type PipVariant,
@@ -99,74 +100,26 @@ describe("PIP_BODY — the rendered class set per variant", () => {
 });
 
 // The two OUTER axes the merged indicator folds around the core (R-activity-
-// merge): the green live RING and the amber unread HALO. The class carries the
-// fixed size + the alert pulse; the ring COLOURS are a box-shadow style. Both
-// surfaces (Dock + pulam-web) render the same component, so this is the one
-// definition — the "defined twice → drifts" hazard the two separate dots had,
-// closed the way R-pip-unify closed it for the core pip.
-describe("indicatorWrapperClass — fixed size + the alert pulse", () => {
-  it("quiet: a fixed box, no pulse, NO border (rings are box-shadow)", () => {
-    const cls = indicatorWrapperClass(false).split(/\s+/);
+// merge): the green live RING (a rotating arc) and the unread ALERT (a small
+// amber corner badge — a different shape, so it never competes with the ring or
+// nests into a second circle), drawn as overlay elements whose visuals live in
+// statepip.css. Both surfaces (Dock + pulam-web) render the same component +
+// import the same CSS, so this is the one definition — the "defined twice →
+// drifts" hazard the two separate dots had, closed the way R-pip-unify closed it.
+describe("the indicator wrapper + outer-axis overlays", () => {
+  it("the wrapper is a fixed-size relative box (anchors the absolute overlays)", () => {
+    const cls = INDICATOR_BASE.split(/\s+/);
+    expect(cls).toContain("relative"); // positioning context for the overlays
     expect(cls).toContain("w-[18px]");
     expect(cls).toContain("h-[18px]");
     expect(cls).toContain("rounded-full");
-    expect(cls).not.toContain("motion-safe:animate-pulse");
-    expect(indicatorWrapperClass(false)).not.toContain("border");
+    expect(cls).not.toContain("border-2"); // no border — overlays carry the rings
   });
 
-  it("alert: adds the reduced-motion-safe pulse", () => {
-    expect(indicatorWrapperClass(true).split(/\s+/)).toContain(
-      "motion-safe:animate-pulse",
-    );
-  });
-
-  it("the box is fixed-size so the core never shifts as the axes flip", () => {
-    for (const alert of [false, true]) {
-      const cls = indicatorWrapperClass(alert).split(/\s+/);
-      expect(cls).toContain("w-[18px]");
-      expect(cls).toContain("h-[18px]");
-    }
-  });
-});
-
-// The ring geometry — the live ring (`--color-ok`) and the alert halo
-// (`--color-attention`) as box-shadows. Both are drawn the SAME way (a box-shadow
-// hugging the box edge) so a single axis renders at one consistent radius — the
-// bug this closed was a `border` live-ring (inside the box) vs a `ring-2` halo
-// (outside it) reading at visibly different diameters. Colours are the shared
-// `@kolu/theme` vars so the two surfaces resolve them identically.
-describe("indicatorWrapperStyle — live ring + alert halo, consistent radius", () => {
-  it("neither axis → no box-shadow", () => {
-    expect(indicatorWrapperStyle(false, false)).toBe("");
-  });
-
-  it("live only → one green --color-ok ring at 2px", () => {
-    expect(indicatorWrapperStyle(true, false)).toBe(
-      "box-shadow:0 0 0 2px var(--color-ok)",
-    );
-  });
-
-  it("alert only → one amber --color-attention ring at 2px", () => {
-    expect(indicatorWrapperStyle(false, true)).toBe(
-      "box-shadow:0 0 0 2px var(--color-attention)",
-    );
-  });
-
-  it("a single axis draws its ring at the SAME radius — consistent diameter row to row", () => {
-    const liveWidth = indicatorWrapperStyle(true, false).match(
-      /0 0 0 (\S+) var/,
-    )?.[1];
-    const alertWidth = indicatorWrapperStyle(false, true).match(
-      /0 0 0 (\S+) var/,
-    )?.[1];
-    expect(liveWidth).toBe("2px");
-    expect(alertWidth).toBe("2px");
-    expect(liveWidth).toBe(alertWidth);
-  });
-
-  it("both axes nest — green inner (2px), amber just outside (4px)", () => {
-    expect(indicatorWrapperStyle(true, true)).toBe(
-      "box-shadow:0 0 0 2px var(--color-ok),0 0 0 4px var(--color-attention)",
-    );
+  it("the live ring + alert badge are the shared statepip.css classes", () => {
+    expect(LIVE_RING_CLASS).toBe("statepip-live-ring");
+    // a badge, NOT a halo/ring — the alert uses a distinct shape so it never
+    // compounds with the live ring into nested circles.
+    expect(ALERT_BADGE_CLASS).toBe("statepip-alert-badge");
   });
 });
