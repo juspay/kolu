@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { seedAwarenessValue } from "./index.ts";
 import { AwarenessValueSchema } from "./schema.ts";
 import {
+  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   terminalWorkspaceSurface,
@@ -47,17 +48,31 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("bumped the contract to 1.0 — a BREAKING getStatus reshape, skew in BOTH directions vs 0.3", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.0");
-    // The 1.0 getStatus `local` arm dropped the always-null `base` (and grew the
-    // branch/working-tree fields). A 0.3 viewer's schema requires `base` in every
-    // mode, so a 1.0 daemon's `local` result fails its parse — NOT additive. The
-    // gate must therefore mark the two mutually incompatible, both directions:
-    // a 1.0 daemon can't serve a 0.3 viewer that still expects `base`…
-    expect(isContractVersionCompatible("1.0", "0.3")).toBe(false);
-    // …and a 0.3 daemon can't serve a 1.0 viewer that expects branch/ahead-behind.
-    expect(isContractVersionCompatible("0.3", "1.0")).toBe(false);
-    // A newer-minor 1.x daemon (a future additive bump) still serves a 1.0 viewer.
+  it("is at 1.1 — additive `connection` cell over 1.0, still skew in BOTH directions vs 0.3", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.1");
+    // 0.3 → 1.0 was BREAKING: the getStatus `local` arm dropped the always-null
+    // `base` (and grew branch/working-tree fields), so a 0.3 viewer's schema
+    // (which requires `base` in every mode) fails to parse a 1.0 daemon's
+    // `local` result. The gate marks 1.x and 0.3 mutually incompatible, both
+    // directions — the major boundary still holds at 1.1:
+    expect(isContractVersionCompatible("1.1", "0.3")).toBe(false);
+    expect(isContractVersionCompatible("0.3", "1.1")).toBe(false);
+    // 1.0 → 1.1 is ADDITIVE (a new `connection` cell): a 1.1 daemon still serves
+    // a 1.0 viewer (extra cell ignored)…
     expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
+    // …but a 1.0 daemon does NOT satisfy a 1.1 viewer that may read the new cell
+    // (higher-minor consumer doesn't trust a lower-minor peer) — the standard
+    // additive-handshake direction.
+    expect(isContractVersionCompatible("1.0", "1.1")).toBe(false);
+  });
+
+  it("composes the gate-closed `connection` cell onto the surface", () => {
+    // The cell rides the surface so the daemon stubs it and a re-serving parent
+    // writes it live; its default is `connecting` (gate-closed) so "healthy-empty
+    // before the first frame" is unrepresentable.
+    expect(Object.keys(terminalWorkspaceSurface.spec.cells ?? {})).toEqual(
+      expect.arrayContaining(["version", "connection"]),
+    );
+    expect(DEFAULT_CONNECTION.state).toBe("connecting");
   });
 });

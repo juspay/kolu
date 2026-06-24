@@ -64,6 +64,7 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import type { ConnectionState } from "./connection.ts";
 import {
   buildAgentCommand,
   type FailureCause,
@@ -77,17 +78,12 @@ import { provisionAgent } from "./nixCopy";
 // from this module keep working.
 export type { FailureCause };
 
-export type ConnectionState =
-  | "copying"
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  // Terminal: the reconnect loop exhausted `MAX_CONSECUTIVE_FAILURES`
-  // on a `"remote"` fault and stopped retrying. Distinct from
-  // `disconnected` (the brief gap between attempts) so consumers can tell
-  // "still trying" from "gave up — needs intervention". `reconnect()`
-  // re-arms it. A `"network"` fault never reaches this state.
-  | "failed";
+// `ConnectionState` is single-sourced (with the cell's `z.enum`) from the
+// browser-safe `./connection` tuple (imported at the top), so the surface
+// schema and this lifecycle type can't drift. Re-exported here — existing
+// importers read it from this module. The `failed` terminal-state rationale
+// lives in `./connection` too.
+export type { ConnectionState };
 
 export interface HostSessionState {
   connection: ConnectionState;

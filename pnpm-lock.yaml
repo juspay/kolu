@@ -1285,6 +1285,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@orpc/server':
         specifier: ^1.13.13
@@ -1298,9 +1301,6 @@ importers:
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
 
   packages/surface/example:
     dependencies:
@@ -1503,6 +1503,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../surface-nix-host
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)

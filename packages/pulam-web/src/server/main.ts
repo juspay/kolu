@@ -123,6 +123,20 @@ async function main(): Promise<void> {
   // instance. The first-ever connect omits `pid` and always passes.
   app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
 
+  // `POST /api/reconnect?host=<id>` — the failed-card Reconnect button. A
+  // session that gave up into the terminal `failed` state only retries on an
+  // explicit re-arm (or a parent restart); `reconnect()` is that re-arm, here
+  // exposed to the browser. Unknown host → 404 (fail loud, no silent no-op).
+  app.post("/api/reconnect", (c) => {
+    const host = c.req.query("host");
+    if (host === undefined || host.length === 0 || !registry.has(host)) {
+      return c.json({ error: `unknown host: ${host ?? "<none>"}` }, 404);
+    }
+    registry.getSession(host)?.reconnect();
+    log(`reconnect requested (host=${host})`);
+    return c.json({ ok: true });
+  });
+
   // PWA manifest — served dynamically so it's one source of truth with the
   // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
   // single fleet view, not a per-host instance, so the identity is static (no

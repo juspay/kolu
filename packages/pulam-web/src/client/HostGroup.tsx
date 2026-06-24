@@ -38,17 +38,18 @@ import type {
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
-import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
+import {
+  type ConnectionInfo,
+  DEFAULT_CONNECTION,
+} from "@kolu/surface-nix-host/connection";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
   type JSX,
-  Match,
   onCleanup,
   Show,
-  Switch,
 } from "solid-js";
 import {
   agentShortName,
@@ -72,6 +73,7 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
+import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
 import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
@@ -163,49 +165,6 @@ function AgentRow(props: {
 const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
-/** The per-host connection indicator — the transport status the half-open
- *  watchdog acts on, surfaced as a persistent status dot (like kolu's header
- *  dot): a solid **green** dot when the link is healthy, an amber pulsing
- *  "connecting…" / "reconnecting…" while it's establishing or recovering, and a
- *  red "disconnected — reload" after a stale-close retired the socket. Always
- *  shows *something* so a connected host reads as positively connected, not
- *  merely "no error". */
-function ConnectionIndicator(props: {
-  status: () => SurfaceConnectionStatus;
-}): JSX.Element {
-  return (
-    <span class="ml-auto flex flex-none items-center gap-1 text-[12px]">
-      <Switch>
-        <Match when={props.status() === "live"}>
-          <span
-            class="inline-block h-1.5 w-1.5 rounded-full bg-[#7ec699]"
-            title="connected"
-          />
-        </Match>
-        <Match when={props.status() === "connecting"}>
-          {/* Bare dot — the body already shows the first-connect "connecting…". */}
-          <span
-            class="inline-block h-1.5 w-1.5 rounded-full bg-[#8b94a6] motion-safe:animate-pulse"
-            title="connecting"
-          />
-        </Match>
-        <Match when={props.status() === "reconnecting"}>
-          <span class="flex items-center gap-1 text-[#e6a23c]">
-            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#e6a23c] motion-safe:animate-pulse" />
-            reconnecting…
-          </span>
-        </Match>
-        <Match when={props.status() === "down"}>
-          <span class="flex items-center gap-1 text-[#ff8d8d]">
-            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[#ff8d8d]" />
-            disconnected — reload
-          </span>
-        </Match>
-      </Switch>
-    </span>
-  );
-}
-
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
   const status = statusForHost(props.host);
@@ -216,7 +175,14 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
     setError((prev) => prev ?? err.message);
   };
   const awareness = app.collections.awareness.use({ onError });
-  const version = app.cells.version.use({ onError });
+  // The backend↔remote mirror's health — what gates "show the terminal list".
+  // Distinct from `status` (the browser↔backend ws): a dead mirror with a
+  // healthy ws is exactly the "green dot + no terminals" lie this fixes. Seeded
+  // `DEFAULT_CONNECTION` (`connecting`) until the first frame, so a host never
+  // reads as an empty fleet before its link is actually up.
+  const connection = app.cells.connection.use({ onError });
+  const connInfo = (): ConnectionInfo =>
+    connection.value() ?? DEFAULT_CONNECTION;
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -279,15 +245,20 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <span class="text-[12px] text-[#5b6678]">
           · {awareness.keys().length} terminals
         </span>
-        <ConnectionIndicator status={status} />
+        <HostHealthIndicator status={status} info={connInfo} />
       </header>
       <Show
         when={error() === null}
         fallback={<div class="p-3 text-[#ff8d8d]">{error()}</div>}
       >
+        {/* Gate the terminal list on the MIRROR being connected — NOT on the
+            browser↔backend ws alone. Off-`connected` (copying / connecting /
+            reconnecting / failed) renders the honest ConnectionView instead of
+            a healthy-looking empty fleet. Only `connected` reaches the awareness
+            body below, where "no terminals" is finally truthful. */}
         <Show
-          when={!version.pending()}
-          fallback={<div class="p-3 text-[#6b7480]">connecting…</div>}
+          when={connInfo().state === "connected"}
+          fallback={<ConnectionView info={connInfo()} host={props.host} />}
         >
           {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
               `entries()`. `entries()` drops keys whose per-key value stream is

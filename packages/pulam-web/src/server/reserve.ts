@@ -48,6 +48,10 @@ import type {
 } from "@kolu/surface-nix-host";
 import { observableHolder } from "@kolu/surface-nix-host";
 import {
+  type ConnectionInfo,
+  DEFAULT_CONNECTION,
+} from "@kolu/surface-nix-host/connection";
+import {
   type AwarenessValue,
   DEFAULT_VERSION,
   type TerminalId,
@@ -84,6 +88,12 @@ export interface ReServe {
   /** The live-procedures holder for forwarding `fs.*`/`git.*`. Read on demand
    *  (a procedure call reads `.current` at call time), so a plain holder. */
   liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>;
+  /** Write the browser-facing `connection` cell — the backend↔remote mirror's
+   *  health. The host session loop wires this to `session.onState` (via
+   *  `pipeSessionStateToCell`), so the browser sees copying → connecting →
+   *  connected → disconnected → failed. Distinct from the mirror sink: this is
+   *  the SESSION's state, never the daemon's inert stub. */
+  setConnection: (info: ConnectionInfo) => void;
   /** Drop the whole remote-derived fold — the pump's `onLinkDown` hook. BOTH
    *  the awareness cache AND the activity live-set are per-host-session local
    *  state, built once and reused across every (re)spawn while each fresh
@@ -125,6 +135,14 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const versionStore: CellStore<Version> = inMemoryStore({
     ...DEFAULT_VERSION,
   });
+  // The browser-facing connection-health cell. Written by the host session loop
+  // (`pipeSessionStateToCell` in hostEntry) on every link transition — NOT
+  // folded from the mirror (it's the SESSION's state, not the daemon's inert
+  // stub). Seeded gate-closed (`connecting`), so the browser shows "connecting…"
+  // until the first real session frame rather than a healthy-but-empty fleet.
+  const connectionStore: CellStore<ConnectionInfo> = inMemoryStore({
+    ...DEFAULT_CONNECTION,
+  });
   // The awareness cache — the R4.8a render payload. The mirror's sink upserts /
   // removes per key; the browser-facing collection reads the whole map.
   const awarenessCache = new Map<TerminalId, AwarenessValue>();
@@ -153,6 +171,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     channel: inMemoryChannelByName(),
     cells: {
       version: { store: versionStore },
+      connection: { store: connectionStore },
     },
     collections: {
       awareness: {
@@ -311,12 +330,21 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     activityBus.publish([]);
   };
 
+  // Write the browser-facing connection cell via the framework-wrapped setter
+  // (publishes the delta to subscribers + updates the snapshot store), mirroring
+  // how the mirror sink writes `version`. The session loop calls this off
+  // `session.onState`.
+  const setConnection = (info: ConnectionInfo): void => {
+    fragment.ctx.cells.connection.set(info);
+  };
+
   return {
     router,
     makeSink,
     liveClient,
     liveProcedures,
     resetRemoteFold,
+    setConnection,
   };
 }
 

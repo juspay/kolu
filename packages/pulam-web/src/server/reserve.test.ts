@@ -38,8 +38,10 @@ import {
 } from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
 import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   type AwarenessValue,
+  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
@@ -68,7 +70,13 @@ function standUpAgent(
 
   const { router, ctx } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
+    cells: {
+      version: { store: inMemoryStore({ ...DEFAULT_VERSION }) },
+      // The agent's inert connection stub (the daemon never writes it). The
+      // re-serve provides the LIVE browser-facing connection cell from the
+      // session, NOT by mirroring this — see the connection-state test below.
+      connection: { store: inMemoryStore({ ...DEFAULT_CONNECTION }) },
+    },
     collections: {
       awareness: {
         readAll: () => cache,
@@ -201,6 +209,49 @@ function makeFeed<T>() {
     } as AsyncIterable<T>,
   };
 }
+
+describe("buildReServe — the mirror's connection health reaches the browser", () => {
+  it("surfaces a FAILED mirror as `failed` (with lastError), never a healthy-empty fleet", async () => {
+    // The re-serve alone — no agent, no mirror. The `connection` cell is NOT
+    // folded from the mirror; it's the SESSION's state, written via
+    // `setConnection` (what `pipeSessionStateToCell` does off `session.onState`).
+    const reServe = buildReServe();
+    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
+    const browserClient = directLink<ArivuContract>(reServe.router as any);
+
+    let connNow: () => ConnectionInfo | undefined = () => undefined;
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const conn = app.cells.connection.use({});
+      connNow = () => conn.value();
+    });
+
+    // Gate-closed default: the browser reads `connecting` BEFORE any session
+    // frame — never `connected`, so the dashboard can't paint a healthy-empty
+    // host while the link is still coming up.
+    await waitFor(() => connNow()?.state === "connecting");
+
+    // The session gives up. The parent writes the terminal `failed` state. NO
+    // awareness keys are present: the down state must reach the browser ON ITS
+    // OWN, not be inferred from — or hidden behind — an empty awareness set.
+    reServe.setConnection({
+      state: "failed",
+      lastError: "exited with code 1",
+      failureCause: "remote",
+      progressLines: ["[remote] kaval speaks pty-host 3.2, pulam needs 3.3"],
+    });
+
+    // The browser cell RE-NOTIFIES to `failed`, carrying the real error — the
+    // regression guard. Before the connection cell existed, a dead mirror left
+    // awareness empty and the browser painted "no terminals"; now it reads
+    // honestly. A revert of the gate flips this red.
+    await waitFor(() => connNow()?.state === "failed");
+    expect(connNow()?.lastError).toBe("exited with code 1");
+    expect(connNow()?.failureCause).toBe("remote");
+    expect(connNow()?.progressLines.at(-1)).toContain("pty-host 3.2");
+  });
+});
 
 describe("buildReServe — agent → mirror → re-serve → browser store", () => {
   it("seeds the browser store from the agent snapshot, then re-notifies on a delta", async () => {
