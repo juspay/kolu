@@ -369,23 +369,35 @@ async function writeCodexSection(round, verdict) {
 // If the author skipped the Write, `lastClaudeSectionPath` would still point at a
 // path that doesn't exist — codex-review.sh would warn and proceed with an EMPTY
 // rebuttal, and the debate could still converge over a hole in the trail. So after
-// every author turn we deterministically check the file exists and is non-empty;
-// the workflow has no file I/O of its own, so a thin mechanical agent does the
-// `test -s`. We do NOT parse the file for finding-id coverage — the disposition
-// CONTRACT (one bullet per finding) plus codex's own next-round re-review already
-// police completeness; a markdown-id grep here would be brittle and redundant. This
-// check is the file's EXISTENCE/non-emptiness, the part nothing else guards. A miss
-// is recorded as a section gap and downgrades the terminal status (see below), the
-// same fail-loud-not-silent treatment as a missed commit.
-async function verifyClaudeSection(round) {
+// every author turn we deterministically check the file exists, is non-empty, AND
+// carries a backticked disposition marker for EVERY open finding this round. The
+// workflow has no file I/O of its own, so a thin mechanical agent runs `test -s`
+// plus an exact `grep -F` per finding id. We do NOT parse prose or score the
+// disposition text — only that a `\`Fn\`` token is present, which is an exact,
+// bounded check the author prompt already mandates ("one bullet PER finding",
+// each id backticked). This closes the hole the file-as-source-of-truth opened:
+// a non-empty but INCOMPLETE section (omitting `F2`) used to advance the rebuttal
+// pointer and could converge over a per-finding hole in the durable trail. A miss
+// — empty file OR any missing finding id — is recorded as a section gap and
+// downgrades the terminal status (see below), the same fail-loud-not-silent
+// treatment as a missed commit. Codex's own next-round re-review still polices
+// the SUBSTANCE of each disposition; this guards only the COMPLETENESS of the
+// published per-finding record, which nothing else covers.
+async function verifyClaudeSection(round, openIds) {
   const path = claudeSectionFile(round)
+  // Each open finding must appear as a backticked id token (e.g. `F1`) in the
+  // section. `grep -F` is a literal substring match — no regex/prose brittleness.
+  const idChecks = openIds
+    .map((id) => `grep -Fq ${shq(`\`${id}\``)} ${shq(path)} || { echo missing-${id}; ok=0; }`)
+    .join('; ')
+  const idList = openIds.length ? openIds.map((id) => `\`${id}\``).join(', ') : '(none)'
   const res = await agent(
-    `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`test -s ${shq(path)} && echo present || echo missing\`. Return \`ok\`: true if the output was "present" (the file exists and is non-empty), false otherwise. Do not edit any file. Do not run git.`,
+    `You are a MECHANICAL RUNNER. Run exactly this and nothing else, then report:\n\`ok=1; test -s ${shq(path)} || { echo empty; ok=0; }${idChecks ? `; ${idChecks}` : ''}; echo "ok=$ok"\`\nThis checks the section file exists, is non-empty, and contains a backticked marker for every open finding (${idList}). Return \`ok\`: true if the final line was "ok=1", false otherwise (any "empty" or "missing-Fn" line means false). Do not edit any file. Do not run git.`,
     {
       label: `verify:claude:round${round}`,
       phase: 'Debate',
       model: mechModel,
-      schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean', description: 'true when the section file exists and is non-empty' } } },
+      schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean', description: 'true when the section file exists, is non-empty, and carries a backticked marker for every open finding' } } },
     },
   )
   return res?.ok === true
@@ -412,12 +424,14 @@ let lastClaudeSectionPath = null
 // report success over a missed commit. Not a hard abort: a transient SHA omission
 // shouldn't nuke a multi-round debate whose edits are all present in the tree.
 const commitGaps = []
-// Rounds where the author's disposition section file is missing or empty after its
-// turn — the handoff that feeds the rebuttal, the author's memory, and the comment
-// broke. We DON'T silently let an empty rebuttal slip to codex (which would warn and
-// proceed, possibly converging over a hole in the trail): a miss is recorded here
-// and downgrades the terminal status to 'section-incomplete' below. Not a hard abort
-// for the same reason as commitGaps — the tree edits are still present and reviewed.
+// Rounds where the author's disposition section file is missing, empty, OR missing
+// a backticked marker for one or more open findings after its turn — the handoff
+// that feeds the rebuttal, the author's memory, and the comment broke. We DON'T
+// silently let an empty or per-finding-incomplete rebuttal slip to codex (which
+// would warn and proceed, possibly converging over a hole in the trail): a miss is
+// recorded here and downgrades the terminal status to 'section-incomplete' below.
+// Not a hard abort for the same reason as commitGaps — the tree edits are still
+// present and reviewed.
 const sectionGaps = []
 
 // ---------------------------------------------------------------------------
@@ -544,15 +558,18 @@ for (let round = 1; ; round++) {
 
   // VERIFY the author wrote its disposition section before we lean on it. The file
   // is the next round's rebuttal, the author's memory, and part of the comment — if
-  // it's missing/empty the handoff broke. Only point `lastClaudeSectionPath` at it
-  // (so codex reads it as the rebuttal next round) once it actually exists; on a miss
-  // record the gap, leave the rebuttal pointer where it was (codex sees `-`/the prior
-  // round's section rather than an empty one), and downgrade the terminal status.
-  if (await verifyClaudeSection(round)) {
+  // it's missing/empty/incomplete the handoff broke. We require a backticked marker
+  // for every finding the author had to address this round (`open`), so a non-empty
+  // but partial section can't slip a per-finding hole into the trail. Only point
+  // `lastClaudeSectionPath` at it (so codex reads it as the rebuttal next round) once
+  // it exists AND covers every open id; on a miss record the gap, leave the rebuttal
+  // pointer where it was (codex sees `-`/the prior round's section rather than an
+  // incomplete one), and downgrade the terminal status.
+  if (await verifyClaudeSection(round, open.map((f) => f.id))) {
     lastClaudeSectionPath = claudeSectionFile(round)
   } else {
     sectionGaps.push(round)
-    log(`Round ${round}: author's disposition section ${claudeSectionFile(round)} is missing or empty — handoff broke; not feeding it to codex as the rebuttal.`)
+    log(`Round ${round}: author's disposition section ${claudeSectionFile(round)} is missing, empty, or missing a marker for an open finding — handoff broke; not feeding it to codex as the rebuttal.`)
   }
 
   // The author commits its own round in-session (one commit per round, message
@@ -594,8 +611,9 @@ if (status === 'consensus' && commitGaps.length) {
 }
 
 // Downgrade a would-be consensus when any round's author skipped its disposition
-// section file. The debate may read as converged, but a missing section is a hole in
-// the trail the author, codex (as the rebuttal), and the posted comment all draw on —
+// section file OR left it missing a marker for an open finding. The debate may read
+// as converged, but a missing or per-finding-incomplete section is a hole in the
+// trail the author, codex (as the rebuttal), and the posted comment all draw on —
 // so we must NOT advertise a clean consensus. 'section-incomplete' is a distinct,
 // non-consensus terminus: a human/caller must fill in the missing round(s) before
 // trusting the per-round record. We don't override an already-abnormal status
@@ -603,7 +621,7 @@ if (status === 'consensus' && commitGaps.length) {
 // -not-clean way) — the first downgrade already marks the run unclean.
 if (status === 'consensus' && sectionGaps.length) {
   status = 'section-incomplete'
-  log(`Round(s) ${sectionGaps.join(', ')} are missing the author's disposition section — downgrading consensus to section-incomplete.`)
+  log(`Round(s) ${sectionGaps.join(', ')} are missing the author's disposition section or a finding marker — downgrading consensus to section-incomplete.`)
 }
 
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)

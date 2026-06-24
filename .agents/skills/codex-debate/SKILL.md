@@ -227,8 +227,9 @@ session and only ever reads the one rebuttal file.
   (e.g. commit the outstanding tree) before relying on the per-round history. Do
   **not** report it as a plain consensus (see step 3).
 - **section-incomplete** — the debate *converged*, but a round's author **skipped
-  its disposition section file** (`section-NNN-2-claude.md` missing or empty for the
-  round(s) in `sectionGaps`). That file is the hole-free trail everyone draws on —
+  or under-filled its disposition section file** (`section-NNN-2-claude.md` missing,
+  empty, or missing a backticked marker for an open finding, for the round(s) in
+  `sectionGaps`). That file is the hole-free trail everyone draws on —
   the author's memory, the rebuttal codex reads next round, and part of the posted
   comment — so a miss means the published record has a gap. The code guards against
   feeding an empty rebuttal to codex (it warns and keeps the prior pointer), and the
@@ -281,7 +282,8 @@ tree must be committed before the per-round history can be trusted. Do **not** c
 it a clean consensus.
 
 If `status === "section-incomplete"`, the debate converged but at least one round's
-author **skipped its disposition section file** (round numbers in `sectionGaps`).
+author **skipped or under-filled its disposition section file** (missing, empty, or
+omitting a marker for an open finding; round numbers in `sectionGaps`).
 Report it as **converged-but-not-clean**: assemble and post the comment as usual
 (the `⚠️` badge is already set), then tell the user which round(s) are missing
 their disposition record and that the per-round history has a gap a human should

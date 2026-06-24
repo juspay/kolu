@@ -169,7 +169,8 @@ the workflow's notification arrives or it has provably errored.
    it). Don't report it as a clean consensus.
 
    **On `section-incomplete`,** the debate converged but a round's author **skipped
-   its disposition section file** (round numbers in `sectionGaps`), so the per-round
+   or under-filled its disposition section file** (missing, empty, or omitting a
+   marker for an open finding; round numbers in `sectionGaps`), so the per-round
    trail — and thus `$workDir/comment.md` — has a gap for that round. The tree edits
    and commits are intact; the missing piece is the record. **Append** a note to the
    already-frozen `$workDir/comment.md` naming the round(s) whose disposition record
