@@ -136,13 +136,22 @@ the workflow's notification arrives or it has provably errored.
    } > "$workDir/comment.md"   # hold this path for the post-after-push step
    ```
 
-   (On persistent `reviewer-error` there is **no body to post** — per
-   `/codex-debate`, an unresolved reviewer error is not a consensus to report; skip
-   the codex comment in that case.)
+   This **freezes** the body now, so any reconciliation a later branch performs
+   (a `commit-incomplete` or `section-incomplete` fix-up below) is **not** in this
+   file yet — **append** that note to `$workDir/comment.md` after you reconcile, or
+   it won't reach the posted comment.
+
+   (On `merge-base-error` the workflow aborted before any debate ran, so there is
+   **no** `commentHeader`/`workDir`/`section-*.md` to assemble — do **not** run the
+   block above. Per `/codex-debate`, report the scope failure from the return's
+   `note`, fix the base ref (e.g. `git fetch`), and re-run; there's nothing to post.
+   On persistent `reviewer-error` there is likewise **no body to post** — an
+   unresolved reviewer error is not a consensus to report; skip the codex comment in
+   that case.)
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   in `consensus`, `commit-incomplete` (see below), or `reviewer-error` — the
-   last meaning codex never
+   in `consensus`, `commit-incomplete` / `section-incomplete` (see below),
+   `reviewer-error`, or `merge-base-error` — `reviewer-error` meaning codex never
    produced a structured verdict even after `codex-review.sh`'s built-in
    per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
    outcome*: re-launch it immediately with the same args. Stop the moment an
@@ -154,9 +163,18 @@ the workflow's notification arrives or it has provably errored.
    edits uncommitted (round numbers in `commitGaps`). The edits are still in the
    tree, but the per-round commit didn't land — **commit the outstanding tree
    yourself** (staging only the files that round changed, message
-   `fix: codex review — debate round N`) before the simplify step, and note the
-   reconciliation in the deferred codex comment. Don't report it as a clean
-   consensus.
+   `fix: codex review — debate round N`) before the simplify step, then **append**
+   the reconciliation note to the already-frozen `$workDir/comment.md` (the body was
+   captured above *before* this fix-up, so editing the section files wouldn't reach
+   it). Don't report it as a clean consensus.
+
+   **On `section-incomplete`,** the debate converged but a round's author **skipped
+   its disposition section file** (round numbers in `sectionGaps`), so the per-round
+   trail — and thus `$workDir/comment.md` — has a gap for that round. The tree edits
+   and commits are intact; the missing piece is the record. **Append** a note to the
+   already-frozen `$workDir/comment.md` naming the round(s) whose disposition record
+   is missing, and report it as **converged-but-not-clean** in your gauntlet summary.
+   Don't report it as a clean consensus.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
    It applies its fixes to the working tree. When it finishes, **commit** what it

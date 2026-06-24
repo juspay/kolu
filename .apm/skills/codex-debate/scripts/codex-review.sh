@@ -16,8 +16,10 @@
 #   codex-review.sh <base-branch> <rebuttal-file|-> <out-json> [reasoning-effort] [rationale-file|-]
 #
 #   <base-branch>    branch to diff against (e.g. master)
-#   <rebuttal-file>  path to a file holding CLAUDE's previous response (JSON),
-#                    or "-" on the first round (no rebuttal yet)
+#   <rebuttal-file>  path to a file holding CLAUDE's previous-round response — the
+#                    author-written Markdown disposition section (its per-finding
+#                    fixed/disputed/partial trail), NOT JSON. "-" on the first round
+#                    (no rebuttal yet). Cat'd verbatim into codex's prompt below.
 #   <out-json>       path the JSON verdict is written to (also echoed to stdout)
 #   <reasoning-effort> codex model_reasoning_effort for this run; the debate
 #                    workflow passes its REASONING_EFFORT constant here so the
@@ -55,9 +57,10 @@ schema="$here/codex-verdict.schema.json"
 # shellcheck source=codex-exec-lib.sh
 source "$here/codex-exec-lib.sh"
 
-# Pull CLAUDE's previous response, if any. Built as a plain string and injected
-# below via a simple variable reference so any special characters in the JSON
-# (backticks, $, ...) stay literal (heredoc expansion results are not re-scanned).
+# Pull CLAUDE's previous-round response (the author's Markdown disposition section),
+# if any. Built as a plain string and injected below via a simple variable reference
+# so any special characters in the text (backticks, $, ...) stay literal (heredoc
+# expansion results are not re-scanned).
 rebuttal=""
 if [ "$rebuttal_file" != "-" ]; then
   if [ -s "$rebuttal_file" ]; then

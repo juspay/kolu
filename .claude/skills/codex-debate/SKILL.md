@@ -170,15 +170,30 @@ worktrees never collide** and the scratch never shows up in the diff codex
 reviews. It returns:
 
 ```
-{ status: "consensus" | "commit-incomplete" | "reviewer-error",
-  rounds, base, finalVerdict, filesChanged, commitGaps, transcript,
+{ status: "consensus" | "commit-incomplete" | "section-incomplete" | "reviewer-error",
+  rounds, base, finalVerdict, filesChanged, commitGaps, sectionGaps, transcript,
   commentHeader,        // the comment's small deterministic header (badge + round count + effort + base)
   workDir, sectionGlob } // where the per-round section files live; cat them under the header (step 3)
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed;
 `commitGaps` lists the round numbers whose author edited files but returned no
-commit SHA — empty unless `status === "commit-incomplete"`.)
+commit SHA — empty unless `status === "commit-incomplete"`; `sectionGaps` lists the
+round numbers whose author left no disposition section file — empty unless
+`status === "section-incomplete"`.)
+
+There is one more, **earlier** terminus the workflow can return **before** the
+debate loop even starts — `merge-base-error`. If `git merge-base <base> HEAD`
+fails (a missing/typoed/stale base, or unrelated history), the diff scope can't be
+trusted, so the workflow **aborts up front** rather than review the base branch's
+drift as if this change made it. It returns a **different, smaller shape** — no
+`commentHeader`, `workDir`, or `sectionGlob`, because no debate (and so no section
+files) ever ran:
+
+```
+{ status: "merge-base-error", base, rounds: 0, transcript: [], finalVerdict: null,
+  note }   // human-readable: which base failed and how to fix it (e.g. `git fetch`)
+```
 The debate is recorded as small Markdown section files under `<workDir>` — **two
 per round**: `section-NNN-1-codex.md` (codex's verdict + findings) and
 `section-NNN-2-claude.md` (the author's per-finding dispositions), zero-padded so
@@ -211,6 +226,22 @@ session and only ever reads the one rebuttal file.
   **not** a clean consensus: a human must reconcile the uncommitted round(s)
   (e.g. commit the outstanding tree) before relying on the per-round history. Do
   **not** report it as a plain consensus (see step 3).
+- **section-incomplete** — the debate *converged*, but a round's author **skipped
+  its disposition section file** (`section-NNN-2-claude.md` missing or empty for the
+  round(s) in `sectionGaps`). That file is the hole-free trail everyone draws on —
+  the author's memory, the rebuttal codex reads next round, and part of the posted
+  comment — so a miss means the published record has a gap. The code guards against
+  feeding an empty rebuttal to codex (it warns and keeps the prior pointer), and the
+  tree edits are still present, but this is **not** a clean consensus: a human must
+  fill in the missing round(s) before trusting the per-round record. Do **not**
+  report it as a plain consensus (see step 3).
+- **merge-base-error** — an *up-front* abort, **before** any debate round runs:
+  `git merge-base <base> HEAD` failed (missing/typoed/stale base, or unrelated
+  history), so the review scope can't be trusted. The return carries a human-readable
+  `note` (which base failed, how to fix it — e.g. `git fetch`) and **none** of the
+  comment-assembly fields (`commentHeader`/`workDir`/`sectionGlob`), because no
+  section files were ever written. Report the scope failure and **skip comment
+  assembly/posting entirely** (see step 3); fix the base ref and re-run.
 - **reviewer-error** — the one *abnormal* terminus: codex itself failed to
   produce a verdict (broken/unavailable CLI), so the workflow synthesized an
   error verdict and aborted rather than spin forever on a dead reviewer. This is
@@ -224,7 +255,16 @@ session and only ever reads the one rebuttal file.
 
 ### 3. Present the result
 
-**First branch on `status`.** If `status === "reviewer-error"`, the debate did
+**First branch on `status`.** If `status === "merge-base-error"`, the workflow
+**aborted before any debate ran** — `git merge-base <base> HEAD` failed, so the
+review scope couldn't be trusted. This return has **no** `commentHeader`,
+`workDir`, or `sectionGlob` (no section files exist), so there is **nothing to
+assemble**: do **not** run the posting block below. Report the scope failure —
+surface the return's `note` (it names the failing base and the fix) — tell the
+user to repair the base ref (e.g. `git fetch`, fix a typo'd/stale ref) and re-run,
+and **skip the rest of this section**.
+
+If `status === "reviewer-error"`, the debate did
 **not** reach consensus — codex never produced a real verdict. Report it as a
 **failure**, not a success: surface `finalVerdict.summary` (and the workflow log)
 so the user sees codex was broken/unavailable, and tell them to fix codex (e.g.
@@ -239,6 +279,13 @@ block below — `commentHeader` already shows a `⚠️` badge, not the consensu
 check), then tell the user which round(s) are uncommitted and that the outstanding
 tree must be committed before the per-round history can be trusted. Do **not** call
 it a clean consensus.
+
+If `status === "section-incomplete"`, the debate converged but at least one round's
+author **skipped its disposition section file** (round numbers in `sectionGaps`).
+Report it as **converged-but-not-clean**: assemble and post the comment as usual
+(the `⚠️` badge is already set), then tell the user which round(s) are missing
+their disposition record and that the per-round history has a gap a human should
+fill before trusting it. Do **not** call it a clean consensus.
 
 Otherwise (`status === "consensus"`) report in chat (do **not** push or merge —
 the per-round commits sit on the local branch for the human to review):

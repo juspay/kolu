@@ -363,6 +363,34 @@ async function writeCodexSection(round, verdict) {
   return writeFileAgent(codexSectionFile(round), codexSection(round, verdict), `ledger:codex:round${round}`)
 }
 
+// VERIFY the author actually wrote its disposition section this round. The author's
+// claude section is the load-bearing handoff: it's the next round's rebuttal (codex
+// reads it), the author's own cross-round memory, AND part of the posted comment.
+// If the author skipped the Write, `lastClaudeSectionPath` would still point at a
+// path that doesn't exist — codex-review.sh would warn and proceed with an EMPTY
+// rebuttal, and the debate could still converge over a hole in the trail. So after
+// every author turn we deterministically check the file exists and is non-empty;
+// the workflow has no file I/O of its own, so a thin mechanical agent does the
+// `test -s`. We do NOT parse the file for finding-id coverage — the disposition
+// CONTRACT (one bullet per finding) plus codex's own next-round re-review already
+// police completeness; a markdown-id grep here would be brittle and redundant. This
+// check is the file's EXISTENCE/non-emptiness, the part nothing else guards. A miss
+// is recorded as a section gap and downgrades the terminal status (see below), the
+// same fail-loud-not-silent treatment as a missed commit.
+async function verifyClaudeSection(round) {
+  const path = claudeSectionFile(round)
+  const res = await agent(
+    `You are a MECHANICAL RUNNER. Run exactly this and nothing else: \`test -s ${shq(path)} && echo present || echo missing\`. Return \`ok\`: true if the output was "present" (the file exists and is non-empty), false otherwise. Do not edit any file. Do not run git.`,
+    {
+      label: `verify:claude:round${round}`,
+      phase: 'Debate',
+      model: mechModel,
+      schema: { type: 'object', additionalProperties: false, required: ['ok'], properties: { ok: { type: 'boolean', description: 'true when the section file exists and is non-empty' } } },
+    },
+  )
+  return res?.ok === true
+}
+
 const transcript = []
 // 'consensus' is the only NORMAL terminus. 'reviewer-error' is the one abnormal
 // terminus: codex itself failed to produce a verdict (broken/unavailable). That
@@ -384,6 +412,13 @@ let lastClaudeSectionPath = null
 // report success over a missed commit. Not a hard abort: a transient SHA omission
 // shouldn't nuke a multi-round debate whose edits are all present in the tree.
 const commitGaps = []
+// Rounds where the author's disposition section file is missing or empty after its
+// turn — the handoff that feeds the rebuttal, the author's memory, and the comment
+// broke. We DON'T silently let an empty rebuttal slip to codex (which would warn and
+// proceed, possibly converging over a hole in the trail): a miss is recorded here
+// and downgrades the terminal status to 'section-incomplete' below. Not a hard abort
+// for the same reason as commitGaps — the tree edits are still present and reviewed.
+const sectionGaps = []
 
 // ---------------------------------------------------------------------------
 // The loop — runs until consensus. No round cap, no deadlock exit.
@@ -498,14 +533,27 @@ for (let round = 1; ; round++) {
   // Claude responds: fixes what it agrees with (editing the tree), disputes the
   // rest, and writes its dispositions to its own claude section file (its memory,
   // the rebuttal codex reads next round, and part of the posted comment). It reads
-  // the per-round section files for its cross-round memory. We remember the path it
-  // just wrote so the NEXT round feeds it to codex as the rebuttal.
+  // the per-round section files for its cross-round memory. We point the rebuttal at
+  // the path it just wrote so the NEXT round feeds it to codex — but only AFTER
+  // verifying the file actually landed (see verifyClaudeSection below).
   const response = await claudeResponds(round, verdict, commit)
   entry.claude = response
-  lastClaudeSectionPath = claudeSectionFile(round)
   log(
     `Round ${round}: claude done=${response.done}, files=${(response.filesChanged || []).length}`,
   )
+
+  // VERIFY the author wrote its disposition section before we lean on it. The file
+  // is the next round's rebuttal, the author's memory, and part of the comment — if
+  // it's missing/empty the handoff broke. Only point `lastClaudeSectionPath` at it
+  // (so codex reads it as the rebuttal next round) once it actually exists; on a miss
+  // record the gap, leave the rebuttal pointer where it was (codex sees `-`/the prior
+  // round's section rather than an empty one), and downgrade the terminal status.
+  if (await verifyClaudeSection(round)) {
+    lastClaudeSectionPath = claudeSectionFile(round)
+  } else {
+    sectionGaps.push(round)
+    log(`Round ${round}: author's disposition section ${claudeSectionFile(round)} is missing or empty — handoff broke; not feeding it to codex as the rebuttal.`)
+  }
 
   // The author commits its own round in-session (one commit per round, message
   // carrying codex's findings and its dispositions), so here we just record the
@@ -545,6 +593,19 @@ if (status === 'consensus' && commitGaps.length) {
   log(`Round(s) ${commitGaps.join(', ')} left uncommitted despite changing files — downgrading consensus to commit-incomplete.`)
 }
 
+// Downgrade a would-be consensus when any round's author skipped its disposition
+// section file. The debate may read as converged, but a missing section is a hole in
+// the trail the author, codex (as the rebuttal), and the posted comment all draw on —
+// so we must NOT advertise a clean consensus. 'section-incomplete' is a distinct,
+// non-consensus terminus: a human/caller must fill in the missing round(s) before
+// trusting the per-round record. We don't override an already-abnormal status
+// (reviewer-error, or commit-incomplete which is reported the same converged-but-
+// -not-clean way) — the first downgrade already marks the run unclean.
+if (status === 'consensus' && sectionGaps.length) {
+  status = 'section-incomplete'
+  log(`Round(s) ${sectionGaps.join(', ')} are missing the author's disposition section — downgrading consensus to section-incomplete.`)
+}
+
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
 // The terminal round needs no extra section write: codex's section for it was
@@ -567,6 +628,9 @@ return {
   // Rounds whose author-side commit didn't land (empty unless status is
   // 'commit-incomplete'). Lets the caller pinpoint and reconcile the gap.
   commitGaps,
+  // Rounds whose author-side disposition section file is missing/empty (empty unless
+  // status is 'section-incomplete'). Lets the caller pinpoint the hole in the trail.
+  sectionGaps,
   transcript,
   // The comment's deterministic header (badge + round count + reasoning effort +
   // base). The orchestrator posts: this header, a blank line, then
