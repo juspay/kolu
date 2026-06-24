@@ -28,13 +28,13 @@
    * warm/pending family (busy rust, CI yellow) so it never reads as
    * "machine in flight". See AgentIndicator + StatePip. */
   --color-alert: #a78bfa;
-  /* The unread-notification HALO — the amber ring + pulse the merged status
-   * indicator (`StatePip`) wraps around the state core when a fired
-   * notification is still unopened (the Dock's `unread`, pulam-web's
-   * notify-class). Deliberately its OWN token, warm and distinct from the cool
-   * `--color-alert` "your turn" violet that paints the awaiting *state* itself,
-   * so the obligation (halo) and the state (core) read as two axes, not one
-   * blur. Single source for both surfaces' halo, so it can't drift. */
+  /* The unread-alert badge colour — the amber `--color-attention` corner badge
+   * the merged status indicator (`StatePip`) draws when a fired notification is
+   * still unopened (the Dock's `unread`, pulam-web's notify-class). Deliberately
+   * its OWN token, warm and distinct from the cool `--color-alert` "your turn"
+   * violet that paints the awaiting *state* itself, so the obligation (badge)
+   * and the state (core) read as two axes, not one blur. Single source for both
+   * surfaces, so it can't drift. */
   --color-attention: #e6a23c;
 
   --color-ok: #4ade80;
