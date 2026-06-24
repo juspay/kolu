@@ -86,9 +86,16 @@ export function pipVariantFor(value: AwarenessValue): PipVariant {
   return value.foreground ? "idle" : "sleeping";
 }
 
+/** Fleet *chrome* colours — the live-output dot, the per-host accent, the dormant
+ *  dot. These are deliberately NOT `@kolu/theme` tokens: R-pip-unify moved the
+ *  **agent-state** palette (pip + urgency colour/label) onto the shared tokens so
+ *  the pip matches kolu's Dock, but pulam-web's surrounding chrome stays its own
+ *  (dark-only) literals — they're not part of the cross-surface pip contract, so
+ *  the residual hexes here (and a few in `HostGroup.tsx`) are intentional, not
+ *  drift the theme package was meant to prevent. `HOST_COLOR` re-spelling
+ *  `--color-alert`'s dark value is a coincidence of palette, not a shared token. */
 /** The green live-output dot — a terminal moving bytes right now (the fleet echo
- *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to the agent-state
- *  colours. */
+ *  of kolu's Dock dot). Rides the `activity` stream, orthogonal to agent state. */
 export const LIVE_COLOR = "#7ee787";
 /** The per-host group accent (violet), echoing the mockup + pulam-tui's HOST. */
 export const HOST_COLOR = "#a78bfa";
