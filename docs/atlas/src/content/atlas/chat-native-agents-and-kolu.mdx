@@ -1,0 +1,234 @@
+---
+title: Chat-Native Agents and kolu — have the cake, eat it too
+description: Anthropic's Claude Tag (and Karpathy's read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu's live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product.
+parents: [comparison, remote-terminals]
+status: proposed
+maturity: seedling
+updated: 2026-06-24
+---
+
+import Callout from "../../components/Callout.astro";
+import Svg from "../../components/Svg.astro";
+import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
+
+*A read of Anthropic's [**Claude Tag**](https://www.anthropic.com/news/introducing-claude-tag) (Claude joins Slack as a tagged teammate), its [agent identity & access model](https://claude.com/blog/agent-identity-access-model), and [Karpathy's framing of it](https://x.com/karpathy/status/2069547676849557725) as "the 3rd major redesign of LLM UIUX" — held against what kolu actually is, and read alongside the [Hacker News reaction](https://news.ycombinator.com/item?id=48648039). Grounded in a four-lens analysis (threat · bridge · moat · moves) with an adversarial red-team pass; the optimistic claims below are the ones that survived it.*
+
+<Callout kind="accent" title="Headline">
+The chat-native paradigm threatens **the half of kolu you stare at** — the canvas — not the half that matters. kolu's live-PTY substrate (**kaval**) and its read-only awareness daemon (**pulam**) are exactly the org-wide telemetry a "work from Slack" world needs and chat doesn't have. So kolu isn't facing extinction; it's at risk of **shipping the wrong half**. The cake-and-eat-it move is to keep terminal-grade control *and* gain chat-grade reach through **one authenticated, model-agnostic ingress beside kaval** — the only leg not already built. The wiring is cheap; the front door is the product.
+</Callout>
+
+## The shift: the agent moves into the chat
+
+Karpathy isn't describing a chatbot you ask questions. He's describing a coworker:
+a persistent agent that lives where the team already works, holds org-wide tools
+and context, and runs tasks on its own while you do something else. You @-tag it,
+walk away, and it pings you when it needs you.
+
+> It is a self-contained, **persistent, asynchronous** entity with org-wide tools
+> and context, working alongside teams of humans. … it's writing the majority of
+> code, it's deeply integrated, **multiplayer**, and it starts to feel like
+> **everyone is a manager**. … I work from Slack now.
+>
+> — [Andrej Karpathy](https://x.com/karpathy/status/2069547676849557725)
+
+His own warning is the load-bearing part: it's *not* "LLM Q&A with RAG over
+Slack." The work itself moves into chat, and the human's job shifts from *driving
+keystrokes* to *managing agents*. That's the bet to react to.
+
+The [announcement](https://www.anthropic.com/news/introducing-claude-tag) fills in
+the shape: **one shared Claude per channel** (a teammate, not a bot-per-person),
+work it *"schedule[s] ... for itself"* and pursues *"over hours or days,"* memory
+that carries across channels with permission, an admin **audit log of every task
+and who asked for it**, and per-channel tool and token limits — all on Opus 4.8.
+It's **Slack-only today**, explicitly aiming to reach *"the many other places they
+work,"* and the proof-point is blunt: *"65% of our product team's code is created
+by our internal version."* This is the "it actually works" Karpathy meant — not a
+toy to wave off.
+
+## kolu's two halves: the cockpit erodes, the substrate is the same bet
+
+Be honest about the bear case first. The place you *sit* moves off the terminal.
+A manager who delegates and walks away has no use for an infinite canvas of live
+terminal tiles — panning, zooming, splitting. The canvas is kolu's headline,
+demoable identity, and it's exactly what a "work from Slack" user doesn't want to
+look at. Worse, the one ergonomic Claude Tag sells — *kick off a task from your
+phone* — is the one thing kolu **cannot do today**: there's no submit-from-outside,
+no remote trigger; an agent only runs if it's live in a terminal inside kolu. If
+the center of gravity is async delegation, kolu's current shape is a structural
+mismatch, not a missing button.
+
+<Callout kind="accent" title="What an agent actually is (Andreessen) — and why it's already kolu's blueprint">
+Marc Andreessen, [on what decades of agent research quietly converged on](https://www.youtube.com/watch?v=knx2wrILP1M):
+*"an agent is … a language model, and above that a bash shell … and then a file
+system, and the state is stored in files … markdown … plus cron,"* and *"every
+part of that other than the model is something we already completely know."* The
+kicker: *"your agent is now actually independent of the model … you can swap out a
+different LLM underneath … all of the state stored in the files will be retained"*
+— like *"swapping out a chip and recompiling, but it's still your agent with all
+its memories."* On protocols: *"this whole idea where we need MCP and these fancy
+protocols — no, we just need a command-line thing."*
+
+That is kolu's architecture, line for line: the **shell** is the interface to
+every tool (kolu *watches* it, doesn't wrap it), the **files** are the real
+intelligence (the [Atlas](./meta.html) is the markdown knowledgebase — a
+Zettelkasten knowledge graph, not chat exhaust), and the **model is the swappable
+chip** (claude · codex · opencode). Claude Tag inverts all three — model fixed
+(Opus 4.8), shell and files hidden inside a cloud sandbox, memory as lossy Slack
+scrollback. kolu keeps the durable substance — shell, files, your own infra — and
+lets the chip swap. It's the same simplicity that made the web (HTTP, JSON,
+human-readable text), arriving for agents.
+</Callout>
+
+Now the other half, which the bear case misses:
+
+- **The terminal isn't nostalgia — it's a capability chat doesn't have.** Chat is
+  async text; it is not a live PTY. The moment a task needs a human to drop to
+  bash, answer an interactive prompt, or watch raw streaming output, the terminal
+  is the only surface that works. Chat hides that gap; it doesn't close it. As one
+  HN commenter put it, *"you don't tend to have long sessions with agents in Slack
+  like you would in the terminal"* — chat suits short, fire-and-forget delegations;
+  the deep, interactive work still wants a terminal.
+- **Agent-agnosticism is a structural moat, not a feature.** kolu runs claude,
+  codex, opencode, or anything in a shell and reads its state with no per-agent
+  wrapping. Claude Tag is single-vendor *by construction* — Anthropic will never
+  ship a console that ranks a competitor's agent next to its own. An org running
+  several agents cannot get one neutral "who needs me" board from Anthropic.
+- **kolu already built the manager's dashboard.** The awareness daemon
+  [pulam](./pulam.html) serves "what is every agent doing" as one live surface,
+  and three read-only mirrors (the Dock plus the TUI and web fleet boards) read
+  one ranking and stay in lockstep. Slack gives you a thread per task; it does not
+  give you a ranked, needs-you-first board of every agent's live state.
+- **The other hard problem is a real isolated environment — and kolu runs on your
+  own.** The sharpest line in the [HN thread](https://news.ycombinator.com/item?id=48648039):
+  *"the hard problem is giving a shared agent durable organizational memory and a
+  real isolated environment."* Anthropic's answer is a service account inside its
+  cloud; kolu's is a real PTY on a host you control. kolu's
+  [remote-terminals](./remote-terminals.html) work is heading toward running agents
+  on **sandboxed hosts — an Incus cluster, say** — your own isolated infra, not a
+  vendor's opaque sandbox. (On the roadmap; kolu is open source, so the integration
+  point is in the open.)
+- **Durable memory that isn't lossy Slack scrollback.** The other half of "org
+  memory" is the rear-facing brain, and HN's verdict on keeping it in chat is
+  brutal: *"Slack as a memory store is lossy,"* *"75% of Slack shouldn't be
+  remembered."* kolu already has the opposite — the [Atlas](./meta.html): a
+  git-versioned, PR-reviewed, agent-cheap markdown knowledgebase (this very note
+  lives in it). A curated second-brain, not chat exhaust.
+
+The liability isn't the product — it's narrating the canvas *as* the product. The
+canvas is the half a manager walks away from; the substrate is the half that wins.
+
+## The bridge: terminal-grade control, chat-grade reach
+
+kolu already has the async **awareness** shipped. What it lacks is async
+**action**. The whole bridge is the asymmetry in this one picture:
+
+<Svg svg={bridge} caption="The outbound loop (green / teal) ships today: a live tile is observed by pulam, folded to an alert, and pinged out — 'you get pinged when blocked' needs no new detection. The inbound loop (red) is the one missing leg: a small authenticated ingress that turns an outside message into a spawn/write on kaval. It sits beside kaval (the write path), never inside pulam (read-only)." />
+
+The smallest end-to-end loop:
+
+1. From any chat: *"@kolu run claude 'fix the failing auth test' on repo/branch"* →
+   spawns a **real kolu terminal** on your server.
+2. The agent works in a live tile; state and activity are tracked exactly as today.
+3. It blocks on you (`awaiting_user`) → the existing alert fold fires → a new sink
+   posts to chat with the screen tail and approve/deny buttons.
+4. You tap approve on your phone → a single keystroke (`y⏎`) is written into that
+   live PTY.
+5. The agent finishes → the tile parks to a [sleeping terminal](./sleeping-terminals.html);
+   the final diff is posted back to the thread.
+
+Every leg but one reuses something already built:
+
+| Leg | Reuses | Status |
+| --- | --- | --- |
+| **spawn an agent · write `y⏎`** | kaval already exposes the full write path (spawn · write bytes · kill · resize) — kolu's own tiles call it | shipped |
+| **forward across hosts** | the mirror path already drives a remote action over browser → ssh → host with no kolu-specific code | shipped |
+| **ping out when blocked** | the `awaiting_user` → alert fold that already pulses the tile, toasts, and fires an OS notification | shipped |
+| **park + resume** | sleeping terminals, survive a full restart | shipped |
+| **submit / approve from chat** | — nothing — | **to build** |
+
+The one missing leg is an **authenticated ingress**: a small daemon *beside*
+kaval (the PTY owner), not inside pulam (the read-only observer), exposing exactly
+two verbs — `submit` (spawn an agent with a given argv) and `approve/reply` (write
+bytes into a named live tile) — behind a real front door: per-user identity, and
+default-deny on which argv may run and which tiles are writable. Per your steer,
+it's **one generic messaging seam** — Slack, Discord, WhatsApp, Telegram behind a
+single adapter — not a Slack-shaped wrapper, so the agent-agnostic moat extends to
+the transport too.
+
+<Callout kind="warn" title="Two things the red-team insisted we not soft-pedal">
+**The leg is not a tenth of the work.** The plumbing — *bytes can move* — is cheap
+and done. The *front door* is most of the value and **all** of the risk: `spawn` /
+`write` is full remote code execution on your box, over a surface that is
+unauthenticated today (gated only by same-origin + socket permissions). The auth
+model **is** the project — and it's exactly the "heavy under-the-hood security
+work" Karpathy names as the gap between a hackathon demo and a product. Anthropic
+just shipped a whole [agent identity & access model](https://claude.com/blog/agent-identity-access-model)
+for precisely this — channel-scoped service identities, default-deny tool *and*
+network-egress allowlists, per-action audit, least-privilege, and *"just-in-time"*
+approval of a single sensitive action — the strongest possible proof the **door is
+the work**. It also hands kolu the spec to mirror, and the JIT *"approve one action
+in the moment"* grant *is* the approve-from-phone gate above; kolu's edge is doing
+it **self-hosted, on infra you own**, not in a vendor's console.
+
+**The honest unit of chat control is approve / deny / one-line reply at a blocked
+gate — not "steer."** Raw bytes are perfect for `y⏎`; they are a bad way to drive a
+full-screen TUI's arrow keys through a chat box. Don't promise interactive driving
+from Slack.
+</Callout>
+
+## What stands in the way
+
+- **Self-hosted, single-user today.** A moat for the solo / own-iron / no-procurement
+  crowd; a structural *disqualifier* for the enterprise-cloud deployments Karpathy
+  points at (no SSO, no audit, no central control). Defensible and small can both
+  be true.
+- **No offline — the live WebSocket *is* the app.** Push-*out* (the ping) is free;
+  reply-*in* needs a new always-listening authenticated endpoint your phone reaches.
+  It cannot be a background service-worker reply.
+- **No submit-from-outside today.** This is the single fatal gap for the
+  chat-delegation thesis. Unshipped — not "nearly there."
+- **Remote multi-host is in flight, not shipped** (see [remote terminals](./remote-terminals.html)).
+  A chat ingress today is **single-host** — the box pulam/kaval already run on.
+  Fleet-wide ingress waits on the remote-host work.
+- **Multiplayer is essentially zero.** The awareness *read* is shared; real
+  multiplayer (identity, who-claimed-what, two humans on one tile) has no
+  primitives yet and is a separate epic — and a chat ingress implicitly invites
+  multiple taggers, so the auth leg must answer "who is this" too.
+- **Stay vendor-neutral.** A model-agnostic ingress (any argv) and a neutral fleet
+  board — never a Claude-shaped or Slack-shaped wrapper, which would spend the one
+  structural moat kolu has. It's HN's loudest refrain too — model-agnosticism and
+  token-cost control as the moat, and **Slack-only as a "moat-killer"** (Anthropic
+  itself plans to expand past Slack). So chat-surface breadth is table stakes; the
+  substrate is the differentiation.
+
+## The call: build the front door, not a chat app
+
+kolu is **not threatened with extinction — it's at risk of shipping the wrong
+half.** The canvas-as-cockpit erodes in a manage-from-chat world; the awareness
+daemon and the live-PTY substrate are exactly what that world needs and Slack
+lacks. kolu is **complementary today and positioned to win the neutral console** —
+the one place an org sees claude, codex, and opencode ranked side by side, with
+real terminals underneath, on infrastructure it controls (down to sandboxed hosts
+like an Incus cluster).
+
+The single highest-leverage move is **not a Slack app**. It's the **authenticated,
+default-deny, model-agnostic ingress beside kaval** that turns the read-only fleet
+board into a delegate-and-approve surface, with a phone-friendly version of the
+existing web board as its face. Sequence it behind the remote-host work, scope it
+to single-user, and ship the **approve-from-phone** loop first. And resist the
+temptation to call the front door a one-liner: the wiring is cheap; the door is
+the product.
+
+<Callout kind="accent" title="Beyond the bridge — the forward-facing opening">
+The most-upvoted "killer feature" in the thread isn't chat-as-IDE; it's an
+**auto-assembling, forward-facing punchlist** — discussion decomposed into
+subtasks, blocking relationships tracked, specs and facts filed into the right
+task: *"Company Brain / Knowledgebase is rear-facing, whereas todo is
+future-facing."* kolu already owns both ends of that axis: [pulam](./pulam.html)
+is the **present tense** ("what is every agent doing"), and the
+[Atlas](./meta.html) is the **rear-facing** brain. The gap — and the opening — is
+the **future tense**: a task/punchlist layer the awareness substrate and the chat
+ingress could feed. Out of scope for the bridge itself, but the natural place it
+grows next.
+</Callout>
+

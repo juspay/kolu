@@ -1,7 +1,7 @@
 ---
 title: kaval-tui that roams — remote attach that survives the network
 description: Today kaval-tui attaches to a remote kaval over ssh stdio (TCP — it drops the moment you change networks). zmosh's idea, applied to kaval — teach kaval to also bind an encrypted-UDP listener beside its unix socket, so you attach once and keep the session through Wi-Fi↔cellular and sleep/wake, with no reconnect and no lost scrollback. No extra process; kaval already owns the hard half (server-side VT + snapshot-then-delta); only the transport changes.
-parents: [kaval-sessions, analysis]
+parents: [kaval-sessions, comparison]
 maturity: seedling
 updated: 2026-06-14
 ---

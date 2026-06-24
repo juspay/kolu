@@ -148,47 +148,6 @@ const ogAlt = "the kolu Atlas — an in-repo knowledge graph";
   .legend-item { display: inline-flex; align-items: center; gap: 0.4em; }
   .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 
-  /* ── category sections — the index's primary grouping ── */
-  .cat { margin: 2.4rem 0 0; }
-  .cat-bug { --cat-color: var(--alert); }
-  .cat-feature { --cat-color: var(--teal); }
-  .cat-analysis { --cat-color: var(--gold); }
-  .cat-reference { --cat-color: var(--ink-muted); }
-  .cat-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.55rem;
-    padding-bottom: 0.45rem;
-    border-bottom: 1px solid var(--rule);
-  }
-  .cat-bar {
-    align-self: center;
-    flex: none;
-    width: 9px;
-    height: 9px;
-    border-radius: 3px;
-    background: var(--cat-color);
-  }
-  .cat-title {
-    font-family: var(--serif);
-    font-size: 1.35rem;
-    font-weight: 600;
-    color: var(--ink);
-    letter-spacing: -0.01em;
-    margin: 0;
-  }
-  .cat-count {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    color: var(--ink-faint);
-  }
-  .cat-blurb {
-    margin-left: auto;
-    font-size: 0.8rem;
-    color: var(--ink-muted);
-  }
-  .cat .moc { margin-top: 0.55rem; }
-
   /* ── index MOC tree — compact, one row per note, scales to ~100 ── */
   .moc { list-style: none; margin: 1.5rem 0 0; padding: 0; }
   /* nested children: indent + a guide rule (the hierarchy) */
