@@ -171,7 +171,7 @@ function FailedCard(props: {
   return (
     <div class="rounded-md border border-[#e06c75]/40 bg-[#e06c75]/[0.06] p-3 text-left">
       <div class="mb-0.5 font-semibold text-[#ff8d8d]">
-        Couldn't reach this host
+        {CONN_STATE.failed.message}
       </div>
       <div class="mb-2 text-[12px] text-[#5b6678]">
         Gave up after repeated connection failures.
