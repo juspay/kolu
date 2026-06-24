@@ -73,7 +73,11 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
+import {
+  ConnectionView,
+  effectiveHealth,
+  HostHealthIndicator,
+} from "./ConnectionView.tsx";
 import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
@@ -183,6 +187,12 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   const connection = app.cells.connection.use({ onError });
   const connInfo = (): ConnectionInfo =>
     connection.value() ?? DEFAULT_CONNECTION;
+  // The EFFECTIVE host health — the single fold over BOTH the transport ws
+  // (`status`) and the mirror cell (`connInfo`). The header dot and the body
+  // gate below read this same answer, so a transport-down host (whose mirror
+  // cell goes stale at its last `connected`) can't paint a stale fleet while
+  // the header honestly says it's down.
+  const health = () => effectiveHealth(status(), connInfo());
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -251,13 +261,16 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         when={error() === null}
         fallback={<div class="p-3 text-[#ff8d8d]">{error()}</div>}
       >
-        {/* Gate the terminal list on the MIRROR being connected — NOT on the
-            browser↔backend ws alone. Off-`connected` (copying / connecting /
-            reconnecting / failed) renders the honest ConnectionView instead of
-            a healthy-looking empty fleet. Only `connected` reaches the awareness
-            body below, where "no terminals" is finally truthful. */}
+        {/* Gate the terminal list on the EFFECTIVE health — the `effectiveHealth`
+            fold over BOTH the mirror cell AND the browser↔backend ws, NOT the
+            mirror alone. Off-`connected` (a `copying`/`connecting`/`reconnecting`/
+            `failed` mirror, OR a `down`/`reconnecting` transport that makes the
+            mirror cell stale) renders the honest ConnectionView instead of a
+            healthy-looking empty fleet. Only an effectively-`connected` host
+            reaches the awareness body below, where "no terminals" is finally
+            truthful — and the header dot reads the SAME fold, so they agree. */}
         <Show
-          when={connInfo().state === "connected"}
+          when={health().state === "connected"}
           fallback={<ConnectionView info={connInfo()} host={props.host} />}
         >
           {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
