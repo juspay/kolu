@@ -30,6 +30,7 @@ import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
+  installPwaManifest,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
@@ -108,10 +109,38 @@ async function main(): Promise<void> {
   // instance. The first-ever connect omits `pid` and always passes.
   app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
 
+  // PWA manifest — served dynamically so it's one source of truth with the
+  // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
+  // single fleet view, not a per-host instance, so the identity is static (no
+  // hostname-hashed name/theme like kolu's): the teal `--color-accent` the
+  // dashboard already paints is the theme colour, and `#0b0d10` (the <body>
+  // background) is the splash colour. `display: standalone` + the maskable icon
+  // make it installable. Registered BEFORE `installFreshStatic` so the manifest
+  // route wins over the static `/` catch-all.
+  installPwaManifest(app, {
+    name: "pulam-web — every agent, every host",
+    short_name: "pulam",
+    description:
+      "One browser view over every coding agent on every host in your fleet — sorted by what needs you.",
+    themeColor: "#5a9ea0",
+    backgroundColor: "#0b0d10",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      {
+        src: "/icon-512-maskable.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+  });
+
   // Serve the built Vite client. `PULAM_WEB_DIST_DIR` overrides the default
   // `../../dist` (relative to this file's runtime location), so the Nix wrapper
   // can point at a prebuilt bundle. `serviceWorker: "notify"` keeps the
-  // freshness contract (no-store shell, immutable hashed assets, 404 on a miss).
+  // freshness contract (no-store shell, immutable hashed assets, 404 on a miss)
+  // AND serves the fetch-less `/sw.js` the client registers (see `main.tsx`).
   const distDir = process.env.PULAM_WEB_DIST_DIR
     ? process.env.PULAM_WEB_DIST_DIR
     : resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");

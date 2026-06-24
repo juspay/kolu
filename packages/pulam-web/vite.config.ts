@@ -2,8 +2,13 @@
  * Vite config for pulam-web's browser client — the twin of `packages/client`'s
  * toolchain, stripped to the leaf this surface needs: `vite-plugin-solid` plus
  * `@tailwindcss/vite` (the repo-wide styling mechanism — utilities only, per the
- * `styling-tailwind-only` rule). No surface-app PWA plugin — R4.8a renders a
- * plain monospace fleet list, the polished mockup is R4.8b.
+ * `styling-tailwind-only` rule). No `surfaceApp()` Vite plugin: that plugin only
+ * injects the build commit (`window.__SURFACE_APP_COMMIT__`) for kolu's
+ * client-staleness update prompt, which pulam-web doesn't render — its freshness
+ * rides `installFreshStatic` + the server `processId` stale-tab gate, not a
+ * commit stamp. The PWA itself (the installable manifest, icons, and the
+ * fetch-less notification worker) is wired without it — see `index.html`,
+ * `src/server/main.ts` (`installPwaManifest`), and `src/client/main.tsx`.
  *
  * The dev proxy points `/rpc` (WebSocket, `ws: true`) and `/api` at the Node
  * backend (`src/server/main.ts`, default port 4800) so `pnpm dev:client` and
