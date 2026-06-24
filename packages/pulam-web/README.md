@@ -71,14 +71,14 @@ For development with HMR, `PULAM_WEB_HOSTS=… PULAM_WEB_KAVAL_SOCKETS=… just 
 
 ## App icon
 
-`logo.svg` (the `> pulam` / புலம் mark, a teal sibling of `packages/kaval/logo.svg`) and `logo-maskable.svg` (full-bleed, content inside the safe zone) are the brand sources. The served PWA raster — `public/{icon-192,icon-512,icon-512-maskable}.png` plus `public/favicon.svg` — is rendered from them with [`resvg`](https://github.com/linebender/resvg), which needs the wordmark + Tamil fonts on a fonts dir:
+The canonical pulam mark — the `> pulam` / புலம் logo — lives at [`packages/pulam/logo.svg`](../pulam/logo.svg), next to the namesake daemon and mirroring [`packages/kaval/logo.svg`](../kaval/logo.svg); it's also what `kolu.dev/kaval` renders for the pulam sibling. The PWA-only maskable variant (`logo-maskable.svg`, full-bleed with content inside the safe zone) stays here. The served PWA raster — `public/{icon-192,icon-512,icon-512-maskable}.png` plus `public/favicon.svg` — is rendered from those two with [`resvg`](https://github.com/linebender/resvg), which needs the wordmark + Tamil fonts on a fonts dir:
 
 ```sh
 FONTS=$(mktemp -d)
 cp "$(nix build --no-link --print-out-paths nixpkgs#jetbrains-mono)"/share/fonts/truetype/*.ttf "$FONTS/"
 cp "$(nix build --no-link --print-out-paths nixpkgs#noto-fonts)"/share/fonts/noto/NotoSansTamil.ttf "$FONTS/"
 cd public
-nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 192 -h 192 ../logo.svg          icon-192.png
-nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../logo.svg          icon-512.png
-nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../logo-maskable.svg icon-512-maskable.png
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 192 -h 192 ../../pulam/logo.svg icon-192.png
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../../pulam/logo.svg icon-512.png
+nix shell nixpkgs#resvg -c resvg --use-fonts-dir "$FONTS" --skip-system-fonts -w 512 -h 512 ../logo-maskable.svg  icon-512-maskable.png
 ```

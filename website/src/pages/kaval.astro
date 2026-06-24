@@ -385,12 +385,14 @@ const escapes = [
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
-    <h2 class="kv-head">
-      the sibling — <span class="kv-prog">pulam</span>, awareness over{" "}
-      <span class="kv-prog">kaval</span>
-    </h2>
-    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
-      kaval owns the PTYs and surfaces the raw taps above;{" "}
+    <div class="flex items-start justify-between gap-6">
+      <div>
+        <h2 class="kv-head">
+          the sibling — <span class="kv-prog">pulam</span>, awareness over{" "}
+          <span class="kv-prog">kaval</span>
+        </h2>
+        <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+          kaval owns the PTYs and surfaces the raw taps above;{" "}
       <code class="mono text-ink">pulam</code> (Tamil <em>pulam</em> — "field ·
       domain", from the same root as <em>pulan</em>, "a sense") is the sibling
       that turns them into{" "}
@@ -402,7 +404,16 @@ const escapes = [
       <code class="mono text-ink">pulam-tui</code> reads. Zero kolu-server, no
       browser; the runtime is just{" "}
       <code class="mono text-ink">node · git · gh</code>.
-    </p>
+        </p>
+      </div>
+      <img
+        src="/pulam-logo.svg"
+        width="112"
+        height="112"
+        alt="pulam — awareness over kaval: a field (புலம், Tamil: field, domain) of host cells, each lit with an agent's state"
+        class="kv-logo hidden md:block w-28 lg:w-32 shrink-0 self-center"
+      />
+    </div>
     <div class="kv-term">
       <span class="cmd"
         >nix run github:juspay/kolu#pulam<span class="cmt">       # awareness over the running kaval</span></span

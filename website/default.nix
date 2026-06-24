@@ -10,7 +10,7 @@
 # `import ./website { inherit pkgs; }` with no synthesis of its own.
 { pkgs ? import ../nix/nixpkgs.nix { }
 , src ? # Self-contained website source for the Nix sandbox. The working tree keeps
-  # public/{favicon,kaval-logo}.svg as symlinks into packages/ (one SVG each
+  # public/{favicon,kaval-logo,pulam-logo}.svg as symlinks into packages/ (one SVG each
   # on disk, no duplicated bytes) — but those dangle once copied into the
   # store, so resolve them to real bytes here. Astro/Vite then sees a
   # complete tree. Add a line per new out-of-tree public/ asset.
@@ -31,6 +31,8 @@
     cp ${../packages/client/favicon.svg} $out/public/favicon.svg
     rm -f $out/public/kaval-logo.svg
     cp ${../packages/kaval/logo.svg} $out/public/kaval-logo.svg
+    rm -f $out/public/pulam-logo.svg
+    cp ${../packages/pulam/logo.svg} $out/public/pulam-logo.svg
   ''
 }:
 let
