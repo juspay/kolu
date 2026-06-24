@@ -66,8 +66,12 @@ import { z } from "zod";
  *  boot-only adoption. Bumped to 3.2 (additive · minor): the new
  *  `system.processMemory` verb reports the daemon's `rss` so the server can
  *  surface kaval's memory on the rail — a 3.1 survivor (lacking the verb) is
- *  recycled on adoption rather than silently reporting no daemon memory. */
-export const PTY_HOST_CONTRACT_VERSION = "3.2";
+ *  recycled on adoption rather than silently reporting no daemon memory.
+ *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
+ *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
+ *  survivor would serve bare `{ command }` frames the new schema rejects, so it
+ *  is recycled on adoption rather than feeding the server unparseable marks. */
+export const PTY_HOST_CONTRACT_VERSION = "3.3";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
