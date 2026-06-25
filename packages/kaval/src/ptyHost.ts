@@ -306,13 +306,11 @@ interface Entry {
   proc: pty.IPty;
   headless: InstanceType<typeof Terminal>;
   serialize: InstanceType<typeof SerializeAddon>;
-  /** Memoized attach snapshot for the current publish-epoch. Read through
-   *  `snapshotOf` (set on the first `serialize()` of an epoch) and cleared
-   *  through `invalidateSnapshot` in EVERY mirror mutator — the data-publish
-   *  path (the instant new bytes parse in) and `resize()` (which reflows the
-   *  serialized layout). So a burst of attaches to one PTY between two mutations
-   *  (a reconnect storm against an idle terminal) shares a single serialize
-   *  instead of one per attach. */
+  /** Memoized attach snapshot for the current publish-epoch — so a burst of
+   *  attaches to one PTY between two mirror mutations (a reconnect storm against
+   *  an idle terminal) shares a single serialize instead of one per attach.
+   *  Read and invalidated ONLY through `snapshotOf` / `invalidateSnapshot`,
+   *  which own the epoch invariant (see their definitions). */
   snapshotCache: string | undefined;
   cwd: string;
   title: string;

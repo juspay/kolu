@@ -622,6 +622,10 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
 describe("attach() reconnect-storm defenses", () => {
   let host: PtyHost;
 
+  // These tests count serialize() calls, so they settle on output via
+  // getScreenText (a plain buffer read) rather than getScreenState (which now
+  // shares the snapshot memo) — otherwise the settle poll would pre-populate
+  // the memo and skew the count. The aborted test below deliberately differs.
   afterEach(() => {
     vi.restoreAllMocks();
     host?.dispose();
@@ -660,8 +664,6 @@ describe("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Settle via getScreenText (a buffer read, no serialize) so the poll
-    // doesn't pre-populate the snapshot memo getScreenState now shares.
     await waitFor(() => host.getScreenText(id).includes("idle marker"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
@@ -686,8 +688,6 @@ describe("attach() reconnect-storm defenses", () => {
       cwd: "/tmp",
     });
     host.write(id, "echo first\n");
-    // Settle via getScreenText (a buffer read, no serialize) so the poll
-    // doesn't pre-populate the snapshot memo getScreenState now shares.
     await waitFor(() => host.getScreenText(id).includes("first"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
@@ -715,8 +715,6 @@ describe("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Settle via getScreenText (a buffer read, no serialize) so the poll
-    // doesn't pre-populate the snapshot memo.
     await waitFor(() => host.getScreenText(id).includes("WIDEMARK"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
