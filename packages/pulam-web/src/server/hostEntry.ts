@@ -113,7 +113,7 @@ export function makeBuildEntry(
     // lie: the browser gates on THIS, not on its own ws transport status, so a
     // dead mirror reads honestly. Lives for the session's lifetime (never torn
     // down — the page/process outlives it).
-    pipeSessionStateToCell(session, reServe.setConnection);
+    const _unsub = pipeSessionStateToCell(session, reServe.setConnection);
 
     // 3. The background reconnect-mirror loop. Void (fire-and-forget): it runs
     //    for the session's life, re-mirroring on each respawn. The sink's first
