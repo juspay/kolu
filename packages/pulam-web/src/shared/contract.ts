@@ -25,7 +25,10 @@ export const arivuSurface = mirroredSurface(terminalWorkspaceSurface);
  *  connection-free; the re-serve forwards/folds these primitives. */
 export type ArivuContract = typeof terminalWorkspaceSurface.contract;
 
-/** The BROWSER contract — base + `connection`. The client's
- *  `surfaceClient(arivuSurface)` and the re-serve's `implementSurface` are
- *  generic over it. */
+/** The BROWSER contract — base + `connection`. Consumed as a type by anything
+ *  that types a wire client over the contract directly — today the test's
+ *  `directLink<ArivuBrowserContract>` (reserve.test.ts). NOT what
+ *  `surfaceClient(arivuSurface)` or the re-serve's `implementSurface(arivuSurface, …)`
+ *  are generic over: those take the surface VALUE and are generic over its SPEC,
+ *  not this contract alias. */
 export type ArivuBrowserContract = typeof arivuSurface.contract;
