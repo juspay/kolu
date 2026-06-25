@@ -1,11 +1,15 @@
-// `streamCall` is the one-line escape hatch for raw streaming RPCs that
-// don't fit a Cell/Collection/Stream descriptor (binary attaches,
-// lifecycle events). Re-exported so consumers can pull it from the same
-// `@kolu/surface/solid` import as the hooks. The full transport surface
-// (incl. the underlying RPC client constructor) lives at
-// `@kolu/surface/client` for non-Solid consumers; `surfaceClient` builds
-// it internally so Solid consumers don't reach for it directly.
-export { type StreamingProcedure, streamCall } from "../client";
+// Raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (a bulk
+// snapshot feed, a binary attach) join the health FACT through `client.rawStream`
+// (`./surfaceClient`) — the STRUCTURAL path that enrols them and THROWS if driven
+// outside a reactive owner. The bare `streamCall` primitive is intentionally NOT
+// re-exported from this Solid barrel: a surface-scoped raw stream must go through
+// `client.rawStream` so it can't silently escape `health()` (the Leak A bug class),
+// and a stream that is NOT a surface subscription (a root RPC — e.g. the terminal
+// attach, with its own in-pane reset/retry UX) reaches for the low-level
+// `streamCall` at `@kolu/surface/client` *deliberately* — a visible "I own this
+// stream's health myself" signal rather than a forgotten enrol. The full transport
+// surface lives at `@kolu/surface/client` for non-Solid consumers.
+export type { StreamingProcedure } from "../client";
 export {
   createReactiveSubscription,
   type ReactiveSubscriptionOptions,

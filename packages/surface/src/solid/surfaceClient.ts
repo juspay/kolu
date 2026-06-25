@@ -12,7 +12,13 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
-import { type Accessor, createMemo } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  getOwner,
+  onCleanup,
+} from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
 import type {
@@ -135,6 +141,21 @@ export interface BoundEvent<I, T> {
   ): void;
 }
 
+/** Options for `client.rawStream` — the structural raw-stream path. */
+export interface RawStreamOptions<O> {
+  /** Called for each frame the stream yields. */
+  onItem: (item: O) => void;
+  /** Called before each transparent re-subscribe (reconnect), mirroring
+   *  `streamCall`'s `onRetry` — clear any derived view that would otherwise
+   *  double-paint. The stream returns to `pending` for the gap. */
+  onRetry?: () => void;
+  /** Classify an error as an EXPECTED stop (a deliberate teardown / cleanup
+   *  abort) that must NOT register as a health error — e.g. xterm's
+   *  `isExpectedCleanupError`. The owner's own abort is always treated as
+   *  expected. */
+  isExpectedStop?: (err: unknown) => boolean;
+}
+
 // ── Bundle type — mapped over the surface spec ──────────────────────────
 
 type BoundCellsFor<S extends SurfaceSpec> = {
@@ -208,11 +229,31 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
   health(): SurfaceHealth;
   /** Enrol an owner-managed subscription's OWN `pending`/`error` into this
    *  client's health fact. The framework birth sites (cells, collection
-   *  keys-stream + per-key, streams) enrol automatically; this is the escape
-   *  hatch for a raw `streamCall` that owns its loop + error state (Leak A), so
-   *  even a hand-driven stream's failure reaches `health()` instead of a private
-   *  `console.error`. Returns a disposer; also auto-drops via `onCleanup`. */
+   *  keys-stream + per-key, streams) enrol automatically, and `rawStream` enrols
+   *  for you; this lower-level hook is for a subscription that already owns its
+   *  `pending`/`error` signals (a derived/composed sub) and just needs to JOIN the
+   *  fact. Returns a disposer; also auto-drops via `onCleanup`. */
   enroll(name: string, source: HealthSource): () => void;
+  /** Drive a raw streaming procedure with its health enrolled STRUCTURALLY — the
+   *  blessed path for a surface-scoped stream that doesn't fit a Cell/Collection/
+   *  Stream descriptor (a bulk snapshot feed, a binary attach). Unlike a bare
+   *  `streamCall`, this CANNOT bypass `health()`: it owns the `pending`/`error`
+   *  signals, enrols them under `name`, runs the consume loop (self-clearing on
+   *  each frame, recording on failure — the same edge `createSubscription` has),
+   *  and ties an `AbortController` to the owner. It THROWS if called outside a
+   *  reactive owner — the enrolment must auto-dispose, so a no-owner call is a
+   *  structural error (mirroring `createSubscription`'s `reduce`-without-`initial`
+   *  throw), never a silent leak. Returns the same `{ pending, error }` it enrols,
+   *  for the caller's own per-stream UI. The one way to drive a raw stream and
+   *  still be in `health()`; the bare `streamCall` (`@kolu/surface/client`) is the
+   *  low-level primitive for a stream that is NOT a surface subscription (a root
+   *  RPC), where you enrol by hand or deliberately carve it out. */
+  rawStream<I, O>(
+    name: string,
+    procedure: StreamingProcedure<I, O>,
+    input: I,
+    opts: RawStreamOptions<O>,
+  ): HealthSource;
 }
 
 // ── Builder ────────────────────────────────────────────────────────────
@@ -449,6 +490,66 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     };
   }
 
+  // The STRUCTURAL raw-stream path (Leak A). A raw `streamCall` owns its own loop
+  // and so escapes the framework's birth-site enrolment; this is the one blessed
+  // way to drive one and stay in `health()`. It refuses to run outside a reactive
+  // owner — the enrolment auto-disposes via `onCleanup`, so a no-owner call would
+  // leak, and silently leaking is exactly the bug class we kill — mirroring
+  // `createSubscription`'s `reduce`-without-`initial` throw.
+  function rawStream<I, O>(
+    name: string,
+    procedure: StreamingProcedure<I, O>,
+    input: I,
+    opts: RawStreamOptions<O>,
+  ): HealthSource {
+    if (!getOwner()) {
+      throw new Error(
+        `surfaceClient.rawStream("${name}"): must run inside a reactive owner — ` +
+          "it enrols into health() and auto-disposes via onCleanup, so a no-owner " +
+          "call would leak the enrolment. Call it from a component (or createRoot). " +
+          "For a stream that is NOT a surface subscription (a root RPC), use the " +
+          "bare `streamCall` from `@kolu/surface/client` and enrol by hand.",
+      );
+    }
+    const [pending, setPending] = createSignal(true);
+    const [error, setError] = createSignal<Error | undefined>(undefined);
+    const source: HealthSource = { pending, error };
+    // Owner asserted above, so this auto-drops when the owner unwinds.
+    registry.enroll(name, source);
+    const ctl = new AbortController();
+    onCleanup(() => ctl.abort());
+    void (async () => {
+      try {
+        const stream = await streamCall(procedure, input, {
+          signal: ctl.signal,
+          onRetry: () => {
+            // A reconnect: back to pending, drop the stale error, and let the
+            // caller clear any derived view before the fresh snapshot lands.
+            setPending(true);
+            setError(undefined);
+            opts.onRetry?.();
+          },
+        });
+        for await (const item of stream) {
+          // Self-clearing edge: each frame proves the stream is live, so a
+          // transient failure heals the instant it re-delivers (no latch).
+          if (pending()) setPending(false);
+          if (error()) setError(undefined);
+          opts.onItem(item);
+        }
+        // Clean completion (the server ended the stream): no longer pending.
+        setPending(false);
+      } catch (err) {
+        if (ctl.signal.aborted || opts.isExpectedStop?.(err)) return;
+        // A real failure: clear pending so an errored-on-first-frame sub reads
+        // `degraded`, never a stuck `connecting`, then record the error.
+        setPending(false);
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    })();
+    return source;
+  }
+
   return {
     rpc: link,
     cells: cells as BoundCellsFor<S>,
@@ -457,6 +558,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     events: events as BoundEventsFor<S>,
     health: registry.health,
     enroll: registry.enroll,
+    rawStream,
   };
 }
 

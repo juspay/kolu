@@ -113,19 +113,52 @@ describe("<SurfaceGate> — the rendered policy", () => {
     );
   });
 
-  it("surfaces the first sub error in the degraded fallback", () => {
+  it("DEFAULT policy keeps children visible while degraded (stale-while-degraded), with a non-blocking notice", () => {
     const { container } = mount(degraded);
-    expect(container.querySelector('[data-testid="body"]')).toBeNull();
+    // The default is the gentler policy: a transient sub error keeps the
+    // last-good children ON SCREEN (a stale roster beats a blank one) and
+    // surfaces the error in a non-blocking notice beside them.
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
     expect(container.textContent).toContain("Internal server error");
   });
 
-  it("self-heals: a degraded→ready transition re-renders children IN PLACE (no latch)", () => {
+  it("DEFAULT policy: the degraded notice self-clears on recovery without remounting the children", () => {
     const { container, setHealth } = mount(degraded);
-    // Frozen on the error first — the gate is closed.
-    expect(container.querySelector('[data-testid="body"]')).toBeNull();
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
     expect(container.textContent).toContain("Internal server error");
     // The underlying health fact clears (the self-clearing error() the registry
-    // folds). The OLD hand-latched fold would stay stuck here; the gate does not.
+    // folds): the notice disappears, the children never flicker.
+    setHealth(ready);
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
+    expect(container.textContent).not.toContain("Internal server error");
+  });
+
+  it("self-heals under a HARD GATE: a degraded→ready transition re-renders children IN PLACE (no latch)", () => {
+    const [health, setHealth] = createSignal<SurfaceHealth>(degraded);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const dispose = render(
+      () => (
+        // Hard-gate opt-in: blank the surface the instant anything errors — the
+        // harsher policy, now explicit rather than the default.
+        <SurfaceGate health={health} ready={(h) => gateStatus(h) === "ready"}>
+          <div data-testid="body">terminals</div>
+        </SurfaceGate>
+      ),
+      container,
+    );
+    disposers.push(dispose);
+    // Frozen on the error first — the hard gate is closed.
+    expect(container.querySelector('[data-testid="body"]')).toBeNull();
+    expect(container.textContent).toContain("Internal server error");
+    // The underlying health fact clears. The OLD hand-latched fold would stay
+    // stuck here; the gate does not — the un-latch the whole #1564 fix turns on.
     setHealth(ready);
     expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
       "terminals",

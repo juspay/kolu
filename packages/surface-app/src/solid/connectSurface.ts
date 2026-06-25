@@ -82,9 +82,23 @@ export function connectSurface<const S extends SurfaceSpec>(
 ): SurfaceConnection<S> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
+  // Derive the reactive transport `status` (from the socket's own open/close)
+  // BEFORE the client, so it can feed `health().live`. This is the liveness leg
+  // of the FACT — without it `health().live` would fall to the default constant
+  // `true` and a surface whose socket is silently half-open (or retired `down`)
+  // but whose subs already yielded a first frame would read `ready`. That is the
+  // exact green-dot-over-a-dead-link lie this change exists to end, one level up.
+  // `live` is `true` only while the socket is `live`; a `down`/`reconnecting`
+  // transport (incl. after the half-open watchdog forces a reconnect) flips it
+  // `false`, so `gateStatus` returns `connecting` rather than a confident `ready`.
+  const status = createSocketStatus(ws, {
+    retireOnStaleClose: socketOptions.retireOnStaleClose,
+    restartCloseCode: socketOptions.restartCloseCode,
+  });
   const client = surfaceClient(
     surface,
     websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket),
+    { live: () => status() === "live" },
   );
   // One normalizer, not four `typeof hb === "object" ? hb.x : undefined` ternaries.
   // The base `probe` is the framework-reserved `system.live` round-trip — every
@@ -94,9 +108,5 @@ export function connectSurface<const S extends SurfaceSpec>(
     probe: () => probeSurfaceLive(client.rpc),
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
-  const status = createSocketStatus(ws, {
-    retireOnStaleClose: socketOptions.retireOnStaleClose,
-    restartCloseCode: socketOptions.restartCloseCode,
-  });
   return { ws, echo, client, status, dispose: () => heartbeat?.dispose() };
 }

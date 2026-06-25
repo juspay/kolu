@@ -13,9 +13,8 @@
  * still sees the initial `state === "connecting"` (or `"copying"`).
  */
 
-import { streamCall } from "@kolu/surface/client";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   type CoreId,
@@ -56,31 +55,20 @@ export default function App() {
   // (R-2's `terminalMetadata` is the canonical fit — ~3-20 keys, where
   // per-key reactivity is exactly what you want).
   const [processes, setProcesses] = createStore<Record<Pid, Process>>({});
-  // Leak A: this bulk stream is consumed by a RAW `streamCall` (not a framework
-  // hook), so it owns its loop and has no `pending`/`error` of its own. Drive
-  // them by hand and ENROL them into `app.health()` via the escape hatch — so a
-  // snapshot-stream failure is visible in the one health FACT (and closes the
-  // `<SurfaceGate>` below) instead of a private `console.error` nobody sees.
-  // Clearing both on every frame mirrors `createSubscription`'s self-clearing
-  // edge: a transient failure heals the instant the stream re-delivers.
-  const [snapPending, setSnapPending] = createSignal(true);
-  const [snapError, setSnapError] = createSignal<Error | undefined>();
-  onCleanup(
-    app.enroll("processesSnapshot", {
-      pending: snapPending,
-      error: snapError,
-    }),
-  );
-  const ctl = new AbortController();
-  onCleanup(() => ctl.abort());
-  void (async () => {
-    try {
-      const stream = await streamCall(
-        app.rpc.surface.processesSnapshot.get,
-        {},
-        { signal: ctl.signal },
-      );
-      for await (const msg of stream) {
+  // Leak A: this bulk table is a RAW streaming RPC (not a framework Cell/
+  // Collection/Stream), so it owns its loop. `app.rawStream` is the STRUCTURAL
+  // path — it can't bypass `app.health()`: it owns the `pending`/`error`, enrols
+  // them, runs the loop self-clearing on each frame, and aborts on cleanup. So a
+  // snapshot-stream failure surfaces in the one health FACT (closing the
+  // `<SurfaceGate>` below) instead of a private `console.error` nobody sees — and
+  // `rawStream` THROWS if it were ever driven outside this component owner, so
+  // forgetting to enrol isn't possible, not just discouraged.
+  app.rawStream(
+    "processesSnapshot",
+    app.rpc.surface.processesSnapshot.get,
+    {},
+    {
+      onItem: (msg) => {
         if (msg.kind === "snapshot") {
           const next: Record<Pid, Process> = {};
           for (const [pid, value] of msg.entries) next[pid] = value;
@@ -89,16 +77,9 @@ export default function App() {
           for (const [pid, value] of msg.upserts) setProcesses(pid, value);
           for (const pid of msg.removes) setProcesses(pid, undefined!);
         }
-        if (snapPending()) setSnapPending(false);
-        if (snapError()) setSnapError(undefined);
-      }
-    } catch (err) {
-      if (!ctl.signal.aborted) {
-        setSnapError(err instanceof Error ? err : new Error(String(err)));
-        setSnapPending(false);
-      }
-    }
-  })();
+      },
+    },
+  );
 
   const [filter, setFilter] = createSignal("");
   const [sortKey, setSortKey] = createSignal<SortKey>("cpu");

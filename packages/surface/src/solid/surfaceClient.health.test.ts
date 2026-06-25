@@ -195,3 +195,70 @@ describe("surfaceClient health registry — totality", () => {
     });
   });
 });
+
+describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)", () => {
+  const link = { surface: { conn: { get: once({ state: "x" }) } } };
+
+  it("THROWS when driven outside a reactive owner (structural, not a doc warning)", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
+    const app = surfaceClient(surface, link as any);
+    // No `createRoot` ⇒ no owner ⇒ the enrolment would leak. It must THROW (the
+    // `reduce`-without-`initial` precedent), never silently bypass health().
+    expect(() =>
+      app.rawStream(
+        "raw",
+        // biome-ignore lint/suspicious/noExplicitAny: trivial stub procedure (never reached — the owner check throws first).
+        once<number>(1) as any,
+        undefined,
+        { onItem: () => {} },
+      ),
+    ).toThrow(/reactive owner/);
+  });
+
+  it("enrols structurally — a raw-stream failure surfaces through health()", async () => {
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(surface, link as any);
+      // A raw stream whose await rejects — the example's processesSnapshot 500.
+      app.rawStream(
+        "processesSnapshot",
+        // biome-ignore lint/suspicious/noExplicitAny: rejecting stub procedure.
+        rejecting() as any,
+        undefined,
+        { onItem: () => {} },
+      );
+      await settle();
+      const raw = app.health().subs.find((s) => s.name === "processesSnapshot");
+      expect(raw).toBeDefined();
+      expect(raw?.error?.message).toMatch(/stream boom/);
+      // Errored-on-first-frame clears pending → reads `degraded`, not a stuck
+      // `connecting`.
+      expect(raw?.pending).toBe(false);
+      dispose();
+    });
+  });
+
+  it("goes healthy once its stream yields (pending → false, no error), returning the enrolled source", async () => {
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(surface, link as any);
+      const got: number[] = [];
+      const src = app.rawStream(
+        "snap",
+        // biome-ignore lint/suspicious/noExplicitAny: yielding stub procedure.
+        once<number>(7) as any,
+        undefined,
+        { onItem: (n) => got.push(n as number) },
+      );
+      await settle();
+      expect(got).toEqual([7]);
+      const raw = app.health().subs.find((s) => s.name === "snap");
+      expect(raw?.pending).toBe(false);
+      expect(raw?.error).toBeUndefined();
+      // The returned source IS the enrolled one.
+      expect(src.pending()).toBe(false);
+      expect(src.error()).toBeUndefined();
+      dispose();
+    });
+  });
+});
