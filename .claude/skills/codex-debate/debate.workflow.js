@@ -388,7 +388,7 @@ async function verifyClaudeSection(round, openIds) {
   // Each open finding must appear as a backticked id token (e.g. `F1`) in the
   // section. `grep -F` is a literal substring match — no regex/prose brittleness.
   const idChecks = openIds
-    .map((id) => `grep -Fq ${shq(`\`${id}\``)} ${shq(path)} || { echo missing-${id}; ok=0; }`)
+    .map((id) => `grep -Fq ${shq(`\`${id}\``)} ${shq(path)} || { echo ${shq(`missing-${id}`)}; ok=0; }`)
     .join('; ')
   const idList = openIds.length ? openIds.map((id) => `\`${id}\``).join(', ') : '(none)'
   const res = await agent(
