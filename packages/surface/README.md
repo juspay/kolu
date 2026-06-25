@@ -45,7 +45,7 @@ This is a workspace-private package. Wire it into both server and client package
 - `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
 - `surfaceClient(surface, link)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side). The `link` is any member of the link family below — `surfaceClient` is transport-agnostic.
 
-Every surface also carries one **framework-reserved procedure**, `surface.system.live` (`@kolu/surface/liveness`), injected by `defineSurface` and auto-answered by `implementSurface` — no app declares or implements it. It is a contract-agnostic liveness round-trip a client-side watchdog can call to tell a live link from a silently half-open one, *without* each app nominating its own probe verb. `probeSurfaceLive(client)` is the one-liner that calls it; the browser-leg `createHeartbeat` (`@kolu/surface-app/connect`) and the ssh-leg `HostSession` watchdog (`@kolu/surface-nix-host`) both default their probe to it, so liveness is on by construction and there is no probe for an app to forget. It merges into an app's own `system` namespace (e.g. kaval's `system.heartbeat`) and only rejects a duplicate `live` verb.
+Every surface also carries one **framework-reserved procedure**, `surface.system.live` (`@kolu/surface/liveness`), injected by `defineSurface` and auto-answered by `implementSurface` — no app declares or implements it. It is a contract-agnostic liveness round-trip a client-side watchdog can call to tell a live link from a silently half-open one, *without* each app nominating its own probe verb. `probeSurfaceLive(client)` is the one-liner that calls it; the browser-leg heartbeat that the `connectSurface` / `connectSurfaces` seam (`@kolu/surface-app/solid`) wires by construction and the ssh-leg `HostSession` watchdog (`@kolu/surface-nix-host`) both default their probe to it, so liveness is on by construction and there is no probe for an app to forget. It merges into an app's own `system` namespace (e.g. kaval's `system.heartbeat`) and only rejects a duplicate `live` verb.
 
 A surface is reached through one of several **links**. A link maps "a way to reach the served contract" to a `ContractRouterClient<contract>` (the client is the only abstraction that spans all of them — the direct link has no transport at all):
 
@@ -377,7 +377,9 @@ app.health();
 // { live: boolean, subs: [{ name: string, pending: boolean, error: Error | undefined }] }
 ```
 
-It's a **FACT, not a verdict**: a reactive accessor that enrols every **framework** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). A _raw_ stream (one that owns its own loop) is NOT auto-enrolled — it joins the fact through `client.rawStream`, the structural path below, which makes forgetting impossible rather than merely discouraged. Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is the transport's liveness: the socket transports thread the real signal in (`@kolu/surface-app`'s `connectSurface` passes `{ live: () => status() === "live" }`, so a `down`/`reconnecting` socket reads `live: false` and the gate reads `connecting`, never a confident `ready` over a dead link), while a direct/stdio link — which can't be silently half-open — defaults to a constant `true`.
+It's a **FACT, not a verdict**: a reactive accessor that enrols every **framework** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). A _raw_ stream (one that owns its own loop) is NOT auto-enrolled — it joins the fact through `client.rawStream`, the structural path below, which makes forgetting impossible rather than merely discouraged. Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is no longer just the transport's liveness — it is the full **conjunction**: transport-live ∧ every readiness-cell's predicate (sub errors stay in `subs`, never folded into `live`). The transport leg is the socket signal threaded in (`@kolu/surface-app`'s `connectSurface` / `connectSurfaces` seam passes `{ live: () => status() === "live" }`, so a `down`/`reconnecting` socket reads `live: false` and the gate reads `connecting`, never a confident `ready` over a dead link); a direct/stdio link — which can't be silently half-open — contributes a constant `true`.
+
+The **readiness leg** is wired generically. A cell spec marks itself a READINESS GATE with the hook **`CellSpec.liveWhen?: (value: T) => boolean`** (`@kolu/surface/define`): `surfaceClient` opens an EAGER, build-time **standing subscription** for every `liveWhen` cell (a detached `createRoot`, torn down by the new **`SurfaceClient.dispose()`**) that both enrols the cell's `pending`/`error` into `subs` (totality) AND threads a readiness leg in via `registry.enrollReadiness(name, accessor)`, which AND-folds the predicate's verdict into `live`. So any surface composed through `mirroredSurface` carries its mirror-liveness leg in the fact **by construction** — no consumer hand-ANDs `connection.state === "connected"` onto `health().live` anymore. (`.use()` on a `liveWhen` cell SHARES that one eager standing sub — no duplicate subscription.) The mechanism/vocabulary split mirrors `resolveCellVerbs` / `CellSpec.equals`: the ssh **vocabulary** — the predicate and the 4-state enum — lives in `surface-nix-host`, whose `connectionCell` declares `liveWhen: (v) => v.state === "connected"`; `@kolu/surface` core only **invokes** the generic predicate, knowing nothing of ssh.
 
 `<SurfaceGate>` owns the **policy** — it derives `connecting | degraded | ready` from the fact. Its DEFAULT is **stale-while-degraded** (the gentler policy the design judged better): it renders children while ready OR degraded — a transient sub error keeps the last-good UI on screen with a non-blocking notice — and shows the fallback only while `connecting`. HARD-GATING (blank the surface the instant anything errors) is the harsher policy, so it is the explicit OPT-IN via `ready` (see the override below):
 
@@ -405,6 +407,20 @@ import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 </SurfaceGate>;
 ```
 
+`<SurfaceGate>` owns the **body** policy; the connection **dot** is its own single-sourced component. `<HostStatusPip health={…}>` renders one indicator whose green is **fact-only** — the dot is green only when the `ready` verdict holds over the FACT (default `gateStatus(h) === "ready"`), and `notReadyTone` is typed `(status: Exclude<GateStatus, "ready">) => string` so it can NEVER receive `"ready"` and thus can never tint the dot green. Green flows from `health()`, un-forgeable from raw cell state:
+
+```tsx
+// Its OWN entry — JSX, so out of the JSX-free `@kolu/surface/solid` barrel, like `<SurfaceGate>`.
+import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
+
+<HostStatusPip health={app.health} />;
+// Props: { health: Accessor<SurfaceHealth>; ready?: (h) => boolean; readyColor?: string;
+//          notReadyTone?: (status: Exclude<GateStatus, "ready">) => string;
+//          pulse?; class?; title? }
+```
+
+Both pulam-web and drishti render the SAME pip, so the raw `connection.state` is no longer something a widget can color a dot with — green flows only from the fact. `gateStatus` / `GateStatus` MOVED into the JSX-free `@kolu/surface/solid` health module (re-exported from `./SurfaceGate` for back-compat) so the pip and the gate share ONE verdict function.
+
 A raw stream that doesn't fit a Cell/Collection/Stream descriptor (a bulk snapshot feed, a binary attach) owns its own loop, so the framework can't enrol it for you — but it can't silently escape the fact either. Drive it through **`client.rawStream`**, the STRUCTURAL path: it owns the `pending`/`error`, enrols them, runs the consume loop (self-clearing on each frame), aborts on cleanup, and **throws if called outside a reactive owner** (a no-owner enrolment would leak — the same structural guard `createSubscription` raises for `reduce`-without-`initial`). Forgetting to enrol isn't possible, not just discouraged:
 
 ```ts
@@ -426,6 +442,8 @@ app.enroll("x", sub); // auto-disposes with the owner
 The bare `unenrolledStreamCall` lives at `@kolu/surface/client`, NOT on the `@kolu/surface/solid` barrel: a surface-scoped raw stream must go through `client.rawStream` (so it can't escape `health()`), and a stream that is NOT a surface subscription (a root RPC outside any surface — e.g. a terminal attach with its own in-pane retry UX) reaches for the low-level primitive *deliberately*, a visible "I own this stream's health myself" decision rather than a forgotten enrol.
 
 For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on — drishti folds its admin + surface-app siblings this way for a control-plane health strip.
+
+Don't hand-wire that fold for a socket-backed app: reach for **`connectSurfaces({ surfaces, heartbeat?, ...SurfaceSocketOptions })`** (`@kolu/surface-app/solid`) — one seam that opens one socket + one `createSocketStatus` + `surfaceClients` + ONE default-on heartbeat probing the first sibling's reserved `system.live`, and returns `{ ws, echo, clients, status, health: () => surfaceClientsHealth(clients), dispose }`. Because the half-open **watchdog is intrinsic to the seam**, `health().live` reflects a silent half-open (laptop sleep, wifi roam) however the socket was built. The hand-built path — `createSurfaceSocket` + `websocketLink` + `surfaceClient`/`surfaceClients` with no heartbeat — is the loud, documented **escape hatch** only (a direct/stdio link, or a minimal example); a socket-backed client should use `connectSurface` / `connectSurfaces` so the watchdog can't be forgotten.
 
 ## How Kolu uses this framework
 
@@ -762,6 +780,9 @@ defineSurface(spec): Surface<S>
   // surface.contract — typed oc.router built from the spec
   // surface.descriptors — underlying primitives keyed by surface path
   // surface.spec — passed-in spec for reflection
+  // a cell spec may declare liveWhen?: (value) => boolean — a READINESS GATE:
+  //   surfaceClient stands an eager sub on it and AND-folds the predicate into health().live
+  //   (core only INVOKES it; the predicate's vocabulary lives in the consumer, e.g. surface-nix-host)
 
 composeSurfaceContracts({ <key>: Surface }): { surface: { <key>: <inner> } }
   // key N standalone surfaces under one `surface` namespace (browser-safe — no server import).
@@ -970,6 +991,8 @@ surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClient<S, Rpc>
   // client.streams.<K>.use(inputFn, opts?)
   // client.events.<K>.use(inputFn, handler, opts?)
   // client.rpc                                    ← typed oRPC client (pass Rpc generic for narrowing)
+  // client.health()                               ← the FACT (live = transport ∧ liveWhen predicates; subs)
+  // client.dispose()                              ← tears down the eager liveWhen standing subs (detached createRoot)
 
 useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
 useCollection(collection, { keys, valueSource, keyToInput?, onError? })
@@ -982,6 +1005,13 @@ unenrolledStreamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIte
 
 createSubscription(source, options?): Subscription<T>           // leaf primitive
 createReactiveSubscription(inputFn, factory, options?): Subscription<T>
+
+// Health verdict (JSX-free barrel) — the ONE function <SurfaceGate> and <HostStatusPip> share:
+gateStatus(health): GateStatus   // "connecting" | "degraded" | "ready"; re-exported from ./SurfaceGate
+
+// JSX components ship from their own entries (not this barrel, so a hooks-only import stays JSX-free):
+//   <SurfaceGate>    @kolu/surface/solid/SurfaceGate    — the body policy
+//   <HostStatusPip>  @kolu/surface/solid/HostStatusPip  — the connection dot (green is fact-only)
 ```
 
 `source` / `valueSource` accept typed oRPC procedure refs directly (e.g. `client.preferences.get`); the hook threads `STREAM_RETRY` retry context internally. The leaf primitives `createSubscription` / `createReactiveSubscription` are exposed for advanced consumers that need direct AsyncIterable→Accessor lifting outside the cell/collection/stream taxonomy.
