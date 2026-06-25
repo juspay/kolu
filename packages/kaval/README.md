@@ -48,6 +48,15 @@ one of `snapshot` / `deltas`, with no gap and no overlap. This is what lets a
 late-joining client reconstruct the screen and then stream live output without
 losing or double-painting a single chunk.
 
+**Cheap under a reconnect storm.** A client that drops and reconnects
+re-`attach()`es every terminal at once, aborting the in-flight attaches and
+re-issuing them. Two defenses keep that burst from serializing the mirror N times
+over: an attach whose `signal` is already aborted returns an empty snapshot and
+does **no** `serialize()` (its subscriber is already gone), and the serialized
+snapshot is **memoized per publish-epoch** — a burst of attaches to one PTY
+between two output bytes shares a single `serialize()`, the memo cleared the
+instant new data parses into the mirror.
+
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
 browser tab on the chatty `data` stream — is **dropped** (its iterator ends)
