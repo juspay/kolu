@@ -377,9 +377,9 @@ app.health();
 // { live: boolean, subs: [{ name: string, pending: boolean, error: Error | undefined }] }
 ```
 
-It's a **FACT, not a verdict**: a reactive accessor that automatically enrols **every** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is the transport's liveness (thread it via `surfaceClient(surface, link, { live })`; defaults to a constant `true` for direct/stdio links).
+It's a **FACT, not a verdict**: a reactive accessor that enrols every **framework** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). A _raw_ stream (one that owns its own loop) is NOT auto-enrolled — it joins the fact through `client.rawStream`, the structural path below, which makes forgetting impossible rather than merely discouraged. Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is the transport's liveness: the socket transports thread the real signal in (`@kolu/surface-app`'s `connectSurface` passes `{ live: () => status() === "live" }`, so a `down`/`reconnecting` socket reads `live: false` and the gate reads `connecting`, never a confident `ready` over a dead link), while a direct/stdio link — which can't be silently half-open — defaults to a constant `true`.
 
-`<SurfaceGate>` owns the **policy** — it derives `connecting | degraded | ready` from the fact and renders its children only when ready:
+`<SurfaceGate>` owns the **policy** — it derives `connecting | degraded | ready` from the fact. Its DEFAULT is **stale-while-degraded** (the gentler policy the design judged better): it renders children while ready OR degraded — a transient sub error keeps the last-good UI on screen with a non-blocking notice — and shows the fallback only while `connecting`. HARD-GATING (blank the surface the instant anything errors) is the harsher policy, so it is the explicit OPT-IN via `ready` (see the override below):
 
 ```tsx
 // `<SurfaceGate>` is JSX, so it ships from its own entry point — the main
@@ -391,8 +391,11 @@ import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
   <Dashboard />
 </SurfaceGate>;
 
-// Override the verdict / fallback per app — fact vs policy is split because
-// consumers legitimately disagree (a hard-gate vs render-stale-while-degraded):
+// Override `ready` to HARD-GATE — blank the surface the instant anything errors
+// (stricter than the stale-while-degraded default). The fact/policy split is real
+// in-repo: pulam-web's fleet board hard-gates like this (a stale roster over a
+// broken link is worse than a blank one), while drishti renders-while-degraded
+// over the SAME `client.health()` fact — one fact, two policies.
 <SurfaceGate
   health={app.health}
   ready={(h) => h.live && !h.subs.some((s) => s.error)}
@@ -402,15 +405,27 @@ import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 </SurfaceGate>;
 ```
 
-A raw `streamCall` (which owns its own loop, so the framework can't enrol it) joins the fact via the escape hatch — drive its `pending`/`error` and `enroll` them, clearing both on each frame for the same self-clearing edge:
+A raw stream that doesn't fit a Cell/Collection/Stream descriptor (a bulk snapshot feed, a binary attach) owns its own loop, so the framework can't enrol it for you — but it can't silently escape the fact either. Drive it through **`client.rawStream`**, the STRUCTURAL path: it owns the `pending`/`error`, enrols them, runs the consume loop (self-clearing on each frame), aborts on cleanup, and **throws if called outside a reactive owner** (a no-owner enrolment would leak — the same structural guard `createSubscription` raises for `reduce`-without-`initial`). Forgetting to enrol isn't possible, not just discouraged:
 
 ```ts
-const [pending, setPending] = createSignal(true);
-const [error, setError] = createSignal<Error | undefined>();
-onCleanup(app.enroll("metricHistory", { pending, error }));
+app.rawStream("metricHistory", app.rpc.surface.metricHistory.get, {}, {
+  onItem: (msg) => fold(msg),
+});
 ```
 
-For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on.
+For a stream that ALREADY owns its `pending`/`error` — a `createSubscription` over a surface procedure — JOIN it with the lower-level `client.enroll(name, source)` (a `Subscription` *is* a valid source):
+
+```ts
+const sub = createSubscription(
+  () => streamCall(app.rpc.surface.x.get, {}, { signal }),
+  { reduce, initial },
+);
+app.enroll("x", sub); // auto-disposes with the owner
+```
+
+The bare `streamCall` lives at `@kolu/surface/client`, NOT on the `@kolu/surface/solid` barrel: a surface-scoped raw stream must go through `client.rawStream` (so it can't escape `health()`), and a stream that is NOT a surface subscription (a root RPC outside any surface — e.g. a terminal attach with its own in-pane retry UX) reaches for the low-level primitive *deliberately*, a visible "I own this stream's health myself" decision rather than a forgotten enrol.
+
+For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on — drishti folds its admin + surface-app siblings this way for a control-plane health strip.
 
 ## How Kolu uses this framework
 
