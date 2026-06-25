@@ -302,6 +302,18 @@ export type CellIsMutable<S extends CellSpec<any, any>> =
       ? true
       : false;
 
+/** Whether a cell exposes the `patch` wire verb (the partial-payload mutation).
+ *  Load-bearing for the client bound shape: `patch` carries `patchSchema` (`P`),
+ *  but `set` carries the full value schema (`T`). A cell that mutates via `set`
+ *  alone — even one that also declares a `patchSchema` (a legal but unusual
+ *  combination, e.g. `patchSchema` + explicit `verbs: ["get", "set"]`) — has NO
+ *  `P`-shaped wire procedure, so the client must NOT advertise a `.patch(P)` that
+ *  would post a partial `P` to the full-value `set` endpoint. `surfaceClient`
+ *  collapses such a cell's client patch shape to `T` (full replacement through
+ *  `set`); this type is what drives that collapse. */
+export type CellHasPatchVerb<S extends CellSpec<any, any>> =
+  "patch" extends CellVerbsOf<S> ? true : false;
+
 /** One contract entry per resolved verb — `get` streams the schema, `set` /
  *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the
  *  runtime `entries[v] = …` switch in {@link cellContractEntries} 1:1. */

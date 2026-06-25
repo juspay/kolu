@@ -41,11 +41,15 @@ const surface = defineSurface({
     },
     // A `patchSchema` cell that explicitly exposes `set` (not `patch`). The
     // binding must follow the exposed verb, so it captures `ns.set`, not the
-    // `ns.patch` a naive `patchSchema ? "patch" : "set"` would reach for.
+    // `ns.patch` a naive `patchSchema ? "patch" : "set"` would reach for. The
+    // patch shape (`{ delta }`) is DELIBERATELY different from the full value
+    // (`{ n, label }`): the wire serves only the full-value `set`, so the bound
+    // cell must collapse its client patch shape to the full value `T` — a
+    // `.patch({ delta })` would post a partial the `set` endpoint rejects.
     explicitSet: {
-      schema: z.object({ n: z.number() }),
-      default: { n: 0 },
-      patchSchema: z.object({ n: z.number() }),
+      schema: z.object({ n: z.number(), label: z.string() }),
+      default: { n: 0, label: "" },
+      patchSchema: z.object({ delta: z.number() }),
       verbs: ["get", "set"],
     },
   },
@@ -136,5 +140,17 @@ describe("surfaceClient cell verbs", () => {
     // The runtime bound `ns.set` (not the absent `ns.patch`); reaching the
     // local-authority path would otherwise throw "no mutate handler".
     expect(typeof explicitSet.use).toBe("function");
+
+    // The client patch shape COLLAPSES to the full value `T` (`{ n, label }`),
+    // because the only wire mutation is the full-value `set`. A `.patch` of the
+    // declared partial `patchSchema` (`{ delta }`) must NOT typecheck — that
+    // would post a partial payload the `set` endpoint would reject. These two
+    // assertions pin the soundness the differing `T`/`P` exists to catch.
+    const result = explicitSet.use();
+    // `.patch` accepts the full value — sound against `set`.
+    void (() => result.patch({ n: 1, label: "x" }));
+    // @ts-expect-error — `.patch` must reject the partial `{ delta }`: a set-only
+    // cell has no `P`-shaped wire procedure, so its client patch shape is `T`.
+    void (() => result.patch({ delta: 1 }));
   });
 });

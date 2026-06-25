@@ -16,6 +16,7 @@ import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
 import type {
+  CellHasPatchVerb,
   CellIsMutable,
   CellSpec,
   CollectionSpec,
@@ -132,7 +133,16 @@ type BoundCellsFor<S extends SurfaceSpec> = {
       // no `.set` / `.patch` / local-authority path the contract router lacks.
       CellIsMutable<NonNullable<S["cells"]>[K]> extends false
       ? ReadOnlyBoundCell<T>
-      : BoundCell<T, P>
+      : // A cell that mutates via `patch` carries the `patchSchema` payload `P`,
+        // so its bound shape is `BoundCell<T, P>` (`.set(T)` + `.patch(P)`). A
+        // cell that mutates via `set` alone has NO `P`-shaped wire procedure —
+        // even if it declares a `patchSchema`, the only mutation endpoint is the
+        // full-value `set`. Collapse its client patch shape to `T` so `.patch`
+        // posts a full value (sound against `set`), never a partial `P` the
+        // `set` endpoint would reject.
+        CellHasPatchVerb<NonNullable<S["cells"]>[K]> extends true
+        ? BoundCell<T, P>
+        : BoundCell<T, T>
     : never;
 };
 
@@ -220,9 +230,12 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // `patchSchema`. Default verbs are `["get", "patch"]` when a `patchSchema`
     // is declared, else `["get", "set"]`; an explicit `verbs` lists whichever
     // it exposes. This keeps the binding aligned with `CellIsMutable` even for
-    // the legal `patchSchema` + explicit-`set` cell — and leaves `mutate`
-    // undefined for a get-only cell so the read-only `.use()` type (no
-    // `set`/`patch`) keeps callers off a mutate path the wire can't service.
+    // the legal `patchSchema` + explicit-`set` cell — whose client patch shape
+    // the bound type (`CellHasPatchVerb`) collapses to the full value `T`, so a
+    // `.patch` posts a full value to this `ns.set`, never a partial the endpoint
+    // would reject. It also leaves `mutate` undefined for a get-only cell so the
+    // read-only `.use()` type (no `set`/`patch`) keeps callers off a mutate path
+    // the wire can't service.
     const verbs =
       cellSpec.verbs ??
       (cellSpec.patchSchema ? ["get", "patch"] : ["get", "set"]);
