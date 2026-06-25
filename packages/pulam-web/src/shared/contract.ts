@@ -11,8 +11,6 @@
 import { mirroredSurface } from "@kolu/surface-nix-host/connection";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 
-export { terminalWorkspaceSurface };
-
 /** The surface the BROWSER consumes and the parent RE-SERVES: the daemon's
  *  `terminalWorkspaceSurface` augmented at the mirror seam with the get-only
  *  `connection` cell. The daemon serves the *base*; the parent mirrors the base
