@@ -206,16 +206,26 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
 
   // The FIRST currently-active subscription error, or null — read straight off
   // each subscription's OWN reactive `error()` (the connection cell, the activity
-  // stream, and every awareness per-key sub), NOT latched from a one-shot
-  // `onError`. `createSubscription` clears `error()` on the next frame, so this
-  // SELF-HEALS: a transient blip (a backend restart on laptop sleep/wake makes a
-  // live subscription 500 with a masked "Internal server error") clears the
-  // instant the stream re-delivers — instead of latching a stale error over a
-  // fleet that has since reconnected. A PERSISTENT error still shows and still
-  // wins over the body (never collapsing into a healthy-looking empty host);
-  // only a resolved one disappears. This is #1564's lie in another costume: the
-  // dashboard must not keep claiming a failure that is already over.
+  // stream, the awareness KEYS stream, and every awareness per-key sub), NOT
+  // latched from a one-shot `onError`. `createSubscription` clears `error()` on
+  // the next frame, so this SELF-HEALS: a transient blip (a backend restart on
+  // laptop sleep/wake makes a live subscription 500 with a masked "Internal
+  // server error") clears the instant the stream re-delivers — instead of
+  // latching a stale error over a fleet that has since reconnected. A PERSISTENT
+  // error still shows and still wins over the body (never collapsing into a
+  // healthy-looking empty host); only a resolved one disappears. This is #1564's
+  // lie in another costume: the dashboard must not keep claiming a failure that
+  // is already over.
+  //
+  // `keysError` is the awareness KEYS stream's own error — load-bearing: a failing
+  // keys stream collapses `awareness.keys()` to `[]` (the bound `sub() ?? []`
+  // fallback), so without reading it a keys-stream 500 would read as a connected,
+  // empty fleet ("no terminals") with no visible error — the exact stale/empty lie
+  // this PR exists to kill. Checked FIRST so a dead keys stream wins over a stale
+  // per-key sub.
   const subscriptionError = createMemo<string | null>(() => {
+    const keysErr = awareness.keysError();
+    if (keysErr) return keysErr.message;
     for (const id of awareness.keys()) {
       const err = awareness.byKey(id)?.error();
       if (err) return err.message;

@@ -72,6 +72,8 @@ function mountHostGroup(): {
   setKeys: Setter<TerminalId[]>;
   blip: (message: string) => void;
   heal: () => void;
+  blipKeys: (message: string) => void;
+  healKeys: () => void;
 } {
   const [conn, setConn] = createSignal<ConnectionInfo>(DEFAULT_CONNECTION);
   const [keys, setKeys] = createSignal<TerminalId[]>([]);
@@ -84,12 +86,21 @@ function mountHostGroup(): {
   const capture = (opts: ErrOpts): void => {
     if (opts?.onError) onErrorBus.push(opts.onError);
   };
+  // The awareness KEYS stream's own self-clearing error — the channel that, when
+  // set, turns a default-keys collection into a silent empty set. Driven by
+  // `blipKeys` / `healKeys` so a keys-stream failure can be exercised distinctly
+  // from the connection cell's.
+  const [keysErr, setKeysErr] = createSignal<Error | undefined>();
   h.app = {
     collections: {
       awareness: {
         use: (opts: ErrOpts) => {
           capture(opts);
-          return { keys: () => keys(), byKey: () => undefined };
+          return {
+            keys: () => keys(),
+            byKey: () => undefined,
+            keysError: () => keysErr(),
+          };
         },
       },
     },
@@ -132,7 +143,15 @@ function mountHostGroup(): {
     for (const fn of onErrorBus) fn(e); // the legacy one-shot channel
   };
   const heal = (): void => setErr(undefined); // recovery clears only error()
-  return { container, setConn, setKeys, blip, heal };
+  // The keys-stream channel: `blipKeys` sets its self-clearing `error()` (the
+  // keys stream 500s, collapsing `keys()` to its empty fallback); `healKeys`
+  // clears it (the keys stream re-delivers).
+  const blipKeys = (message: string): void => {
+    const e = new Error(message);
+    setKeysErr(() => e);
+  };
+  const healKeys = (): void => setKeysErr(undefined);
+  return { container, setConn, setKeys, blip, heal, blipKeys, healKeys };
 }
 
 const text = (c: HTMLElement): string => c.textContent ?? "";
@@ -215,6 +234,31 @@ describe("HostGroup — the empty-vs-error render gate (#1564 regression guard)"
     heal();
     // The host heals on its own: the connected-empty body returns, no reload — and
     // the stale error is GONE (the old latch would still be showing it here).
+    await waitForText(container, "no terminals");
+    expect(text(container)).not.toContain("Internal server error");
+  });
+
+  it("a failing awareness KEYS stream surfaces an error, not a silent empty fleet — and clears on recovery", async () => {
+    // The keys-stream leg F1 caught: a failing `awareness.keys` subscription
+    // collapses `keys()` to its empty fallback (`sub() ?? []`), so a connected
+    // host with a dead keys stream would otherwise read as "no terminals" with
+    // NO visible error — the same empty/stale lie this PR kills, one stream over.
+    const { container, setConn, blipKeys, healKeys } = mountHostGroup();
+    setConn({
+      state: "connected",
+      lastError: null,
+      failureCause: null,
+      progressLines: [],
+    });
+    // Healthy: the connected-empty body shows.
+    await waitForText(container, "no terminals");
+    // The keys stream 500s. The error must win over the empty body, not vanish.
+    blipKeys("Internal server error");
+    await waitForText(container, "Internal server error");
+    expect(text(container)).not.toContain("no terminals");
+    // The keys stream re-delivers; its self-clearing error clears and the host
+    // heals on its own — no stale-error latch.
+    healKeys();
     await waitForText(container, "no terminals");
     expect(text(container)).not.toContain("Internal server error");
   });

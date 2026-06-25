@@ -7,6 +7,7 @@ import {
   ConnectionInfoSchema,
   DEFAULT_CONNECTION,
   mirroredSurface,
+  type WithConnection,
 } from "./connection";
 import { projectConnection } from "./connectionPipe";
 import type { HostSessionState } from "./hostSession";
@@ -20,6 +21,28 @@ const baseSurface = defineSurface({
     items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
   },
 });
+
+// ── Compile-time regression: a CELL-LESS base mirrors to EXACTLY `{ connection }`.
+// A collection/stream-only surface has no `cells` member, so `S["cells"]` is
+// absent; `WithConnection` must model that as `{}` and add only `connection` —
+// NOT widen through `SurfaceSpec`'s `Record<string, CellSpec>` constraint (which
+// would type the mirror as carrying arbitrary string-keyed cells). These assertions
+// fail to compile if the type regrows the widened shape.
+const cellLessBase = defineSurface({
+  collections: {
+    items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
+  },
+});
+type CellLessSpec = typeof cellLessBase.spec;
+type MirroredCells = WithConnection<CellLessSpec>["cells"];
+// `connection` is present and is exactly `connectionCell`.
+const _connPresent: MirroredCells["connection"] = connectionCell;
+// The cell map has NO arbitrary string index — a bogus key must NOT typecheck.
+// @ts-expect-error — a cell-less base's mirror carries ONLY `connection`, not an
+// open string index of `CellSpec`s.
+const _noArbitraryKey: MirroredCells["someOtherCell"] = connectionCell;
+void _connPresent;
+void _noArbitraryKey;
 
 describe("connection cell", () => {
   it("is gate-closed by default (connecting) — a fresh cell never reads connected", () => {

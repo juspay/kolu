@@ -123,8 +123,46 @@ describe("surfaceClient cell verbs", () => {
     expect(typeof conn.use).toBe("function");
     // @ts-expect-error — a read-only bound cell's `.use()` result has no `set`.
     type _NoSet = ReturnType<typeof conn.use>["set"];
-    // @ts-expect-error — a get-only cell rejects the local-authority path.
-    conn.use({ authority: "local", initial: { state: "x" } });
+    // The local-authority path is rejected at BOTH the type and the runtime: the
+    // line below is a TS error (the `@ts-expect-error` pins that), and forcing it
+    // through throws rather than seeding a local store (the runtime dual lives in
+    // its own test below).
+    expect(() =>
+      // @ts-expect-error — a get-only cell rejects the local-authority path.
+      conn.use({ authority: "local", initial: { state: "x" } }),
+    ).toThrow(/get-only/);
+  });
+
+  it("a get-only cell's `.use()` is read-only at RUNTIME — no `set`/`patch`, and forced `authority: 'local'` throws BEFORE any local store is seeded", () => {
+    const { link } = stubLink();
+    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
+    const app = surfaceClient(surface, link as any);
+    createRoot((dispose) => {
+      // The runtime dual of the type-level guard above: a JS / `any` caller can't
+      // be stopped by TS, so the binding must REFUSE the local-authority path
+      // outright rather than seed a store and half-apply a write before the
+      // missing-mutate throw.
+      expect(() =>
+        // biome-ignore lint/suspicious/noExplicitAny: a JS caller forces the path the type forbids.
+        (app.cells.conn.use as any)({
+          authority: "local",
+          initial: { state: "x" },
+        }),
+      ).toThrow(/get-only/);
+
+      // The honest read-only path: server-authority `.use()` yields ONLY
+      // value/pending/error/sub — `set`/`patch` are absent at runtime, so a
+      // forge-the-health write has nothing to call.
+      const ro = app.cells.conn.use();
+      expect(typeof ro.value).toBe("function");
+      expect(typeof ro.pending).toBe("function");
+      expect(typeof ro.error).toBe("function");
+      // biome-ignore lint/suspicious/noExplicitAny: probing for absence of a runtime field the type already hides.
+      expect((ro as any).set).toBeUndefined();
+      // biome-ignore lint/suspicious/noExplicitAny: probing for absence of a runtime field the type already hides.
+      expect((ro as any).patch).toBeUndefined();
+      dispose();
+    });
   });
 
   it("binds `set` for a default mutable cell", () => {
@@ -147,8 +185,13 @@ describe("surfaceClient cell verbs", () => {
     expect(typeof feed.use).toBe("function");
     // @ts-expect-error — `test__set` doesn't make the cell mutable on the client.
     type _NoSet = ReturnType<typeof feed.use>["set"];
-    // @ts-expect-error — the local-authority path is rejected: no client mutate verb.
-    feed.use({ authority: "local", initial: { items: [] } });
+    // A `['get', 'test__set']` cell is read-only on the client (no consumer
+    // mutate verb), so the local-authority path is rejected at the type AND the
+    // runtime — forcing it through throws rather than seeding a local store.
+    expect(() =>
+      // @ts-expect-error — the local-authority path is rejected: no client mutate verb.
+      feed.use({ authority: "local", initial: { items: [] } }),
+    ).toThrow(/get-only/);
   });
 
   it("binds the exposed `set` for a patchSchema cell that lists `set` (not `patch`)", () => {

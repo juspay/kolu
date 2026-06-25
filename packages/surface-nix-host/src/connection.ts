@@ -92,9 +92,18 @@ export const connectionCell = {
   verbs: ["get"],
 } as const;
 
-/** A base spec with the reserved get-only `connection` cell added. */
+/** A base spec with the reserved get-only `connection` cell added.
+ *
+ *  The cell part is taken CONDITIONALLY — `S extends { cells: infer C } ? C : {}`
+ *  — so a cell-less base (a valid collection/stream-only surface, where `S["cells"]`
+ *  is absent/`undefined`) models its existing cells as exactly `{}`, and the result
+ *  is precisely `{ connection: typeof connectionCell }` rather than widening through
+ *  `SurfaceSpec`'s `Record<string, CellSpec<...>>` constraint (which `NonNullable`
+ *  would resolve to, typing the mirror as carrying arbitrary string-keyed cells). */
 export type WithConnection<S extends SurfaceSpec> = Omit<S, "cells"> & {
-  cells: NonNullable<S["cells"]> & { connection: typeof connectionCell };
+  cells: (S extends { cells: infer C } ? C : unknown) & {
+    connection: typeof connectionCell;
+  };
 };
 
 /**

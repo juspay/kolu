@@ -88,6 +88,14 @@ export interface ReadOnlyBoundCell<T> {
 export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
   upsert: (key: K, value: T) => Promise<void>;
   delete: (key: K) => Promise<void>;
+  /** The DEFAULT keys subscription's own reactive, self-clearing error — the
+   *  failure that turns `keys()` into a silent empty/stale set. `undefined`
+   *  while healthy AND when the caller supplies its own `keys` (then the caller
+   *  owns that subscription's error). Read it where you read `byKey(id).error()`
+   *  so a keys-stream 500 surfaces instead of collapsing the collection to `[]`
+   *  with no visible error. Self-clearing like every `createSubscription` error:
+   *  it disappears the instant the keys stream re-delivers. */
+  keysError: Accessor<Error | undefined>;
 }
 
 export interface BoundCollection<K, T> {
@@ -257,10 +265,47 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // `applyPatch` undefined, so `useCell`'s no-helper branch treats `P` as `T`
     // and replaces wholesale — sound against the full-value `set` endpoint.
     const specPatch = mutateVerb === "patch" ? cellSpec.patch : undefined;
+    // A get-only cell has NO client mutation verb. Make it read-only at RUNTIME,
+    // not only at the TS surface: branch to a server-authority `useCell` and
+    // return ONLY `{ value, pending, error, sub }` — no `set`/`patch` to call an
+    // absent `ns.<verb>`, and no local store at all. A forced `authority: "local"`
+    // (a JS / `any` caller the type can't stop) FAILS FAST here, BEFORE
+    // `useCellLocal` would seed a local store and let a `.set`/`.patch` mutate it
+    // ahead of discovering there is no mutate handler. Fail-fast per the design
+    // philosophy: a read-only contract that silently half-mutates a local store
+    // is the "graceful degradation" defect, not a feature.
+    const readOnly = mutateVerb === undefined;
     cells[key] = {
       use: (boundOpts) => {
         // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
-        const merged: any = { ...(boundOpts ?? {}), source, mutate };
+        const opts: any = boundOpts ?? {};
+        if (readOnly) {
+          if (opts.authority === "local") {
+            throw new Error(
+              "surfaceClient: cell has no wire mutation verb (get-only) — " +
+                '`authority: "local"` is rejected; there is no mutate handler ' +
+                "to flush a local write to, so this cell is read-only.",
+            );
+          }
+          const cell = useCell(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+            (surface.descriptors.cells as any)[key],
+            { source, authority: "server" },
+          );
+          // Return ONLY the read-only projection — `set`/`patch` are absent at
+          // runtime, matching `ReadOnlyUseCellResult`. The cast bridges the
+          // walk-by-string `BoundCell` map; the typed `BoundCellsFor` already
+          // narrows a get-only cell to `ReadOnlyBoundCell`.
+          return {
+            value: cell.value,
+            pending: cell.pending,
+            error: cell.error,
+            sub: cell.sub,
+            // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
+          } as any;
+        }
+        // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
+        const merged: any = { ...opts, source, mutate };
         if (
           specPatch &&
           merged.authority === "local" &&
@@ -287,6 +332,14 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
+        // The default keys subscription's own self-clearing error, surfaced on
+        // the result so a consumer can read it the same way it reads
+        // `byKey(id).error()`. A caller-supplied `keys` owns its own error, so
+        // there is no internal sub to observe — `keysError` is a constant
+        // `undefined`. Without this, a failing default keys stream silently
+        // collapses `keys()` to `[]` (the `sub() ?? []` fallback) and the
+        // collection reads as an empty set with NO visible error.
+        let keysError: Accessor<Error | undefined> = () => undefined;
         // Default keys: subscribe to the server's keys stream and lift
         // it to a SolidJS accessor. The `.use()` runs inside a Solid
         // owner so the subscription disposes with the component.
@@ -297,6 +350,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
               () => streamCall(ns.keys, undefined),
               { onError },
             );
+            keysError = sub.error;
             return createMemo<unknown[]>(() => sub() ?? []);
           })();
         const view = useCollection(
@@ -309,7 +363,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
             onError,
           },
         );
-        return { ...view, upsert, delete: del };
+        return { ...view, keysError, upsert, delete: del };
       },
       upsert,
       delete: del,
