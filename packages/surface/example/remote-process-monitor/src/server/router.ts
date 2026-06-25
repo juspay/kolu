@@ -158,7 +158,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   // The shared `pipeSessionStateToCell` (projects every `onState` frame onto the
   // cell), not a hand-rolled `onState` → `{ state }` mapping — so the full
   // `ConnectionInfo` (lastError / failureCause / progress) reaches the browser,
-  // single-sourced with pulam-web.
+  // single-sourced with pulam-web. This is the MANUAL form of the production
+  // wiring: a re-serve that drives the parent surface via `pumpRemoteSurface`
+  // passes `connection: { set }` and the pump calls this for you (the default-on
+  // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
+  // so it wires the same mapping by hand here.
   pipeSessionStateToCell(session, (info) =>
     fragment.ctx.cells.connection.set(info),
   );

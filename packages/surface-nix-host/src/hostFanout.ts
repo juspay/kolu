@@ -152,11 +152,15 @@ export interface PumpRemoteSurfaceOptions<
    *  `session.onState` ONCE for the session's lifetime (via
    *  `pipeSessionStateToCell`) and writes each projected frame through `set`,
    *  tearing the subscription down when the pump loop exits (the session was
-   *  destroyed). Distinct from the per-spawn `makeSink` fold: link health is
-   *  session-level, not per-client, so it's wired here — not re-subscribed per
-   *  reconnect. `set` is the framework-wrapped `ctx.cells.connection.set` of the
-   *  re-served surface (the cell `mirroredSurface` composed). Omit for a re-serve
-   *  that carries no link-health cell. */
+   *  destroyed). This is what makes link health un-forgettable FOR THIS PUMP:
+   *  a re-serve that drives the cell from its own pump (the
+   *  remote-process-monitor example) gets no such guarantee and must call
+   *  `pipeSessionStateToCell` itself. Distinct from the per-spawn `makeSink`
+   *  fold: link health is session-level, not per-client, so it's wired here —
+   *  not re-subscribed per reconnect. `set` is the framework-wrapped
+   *  `ctx.cells.connection.set` of the re-served surface (the cell
+   *  `mirroredSurface` composed). Omit for a re-serve that carries no
+   *  link-health cell. */
   connection?: { set: (info: ConnectionInfo) => void };
   /** Diagnostic sink. Default no-op. */
   log?: (line: string) => void;
@@ -190,8 +194,11 @@ export async function pumpRemoteSurface<
   // Default-on link-health: subscribe the session ONCE for its lifetime (NOT
   // per-spawn — `onState` outlives any single client) and write each projected
   // frame onto the re-served `connection` cell; torn down in the `finally` when
-  // the loop exits (session destroyed). This is the wiring an app can no longer
-  // forget (#1564) — pumping a session carries its link health by construction.
+  // the loop exits (session destroyed). This is the wiring a `pumpRemoteSurface`
+  // consumer can no longer forget (#1564) — pumping a session with `connection`
+  // set carries its link health by construction. A re-serve that runs its own
+  // pump must still call `pipeSessionStateToCell` explicitly (see the
+  // remote-process-monitor example's router).
   const unsubConnection = opts.connection
     ? pipeSessionStateToCell(session, opts.connection.set)
     : undefined;

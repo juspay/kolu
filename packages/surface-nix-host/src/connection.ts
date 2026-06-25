@@ -105,8 +105,11 @@ export type WithConnection<S extends SurfaceSpec> = Omit<S, "cells"> & {
  * it; the BASE surface (what an agent/daemon serves directly, or a one-shot dial
  * reaches) stays connection-free, so a direct/local link carries no inert stub
  * and no contract-version dance. Composing link health is then **structurally
- * entailed** by re-serving over a session — not a step a consumer can forget
- * (the omission that was #1564), exactly as `defineSurface` entails `system.live`.
+ * entailed for `pumpRemoteSurface` consumers** — passing `connection` makes the
+ * pump wire `pipeSessionStateToCell` itself, so they can't forget it (the
+ * omission that was #1564), exactly as `defineSurface` entails `system.live`. A
+ * re-serve that runs its OWN pump (the remote-process-monitor example) is not
+ * covered by that guarantee and must call `pipeSessionStateToCell` explicitly.
  *
  * Throws if `base` already declares a `connection` cell: `connection` is a
  * reserved name at this seam (mirroring `defineSurface`'s duplicate-`live` claim),
