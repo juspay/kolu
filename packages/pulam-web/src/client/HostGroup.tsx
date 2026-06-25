@@ -276,7 +276,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             · {awareness.keys().length} terminals
           </span>
         </Show>
-        <HostHealthIndicator status={status} info={connInfo} />
+        <HostHealthIndicator health={health} />
       </header>
       <Show
         when={error() === null}

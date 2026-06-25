@@ -17,10 +17,8 @@
  */
 
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
-import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import {
   createEffect,
-  createMemo,
   createSignal,
   type JSX,
   on,
@@ -28,7 +26,7 @@ import {
   Show,
 } from "solid-js";
 import { CONN_STATE, HEALTH_PALETTE } from "./connectionStates.ts";
-import { effectiveHealth, type EffectiveHealth } from "./connectionHealth.ts";
+import type { EffectiveHealth } from "./connectionHealth.ts";
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls
@@ -76,18 +74,16 @@ function parseReconnectError(raw: string): string {
   return raw;
 }
 
-/** The per-host header indicator. Paints the single `effectiveHealth` fold —
- *  the transport-shadows-mirror precedence lives there, not here, so the dot and
- *  the body gate (`HostGroup`) can't disagree about whether a host is up. */
+/** The per-host header indicator. Reads the SAME resolved `effectiveHealth` memo
+ *  the body gate (`HostGroup`) consumes — the transport-shadows-mirror precedence
+ *  lives in that one fold, so the dot and the gate can't disagree about whether a
+ *  host is up, and the fold runs once per change with one identity (it allocates
+ *  fresh, so a single shared memo is what keeps the five reads below from
+ *  re-folding). */
 export function HostHealthIndicator(props: {
-  status: () => SurfaceConnectionStatus;
-  info: () => ConnectionInfo;
+  health: () => EffectiveHealth;
 }): JSX.Element {
-  // A memo, not a bare accessor: `effectiveHealth` allocates a fresh object, and
-  // the JSX below reads `view()` five times — without the memo the fold re-runs
-  // (and re-allocates) on every read. The memo runs it once per status/info
-  // change with one stable identity.
-  const view = createMemo(() => effectiveHealth(props.status(), props.info()));
+  const view = props.health;
   return (
     <span
       class="ml-auto flex flex-none items-center gap-1 text-[12px]"

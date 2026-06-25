@@ -15,6 +15,10 @@
 import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
+import {
+  DEFAULT_CELL_VERBS_WITH_PATCH,
+  DEFAULT_CELL_VERBS_WITHOUT_PATCH,
+} from "../define";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
@@ -238,7 +242,9 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // the wire can't service.
     const verbs =
       cellSpec.verbs ??
-      (cellSpec.patchSchema ? ["get", "patch"] : ["get", "set"]);
+      (cellSpec.patchSchema
+        ? DEFAULT_CELL_VERBS_WITH_PATCH
+        : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
     const mutateVerb = verbs.includes("patch")
       ? "patch"
       : verbs.includes("set")
