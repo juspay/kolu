@@ -366,6 +366,49 @@ useEvent(
 
 When the input accessor returns `null` the subscription is paused; when it changes, the previous subscription tears down and a fresh one starts.
 
+## Health & gating
+
+Each primitive exposes its own `error()` / `pending()`, but a consumer that wants ONE "is this surface healthy" answer used to hand-fold them — and a hand-fold is where a *latch* creeps in (a `?? prev` that freezes the UI on a stale error after the link has already recovered — kolu#1564). `client.health()` graduates that fold into the framework.
+
+```ts
+const app = surfaceClient(surface, link);
+
+app.health();
+// { live: boolean, subs: [{ name: string, pending: boolean, error: Error | undefined }] }
+```
+
+It's a **FACT, not a verdict**: a reactive accessor that automatically enrols **every** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is the transport's liveness (thread it via `surfaceClient(surface, link, { live })`; defaults to a constant `true` for direct/stdio links).
+
+`<SurfaceGate>` owns the **policy** — it derives `connecting | degraded | ready` from the fact and renders its children only when ready:
+
+```tsx
+import { SurfaceGate } from "@kolu/surface/solid";
+
+<SurfaceGate health={app.health}>
+  <Dashboard />
+</SurfaceGate>;
+
+// Override the verdict / fallback per app — fact vs policy is split because
+// consumers legitimately disagree (a hard-gate vs render-stale-while-degraded):
+<SurfaceGate
+  health={app.health}
+  ready={(h) => h.live && !h.subs.some((s) => s.error)}
+  fallback={(h) => <Connecting error={h().subs.find((s) => s.error)?.error?.message} />}
+>
+  <Dashboard />
+</SurfaceGate>;
+```
+
+A raw `streamCall` (which owns its own loop, so the framework can't enrol it) joins the fact via the escape hatch — drive its `pending`/`error` and `enroll` them, clearing both on each frame for the same self-clearing edge:
+
+```ts
+const [pending, setPending] = createSignal(true);
+const [error, setError] = createSignal<Error | undefined>();
+onCleanup(app.enroll("metricHistory", { pending, error }));
+```
+
+For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on.
+
 ## How Kolu uses this framework
 
 Kolu serves **two sibling surfaces** over its one transport (kolu#1197): its own domain surface under `surface.kolu.*` (the descriptors inventoried below) and [`@kolu/surface-app`](../surface-app)'s complete surface under `surface.surfaceApp.*` (the `buildInfo` cell + the `identity.info` restart probe). They're composed by key via `composeSurfaceContracts` / `implementSurfaces` / `surfaceClients` (see [Multiple surfaces over one transport](#multiple-surfaces-over-one-transport)), not merged. On the client the `kolu` bundle is re-exported as `app` (`= clients.kolu`) so existing `app.cells.X` call sites are unchanged, and the surface-app bundle is `surfaceApp`.
