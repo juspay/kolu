@@ -31,6 +31,7 @@
 
 import { directLink } from "@kolu/surface/links/direct";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
+import { StandardRPCMatcher } from "@orpc/server/standard";
 import {
   implementSurface,
   inMemoryChannelByName,
@@ -247,14 +248,39 @@ describe("buildReServe — the mirror's connection health reaches the browser", 
       progressLines: ["[remote] kaval speaks pty-host 3.2, pulam needs 3.3"],
     });
 
-    // The browser cell RE-NOTIFIES to `failed`, carrying the real error — the
-    // regression guard. Before the connection cell existed, a dead mirror left
-    // awareness empty and the browser painted "no terminals"; now it reads
-    // honestly. A revert of the gate flips this red.
+    // The browser cell RE-NOTIFIES to `failed`, carrying the real error — and a
+    // concurrent `get` (this `surfaceClient.use()`) reads the parent-written
+    // value. This pins the cell VALUE reaching the browser; the empty-vs-error
+    // RENDER GATE (`HostGroup`'s `<Show>`) is pinned separately by the render
+    // test in `HostGroup.test.tsx` — reverting the gate leaves this cell at
+    // `failed` and would NOT flip this test, which is why both exist.
     await waitFor(() => connNow()?.state === "failed");
     expect(connNow()?.lastError).toBe("exited with code 1");
     expect(connNow()?.failureCause).toBe("remote");
     expect(connNow()?.progressLines.at(-1)).toContain("pty-host 3.2");
+  });
+
+  it("the wire contract is unforgeable — the SERVER router routes `connection.get`, never `connection.set`", () => {
+    // The whole promise is "a wire client cannot forge connection=connected". A
+    // `directLink` forge would throw a client-side `TypeError` (the client router
+    // lacks `.set`) and never reach the server — proving nothing. So assert the
+    // SERVER's dispatch: build a `StandardRPCMatcher` over the REAL re-serve
+    // router (the exact value an `RPCHandler` upgrades the browser onto, the same
+    // matcher it dispatches through), and confirm a forged `surface.connection.set`
+    // has NO route to match — a `NO_MATCH` at the trust boundary — while `get` and
+    // the base primitives route normally.
+    const reServe = buildReServe();
+    const matcher = new StandardRPCMatcher();
+    // biome-ignore lint/suspicious/noExplicitAny: matcher.init expects a Router; reServe.router is the valid runtime router (the documented fragment→router cast).
+    matcher.init(reServe.router as any);
+    const routes = Object.keys(
+      (matcher as unknown as { tree: Record<string, unknown> }).tree,
+    );
+    expect(routes).toContain("/surface/connection/get");
+    expect(routes).not.toContain("/surface/connection/set");
+    // Sanity: the base primitives route at the right depth (no double-prefix).
+    expect(routes).toContain("/surface/version/get");
+    expect(routes).toContain("/surface/awareness/keys");
   });
 });
 
