@@ -9,6 +9,7 @@
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClient } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
+import { createSignal } from "solid-js";
 import { monitorSurface } from "../common/surface";
 
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
@@ -35,7 +36,18 @@ if (import.meta.hot) {
   });
 }
 
+// Transport liveness for `app.health().live`. A real app reaches for the
+// turnkey `connectSurface` (`@kolu/surface-app`), which derives this from the
+// socket AND runs a half-open heartbeat for free; this example hand-builds
+// `surfaceClient + websocketLink` to show the raw seam, so it must thread its
+// own `{ live }` — without it `health().live` is a constant `true` and a dead
+// socket reads as live. Flip a signal off the socket's own open/close.
+const [isLive, setIsLive] = createSignal(false);
+ws.addEventListener("open", () => setIsLive(true));
+ws.addEventListener("close", () => setIsLive(false));
+
 export const app = surfaceClient(
   monitorSurface,
   websocketLink<typeof monitorSurface.contract>(ws as unknown as WebSocket),
+  { live: () => isLive() },
 );

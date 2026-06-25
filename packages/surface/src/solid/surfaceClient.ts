@@ -20,7 +20,7 @@ import {
   onCleanup,
 } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
-import { type StreamingProcedure, streamCall } from "../client";
+import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
@@ -146,8 +146,8 @@ export interface RawStreamOptions<O> {
   /** Called for each frame the stream yields. */
   onItem: (item: O) => void;
   /** Called before each transparent re-subscribe (reconnect), mirroring
-   *  `streamCall`'s `onRetry` — clear any derived view that would otherwise
-   *  double-paint. The stream returns to `pending` for the gap. */
+   *  `unenrolledStreamCall`'s `onRetry` — clear any derived view that would
+   *  otherwise double-paint. The stream returns to `pending` for the gap. */
   onRetry?: () => void;
   /** Classify an error as an EXPECTED stop (a deliberate teardown / cleanup
    *  abort) that must NOT register as a health error — e.g. xterm's
@@ -237,7 +237,7 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
   /** Drive a raw streaming procedure with its health enrolled STRUCTURALLY — the
    *  blessed path for a surface-scoped stream that doesn't fit a Cell/Collection/
    *  Stream descriptor (a bulk snapshot feed, a binary attach). Unlike a bare
-   *  `streamCall`, this CANNOT bypass `health()`: it owns the `pending`/`error`
+   *  `unenrolledStreamCall`, this CANNOT bypass `health()`: it owns the `pending`/`error`
    *  signals, enrols them under `name`, runs the consume loop (self-clearing on
    *  each frame, recording on failure — the same edge `createSubscription` has),
    *  and ties an `AbortController` to the owner. It THROWS if called outside a
@@ -245,9 +245,10 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
    *  structural error (mirroring `createSubscription`'s `reduce`-without-`initial`
    *  throw), never a silent leak. Returns the same `{ pending, error }` it enrols,
    *  for the caller's own per-stream UI. The one way to drive a raw stream and
-   *  still be in `health()`; the bare `streamCall` (`@kolu/surface/client`) is the
-   *  low-level primitive for a stream that is NOT a surface subscription (a root
-   *  RPC), where you enrol by hand or deliberately carve it out. */
+   *  still be in `health()`; the bare `unenrolledStreamCall`
+   *  (`@kolu/surface/client`) is the low-level primitive for a stream that is NOT
+   *  a surface subscription (a root RPC), where you enrol by hand or deliberately
+   *  carve it out — its name flags the absence of enrolment at the call site. */
   rawStream<I, O>(
     name: string,
     procedure: StreamingProcedure<I, O>,
@@ -419,7 +420,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
           opts?.keys ??
           (() => {
             const sub = createSubscription<unknown[]>(
-              () => streamCall(ns.keys, undefined),
+              () => unenrolledStreamCall(ns.keys, undefined),
               { onError },
             );
             // Leak B: enrol the keys-stream itself. A failing keys stream
@@ -490,8 +491,8 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     };
   }
 
-  // The STRUCTURAL raw-stream path (Leak A). A raw `streamCall` owns its own loop
-  // and so escapes the framework's birth-site enrolment; this is the one blessed
+  // The STRUCTURAL raw-stream path (Leak A). A raw `unenrolledStreamCall` owns its
+  // own loop and so escapes the framework's birth-site enrolment; this is the one blessed
   // way to drive one and stay in `health()`. It refuses to run outside a reactive
   // owner — the enrolment auto-disposes via `onCleanup`, so a no-owner call would
   // leak, and silently leaking is exactly the bug class we kill — mirroring
@@ -507,8 +508,8 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
         `surfaceClient.rawStream("${name}"): must run inside a reactive owner — ` +
           "it enrols into health() and auto-disposes via onCleanup, so a no-owner " +
           "call would leak the enrolment. Call it from a component (or createRoot). " +
-          "For a stream that is NOT a surface subscription (a root RPC), use the " +
-          "bare `streamCall` from `@kolu/surface/client` and enrol by hand.",
+          "For a stream that is NOT a surface subscription (a root RPC), use " +
+          "`unenrolledStreamCall` from `@kolu/surface/client` and enrol by hand.",
       );
     }
     const [pending, setPending] = createSignal(true);
@@ -520,7 +521,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     onCleanup(() => ctl.abort());
     void (async () => {
       try {
-        const stream = await streamCall(procedure, input, {
+        const stream = await unenrolledStreamCall(procedure, input, {
           signal: ctl.signal,
           onRetry: () => {
             // A reconnect: back to pending, drop the stale error, and let the
@@ -600,14 +601,27 @@ export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: combined link is a dynamic ContractRouterClient; scoping is walk-by-string.
   link: any,
   entries: E,
+  /** Transport liveness for EVERY sibling's `health().live`. The siblings ride
+   *  ONE combined socket, so they share ONE `live` — pass the socket's reactive
+   *  liveness (e.g. `() => createSocketStatus(ws)() === "live"`) and every
+   *  sibling reports it, so `surfaceClientsHealth`'s AND-reduce can flip the
+   *  merged fact `live: false` when that socket dies. Omit only for a
+   *  direct/stdio link that can't be half-open (then it stays constant `true`).
+   *  Without it a multi-surface fact is structurally constant-true — a dead
+   *  combined socket invisible to every sibling. */
+  opts?: { live?: Accessor<boolean> },
 ): SurfaceClients<E> {
   return Object.fromEntries(
     Object.entries(entries).map(([k, surface]) => [
       k,
-      surfaceClient(surface, {
-        surface: link.surface[k],
-        // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
-      } as any),
+      surfaceClient(
+        surface,
+        {
+          surface: link.surface[k],
+          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
+        } as any,
+        opts,
+      ),
     ]),
   ) as SurfaceClients<E>;
 }

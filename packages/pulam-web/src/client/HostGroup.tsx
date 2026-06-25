@@ -208,9 +208,20 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // so memoize for one run + one stable identity per change (like `entries`).
   const health = createMemo(() => effectiveHealth(status(), connInfo()));
   // "Is this host EFFECTIVELY connected?" — the one predicate the body gate, the
-  // terminal count, and the fleet-wide tally all read. Decided once here off the
-  // resolved `health`, not re-asserted as a bare `=== "connected"` at each site.
-  const connected = createMemo(() => health().state === "connected");
+  // terminal count, and the fleet-wide tally all read. Its transport leg is the
+  // framework FACT `app.health().live` (the liveness `connectSurface` threads in
+  // from the socket), NOT a second read of `status()`: routing the gate through
+  // the fact is what makes that threaded leg load-bearing — drop it back to the
+  // default constant `true` and a reconnecting/half-open transport with a stale
+  // `connected` mirror cell would paint the body again (the exact green-dot lie).
+  // The mirror leg is the raw `connection` cell. `effectiveHealth` still resolves
+  // the same two axes for PRESENTATION (the dot + ConnectionView — reload vs
+  // Reconnect, which the boolean `live` deliberately doesn't carry), so the dot
+  // and the gate never disagree: `live` false ⟺ `status` non-`live` ⟺ the dot is
+  // already amber/red.
+  const connected = createMemo(
+    () => app.health().live && connInfo().state === "connected",
+  );
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -296,16 +307,20 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
       {/* The ONE gate over the host body is the framework's `<SurfaceGate>` — this
           fleet board is a real consumer of the shared primitive, not a hand-rolled
           parallel fold. pulam-web supplies the HARD-GATE policy via `ready`: show
-          the body ONLY when the host is EFFECTIVELY connected (the `effectiveHealth`
-          fold over BOTH the mirror cell AND the browser↔backend ws) AND no
-          subscription is erroring. That is STRICTER than the framework default
-          (stale-while-degraded) on purpose — a fleet board must never paint a stale
-          roster over a broken link. drishti renders-while-degraded over the SAME
-          `client.health()` fact: one fact, two policies, which is exactly why the
-          fact/verdict split exists. The `effectiveHealth` fold stays app-local (its
-          `source: transport|mirror` discriminant — reload vs Reconnect — is finer
-          than the generic boolean `live`, so it can't collapse into the fact); it
-          is now the gate's POLICY INPUT, not a second parallel gate. */}
+          the body ONLY when `connected()` — whose TRANSPORT leg is the framework
+          fact `h.live` (`connectSurface`'s threaded socket liveness) and whose
+          MIRROR leg is the `connection` cell — AND no subscription is erroring. So
+          the gate genuinely DRINKS from `health().live`: a half-open/reconnecting
+          ws flips `h.live` false and the body fails closed, even if the stale
+          mirror cell still reads `connected`. That is STRICTER than the framework
+          default (stale-while-degraded) on purpose — a fleet board must never paint
+          a stale roster over a broken link. drishti renders-while-degraded over the
+          SAME `client.health()` fact: one fact, two policies, which is exactly why
+          the fact/verdict split exists. `effectiveHealth` stays app-local for
+          PRESENTATION (its `source: transport|mirror` discriminant — reload vs
+          Reconnect — is finer than the boolean `live`, so it can't collapse into
+          the fact); the dot reads it, the gate reads `h.live`, and the two never
+          disagree because `live` false ⟺ `status` non-`live` ⟺ the dot is off. */}
       <SurfaceGate
         health={app.health}
         ready={(h) => connected() && !h.subs.some((s) => s.error)}

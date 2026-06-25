@@ -26,7 +26,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
 import type { SurfaceHealth } from "./health";
-import { surfaceClient, surfaceClientsHealth } from "./surfaceClient";
+import {
+  surfaceClient,
+  surfaceClients,
+  surfaceClientsHealth,
+} from "./surfaceClient";
 
 const surface = defineSurface({
   cells: {
@@ -191,6 +195,36 @@ describe("surfaceClient health registry — totality", () => {
       expect(app.health().live).toBe(true);
       alive = false;
       expect(app.health().live).toBe(false);
+      dispose();
+    });
+  });
+
+  it("surfaceClients threads ONE transport `live` into every sibling (not a constant true)", async () => {
+    // The siblings ride ONE combined socket, so they share ONE liveness.
+    // `surfaceClients` threads its `{ live }` opt to each sibling client, so
+    // `surfaceClientsHealth`'s AND-reduce can flip the merged fact `live: false`
+    // when that socket dies — instead of the structurally-constant `true` the
+    // un-threaded path leaves (a dead combined socket invisible to every sibling).
+    const combined = {
+      surface: {
+        a: { conn: { get: once({ state: "x" }) } },
+        b: { conn: { get: once({ state: "x" }) } },
+      },
+    };
+    await createRoot(async (dispose) => {
+      let alive = true;
+      const clients = surfaceClients(
+        // biome-ignore lint/suspicious/noExplicitAny: stub combined link.
+        combined as any,
+        { a: surface, b: surface },
+        { live: () => alive },
+      );
+      clients.a.cells.conn.use();
+      clients.b.cells.conn.use();
+      await settle();
+      expect(surfaceClientsHealth(clients).live).toBe(true);
+      alive = false;
+      expect(surfaceClientsHealth(clients).live).toBe(false);
       dispose();
     });
   });

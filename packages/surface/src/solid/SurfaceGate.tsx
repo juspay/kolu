@@ -10,10 +10,18 @@
  * stay framework-owned. Mounting this is what lets every consumer DELETE the
  * hand-rolled error fold that latched in #1564.
  *
- * The DEFAULT policy is **stale-while-degraded**, the gentler of the two the
+ * The DEFAULT policy is **stale-while-degraded** (and, once the surface has
+ * painted once, stale-while-*reconnecting* too), the gentler of the two the
  * design weighed and the one it judged better: a transient sub error (degraded)
- * keeps the last-good children ON SCREEN with a non-blocking notice, rather than
- * blanking the whole surface over a blip — a stale roster beats a blank one.
+ * OR a transport blip after the first paint (a brief `!live`) keeps the
+ * last-good children ON SCREEN with a non-blocking notice, rather than blanking
+ * the whole surface over a blip — a stale roster beats a blank one. Only the
+ * very FIRST connect (the surface has never been `ready`) shows the blocking
+ * connecting fallback; a one-way "has loaded" latch (see {@link SurfaceGate})
+ * distinguishes a cold start from a reconnect. That latch is a single forward
+ * bit — "content has shown" — NOT an error/pending latch, so the fact's
+ * un-latchable self-clearing is untouched.
+ *
  * HARD-GATING (blank the surface the instant anything errors) is the harsher
  * policy, so it is the explicit OPT-IN: pass `ready={(h) => gateStatus(h) ===
  * "ready"}` (or a stricter app predicate, as pulam-web's fleet board does — a
@@ -52,12 +60,14 @@ export interface SurfaceGateProps {
   /** Rendered while the surface is ready — and, under the default policy, also
    *  while DEGRADED (stale-while-degraded), alongside the `degraded` notice. */
   children: JSX.Element;
-  /** Override the readiness predicate. Default: stale-while-degraded —
-   *  `gateStatus(h) !== "connecting"`, so a degraded surface keeps rendering its
-   *  children. Pass `(h) => gateStatus(h) === "ready"` to HARD-GATE (blank on
-   *  degraded), or a stricter predicate for app policy. A custom `ready` is
-   *  BINARY — children when it returns true, `fallback` otherwise — so it owns
-   *  the whole not-ready surface and the default `degraded` notice is not used. */
+  /** Override the readiness predicate. Default: stale-while-degraded — a
+   *  degraded surface keeps rendering its children, and (once it has painted
+   *  once) so does a reconnecting one; only the first cold connect blanks. Pass
+   *  `(h) => gateStatus(h) === "ready"` to HARD-GATE (blank on degraded), or a
+   *  stricter predicate for app policy (e.g. read `h.live` to fail closed the
+   *  instant the transport drops). A custom `ready` is BINARY — children when it
+   *  returns true, `fallback` otherwise — so it owns the whole not-ready surface
+   *  and the default `degraded` notice is not used. */
   ready?: (health: SurfaceHealth) => boolean;
   /** Render the not-ready (default: connecting) state. Receives the LIVE health
    *  accessor (not a snapshot) so the fallback stays reactive — `connecting →
@@ -78,20 +88,44 @@ export interface SurfaceGateProps {
 /** Gate children on a surface being ready; render a fallback otherwise. */
 export function SurfaceGate(props: SurfaceGateProps): JSX.Element {
   const status = createMemo(() => gateStatus(props.health()));
-  const isReady = createMemo(() =>
-    props.ready ? props.ready(props.health()) : status() !== "connecting",
-  );
+  // A one-way "first paint happened" latch. Once the surface has EVER been
+  // `ready`, a later `connecting` verdict is a RECONNECT over a populated
+  // surface (the transport blipped, or a new sub is loading), NOT a cold start.
+  // Under the default policy that means stale-while-RECONNECTING: keep the
+  // last-good children (with a notice) rather than hard-blanking on every
+  // transient socket drop — the transport analog of stale-while-degraded. Only
+  // the very FIRST connect (never been ready) blanks to the connecting fallback.
+  // A plain monotonic flag, set SYNCHRONOUSLY inside the readiness memo (not an
+  // effect): it latches ONLY "has shown content" — a single forward bit — NOT
+  // any error or pending state, so the fact's un-latchable self-clearing is
+  // intact, and it needs no signal because the memo already recomputes whenever
+  // `status()` (its real dependency) changes.
+  let everReady = false;
+  const isReady = createMemo(() => {
+    if (props.ready) return props.ready(props.health());
+    const s = status();
+    if (s === "ready") {
+      everReady = true;
+      return true;
+    }
+    // Default policy: render while degraded (stale-while-degraded), and while
+    // `connecting` ONLY once we've been ready before (stale-while-reconnecting).
+    if (s === "degraded") return true;
+    return everReady;
+  });
   return (
     <Show
       when={isReady()}
       fallback={(props.fallback ?? defaultFallback)(props.health)}
     >
       {props.children}
-      {/* Under the DEFAULT policy (stale-while-degraded), surface a non-blocking
-          degraded notice next to the children so a stale view announces itself.
-          A custom `ready` owns its own not-ready UX (its `fallback`), so skip the
-          notice then — `!props.ready` gates it to the default policy only. */}
-      <Show when={!props.ready && status() === "degraded"}>
+      {/* Under the DEFAULT policy, surface a non-blocking notice next to the
+          children whenever they're shown but the surface ISN'T fully ready —
+          degraded (a sub erroring) OR reconnecting (a transport blip after the
+          first paint) — so a stale view always announces itself. A custom
+          `ready` owns its own not-ready UX (its `fallback`), so skip the notice
+          then — `!props.ready` gates it to the default policy only. */}
+      <Show when={!props.ready && isReady() && status() !== "ready"}>
         {(props.degraded ?? defaultDegradedNotice)(props.health)}
       </Show>
     </Show>

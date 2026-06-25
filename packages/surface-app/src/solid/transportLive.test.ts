@@ -21,10 +21,32 @@
 import { defineSurface } from "@kolu/surface/define";
 import { surfaceClient } from "@kolu/surface/solid";
 import { createRoot } from "solid-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
+import { connectSurface } from "./connectSurface";
 import { createSocketStatus } from "./socketStatus";
+
+// `connectSurface` builds its OWN socket via `createSurfaceSocket`. To exercise
+// its real threading (not a hand-rebuilt predicate), mock ONLY that seam to hand
+// back a fake socket the test drives; everything else — `createSocketStatus`, the
+// `{ live: () => status() === "live" }` thread at connectSurface.ts:101, the
+// `surfaceClient` fold — is the real production path. A `vi.hoisted` holder lets
+// each test swap in its fake before calling `connectSurface`.
+const mocked = vi.hoisted(() => ({
+  // biome-ignore lint/suspicious/noExplicitAny: the fake socket stands in for a PartySocket.
+  ws: undefined as any,
+}));
+vi.mock("../connect", async (importActual) => {
+  const actual = await importActual<typeof import("../connect")>();
+  return {
+    ...actual,
+    createSurfaceSocket: () => ({
+      ws: mocked.ws,
+      echo: { remember: () => {}, appendTo: (u: string) => u },
+    }),
+  };
+});
 
 const surface = defineSurface({
   cells: {
@@ -48,23 +70,38 @@ function once<T>(value: T) {
     );
 }
 
-/** A socket reduced to the open/close listeners `createSocketStatus` reads, fired
- *  by hand — the same harness `socketStatus.test.ts` uses. */
+/** A socket reduced to listeners fired by hand. Tolerant of ARBITRARY event
+ *  types (and a no-op `send`/`close`/`readyState`) so it survives `RPCLink`
+ *  construction inside `connectSurface`'s real `websocketLink(ws)` — not just the
+ *  `open`/`close` `createSocketStatus` reads. No RPC is ever sent (no `.use()`),
+ *  so the no-op transport never has to actually carry a frame. */
 function fakeWs() {
   const listeners: Record<
-    "open" | "close",
+    string,
     Array<(event?: { code?: number }) => void>
-  > = { open: [], close: [] };
+  > = {};
   return {
     ws: {
       addEventListener: (
-        type: "open" | "close",
+        type: string,
         fn: (event?: { code?: number }) => void,
-      ) => listeners[type].push(fn),
+      ) => {
+        (listeners[type] ??= []).push(fn);
+      },
+      removeEventListener: (
+        type: string,
+        fn: (event?: { code?: number }) => void,
+      ) => {
+        listeners[type] = (listeners[type] ?? []).filter((l) => l !== fn);
+      },
+      send: () => {},
+      close: () => {},
+      readyState: 0,
+      OPEN: 1,
     },
-    fire: (type: "open" | "close", code?: number) => {
+    fire: (type: string, code?: number) => {
       const event = code === undefined ? undefined : { code };
-      for (const l of listeners[type].slice()) l(event);
+      for (const l of (listeners[type] ?? []).slice()) l(event);
     },
   };
 }
@@ -118,6 +155,39 @@ describe("transport live → health().live (connectSurface's threading)", () => 
       expect(app.health().live).toBe(true);
       t.fire("close", STALE_PROCESS_CLOSE_CODE);
       expect(app.health().live).toBe(false);
+      dispose();
+    });
+  });
+});
+
+describe("connectSurface threads the real socket liveness into health().live", () => {
+  it("the client connectSurface BUILDS reads live off the socket — reverting the thread to a constant `true` breaks this", () => {
+    const t = fakeWs();
+    mocked.ws = t.ws;
+    createRoot((dispose) => {
+      // The REAL connectSurface: it builds `createSocketStatus(ws)` and threads
+      // `{ live: () => status() === "live" }` into its OWN `surfaceClient` at
+      // connectSurface.ts:101. We assert THAT client's `health().live`, so the
+      // assertion exercises the actual thread — drop it back to the default
+      // constant `true` and these expectations fail (the regression the first
+      // re-review flagged: the old test rebuilt the predicate by hand and never
+      // called connectSurface). `heartbeat: false` keeps the watchdog (which would
+      // probe `system.live` over the fake socket) out of the way.
+      const conn = connectSurface({
+        surface,
+        url: "ws://test",
+        heartbeat: false,
+      });
+      // Before the first open: `connecting` → not live (NOT the default `true`).
+      expect(conn.client.health().live).toBe(false);
+      t.fire("open");
+      expect(conn.client.health().live).toBe(true);
+      // A transient drop flips the FACT connectSurface's own client exposes.
+      t.fire("close", 1006);
+      expect(conn.client.health().live).toBe(false);
+      t.fire("open");
+      expect(conn.client.health().live).toBe(true);
+      conn.dispose();
       dispose();
     });
   });

@@ -156,12 +156,13 @@ export default function App() {
         <SurfaceGate
           health={app.health}
           ready={(h) =>
+            h.live &&
             currentConnection().state === "connected" &&
             !h.subs.some((s) => s.error)
           }
           fallback={(h) => (
             <ConnectingOverlay
-              state={currentConnection().state}
+              state={h().live ? currentConnection().state : "connecting"}
               error={h().subs.find((s) => s.error)?.error?.message}
             />
           )}

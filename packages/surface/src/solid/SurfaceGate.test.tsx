@@ -166,6 +166,37 @@ describe("<SurfaceGate> — the rendered policy", () => {
     expect(container.textContent).not.toContain("Internal server error");
   });
 
+  it("DEFAULT policy: a COLD dead transport blanks (never painted)", () => {
+    // First connect with `!live` and no prior paint → the blocking connecting
+    // fallback, exactly as before the render-while-reconnecting latch.
+    const { container } = mount(connectingDead);
+    expect(container.querySelector('[data-testid="body"]')).toBeNull();
+    expect(container.textContent).toContain("Connecting");
+  });
+
+  it("DEFAULT policy: a transport drop AFTER first paint keeps children (stale-while-reconnecting)", () => {
+    // Reach `ready` first (the latch records the first paint)…
+    const { container, setHealth } = mount(ready);
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
+    // …then lose the transport (`live: false`). A blip must NOT blank a
+    // populated surface — the body STAYS, under a non-blocking reconnecting
+    // notice (the transport analog of stale-while-degraded). The pre-latch
+    // default hard-blanked here on every transient socket drop.
+    setHealth(connectingDead);
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
+    expect(container.textContent).toContain("Reconnecting");
+    // And it recovers in place when the transport returns.
+    setHealth(ready);
+    expect(container.querySelector('[data-testid="body"]')?.textContent).toBe(
+      "terminals",
+    );
+    expect(container.textContent).not.toContain("Reconnecting");
+  });
+
   it("honors a hard-gate `ready` override (pulam-web's stricter policy)", () => {
     const [health, setHealth] = createSignal<SurfaceHealth>(degraded);
     const container = document.createElement("div");

@@ -14,8 +14,11 @@
  * An app that DOES drive shared connection-status UI off the socket (kolu's
  * header dot) derives a `createServerLifecycle` instead — which folds the SAME
  * watchdog in — and builds its own (possibly multi-sibling) clients over the
- * combined link. So between the two seams, no surface socket can be built
- * without a liveness watchdog.
+ * combined link. So an app that reaches for either of the two seams gets the
+ * liveness watchdog BY DEFAULT — there is no probe to forget. (A consumer that
+ * hand-builds `surfaceClient + websocketLink` directly, like a minimal example,
+ * still must thread its own `{ live }` and run no heartbeat; the seams exist so
+ * it doesn't have to.)
  */
 
 import type {

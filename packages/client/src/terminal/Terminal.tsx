@@ -31,7 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
-import { streamCall } from "@kolu/surface/client";
+import { unenrolledStreamCall } from "@kolu/surface/client";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
@@ -797,12 +797,13 @@ const Terminal: Component<{
           // `surfaceClient`, so there is no surface `health()` this belongs to. Its
           // health is the terminal's OWN concern, surfaced in-pane (a reset +
           // visible retry on `onRetry`, the snapshot re-armed), not folded into a
-          // fleet/host gate. So it deliberately uses the low-level `streamCall`
+          // fleet/host gate. So it deliberately uses `unenrolledStreamCall`
           // (`@kolu/surface/client`) rather than `client.rawStream`'s structural
-          // enrolment — a visible decision, not a forgotten enrol.
+          // enrolment — and the `unenrolled-` name makes that a visible decision at
+          // the call site, not a forgotten enrol.
           consumeStream(
             () =>
-              streamCall(
+              unenrolledStreamCall(
                 client.terminal.attach,
                 { id: props.terminalId },
                 {

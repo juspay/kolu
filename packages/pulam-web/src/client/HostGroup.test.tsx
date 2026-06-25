@@ -68,6 +68,7 @@ function mountHostGroup(): {
   container: HTMLElement;
   setConn: Setter<ConnectionInfo>;
   setKeys: Setter<TerminalId[]>;
+  setLive: Setter<boolean>;
   blip: (message: string) => void;
   heal: () => void;
   blipKeys: (message: string) => void;
@@ -75,6 +76,11 @@ function mountHostGroup(): {
 } {
   const [conn, setConn] = createSignal<ConnectionInfo>(DEFAULT_CONNECTION);
   const [keys, setKeys] = createSignal<TerminalId[]>([]);
+  // The framework fact's transport-liveness leg — what `connectSurface` threads
+  // from the socket in production (`health().live === (status() === "live")`).
+  // Held `true` for the existing gate tests; the dedicated test below drives it
+  // to prove the body gate reads THIS, not the transport `status` alone.
+  const [live, setLive] = createSignal(true);
   // The connection cell's OWN reactive, self-clearing error — what
   // `createSubscription` exposes in production; `blip`/`heal` drive it.
   const [err, setErr] = createSignal<Error | undefined>();
@@ -109,7 +115,7 @@ function mountHostGroup(): {
     // THIS now instead of a hand-rolled per-channel fold, so driving `err()` /
     // `keysErr()` here is what reaches its error gate.
     health: () => ({
-      live: true,
+      live: live(),
       subs: [
         { name: "connection", pending: false, error: err() },
         { name: "awareness.keys", pending: false, error: keysErr() },
@@ -141,7 +147,16 @@ function mountHostGroup(): {
     setKeysErr(() => new Error(message));
   };
   const healKeys = (): void => setKeysErr(undefined);
-  return { container, setConn, setKeys, blip, heal, blipKeys, healKeys };
+  return {
+    container,
+    setConn,
+    setKeys,
+    setLive,
+    blip,
+    heal,
+    blipKeys,
+    healKeys,
+  };
 }
 
 const text = (c: HTMLElement): string => c.textContent ?? "";
@@ -226,6 +241,35 @@ describe("HostGroup — the empty-vs-error render gate (#1564 regression guard)"
     // the stale error is GONE (the old latch would still be showing it here).
     await waitForText(container, "no terminals");
     expect(text(container)).not.toContain("Internal server error");
+  });
+
+  it("the body gate DRINKS from health().live: a dead transport closes it even with a `connected` mirror", async () => {
+    // 🔴1: `connectSurface` threads the socket's liveness into `health().live`,
+    // and pulam-web's gate now reads THAT (its `connected()` is `app.health().live
+    // && connInfo.state === "connected"`), not a second read of the transport
+    // `status`. The harness drives `health().live` and `status` separately, so
+    // this proves WHICH the gate reads: hold the transport `status` LIVE and the
+    // mirror cell `connected` (the OLD gate, off `effectiveHealth(status,…)`,
+    // would paint the body), then flip the FACT's `live` false. The body must
+    // fail closed — if the threaded leg weren't load-bearing here, nothing would
+    // consume it and #1564's lie would survive one level up.
+    const { container, setConn, setLive } = mountHostGroup();
+    setConn({
+      state: "connected",
+      lastError: null,
+      failureCause: null,
+      progressLines: [],
+    });
+    await waitForText(container, "no terminals");
+    // The framework fact says the transport is down (a half-open/reconnecting ws),
+    // while the mirror cell is still frozen at its last `connected`.
+    setLive(false);
+    await vi.waitFor(() =>
+      expect(text(container)).not.toContain("no terminals"),
+    );
+    // Recovers when the fact reports the transport live again.
+    setLive(true);
+    await waitForText(container, "no terminals");
   });
 
   it("a failing awareness KEYS stream surfaces an error, not a silent empty fleet — and clears on recovery", async () => {
