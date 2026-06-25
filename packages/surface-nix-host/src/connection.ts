@@ -6,17 +6,19 @@
  * the backend↔remote link's health — copying / connecting / connected /
  * disconnected / failed — so a dead mirror renders honestly instead of as a
  * healthy-but-empty surface. That health is `HostSession`'s volatility; this
- * module is its consume-facing projection: a cell schema + a gate-closed
- * default an app spreads into its own `defineSurface` (`cells: { …,
- * connection: connectionCell }`). The node-side pump that drives it from a live
- * session (`projectConnection` / `pipeSessionStateToCell`) lives on the package
- * root — THIS module imports only `zod`, so it can ride the browser bundle (the
- * package root spawns ssh and must not).
+ * module is its consume-facing projection. THIS module imports only `zod` (and
+ * `@kolu/surface/define`), so it can ride the browser bundle; the node-side pump
+ * that drives the cell from a live session (`projectConnection` /
+ * `pipeSessionStateToCell`) lives on the package root, which spawns ssh and must
+ * not.
  *
- * Parent-only write authority: only the re-serving PARENT writes this cell (off
- * `session.onState`); the agent serves an inert `DEFAULT_CONNECTION` stub. A
- * direct / local consumer thus reads `connecting` forever and simply doesn't
- * gate on it — by design (a local link has no remote to be down).
+ * The cell is composed ONLY at the nix-host re-serve seam — via `mirroredSurface`
+ * (below), never hand-spread onto a base surface. So the base surface an agent /
+ * daemon serves directly (or a one-shot dial reaches) stays connection-FREE: a
+ * direct / local link carries no cell at all — NOT an inert stub — because it has
+ * no remote to be down. Parent-only write authority follows: the cell is
+ * read-only over the wire, and only the re-serving PARENT writes it (off
+ * `session.onState`), so a wire client can never forge the host's health.
  */
 
 import {
