@@ -210,21 +210,28 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
     const ns = (link as any).surface[key];
     const source: StreamingProcedure<undefined, unknown> = ns.get;
-    // Resolve the cell's mutation verb the SAME way the contract derivation does
-    // (`cellContractEntries`): `patch` when a `patchSchema` is declared, else
-    // `set` — but ONLY when that verb is actually exposed. A get-only cell
-    // (`verbs: ["get"]`) carries no `set`/`patch` on the wire, so binding
-    // `ns.set` would capture `undefined`; leave `mutate` undefined and let the
-    // read-only `.use()` type (no `set`/`patch`) keep callers off the mutate
-    // path entirely — the client-side dual of the contract honoring `verbs`.
-    const wireVerb = cellSpec.patchSchema ? "patch" : "set";
-    // No `verbs` → the contract default already includes `wireVerb` (`["get",
-    // "patch"]` / `["get", "set"]`); an explicit `verbs` must list it to expose
-    // it. A get-only cell lists neither, so `mutate` stays undefined.
-    const exposesMutate = cellSpec.verbs
-      ? cellSpec.verbs.includes(wireVerb)
-      : true;
-    const mutate = exposesMutate ? ns[wireVerb] : undefined;
+    // Bind the cell's CLIENT mutation verb — the one the bound `.use()` mutate
+    // path actually calls. Only `set`/`patch` qualify; `test__set` is the e2e
+    // reset procedure, never a consumer mutation, so a `["get", "test__set"]`
+    // cell (e.g. `activityFeed` / `session`) stays read-only on the client.
+    //
+    // Resolve the EXPOSED verb directly from the cell's resolved verbs — the
+    // same set `cellContractEntries` walks — rather than guessing from
+    // `patchSchema`. Default verbs are `["get", "patch"]` when a `patchSchema`
+    // is declared, else `["get", "set"]`; an explicit `verbs` lists whichever
+    // it exposes. This keeps the binding aligned with `CellIsMutable` even for
+    // the legal `patchSchema` + explicit-`set` cell — and leaves `mutate`
+    // undefined for a get-only cell so the read-only `.use()` type (no
+    // `set`/`patch`) keeps callers off a mutate path the wire can't service.
+    const verbs =
+      cellSpec.verbs ??
+      (cellSpec.patchSchema ? ["get", "patch"] : ["get", "set"]);
+    const mutateVerb = verbs.includes("patch")
+      ? "patch"
+      : verbs.includes("set")
+        ? "set"
+        : undefined;
+    const mutate = mutateVerb ? ns[mutateVerb] : undefined;
     // Spec-declared `patch` doubles as the default `applyPatch` for
     // authority-`local` cells, so server and client merge with the same
     // function without the consumer importing it twice.

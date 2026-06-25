@@ -106,9 +106,9 @@ drishti is the worked reference, three pieces:
 <Callout kind="note" title="Decomposition — what graduates, what stays put (lens panel)">
 The instinct to *upstream this so consumers can't neglect it* is the same move [#1542](https://github.com/juspay/kolu/issues/1542) made for liveness — and the surface framework is **composition-first** (`defineSurface` is spread-based; `system.live` is already auto-composed into every surface), so the right shape is a **composable `connection` fragment apps spread in**, not a per-app re-declaration. The **browser boundary** then splits *where* each piece lives, because `@kolu/surface-nix-host`'s main entry is node-only (it spawns ssh) while `terminalWorkspaceSurface` is browser-bundled:
 
-- **Graduates → a new browser-safe `@kolu/surface-nix-host/connection` subpath: the composable cell.** The state literals, `ConnectionInfoSchema`, the gate-closed `DEFAULT_CONNECTION` (`state: "connecting"`), and a `connectionCell` fragment apps spread into their surface's `cells`. A subpath that imports only zod + `@kolu/surface` (no ssh code), so the schema **and** the safety default are single-sourced for every composer — `terminalWorkspaceSurface` and drishti's `drishti-common` compose the *same* fragment.
-- **Graduates → `@kolu/surface-nix-host` (node main entry): the `onState → cell` projection.** `projectConnection(HostSessionState) → ConnectionInfo` + `pipeSessionStateToCell(session, set)` — the mapping both apps' *parents* do identically, beside its volatility owner (`getHostSession`/`pumpRemoteSurface`). The *dual* of the already-graduated mirror loop: the pump streams data out, this streams state out.
-- **Stays app-local: the UI and the per-site *implementation*.** The `STATE`→colour/label map, the overlay/failed card, and *which* content hides behind the gate are each app's own socket (folding them up would drag a SolidJS/UI dep into a transport package — the *location-is-structure* trap). And composition single-sources the cell's *declaration*, not its *implementation*: `implementSurface`'s fail-fast still means each serve site provides the cell (daemon stub, parent live).
+- **Graduates → a new browser-safe `@kolu/surface-nix-host/connection` subpath: the cell AND the mirror-seam composer.** The state literals, `ConnectionInfoSchema`, the gate-closed `DEFAULT_CONNECTION` (`state: "connecting"`), the `connectionCell` descriptor, and — the shape that landed — **`mirroredSurface(base)`**, which composes the cell onto a surface **only at the nix-host mirror seam**. The base surface (`terminalWorkspaceSurface`, drishti's own) stays **connection-free**; the browser/mirror surface is `mirroredSurface(base)`. A subpath that imports only zod + `@kolu/surface` (no ssh code), so the schema **and** the safety default are single-sourced for every mirror — pulam-web's `arivuSurface = mirroredSurface(terminalWorkspaceSurface)` and drishti's mirror compose the *same* fragment.
+- **Graduates → `@kolu/surface-nix-host` (node main entry): the `onState → cell` projection.** `projectConnection(HostSessionState) → ConnectionInfo` + `pipeSessionStateToCell(session, set)` — the mapping both apps' *parents* do identically, beside its volatility owner (`getHostSession`/`pumpRemoteSurface`). The *dual* of the already-graduated mirror loop: the pump streams data out, this streams state out. **`pumpRemoteSurface` itself wires it** when the re-served surface carries the `connection` cell — passing a `connection` setter makes the pump call `pipeSessionStateToCell` for the session's life, so a mirror consumer can't forget it (the omission that was #1564).
+- **Stays app-local: the UI and the per-site *implementation*.** The `STATE`→colour/label map, the overlay/failed card, and *which* content hides behind the gate are each app's own socket (folding them up would drag a SolidJS/UI dep into a transport package — the *location-is-structure* trap). And composition single-sources the cell's *declaration*, not its *implementation*: only the **re-serve** (`implementSurface(mirroredSurface(base), …)`) provides the live `connection` cell; a direct/local serve of the base surface carries no `connection` cell at all (no inert stub, no contract-version dance).
 
 Two non-homes, by design: **not `@kolu/surface-app`** — it owns the *other* connection concept, the browser↔backend socket status (`createSocketStatus`), the one we must keep strictly separate (conflating them is this bug), and it has no business knowing the ssh `copying`/`failed` vocabulary; **not a framework-reserved member** like `system.live` — those states only mean something for a surface *mirrored over a HostSession*, so it's an opt-in fragment, not a universal one. The lens panel had split 2–1 on whether *anything* should graduate (the volatility itself already did); the deciding point is that the fragment makes **drishti the second consumer that drops its hand-rolled copy** — which earns the extraction (test ③) and is exactly what the surface gate's linked drishti PR delivers.
 </Callout>
@@ -173,51 +173,42 @@ export const pipeSessionStateToCell = <C>(
 ): (() => void) => session.onState((s) => set(projectConnection(s)));
 ```
 
-**2 — Compose the cell into the surface.** In `packages/terminal-workspace/src/surface.ts` (the `cells` block, ~line 112): spread the shared fragment. No app-local schema or default to get wrong; the gate-closed `state: "connecting"` seed comes baked in. (drishti's `drishti-common` composes the *same* fragment — the step-7 companion.) This adds `@kolu/surface-nix-host` as a `terminal-workspace` dep; only the browser-safe subpath + `import type`s reach the client bundle (the node main entry never does).
+**2 — Compose the cell at the mirror seam, NOT into the base surface.** The base `terminalWorkspaceSurface` (`packages/terminal-workspace/src/surface.ts`) stays **connection-free** — link health is not a property of the daemon's own surface (a direct/local link has no remote to be down). pulam-web's browser/mirror surface wraps it: `arivuSurface = mirroredSurface(terminalWorkspaceSurface)` (`packages/pulam-web/src/shared/contract.ts`). `mirroredSurface` adds the gate-closed get-only `connection` cell; the gate-closed `state: "connecting"` seed comes baked in. drishti composes the *same* `mirroredSurface(base)` at its own mirror (the step-7 companion). Only the browser-safe `@kolu/surface-nix-host/connection` subpath + `import type`s reach the client bundle (the node main entry never does).
 
 ```ts
-// packages/terminal-workspace/src/surface.ts
-import { connectionCell } from "@kolu/surface-nix-host/connection";
+// packages/pulam-web/src/shared/contract.ts
+import { mirroredSurface } from "@kolu/surface-nix-host/connection";
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 
-export const terminalWorkspaceSurface = defineSurface({
-  cells: {
-    version: { schema: VersionSchema, default: DEFAULT_VERSION },
-    connection: connectionCell, // ← composed in; gate-closed default baked in
-  },
-  // collections / streams / procedures unchanged
-});
+// The browser-facing surface = base + the get-only `connection` cell.
+export const arivuSurface = mirroredSurface(terminalWorkspaceSurface);
 ```
 
-**3 — Every `implementSurface(terminalWorkspaceSurface, …)` site implements the cell** (fail-fast requires it — that's the contract):
-
-- `packages/pulam/src/daemon.ts:164` — an **inert stub**, `connection: { store: inMemoryStore(DEFAULT_CONNECTION) }`, never written (a direct/local link). kolu's Code tab and pulam-tui read `connecting` forever and don't gate on it — harmless, exactly drishti's agent-side stub.
-- `packages/pulam-web/src/server/reserve.ts:152` — a **live** cell backed by a new parent-local store + a `setConnection` setter. It is **NOT** folded by the mirror sink (it's the session's state, not the daemon's stub).
-- the three test stand-ups — `reserve.test.ts:69`, `serveFsGit.test.ts:97`, `hostConnect.test.ts:48` — and `serveFsGit.ts` if it implements the whole surface: add the stub.
+**3 — Only the re-serve implements the cell; the daemon serves the connection-free base.** There is no inert per-site stub. The daemon (`packages/pulam/src/daemon.ts`) and every direct/local serve implement `terminalWorkspaceSurface`, which has no `connection` cell — fail-fast doesn't ask for one. Only pulam-web's re-serve implements the augmented `arivuSurface`, backing `connection` with a seeded local store (`seedConnectionCell()`) it writes from the session. The store is **NOT** folded by the mirror sink (it's the session's state, not the daemon's data) and writes go through the framework-wrapped `ctx.cells.connection.set` (persist + PUBLISH the delta) so a browser already subscribed across a reconnect hears the new state.
 
 ```ts
-// packages/pulam/src/daemon.ts — inert stub (a local link is always live enough)
-cells: {
-  version: { store: inMemoryStore(DEFAULT_VERSION) },
-  connection: { store: inMemoryStore(DEFAULT_CONNECTION) }, // never written
-},
-
-// packages/pulam-web/src/server/reserve.ts — a LIVE, parent-written cell
-const connectionStore = inMemoryStore({ ...DEFAULT_CONNECTION });
-// …inside implementSurface(...): cells: { version: { store: versionStore },
-//   connection: { store: connectionStore } }
-// …and expose a setter on the ReServe result. Go through the FRAMEWORK-wrapped
-// `ctx.cells.connection.set` (persist + PUBLISH the delta to subscribers), NOT
-// a bare `connectionStore.set` — the latter updates the snapshot but a browser
-// already subscribed across the reconnect would never hear the new state.
+// packages/pulam-web/src/server/reserve.ts — re-serve of the MIRRORED surface
+const connection = seedConnectionCell(); // gate-closed "connecting" seed
+const fragment = implementSurface(arivuSurface, {
+  cells: { version: { store: versionStore }, connection },
+  // collections / streams folded/forwarded from the daemon's base surface…
+});
+// Expose the framework-wrapped setter on the ReServe result:
 setConnection: (info: ConnectionInfo) => fragment.ctx.cells.connection.set(info),
 ```
 
-**4 — The parent pipes session state into the live cell.** In `packages/pulam-web/src/server/hostEntry.ts` (lines 112–122, where `pumpRemoteSurface` already receives `markConnected`/`onLinkDown`), one line carries the session's mirror health onto the browser cell. The session's existing lifecycle (first-version `markConnected`, the connect watchdog, give-up-into-`failed`) already drives every transition; this only observes it.
+**4 — The pump carries session state into the cell — by construction.** `pumpRemoteSurface` (the reconnect-mirror loop) takes a `connection` setter; passing it makes the pump wire `pipeSessionStateToCell(session, set)` itself for the session's life. So `packages/pulam-web/src/server/hostEntry.ts` doesn't pipe it by hand — it hands the setter to the pump, and the session's existing lifecycle (first-version `markConnected`, the connect watchdog, give-up-into-`failed`) drives every transition. Pumping a session carries its health by construction (#1564), so it can't be wired wrong.
 
 ```ts
 // packages/pulam-web/src/server/hostEntry.ts
 const reServe = buildReServe({ log: hostLog });
-pipeSessionStateToCell(session, (info) => reServe.setConnection(info));
+void pumpRemoteSurface({
+  source: terminalWorkspaceSurface,
+  session,
+  makeSink: () => reServe.makeSink(() => session.markConnected()),
+  // …live holders + onLinkDown reset…
+  connection: { set: reServe.setConnection }, // ← pump wires pipeSessionStateToCell
+});
 ```
 
 **5 — Gate the client on the cell, not on `version.pending()`.** In `packages/pulam-web/src/client/HostGroup.tsx`: read `app.cells.connection.use()` and make the top-level gate `connection.state === "connected"` — replacing the `version.pending()` “connecting…” gate (~line 289) and the `awareness.keys().length` “no terminals” decision (~line 297). Off-`connected` renders the state-driven body: provisioning / connecting+elapsed / reconnecting (refined by `failureCause`) / the **failed card** (`lastError` + `progressLines` tail + a **Reconnect** button that hits a small `POST /api/reconnect?host=` route calling `registry.getSession(host).reconnect()`). Only `connected` reaches the existing awareness rendering, where “no terminals” is finally honest. The header dot reads a pulam-web-local `STATE` map keyed by `connection.state` (its own palette — the UI the panel keeps app-local). `statusForHost` (the browser↔backend socket) stays a *secondary* indicator and no longer decides healthy-vs-empty. `DEFAULT_VERSION` keeps its real job (a version snapshot) and simply stops being abused as a link-live proxy.
@@ -237,8 +228,8 @@ const info = (): ConnectionInfo => connection.value() ?? DEFAULT_CONNECTION;
 
 **6 — Hermetic test.** Extend `reserve.test.ts` (the existing agent→mirror→re-serve→browser-store proof): drive a `session.onState` sequence ending in **`failed`** with no awareness keys, and assert the browser-consumed `connection` cell reads `failed` with its `lastError` — the surface carries the down state — instead of the old empty/healthy path. Goes red if the gate ever reverts to the socket/version proxy. Visual proof is pulam-web over a real ws against a deliberately build-mismatched host (a chrome-devtools or e2e still of the failed card).
 
-**7 — The linked drishti PR (surface gate — ships with this one).** Adding exports to `@kolu/surface-nix-host` is API-facing, so `.claude/rules/surface.md` requires a linked drishti PR with green CI. drishti already hand-rolls *both* halves — its own `ConnectionSchema`/`DEFAULT_CONNECTION` in `drishti-common` and the inline `session.onState(s => cell.set({ state: s.connection, … }))` in `router.ts`. The companion bumps drishti's kolu pin and replaces them: **compose `connectionCell`** into its surface (dropping its copy of the schema + default) and call `pipeSessionStateToCell` / `projectConnection` (dropping the inline mapping). Its green CI proves the lift behaviour-preserving — and makes drishti the second consumer that earns the extraction.
+**7 — The linked drishti PR (surface gate — ships with this one).** Adding exports to `@kolu/surface-nix-host` is API-facing, so `.claude/rules/surface.md` requires a linked drishti PR with green CI. drishti already hand-rolls *both* halves — its own `ConnectionSchema`/`DEFAULT_CONNECTION` in `drishti-common` and the inline `session.onState(s => cell.set({ state: s.connection, … }))` in `router.ts`. The companion bumps drishti's kolu pin and replaces them: **wrap its mirror surface in `mirroredSurface(base)`** (dropping its copy of the schema + default and its hand-spread cell) and let the pump wire `pipeSessionStateToCell` / `projectConnection` (dropping the inline mapping). Its green CI proves the lift behaviour-preserving — and makes drishti the second consumer that earns the extraction.
 
-**Unaffected, stated plainly:** kolu's Code tab and `pulam-tui` consume `terminalWorkspaceSurface` directly and track their link in-process, so they simply don't read the new cell; the daemon stub keeps them building. No change there.
+**Unaffected, stated plainly:** kolu's Code tab and `pulam-tui` consume `terminalWorkspaceSurface` directly and track their link in-process. The base surface stays connection-free, so there is no new cell for them to read and nothing to stub — they build unchanged. The `connection` cell exists only on `mirroredSurface(base)`, which only a re-serving parent (pulam-web, drishti) serves.
 
 **Done when** a host whose mirror is `copying`/`connecting`/`disconnected`/`failed` renders an honest state (failure cause + Reconnect on `failed`) instead of green + “no terminals”; a genuinely-empty *connected* host still reads “no terminals”; the hermetic test asserts the `failed` mirror reaches the browser as a down state; and both kolu and the linked drishti PR are green. [Issue #1564](https://github.com/juspay/kolu/issues/1564) tracks it.

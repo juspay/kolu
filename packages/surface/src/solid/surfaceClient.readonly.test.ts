@@ -30,6 +30,24 @@ const surface = defineSurface({
       schema: z.object({ theme: z.string() }),
       default: { theme: "dark" },
     },
+    // Read-only on the client: `test__set` is the e2e reset procedure, not a
+    // consumer mutation (e.g. `activityFeed` / `session`). The server is the
+    // sole writer, so the bound cell must NOT advertise `.set` the runtime
+    // can't service — `mutate` stays undefined despite the non-`get` verb.
+    feed: {
+      schema: z.object({ items: z.array(z.string()) }),
+      default: { items: [] },
+      verbs: ["get", "test__set"],
+    },
+    // A `patchSchema` cell that explicitly exposes `set` (not `patch`). The
+    // binding must follow the exposed verb, so it captures `ns.set`, not the
+    // `ns.patch` a naive `patchSchema ? "patch" : "set"` would reach for.
+    explicitSet: {
+      schema: z.object({ n: z.number() }),
+      default: { n: 0 },
+      patchSchema: z.object({ n: z.number() }),
+      verbs: ["get", "set"],
+    },
   },
 });
 
@@ -41,6 +59,7 @@ function stubLink() {
     // biome-ignore lint/suspicious/noExplicitAny: the bound `.use()` is never invoked here; we assert on the binding, not a subscription.
     (async function* () {})() as any;
   const setSpy = { called: false };
+  const noop = () => Promise.resolve();
   return {
     setSpy,
     link: {
@@ -53,6 +72,13 @@ function stubLink() {
             return Promise.resolve();
           },
         },
+        // Mirrors the contract router for a `["get", "test__set"]` cell — a
+        // `test__set` verb but NO `set`/`patch`. `surfaceClient` must not reach
+        // for an absent `ns.set`/`ns.patch`.
+        feed: { get, test__set: noop },
+        // A `patchSchema` cell exposing `set` (not `patch`) — only `ns.set` is
+        // on the wire. The binding must capture `set`, not the absent `patch`.
+        explicitSet: { get, set: noop },
       },
     },
   };
@@ -84,5 +110,31 @@ describe("surfaceClient cell verbs", () => {
     const hasSet: "set" extends keyof Result ? true : false = true;
     expect(hasSet).toBe(true);
     expect(typeof prefs.use).toBe("function");
+  });
+
+  it("treats a `['get', 'test__set']` cell as read-only (test__set is not a consumer mutation)", () => {
+    const { link } = stubLink();
+    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
+    const app = surfaceClient(surface, link as any);
+    const feed = app.cells.feed;
+    expect(typeof feed.use).toBe("function");
+    // @ts-expect-error — `test__set` doesn't make the cell mutable on the client.
+    type _NoSet = ReturnType<typeof feed.use>["set"];
+    // @ts-expect-error — the local-authority path is rejected: no client mutate verb.
+    feed.use({ authority: "local", initial: { items: [] } });
+  });
+
+  it("binds the exposed `set` for a patchSchema cell that lists `set` (not `patch`)", () => {
+    const { link } = stubLink();
+    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
+    const app = surfaceClient(surface, link as any);
+    const explicitSet = app.cells.explicitSet;
+    // Mutable: `set` is exposed, so the imperative mutate surface is present.
+    type Result = ReturnType<typeof explicitSet.use>;
+    const hasSet: "set" extends keyof Result ? true : false = true;
+    expect(hasSet).toBe(true);
+    // The runtime bound `ns.set` (not the absent `ns.patch`); reaching the
+    // local-authority path would otherwise throw "no mutate handler".
+    expect(typeof explicitSet.use).toBe("function");
   });
 });

@@ -285,15 +285,22 @@ export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
     ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
     : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
 
-/** Whether a cell's resolved verbs include ANY wire-mutation verb (`set` /
- *  `patch` / `test__set`). A get-only cell (`verbs: ["get"]`) resolves `false`,
- *  so the Solid client (`surfaceClient`) can type it as read-only: no `.set` /
- *  `.patch` / local-authority path the runtime contract router doesn't carry.
- *  This is the client-side dual of {@link CellVerbsOf} honoring `verbs` in the
- *  raw contract — both must agree, or a get-only cell regrows a phantom mutate
- *  API on one side. */
+/** Whether a cell exposes a CLIENT-facing wire-mutation verb — `set` or
+ *  `patch`, the verbs the Solid client's `.use()` mutate path actually calls.
+ *  `test__set` does NOT count: it's the opt-in e2e reset procedure, never a
+ *  consumer mutation, so a cell whose only non-`get` verb is `test__set` (e.g.
+ *  `activityFeed` / `session`, `["get", "test__set"]`) is read-only on the
+ *  client — the server is the sole writer. A get-only cell (`verbs: ["get"]`)
+ *  is likewise `false`. This is the client-side dual of {@link CellVerbsOf}
+ *  honoring `verbs` in the raw contract: it must select the SAME mutation verb
+ *  the runtime binds in `surfaceClient`, or the bound type advertises a `.set` /
+ *  local-authority path the runtime closure can't service (`mutate` undefined). */
 export type CellIsMutable<S extends CellSpec<any, any>> =
-  CellVerbsOf<S> extends "get" ? false : true;
+  "set" extends CellVerbsOf<S>
+    ? true
+    : "patch" extends CellVerbsOf<S>
+      ? true
+      : false;
 
 /** One contract entry per resolved verb — `get` streams the schema, `set` /
  *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the
