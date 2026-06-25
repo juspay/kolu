@@ -54,25 +54,62 @@ afterEach(() => {
   h.app = null;
 });
 
-/** Mount the real `HostGroup` against a stand-in surface; returns the container
- *  and the two setters that drive the gate's inputs (the `connection` cell value
- *  — what the session pump writes in production — and the awareness key set). */
+type ErrOpts = { onError?: (e: Error) => void } | undefined;
+
+/** Mount the real `HostGroup` against a stand-in surface; returns the container,
+ *  the setters that drive the gate's inputs (the `connection` cell value — what
+ *  the session pump writes in production — and the awareness key set), and a
+ *  `blip` / `heal` pair that drives a subscription FAILURE the way production
+ *  does: `blip` sets the subscription's reactive `error()` AND fires every
+ *  `onError` the component wired (both channels fire on a real failure), while
+ *  `heal` clears ONLY `error()` (recovery re-delivers a frame; there is no
+ *  `onError` on the way back up). That asymmetry is the whole point — a consumer
+ *  that latches `onError` never heals; one that reads the self-clearing `error()`
+ *  does. So this stays RED on the old latching code and GREEN on the fix. */
 function mountHostGroup(): {
   container: HTMLElement;
   setConn: Setter<ConnectionInfo>;
   setKeys: Setter<TerminalId[]>;
+  blip: (message: string) => void;
+  heal: () => void;
 } {
   const [conn, setConn] = createSignal<ConnectionInfo>(DEFAULT_CONNECTION);
   const [keys, setKeys] = createSignal<TerminalId[]>([]);
+  // A subscription's OWN reactive, self-clearing error — what `createSubscription`
+  // exposes in production. Driven through the connection cell here.
+  const [err, setErr] = createSignal<Error | undefined>();
+  // Every `onError` the component wires (the LEGACY one-shot channel the old
+  // code latched). Captured so `blip` can fire them alongside `error()`.
+  const onErrorBus: Array<(e: Error) => void> = [];
+  const capture = (opts: ErrOpts): void => {
+    if (opts?.onError) onErrorBus.push(opts.onError);
+  };
   h.app = {
     collections: {
       awareness: {
-        use: () => ({ keys: () => keys(), byKey: () => undefined }),
+        use: (opts: ErrOpts) => {
+          capture(opts);
+          return { keys: () => keys(), byKey: () => undefined };
+        },
       },
     },
-    cells: { connection: { use: () => ({ value: () => conn() }) } },
+    cells: {
+      connection: {
+        use: (opts: ErrOpts) => {
+          capture(opts);
+          return { value: () => conn(), error: () => err() };
+        },
+      },
+    },
     streams: {
-      activity: { use: () => () => [] as TerminalId[] },
+      activity: {
+        use: (_input: unknown, opts: ErrOpts) => {
+          capture(opts);
+          return Object.assign(() => [] as TerminalId[], {
+            error: () => undefined,
+          });
+        },
+      },
     },
   };
   const container = document.createElement("div");
@@ -89,7 +126,13 @@ function mountHostGroup(): {
     container,
   );
   disposers.push(dispose, () => container.remove());
-  return { container, setConn, setKeys };
+  const blip = (message: string): void => {
+    const e = new Error(message);
+    setErr(() => e); // the reactive, self-clearing channel
+    for (const fn of onErrorBus) fn(e); // the legacy one-shot channel
+  };
+  const heal = (): void => setErr(undefined); // recovery clears only error()
+  return { container, setConn, setKeys, blip, heal };
 }
 
 const text = (c: HTMLElement): string => c.textContent ?? "";
@@ -149,5 +192,30 @@ describe("HostGroup — the empty-vs-error render gate (#1564 regression guard)"
     // healthy-empty fleet.
     await waitForText(container, "Connecting…");
     expect(text(container)).not.toContain("no terminals");
+  });
+
+  it("a TRANSIENT subscription error CLEARS when the stream recovers — no stale-error latch", async () => {
+    // The sleep/wake sighting on zest: a launchd crash-restart of pulam-web made a
+    // live subscription 500, oRPC-masked as "Internal server error". The OLD code
+    // latched that into a local signal (`prev ?? err.message`) sitting ABOVE the
+    // connection-health gate, so the host froze on the stale error even after the
+    // mirror reconnected — a reload was the only cure. The fix reads each
+    // subscription's self-clearing `error()`, so the host heals on its own.
+    const { container, setConn, blip, heal } = mountHostGroup();
+    setConn({
+      state: "connected",
+      lastError: null,
+      failureCause: null,
+      progressLines: [],
+    });
+    // A blip during the backend restart — the masked 500 reaches the browser.
+    blip("Internal server error");
+    await waitForText(container, "Internal server error");
+    // The backend recovers; the subscription re-delivers and clears its own error.
+    heal();
+    // The host heals on its own: the connected-empty body returns, no reload — and
+    // the stale error is GONE (the old latch would still be showing it here).
+    await waitForText(container, "no terminals");
+    expect(text(container)).not.toContain("Internal server error");
   });
 });

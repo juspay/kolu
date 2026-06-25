@@ -34,8 +34,13 @@
  *     honest `ConnectionView` (connecting / provisioning / reconnecting / failed)
  *     instead of a healthy-looking empty fleet; the header dot reads the same
  *     fold, so they always agree.
- *   - A subscription FAILURE (awareness or the activity stream) is surfaced via
- *     `onError` and rendered — never collapsed into the empty state.
+ *   - A subscription FAILURE (any awareness per-key sub, the activity stream, or
+ *     the connection cell) is surfaced from the subscription's OWN reactive,
+ *     self-clearing `error()` — never collapsed into the empty state, and never
+ *     LATCHED: a transient blip (a backend restart on laptop sleep/wake makes a
+ *     live subscription 500 with a masked "Internal server error") clears the
+ *     instant the stream re-delivers, so the host self-heals instead of freezing
+ *     on a stale error over a fleet that has already reconnected.
  */
 
 import type {
@@ -49,7 +54,6 @@ import {
 import {
   createEffect,
   createMemo,
-  createSignal,
   For,
   type JSX,
   onCleanup,
@@ -173,19 +177,13 @@ const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
   const status = statusForHost(props.host);
-  // Surface the FIRST subscription error (awareness or activity) rather than
-  // letting it collapse into the empty/connecting state.
-  const [error, setError] = createSignal<string | null>(null);
-  const onError = (err: Error): void => {
-    setError((prev) => prev ?? err.message);
-  };
-  const awareness = app.collections.awareness.use({ onError });
+  const awareness = app.collections.awareness.use();
   // The backend↔remote mirror's health — what gates "show the terminal list".
   // Distinct from `status` (the browser↔backend ws): a dead mirror with a
   // healthy ws is exactly the "green dot + no terminals" lie this fixes. Seeded
   // `DEFAULT_CONNECTION` (`connecting`) until the first frame, so a host never
   // reads as an empty fleet before its link is actually up.
-  const connection = app.cells.connection.use({ onError });
+  const connection = app.cells.connection.use();
   const connInfo = (): ConnectionInfo =>
     connection.value() ?? DEFAULT_CONNECTION;
   // The EFFECTIVE host health — the single fold over BOTH the transport ws
@@ -199,8 +197,27 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
-  const live = app.streams.activity.use(() => ({}), { onError });
+  const live = app.streams.activity.use(() => ({}));
   const liveSet = createMemo(() => new Set<string>(live() ?? []));
+
+  // The FIRST currently-active subscription error, or null — read straight off
+  // each subscription's OWN reactive `error()` (the connection cell, the activity
+  // stream, and every awareness per-key sub), NOT latched from a one-shot
+  // `onError`. `createSubscription` clears `error()` on the next frame, so this
+  // SELF-HEALS: a transient blip (a backend restart on laptop sleep/wake makes a
+  // live subscription 500 with a masked "Internal server error") clears the
+  // instant the stream re-delivers — instead of latching a stale error over a
+  // fleet that has since reconnected. A PERSISTENT error still shows and still
+  // wins over the body (never collapsing into a healthy-looking empty host);
+  // only a resolved one disappears. This is #1564's lie in another costume: the
+  // dashboard must not keep claiming a failure that is already over.
+  const subscriptionError = createMemo<string | null>(() => {
+    for (const id of awareness.keys()) {
+      const err = awareness.byKey(id)?.error();
+      if (err) return err.message;
+    }
+    return connection.error()?.message ?? live.error()?.message ?? null;
+  });
 
   // One terminal's current value, or undefined while its per-key stream is
   // pending. Per-key errors already surface via the collection's `onError`.
@@ -279,8 +296,8 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <HostHealthIndicator health={health} />
       </header>
       <Show
-        when={error() === null}
-        fallback={<div class="p-3 text-[#ff8d8d]">{error()}</div>}
+        when={subscriptionError() === null}
+        fallback={<div class="p-3 text-[#ff8d8d]">{subscriptionError()}</div>}
       >
         {/* Gate the terminal list on the EFFECTIVE health — the `effectiveHealth`
             fold over BOTH the mirror cell AND the browser↔backend ws, NOT the
