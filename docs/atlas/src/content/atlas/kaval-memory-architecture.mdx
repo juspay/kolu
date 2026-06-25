@@ -1,0 +1,116 @@
+---
+title: Kaval Memory — Small Mirror over an On-Disk Transcript
+description: Plan of record for kaval's PTY-host memory. Split one 10 K-line mirror into a small line-capped hot mirror, a cold on-disk transcript stored in node:sqlite (reusing @kolu/shared/sqlite, the repo's canonical store — no hand-rolled storage engine), and an attach protocol that never serializes more than a viewport. Kills both the acute reconnect-storm transient and the chronic linear-in-count heap growth.
+parents: [pty-daemon, analysis]
+status: proposed
+maturity: seedling
+updated: 2026-06-25
+---
+
+import Callout from "../../components/Callout.astro";
+import Cite from "../../components/Cite.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Svg from "../../components/Svg.astro";
+import diagram from "../../diagrams/kaval-memory-architecture.svg?raw";
+
+*Companion to the [kaval heap-OOM RCA](./kaval-heap-oom.html). That note bounded the **chronic** crash; a live look at production (kaval reported at **4740 MB**, draining to ~600 MB over minutes) surfaced a second, **acute** failure it had filed as a red herring. Reproduced on a clean box with the prod versions (`@xterm/headless@6.0.0`). This is the plan to end both.*
+
+Three terms up front, because the rest leans on them:
+
+- **mirror** — kaval's own in-memory copy of a terminal's screen. It's a *headless* (display-less) `@xterm/headless` terminal that replays the exact bytes the real PTY emitted, so the server always knows what's on screen even when no browser is watching. Today it retains a 10 K-line scrollback (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:52" />).
+- **`attach()`** — the call a client makes to start viewing a terminal (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts" />). Kaval hands back a one-shot **snapshot** of the current screen (today, the whole mirror serialized to ANSI, <Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:645" />), then streams live output as **deltas**.
+- **reconnect storm** — when a client's WebSocket drops and comes back, it re-`attach()`es to *every* open terminal at once, and the in-flight attaches it aborted get reissued: a burst of dozens of `attach()` calls — and dozens of full-mirror serializes — in one moment.
+
+That single mirror is quietly doing **four unrelated jobs**: ① a live VT emulator that answers device queries (XTVERSION, DA1/DSR) and scrapes OSC metadata (cwd / title / command); ② the **viewport** a freshly-attaching client repaints; ③ the **deep scrollback** kept for PDF export, search, and scroll-back; ④ the **wire snapshot**, serialized to ANSI on every `attach()`. Jobs ② and ④ drive the *acute* spike; job ③ drives the *chronic* growth — two distinct failures:
+
+| | **Acute transient** | **Chronic growth** |
+| --- | --- | --- |
+| Cause | `attach()` serializes the whole mirror (job ④); a reconnect storm fires ~60 at once | the mirror's deep scrollback (job ③) × an ever-growing terminal count — heap is linear in live-terminal count; terminals are never reaped |
+| Measured | 6 concurrent reconnect rounds (60 serializes) → **2.0 GB**; 40 rounds → **3.2 GB**; drains over minutes (V8 idle reducer) | climbs to the ~4 GB ceiling over days → `SIGABRT` |
+| Fix | two **kaval-only** changes defang it (PR1); the snapshot bound finishes it in PR2 — no reload-history loss | the on-disk transcript owns deep history; the mirror shrinks to screen-size |
+
+## User-facing description
+
+Nothing the user clicks changes. The effects are all in the negative space — what stops happening — plus making deep history honest:
+
+| Today | After |
+| --- | --- |
+| Terminals get laggier the longer the server is up; a reconnect can spike kolu by **2–3 GB** | flat memory; reconnect costs tens of KB, not gigabytes |
+| kaval OOM-crashes every few days, restarting the server under you | the linear-in-count growth is gone — no scheduled death |
+| Deep scrollback / PDF export / search read the **client's** buffer; lost on a cold reconnect | served losslessly from disk, surviving server restarts and updates |
+
+## Architecture-level changes
+
+The root fix is splitting that one over-loaded mirror so each of the four jobs lands where it belongs:
+
+<Svg svg={diagram} caption="One decoded byte stream, one synchronous tap (proc.onData), fanned to: a VT metadata parser (job ①, a leaf), a small line-capped hot mirror (jobs ② + ④ — the O(1) no-disk snapshot source), and a cold store for job ③. The cold store is a kaval-internal transcript/ leaf that frames the typed DATA/RESIZE/CKPT records and persists them through @kolu/shared/sqlite (node:sqlite, WAL) — the repo's canonical store, not a hand-rolled engine. The client attaches against the small mirror for a bounded snapshot + live deltas, and lazily backfills deep history from the transcript by byte-offset cursor, rendered at the current width." />
+
+- **Jobs ① + ② + ④ → the hot mirror, made small.** Keep a real headless mirror — it stays the VT emulator (job ①, device-query replies + OSC scraping) and the cheap O(1) snapshot source a storm can serialize (jobs ② + ④) — sized to **a small line count** (`rows` + the deepest screen-scrape tail any reader asks for). It stays xterm's **native scrollback ring** — *not* a hand-rolled byte-cap: trimming the ring ourselves would reinvent the maintained source-of-truth for a sub-1 MB gain. (Capping by *bytes* is the transcript's job — unbounded output volume; capping by *a few lines* is the mirror's — screen size.) An idle terminal becomes near-free, without touching the survivability guarantee (terminals freed only on child-exit / user-kill).
+- **Job ③ → the cold on-disk transcript.** Deep scrollback (the reason PDF export, search, restore, and forensics ever needed depth) leaves the heap entirely for a per-PTY append-only store on disk.
+
+<Callout kind="warn" title="“Raw PTY bytes” is NOT a lossless source — the correction that shapes the log">
+The RCA's cold store is *"append-only raw PTY bytes."* Wrong two ways: **resizes are out-of-band** — kaval calls `headless.resize()` (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:711-716" />), never in the byte stream, yet it governs reflow; replay a flat log at one width and historical spans re-wrap wrong. And **node-pty hands kaval a decoded string** (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:613" />), no more lossless than the mirror. So the transcript stores **typed records** (rows; `bytes`/`vtState` are zstd BLOBs), not a byte dump:
+
+```ts
+type Seq = number;   // monotonic byte-sequence position in the stream
+type Row = number;   // stable, never-renumbered absolute scrollback line
+
+type Record =
+  | { kind: "data";   seq: Seq; firstRow: Row; bytes: Uint8Array }  // a decoded PTY output chunk
+  | { kind: "resize"; seq: Seq; cols: number; rows: number }        // the out-of-band grid change, at its true position
+  | { kind: "ckpt";   seq: Seq; row: Row; vtState: Uint8Array };    // periodic VT-state seed: serialize({ scrollback: 0 })
+```
+
+`RESIZE` interleaved at its true stream position is what makes replay reflow-correct; `CKPT` is what makes a range render without replaying from byte 0 (see PR2's checkpoints).
+</Callout>
+
+### The boundary: reuse `@kolu/shared/sqlite` — don't hand-roll a storage engine
+
+Durable, seekable persistence *is* a real volatility — but its receptacle **already exists in this repo**, so the perfect move is to reuse it, not graduate a parallel one. `@kolu/shared/sqlite` (<Cite file="packages/shared/src/sqlite/index.ts" label="shared/sqlite" />) wraps `node:sqlite`'s `DatabaseSync` in **WAL mode** — the repo's canonical embedded store, already used by the opencode + codex integrations via `withDb` + `createWalSubscription`. And `node:sqlite` is **built into Node 24** (kaval's runtime), the same "reuse the platform" bet we make for zstd via `node:zlib`. Extracting a hand-rolled `@kolu/segment-log` (custom binary format + sparse index + WAL fsync + crc tail-recovery + retention sweeper) would be the *parallel hand-rolled store* the design philosophy forbids — and a pile of code SQLite gives for free.
+
+What SQLite eliminates: the **index** (a B-tree on indexed columns), **durability + crash recovery** (its own WAL journal — a kaval OOM-abort loses at most the last txn), **range queries** by line / byte / time (an indexed `BETWEEN`), and **retention** (a `DELETE` + incremental vacuum). What stays a **kaval leaf** (`packages/kaval/src/transcript/`) is only the terminal-domain glue that imports `@xterm/headless` and so *can't* be agnostic: the `DATA`/`RESIZE`/`CKPT` schema, the byte-offset↔line index, and rendering a range by replaying from the nearest checkpoint. That leaf composes `@kolu/shared/sqlite` — the [electricity](./electricity.html) split done right: the persistence volatility is already encapsulated; the VT meaning is injected on top.
+
+## Implementation details
+
+Two PRs — and only two because the rest is *one indivisible change*. Shrinking the mirror, writing the transcript, and reading it back are mutually dependent: shrink without read-back regresses copy-all / search / deep-scroll, and read-back without the shrink fixes no memory. So they ship together — there is no point where kolu has less functionality than today.
+
+### <Pill variant="ok">PR1</Pill> Defang the storm — kaval-internal, no disk, no wire change
+
+**User impact:** a reconnect storm (rapid reload, network blip, laptop wake — especially with many terminals open) no longer spikes kolu by *gigabytes*; the worst case drops to a brief, bounded blip. Crucially, **a full reload still restores the same history as today** — the server still sends the whole mirror snapshot, this PR just stops *duplicating and stacking* that work. So PR1 is a true strict improvement with **no regression** — which is why it can ship first, ahead of the disk work. (Bounding the snapshot — the change that finishes the job but *would* shrink what a reload restores — is deliberately held to PR2, where backfill makes it lossless.)
+
+Two changes, both in `attach()` (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:639-647" />), neither touching snapshot *content*:
+
+1. **Cancellable:** after the eager subscribe, `if (signal?.aborted) return { snapshot: "", deltas }` (`""` is wire-legal). A disconnect aborts the in-flight attaches and reissues them; today the aborted half still serializes the full mirror for a reader that's gone — this makes them no-ops, removing the abort-doubling.
+2. **Epoch-coalesced snapshot:** a per-`Entry` `snapshotCache`, cleared synchronously inside the `headless.write` callback *before* `publish` (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:613-617" />). Repeated/rapid attaches to one terminal within a single publish-epoch (an idle terminal = a long epoch) serialize **once** and share the immutable string. Race-free: cache-set and publish-clear are on the same synchronous tap.
+
+Net: the storm drops from the measured multi-GB to roughly *(live-terminal count) × one full snapshot* — transient tens-to-low-hundreds of MB — with reload history untouched. PR2's snapshot bound then takes each snapshot to ~tens of KB.
+
+**Guard:** a reconnect-storm test (N concurrent + repeated `attach()`, assert peak allocation falls to O(terminal-count) full snapshots, not O(storm-size)) — the guard missing today for the exact spike investigated. `Channel` is untouched (<Cite file="packages/kaval/src/channel.ts" label="channel.ts:120-131" /> already correct).
+
+### <Pill variant="ok">PR2</Pill> The on-disk transcript — write, read, and shrink, atomically
+
+**User impact:** terminals stay snappy no matter how long the server's been up or how many you have open, and kolu stops OOM-crashing-and-restarting every few days (the chronic death). A full reload now shows the **visible screen instantly**, then fills in history as you scroll — reaching the *full retained on-disk depth* (deeper than today's 10 K mirror, up to the retention cap), rendered at the correct width, and surviving server restarts. **No regression window:** the snapshot is only bounded — and the mirror only shrunk — once backfill is in place to restore depth, all in this one merge.
+
+Build it bottom-up *inside the PR* so the bound/shrink is last — the transcript can be exercised by tests before any user path depends on it:
+
+- **The `transcript/` leaf over SQLite.** One DB per PTY (`$XDG_STATE_HOME/kaval/transcripts/<id>.db`), opened via `@kolu/shared/sqlite`'s `withDb` in WAL mode. A single `record` table — `(seq INTEGER PK, kind, firstRow, firstByteSeq, tsMs, cols, payload BLOB)` — indexed on `firstRow`, `firstByteSeq`, `tsMs` for the three range queries. `payload` is a `node:zlib` zstd-compressed run of coalesced output (batched ~64 KB, *not* one row per chunk — the write-amplification trap). The writer is the existing `proc.onData` callback (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:613-617" />), so the transcript shares the mirror's byte stream and inherits attach's race-freedom — no new race. SQLite owns the index, WAL durability, crash recovery, and range reads; the leaf owns only the schema + the `DATA`/`RESIZE`/`CKPT` framing.
+- **Checkpoints** make backfill correct *and* cheap (the RCA omits them): without one, rendering any range replays from byte 0 — re-creating the multi-GB spike on every scroll. Every ~K lines write a `CKPT` row = `serialize({ scrollback: 0 })` (viewport + modal preamble, a few KB — *not* a full-buffer serialize, which would be ~4 MB/checkpoint = gigabytes of index). A range render = restore the nearest checkpoint into a throwaway headless, replay one bounded run, dispose — behind a semaphore so backfill can't re-storm the read path.
+- **The read verbs.** `history({ id, beforeCursor, maxLines, width })` keyed on an opaque **byte-offset cursor**, not a line number — render-line numbers shift under reflow (`reflowCursorLine`), so a line-range API bakes in a coordinate that silently moves under resize; a byte offset is reflow-stable, width a *render-time* parameter. Returns rendered ANSI at the client's current width; the snapshot frame carries `historyCursor` (nearest checkpoint ≤ window top) so the join overlaps-not-gaps. Plus `exportHistory` / `searchHistory`, extending the existing range-read `getScreenText` idiom (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts:314" />).
+- **Then, and only then, bound the snapshot and shrink the mirror.** With backfill in place, `attach()` serializes a `HOT_WINDOW` viewport (`serialize({ scrollback: HOT_WINDOW })`, the 0.14.0 option; same bound on `getScreenState`, <Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:687" />) — now **lossless**, because a reload paints the window instantly and backfills the rest from the transcript on scroll. This is what finally takes the storm to ~tens of KB/snapshot. The mirror itself shrinks to `rows + SCRAPE_TAIL_LINES` (grep the `tailLines` call sites; drop `DEFAULT_MIRROR_SCROLLBACK` as a depth dial). **In the same commit, re-route the whole-buffer reads** the shrink would otherwise truncate: **Copy-terminal-text** calls `screenText` with *no range* = the whole buffer (<Cite file="packages/client/src/terminal/useTerminalCrud.ts" label="useTerminalCrud.ts:280" />), and scrollback search reads deep — both now read the transcript. The bounded screen-scrape tail stays on the mirror.
+- **Retention & privacy as spawn-frame policy (B0-style), not a daemon knob.** The spawn input carries a **required** `history: { enabled, retentionBytes }` — the daemon derives nothing, a missing field is a loud crash. Retention = `DELETE` oldest rows past the per-terminal byte cap (raise an `oldestRow` watermark; a sub-floor read returns `{kind:"evicted"}`, never empty) + a global sweeper that reaps *exited*-terminal DBs first (live ones never reaped — survivability). `enabled:false` writes no DB; reads return `{kind:"unavailable"}`. Files `0600` under `0700` — a perms mismatch is a loud crash.
+- **Disk fault never kills the PTY.** A runtime `ENOSPC`/`EIO` degrades *that one* terminal's transcript to a surfaced `{faulted, lastGoodSeq}` (via `daemonStatus`), never a truncated log shown as complete, never a daemon crash — the one place survivability outranks fail-fast (<Cite file=".claude/rules/conventions.md" label="caught-error-must-not-collapse-to-empty" />).
+- **Guards:** flat-in-count heap soak (slope ≈ 0); a fast-check **lossless round-trip** (random `write`/`resize` interleavings, replayed per epoch == live grid, concatenated `DATA` == input); a `formatVersion` row that **fails loud** on an unknown schema (distinct from `PTY_HOST_CONTRACT_VERSION`).
+
+<Callout kind="warn" title="PR2 is one breaking 4.0 recycle — say the cost plainly">
+Persistence can't be layered onto a running pre-persistence daemon: the new `history` verbs would 404 and the required `history` spawn-policy field would be missing — a silent degradation fail-fast forbids. So PR2's wire changes (remove `scrollback`; add required `history` policy; add the verbs; bound the snapshot) are **one major `PTY_HOST_CONTRACT_VERSION` 4.0 bump** (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts:74" />) — one forced recycle that **kills every live terminal once**. The feature that enables session-restore is born from the one event that loses every currently-live session; there is no lossless path around it. (This is also why it can't be split further: a half-shipped persistence layer is a broken one.)
+</Callout>
+
+<Callout kind="note" title="One open decision — default baked in">
+Interactive deep-scroll *past the client's own 50 K buffer* (<Cite file="packages/common/src/config.ts" label="config.ts:29" />; PDF already reads that buffer) is **out of scope** by default — the transcript serves the four discrete lossless consumers. If a product need appears it ships as a fixed-width copy-mode pager, never a live splice into the reflowing grid.
+</Callout>
+
+<Callout kind="good" title="Supersedes in the OOM RCA">
+(1) the store is **typed records with resize epochs**, not raw bytes; (2) **checkpointing is mandatory**, inseparable from lazy backfill; (3) the **acute transient is a distinct bug, shipped first** (PR1) — <PrLink pr={1427} />'s 50 K→10 K shrink raised the ceiling but left the full-buffer serialize in place; (4) the store **reuses `@kolu/shared/sqlite` (node:sqlite)**, not a hand-rolled binary log + index — and so is a kaval *leaf*, not a new package; (5) the wire change is **one breaking 4.0 recycle**, not #417's additive multi-PR.
+</Callout>

@@ -1,234 +1,321 @@
 ---
-title: Chat-Native Agents and kolu — have the cake, eat it too
-description: Anthropic's Claude Tag (and Karpathy's read of it) moves coding into the chat. It threatens the half of kolu you stare at — the canvas — but not the half that matters. kolu's live-PTY substrate and the pulam awareness daemon are exactly what a manage-from-chat world needs and Slack lacks; the cake-and-eat-it bridge is one authenticated, model-agnostic ingress beside kaval. The wiring is cheap; the front door is the product.
+title: kolu under any chat app
+description: The coding agent has moved into the chat. kolu is the open, model-agnostic terminal/file foundation any chat app integrates — running claude, codex, or opencode on infrastructure you control. XS integrates kolu; the first proof is an XS bot that runs kolu's own development inside chat, in the open.
 parents: [comparison, remote-terminals]
 status: proposed
 maturity: seedling
-updated: 2026-06-24
+updated: 2026-06-25
 ---
 
 import Callout from "../../components/Callout.astro";
 import Svg from "../../components/Svg.astro";
+import stack from "../../diagrams/chat-native-agents-stack.svg?raw";
 import bridge from "../../diagrams/chat-native-agents-bridge.svg?raw";
 
-*A read of Anthropic's [**Claude Tag**](https://www.anthropic.com/news/introducing-claude-tag) (Claude joins Slack as a tagged teammate), its [agent identity & access model](https://claude.com/blog/agent-identity-access-model), and [Karpathy's framing of it](https://x.com/karpathy/status/2069547676849557725) as "the 3rd major redesign of LLM UIUX" — held against what kolu actually is, and read alongside the [Hacker News reaction](https://news.ycombinator.com/item?id=48648039). Grounded in a four-lens analysis (threat · bridge · moat · moves) with an adversarial red-team pass; the optimistic claims below are the ones that survived it.*
+*A read of Anthropic's [**Claude Tag**](https://www.anthropic.com/news/introducing-claude-tag)
+(Claude joins the team chat as a tagged teammate) and AI researcher
+[Andrej Karpathy's framing of it](https://x.com/karpathy/status/2069547676849557725)
+as "the 3rd major redesign of LLM UIUX," held against what kolu is. Throughout, **XS**
+stands for any chat app (a Slack-style team chat where the agents already live), and **pesu** (Tamil பேசு, "to speak") is a minimal XS bot — the first
+thing to run kolu's own development inside chat.*
 
-<Callout kind="accent" title="Headline">
-The chat-native paradigm threatens **the half of kolu you stare at** — the canvas — not the half that matters. kolu's live-PTY substrate (**kaval**) and its read-only awareness daemon (**pulam**) are exactly the org-wide telemetry a "work from Slack" world needs and chat doesn't have. So kolu isn't facing extinction; it's at risk of **shipping the wrong half**. The cake-and-eat-it move is to keep terminal-grade control *and* gain chat-grade reach through **one authenticated, model-agnostic ingress beside kaval** — the only leg not already built. The wiring is cheap; the front door is the product.
+<Callout kind="accent" title="The short version">
+kolu is the **foundation a chat app integrates** — it runs real terminals on machines you
+control and watches what happens inside them. Any chat app can drive it: **kolu runs
+claude, codex, or opencode under any front end, on infrastructure you own.** XS — the chat
+app — integrates kolu and keeps everything social: identity, login, presence, and who may
+write. kolu authenticates nothing; the connection is the trust.
 </Callout>
 
-## The shift: the agent moves into the chat
+## The shift: the agent moved into the chat
 
 Karpathy isn't describing a chatbot you ask questions. He's describing a coworker:
-a persistent agent that lives where the team already works, holds org-wide tools
+a persistent agent that lives where the team already works, holds the org's tools
 and context, and runs tasks on its own while you do something else. You @-tag it,
-walk away, and it pings you when it needs you.
+walk away, and it pings you when it needs you. Anthropic shipped this shape as Claude
+Tag — one shared Claude per channel, tasks it pursues "over hours or days," an audit
+log of every task and who asked for it. The proof-point is blunt: *"65% of our product
+team's code is created by our internal version."* The work moves into chat, and the
+human's job shifts from driving keystrokes to managing agents.
 
-> It is a self-contained, **persistent, asynchronous** entity with org-wide tools
-> and context, working alongside teams of humans. … it's writing the majority of
-> code, it's deeply integrated, **multiplayer**, and it starts to feel like
-> **everyone is a manager**. … I work from Slack now.
->
-> — [Andrej Karpathy](https://x.com/karpathy/status/2069547676849557725)
+In that world the terminal specializes. Chat keeps gaining
+richer rendering — diffs, highlighting, even little editors — but it stays async text
+over request and response. It is not a live process you can step into. The terminal is
+where you drop to a shell, answer an interactive prompt, watch raw output, drive a
+debugger. Chat owns the breadth; the terminal owns the depth — and kolu is what makes
+the depth real.
 
-His own warning is the load-bearing part: it's *not* "LLM Q&A with RAG over
-Slack." The work itself moves into chat, and the human's job shifts from *driving
-keystrokes* to *managing agents*. That's the bet to react to.
+## kolu in one picture
 
-The [announcement](https://www.anthropic.com/news/introducing-claude-tag) fills in
-the shape: **one shared Claude per channel** (a teammate, not a bot-per-person),
-work it *"schedule[s] ... for itself"* and pursues *"over hours or days,"* memory
-that carries across channels with permission, an admin **audit log of every task
-and who asked for it**, and per-channel tool and token limits — all on Opus 4.8.
-It's **Slack-only today**, explicitly aiming to reach *"the many other places they
-work,"* and the proof-point is blunt: *"65% of our product team's code is created
-by our internal version."* This is the "it actually works" Karpathy meant — not a
-toy to wave off.
+At its core kolu does two things: it **runs real terminals on computers you
+control, and watches what's happening inside them.** That core is three parts:
 
-## kolu's two halves: the cockpit erodes, the substrate is the same bet
+- **kaval** owns each live terminal — start an agent, type into it, resize it, kill it.
+  It is also the single point that *serializes* writes: when input arrives, last one wins.
+- **pulam** watches every terminal without touching them, folding the raw noise into a
+  simple, read-only board: which agent is working, which is blocked, who needs you.
+- **`@kolu/surface`** is the typed wire that carries both over any connection — a local
+  socket, ssh to another machine, or an Incus host (a sandboxed box).
 
-Be honest about the bear case first. The place you *sit* moves off the terminal.
-A manager who delegates and walks away has no use for an infinite canvas of live
-terminal tiles — panning, zooming, splitting. The canvas is kolu's headline,
-demoable identity, and it's exactly what a "work from Slack" user doesn't want to
-look at. Worse, the one ergonomic Claude Tag sells — *kick off a task from your
-phone* — is the one thing kolu **cannot do today**: there's no submit-from-outside,
-no remote trigger; an agent only runs if it's live in a terminal inside kolu. If
-the center of gravity is async delegation, kolu's current shape is a structural
-mismatch, not a missing button.
+<Svg svg={stack} caption="Not a rigid stack. XS is its own app and integrates kolu through one seam; kolu runs headlessly on whatever machine you point it at — your laptop, a server, or a remote sandbox. Chat, presence, and login stay in XS." />
 
-<Callout kind="accent" title="What an agent actually is (Andreessen) — and why it's already kolu's blueprint">
+Two things sit either side of kolu, and the relationship with each is different:
+
+- **XS is independent.** It already runs without kolu. Integrating kolu is simply what
+  lets a chat thread reach into a real terminal — XS gains the depth, kolu gains a front
+  door. Everything social stays in XS.
+- **The machine is wherever kolu runs.** kolu runs **headlessly on any box** — your laptop,
+  a server, or a remote sandboxed host. Remote sandboxes (an Incus cluster, another team's
+  project) are something it **naturally supports**: a remote host is just another place to
+  dial the same surface.
+
+So the picture is not a tower of dependencies. XS *integrates* kolu; kolu *runs on*
+whatever machine you choose. The arrow is integration one way and execution the other.
+
+## The moat: model-agnostic, open, yours
+
+kolu and a chat app divide cleanly. kolu owns the live process, the files, and the
+durable session. XS owns identity, login, presence, and who-may-write. A foundation that
+reaches up and grows chat stops being a neutral base *any* chat app can integrate and
+becomes one more single-vendor app. Holding that line isn't caution — it's the moat.
+
+<Callout kind="accent" title="The moat — our competitive advantage">
+**kolu runs claude, codex, or opencode under any chat app, on infrastructure you control.**
+That is the bet on open standards and open source, and it is exactly what a single-vendor
+stack can't match. Claude Tag is one vendor's model, with the shell and files hidden inside
+a cloud sandbox you don't own. kolu keeps the model **swappable**, the shell and files
+**real**, and the host **yours** — so the chat app on top is a choice, never a lock-in.
+</Callout>
+
+<Callout kind="accent" title="What an agent actually is (Andreessen)">
 Marc Andreessen, [on what decades of agent research quietly converged on](https://www.youtube.com/watch?v=knx2wrILP1M):
 *"an agent is … a language model, and above that a bash shell … and then a file
-system, and the state is stored in files … markdown … plus cron,"* and *"every
-part of that other than the model is something we already completely know."* The
-kicker: *"your agent is now actually independent of the model … you can swap out a
-different LLM underneath … all of the state stored in the files will be retained"*
-— like *"swapping out a chip and recompiling, but it's still your agent with all
-its memories."* On protocols: *"this whole idea where we need MCP and these fancy
-protocols — no, we just need a command-line thing."*
+system, and the state is stored in files,"* plus cron — and *"every part of that
+other than the model is something we already completely know."* The kicker:
+*"your agent is now actually independent of the model … you can swap out a different
+LLM underneath."*
 
-That is kolu's architecture, line for line: the **shell** is the interface to
-every tool (kolu *watches* it, doesn't wrap it), the **files** are the real
-intelligence (the [Atlas](./meta.html) is the markdown knowledgebase — a
-Zettelkasten knowledge graph, not chat exhaust), and the **model is the swappable
-chip** (claude · codex · opencode). Claude Tag inverts all three — model fixed
-(Opus 4.8), shell and files hidden inside a cloud sandbox, memory as lossy Slack
-scrollback. kolu keeps the durable substance — shell, files, your own infra — and
-lets the chip swap. It's the same simplicity that made the web (HTTP, JSON,
-human-readable text), arriving for agents.
+That is kolu's architecture, line for line: the **shell** is the interface to every
+tool (kolu *watches* it, doesn't wrap it), the **files** are the durable state, and
+the **model is the swappable chip** (claude · codex · opencode). A chat app that
+hard-codes one vendor's model and hides the shell and files inside a cloud sandbox
+gives up exactly the durable substance kolu keeps.
 </Callout>
 
-Now the other half, which the bear case misses:
+## The seam: observe out, act in
 
-- **The terminal isn't nostalgia — it's a capability chat doesn't have.** Chat is
-  async text; it is not a live PTY. The moment a task needs a human to drop to
-  bash, answer an interactive prompt, or watch raw streaming output, the terminal
-  is the only surface that works. Chat hides that gap; it doesn't close it. As one
-  HN commenter put it, *"you don't tend to have long sessions with agents in Slack
-  like you would in the terminal"* — chat suits short, fire-and-forget delegations;
-  the deep, interactive work still wants a terminal.
-- **Agent-agnosticism is a structural moat, not a feature.** kolu runs claude,
-  codex, opencode, or anything in a shell and reads its state with no per-agent
-  wrapping. Claude Tag is single-vendor *by construction* — Anthropic will never
-  ship a console that ranks a competitor's agent next to its own. An org running
-  several agents cannot get one neutral "who needs me" board from Anthropic.
-- **kolu already built the manager's dashboard.** The awareness daemon
-  [pulam](./pulam.html) serves "what is every agent doing" as one live surface,
-  and three read-only mirrors (the Dock plus the TUI and web fleet boards) read
-  one ranking and stay in lockstep. Slack gives you a thread per task; it does not
-  give you a ranked, needs-you-first board of every agent's live state.
-- **The other hard problem is a real isolated environment — and kolu runs on your
-  own.** The sharpest line in the [HN thread](https://news.ycombinator.com/item?id=48648039):
-  *"the hard problem is giving a shared agent durable organizational memory and a
-  real isolated environment."* Anthropic's answer is a service account inside its
-  cloud; kolu's is a real PTY on a host you control. kolu's
-  [remote-terminals](./remote-terminals.html) work is heading toward running agents
-  on **sandboxed hosts — an Incus cluster, say** — your own isolated infra, not a
-  vendor's opaque sandbox. (On the roadmap; kolu is open source, so the integration
-  point is in the open.)
-- **Durable memory that isn't lossy Slack scrollback.** The other half of "org
-  memory" is the rear-facing brain, and HN's verdict on keeping it in chat is
-  brutal: *"Slack as a memory store is lossy,"* *"75% of Slack shouldn't be
-  remembered."* kolu already has the opposite — the [Atlas](./meta.html): a
-  git-versioned, PR-reviewed, agent-cheap markdown knowledgebase (this very note
-  lives in it). A curated second-brain, not chat exhaust.
+XS integrates kolu through one seam — the same `@kolu/surface` wire kolu already has —
+split into two halves: **observe** flows out, **act** flows in. kolu authenticates
+nothing: the connection *is* the trust — an owner-only socket locally, an ssh link to a
+remote host — so identity, login, and presence stay in XS, and kolu just serializes
+whatever its one trusted client sends.
 
-The liability isn't the product — it's narrating the canvas *as* the product. The
-canvas is the half a manager walks away from; the substrate is the half that wins.
+<Svg svg={bridge} caption="The seam. OBSERVE (green) flows out and largely ships today. ACT flows in as plain calls over the trusted connection and is mostly still to build. kaval serializes writes; XS, above, decides the floor." />
 
-## The bridge: terminal-grade control, chat-grade reach
+| Verb | Half | Reuses | Status |
+| --- | --- | --- | --- |
+| `observe` | out | pulam awareness + activity + read-only fs/git | **ships** |
+| `attach` | out | kaval's screen stream (+ a re-resolvable cursor marking where you reattached) | **ships** |
+| `getSession` | out | the saved session key + resume path — never transcript content | to build |
+| `submit` | in | `kaval.spawn` | to build |
+| `write` | in | `kaval.write` (covers the `y⏎` approve) | partial |
+| `kill` | in | `kaval.kill` | to build |
+| `resize` | in | `kaval.resize` — one terminal has one size; pairing needs it | to build |
+| `wake` / `wakeAndSend` | in | reopen a parked session, optionally inject one question (kolu stores none of it) | to build |
 
-kolu already has the async **awareness** shipped. What it lacks is async
-**action**. The whole bridge is the asymmetry in this one picture:
+On these verbs — with no new auth in kolu — XS builds the who-needs-me board (`observe`),
+pairing on one terminal (`attach` + `write` + `resize`), a forward-facing punchlist pinned
+to durable terminals, and later **review-interrogation**: reopen the exact agent that did
+the work and ask it *why* (`getSession` + `wakeAndSend`) — kolu keeps the session key and
+a resume path, the agent keeps its own transcript, and kolu never parses the bytes.
 
-<Svg svg={bridge} caption="The outbound loop (green / teal) ships today: a live tile is observed by pulam, folded to an alert, and pinged out — 'you get pinged when blocked' needs no new detection. The inbound loop (red) is the one missing leg: a small authenticated ingress that turns an outside message into a spawn/write on kaval. It sits beside kaval (the write path), never inside pulam (read-only)." />
+## The first proof: an XS bot
 
-The smallest end-to-end loop:
+`pesu` is a small XS bot that bridges one XS thread to one kolu terminal: it streams the
+terminal into the thread (`attach` + `observe`) and relays the thread's one floor-holder
+back as keystrokes (`write`). It rides XS's own identity, presence, and login, and needs
+no auth in kolu — just the connection. The bot is the near-term path; closer, native XS
+integration follows.
 
-1. From any chat: *"@kolu run claude 'fix the failing auth test' on repo/branch"* →
-   spawns a **real kolu terminal** on your server.
-2. The agent works in a live tile; state and activity are tracked exactly as today.
-3. It blocks on you (`awaiting_user`) → the existing alert fold fires → a new sink
-   posts to chat with the screen tail and approve/deny buttons.
-4. You tap approve on your phone → a single keystroke (`y⏎`) is written into that
-   live PTY.
-5. The agent finishes → the tile parks to a [sleeping terminal](./sleeping-terminals.html);
-   the final diff is posted back to the thread.
+**The milestone is concrete: run kolu's own development inside XS.** Today kolu is built by
+agents on a personal headless Linux box. The bot moves that work into an XS thread so the
+team can **watch the agents run** — observe first, not steer. Querying and writing from
+chat come once it's more than one personal host. What the bot proves is the *act-in verbs
+over the surface*, driven to a live agent — not a static view any already-shipping read
+could render.
 
-Every leg but one reuses something already built:
+<PesuStyles />
+<PesuThread />
 
-| Leg | Reuses | Status |
-| --- | --- | --- |
-| **spawn an agent · write `y⏎`** | kaval already exposes the full write path (spawn · write bytes · kill · resize) — kolu's own tiles call it | shipped |
-| **forward across hosts** | the mirror path already drives a remote action over browser → ssh → host with no kolu-specific code | shipped |
-| **ping out when blocked** | the `awaiting_user` → alert fold that already pulses the tile, toasts, and fires an OS notification | shipped |
-| **park + resume** | sleeping terminals, survive a full restart | shipped |
-| **submit / approve from chat** | — nothing — | **to build** |
+*The target user story, end to end — here replaying a real merged change,
+[**PR #1544**](https://github.com/juspay/kolu/pull/1544), which made session export a
+lightweight chat log: start an agent from a thread, watch it work, get screenshot evidence,
+jump into the live terminal to try it, then take the PR to green and merge — all without
+leaving chat. The first milestone lights up the **observe** half (the stream and the
+evidence); attaching to test and merging from chat ride the act-in verbs that follow.*
 
-The one missing leg is an **authenticated ingress**: a small daemon *beside*
-kaval (the PTY owner), not inside pulam (the read-only observer), exposing exactly
-two verbs — `submit` (spawn an agent with a given argv) and `approve/reply` (write
-bytes into a named live tile) — behind a real front door: per-user identity, and
-default-deny on which argv may run and which tiles are writable. Per your steer,
-it's **one generic messaging seam** — Slack, Discord, WhatsApp, Telegram behind a
-single adapter — not a Slack-shaped wrapper, so the agent-agnostic moat extends to
-the transport too.
-
-<Callout kind="warn" title="Two things the red-team insisted we not soft-pedal">
-**The leg is not a tenth of the work.** The plumbing — *bytes can move* — is cheap
-and done. The *front door* is most of the value and **all** of the risk: `spawn` /
-`write` is full remote code execution on your box, over a surface that is
-unauthenticated today (gated only by same-origin + socket permissions). The auth
-model **is** the project — and it's exactly the "heavy under-the-hood security
-work" Karpathy names as the gap between a hackathon demo and a product. Anthropic
-just shipped a whole [agent identity & access model](https://claude.com/blog/agent-identity-access-model)
-for precisely this — channel-scoped service identities, default-deny tool *and*
-network-egress allowlists, per-action audit, least-privilege, and *"just-in-time"*
-approval of a single sensitive action — the strongest possible proof the **door is
-the work**. It also hands kolu the spec to mirror, and the JIT *"approve one action
-in the moment"* grant *is* the approve-from-phone gate above; kolu's edge is doing
-it **self-hosted, on infra you own**, not in a vendor's console.
-
-**The honest unit of chat control is approve / deny / one-line reply at a blocked
-gate — not "steer."** Raw bytes are perfect for `y⏎`; they are a bad way to drive a
-full-screen TUI's arrow keys through a chat box. Don't promise interactive driving
-from Slack.
+<Callout kind="accent" title="The call">
+kolu is the foundation a chat app integrates — real terminals, durable sessions, an honest
+read, and writes over a trusted connection, model-agnostic and on hosts you own. XS owns
+identity and the floor; kolu owns the substance that doesn't change. Build the foundation,
+prove it with the `pesu` bot running kolu's own development in the open, and let any chat
+app be the front door.
 </Callout>
 
-## What stands in the way
+export const PesuStyles = () => (
+  <style>{`
+  .pe-frame{font-family:ui-sans-serif,system-ui,sans-serif;max-width:33rem;margin:1.5rem 0 .4rem;border:1px solid #e6e2d6;border-radius:14px;overflow:hidden;box-shadow:0 2px 14px rgba(0,0,0,.06);background:#fff}
+  .pe-bar{display:flex;align-items:center;gap:.5rem;padding:.6rem .9rem;background:#FBF1DC;border-bottom:1px solid #ecd9b0}
+  .pe-hash{font:700 .82rem/1 ui-sans-serif,system-ui;color:#92400E}
+  .pe-sub{font:.72rem/1 ui-sans-serif,system-ui;color:#9a7b3a}
+  .pe-badge{margin-left:auto;font:700 .56rem/1 ui-sans-serif,system-ui;letter-spacing:.1em;color:#B45309;border:1px solid #e0c690;border-radius:5px;padding:.26rem .42rem}
+  .pe-thread{padding:.8rem .9rem 1rem;display:flex;flex-direction:column;gap:.9rem;background:#fcfcfd}
+  .pe-msg{display:flex;gap:.6rem;align-items:flex-start}
+  .pe-av{flex:none;width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font:700 .64rem/1 ui-sans-serif,system-ui;color:#fff}
+  .pe-av-h{background:#475569}
+  .pe-av-b{background:#0D32B2}
+  .pe-body{flex:1;min-width:0}
+  .pe-meta{display:flex;align-items:center;gap:.4rem;margin-bottom:.22rem}
+  .pe-meta b{color:#1a1c20;font:700 .74rem/1 ui-sans-serif,system-ui}
+  .pe-tag{font:700 .52rem/1 ui-sans-serif,system-ui;letter-spacing:.08em;color:#0D32B2;background:#EDF0FD;border:1px solid #c7d2f5;border-radius:4px;padding:.16rem .3rem}
+  .pe-time{color:#9aa3af;font:.66rem/1 ui-sans-serif,system-ui}
+  .pe-bub{font:.8rem/1.45 ui-sans-serif,system-ui;color:#26303b}
+  .pe-bub code{font:.74rem ui-monospace,monospace;background:#eef1f5;border-radius:4px;padding:.05rem .3rem;color:#334155}
+  .pe-bub b{color:#0D32B2}
+  .pe-term{margin-top:.5rem;border-radius:9px;overflow:hidden;border:1px solid #1e293b}
+  .pe-term-bar{display:flex;align-items:center;gap:.4rem;font:600 .62rem/1 ui-monospace,monospace;color:#7c8ba1;background:#111c30;padding:.42rem .6rem;border-bottom:1px solid #1e293b}
+  .pe-live{color:#34d399}
+  .pe-term-body{padding:.55rem .65rem;background:#0f172a;font:.68rem/1.65 ui-monospace,monospace;color:#cbd5e1}
+  .pe-ln{white-space:pre-wrap}
+  .pe-ln .ok{color:#34d399}
+  .pe-ln .add{color:#86efac}
+  .pe-ln .dim{color:#64748b}
+  .pe-ln .path{color:#93c5fd}
+  .pe-add{color:#86efac}
+  .pe-shot{margin-top:.5rem;border:1px solid #e2e6ea;border-radius:9px;overflow:hidden}
+  .pe-shot-cap{font:600 .58rem/1 ui-sans-serif,system-ui;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8;padding:.42rem .55rem;background:#f6f7f9;border-bottom:1px solid #eceff2}
+  .pe-doc{background:#fbfcfd}
+  .pe-doc-bar{display:flex;align-items:center;gap:.4rem;font:600 .62rem/1 ui-sans-serif,system-ui;color:#475569;padding:.46rem .6rem;background:#eef1f4;border-bottom:1px solid #e2e6ea}
+  .pe-doc-dot{width:7px;height:7px;border-radius:50%;background:#15803D;flex:none}
+  .pe-doc-body{padding:.6rem .7rem;display:flex;flex-direction:column;gap:.5rem}
+  .pe-turn{padding-left:.5rem}
+  .pe-turn-h{border-left:3px solid #475569}
+  .pe-turn-a{border-left:3px solid #0D32B2}
+  .pe-role{display:inline-block;font:700 .52rem/1 ui-sans-serif,system-ui;letter-spacing:.05em;border-radius:4px;padding:.16rem .32rem;color:#fff;margin-bottom:.2rem}
+  .pe-role-h{background:#475569}
+  .pe-role-a{background:#0D32B2}
+  .pe-line{font:.72rem/1.42 ui-sans-serif,system-ui;color:#26303b}
+  .pe-doc-nav{display:flex;align-items:center;gap:.45rem;padding:.42rem .7rem;border-top:1px solid #e2e6ea;font:700 .76rem/1 ui-sans-serif,system-ui;color:#0D32B2}
+  .pe-doc-navlbl{font-weight:500;color:#94a3b8;font-size:.62rem}
+  .pe-link{margin-top:.5rem;display:inline-flex;align-items:center;gap:.4rem;font:600 .72rem/1 ui-sans-serif,system-ui;color:#0D32B2;background:#EDF0FD;border:1px solid #c7d2f5;border-radius:8px;padding:.42rem .6rem;text-decoration:none}
+  .pe-pr{margin-top:.5rem;border:1px solid #e2e6ea;border-radius:9px;background:#fff;overflow:hidden}
+  .pe-pr-top{display:flex;align-items:center;gap:.45rem;padding:.55rem .65rem}
+  .pe-pr-ico{color:#7c3aed;font-size:.82rem}
+  .pe-pr-num{font:700 .74rem/1 ui-sans-serif,system-ui;color:#1a1c20}
+  .pe-pr-title{font:.74rem/1.3 ui-sans-serif,system-ui;color:#475569;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pe-pr-stat{display:flex;align-items:center;gap:.5rem;padding:0 .65rem .5rem;font:700 .64rem/1 ui-monospace,monospace;border-bottom:1px solid #eef1f4}
+  .pe-pr-stat .add{color:#15803D}
+  .pe-pr-stat .del{color:#b91c1c}
+  .pe-pr-stat .files{color:#94a3b8;font-weight:500}
+  .pe-pr-foot{display:flex;align-items:center;gap:.6rem;padding:.5rem .65rem;background:#fafbfc}
+  .pe-ci{display:inline-flex;align-items:center;gap:.34rem;font:600 .66rem/1 ui-sans-serif,system-ui;color:#15803D}
+  .pe-ci .dot{width:8px;height:8px;border-radius:50%;background:#15803D}
+  .pe-merge{margin-left:auto;font:700 .64rem/1 ui-sans-serif,system-ui;color:#fff;background:#15803D;border-radius:6px;padding:.36rem .56rem}
+  .pe-merged{display:inline-flex;align-items:center;gap:.3rem;font:700 .64rem/1 ui-sans-serif,system-ui;color:#fff;background:#7c3aed;border-radius:5px;padding:.28rem .46rem}
+  `}</style>
+);
 
-- **Self-hosted, single-user today.** A moat for the solo / own-iron / no-procurement
-  crowd; a structural *disqualifier* for the enterprise-cloud deployments Karpathy
-  points at (no SSO, no audit, no central control). Defensible and small can both
-  be true.
-- **No offline — the live WebSocket *is* the app.** Push-*out* (the ping) is free;
-  reply-*in* needs a new always-listening authenticated endpoint your phone reaches.
-  It cannot be a background service-worker reply.
-- **No submit-from-outside today.** This is the single fatal gap for the
-  chat-delegation thesis. Unshipped — not "nearly there."
-- **Remote multi-host is in flight, not shipped** (see [remote terminals](./remote-terminals.html)).
-  A chat ingress today is **single-host** — the box pulam/kaval already run on.
-  Fleet-wide ingress waits on the remote-host work.
-- **Multiplayer is essentially zero.** The awareness *read* is shared; real
-  multiplayer (identity, who-claimed-what, two humans on one tile) has no
-  primitives yet and is a separate epic — and a chat ingress implicitly invites
-  multiple taggers, so the auth leg must answer "who is this" too.
-- **Stay vendor-neutral.** A model-agnostic ingress (any argv) and a neutral fleet
-  board — never a Claude-shaped or Slack-shaped wrapper, which would spend the one
-  structural moat kolu has. It's HN's loudest refrain too — model-agnosticism and
-  token-cost control as the moat, and **Slack-only as a "moat-killer"** (Anthropic
-  itself plans to expand past Slack). So chat-surface breadth is table stakes; the
-  substrate is the differentiation.
+export const PesuThread = () => (
+  <div class="pe-frame" role="img" aria-label="An XS chat thread driven by the pesu bot, replaying real merged PR #1544. Sridhar asks the bot to make session export a lightweight chat log — a picker for Chat log, Full transcript, or Both, plain HTML with no hidden tool payloads. The bot starts claude in a kolu terminal and streams the live session: it adds the export picker dialog, single-sources the export-mode enum, renders a plain conversation ledger, and deletes about twelve hundred lines of the old Pierre and markdown renderer, then fmt and tests pass. The bot posts screenshot evidence — the rendered chat-log document with role colours and prompt-jump controls — and a link to connect to the live terminal. It reports the slash-be review gauntlet caught and fixed a stored XSS in the shared export, then posts pull request #1544 with plus 1254 and minus 2652 across 28 files and CI green on both platforms. Sridhar replies merge it, and the bot reports #1544 merged to master with the terminal parked.">
+    <div class="pe-bar">
+      <span class="pe-hash">XS · #kolu-dev</span>
+      <span class="pe-sub">thread — lightweight chat-log export</span>
+      <span class="pe-badge">PESU BOT</span>
+    </div>
+    <div class="pe-thread">
+      <div class="pe-msg">
+        <span class="pe-av pe-av-h">SR</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>Sridhar</b><span class="pe-time">14:31</span></div>
+          <div class="pe-bub">@kolu run <b>claude</b> on <code>kolu</code> — make session export a lightweight <b>chat log</b>: a picker for Chat log / Full transcript / Both, plain HTML, no hidden tool payloads. Open a PR.</div>
+        </div>
+      </div>
 
-## The call: build the front door, not a chat app
+      <div class="pe-msg">
+        <span class="pe-av pe-av-b">k</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:31</span></div>
+          <div class="pe-bub">▶ Started <b>claude</b> in <code>kolu·e7f2</code>. Streaming the live session here.</div>
+          <div class="pe-term">
+            <div class="pe-term-bar"><span>kolu·e7f2 · claude</span><span class="pe-live">● live</span></div>
+            <div class="pe-term-body">
+              <div class="pe-ln"><span class="dim">●</span> Edit <span class="path">client/src/ExportSessionDialog.tsx</span></div>
+              <div class="pe-ln"><span class="dim">  </span>picker — Chat log · Full transcript · Both</div>
+              <div class="pe-ln"><span class="add">+ New</span>&nbsp;<span class="path">transcript-core/src/mode.ts</span>&nbsp;<span class="dim">— single-source the mode enum</span></div>
+              <div class="pe-ln"><span class="dim">●</span> Edit <span class="path">transcript-html/src/index.tsx</span>&nbsp;<span class="dim">— plain conversation ledger</span></div>
+              <div class="pe-ln"><span class="dim">− Del  components · markdown · pierre renderers (−1,200 lines)</span></div>
+              <div class="pe-ln"><span class="ok">✔</span> just fmt &amp;&amp; just check</div>
+              <div class="pe-ln"><span class="ok">✔</span> pnpm test <span class="dim">— transcript + exportTranscriptHtml green</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-kolu is **not threatened with extinction — it's at risk of shipping the wrong
-half.** The canvas-as-cockpit erodes in a manage-from-chat world; the awareness
-daemon and the live-PTY substrate are exactly what that world needs and Slack
-lacks. kolu is **complementary today and positioned to win the neutral console** —
-the one place an org sees claude, codex, and opencode ranked side by side, with
-real terminals underneath, on infrastructure it controls (down to sandboxed hosts
-like an Incus cluster).
+      <div class="pe-msg">
+        <span class="pe-av pe-av-b">k</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:36</span></div>
+          <div class="pe-bub">Chat-log export renders clean — evidence attached.</div>
+          <div class="pe-shot">
+            <div class="pe-shot-cap">screenshot · exported chat log</div>
+            <div class="pe-doc">
+              <div class="pe-doc-bar"><span class="pe-doc-dot" />Chat log — session export · kolu</div>
+              <div class="pe-doc-body">
+                <div class="pe-turn pe-turn-h"><span class="pe-role pe-role-h">HUMAN</span><div class="pe-line">Make session export a plain chat log — drop the hidden tool payloads.</div></div>
+                <div class="pe-turn pe-turn-a"><span class="pe-role pe-role-a">CLAUDE</span><div class="pe-line">Done. Chat log is human + AI messages only, high-contrast HTML, no renderer app.</div></div>
+              </div>
+              <div class="pe-doc-nav">↑ ↓<span class="pe-doc-navlbl">jump between prompts</span></div>
+            </div>
+          </div>
+          <a class="pe-link">↪ Connect to the live terminal &amp; test it yourself</a>
+        </div>
+      </div>
 
-The single highest-leverage move is **not a Slack app**. It's the **authenticated,
-default-deny, model-agnostic ingress beside kaval** that turns the read-only fleet
-board into a delegate-and-approve surface, with a phone-friendly version of the
-existing web board as its face. Sequence it behind the remote-host work, scope it
-to single-user, and ship the **approve-from-phone** loop first. And resist the
-temptation to call the front door a one-liner: the wiring is cheap; the door is
-the product.
+      <div class="pe-msg">
+        <span class="pe-av pe-av-b">k</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:41</span></div>
+          <div class="pe-bub">PR opened. The <code>/be</code> review gauntlet caught + fixed a <b>stored XSS</b> in the shared export (raw HTML passthrough) — escaped, test added.</div>
+          <div class="pe-pr">
+            <div class="pe-pr-top">
+              <span class="pe-pr-ico">⬗</span>
+              <span class="pe-pr-num">#1544</span>
+              <span class="pe-pr-title">Make session export a lightweight chat log</span>
+            </div>
+            <div class="pe-pr-stat"><span class="add">+1,254</span><span class="del">−2,652</span><span class="files">· 28 files</span></div>
+            <div class="pe-pr-foot">
+              <span class="pe-ci"><span class="dot" />CI green · both platforms</span>
+              <span class="pe-merge">Merge</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-<Callout kind="accent" title="Beyond the bridge — the forward-facing opening">
-The most-upvoted "killer feature" in the thread isn't chat-as-IDE; it's an
-**auto-assembling, forward-facing punchlist** — discussion decomposed into
-subtasks, blocking relationships tracked, specs and facts filed into the right
-task: *"Company Brain / Knowledgebase is rear-facing, whereas todo is
-future-facing."* kolu already owns both ends of that axis: [pulam](./pulam.html)
-is the **present tense** ("what is every agent doing"), and the
-[Atlas](./meta.html) is the **rear-facing** brain. The gap — and the opening — is
-the **future tense**: a task/punchlist layer the awareness substrate and the chat
-ingress could feed. Out of scope for the bridge itself, but the natural place it
-grows next.
-</Callout>
+      <div class="pe-msg">
+        <span class="pe-av pe-av-h">SR</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>Sridhar</b><span class="pe-time">14:42</span></div>
+          <div class="pe-bub">lgtm — @kolu merge it.</div>
+        </div>
+      </div>
 
+      <div class="pe-msg">
+        <span class="pe-av pe-av-b">k</span>
+        <div class="pe-body">
+          <div class="pe-meta"><b>kolu·bot</b><span class="pe-tag">BOT</span><span class="pe-time">14:42</span></div>
+          <div class="pe-bub"><span class="pe-merged">✓ Merged</span> &nbsp;#1544 → <code>master</code>. Terminal <code>kolu·e7f2</code> parked — reopen any time.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+);

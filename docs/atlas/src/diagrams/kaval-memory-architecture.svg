@@ -1,0 +1,79 @@
+<svg viewBox="0 0 660 520" width="100%" role="img" aria-label="One decoded PTY byte stream fans through a single synchronous tap to three sinks: a lightweight VT metadata parser, a small line-capped hot mirror, and a cold store. The cold store is a kaval-internal transcript leaf that frames typed DATA/RESIZE/CKPT records and persists them through @kolu/shared/sqlite — node:sqlite in WAL mode, the repo's canonical embedded store, one DB per PTY — rather than a hand-rolled storage engine. The browser attaches against the small mirror for a bounded snapshot plus live deltas, and lazily backfills deep history from the transcript by byte-offset cursor." style="max-width:660px;font:13px ui-sans-serif,system-ui,sans-serif">
+  <defs>
+    <marker id="kmaArrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-muted,#8a8f98)" />
+    </marker>
+    <marker id="kmaHot" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--good-stroke,#15803D)" />
+    </marker>
+    <marker id="kmaCold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--struct-stroke,#0D32B2)" />
+    </marker>
+  </defs>
+
+  <!-- kaval boundary -->
+  <rect x="12" y="78" width="636" height="250" rx="12" fill="none" stroke="var(--ink-muted,#b6bcc6)" stroke-width="1.3" stroke-dasharray="5 5" />
+  <text x="24" y="98" font-size="10.5" font-weight="700" fill="var(--ink-muted,#8a8f98)" font-family="ui-monospace,'SF Mono',Menlo,monospace">kaval daemon (process)</text>
+
+  <!-- Source -->
+  <rect x="244" y="12" width="176" height="46" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="332" y="34" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">PTY child (node-pty)</text>
+  <text x="332" y="50" text-anchor="middle" font-size="11" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">decoded chunk</text>
+
+  <!-- One tap -->
+  <path d="M332 58 L332 110" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="2" marker-end="url(#kmaArrow)" />
+  <text x="342" y="76" font-size="10.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">proc.onData — one synchronous tap</text>
+
+  <!-- Fan-out arrows -->
+  <path d="M332 112 L130 158" fill="none" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" marker-end="url(#kmaArrow)" />
+  <path d="M332 112 L332 158" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#kmaHot)" />
+  <path d="M332 112 L536 158" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" marker-end="url(#kmaCold)" />
+
+  <!-- LEFT: VT metadata parser (leaf) -->
+  <rect x="28" y="160" width="186" height="84" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--ink-muted,#8a8f98)" stroke-width="1.5" />
+  <text x="121" y="182" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#1a1d21)">VT metadata parser</text>
+  <text x="121" y="201" text-anchor="middle" font-size="10" fill="var(--ink-muted,#6b7280)">OSC 7 / 0·2 / 633 · device-query</text>
+  <text x="121" y="215" text-anchor="middle" font-size="10" fill="var(--ink-muted,#6b7280)">→ cwd / title / command channels</text>
+  <text x="121" y="234" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--ink-muted,#8a8f98)">job 1 — leaf</text>
+
+  <!-- CENTER: hot mirror (small, good) -->
+  <rect x="240" y="160" width="186" height="84" rx="8" fill="var(--good-fill,#eff6f0)" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" />
+  <text x="333" y="182" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#1a1d21)">hot mirror — SMALL</text>
+  <text x="333" y="201" text-anchor="middle" font-size="10" fill="var(--good-text,#166534)" font-family="ui-monospace,'SF Mono',Menlo,monospace">byte-budgeted xterm</text>
+  <text x="333" y="215" text-anchor="middle" font-size="10" fill="var(--good-text,#166534)">viewport + cushion · never reaped</text>
+  <text x="333" y="234" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--good-text,#166534)">jobs 2 + 4 — snapshot source</text>
+
+  <!-- RIGHT: transcript leaf (kaval) framing records -->
+  <rect x="452" y="160" width="186" height="84" rx="8" fill="var(--surface,#EDF0FD)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="545" y="182" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)">transcript/ leaf</text>
+  <text x="545" y="201" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)" font-family="ui-monospace,'SF Mono',Menlo,monospace">frames DATA · RESIZE · CKPT</text>
+  <text x="545" y="215" text-anchor="middle" font-size="10" fill="var(--struct-sub,#4A5072)">VT-specific · in kaval</text>
+  <text x="545" y="234" text-anchor="middle" font-size="9.5" font-style="italic" fill="var(--struct-sub,#4A5072)">job 3 — deep history</text>
+
+  <!-- arrow from leaf into the reused store -->
+  <path d="M545 244 L545 360" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" marker-end="url(#kmaCold)" />
+  <text x="555" y="300" font-size="10" font-weight="600" fill="var(--struct-stroke,#0D32B2)">withDb() · WAL append</text>
+  <text x="555" y="314" font-size="9.5" font-style="italic" fill="var(--struct-sub,#4A5072)">reuses the repo's store</text>
+
+  <!-- REUSED STORE: node:sqlite via @kolu/shared/sqlite (cylinder, outside kaval box) -->
+  <path d="M460 366 a85 13 0 0 0 170 0 v94 a85 13 0 0 1 -170 0 z" fill="var(--surface,#EDF0FD)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+  <ellipse cx="545" cy="366" rx="85" ry="13" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="2.5" />
+  <text x="545" y="396" text-anchor="middle" font-weight="700" font-size="12" fill="var(--ink,#11203a)" font-family="ui-monospace,'SF Mono',Menlo,monospace">node:sqlite (WAL)</text>
+  <text x="545" y="412" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">via @kolu/shared/sqlite — canonical</text>
+  <text x="545" y="427" text-anchor="middle" font-size="9.5" fill="var(--struct-sub,#4A5072)">index · durability · range · retention</text>
+  <text x="545" y="442" text-anchor="middle" font-size="9" fill="var(--struct-sub,#4A5072)">one DB per PTY · on disk</text>
+
+  <!-- hot path to client -->
+  <path d="M333 244 L333 458" fill="none" stroke="var(--good-stroke,#15803D)" stroke-width="2.5" marker-end="url(#kmaHot)" />
+  <text x="220" y="350" font-size="10.5" font-weight="600" fill="var(--good-text,#166534)">attach(): bounded</text>
+  <text x="220" y="365" font-size="10.5" fill="var(--good-text,#166534)">snapshot + live deltas</text>
+
+  <!-- cold lazy backfill to client -->
+  <path d="M460 430 Q400 450 392 458" fill="none" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#kmaCold)" />
+  <text x="300" y="437" text-anchor="middle" font-size="10" font-style="italic" fill="var(--struct-sub,#4A5072)">getLines(stableRow) — lazy, current width</text>
+
+  <!-- Client -->
+  <rect x="182" y="464" width="300" height="48" rx="8" fill="var(--surface,#F7F8FE)" stroke="var(--struct-stroke,#0D32B2)" stroke-width="1.5" />
+  <text x="332" y="485" text-anchor="middle" font-weight="700" fill="var(--ink,#11203a)">browser xterm</text>
+  <text x="332" y="502" text-anchor="middle" font-size="10.5" fill="var(--struct-sub,#4A5072)">keeps its own 50 K visible scrollback</text>
+</svg>
