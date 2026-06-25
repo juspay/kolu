@@ -46,7 +46,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 ## Gotchas (hard-won, all real)
 
 - **Procedures call off the FULL link, not the scoped client** — `surfaceClients` per-key `.rpc` is typed `unknown`; reach the root link for raw procedures.
-- **Raw streaming** — `streamCall(client.X, input, {signal, onRetry})` (`@kolu/surface/solid`) carries the reconnect (`STREAM_RETRY`) context; a bare `client.X(…)` silently loses it. There is **no `stream` namespace** (`.claude/rules/streaming.md` is stale on that point).
+- **Raw streaming** — `unenrolledStreamCall(client.X, input, {signal, onRetry})` (`@kolu/surface/client`) carries the reconnect (`STREAM_RETRY`) context; a bare `client.X(…)` silently loses it. There is **no `stream` namespace** (`.claude/rules/streaming.md` is stale on that point).
 - **Consume streams fine-grained** — value-bearing → `.streams.use()` (replace-each-frame); delta-accumulate → `mirrorRemoteSurface` / `createSubscription`+`reduce`. Never coarse-read-and-copy: same-shape frames coalesce and the view freezes.
 - **Snapshot-then-deltas + fail-fast** — a cell always opens with a snapshot; `firstFrameOrThrow` (`@kolu/surface/first-frame`) treats an empty stream as a link failure, never a silent empty.
 - **Liveness is on by construction** — framework-reserved `surface.system.live`; `connectSurface` / `HostSession` / `createServerLifecycle` default their watchdog to it (`probeSurfaceLive`). Don't nominate your own probe unless you mean to (pulam-tui's version-cell probe is the rare, deliberate exception).

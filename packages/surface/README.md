@@ -79,16 +79,16 @@ The framework is intentionally non-magical: it does **not** auto-derive an oRPC 
                           │              │
                           │ imports      │ imports
                           ▼              ▼
-       ┌─────────────────────┐   ┌─────────────────────┐
-       │ server:              │   │ solid:               │
-       │   implementSurface,  │   │   surfaceClient,     │
-       │   cellHandlers,      │   │   useCell,           │
-       │   collectionHandlers,│   │   useCollection,     │
-       │   streamHandlers,    │   │   useStream,         │
-       │   eventHandlers,     │   │   useEvent,          │
-       │   confStore /        │   │   streamCall         │
-       │   publisherChannel   │   │   (Solid hooks)      │
-       └─────────────────────┘   └─────────────────────┘
+       ┌───────────────────────┐   ┌───────────────────────┐
+       │ server:               │   │ solid:                │
+       │   implementSurface,   │   │   surfaceClient,      │
+       │   cellHandlers,       │   │   useCell,            │
+       │   collectionHandlers, │   │   useCollection,      │
+       │   streamHandlers,     │   │   useStream,          │
+       │   eventHandlers,      │   │   useEvent,           │
+       │   confStore /         │   │   unenrolledStreamCall│
+       │   publisherChannel    │   │   (Solid hooks)       │
+       └───────────────────────┘   └───────────────────────┘
 ```
 
 ## Cell
@@ -157,7 +157,7 @@ const ws = new WebSocket(`wss://${host}/rpc/ws`);
 export const client = websocketLink<typeof contract>(ws);
 ```
 
-`websocketLink` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
+`websocketLink` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `unenrolledStreamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
 
 ### Client-side hook
 
@@ -417,13 +417,13 @@ For a stream that ALREADY owns its `pending`/`error` — a `createSubscription` 
 
 ```ts
 const sub = createSubscription(
-  () => streamCall(app.rpc.surface.x.get, {}, { signal }),
+  () => unenrolledStreamCall(app.rpc.surface.x.get, {}, { signal }),
   { reduce, initial },
 );
 app.enroll("x", sub); // auto-disposes with the owner
 ```
 
-The bare `streamCall` lives at `@kolu/surface/client`, NOT on the `@kolu/surface/solid` barrel: a surface-scoped raw stream must go through `client.rawStream` (so it can't escape `health()`), and a stream that is NOT a surface subscription (a root RPC outside any surface — e.g. a terminal attach with its own in-pane retry UX) reaches for the low-level primitive *deliberately*, a visible "I own this stream's health myself" decision rather than a forgotten enrol.
+The bare `unenrolledStreamCall` lives at `@kolu/surface/client`, NOT on the `@kolu/surface/solid` barrel: a surface-scoped raw stream must go through `client.rawStream` (so it can't escape `health()`), and a stream that is NOT a surface subscription (a root RPC outside any surface — e.g. a terminal attach with its own in-pane retry UX) reaches for the low-level primitive *deliberately*, a visible "I own this stream's health myself" decision rather than a forgotten enrol.
 
 For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on — drishti folds its admin + surface-app siblings this way for a control-plane health strip.
 
@@ -469,11 +469,11 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 
 | Pattern | Procedures | How to consume |
 |---|---|---|
-| **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
+| **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `unenrolledStreamCall(client.terminal.attach, { id }, { signal, onRetry })` |
 | **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
 | **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setRightPanel` / `setActive` / `setParent` / `pasteImage` / `uploadFile`, `daemon.restart`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
 
-`streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
+`unenrolledStreamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
 
 _The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client (Cell/Collection/Stream) plus typed point-in-time fires (Event); everything else stays raw._
 
@@ -976,7 +976,7 @@ useCollection(collection, { keys, valueSource, keyToInput?, onError? })
 useStream(stream, inputFn, source, { onError? }?)
 useEvent(event, inputFn, source, handler, { onError?, signal? }?): void
 
-streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
+unenrolledStreamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
 // `surfaceClient` builds the underlying RPC client internally; the
 // constructor itself lives at `@kolu/surface/client` for non-Solid consumers.
 

@@ -36,7 +36,7 @@
  * subscription is dead — sitting behind a confident `<SurfaceGate>` — is worse
  * than an honest hand-rolled gate. Every subscription birth site enrols (cells,
  * the collection keys-stream, per-key collection subs, streams), and raw
- * `streamCall` consumers — which own their own loop and error state — enrol
+ * `unenrolledStreamCall` consumers — which own their own loop and error state — enrol
  * through {@link SurfaceHealthRegistry.enroll} explicitly (the honest residue of
  * a blessed escape hatch that owns no `Subscription`).
  */
@@ -49,7 +49,7 @@ export interface SubHealth {
   /** The subscription's identity — its primitive key, disambiguated for the
    *  fan-out shapes: a cell/stream is its bare key (`"connection"`), the
    *  collection keys-stream is `"<key>.keys"`, a per-key value sub is
-   *  `"<key>[<id>]"`, and a raw `streamCall` enrols under a caller-chosen name. */
+   *  `"<key>[<id>]"`, and a raw `unenrolledStreamCall` enrols under a caller-chosen name. */
   readonly name: string;
   /** True while the sub is waiting for its first frame (never yielded yet). */
   readonly pending: boolean;
@@ -72,7 +72,7 @@ export interface SurfaceHealth {
 
 /** The minimal reactive shape the registry folds — anything exposing a
  *  self-clearing `pending()` / `error()`. A `Subscription<unknown>` satisfies it
- *  structurally; a raw `streamCall` consumer enrols its own two signals. */
+ *  structurally; a raw `unenrolledStreamCall` consumer enrols its own two signals. */
 export interface HealthSource {
   readonly pending: Accessor<boolean>;
   readonly error: Accessor<Error | undefined>;
@@ -84,7 +84,7 @@ export interface SurfaceHealthRegistry {
    *  framework birth site is), so a consumer that unmounts stops contributing —
    *  the registry tracks what is *live on screen*, never a leaked stale sub.
    *  The explicit return is for the rare imperative call site (a raw
-   *  `streamCall` whose lifetime is an `AbortController`, not an owner). */
+   *  `unenrolledStreamCall` whose lifetime is an `AbortController`, not an owner). */
   enroll(name: string, source: HealthSource): () => void;
   /** The reactive FACT. A plain accessor (not a `createMemo`) so the registry
    *  allocates no computation at client-build time — `surfaceClient` runs once,
