@@ -23,12 +23,13 @@ export {
   type SurfaceHealth,
   type SurfaceHealthRegistry,
 } from "./health";
-export {
-  type GateStatus,
-  gateStatus,
-  SurfaceGate,
-  type SurfaceGateProps,
-} from "./SurfaceGate";
+// NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
+// here. This barrel must stay free of JSX so a consumer that imports
+// `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)
+// doesn't have to solid-transform a `.tsx` it never uses — re-exporting one drags
+// it into every importer's bundle analysis and breaks builds without the Solid
+// JSX transform on `node_modules/@kolu/surface`. Import the gate from its own
+// entry point instead: `import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate"`.
 export {
   type BoundCell,
   type BoundCellOptions,

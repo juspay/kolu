@@ -21,7 +21,8 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import { gateStatus, SurfaceGate, type SurfaceHealth } from "./index";
+import type { SurfaceHealth } from "./health";
+import { gateStatus, SurfaceGate } from "./SurfaceGate";
 
 const ready: SurfaceHealth = { live: true, subs: [] };
 const connectingPending: SurfaceHealth = {

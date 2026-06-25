@@ -382,7 +382,10 @@ It's a **FACT, not a verdict**: a reactive accessor that automatically enrols **
 `<SurfaceGate>` owns the **policy** — it derives `connecting | degraded | ready` from the fact and renders its children only when ready:
 
 ```tsx
-import { SurfaceGate } from "@kolu/surface/solid";
+// `<SurfaceGate>` is JSX, so it ships from its own entry point — the main
+// `@kolu/surface/solid` barrel stays JSX-free so consumers that import it only
+// for the hooks/registry don't have to solid-transform a component they don't use.
+import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 
 <SurfaceGate health={app.health}>
   <Dashboard />

@@ -14,7 +14,7 @@
  */
 
 import { streamCall } from "@kolu/surface/client";
-import { SurfaceGate } from "@kolu/surface/solid";
+import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
