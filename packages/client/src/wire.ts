@@ -71,6 +71,17 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // client per sibling over the single combined link, each scoped to its key's
 // slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
 // path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
+//
+// kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
+// Leak-D multi-surface fact). kolu surfaces subscription failure PER CELL,
+// colocated — each `.use({ onError })` below raises its own `toast.error` next to
+// the state it owns (preferences / activityFeed / session / terminalList) — which
+// is the house style (`.claude/rules/toast-conventions.md`: "colocated, not
+// centralized"). A single global "is the app healthy?" gate is the wrong shape for
+// a terminal workspace, where one degraded cell must not blank the canvas. The
+// fold ships for a consumer whose control plane WANTS one answer: drishti folds
+// its admin + surface-app siblings with `surfaceClientsHealth` (its `MultiHostApp`
+// control-plane strip); `surfaceClient.health.test.ts` pins the fold itself.
 const clients = surfaceClients(link, surfaces);
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,

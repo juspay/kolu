@@ -31,7 +31,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
-import { streamCall } from "@kolu/surface/solid";
+import { streamCall } from "@kolu/surface/client";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
@@ -792,6 +792,14 @@ const Terminal: Component<{
           // fresh snapshot first too. The snapshot is still WRITTEN to xterm;
           // only the activity ping is suppressed.
           const snapshotBoundary = createSnapshotBoundary();
+          // Carve-out (Leak A): `terminal.attach` is a ROOT RPC stream, NOT a
+          // surface subscription — `client` is the combined link root, not a
+          // `surfaceClient`, so there is no surface `health()` this belongs to. Its
+          // health is the terminal's OWN concern, surfaced in-pane (a reset +
+          // visible retry on `onRetry`, the snapshot re-armed), not folded into a
+          // fleet/host gate. So it deliberately uses the low-level `streamCall`
+          // (`@kolu/surface/client`) rather than `client.rawStream`'s structural
+          // enrolment — a visible decision, not a forgotten enrol.
           consumeStream(
             () =>
               streamCall(

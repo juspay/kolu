@@ -27,22 +27,32 @@
  * NO git dirty/clean count and NO drill-in — those need `git.getStatus`
  * (R-pulamweb-4), which the awareness `git` info does not carry.
  *
- * Connection / loading / error states, truthfully:
- *   - The body is gated on the host being EFFECTIVELY connected — the
- *     `effectiveHealth` fold over BOTH the `connection` cell's mirror state AND
- *     the browser↔backend transport (`status`). Off-`connected` renders the
- *     honest `ConnectionView` (connecting / provisioning / reconnecting / failed)
- *     instead of a healthy-looking empty fleet; the header dot reads the same
- *     fold, so they always agree.
+ * Connection / loading / error states, truthfully — gated by ONE framework
+ * `<SurfaceGate>` (this fleet board is a real consumer of the shared primitive,
+ * not a parallel hand-rolled fold):
+ *   - pulam-web supplies the HARD-GATE policy via `<SurfaceGate ready>`: the body
+ *     shows ONLY when the host is EFFECTIVELY connected — the `effectiveHealth`
+ *     fold over BOTH the `connection` cell's mirror state AND the browser↔backend
+ *     transport (`status`) — AND no subscription is erroring. Stricter than the
+ *     framework DEFAULT (stale-while-degraded), on purpose: a fleet board must not
+ *     paint a stale roster over a broken link. drishti renders-while-degraded over
+ *     the SAME `client.health()` fact — one fact, two policies, which is exactly
+ *     why the fact/verdict split exists. `effectiveHealth` stays app-local (its
+ *     `source: transport|mirror` discriminant — reload vs Reconnect — is finer
+ *     than the generic boolean `live`, so it can't collapse into the fact) and is
+ *     now the gate's POLICY INPUT, not a second gate. Off-`connected` the
+ *     `fallback` renders the honest `ConnectionView`; the header dot reads the
+ *     same fold, so they always agree.
  *   - A subscription FAILURE (any awareness per-key sub, the activity stream, the
  *     awareness keys-stream, or the connection cell) is surfaced from the
  *     framework's `client.health()` FACT — the one fold over every subscription's
- *     OWN reactive, self-clearing `error()`. Never collapsed into the empty state,
- *     and never LATCHED: a transient blip (a backend restart on laptop sleep/wake
- *     500s a live subscription with a masked "Internal server error") clears the
- *     instant the stream re-delivers, so the host self-heals instead of freezing
- *     on a stale error over a fleet that has already reconnected. This component
- *     no longer hand-rolls that fold — `health()` is it.
+ *     OWN reactive, self-clearing `error()`. The gate's `fallback` shows it ABOVE
+ *     the connection view (an error is the actionable failure), never collapsed
+ *     into the empty state, and never LATCHED: a transient blip (a backend restart
+ *     on laptop sleep/wake 500s a live subscription with a masked "Internal server
+ *     error") clears the instant the stream re-delivers, so the host self-heals
+ *     instead of freezing on a stale error. This component no longer hand-rolls
+ *     that fold OR a parallel gate — `<SurfaceGate health={app.health}>` is it.
  */
 
 import { StatePip } from "@kolu/solid-statepip";
@@ -51,6 +61,7 @@ import {
   type ConnectionInfo,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-nix-host/connection";
+import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 import {
   agentShortName,
   agentUrgency,
@@ -206,26 +217,6 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   const live = app.streams.activity.use(() => ({}));
   const liveSet = createMemo(() => new Set<string>(live() ?? []));
 
-  // The FIRST currently-erroring subscription's message, or null — read straight
-  // off the framework's `client.health()` FACT, which folds EVERY subscription's
-  // OWN self-clearing reactive `error()`: the connection cell, the activity
-  // stream, the awareness KEYS stream (enrolled as `awareness.keys`), and every
-  // awareness per-key sub (`awareness[<id>]`). This REPLACES the hand-rolled
-  // per-channel fold this component used to carry — `health()` IS that fold, owned
-  // by the framework and un-latchable by construction. So it still SELF-HEALS: a
-  // transient blip (a backend restart on laptop sleep/wake 500s a live
-  // subscription with a masked "Internal server error") clears the instant the
-  // stream re-delivers, instead of latching a stale error over a fleet that has
-  // since reconnected — #1564's lie in another costume. A dead keys stream (which
-  // collapses `awareness.keys()` to `[]`) still surfaces here via its
-  // `awareness.keys` enrolment, so a keys-stream 500 can't masquerade as a
-  // connected, empty fleet. A PERSISTENT error still shows and still wins over the
-  // body (never collapsing into a healthy-looking empty host); only a resolved one
-  // disappears.
-  const subscriptionError = createMemo<string | null>(
-    () => app.health().subs.find((s) => s.error)?.error?.message ?? null,
-  );
-
   // One terminal's current value, or undefined while its per-key stream is
   // pending. Per-key errors already surface via the collection's `onError`.
   const valueForId = (id: TerminalId): AwarenessValue | undefined => {
@@ -302,67 +293,90 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         </Show>
         <HostHealthIndicator health={health} />
       </header>
-      <Show
-        when={subscriptionError() === null}
-        fallback={<div class="p-3 text-[#ff8d8d]">{subscriptionError()}</div>}
-      >
-        {/* Gate the terminal list on the EFFECTIVE health — the `effectiveHealth`
-            fold over BOTH the mirror cell AND the browser↔backend ws, NOT the
-            mirror alone. Off-`connected` (a `copying`/`connecting`/`reconnecting`/
-            `failed` mirror, OR a `down`/`reconnecting` transport that makes the
-            mirror cell stale) renders the honest ConnectionView instead of a
-            healthy-looking empty fleet. Only an effectively-`connected` host
-            reaches the awareness body below, where "no terminals" is finally
-            truthful — and the header dot reads the SAME fold, so they agree. */}
-        <Show
-          when={connected()}
-          fallback={
-            <ConnectionView
-              health={health()}
-              info={connInfo()}
-              host={props.host}
-            />
-          }
-        >
-          {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
-              `entries()`. `entries()` drops keys whose per-key value stream is
-              still pending, so gating on it would paint a host whose keys arrived
-              but values haven't settled as empty. Keys-but-no-settled-values is a
-              distinct loading state below. */}
-          <Show
-            when={awareness.keys().length > 0}
-            fallback={<div class="p-3 text-[#6b7480]">no terminals</div>}
-          >
+      {/* The ONE gate over the host body is the framework's `<SurfaceGate>` — this
+          fleet board is a real consumer of the shared primitive, not a hand-rolled
+          parallel fold. pulam-web supplies the HARD-GATE policy via `ready`: show
+          the body ONLY when the host is EFFECTIVELY connected (the `effectiveHealth`
+          fold over BOTH the mirror cell AND the browser↔backend ws) AND no
+          subscription is erroring. That is STRICTER than the framework default
+          (stale-while-degraded) on purpose — a fleet board must never paint a stale
+          roster over a broken link. drishti renders-while-degraded over the SAME
+          `client.health()` fact: one fact, two policies, which is exactly why the
+          fact/verdict split exists. The `effectiveHealth` fold stays app-local (its
+          `source: transport|mirror` discriminant — reload vs Reconnect — is finer
+          than the generic boolean `live`, so it can't collapse into the fact); it
+          is now the gate's POLICY INPUT, not a second parallel gate. */}
+      <SurfaceGate
+        health={app.health}
+        ready={(h) => connected() && !h.subs.some((s) => s.error)}
+        fallback={(h) => {
+          // Precedence (was the outermost error Show): a live subscription error
+          // wins the surface — it's the actionable failure and must never collapse
+          // into a healthy-looking empty host. `health()` un-latches by
+          // construction (each sub's self-clearing reactive `error()`), so a
+          // transient blip — a backend restart on laptop sleep/wake 500ing a live
+          // sub with a masked "Internal server error" — clears the instant the
+          // stream re-delivers (#1564's lie, gone). The awareness KEYS stream
+          // (enrolled `awareness.keys`) surfaces here too, so a keys-stream 500
+          // can't masquerade as a connected, empty fleet. Otherwise the honest
+          // ConnectionView (connecting / provisioning / reconnecting / failed),
+          // which reads the SAME `effectiveHealth` the header dot does.
+          const err = (): string | undefined =>
+            h().subs.find((s) => s.error)?.error?.message;
+          return (
             <Show
-              when={entries().length > 0}
+              when={err()}
               fallback={
-                <div class="p-3 text-[#6b7480]">loading terminal details…</div>
+                <ConnectionView
+                  health={health()}
+                  info={connInfo()}
+                  host={props.host}
+                />
               }
             >
-              <Show
-                when={visibleIds().length > 0}
-                fallback={
-                  <div class="p-3 text-[#6b7480]">
-                    no active agents · {hiddenCount()} hidden
-                  </div>
-                }
-              >
-                <ul class="m-0 list-none p-0">
-                  <For each={visibleIds()}>
-                    {(id) => (
-                      <AgentRow
-                        value={() => valueForId(id)}
-                        live={() => liveSet().has(id)}
-                        now={props.now}
-                      />
-                    )}
-                  </For>
-                </ul>
-              </Show>
+              {(message) => <div class="p-3 text-[#ff8d8d]">{message()}</div>}
+            </Show>
+          );
+        }}
+      >
+        {/* "no terminals" is the TRUE empty host — gated on the KEY set, not on
+            `entries()`. `entries()` drops keys whose per-key value stream is still
+            pending, so gating on it would paint a host whose keys arrived but
+            values haven't settled as empty. Keys-but-no-settled-values is a
+            distinct loading state below. */}
+        <Show
+          when={awareness.keys().length > 0}
+          fallback={<div class="p-3 text-[#6b7480]">no terminals</div>}
+        >
+          <Show
+            when={entries().length > 0}
+            fallback={
+              <div class="p-3 text-[#6b7480]">loading terminal details…</div>
+            }
+          >
+            <Show
+              when={visibleIds().length > 0}
+              fallback={
+                <div class="p-3 text-[#6b7480]">
+                  no active agents · {hiddenCount()} hidden
+                </div>
+              }
+            >
+              <ul class="m-0 list-none p-0">
+                <For each={visibleIds()}>
+                  {(id) => (
+                    <AgentRow
+                      value={() => valueForId(id)}
+                      live={() => liveSet().has(id)}
+                      now={props.now}
+                    />
+                  )}
+                </For>
+              </ul>
             </Show>
           </Show>
         </Show>
-      </Show>
+      </SurfaceGate>
     </section>
   );
 }
