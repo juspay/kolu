@@ -57,6 +57,16 @@ snapshot is **memoized per publish-epoch** — a burst of attaches to one PTY
 between two output bytes shares a single `serialize()`, the memo cleared the
 instant new data parses into the mirror.
 
+The publish-epoch is the *only* grain that coalesces the storm: its attaches
+arrive across many event-loop turns (one per re-issued wire message), so a
+shorter release (a microtask/turn/timer) would fire mid-storm and undo the
+sharing — whereas an idle terminal emits no data, so its epoch spans the whole
+burst. The cost of that grain is that the memo pins one serialized snapshot per
+terminal until its next mutation (an idle terminal's lingers; `getScreenState`
+populates the same slot). It's bounded — strictly smaller than the live mirror
+it shadows, freed on the next data/resize or on teardown — so it adds a fraction
+to the mirror's existing per-terminal footprint, not a new unbounded retention.
+
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
 browser tab on the chatty `data` stream — is **dropped** (its iterator ends)

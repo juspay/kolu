@@ -675,27 +675,29 @@ describe("attach() reconnect-storm defenses", () => {
 
   it("re-serializes after new output ends the epoch (cache cleared on publish)", async () => {
     host = createPtyHost({ log: silentLog });
+    // A long-lived shell reading commands from its stdin: each output chunk is
+    // triggered by an explicit host.write(), NOT a timed printf. So the second
+    // chunk lands strictly after the epoch-1 attaches — the "first arrived,
+    // second not yet" boundary is test-controlled, never a race a slow CI
+    // worker can lose by printing both before the first poll observes either.
     const { id } = host.spawn({
       shell: "/bin/sh",
-      args: ["-c", "printf 'first\\n'; sleep 0.4; printf 'second\\n'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
     });
+    host.write(id, "echo first\n");
     // Settle via getScreenText (a buffer read, no serialize) so the poll
     // doesn't pre-populate the snapshot memo getScreenState now shares.
-    await waitFor(
-      () =>
-        host.getScreenText(id).includes("first") &&
-        !host.getScreenText(id).includes("second"),
-    );
+    await waitFor(() => host.getScreenText(id).includes("first"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    serializeSpy.mockClear();
     host.attach(id);
     host.attach(id);
     expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
 
-    // A second output chunk publishes and must invalidate the cache.
+    // A second output chunk publishes and must invalidate the cache — driven by
+    // an explicit write, so it falls strictly after the epoch-1 attaches above.
+    host.write(id, "echo second\n");
     await waitFor(() => host.getScreenText(id).includes("second"));
     const { snapshot } = host.attach(id);
     expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused

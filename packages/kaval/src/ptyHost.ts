@@ -658,7 +658,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // `invalidateSnapshot` is the only place the memo is dropped, called from
   // EVERY mutator of the serialized state (the data-publish path and resize()).
   function snapshotOf(entry: Entry): string {
-    return (entry.snapshotCache ??= entry.serialize.serialize());
+    entry.snapshotCache ??= entry.serialize.serialize();
+    return entry.snapshotCache;
   }
   function invalidateSnapshot(entry: Entry): void {
     entry.snapshotCache = undefined;
