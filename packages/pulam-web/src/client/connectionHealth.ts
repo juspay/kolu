@@ -17,7 +17,11 @@ import type {
   ConnectionState,
 } from "@kolu/surface-nix-host/connection";
 import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
-import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
+import {
+  CONN_STATE,
+  HEALTH_PALETTE,
+  type ConnPresentation,
+} from "./connectionStates.ts";
 
 /** WHICH leg the resolved health came from — so a consumer can tell a real
  *  mirror failure (the host gave up; show the error card + Reconnect) apart from
@@ -55,8 +59,8 @@ export function effectiveHealth(
     return {
       state: "failed",
       source: "transport",
-      dot: "#ff8d8d",
-      text: "#ff8d8d",
+      dot: HEALTH_PALETTE.red,
+      text: HEALTH_PALETTE.red,
       label: "disconnected — reload",
       message: "Lost the connection to the dashboard. Reload to reconnect.",
       pending: false,
@@ -65,8 +69,8 @@ export function effectiveHealth(
     return {
       state: "disconnected",
       source: "transport",
-      dot: "#e6a23c",
-      text: "#e6a23c",
+      dot: HEALTH_PALETTE.amber,
+      text: HEALTH_PALETTE.amber,
       label: "reconnecting…",
       message: "Reconnecting to the dashboard…",
       pending: true,

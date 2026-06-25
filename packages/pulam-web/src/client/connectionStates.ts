@@ -15,6 +15,18 @@ import type {
   FailureCause,
 } from "@kolu/surface-nix-host/connection";
 
+/**
+ * pulam-web's health palette — the ONE home for the dashboard's link-health
+ * hexes. CONN_STATE's rows and `effectiveHealth`'s transport branches both read
+ * these, so a re-theme of the failed/pending/healthy colour is a single edit
+ * here, not a hunt across two modules for a hand-spelled `#ff8d8d`.
+ */
+export const HEALTH_PALETTE = {
+  red: "#ff8d8d",
+  amber: "#e6a23c",
+  green: "#7ec699",
+} as const;
+
 export interface ConnPresentation {
   /** Status-dot colour. */
   dot: string;
@@ -35,29 +47,29 @@ export interface ConnPresentation {
 
 export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
   connected: {
-    dot: "#7ec699",
-    text: "#7ec699",
+    dot: HEALTH_PALETTE.green,
+    text: HEALTH_PALETTE.green,
     label: "connected",
     message: "Connected.",
     pending: false,
   },
   connecting: {
-    dot: "#e6a23c",
-    text: "#e6a23c",
+    dot: HEALTH_PALETTE.amber,
+    text: HEALTH_PALETTE.amber,
     label: "connecting…",
     message: "Connecting…",
     pending: true,
   },
   copying: {
-    dot: "#e6a23c",
-    text: "#e6a23c",
+    dot: HEALTH_PALETTE.amber,
+    text: HEALTH_PALETTE.amber,
     label: "provisioning agent…",
     message: "Copying agent to remote…",
     pending: true,
   },
   disconnected: {
-    dot: "#e6a23c",
-    text: "#e6a23c",
+    dot: HEALTH_PALETTE.amber,
+    text: HEALTH_PALETTE.amber,
     label: "reconnecting…",
     message: "Reconnecting…",
     // The body line varies on WHY the link is down: a `network` fault means the
@@ -69,8 +81,8 @@ export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
     pending: true,
   },
   failed: {
-    dot: "#ff8d8d",
-    text: "#ff8d8d",
+    dot: HEALTH_PALETTE.red,
+    text: HEALTH_PALETTE.red,
     label: "failed",
     // Terminal `failed` is ALWAYS a `remote` fault: the host WAS reached but
     // rejected the session or its agent crashed (e.g. the pty-host build skew),

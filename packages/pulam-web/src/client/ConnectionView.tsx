@@ -27,7 +27,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { CONN_STATE } from "./connectionStates.ts";
+import { CONN_STATE, HEALTH_PALETTE } from "./connectionStates.ts";
 import { effectiveHealth, type EffectiveHealth } from "./connectionHealth.ts";
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
@@ -193,7 +193,7 @@ function FailedCard(props: {
   };
   return (
     <div class="rounded-md border border-[#e06c75]/40 bg-[#e06c75]/[0.06] p-3 text-left">
-      <div class="mb-0.5 font-semibold text-[#ff8d8d]">
+      <div class="mb-0.5 font-semibold" style={`color:${HEALTH_PALETTE.red}`}>
         {CONN_STATE.failed.message}
       </div>
       <div class="mb-2 text-[12px] text-[#5b6678]">
@@ -222,7 +222,7 @@ function FailedCard(props: {
       </button>
       <Show when={reconnectError()}>
         {(err) => (
-          <div class="mt-2 text-[12px] text-[#ff8d8d]">
+          <div class="mt-2 text-[12px]" style={`color:${HEALTH_PALETTE.red}`}>
             Reconnect request failed: {err()}
           </div>
         )}
