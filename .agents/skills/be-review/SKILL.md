@@ -35,9 +35,11 @@ be-review pushes only once, after all selected steps finish. A comment that name
 a commit SHA must never be posted while that SHA is local-only — if a later step
 failed or the run were interrupted, the PR would advertise commits that were
 never pushed. So the debate skills run with their self-commenting **suppressed**
-(`--no-comment`); be-review captures the comment body each returns, pushes once at
-the end, and only then posts the lens comment, the codex comment, and its own
-police summary. No PR comment can reference a local-only commit.
+(`--no-comment`); be-review captures each comment body (the lens skill returns one
+ready; the codex body it assembles from `commentHeader` + the section files —
+step 2), pushes once at the end, and only then posts the lens comment, the codex
+comment, and its own police summary. No PR comment can reference a local-only
+commit.
 
 ## Preflight
 
@@ -122,14 +124,34 @@ the workflow's notification arrives or it has provably errored.
    not just the diff** — every round) and `rationale` (so codex doesn't flag
    deliberate decisions at the source) straight through. Its step-2 `Workflow` runs
    in the background; **wait for it to finish** before starting the simplify step.
-   It commits its rounds and **returns** its rendered comment body — hold onto it
-   to post after the final push. (On persistent `reviewer-error` there is **no
-   body to post** — per `/codex-debate`, an unresolved reviewer error is not a
-   consensus to report; skip the codex comment in that case.)
+   It commits its rounds and returns a `commentHeader` plus the per-round section
+   files under `workDir` (it no longer returns a single pre-rendered comment string).
+   **Assemble the comment body now and hold it** to post after the final push —
+   capture it immediately so a later step can't disturb the scratch:
+
+   ```bash
+   {
+     printf '%s\n' "$commentHeader"
+     for f in "$workDir"/section-*.md; do printf '\n'; cat "$f"; printf '\n'; done
+   } > "$workDir/comment.md"   # hold this path for the post-after-push step
+   ```
+
+   This **freezes** the body now, so any reconciliation a later branch performs
+   (a `commit-incomplete` or `section-incomplete` fix-up below) is **not** in this
+   file yet — **append** that note to `$workDir/comment.md` after you reconcile, or
+   it won't reach the posted comment.
+
+   (On `merge-base-error` the workflow aborted before any debate ran, so there is
+   **no** `commentHeader`/`workDir`/`section-*.md` to assemble — do **not** run the
+   block above. Per `/codex-debate`, report the scope failure from the return's
+   `note`, fix the base ref (e.g. `git fetch`), and re-run; there's nothing to post.
+   On persistent `reviewer-error` there is likewise **no body to post** — an
+   unresolved reviewer error is not a consensus to report; skip the codex comment in
+   that case.)
 
    **Retry codex on `reviewer-error` (up to 3 attempts).** `/codex-debate` ends
-   in `consensus`, `commit-incomplete` (see below), or `reviewer-error` — the
-   last meaning codex never
+   in `consensus`, `commit-incomplete` / `section-incomplete` (see below),
+   `reviewer-error`, or `merge-base-error` — `reviewer-error` meaning codex never
    produced a structured verdict even after `codex-review.sh`'s built-in
    per-`codex exec` retries. That is an *infrastructure hiccup, not a debate
    outcome*: re-launch it immediately with the same args. Stop the moment an
@@ -141,9 +163,19 @@ the workflow's notification arrives or it has provably errored.
    edits uncommitted (round numbers in `commitGaps`). The edits are still in the
    tree, but the per-round commit didn't land — **commit the outstanding tree
    yourself** (staging only the files that round changed, message
-   `fix: codex review — debate round N`) before the simplify step, and note the
-   reconciliation in the deferred codex comment. Don't report it as a clean
-   consensus.
+   `fix: codex review — debate round N`) before the simplify step, then **append**
+   the reconciliation note to the already-frozen `$workDir/comment.md` (the body was
+   captured above *before* this fix-up, so editing the section files wouldn't reach
+   it). Don't report it as a clean consensus.
+
+   **On `section-incomplete`,** the debate converged but a round's author **skipped
+   or under-filled its disposition section file** (missing, empty, or omitting a
+   marker for an open finding; round numbers in `sectionGaps`), so the per-round
+   trail — and thus `$workDir/comment.md` — has a gap for that round. The tree edits
+   and commits are intact; the missing piece is the record. **Append** a note to the
+   already-frozen `$workDir/comment.md` naming the round(s) whose disposition record
+   is missing, and report it as **converged-but-not-clean** in your gauntlet summary.
+   Don't report it as a clean consensus.
 
 3. **simplify** — invoke `/simplify` (Skill tool), scoped to the change vs `MB`.
    It applies its fixes to the working tree. When it finishes, **commit** what it
@@ -191,9 +223,10 @@ merges when satisfied.
 When you do post, post **one comment per track that produced a body** — skip any
 track `--tracks` excluded, and skip a track that ran but yielded no postable
 comment (lens on `merge-base-error`, codex on persistent `reviewer-error`): the
-lens body and the codex body verbatim (`gh pr comment -F`), and the police
-summary (the `## [👮 Code-police](https://agency.srid.ca/)` comment described in
-Report).
+lens body and the codex body verbatim (`gh pr comment -F` — the codex body is the
+`$workDir/comment.md` you assembled in step 2 from `commentHeader` + the section
+files), and the police summary (the
+`## [👮 Code-police](https://agency.srid.ca/)` comment described in Report).
 
 ## Report
 
