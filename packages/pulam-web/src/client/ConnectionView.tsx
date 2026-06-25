@@ -16,21 +16,19 @@
  *     `failed` — the real error + the link-log tail + a Reconnect button.
  */
 
-import type {
-  ConnectionInfo,
-  ConnectionState,
-} from "@kolu/surface-nix-host/connection";
+import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import {
   createEffect,
+  createMemo,
   createSignal,
   type JSX,
   on,
   onCleanup,
   Show,
 } from "solid-js";
-import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
-import { effectiveHealth, type HealthSource } from "./connectionHealth.ts";
+import { CONN_STATE } from "./connectionStates.ts";
+import { effectiveHealth, type EffectiveHealth } from "./connectionHealth.ts";
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls
@@ -85,7 +83,11 @@ export function HostHealthIndicator(props: {
   status: () => SurfaceConnectionStatus;
   info: () => ConnectionInfo;
 }): JSX.Element {
-  const view = () => effectiveHealth(props.status(), props.info());
+  // A memo, not a bare accessor: `effectiveHealth` allocates a fresh object, and
+  // the JSX below reads `view()` five times — without the memo the fold re-runs
+  // (and re-allocates) on every read. The memo runs it once per status/info
+  // change with one stable identity.
+  const view = createMemo(() => effectiveHealth(props.status(), props.info()));
   return (
     <span
       class="ml-auto flex flex-none items-center gap-1 text-[12px]"
@@ -114,7 +116,7 @@ export function HostHealthIndicator(props: {
  *  must NOT then surface its old error + a Reconnect button that can't run while
  *  the dashboard ws is dead — the `source` discriminator is what splits them. */
 export function ConnectionView(props: {
-  health: ConnPresentation & { state: ConnectionState; source: HealthSource };
+  health: EffectiveHealth;
   info: ConnectionInfo;
   host: string;
 }): JSX.Element {

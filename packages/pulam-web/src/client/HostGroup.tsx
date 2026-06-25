@@ -192,8 +192,10 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // (`status`) and the mirror cell (`connInfo`). The header dot and the body
   // gate below read this same answer, so a transport-down host (whose mirror
   // cell goes stale at its last `connected`) can't paint a stale fleet while
-  // the header honestly says it's down.
-  const health = () => effectiveHealth(status(), connInfo());
+  // the header honestly says it's down. A memo (not a bare accessor): the gate,
+  // the strip, and the dot each read it and `effectiveHealth` allocates fresh,
+  // so memoize for one run + one stable identity per change (like `entries`).
+  const health = createMemo(() => effectiveHealth(status(), connInfo()));
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.

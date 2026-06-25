@@ -27,6 +27,15 @@ import { CONN_STATE, type ConnPresentation } from "./connectionStates.ts";
  *  reads `failed` never paints a stale error + a Reconnect that can't run. */
 export type HealthSource = "transport" | "mirror";
 
+/** A resolved host health — a presentation row, the effective `state` the gate
+ *  reads, and which leg (`source`) produced it. The single name for
+ *  `effectiveHealth`'s output, so the fold and every consumer (the header
+ *  indicator, the body gate, `ConnectionView`'s prop) move in lock-step. */
+export type EffectiveHealth = ConnPresentation & {
+  state: ConnectionState;
+  source: HealthSource;
+};
+
 /** The single fold over BOTH volatility axes — the browser↔backend transport
  *  (`status`) and the backend↔remote mirror (`info.state`) — into one resolved
  *  health. The precedence is "transport trouble shadows the mirror": a `down` or
@@ -41,7 +50,7 @@ export type HealthSource = "transport" | "mirror";
 export function effectiveHealth(
   status: SurfaceConnectionStatus,
   info: ConnectionInfo,
-): ConnPresentation & { state: ConnectionState; source: HealthSource } {
+): EffectiveHealth {
   if (status === "down")
     return {
       state: "failed",

@@ -13,8 +13,11 @@ export { resolveSystem } from "./arch";
 // there; node consumers (the pump) read it from the root.
 // `ConnectionState` / `FailureCause` stay exported via `./hostSession` (which
 // now re-exports them from `./connection`) — re-exporting here too would
-// duplicate. This block adds only the new connection-cell members.
-export { type ConnectionInfo, CONNECTION_STATES } from "./connection.ts";
+// duplicate. The root surfaces only the NODE-side pump + the `ConnectionInfo`
+// it produces; the browser-safe cell members (`connectionCell`, schema,
+// `CONNECTION_STATES`, …) live solely on the `@kolu/surface-nix-host/connection`
+// subpath, which is where a surface composes them.
+export type { ConnectionInfo } from "./connection.ts";
 export {
   pipeSessionStateToCell,
   projectConnection,
