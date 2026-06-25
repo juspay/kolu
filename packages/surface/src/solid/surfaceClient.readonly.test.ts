@@ -12,6 +12,7 @@
  * can't regrow the phantom mutation path on the Solid client.
  */
 
+import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
@@ -51,9 +52,31 @@ const surface = defineSurface({
       default: { n: 0, label: "" },
       patchSchema: z.object({ delta: z.number() }),
       verbs: ["get", "set"],
+      // A spec-level `patch` merger over the partial `P` (`{ delta }`). The
+      // server uses it for the `patch` wire verb — but this cell exposes only
+      // `set`, so the CLIENT must NOT auto-inject it as the local-authority
+      // `applyPatch`: the local path now carries full `T` values, and this
+      // merger expects a partial `P`. `surfaceClient` records a sentinel so the
+      // regression test can assert it was never injected. Annotate the params
+      // explicitly so the unary callback doesn't perturb `defineSurface`'s `P`
+      // inference (an unannotated `patch` arg would widen `P` and unmask the
+      // collapse the type assertions below pin).
+      patch: (
+        current: { n: number; label: string },
+        patch: { delta: number },
+      ): { n: number; label: string } => {
+        specPatchCalls.push(patch);
+        return { ...current, n: current.n + patch.delta };
+      },
     },
   },
 });
+
+/** Records every call to `explicitSet`'s spec-level `patch` merger. The
+ *  local-authority regression test asserts this stays EMPTY — the set-only
+ *  bound shape carries full `T`, so the client must full-replace, never route
+ *  a `T` through this `P`-merger. */
+const specPatchCalls: { delta: number }[] = [];
 
 /** A stub link exposing only `surface.<cell>.get` per cell — NO `set`/`patch`,
  *  exactly what the contract router serves for a get-only cell. `surfaceClient`
@@ -152,5 +175,30 @@ describe("surfaceClient cell verbs", () => {
     // @ts-expect-error — `.patch` must reject the partial `{ delta }`: a set-only
     // cell has no `P`-shaped wire procedure, so its client patch shape is `T`.
     void (() => result.patch({ delta: 1 }));
+  });
+
+  it("does NOT auto-inject the spec-level `patch` merger as the local-authority applyPatch for a set-only cell", async () => {
+    specPatchCalls.length = 0;
+    const { link } = stubLink();
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
+      const app = surfaceClient(surface, link as any);
+      // Local authority over the set-only cell. The bound shape is
+      // `BoundCell<T, T>`, so `.patch` carries the FULL value `{ n, label }`.
+      const cell = app.cells.explicitSet.use({
+        authority: "local",
+        initial: { n: 5, label: "seed" },
+      });
+      // A full-value local write. `surfaceClient` must NOT have injected the
+      // spec-level `patch` (a `P`-merger expecting `{ delta }`) as `applyPatch`;
+      // with no `applyPatch`, `useCell` full-replaces the store.
+      await cell.patch({ n: 9, label: "next" });
+      // Full replacement landed — NOT the merger's `current.n + delta` (which,
+      // fed a full `T`, would read `patch.delta === undefined` and corrupt `n`).
+      expect(cell.value()).toEqual({ n: 9, label: "next" });
+      // The `P`-merger was never wired in, so it was never called.
+      expect(specPatchCalls).toHaveLength(0);
+      dispose();
+    });
   });
 });

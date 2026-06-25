@@ -248,7 +248,17 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // Spec-declared `patch` doubles as the default `applyPatch` for
     // authority-`local` cells, so server and client merge with the same
     // function without the consumer importing it twice.
-    const specPatch = cellSpec.patch;
+    //
+    // Inject it ONLY when the exposed client mutation verb is `patch` — i.e.
+    // when the bound type carries the partial `P` (`BoundCell<T, P>`) and the
+    // local-authority `.patch(P)` / coalesce path actually feeds a `P` to this
+    // merge. For the legal `patchSchema` + explicit-`set` cell the bound type
+    // collapses to `BoundCell<T, T>`: `.set(T)` / `.patch(T)` carry the full
+    // value, so `applyLocal` must full-replace, NOT route through `cellSpec.patch`
+    // (which expects a partial `P`, not a `T`). Skipping the inject here leaves
+    // `applyPatch` undefined, so `useCell`'s no-helper branch treats `P` as `T`
+    // and replaces wholesale — sound against the full-value `set` endpoint.
+    const specPatch = mutateVerb === "patch" ? cellSpec.patch : undefined;
     cells[key] = {
       use: (boundOpts) => {
         // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
