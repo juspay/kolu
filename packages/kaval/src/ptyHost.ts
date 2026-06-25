@@ -725,7 +725,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   }
 
   function getScreenState(id: PtyId): string {
-    return entries.get(id)?.serialize.serialize() ?? "";
+    const entry = entries.get(id);
+    // Read through the same memo as attach(): "the current-epoch snapshot" is
+    // one serialized value, computed once and shared by both consumers, not a
+    // second uncached serialize of the identical mirror.
+    return entry ? snapshotOf(entry) : "";
   }
 
   function getScreenTextFor(

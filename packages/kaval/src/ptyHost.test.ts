@@ -660,7 +660,9 @@ describe("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getScreenState(id).includes("idle marker"));
+    // Settle via getScreenText (a buffer read, no serialize) so the poll
+    // doesn't pre-populate the snapshot memo getScreenState now shares.
+    await waitFor(() => host.getScreenText(id).includes("idle marker"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
     // A synchronous burst — no task boundary between calls, so no publish can
@@ -679,10 +681,12 @@ describe("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
+    // Settle via getScreenText (a buffer read, no serialize) so the poll
+    // doesn't pre-populate the snapshot memo getScreenState now shares.
     await waitFor(
       () =>
-        host.getScreenState(id).includes("first") &&
-        !host.getScreenState(id).includes("second"),
+        host.getScreenText(id).includes("first") &&
+        !host.getScreenText(id).includes("second"),
     );
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
@@ -692,10 +696,9 @@ describe("attach() reconnect-storm defenses", () => {
     expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
 
     // A second output chunk publishes and must invalidate the cache.
-    await waitFor(() => host.getScreenState(id).includes("second"));
-    serializeSpy.mockClear(); // discard getScreenState's own serialize calls
+    await waitFor(() => host.getScreenText(id).includes("second"));
     const { snapshot } = host.attach(id);
-    expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
+    expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
     expect(snapshot).toContain("second");
   });
 });
