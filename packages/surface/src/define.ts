@@ -88,6 +88,24 @@ export interface CellSpec<T = unknown, P = T> {
    *  (terminalList et al. don't need it). */
   equals?: (a: T, b: T) => boolean;
   verbs?: readonly CellVerb[];
+  /** Mark this cell as a READINESS GATE: a pure predicate over its own value that
+   *  the client folds into `client.health().live` (AND-reduced with the transport
+   *  leg and every other readiness cell). A mirrored surface's `connection` cell
+   *  declares `liveWhen: (v) => v.state === "connected"`, so a surface composing
+   *  that cell carries the mirror-liveness leg in its fact BY CONSTRUCTION —
+   *  `<SurfaceGate>`/`<HostStatusPip>` read the whole "is it connected?" truth and
+   *  no consumer hand-ANDs the cell state (the round-5 collapse).
+   *
+   *  This is the runtime sibling of {@link equals}: the GENERIC mechanism lives in
+   *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
+   *  literal or any domain vocabulary), while the predicate itself (`v.state ===
+   *  "connected"`) is declared on the cell where its schema lives (e.g.
+   *  `surface-nix-host`'s `connectionCell`) — the same mechanism/vocabulary split
+   *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
+   *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
+   *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
+   *  until a genuine "ready" frame arrives — `DEFAULT_CONNECTION` already complies. */
+  liveWhen?: (value: T) => boolean;
 }
 
 export interface CollectionSpec<K = unknown, T = unknown> {

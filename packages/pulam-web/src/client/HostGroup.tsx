@@ -82,7 +82,7 @@ import {
   Show,
 } from "solid-js";
 import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
-import { effectiveHealth } from "./connectionHealth.ts";
+import { effectiveHealth, hostBodyReady } from "./connectionHealth.ts";
 import {
   compareFleetEntries,
   type FleetEntry,
@@ -207,21 +207,16 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // the strip, and the dot each read it and `effectiveHealth` allocates fresh,
   // so memoize for one run + one stable identity per change (like `entries`).
   const health = createMemo(() => effectiveHealth(status(), connInfo()));
-  // "Is this host EFFECTIVELY connected?" — the one predicate the body gate, the
-  // terminal count, and the fleet-wide tally all read. Its transport leg is the
-  // framework FACT `app.health().live` (the liveness `connectSurface` threads in
-  // from the socket), NOT a second read of `status()`: routing the gate through
-  // the fact is what makes that threaded leg load-bearing — drop it back to the
-  // default constant `true` and a reconnecting/half-open transport with a stale
-  // `connected` mirror cell would paint the body again (the exact green-dot lie).
-  // The mirror leg is the raw `connection` cell. `effectiveHealth` still resolves
-  // the same two axes for PRESENTATION (the dot + ConnectionView — reload vs
-  // Reconnect, which the boolean `live` deliberately doesn't carry), so the dot
-  // and the gate never disagree: `live` false ⟺ `status` non-`live` ⟺ the dot is
-  // already amber/red.
-  const connected = createMemo(
-    () => app.health().live && connInfo().state === "connected",
-  );
+  // "Is this host's LINK up?" — the predicate the terminal count and the
+  // fleet-wide tally read. It is now JUST `app.health().live`: the round-5
+  // "complete the fact" change folds the mirror's `connected` state INTO the
+  // fact's `live` leg by construction (the `connection` cell's `liveWhen`), so the
+  // old hand-AND of `connInfo().state === "connected"` is GONE — the fact already
+  // carries it. A reconnecting/half-open transport OR a non-`connected` mirror
+  // both flip `live` false. `effectiveHealth` still resolves the two axes for
+  // PRESENTATION (the dot + ConnectionView — reload vs Reconnect, finer than the
+  // boolean), but no consumer re-ANDs the mirror state anymore.
+  const connected = createMemo(() => app.health().live);
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -302,7 +297,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             · {awareness.keys().length} terminals
           </span>
         </Show>
-        <HostHealthIndicator health={health} />
+        <HostHealthIndicator view={health} fact={app.health} />
       </header>
       {/* The ONE gate over the host body is the framework's `<SurfaceGate>` — this
           fleet board is a real consumer of the shared primitive, not a hand-rolled
@@ -323,7 +318,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
           disagree because `live` false ⟺ `status` non-`live` ⟺ the dot is off. */}
       <SurfaceGate
         health={app.health}
-        ready={(h) => connected() && !h.subs.some((s) => s.error)}
+        ready={hostBodyReady}
         fallback={(h) => {
           // Precedence (was the outermost error Show): a live subscription error
           // wins the surface — it's the actionable failure and must never collapse

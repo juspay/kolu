@@ -114,8 +114,16 @@ function mountHostGroup(): {
     // (`awareness.keys`), and the activity stream (`activity`). HostGroup reads
     // THIS now instead of a hand-rolled per-channel fold, so driving `err()` /
     // `keysErr()` here is what reaches its error gate.
+    //
+    // `live` folds BOTH legs the way the real registry now does (round-5 "complete
+    // the fact"): the transport leg (`live()`) AND the `connection` cell's
+    // `liveWhen` predicate (`state === "connected"`). In production `surfaceClient`
+    // folds the cell's `liveWhen` into `health().live` BY CONSTRUCTION, so a
+    // non-`connected` mirror flips `live` false WITHOUT any consumer hand-ANDing
+    // it — HostGroup's gate reads ONLY `health().live`. The mock folds the same
+    // mirror leg, or the gate would open over a failed/connecting mirror.
     health: () => ({
-      live: live(),
+      live: live() && conn().state === "connected",
       subs: [
         { name: "connection", pending: false, error: err() },
         { name: "awareness.keys", pending: false, error: keysErr() },

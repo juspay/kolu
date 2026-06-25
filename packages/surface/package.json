@@ -21,6 +21,7 @@
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
     "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
+    "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
     "./links/direct": "./src/links/direct.ts",

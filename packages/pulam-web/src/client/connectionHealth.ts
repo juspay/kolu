@@ -17,11 +17,27 @@ import type {
   ConnectionState,
 } from "@kolu/surface-nix-host/connection";
 import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
+import type { SurfaceHealth } from "@kolu/surface/solid";
 import {
   CONN_STATE,
   HEALTH_PALETTE,
   type ConnPresentation,
 } from "./connectionStates.ts";
+
+/** pulam-web's hard-gate readiness over the framework FACT — the ONE predicate
+ *  the body `<SurfaceGate ready>` AND the header dot `<HostStatusPip ready>`
+ *  share, so the dot's GREEN and the body's "show it" are the SAME decision (it
+ *  can't go green over a body the gate is hiding, nor vice versa). The link is up
+ *  — the fact's `live` leg, which now carries the mirror's `connected` state BY
+ *  CONSTRUCTION (the `connection` cell's `liveWhen`), so this no longer hand-ANDs
+ *  `connInfo().state === "connected"` — AND no subscription is erroring (a
+ *  dashboard must not paint a stale roster over a broken sub). Deliberately does
+ *  NOT gate on `pending`: the body has its OWN internal loading states ("loading
+ *  terminal details…"), so a per-key value sub still settling must not blank the
+ *  whole host — which is why this is a custom predicate, not `gateStatus === "ready"`. */
+export function hostBodyReady(h: SurfaceHealth): boolean {
+  return h.live && !h.subs.some((s) => s.error);
+}
 
 /** WHICH leg the resolved health came from — so a consumer can tell a real
  *  mirror failure (the host gave up; show the error card + Reconnect) apart from

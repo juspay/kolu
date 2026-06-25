@@ -67,6 +67,41 @@ function rejecting() {
     Promise.reject(new Error("stream boom"));
 }
 
+/** A DRIVEABLE wire stream: each `push(v)` delivers `v` as the next frame (or
+ *  queues it for the next `next()`), so a test can drive a cell's `value()` over
+ *  time — exactly what a server-pushed `connection` cell does in production. */
+function feed<T>() {
+  let waiting: ((r: IteratorResult<T>) => void) | null = null;
+  const queue: IteratorResult<T>[] = [];
+  const iterable: AsyncIterable<T> = {
+    [Symbol.asyncIterator]() {
+      return {
+        next(): Promise<IteratorResult<T>> {
+          const next = queue.shift();
+          if (next) return Promise.resolve(next);
+          return new Promise((resolve) => {
+            waiting = resolve;
+          });
+        },
+      };
+    },
+  };
+  return {
+    procedure: (..._args: unknown[]): Promise<AsyncIterable<T>> =>
+      Promise.resolve(iterable),
+    push(value: T): void {
+      const frame: IteratorResult<T> = { value, done: false };
+      if (waiting) {
+        const resolve = waiting;
+        waiting = null;
+        resolve(frame);
+      } else {
+        queue.push(frame);
+      }
+    },
+  };
+}
+
 const noop = () => Promise.resolve();
 
 /** Flush past the microtask queue (async stream consumption) AND the macrotask
@@ -292,6 +327,128 @@ describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)",
       // The returned source IS the enrolled one.
       expect(src.pending()).toBe(false);
       expect(src.error()).toBeUndefined();
+      dispose();
+    });
+  });
+});
+
+describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-5)", () => {
+  // A mirror-shaped surface: a get-only `connection` cell that declares the
+  // readiness predicate, exactly as `surface-nix-host`'s `connectionCell` does.
+  // The VOCABULARY (`state === "connected"`) rides the cell; the framework only
+  // invokes it. Gate-closed default (`connecting`) so cold start reads not-live.
+  const mirrored = defineSurface({
+    cells: {
+      connection: {
+        schema: z.object({ state: z.string() }),
+        default: { state: "connecting" },
+        verbs: ["get"],
+        liveWhen: (v: { state: string }) => v.state === "connected",
+      },
+    },
+  });
+
+  it("folds the liveWhen cell into health().live EAGERLY — no `.use()`, by construction", async () => {
+    const f = feed<{ state: string }>();
+    const link = { surface: { connection: { get: f.procedure } } };
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
+      const app = surfaceClient(mirrored, link as any);
+      // CRITICAL: NO `.use()` anywhere. The readiness fold must be eager — a
+      // dot-only viewer (or `<SurfaceGate>`/`<HostStatusPip>` that never mounts
+      // the cell for presentation) must STILL read the complete fact, or the
+      // green-over-dead-mirror lie has a `.use()`-conditional escape.
+      await settle();
+      // Cold start: gate-closed default ("connecting") → liveWhen false → NOT live.
+      expect(app.health().live).toBe(false);
+      // Totality: the connection cell's own sub is in `subs` (eagerly enrolled)
+      // even with zero `.use()`.
+      expect(app.health().subs.map((s) => s.name)).toEqual(["connection"]);
+
+      // A genuine "connected" frame flips the fact live.
+      f.push({ state: "connected" });
+      await settle();
+      expect(app.health().live).toBe(true);
+
+      // A "failed" mirror flips it back — transport never moved; the fact carries
+      // the mirror leg. THIS is the round-4 lie made unrenderable at the fact.
+      f.push({ state: "failed" });
+      await settle();
+      expect(app.health().live).toBe(false);
+
+      app.dispose();
+      dispose();
+    });
+  });
+
+  it("AND-folds the transport leg AND the mirror leg — both must hold for live", async () => {
+    const f = feed<{ state: string }>();
+    const link = { surface: { connection: { get: f.procedure } } };
+    await createRoot(async (dispose) => {
+      let transport = true;
+      const app = surfaceClient(
+        mirrored,
+        // biome-ignore lint/suspicious/noExplicitAny: stub link.
+        link as any,
+        { live: () => transport },
+      );
+      f.push({ state: "connected" });
+      await settle();
+      expect(app.health().live).toBe(true); // transport ∧ mirror both hold
+      // Transport dies even though the mirror is still "connected" — a half-open
+      // ws over a connected mirror must read NOT live.
+      transport = false;
+      expect(app.health().live).toBe(false);
+      app.dispose();
+      dispose();
+    });
+  });
+
+  it("`.use()` SHARES the eager standing sub — ONE `connection` member, same value", async () => {
+    const f = feed<{ state: string }>();
+    const link = { surface: { connection: { get: f.procedure } } };
+    await createRoot(async (dispose) => {
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = surfaceClient(mirrored, link as any);
+      const cell = app.cells.connection.use();
+      f.push({ state: "connected" });
+      await settle();
+      // Exactly ONE "connection" sub — the eager standing one, shared by `.use()`
+      // — never a second `connection.get` stream / duplicate member.
+      expect(
+        app.health().subs.filter((s) => s.name === "connection"),
+      ).toHaveLength(1);
+      // `.use()` projects the SAME value as the standing sub.
+      expect(cell.value()).toEqual({ state: "connected" });
+      app.dispose();
+      dispose();
+    });
+  });
+
+  it("surfaceClientsHealth AND-folds a sibling's mirror leg (Leak D × readiness)", async () => {
+    const fa = feed<{ state: string }>();
+    const fb = feed<{ state: string }>();
+    const combined = {
+      surface: {
+        a: { connection: { get: fa.procedure } },
+        b: { connection: { get: fb.procedure } },
+      },
+    };
+    await createRoot(async (dispose) => {
+      const clients = surfaceClients(
+        // biome-ignore lint/suspicious/noExplicitAny: stub combined link.
+        combined as any,
+        { a: mirrored, b: mirrored },
+      );
+      fa.push({ state: "connected" });
+      fb.push({ state: "connected" });
+      await settle();
+      expect(surfaceClientsHealth(clients).live).toBe(true);
+      // One sibling's mirror fails — the merged fact is not-live (AND-reduce).
+      fb.push({ state: "failed" });
+      await settle();
+      expect(surfaceClientsHealth(clients).live).toBe(false);
+      for (const c of Object.values(clients)) c.dispose();
       dispose();
     });
   });

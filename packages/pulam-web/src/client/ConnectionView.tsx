@@ -17,7 +17,10 @@
  */
 
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
+import type { SurfaceHealth } from "@kolu/surface/solid";
+import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import {
+  type Accessor,
   createEffect,
   createSignal,
   type JSX,
@@ -26,7 +29,7 @@ import {
   Show,
 } from "solid-js";
 import { CONN_STATE, HEALTH_PALETTE } from "./connectionStates.ts";
-import type { EffectiveHealth } from "./connectionHealth.ts";
+import { type EffectiveHealth, hostBodyReady } from "./connectionHealth.ts";
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls
@@ -81,18 +84,37 @@ function parseReconnectError(raw: string): string {
  *  fresh, so a single shared memo is what keeps the five reads below from
  *  re-folding). */
 export function HostHealthIndicator(props: {
-  health: () => EffectiveHealth;
+  /** Presentation: the resolved transport∘mirror fold — the dot's NOT-ready
+   *  colors (the rich 5-state amber/red), the label text, and its color. */
+  view: () => EffectiveHealth;
+  /** The framework FACT — what governs the dot's GREEN, so the honest
+   *  connected-or-not color comes from the COMPLETE fact (transport ∧ the mirror
+   *  leg, folded by construction), never the raw `connection` cell. */
+  fact: Accessor<SurfaceHealth>;
 }): JSX.Element {
-  const view = props.health;
+  const view = props.view;
   return (
     <span
       class="ml-auto flex flex-none items-center gap-1 text-[12px]"
       style={`color:${view().text}`}
     >
-      <span
-        class="inline-block h-1.5 w-1.5 rounded-full"
-        classList={{ "motion-safe:animate-pulse": view().pending }}
-        style={`background:${view().dot}`}
+      {/* The connection dot is the framework `<HostStatusPip>` — the SAME
+          component drishti renders — so the two fleet viewers can't diverge. Its
+          GREEN is fact-only: `ready` is the SAME `hostBodyReady` predicate the
+          body `<SurfaceGate>` uses (so dot and body agree), and `h.live` carries
+          the mirror leg by construction, so a stale `connected` cell can NOT
+          paint it green over a dead link. Its NOT-ready color stays pulam-web's
+          rich 5-state `effectiveHealth.dot` — except a `degraded` (link up, a sub
+          erroring) shows amber rather than the connected green, so the dot never
+          reads green while something's broken. */}
+      <HostStatusPip
+        health={props.fact}
+        ready={hostBodyReady}
+        readyColor={HEALTH_PALETTE.green}
+        notReadyTone={(status) =>
+          status === "degraded" ? HEALTH_PALETTE.amber : view().dot
+        }
+        pulse={view().pending}
         title={view().label}
       />
       {/* A healthy host reads as a bare green dot (no label), like the Dock. */}

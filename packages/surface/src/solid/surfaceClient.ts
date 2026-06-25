@@ -14,7 +14,9 @@
 
 import {
   type Accessor,
+  createEffect,
   createMemo,
+  createRoot,
   createSignal,
   getOwner,
   onCleanup,
@@ -255,6 +257,14 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
     input: I,
     opts: RawStreamOptions<O>,
   ): HealthSource;
+  /** Tear down the client's BUILD-TIME standing subscriptions — the eager
+   *  `liveWhen`-cell readiness subs `surfaceClient` opens so the mirror-liveness
+   *  leg folds into `health().live` by construction (not at `.use()` time). A
+   *  client with no `liveWhen` cell opens none, so `dispose()` is a no-op. A
+   *  page-lifetime cached client (pulam-web/drishti per-host) never needs to call
+   *  it; the `connectSurface`/`connectSurfaces` seams fold it into THEIR dispose
+   *  so a torn-down socket doesn't leak its readiness consume loop. */
+  dispose(): void;
 }
 
 // ── Builder ────────────────────────────────────────────────────────────
@@ -294,6 +304,13 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   // subscription, so `health()` folds a TOTAL picture (a partial registry behind
   // a confident gate is worse than no gate — `./health`).
   const registry = createSurfaceHealthRegistry(opts?.live ?? (() => true));
+
+  // Build-time standing subscriptions for `liveWhen` cells (the readiness legs)
+  // and their disposers. Created EAGERLY below (not at `.use()` time) so the
+  // mirror-liveness leg folds into `health().live` by construction — independent
+  // of whether any component ever mounts the cell. `dispose()` runs these roots.
+  const standingRoots: Array<() => void> = [];
+  const standingCells: Record<string, ReadOnlyUseCellResult<unknown>> = {};
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -347,10 +364,59 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // philosophy: a read-only contract that silently half-mutates a local store
     // is the "graceful degradation" defect, not a feature.
     const readOnly = mutateVerb === undefined;
+    // A READINESS-GATE cell (`liveWhen`): open its server subscription NOW, in a
+    // detached `createRoot` (surfaceClient itself runs outside any owner), and
+    // (a) `enroll` its pending/error so the cell's own stream-health is TOTAL in
+    // `subs` even with zero `.use()`, and (b) `enrollReadiness` the predicate over
+    // its live value so `health().live` AND-folds the mirror state BY
+    // CONSTRUCTION. This is the client-side symmetry to `pumpRemoteSurface`
+    // auto-wiring the server WRITE: composing the cell entails the fold, so the
+    // green-over-dead-mirror lie has no `.use()`-conditional escape (a dot-only
+    // viewer that never mounts the cell still reads the complete fact).
+    if (cellSpec.liveWhen) {
+      const liveWhen = cellSpec.liveWhen as (value: unknown) => boolean;
+      createRoot((disposeRoot) => {
+        const standing = useCell(
+          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+          (surface.descriptors.cells as any)[key],
+          { source, authority: "server" },
+        );
+        registry.enroll(key, {
+          pending: standing.pending,
+          error: standing.error,
+        });
+        registry.enrollReadiness(key, () =>
+          liveWhen(standing.value() ?? cellSpec.default),
+        );
+        standingCells[key] = standing as ReadOnlyUseCellResult<unknown>;
+        standingRoots.push(disposeRoot);
+      });
+    }
     cells[key] = {
       use: (boundOpts) => {
         // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
         const opts: any = boundOpts ?? {};
+        // A read-only `liveWhen` cell SHARES its eager standing subscription —
+        // no second `.get` stream, no duplicate member in `subs`. Forward
+        // `onError` as a reactive observer of the shared (self-clearing) error,
+        // so the read-only `.use({onError})` contract still fires.
+        const standing = readOnly ? standingCells[key] : undefined;
+        if (standing) {
+          if (opts.onError) {
+            const cb = opts.onError as (err: Error) => void;
+            createEffect(() => {
+              const e = standing.error();
+              if (e) cb(e);
+            });
+          }
+          return {
+            value: standing.value,
+            pending: standing.pending,
+            error: standing.error,
+            sub: standing.sub,
+            // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
+          } as any;
+        }
         if (readOnly) {
           if (opts.authority === "local") {
             throw new Error(
@@ -560,6 +626,9 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     health: registry.health,
     enroll: registry.enroll,
     rawStream,
+    dispose: () => {
+      for (const disposeRoot of standingRoots) disposeRoot();
+    },
   };
 }
 

@@ -111,5 +111,17 @@ export function connectSurface<const S extends SurfaceSpec>(
     probe: () => probeSurfaceLive(client.rpc),
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
-  return { ws, echo, client, status, dispose: () => heartbeat?.dispose() };
+  return {
+    ws,
+    echo,
+    client,
+    status,
+    // Stop the heartbeat AND tear down the client's build-time standing
+    // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
+    // surface is mirrored), so a torn-down socket leaks neither.
+    dispose: () => {
+      heartbeat?.dispose();
+      client.dispose();
+    },
+  };
 }

@@ -53,6 +53,13 @@ export {
   type ConnectSurfaceOptions,
   type SurfaceConnection,
 } from "./connectSurface";
+// The turnkey MULTI-surface connect seam (one socket → a `surfaceClients`
+// bundle + one default-on heartbeat + the combined `surfaceClientsHealth` fact).
+export {
+  connectSurfaces,
+  type ConnectSurfacesOptions,
+  type SurfacesConnection,
+} from "./connectSurfaces";
 export {
   createSocketStatus,
   type SurfaceConnectionStatus,

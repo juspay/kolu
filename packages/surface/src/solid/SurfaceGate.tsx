@@ -35,23 +35,13 @@
  */
 
 import { type Accessor, createMemo, type JSX, Show } from "solid-js";
-import type { SurfaceHealth } from "./health";
+import { type GateStatus, gateStatus, type SurfaceHealth } from "./health";
 
-/** The readiness verdict derived from a health fact. */
-export type GateStatus = "connecting" | "degraded" | "ready";
-
-/** Derive the default verdict from the health FACT:
- *   - `connecting` — the transport isn't live, OR some subscription is still
- *     waiting for its first frame (a fresh or reconnecting surface);
- *   - `degraded`  — live and past first-frame, but some subscription is erroring;
- *   - `ready`     — live, every sub past first-frame, none erroring.
- *  This is POLICY: an app overrides it via `<SurfaceGate ready={…}>`. Exported so
- *  a consumer can reuse the same triage when rendering its own fallback. */
-export function gateStatus(health: SurfaceHealth): GateStatus {
-  if (!health.live || health.subs.some((s) => s.pending)) return "connecting";
-  if (health.subs.some((s) => s.error)) return "degraded";
-  return "ready";
-}
+// `gateStatus` / `GateStatus` now live in the JSX-free `./health` (the fact
+// module), so `<HostStatusPip>` can import the verdict without pulling in this
+// component — the dot's "green" and this gate's "ready" are then provably the
+// SAME function. Re-exported here for back-compat with existing importers.
+export { type GateStatus, gateStatus };
 
 export interface SurfaceGateProps {
   /** The health FACT accessor — `client.health` for one surface, or

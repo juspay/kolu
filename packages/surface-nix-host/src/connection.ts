@@ -90,6 +90,19 @@ export const connectionCell = {
   schema: ConnectionInfoSchema,
   default: DEFAULT_CONNECTION,
   verbs: ["get"],
+  // The READINESS GATE (round-5 "complete the fact"): the browser's
+  // `client.health().live` AND-folds this predicate over the cell's live value,
+  // so a mirror reading anything but `connected` flips the fact not-live BY
+  // CONSTRUCTION — the client-side symmetry to `pumpRemoteSurface` auto-wiring the
+  // server WRITE. Every surface that composes this cell (drishti, pulam-web, any
+  // future viewer) inherits the fold by building a `surfaceClient` over the
+  // mirrored surface; no consumer hand-ANDs `connection.state === "connected"`,
+  // and a widget can no longer paint a dot green from the raw cell state. The ssh
+  // VOCABULARY (`"connected"`, the four-state enum) stays HERE beside the schema;
+  // `@kolu/surface` only invokes the predicate (the `resolveCellVerbs`-style
+  // mechanism/vocabulary split). `DEFAULT_CONNECTION` is `connecting` — gate-closed
+  // — so a freshly-composed cell reads not-live until a genuine `connected` frame.
+  liveWhen: (v: ConnectionInfo) => v.state === "connected",
 } as const;
 
 /** A base spec with the reserved get-only `connection` cell added.
