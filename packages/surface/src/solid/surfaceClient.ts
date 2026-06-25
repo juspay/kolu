@@ -89,18 +89,16 @@ export interface ReadOnlyBoundCell<T> {
 
 /** Bound collection result — `useCollection`'s reactive view augmented
  *  with imperative mutations (`upsert`, `delete`) so consumers don't
- *  reach for `app.rpc.surface.<key>.{upsert,delete}` from event handlers. */
+ *  reach for `app.rpc.surface.<key>.{upsert,delete}` from event handlers.
+ *
+ *  The default keys-stream's own error is NOT re-exposed here: it is enrolled
+ *  into `client.health()` as `"<key>.keys"` (Leak B), so a keys-stream 500 —
+ *  which collapses `keys()` to a silent empty set — surfaces through the one
+ *  health FACT alongside every per-key sub's error, instead of a parallel
+ *  per-collection accessor a consumer has to remember to read. */
 export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
   upsert: (key: K, value: T) => Promise<void>;
   delete: (key: K) => Promise<void>;
-  /** The DEFAULT keys subscription's own reactive, self-clearing error — the
-   *  failure that turns `keys()` into a silent empty/stale set. `undefined`
-   *  while healthy AND when the caller supplies its own `keys` (then the caller
-   *  owns that subscription's error). Read it where you read `byKey(id).error()`
-   *  so a keys-stream 500 surfaces instead of collapsing the collection to `[]`
-   *  with no visible error. Self-clearing like every `createSubscription` error:
-   *  it disappears the instant the keys stream re-delivers. */
-  keysError: Accessor<Error | undefined>;
 }
 
 export interface BoundCollection<K, T> {
@@ -372,14 +370,6 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
-        // The default keys subscription's own self-clearing error, surfaced on
-        // the result so a consumer can read it the same way it reads
-        // `byKey(id).error()`. A caller-supplied `keys` owns its own error, so
-        // there is no internal sub to observe — `keysError` is a constant
-        // `undefined`. Without this, a failing default keys stream silently
-        // collapses `keys()` to `[]` (the `sub() ?? []` fallback) and the
-        // collection reads as an empty set with NO visible error.
-        let keysError: Accessor<Error | undefined> = () => undefined;
         // Default keys: subscribe to the server's keys stream and lift
         // it to a SolidJS accessor. The `.use()` runs inside a Solid
         // owner so the subscription disposes with the component.
@@ -390,12 +380,13 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
               () => streamCall(ns.keys, undefined),
               { onError },
             );
-            keysError = sub.error;
             // Leak B: enrol the keys-stream itself. A failing keys stream
             // collapses `keys()` to `[]` (the `sub() ?? []` fallback), so the
-            // collection reads as a healthy EMPTY set — without this, `health()`
-            // reports `ready` over a dead collection. (The bespoke `keysError`
-            // accessor above predates `health()` and is now subsumed by it.)
+            // collection would otherwise read as a healthy EMPTY set — without
+            // this, `health()` reports `ready` over a dead collection. This
+            // enrolment is the keys-stream's ONLY error channel now (it subsumes
+            // the former per-collection `keysError` accessor); a caller-supplied
+            // `keys` owns its own subscription and so isn't enrolled here.
             registry.enroll(`${key}.keys`, sub);
             return createMemo<unknown[]>(() => sub() ?? []);
           })();
@@ -414,7 +405,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
             enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
           },
         );
-        return { ...view, keysError, upsert, delete: del };
+        return { ...view, upsert, delete: del };
       },
       upsert,
       delete: del,

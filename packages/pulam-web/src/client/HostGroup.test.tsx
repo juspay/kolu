@@ -54,18 +54,16 @@ afterEach(() => {
   h.app = null;
 });
 
-type ErrOpts = { onError?: (e: Error) => void } | undefined;
-
 /** Mount the real `HostGroup` against a stand-in surface; returns the container,
  *  the setters that drive the gate's inputs (the `connection` cell value — what
- *  the session pump writes in production — and the awareness key set), and a
- *  `blip` / `heal` pair that drives a subscription FAILURE the way production
- *  does: `blip` sets the subscription's reactive `error()` AND fires every
- *  `onError` the component wired (both channels fire on a real failure), while
- *  `heal` clears ONLY `error()` (recovery re-delivers a frame; there is no
- *  `onError` on the way back up). That asymmetry is the whole point — a consumer
- *  that latches `onError` never heals; one that reads the self-clearing `error()`
- *  does. So this stays RED on the old latching code and GREEN on the fix. */
+ *  the session pump writes in production — and the awareness key set), and the
+ *  `blip`/`heal` (+ `blipKeys`/`healKeys`) pairs that drive a subscription FAILURE
+ *  the way production does: each sets a subscription's reactive, self-clearing
+ *  `error()`, and `heal` clears it (recovery re-delivers a frame). HostGroup reads
+ *  those errors through the framework's `client.health()` FACT — the same fold the
+ *  real `surfaceClient` registry performs — so a transient blip clears the instant
+ *  the stream re-delivers. This stays RED on the old hand-latched fold and GREEN
+ *  on the self-clearing read. */
 function mountHostGroup(): {
   container: HTMLElement;
   setConn: Setter<ConnectionInfo>;
@@ -77,51 +75,47 @@ function mountHostGroup(): {
 } {
   const [conn, setConn] = createSignal<ConnectionInfo>(DEFAULT_CONNECTION);
   const [keys, setKeys] = createSignal<TerminalId[]>([]);
-  // A subscription's OWN reactive, self-clearing error — what `createSubscription`
-  // exposes in production. Driven through the connection cell here.
+  // The connection cell's OWN reactive, self-clearing error — what
+  // `createSubscription` exposes in production; `blip`/`heal` drive it.
   const [err, setErr] = createSignal<Error | undefined>();
-  // Every `onError` the component wires (the LEGACY one-shot channel the old
-  // code latched). Captured so `blip` can fire them alongside `error()`.
-  const onErrorBus: Array<(e: Error) => void> = [];
-  const capture = (opts: ErrOpts): void => {
-    if (opts?.onError) onErrorBus.push(opts.onError);
-  };
   // The awareness KEYS stream's own self-clearing error — the channel that, when
-  // set, turns a default-keys collection into a silent empty set. Driven by
-  // `blipKeys` / `healKeys` so a keys-stream failure can be exercised distinctly
-  // from the connection cell's.
+  // set, turns a default-keys collection into a silent empty set. `blipKeys`/
+  // `healKeys` drive it, distinct from the connection cell's.
   const [keysErr, setKeysErr] = createSignal<Error | undefined>();
   h.app = {
     collections: {
       awareness: {
-        use: (opts: ErrOpts) => {
-          capture(opts);
-          return {
-            keys: () => keys(),
-            byKey: () => undefined,
-            keysError: () => keysErr(),
-          };
-        },
+        use: () => ({
+          keys: () => keys(),
+          byKey: () => undefined,
+        }),
       },
     },
     cells: {
       connection: {
-        use: (opts: ErrOpts) => {
-          capture(opts);
-          return { value: () => conn(), error: () => err() };
-        },
+        use: () => ({ value: () => conn(), error: () => err() }),
       },
     },
     streams: {
       activity: {
-        use: (_input: unknown, opts: ErrOpts) => {
-          capture(opts);
-          return Object.assign(() => [] as TerminalId[], {
-            error: () => undefined,
-          });
-        },
+        use: (_input: unknown) =>
+          Object.assign(() => [] as TerminalId[], { error: () => undefined }),
       },
     },
+    // The framework's `client.health()` FACT — folds every subscription's own
+    // self-clearing error() exactly as the real `surfaceClient` registry does:
+    // the connection cell (`connection`), the awareness keys-stream
+    // (`awareness.keys`), and the activity stream (`activity`). HostGroup reads
+    // THIS now instead of a hand-rolled per-channel fold, so driving `err()` /
+    // `keysErr()` here is what reaches its error gate.
+    health: () => ({
+      live: true,
+      subs: [
+        { name: "connection", pending: false, error: err() },
+        { name: "awareness.keys", pending: false, error: keysErr() },
+        { name: "activity", pending: false, error: undefined },
+      ],
+    }),
   };
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -137,18 +131,14 @@ function mountHostGroup(): {
     container,
   );
   disposers.push(dispose, () => container.remove());
+  // Each `blip` sets a subscription's self-clearing `error()`; `heal` clears it
+  // (recovery re-delivers a frame). HostGroup folds both through `health()`.
   const blip = (message: string): void => {
-    const e = new Error(message);
-    setErr(() => e); // the reactive, self-clearing channel
-    for (const fn of onErrorBus) fn(e); // the legacy one-shot channel
+    setErr(() => new Error(message));
   };
-  const heal = (): void => setErr(undefined); // recovery clears only error()
-  // The keys-stream channel: `blipKeys` sets its self-clearing `error()` (the
-  // keys stream 500s, collapsing `keys()` to its empty fallback); `healKeys`
-  // clears it (the keys stream re-delivers).
+  const heal = (): void => setErr(undefined);
   const blipKeys = (message: string): void => {
-    const e = new Error(message);
-    setKeysErr(() => e);
+    setKeysErr(() => new Error(message));
   };
   const healKeys = (): void => setKeysErr(undefined);
   return { container, setConn, setKeys, blip, heal, blipKeys, healKeys };

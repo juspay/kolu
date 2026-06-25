@@ -34,23 +34,34 @@
  *     honest `ConnectionView` (connecting / provisioning / reconnecting / failed)
  *     instead of a healthy-looking empty fleet; the header dot reads the same
  *     fold, so they always agree.
- *   - A subscription FAILURE (any awareness per-key sub, the activity stream, or
- *     the connection cell) is surfaced from the subscription's OWN reactive,
- *     self-clearing `error()` — never collapsed into the empty state, and never
- *     LATCHED: a transient blip (a backend restart on laptop sleep/wake makes a
- *     live subscription 500 with a masked "Internal server error") clears the
+ *   - A subscription FAILURE (any awareness per-key sub, the activity stream, the
+ *     awareness keys-stream, or the connection cell) is surfaced from the
+ *     framework's `client.health()` FACT — the one fold over every subscription's
+ *     OWN reactive, self-clearing `error()`. Never collapsed into the empty state,
+ *     and never LATCHED: a transient blip (a backend restart on laptop sleep/wake
+ *     500s a live subscription with a masked "Internal server error") clears the
  *     instant the stream re-delivers, so the host self-heals instead of freezing
- *     on a stale error over a fleet that has already reconnected.
+ *     on a stale error over a fleet that has already reconnected. This component
+ *     no longer hand-rolls that fold — `health()` is it.
  */
 
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+import { StatePip } from "@kolu/solid-statepip";
+import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import {
   type ConnectionInfo,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-nix-host/connection";
+import {
+  agentShortName,
+  agentUrgency,
+  DASH,
+  fleetStateLabel,
+  relativeTime,
+} from "@kolu/terminal-workspace/agentProjection";
+import type {
+  AwarenessValue,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import {
   createEffect,
   createMemo,
@@ -59,20 +70,13 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import {
-  agentShortName,
-  agentUrgency,
-  DASH,
-  fleetStateLabel,
-  relativeTime,
-} from "@kolu/terminal-workspace/agentProjection";
-import { StatePip } from "@kolu/solid-statepip";
-import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
+import { effectiveHealth } from "./connectionHealth.ts";
 import {
   compareFleetEntries,
   type FleetEntry,
-  fleetAlert,
   type FleetFilters,
+  fleetAlert,
   HOST_COLOR,
   isVisible,
   locationText,
@@ -81,8 +85,6 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
-import { effectiveHealth } from "./connectionHealth.ts";
 import { statusForHost, surfaceForHost } from "./wire.ts";
 
 export interface HostGroupProps {
@@ -204,34 +206,25 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   const live = app.streams.activity.use(() => ({}));
   const liveSet = createMemo(() => new Set<string>(live() ?? []));
 
-  // The FIRST currently-active subscription error, or null — read straight off
-  // each subscription's OWN reactive `error()` (the connection cell, the activity
-  // stream, the awareness KEYS stream, and every awareness per-key sub), NOT
-  // latched from a one-shot `onError`. `createSubscription` clears `error()` on
-  // the next frame, so this SELF-HEALS: a transient blip (a backend restart on
-  // laptop sleep/wake makes a live subscription 500 with a masked "Internal
-  // server error") clears the instant the stream re-delivers — instead of
-  // latching a stale error over a fleet that has since reconnected. A PERSISTENT
-  // error still shows and still wins over the body (never collapsing into a
-  // healthy-looking empty host); only a resolved one disappears. This is #1564's
-  // lie in another costume: the dashboard must not keep claiming a failure that
-  // is already over.
-  //
-  // `keysError` is the awareness KEYS stream's own error — load-bearing: a failing
-  // keys stream collapses `awareness.keys()` to `[]` (the bound `sub() ?? []`
-  // fallback), so without reading it a keys-stream 500 would read as a connected,
-  // empty fleet ("no terminals") with no visible error — the exact stale/empty lie
-  // this PR exists to kill. Checked FIRST so a dead keys stream wins over a stale
-  // per-key sub.
-  const subscriptionError = createMemo<string | null>(() => {
-    const keysErr = awareness.keysError();
-    if (keysErr) return keysErr.message;
-    for (const id of awareness.keys()) {
-      const err = awareness.byKey(id)?.error();
-      if (err) return err.message;
-    }
-    return connection.error()?.message ?? live.error()?.message ?? null;
-  });
+  // The FIRST currently-erroring subscription's message, or null — read straight
+  // off the framework's `client.health()` FACT, which folds EVERY subscription's
+  // OWN self-clearing reactive `error()`: the connection cell, the activity
+  // stream, the awareness KEYS stream (enrolled as `awareness.keys`), and every
+  // awareness per-key sub (`awareness[<id>]`). This REPLACES the hand-rolled
+  // per-channel fold this component used to carry — `health()` IS that fold, owned
+  // by the framework and un-latchable by construction. So it still SELF-HEALS: a
+  // transient blip (a backend restart on laptop sleep/wake 500s a live
+  // subscription with a masked "Internal server error") clears the instant the
+  // stream re-delivers, instead of latching a stale error over a fleet that has
+  // since reconnected — #1564's lie in another costume. A dead keys stream (which
+  // collapses `awareness.keys()` to `[]`) still surfaces here via its
+  // `awareness.keys` enrolment, so a keys-stream 500 can't masquerade as a
+  // connected, empty fleet. A PERSISTENT error still shows and still wins over the
+  // body (never collapsing into a healthy-looking empty host); only a resolved one
+  // disappears.
+  const subscriptionError = createMemo<string | null>(
+    () => app.health().subs.find((s) => s.error)?.error?.message ?? null,
+  );
 
   // One terminal's current value, or undefined while its per-key stream is
   // pending. Per-key errors already surface via the collection's `onError`.
