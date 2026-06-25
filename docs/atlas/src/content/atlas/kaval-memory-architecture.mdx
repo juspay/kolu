@@ -76,7 +76,7 @@ What SQLite eliminates: the **index** (a B-tree on indexed columns), **durabilit
 
 Two PRs — and only two because the rest is *one indivisible change*. Shrinking the mirror, writing the transcript, and reading it back are mutually dependent: shrink without read-back regresses copy-all / search / deep-scroll, and read-back without the shrink fixes no memory. So they ship together — there is no point where kolu has less functionality than today.
 
-### <Pill variant="ok">PR1</Pill> Defang the storm — kaval-internal, no disk, no wire change
+### <Pill variant="done">PR1</Pill> Defang the storm — kaval-internal, no disk, no wire change <PrLink pr={1573} />
 
 **User impact:** a reconnect storm (rapid reload, network blip, laptop wake — especially with many terminals open) no longer spikes kolu by *gigabytes*; the worst case drops to a brief, bounded blip. Crucially, **a full reload still restores the same history as today** — the server still sends the whole mirror snapshot, this PR just stops *duplicating and stacking* that work. So PR1 is a true strict improvement with **no regression** — which is why it can ship first, ahead of the disk work. (Bounding the snapshot — the change that finishes the job but *would* shrink what a reload restores — is deliberately held to PR2, where backfill makes it lossless.)
 
