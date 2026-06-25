@@ -14,6 +14,7 @@
  */
 
 import { streamCall } from "@kolu/surface/client";
+import { SurfaceGate } from "@kolu/surface/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
@@ -55,6 +56,21 @@ export default function App() {
   // (R-2's `terminalMetadata` is the canonical fit — ~3-20 keys, where
   // per-key reactivity is exactly what you want).
   const [processes, setProcesses] = createStore<Record<Pid, Process>>({});
+  // Leak A: this bulk stream is consumed by a RAW `streamCall` (not a framework
+  // hook), so it owns its loop and has no `pending`/`error` of its own. Drive
+  // them by hand and ENROL them into `app.health()` via the escape hatch — so a
+  // snapshot-stream failure is visible in the one health FACT (and closes the
+  // `<SurfaceGate>` below) instead of a private `console.error` nobody sees.
+  // Clearing both on every frame mirrors `createSubscription`'s self-clearing
+  // edge: a transient failure heals the instant the stream re-delivers.
+  const [snapPending, setSnapPending] = createSignal(true);
+  const [snapError, setSnapError] = createSignal<Error | undefined>();
+  onCleanup(
+    app.enroll("processesSnapshot", {
+      pending: snapPending,
+      error: snapError,
+    }),
+  );
   const ctl = new AbortController();
   onCleanup(() => ctl.abort());
   void (async () => {
@@ -73,10 +89,14 @@ export default function App() {
           for (const [pid, value] of msg.upserts) setProcesses(pid, value);
           for (const pid of msg.removes) setProcesses(pid, undefined!);
         }
+        if (snapPending()) setSnapPending(false);
+        if (snapError()) setSnapError(undefined);
       }
     } catch (err) {
-      if (!ctl.signal.aborted)
-        console.error("processesSnapshot stream failed", err);
+      if (!ctl.signal.aborted) {
+        setSnapError(err instanceof Error ? err : new Error(String(err)));
+        setSnapPending(false);
+      }
     }
   })();
 
@@ -96,9 +116,10 @@ export default function App() {
   // Small-N (typical 4-32), so per-key fan-out is exactly the right
   // shape; each core gets its own reactive subscription, the strip
   // updates per-cell independently.
-  const cores = app.collections.cpuCores.use({
-    onError: (err) => console.error("cpuCores subscription failed", err),
-  });
+  // No `onError`: each per-core sub is enrolled in `app.health()` (the framework
+  // does it), so a core's failure surfaces through the one health FACT and the
+  // `<SurfaceGate>` below — not a private `console.error`.
+  const cores = app.collections.cpuCores.use();
   const coreIds = createMemo<CoreId[]>(() =>
     [...cores.keys()].sort((a, b) => a - b),
   );
@@ -142,9 +163,27 @@ export default function App() {
           connection={currentConnection()}
           count={allPids().length}
         />
-        <Show
-          when={currentConnection().state === "connected"}
-          fallback={<ConnectingOverlay state={currentConnection().state} />}
+        {/* The body is ready when the agent link is CONNECTED (domain policy —
+            the `connection` cell's lifecycle state) AND no subscription is
+            erroring (the framework health FACT, which now includes the enrolled
+            `processesSnapshot` stream and every per-core sub). `<SurfaceGate>`
+            owns that policy via its `ready` override; the `fallback` shows the
+            connecting overlay, surfacing a subscription error if one is what's
+            holding the gate closed. Don't gate on `pending` — the original
+            example never blocked the table on per-key first-frames, and a single
+            slow core shouldn't blank the whole view. */}
+        <SurfaceGate
+          health={app.health}
+          ready={(h) =>
+            currentConnection().state === "connected" &&
+            !h.subs.some((s) => s.error)
+          }
+          fallback={(h) => (
+            <ConnectingOverlay
+              state={currentConnection().state}
+              error={h().subs.find((s) => s.error)?.error?.message}
+            />
+          )}
         >
           <CpuStrip coreIds={coreIds()} getCore={(id) => cores.byKey(id)?.()} />
           <FilterBar
@@ -159,7 +198,7 @@ export default function App() {
             onSort={setSortKey}
             onKill={killProcess}
           />
-        </Show>
+        </SurfaceGate>
       </div>
     </div>
   );
@@ -288,14 +327,19 @@ function FilterBar(props: {
   );
 }
 
-function ConnectingOverlay(props: { state: string }) {
+function ConnectingOverlay(props: { state: string; error?: string }) {
+  // A live subscription error (the gate held closed while CONNECTED) wins the
+  // headline — it's the actionable failure; otherwise show the link-lifecycle
+  // line keyed off the `connection` cell's state.
   const msg = () =>
-    ({
+    props.error ??
+    {
       copying: "Copying agent to remote…",
       connecting: "Connecting…",
       disconnected: "Reconnecting…",
       failed: "Connection failed — gave up retrying.",
-    })[props.state] ?? "Initializing…";
+    }[props.state] ??
+    "Initializing…";
   return (
     <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>
