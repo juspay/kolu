@@ -701,4 +701,34 @@ describe("attach() reconnect-storm defenses", () => {
     expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
     expect(snapshot).toContain("second");
   });
+
+  it("re-serializes after a resize reflows the mirror (cache cleared on resize)", async () => {
+    host = createPtyHost({ log: silentLog });
+    // A 91-col marker line wraps at the default 80 cols and unwraps at 120, so
+    // the resize reflows the serialized layout — and does so with NO data
+    // publish, the path that exposes the missed invalidation.
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf 'WIDEMARK%083d\\n' 0; sleep 1"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // Settle via getScreenText (a buffer read, no serialize) so the poll
+    // doesn't pre-populate the snapshot memo.
+    await waitFor(() => host.getScreenText(id).includes("WIDEMARK"));
+
+    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    // First attach in this epoch serializes and memoizes the 80-col snapshot.
+    const first = host.attach(id).snapshot;
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
+
+    // resize() reflows the mirror with no output to clear the memo — without
+    // invalidation the next same-epoch attach hands back the stale 80-col snap.
+    serializeSpy.mockClear();
+    host.resize(id, 120, 24);
+    const second = host.attach(id).snapshot;
+
+    expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
+    expect(second).not.toBe(first); // reflects the new 120-col layout
+  });
 });
