@@ -9,7 +9,7 @@
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClient } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
-import { surface } from "../common/surface";
+import { monitorSurface } from "../common/surface";
 
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
 // `partysocket`'s `WebSocket` export is `ReconnectingWebSocket`; its
@@ -36,6 +36,6 @@ if (import.meta.hot) {
 }
 
 export const app = surfaceClient(
-  surface,
-  websocketLink<typeof surface.contract>(ws as unknown as WebSocket),
+  monitorSurface,
+  websocketLink<typeof monitorSurface.contract>(ws as unknown as WebSocket),
 );
