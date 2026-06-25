@@ -306,11 +306,13 @@ interface Entry {
   proc: pty.IPty;
   headless: InstanceType<typeof Terminal>;
   serialize: InstanceType<typeof SerializeAddon>;
-  /** Memoized attach snapshot for the current publish-epoch. Set on the first
-   *  `serialize()` of an epoch and cleared in the data-publish path the instant
-   *  new bytes parse into the mirror, so a burst of attaches to one PTY between
-   *  two output bytes (a reconnect storm against an idle terminal) shares a
-   *  single serialize instead of one per attach. */
+  /** Memoized attach snapshot for the current publish-epoch. Read through
+   *  `snapshotOf` (set on the first `serialize()` of an epoch) and cleared
+   *  through `invalidateSnapshot` in EVERY mirror mutator — the data-publish
+   *  path (the instant new bytes parse in) and `resize()` (which reflows the
+   *  serialized layout). So a burst of attaches to one PTY between two mutations
+   *  (a reconnect storm against an idle terminal) shares a single serialize
+   *  instead of one per attach. */
   snapshotCache: string | undefined;
   cwd: string;
   title: string;
@@ -623,7 +625,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // New bytes have parsed into the mirror, so the memoized snapshot is
           // stale: clear it BEFORE publishing, so a cached value always implies
           // "no parse since it was taken" — the invariant `attach()` leans on.
-          entry.snapshotCache = undefined;
+          invalidateSnapshot(entry);
           entry.data.publish(data);
         });
       }),
@@ -649,6 +651,19 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return { id, pid: proc.pid };
   }
 
+  // The serialized mirror snapshot for the current publish-epoch is a single
+  // domain concept with one production site and one invalidation seam, so its
+  // memo can't desync across the consumers that read it or the mutators that
+  // dirty it. `snapshotOf` is the only place the mirror is serialized;
+  // `invalidateSnapshot` is the only place the memo is dropped, called from
+  // EVERY mutator of the serialized state (the data-publish path and resize()).
+  function snapshotOf(entry: Entry): string {
+    return (entry.snapshotCache ??= entry.serialize.serialize());
+  }
+  function invalidateSnapshot(entry: Entry): void {
+    entry.snapshotCache = undefined;
+  }
+
   function attach(id: PtyId, signal?: AbortSignal): PtyAttachment {
     const entry = requireEntry(id);
     // Subscribe BEFORE serializing, both synchronously: no headless parse
@@ -661,14 +676,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (a no-op `term.write("")` on the client) completes a no-op attach.
     if (signal?.aborted) return { snapshot: "", deltas };
     // Coalesce within the publish-epoch: the first attach serializes and
-    // memoizes; the rest of a burst reuse the identical immutable string.
-    // Race-free — `snapshotCache` is set here and cleared in the publish path,
-    // both synchronous, and publish only fires from a later task; so a present
-    // cache means the mirror is unchanged since it was taken, and every reusing
+    // memoizes via snapshotOf(); the rest of a burst reuse the identical
+    // immutable string. Race-free — the memo is set through snapshotOf() and
+    // cleared through invalidateSnapshot() in every mirror mutator, all
+    // synchronous, and publish only fires from a later task; so a present cache
+    // means the mirror is unchanged since it was taken, and every reusing
     // attacher's deltas (subscribed just above) begin at the next publish,
     // exactly where the shared snapshot ends. No gap, no overlap.
-    entry.snapshotCache ??= entry.serialize.serialize();
-    return { snapshot: entry.snapshotCache, deltas };
+    return { snapshot: snapshotOf(entry), deltas };
   }
 
   function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
@@ -738,6 +753,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (!entry) return;
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
+    // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
+    // change), so the serialized layout changes with NO data publish to clear
+    // the memo — invalidate here too, or a same-epoch attach after a resize
+    // hands back the stale pre-resize snapshot.
+    invalidateSnapshot(entry);
   }
 
   function handle(id: PtyId): PtyHandle {
