@@ -4,7 +4,7 @@
  *  in one place so they evolve together. */
 
 import { shellQuoteArg } from "@kolu/shell-quote";
-import type { FailureCause } from "./connection.ts";
+import type { FailureCause } from "./connection";
 import { controlOptPairs } from "./controlMaster";
 
 export function isLocalHost(host: string): boolean {

@@ -4,9 +4,9 @@ import {
   connectionCell,
   ConnectionInfoSchema,
   DEFAULT_CONNECTION,
-} from "./connection.ts";
-import { projectConnection } from "./connectionPipe.ts";
-import type { HostSessionState } from "./hostSession.ts";
+} from "./connection";
+import { projectConnection } from "./connectionPipe";
+import type { HostSessionState } from "./hostSession";
 
 describe("connection cell", () => {
   it("is gate-closed by default (connecting) — a fresh cell never reads connected", () => {

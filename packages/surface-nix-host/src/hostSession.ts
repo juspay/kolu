@@ -64,7 +64,7 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import type { ConnectionState } from "./connection.ts";
+import type { ConnectionState } from "./connection";
 import {
   buildAgentCommand,
   type FailureCause,

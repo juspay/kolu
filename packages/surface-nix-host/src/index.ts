@@ -17,11 +17,11 @@ export { resolveSystem } from "./arch";
 // it produces; the browser-safe cell members (`connectionCell`, schema,
 // `CONNECTION_STATES`, …) live solely on the `@kolu/surface-nix-host/connection`
 // subpath, which is where a surface composes them.
-export type { ConnectionInfo } from "./connection.ts";
+export type { ConnectionInfo } from "./connection";
 export {
   pipeSessionStateToCell,
   projectConnection,
-} from "./connectionPipe.ts";
+} from "./connectionPipe";
 export {
   type AgentDial,
   type DialAgentOnceOptions,

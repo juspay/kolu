@@ -11,8 +11,8 @@
  */
 
 import type { AnyContractRouter } from "@orpc/contract";
-import type { ConnectionInfo } from "./connection.ts";
-import type { HostSession, HostSessionState } from "./hostSession.ts";
+import type { ConnectionInfo } from "./connection";
+import type { HostSession, HostSessionState } from "./hostSession";
 
 /** Project a `HostSessionState` onto the browser-facing {@link ConnectionInfo}
  *  — the four fields a viewer renders. Pure; the one mapping every re-serving
