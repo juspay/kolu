@@ -26,6 +26,15 @@ const surface = defineSurface({
       default: { state: "connecting" },
       verbs: ["get"],
     },
+    // A get-only cell whose stub stream REJECTS — drives the `onError`
+    // pass-through test. `ReadOnlyBoundCellOptions` exposes `onError`, and the
+    // read-only branch must thread it to `useCellServer` so a get-only stream
+    // failure reaches callback-based error handling, not just `error()`.
+    connFail: {
+      schema: z.object({ state: z.string() }),
+      default: { state: "connecting" },
+      verbs: ["get"],
+    },
     // Mutable (default verbs `["get", "set"]`) — the contrast case.
     prefs: {
       schema: z.object({ theme: z.string() }),
@@ -92,6 +101,13 @@ function stubLink() {
     link: {
       surface: {
         conn: { get },
+        // A get-only cell whose stream source REJECTS the moment it's awaited —
+        // `createSubscription` catches it, sets `error()`, and (only if `onError`
+        // was threaded through) invokes the callback.
+        connFail: {
+          // biome-ignore lint/suspicious/noExplicitAny: the rejected thunk stands in for a failing wire stream.
+          get: () => Promise.reject(new Error("stream boom")) as any,
+        },
         prefs: {
           get,
           set: () => {
@@ -161,6 +177,27 @@ describe("surfaceClient cell verbs", () => {
       expect((ro as any).set).toBeUndefined();
       // biome-ignore lint/suspicious/noExplicitAny: probing for absence of a runtime field the type already hides.
       expect((ro as any).patch).toBeUndefined();
+      dispose();
+    });
+  });
+
+  it("threads `onError` through a get-only cell's read-only `.use()` so a stream failure reaches the callback", async () => {
+    const { link } = stubLink();
+    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
+    const app = surfaceClient(surface, link as any);
+    await createRoot(async (dispose) => {
+      const errors: Error[] = [];
+      // `ReadOnlyBoundCellOptions` carries only `onError`. The read-only branch
+      // must forward it to the server-authority subscription; without the
+      // pass-through this callback would NEVER fire on a get-only stream failure
+      // — the cell would error()-out silently for callback-based consumers.
+      app.cells.connFail.use({ onError: (err) => errors.push(err) });
+      // `createSubscription` sets `error()` async (the source rejects on await),
+      // then a `createEffect` on `error()` invokes `onError`. Flush microtasks.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.message).toMatch(/stream boom/);
       dispose();
     });
   });

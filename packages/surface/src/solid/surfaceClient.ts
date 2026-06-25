@@ -290,7 +290,11 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
           const cell = useCell(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
             (surface.descriptors.cells as any)[key],
-            { source, authority: "server" },
+            // Thread the caller's `onError` (the only `ReadOnlyBoundCellOptions`
+            // field) into the server-authority subscription so a get-only cell's
+            // stream failure reaches callback-based error handling, not just the
+            // `error()` signal — `useCellServer` forwards it to `createSubscription`.
+            { source, authority: "server", onError: opts.onError },
           );
           // Return ONLY the read-only projection — `set`/`patch` are absent at
           // runtime, matching `ReadOnlyUseCellResult`. The cast bridges the

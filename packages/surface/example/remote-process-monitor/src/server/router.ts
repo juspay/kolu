@@ -1,15 +1,19 @@
 /**
  * Parent-side router — bridges browser ↔ remote agent.
  *
- * The browser subscribes to the same `surface` as the agent serves. The
- * parent doesn't re-define a different surface; it implements the agent
- * surface locally by *forwarding* every read to the remote stdio client.
- * On a fresh subscriber, the parent:
+ * The agent serves the connection-free base `surface`. The parent re-serves the
+ * MIRRORED surface — `monitorSurface = mirroredSurface(surface)`, i.e. the base
+ * plus the get-only `connection` cell — and the browser subscribes to THAT. The
+ * parent doesn't re-define a different base; it implements the base primitives
+ * locally by *forwarding* every read to the remote stdio client, and owns the
+ * extra `connection` cell itself. On a fresh subscriber, the parent:
  *
- *   1. Synchronously yields the parent's connection-state-aware
- *      `system` snapshot (state = "copying" / "connecting" / etc.).
+ *   1. Synchronously yields the seeded, gate-closed `connection` cell — link
+ *      health (state = "copying" / "connecting" / etc.) lives in its OWN cell,
+ *      not folded into the `system` snapshot.
  *   2. Once the agent's link is up, mirrors the agent's `system` and
- *      `processes` updates into the parent's local store/collection.
+ *      `processes` updates into the parent's local store/collection, and the
+ *      session pump writes link health into the `connection` cell.
  *   3. Per-key process upserts/removes from the agent flow through to
  *      the framework's channels and on to the browser.
  *
