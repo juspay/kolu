@@ -15,7 +15,6 @@
 import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
-import { resolveCellVerbs } from "../define";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
@@ -26,12 +25,18 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
+import { resolveCellVerbs } from "../define";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
   type Subscription,
   type SubscriptionOptions,
 } from "./createSubscription";
+import {
+  createSurfaceHealthRegistry,
+  type HealthSource,
+  type SurfaceHealth,
+} from "./health";
 import { type UseCellResult, useCell } from "./useCell";
 import { type UseCollectionResult, useCollection } from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
@@ -195,6 +200,20 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
   readonly collections: BoundCollectionsFor<S>;
   readonly streams: BoundStreamsFor<S>;
   readonly events: BoundEventsFor<S>;
+  /** The subscription-health FACT — the `system.live` twin (`./health`). Reads
+   *  every enrolled subscription's self-clearing `error()`/`pending()` plus the
+   *  transport `live`, so a consumer reads ONE fact instead of hand-folding the
+   *  per-sub errors (the fold that latched in #1564). A reactive accessor: read
+   *  it inside a tracking scope (a memo, JSX, `<SurfaceGate>`). Policy — what
+   *  "ready" means — is the consumer's, not this fact's. */
+  health(): SurfaceHealth;
+  /** Enrol an owner-managed subscription's OWN `pending`/`error` into this
+   *  client's health fact. The framework birth sites (cells, collection
+   *  keys-stream + per-key, streams) enrol automatically; this is the escape
+   *  hatch for a raw `streamCall` that owns its loop + error state (Leak A), so
+   *  even a hand-driven stream's failure reaches `health()` instead of a private
+   *  `console.error`. Returns a disposer; also auto-drops via `onCleanup`. */
+  enroll(name: string, source: HealthSource): () => void;
 }
 
 // ── Builder ────────────────────────────────────────────────────────────
@@ -220,8 +239,20 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
   link: Rpc,
+  opts?: {
+    /** Transport liveness for `health().live` — the socket/heartbeat watchdog's
+     *  reactive answer. Defaults to a constant `true`: a direct/stdio link can't
+     *  be silently half-open, so it is live by construction. The socket
+     *  transports (`@kolu/surface-app`'s `connectSurface`) thread the real
+     *  signal in; `health()` originates the per-subscription FACT either way. */
+    live?: Accessor<boolean>;
+  },
 ): SurfaceClient<S, Rpc> {
   const spec = surface.spec;
+  // The per-client subscription-health registry. Every `.use()` below enrols its
+  // subscription, so `health()` folds a TOTAL picture (a partial registry behind
+  // a confident gate is worse than no gate — `./health`).
+  const registry = createSurfaceHealthRegistry(opts?.live ?? (() => true));
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -296,6 +327,9 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
             // `error()` signal — `useCellServer` forwards it to `createSubscription`.
             { source, authority: "server", onError: opts.onError },
           );
+          // Enrol the cell's self-clearing error()/pending() into health() — rides
+          // this `.use()`'s consumer owner, so it drops when the component unmounts.
+          registry.enroll(key, { pending: cell.pending, error: cell.error });
           // Return ONLY the read-only projection — `set`/`patch` are absent at
           // runtime, matching `ReadOnlyUseCellResult`. The cast bridges the
           // walk-by-string `BoundCell` map; the typed `BoundCellsFor` already
@@ -318,11 +352,13 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
         ) {
           merged.applyPatch = specPatch;
         }
-        return useCell(
+        const cell = useCell(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
           (surface.descriptors.cells as any)[key],
           merged,
         );
+        registry.enroll(key, { pending: cell.pending, error: cell.error });
+        return cell;
       },
     };
   }
@@ -355,6 +391,12 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
               { onError },
             );
             keysError = sub.error;
+            // Leak B: enrol the keys-stream itself. A failing keys stream
+            // collapses `keys()` to `[]` (the `sub() ?? []` fallback), so the
+            // collection reads as a healthy EMPTY set — without this, `health()`
+            // reports `ready` over a dead collection. (The bespoke `keysError`
+            // accessor above predates `health()` and is now subsumed by it.)
+            registry.enroll(`${key}.keys`, sub);
             return createMemo<unknown[]>(() => sub() ?? []);
           })();
         const view = useCollection(
@@ -365,6 +407,11 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
             valueSource: ns.get,
             keyToInput: (k) => ({ key: k }),
             onError,
+            // Enrol each per-key value sub as `<key>[<id>]`. The callback runs
+            // inside the `mapArray` per-key owner, so each enrolment drops when
+            // its key leaves the set (the same owner disposal `useCollection`
+            // already rides for the subscription itself).
+            enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
           },
         );
         return { ...view, keysError, upsert, delete: del };
@@ -379,14 +426,17 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
     streams[key] = {
-      use: (inputFn, streamOpts) =>
-        useStream(
+      use: (inputFn, streamOpts) => {
+        const sub = useStream(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
           (surface.descriptors.streams as any)[key],
           inputFn,
           ns.get,
           streamOpts,
-        ),
+        );
+        registry.enroll(key, sub);
+        return sub;
+      },
     };
   }
 
@@ -413,6 +463,8 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     collections: collections as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
+    health: registry.health,
+    enroll: registry.enroll,
   };
 }
 

@@ -16,6 +16,20 @@ export {
   type SubscriptionOptions,
 } from "./createSubscription";
 export {
+  createSurfaceHealthRegistry,
+  type HealthSource,
+  mergeSurfaceHealth,
+  type SubHealth,
+  type SurfaceHealth,
+  type SurfaceHealthRegistry,
+} from "./health";
+export {
+  type GateStatus,
+  gateStatus,
+  SurfaceGate,
+  type SurfaceGateProps,
+} from "./SurfaceGate";
+export {
   type BoundCell,
   type BoundCellOptions,
   type BoundCollection,
