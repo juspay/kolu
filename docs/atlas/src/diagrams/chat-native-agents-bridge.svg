@@ -1,113 +1,105 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="A messaging seam (Slack, Discord, WhatsApp, Telegram) sits above kolu's own server. The outbound awareness path — a live terminal tile observed by pulam, folded to an alert, pinged out to the seam — ships today (green). The inbound action path — submit and approve flowing from the seam into a new authenticated ingress daemon beside kaval, which writes into the live tile — is the missing leg to build (red, dashed).">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 614" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="The seam between XS (the chat app) and kolu, on one machine. XS owns identity, login, presence, and the write-floor (at most one writer). Inside kolu, pulam is a read-only awareness fold (host-wide) and kaval is the single writer that serializes input to the terminal. Two channels, both over one trusted connection: OBSERVE flows out from pulam up to XS — observe, attach, getSession — read-only; observe and attach ship today, getSession is still to build. ACT flows in from XS down to kaval — submit, write, kill, resize, wake — as plain calls over the trusted connection; write is partial, the rest are still to build. kolu authenticates nothing: the connection is the trust, identity and the write-floor live in XS, and kolu serializes writes and keeps no roster.">
   <defs>
-    <marker id="cb-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#b42318"/>
+    <marker id="cb2-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
     </marker>
-    <marker id="cb-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="cb2-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    </marker>
+    <marker id="cb2-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#0b6478"/>
     </marker>
-    <marker id="cb-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10z" fill="#1b7a3a"/>
-    </marker>
-    <filter id="cb-redglow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#b42318" flood-opacity="0.28"/>
-    </filter>
     <style>
-      .host      { fill:#fafbfc; stroke:#9aa0a6; stroke-width:1.5; stroke-dasharray:5 4; }
-      .hostlabel { fill:#7a8089; font-size:11px; font-weight:700; letter-spacing:0.09em; }
-      .seam      { fill:#fbf4e6; stroke:#b4690e; stroke-width:1.75; }
-      .seamtitle { fill:#92400e; font-weight:700; font-size:13.5px; }
-      .seamsub   { fill:#9a6a1a; font-size:11px; }
-      .prim      { fill:#eef6f8; stroke:#0b6478; stroke-width:1.6; }
-      .primtitle { fill:#0b4a5a; font-weight:700; font-size:14px; }
-      .primnote  { fill:#3f7d8c; font-size:10.5px; font-style:italic; }
-      .tile      { fill:#f4f6f8; stroke:#5a6270; stroke-width:1.5; }
-      .tiletitle { fill:#2a2f36; font-weight:700; font-size:13.5px; }
-      .missing   { fill:#fcf0ef; stroke:#b42318; stroke-width:2.5; }
-      .misstitle { fill:#b42318; font-weight:700; font-size:14px; }
-      .badge     { fill:#b42318; font-size:10px; font-weight:700; letter-spacing:0.05em; }
-      .sub       { fill:#5a6270; font-size:11px; }
-      .mono      { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
-      .er        { stroke:#b42318; stroke-width:2.25; fill:none; }
-      .erd       { stroke:#b42318; stroke-width:2.25; fill:none; stroke-dasharray:6 5; }
-      .et        { stroke:#0b6478; stroke-width:2; fill:none; }
-      .eg        { stroke:#1b7a3a; stroke-width:2.25; fill:none; }
-      .lblr      { fill:#b42318; font-size:11px; font-style:italic; }
-      .lblrb     { fill:#b42318; font-size:10.5px; font-weight:700; letter-spacing:0.04em; }
-      .lblt      { fill:#0b6478; font-size:10.5px; font-style:italic; }
-      .lblg      { fill:#1b7a3a; font-size:11px; font-style:italic; }
-      .lblgb     { fill:#1b7a3a; font-size:10.5px; font-weight:700; letter-spacing:0.04em; }
-      .leg       { fill:#5a6270; font-size:10.5px; }
+      .b-title  { fill:#0f172a; font-size:16px; font-weight:700; }
+      .b-sub    { fill:#64748b; font-size:11.5px; }
+      .mono     { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+
+      .seam     { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
+      .seam-t   { fill:#92400E; font-weight:700; font-size:14px; }
+      .seam-s   { fill:#7a4f00; font-size:11px; }
+
+      .host     { fill:#fbfcfe; stroke:#9aa0a6; stroke-width:1.5; stroke-dasharray:5 4; }
+      .hostlabel{ fill:#7a8089; font-size:11px; font-weight:700; letter-spacing:0.09em; }
+
+      .prim     { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.75; }
+      .prim-t   { fill:#0D32B2; font-weight:700; font-size:13.5px; }
+      .prim-s   { fill:#4A5072; font-size:11px; }
+      .prim-n   { fill:#3f7d8c; font-size:10.5px; font-style:italic; }
+
+      .tile     { fill:#f4f6f8; stroke:#5a6270; stroke-width:1.5; }
+      .tile-t   { fill:#2a2f36; font-weight:700; font-size:13.5px; }
+      .tile-s   { fill:#5a6270; font-size:11px; }
+
+      .eg       { stroke:#15803D; stroke-width:2.5; fill:none; }
+      .ea       { stroke:#B45309; stroke-width:2.5; fill:none; stroke-dasharray:7 5; }
+      .et       { stroke:#0b6478; stroke-width:2; fill:none; }
+
+      .lblg     { fill:#15803D; font-size:11px; font-style:italic; }
+      .lblgb    { fill:#15803D; font-size:10px; font-weight:700; letter-spacing:0.05em; }
+      .lbla     { fill:#B45309; font-size:11px; font-style:italic; }
+      .lblab    { fill:#B45309; font-size:10px; font-weight:700; letter-spacing:0.05em; }
+      .lblt     { fill:#0b6478; font-size:10.5px; font-style:italic; }
+
+      .lawbox   { fill:#EEF1FB; stroke:#0D32B2; stroke-width:1.5; }
+      .law-t    { fill:#0D32B2; font-size:13px; font-weight:700; }
+      .law-s    { fill:#3a4575; font-size:11px; }
     </style>
   </defs>
 
-  <!-- messaging seam (external, amber) -->
-  <rect class="seam" x="180" y="20" width="360" height="54" rx="9"/>
-  <text class="seamtitle" x="360" y="43" text-anchor="middle">messaging seam — one adapter</text>
-  <text class="seamsub mono" x="360" y="61" text-anchor="middle">Slack · Discord · WhatsApp · Telegram</text>
+  <text class="b-title" x="40" y="32">The seam &#8212; what kolu exposes</text>
+  <text class="b-sub" x="40" y="52">OBSERVE flows out &#183; ACT flows in &#8212; both over one trusted connection</text>
 
-  <!-- host container -->
-  <rect class="host" x="40" y="118" width="640" height="405" rx="12"/>
-  <text class="hostlabel" x="58" y="140" text-anchor="start">YOUR OWN SERVER — SINGLE HOST TODAY</text>
+  <!-- XS band -->
+  <rect class="seam" x="150" y="74" width="460" height="60" rx="9"/>
+  <text class="seam-t" x="380" y="100" text-anchor="middle">XS &#8212; the chat app</text>
+  <text class="seam-s" x="380" y="120" text-anchor="middle">owns identity &#183; login &#183; presence &#183; the write-floor (at most one writer)</text>
 
-  <!-- ingress daemon (NEW, red, the missing leg) -->
-  <g filter="url(#cb-redglow)">
-    <rect class="missing" x="70" y="165" width="270" height="94" rx="8"/>
-  </g>
-  <text class="misstitle" x="205" y="190" text-anchor="middle">ingress daemon</text>
-  <text class="badge" x="205" y="208" text-anchor="middle">NEW · THE ONE MISSING LEG</text>
-  <text class="sub" x="205" y="229" text-anchor="middle">authenticated · default-deny</text>
-  <text class="sub mono" x="205" y="247" text-anchor="middle" font-size="10.5px">submit · approve / reply</text>
+  <!-- host -->
+  <rect class="host" x="50" y="176" width="660" height="350" rx="12"/>
+  <text class="hostlabel" x="380" y="196" text-anchor="middle">KOLU &#8212; ON ONE MACHINE</text>
 
-  <!-- kaval (existing primitive, teal) -->
-  <rect class="prim" x="70" y="322" width="270" height="86" rx="8"/>
-  <text class="primtitle" x="205" y="348" text-anchor="middle">kaval — durable PTY host</text>
-  <text class="sub" x="205" y="368" text-anchor="middle">spawn · write bytes · sleep/wake</text>
-  <text class="primnote" x="205" y="389" text-anchor="middle">full write path exists today</text>
+  <!-- pulam (read, left) -->
+  <rect class="prim" x="86" y="288" width="246" height="98" rx="8"/>
+  <text class="prim-t" x="209" y="314" text-anchor="middle">pulam &#8212; read-only awareness</text>
+  <text class="prim-s" x="209" y="335" text-anchor="middle">observe &#183; rank &#183; fold to &#8220;who needs me&#8221;</text>
+  <text class="prim-n" x="209" y="358" text-anchor="middle">host-wide &#183; read-only by design</text>
 
-  <!-- pulam (existing primitive, teal) -->
-  <rect class="prim" x="420" y="165" width="230" height="94" rx="8"/>
-  <text class="primtitle" x="535" y="194" text-anchor="middle">pulam</text>
-  <text class="sub" x="535" y="214" text-anchor="middle">read-only awareness</text>
-  <text class="primnote" x="535" y="236" text-anchor="middle">observe · rank · alert fold</text>
+  <!-- kaval (write, right) -->
+  <rect class="prim" x="434" y="288" width="246" height="98" rx="8"/>
+  <text class="prim-t" x="557" y="314" text-anchor="middle">kaval &#8212; single writer of the terminal</text>
+  <text class="prim-s" x="557" y="335" text-anchor="middle">spawn &#183; write &#183; kill &#183; resize</text>
+  <text class="prim-n" x="557" y="358" text-anchor="middle">serializes input &#8212; last writer wins</text>
 
-  <!-- live tile (shared, neutral) -->
-  <rect class="tile" x="420" y="322" width="230" height="86" rx="8"/>
-  <text class="tiletitle" x="535" y="352" text-anchor="middle">live terminal tile</text>
-  <text class="sub mono" x="535" y="374" text-anchor="middle" font-size="10.5px">claude · codex · opencode</text>
+  <!-- live tile -->
+  <rect class="tile" x="250" y="430" width="260" height="84" rx="8"/>
+  <text class="tile-t" x="380" y="459" text-anchor="middle">live terminal</text>
+  <text class="tile-s mono" x="380" y="481" text-anchor="middle" font-size="11px">claude &#183; codex &#183; opencode</text>
 
-  <!-- EDGE 1: seam -> ingress (RED dashed — the missing inbound leg) -->
-  <path class="erd" d="M255 75 L212 162" marker-end="url(#cb-red)"/>
-  <text class="lblr"  x="120" y="108" text-anchor="middle">submit · approve</text>
-  <text class="lblrb" x="120" y="124" text-anchor="middle">THE MISSING LEG</text>
+  <!-- OBSERVE channel: pulam -> XS (green, ships) -->
+  <path class="eg" d="M188 288 L252 134" marker-end="url(#cb2-green)"/>
+  <text class="lblg" x="135" y="206" text-anchor="middle">observe &#183; attach</text>
+  <text class="lblgb" x="135" y="222" text-anchor="middle">SHIP TODAY (surface)</text>
+  <text class="lblg" x="135" y="244" text-anchor="middle">getSession</text>
+  <text class="lblab" x="135" y="259" text-anchor="middle">TO BUILD</text>
+  <text class="lblgb" x="135" y="279" text-anchor="middle">OUT &#183; READ-ONLY</text>
 
-  <!-- EDGE 2: ingress -> kaval (RED — new call onto an existing path) -->
-  <path class="er" d="M205 259 L205 319" marker-end="url(#cb-red)"/>
-  <text class="lblr mono" x="216" y="285" text-anchor="start" font-size="10.5px">call kaval.write</text>
-  <text class="lblr"      x="216" y="300" text-anchor="start">y⏎ into a named tile</text>
+  <!-- ACT channel: XS -> kaval (amber dashed, plain calls) -->
+  <path class="ea" d="M508 134 L555 285" marker-end="url(#cb2-amber)"/>
+  <text class="lbla" x="628" y="200" text-anchor="middle">submit &#183; write &#183; kill</text>
+  <text class="lbla" x="628" y="216" text-anchor="middle">resize &#183; wake</text>
+  <text class="lbla" x="628" y="238" text-anchor="middle">over the trusted connection</text>
+  <text class="lbla" x="628" y="256" text-anchor="middle" font-size="10px">write: partial &#183; rest to build</text>
 
-  <!-- EDGE 3: kaval -> tile (TEAL — ships today) -->
-  <path class="et" d="M340 365 L417 365" marker-end="url(#cb-teal)"/>
-  <text class="lblt" x="379" y="356" text-anchor="middle">spawn · write</text>
+  <!-- kaval -> tile (teal, internal write) -->
+  <path class="et" d="M470 386 L500 428" marker-end="url(#cb2-teal)"/>
+  <text class="lblt" x="520" y="410" text-anchor="start">write bytes</text>
 
-  <!-- EDGE 4: tile -> pulam (TEAL — ships today) -->
-  <path class="et" d="M535 322 L535 262" marker-end="url(#cb-teal)"/>
-  <text class="lblt" x="546" y="290" text-anchor="start">observe</text>
-  <text class="lblt" x="546" y="304" text-anchor="start">screen + session</text>
+  <!-- tile -> pulam (teal, observe) -->
+  <path class="et" d="M300 430 L244 388" marker-end="url(#cb2-teal)"/>
+  <text class="lblt" x="248" y="406" text-anchor="start">observe</text>
 
-  <!-- EDGE 5: pulam -> seam (GREEN — ships today) -->
-  <path class="eg" d="M535 164 L450 75" marker-end="url(#cb-green)"/>
-  <text class="lblg"  x="606" y="108" text-anchor="middle">ping when blocked</text>
-  <text class="lblgb" x="606" y="124" text-anchor="middle">SHIPS TODAY</text>
-
-  <!-- legend -->
-  <line class="erd" x1="78" y1="470" x2="110" y2="470"/>
-  <text class="leg" x="116" y="474" text-anchor="start">to build (the ingress leg)</text>
-  <line class="eg" x1="290" y1="470" x2="322" y2="470"/>
-  <text class="leg" x="328" y="474" text-anchor="start">ships today (the ping out)</text>
-  <line class="et" x1="500" y1="470" x2="532" y2="470"/>
-  <text class="leg" x="538" y="474" text-anchor="start">existing primitive</text>
-
-  <!-- structural note -->
-  <text class="leg" x="360" y="502" text-anchor="middle" font-style="italic">the ingress sits beside kaval (the write path) — never inside pulam (read-only)</text>
+  <!-- the principle (brief) -->
+  <rect class="lawbox" x="50" y="544" width="660" height="54" rx="10"/>
+  <text class="law-t" x="380" y="570" text-anchor="middle">kolu authenticates nothing &#8212; the connection is the trust.</text>
+  <text class="law-s" x="380" y="589" text-anchor="middle">Identity, login, and presence live in XS. kolu serializes writes (last one wins) and keeps no roster.</text>
 </svg>
