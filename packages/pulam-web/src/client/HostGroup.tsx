@@ -194,6 +194,10 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // the strip, and the dot each read it and `effectiveHealth` allocates fresh,
   // so memoize for one run + one stable identity per change (like `entries`).
   const health = createMemo(() => effectiveHealth(status(), connInfo()));
+  // "Is this host EFFECTIVELY connected?" — the one predicate the body gate, the
+  // terminal count, and the fleet-wide tally all read. Decided once here off the
+  // resolved `health`, not re-asserted as a bare `=== "connected"` at each site.
+  const connected = createMemo(() => health().state === "connected");
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -249,7 +253,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // `entries()` would let the global alert strip keep tallying stale agents from a
   // host the user is told is down. Zeroing here keeps the strip honest with the rows.
   createEffect(() => {
-    if (health().state !== "connected") {
+    if (!connected()) {
       props.reportCounts(props.host, { need: 0, work: 0 });
       return;
     }
@@ -288,7 +292,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             the rows are hidden and the awareness key set is stale (no reset frame
             crosses a dead transport), so showing "N terminals" beside a "down"
             dot would lie. Drop it until the host is genuinely connected. */}
-        <Show when={health().state === "connected"}>
+        <Show when={connected()}>
           <span class="text-[12px] text-[#5b6678]">
             · {awareness.keys().length} terminals
           </span>
@@ -308,7 +312,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             reaches the awareness body below, where "no terminals" is finally
             truthful — and the header dot reads the SAME fold, so they agree. */}
         <Show
-          when={health().state === "connected"}
+          when={connected()}
           fallback={
             <ConnectionView
               health={health()}
