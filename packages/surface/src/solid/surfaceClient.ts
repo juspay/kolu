@@ -15,10 +15,7 @@
 import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import { type StreamingProcedure, streamCall } from "../client";
-import {
-  DEFAULT_CELL_VERBS_WITH_PATCH,
-  DEFAULT_CELL_VERBS_WITHOUT_PATCH,
-} from "../define";
+import { resolveCellVerbs } from "../define";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
@@ -229,22 +226,17 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     // reset procedure, never a consumer mutation, so a `["get", "test__set"]`
     // cell (e.g. `activityFeed` / `session`) stays read-only on the client.
     //
-    // Resolve the EXPOSED verb directly from the cell's resolved verbs — the
-    // same set `cellContractEntries` walks — rather than guessing from
-    // `patchSchema`. Default verbs are `["get", "patch"]` when a `patchSchema`
-    // is declared, else `["get", "set"]`; an explicit `verbs` lists whichever
-    // it exposes. This keeps the binding aligned with `CellIsMutable` even for
-    // the legal `patchSchema` + explicit-`set` cell — whose client patch shape
-    // the bound type (`CellHasPatchVerb`) collapses to the full value `T`, so a
-    // `.patch` posts a full value to this `ns.set`, never a partial the endpoint
-    // would reject. It also leaves `mutate` undefined for a get-only cell so the
-    // read-only `.use()` type (no `set`/`patch`) keeps callers off a mutate path
-    // the wire can't service.
-    const verbs =
-      cellSpec.verbs ??
-      (cellSpec.patchSchema
-        ? DEFAULT_CELL_VERBS_WITH_PATCH
-        : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
+    // Resolve the EXPOSED verb through `resolveCellVerbs` — the SAME helper the
+    // contract derivation (`cellContractEntries`) and the server handler walk
+    // call — rather than re-spelling the patch/no-patch default here. This keeps
+    // the binding aligned with `CellIsMutable` even for the legal `patchSchema`
+    // + explicit-`set` cell — whose client patch shape the bound type
+    // (`CellHasPatchVerb`) collapses to the full value `T`, so a `.patch` posts a
+    // full value to this `ns.set`, never a partial the endpoint would reject. It
+    // also leaves `mutate` undefined for a get-only cell so the read-only
+    // `.use()` type (no `set`/`patch`) keeps callers off a mutate path the wire
+    // can't service.
+    const verbs = resolveCellVerbs(cellSpec);
     const mutateVerb = verbs.includes("patch")
       ? "patch"
       : verbs.includes("set")

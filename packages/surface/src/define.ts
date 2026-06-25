@@ -143,6 +143,24 @@ export const DEFAULT_COLLECTION_VERBS = [
   "delete",
 ] as const;
 
+/** A cell's effective verbs — `spec.verbs` when present, else the patch /
+ *  no-patch default. The SINGLE runtime source of this rule: the contract
+ *  derivation (`cellContractEntries`), the server handler walk (`server.ts`),
+ *  and the client binding (`surfaceClient`) all call this, so the wire shape,
+ *  the handler set, and the bound client can't drift on a `??` someone forgot
+ *  to update. `CellVerbsOf` is its type-level dual (TS can't reuse the runtime
+ *  value); keep the two in step. */
+export function resolveCellVerbs(
+  spec: CellSpec<any, any>,
+): readonly CellVerb[] {
+  return (
+    spec.verbs ??
+    (spec.patchSchema
+      ? DEFAULT_CELL_VERBS_WITH_PATCH
+      : DEFAULT_CELL_VERBS_WITHOUT_PATCH)
+  );
+}
+
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
@@ -154,11 +172,7 @@ export const DEFAULT_COLLECTION_VERBS = [
 function cellContractEntries<T, P>(
   spec: CellSpec<T, P>,
 ): Record<string, unknown> {
-  const verbs =
-    spec.verbs ??
-    (spec.patchSchema
-      ? DEFAULT_CELL_VERBS_WITH_PATCH
-      : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
+  const verbs = resolveCellVerbs(spec);
   const entries: Record<string, unknown> = {};
   for (const v of verbs) {
     if (v === "get") {
@@ -269,9 +283,10 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
     : EmptyObj
 >;
 
-/** The verb set a cell exposes — the TYPE counterpart of the runtime resolution
- *  in {@link cellContractEntries}: `spec.verbs` when present, else the
- *  patch/no-patch default. Honoring `verbs` here is load-bearing, not cosmetic:
+/** The verb set a cell exposes — the TYPE counterpart of the runtime
+ *  {@link resolveCellVerbs}: `spec.verbs` when present, else the patch/no-patch
+ *  default. TS can't reuse the runtime value, so this mirrors it; keep the two
+ *  in step. Honoring `verbs` here is load-bearing, not cosmetic:
  *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
  *  connection-health cell) must NOT type a `.set` the runtime contract router
  *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
