@@ -13,7 +13,6 @@
 import {
   type AwarenessValue,
   terminalWorkspaceSurface,
-  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
@@ -48,10 +47,7 @@ function makeInProcessArivuClient(
 ) {
   const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: {
-      version: { store: inMemoryStore(DEFAULT_VERSION) },
-      connection: { store: inMemoryStore(DEFAULT_CONNECTION) },
-    },
+    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
       awareness: {
         readAll: () => cache,

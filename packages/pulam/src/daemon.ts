@@ -19,7 +19,6 @@
 import {
   type AwarenessValue,
   terminalWorkspaceSurface,
-  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
@@ -164,16 +163,7 @@ export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
   const cache = new Map<TerminalId, AwarenessValue>();
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: {
-      version: { store: inMemoryStore(DEFAULT_VERSION) },
-      // Inert stub: the daemon serves a LOCAL link, so its connection is
-      // trivially "up" — it never writes this cell. The browser-facing health
-      // comes from a re-serving PARENT (pulam-web) off `session.onState`; a
-      // direct consumer reads `DEFAULT_CONNECTION` (`connecting`) and ignores
-      // it. Present only so `implementSurface` (fail-fast on any unimplemented
-      // primitive) accepts the composed surface.
-      connection: { store: inMemoryStore(DEFAULT_CONNECTION) },
-    },
+    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
       awareness: {
         readAll: () => cache,

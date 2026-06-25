@@ -19,6 +19,11 @@
  * gate on it — by design (a local link has no remote to be down).
  */
 
+import {
+  defineSurface,
+  type Surface,
+  type SurfaceSpec,
+} from "@kolu/surface/define";
 import { z } from "zod";
 
 /** The link phases, mirroring `HostSession`'s lifecycle 1:1 — the runtime
@@ -68,9 +73,9 @@ export const DEFAULT_CONNECTION: ConnectionInfo = {
   progressLines: [],
 };
 
-/** The composable cell descriptor — spread into a surface's `cells`
- *  (`cells: { …, connection: connectionCell }`). One source of truth for the
- *  schema AND the gate-closed default, so every composing app inherits both.
+/** The composable cell descriptor — composed onto a surface ONLY by
+ *  {@link mirroredSurface} (the mirror seam), never hand-spread. One source of
+ *  truth for the schema AND the gate-closed default, so every mirror inherits both.
  *
  *  Read-only over the wire (`verbs: ["get"]`): the parent host OWNS this cell —
  *  it writes it server-side from `session.onState` (`pipeSessionStateToCell`,
@@ -84,3 +89,41 @@ export const connectionCell = {
   default: DEFAULT_CONNECTION,
   verbs: ["get"],
 } as const;
+
+/** A base spec with the reserved get-only `connection` cell added. */
+export type WithConnection<S extends SurfaceSpec> = Omit<S, "cells"> & {
+  cells: NonNullable<S["cells"]> & { connection: typeof connectionCell };
+};
+
+/**
+ * Augment a base surface with the gate-closed, get-only `connection` cell — the
+ * "mirrored over a HostSession" seam's entry ticket.
+ *
+ * The BROWSER consumes `mirroredSurface(base)` and the re-serving parent serves
+ * it; the BASE surface (what an agent/daemon serves directly, or a one-shot dial
+ * reaches) stays connection-free, so a direct/local link carries no inert stub
+ * and no contract-version dance. Composing link health is then **structurally
+ * entailed** by re-serving over a session — not a step a consumer can forget
+ * (the omission that was #1564), exactly as `defineSurface` entails `system.live`.
+ *
+ * Throws if `base` already declares a `connection` cell: `connection` is a
+ * reserved name at this seam (mirroring `defineSurface`'s duplicate-`live` claim),
+ * so a collision is loud rather than a silent `{...spread}` overwrite.
+ */
+export function mirroredSurface<S extends SurfaceSpec>(
+  base: Surface<S>,
+): Surface<WithConnection<S>> {
+  if (base.spec.cells && "connection" in base.spec.cells) {
+    throw new Error(
+      'mirroredSurface: the base surface already declares a "connection" cell. ' +
+        "`connection` is reserved for the mirror seam's link-health cell — rename the base cell.",
+    );
+  }
+  return defineSurface({
+    ...base.spec,
+    cells: { ...base.spec.cells, connection: connectionCell },
+    // The documented cast: `defineSurface`'s const-inference over the spread spec
+    // doesn't line up with `WithConnection<S>` structurally, but the runtime IS
+    // that surface (base primitives + the connection cell).
+  }) as unknown as Surface<WithConnection<S>>;
+}

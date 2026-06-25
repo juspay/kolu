@@ -1503,9 +1503,6 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@kolu/surface-nix-host':
-        specifier: workspace:*
-        version: link:../surface-nix-host
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)

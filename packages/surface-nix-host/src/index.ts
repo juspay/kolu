@@ -21,6 +21,7 @@ export type { ConnectionInfo } from "./connection";
 export {
   pipeSessionStateToCell,
   projectConnection,
+  seedConnectionCell,
 } from "./connectionPipe";
 export {
   type AgentDial,

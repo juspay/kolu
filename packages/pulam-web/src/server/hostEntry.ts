@@ -32,7 +32,6 @@ import { RPCHandler } from "@orpc/server/ws";
 import {
   getHostSession,
   type HostSession,
-  pipeSessionStateToCell,
   pumpRemoteSurface,
 } from "@kolu/surface-nix-host";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
@@ -107,14 +106,6 @@ export function makeBuildEntry(
     // 2. The local re-serve of this host's awareness surface.
     const reServe = buildReServe({ log: hostLog });
 
-    // Carry the session's link health (copying → connecting → connected →
-    // disconnected → failed, + failureCause/log) onto the browser-facing
-    // `connection` cell. This is the fix for the "green dot + no terminals"
-    // lie: the browser gates on THIS, not on its own ws transport status, so a
-    // dead mirror reads honestly. Lives for the session's lifetime (never torn
-    // down — the page/process outlives it).
-    const _unsub = pipeSessionStateToCell(session, reServe.setConnection);
-
     // 3. The background reconnect-mirror loop. Void (fire-and-forget): it runs
     //    for the session's life, re-mirroring on each respawn. The sink's first
     //    `version` frame flips the session to `connected` (idempotent after).
@@ -129,6 +120,12 @@ export function makeBuildEntry(
       // never paint a finished agent's stale `working` (or a departed terminal's
       // ghost), nor a dead link's last live dot, across the reconnect (#1549).
       onLinkDown: () => reServe.resetRemoteFold(),
+      // Carry the session's link health (copying → … → failed) onto the
+      // browser-facing `connection` cell — the pump owns this subscription for
+      // the session's lifetime and tears it down on exit. This is the "green dot
+      // + no terminals" fix made un-forgettable: pumping a session carries its
+      // health by construction (#1564), so it can't be wired wrong here.
+      connection: { set: reServe.setConnection },
       log: hostLog,
     });
 

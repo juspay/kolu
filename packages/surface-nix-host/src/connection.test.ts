@@ -1,12 +1,25 @@
+import { defineSurface } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   CONNECTION_STATES,
   connectionCell,
   ConnectionInfoSchema,
   DEFAULT_CONNECTION,
+  mirroredSurface,
 } from "./connection";
 import { projectConnection } from "./connectionPipe";
 import type { HostSessionState } from "./hostSession";
+
+/** A minimal base surface to mirror — one cell, one collection. */
+const baseSurface = defineSurface({
+  cells: {
+    version: { schema: z.object({ v: z.string() }), default: { v: "1" } },
+  },
+  collections: {
+    items: { keySchema: z.string(), schema: z.object({ n: z.number() }) },
+  },
+});
 
 describe("connection cell", () => {
   it("is gate-closed by default (connecting) — a fresh cell never reads connected", () => {
@@ -59,5 +72,40 @@ describe("connection cell", () => {
     // on the browser-facing shape (and the result validates against the schema).
     expect("remoteProgressLines" in info).toBe(false);
     expect(ConnectionInfoSchema.parse(info)).toEqual(info);
+  });
+});
+
+describe("mirroredSurface", () => {
+  it("augments the base with a get-only `connection` cell, preserving the rest", () => {
+    const mirrored = mirroredSurface(baseSurface);
+    // The connection cell is added…
+    expect(Object.keys(mirrored.spec.cells ?? {})).toEqual(
+      expect.arrayContaining(["version", "connection"]),
+    );
+    // …and the base's other primitives survive untouched.
+    expect(Object.keys(mirrored.spec.collections ?? {})).toEqual(["items"]);
+    expect(mirrored.spec.cells?.connection).toBe(connectionCell);
+  });
+
+  it("exposes `connection.get` over the wire but NOT `connection.set` (unforgeable)", () => {
+    // The cell is read-only over RPC: the parent writes it server-side off
+    // `session.onState`; a wire client must never `connection.set` to forge the
+    // host's health. The contract is the wire shape a client can reach.
+    const connection = (
+      mirroredSurface(baseSurface).contract as {
+        surface: { connection: Record<string, unknown> };
+      }
+    ).surface.connection;
+    expect(connection.get).toBeTruthy();
+    expect("set" in connection).toBe(false);
+  });
+
+  it("THROWS on a base that already declares a `connection` cell (reserved name)", () => {
+    const collides = defineSurface({
+      cells: {
+        connection: { schema: z.object({ x: z.string() }), default: { x: "" } },
+      },
+    });
+    expect(() => mirroredSurface(collides)).toThrow(/reserved/i);
   });
 });

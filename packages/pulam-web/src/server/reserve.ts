@@ -46,26 +46,23 @@ import type {
   LiveSpawnHolder,
   ObservableHolder,
 } from "@kolu/surface-nix-host";
-import { observableHolder } from "@kolu/surface-nix-host";
-import {
-  type ConnectionInfo,
-  DEFAULT_CONNECTION,
-} from "@kolu/surface-nix-host/connection";
-import {
-  type AwarenessValue,
-  DEFAULT_VERSION,
-  type TerminalId,
-  terminalWorkspaceSurface,
-  type Version,
+import { observableHolder, seedConnectionCell } from "@kolu/surface-nix-host";
+import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
+import type {
+  AwarenessValue,
+  TerminalId,
+  TerminalWorkspaceSpec,
+  Version,
 } from "@kolu/terminal-workspace/surface";
+import { DEFAULT_VERSION } from "@kolu/terminal-workspace/surface";
 import { implement } from "@orpc/server";
-import type { ArivuContract } from "../shared/contract.ts";
+import { arivuSurface, type ArivuContract } from "../shared/contract.ts";
 
 export type { ArivuContract };
 
 /** The surface SPEC (the structural twin of the contract) — the type
  *  `SurfaceSink` / `ProcedureForwarders` are generic over. */
-type ArivuSpec = (typeof terminalWorkspaceSurface)["spec"];
+type ArivuSpec = TerminalWorkspaceSpec;
 
 export interface ReServe {
   /** The flattened oRPC router an `RPCHandler` upgrades the browser onto. Held
@@ -135,14 +132,12 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const versionStore: CellStore<Version> = inMemoryStore({
     ...DEFAULT_VERSION,
   });
-  // The browser-facing connection-health cell. Written by the host session loop
-  // (`pipeSessionStateToCell` in hostEntry) on every link transition — NOT
-  // folded from the mirror (it's the SESSION's state, not the daemon's inert
-  // stub). Seeded gate-closed (`connecting`), so the browser shows "connecting…"
-  // until the first real session frame rather than a healthy-but-empty fleet.
-  const connectionStore: CellStore<ConnectionInfo> = inMemoryStore({
-    ...DEFAULT_CONNECTION,
-  });
+  // The browser-facing connection-health cell — the gate-closed seed lives in
+  // the shared `seedConnectionCell()` (so a re-serve can't supply a
+  // connected-by-default store). It is written by `pumpRemoteSurface` off
+  // `session.onState` (NOT folded from the mirror — it's the SESSION's state),
+  // through the framework-wrapped `setConnection` below.
+  const connection = seedConnectionCell();
   // The awareness cache — the R4.8a render payload. The mirror's sink upserts /
   // removes per key; the browser-facing collection reads the whole map.
   const awarenessCache = new Map<TerminalId, AwarenessValue>();
@@ -167,11 +162,15 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   };
 
   // ── The local surface implementation ─────────────────────────────────────
-  const fragment = implementSurface(terminalWorkspaceSurface, {
+  // Implements the MIRRORED surface (base + the get-only `connection` cell). The
+  // base primitives are folded/forwarded from the daemon's surface; `connection`
+  // is the seeded local store the session pump writes — so the browser reads the
+  // augmented surface while the mirror still tracks the connection-free base.
+  const fragment = implementSurface(arivuSurface, {
     channel: inMemoryChannelByName(),
     cells: {
       version: { store: versionStore },
-      connection: { store: connectionStore },
+      connection,
     },
     collections: {
       awareness: {
@@ -256,7 +255,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // same shape drishti's `buildRouter` uses). Held as `unknown` — the precise
   // `Lazy<Router>` type RPCHandler can't accept anyway, so the single documented
   // cast lands at the `RPCHandler`/`directLink` boundary, not here.
-  const router: unknown = implement(terminalWorkspaceSurface.contract).router({
+  const router: unknown = implement(arivuSurface.contract).router({
     ...fragment.router,
   });
 

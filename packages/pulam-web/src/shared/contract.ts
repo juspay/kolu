@@ -8,11 +8,24 @@
  * over.
  */
 
+import { mirroredSurface } from "@kolu/surface-nix-host/connection";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 
 export { terminalWorkspaceSurface };
 
-/** The contract the remote pulam daemon serves and the parent re-serves —
- *  `terminalWorkspaceSurface`'s. The client's `websocketLink<ArivuContract>` and
- *  the server's `getHostSession<ArivuContract>` are both generic over it. */
+/** The surface the BROWSER consumes and the parent RE-SERVES: the daemon's
+ *  `terminalWorkspaceSurface` augmented at the mirror seam with the get-only
+ *  `connection` cell. The daemon serves the *base*; the parent mirrors the base
+ *  and adds `connection` from `session.onState` — so the augmented cell exists
+ *  exactly where it's parent-authored (the re-serve), nowhere else. */
+export const arivuSurface = mirroredSurface(terminalWorkspaceSurface);
+
+/** The AGENT contract — what the daemon serves, the session dials
+ *  (`getHostSession<ArivuContract>`), and the mirror mirrors. The BASE surface,
+ *  connection-free; the re-serve forwards/folds these primitives. */
 export type ArivuContract = typeof terminalWorkspaceSurface.contract;
+
+/** The BROWSER contract — base + `connection`. The client's
+ *  `surfaceClient(arivuSurface)` and the re-serve's `implementSurface` are
+ *  generic over it. */
+export type ArivuBrowserContract = typeof arivuSurface.contract;

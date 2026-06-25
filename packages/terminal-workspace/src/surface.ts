@@ -17,11 +17,6 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-// The connection-health cell — the BROWSER-SAFE `@kolu/surface-nix-host/connection`
-// subpath (zod-only, no `node:`/ssh), so importing it keeps this module's
-// browser-safe discipline. Composed into `cells` below; re-exported so the
-// daemon's inert stub + the test stand-ups seed it from one place.
-import { connectionCell } from "@kolu/surface-nix-host/connection";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -32,11 +27,6 @@ import {
 } from "kolu-git/schemas";
 import { z } from "zod";
 import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
-
-export {
-  type ConnectionInfo,
-  DEFAULT_CONNECTION,
-} from "@kolu/surface-nix-host/connection";
 
 /** The wire-shape `major.minor` of the workspace surface this build serves and
  *  expects. Bumped only when `terminalWorkspaceSurface` itself changes shape —
@@ -52,11 +42,8 @@ export {
  *  BREAKING change — a `0.3` viewer's schema requires `base` in every mode, so a
  *  `1.0` daemon's `local` result would fail its parse — hence the major bump, not
  *  a minor: the gate marks `0.3` and `1.0` mutually incompatible in BOTH
- *  directions, which is honest (the local arm changed shape, not merely grew).
- *  `1.0 → 1.1` ADDS the `connection` cell (the backend↔remote mirror's health,
- *  for surfaces re-served over a HostSession) — purely additive, so a `1.1`
- *  daemon still serves a `1.0` viewer and the gate keeps them compatible. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "1.1";
+ *  directions, which is honest (the local arm changed shape, not merely grew). */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "1.0";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -123,14 +110,11 @@ export const FsReadFileTextOutputSchema = z.object({
 export const terminalWorkspaceSurface = defineSurface({
   cells: {
     version: { schema: VersionSchema, default: DEFAULT_VERSION },
-    // The backend↔remote mirror's link health, for a surface re-served over a
-    // `HostSession` (pulam-web). Composed from the shared, gate-closed
-    // `connectionCell` so the schema + the `connecting`-by-default seed are
-    // single-sourced. The daemon serves an inert `DEFAULT_CONNECTION` stub; a
-    // re-serving PARENT writes it live off `session.onState` (`pipeSessionStateToCell`).
-    // A direct/local consumer (kolu, pulam-tui) reads `connecting` forever and
-    // doesn't gate on it — a local link has no remote to be down.
-    connection: connectionCell,
+    // NOTE: no `connection` cell here. Link health is NOT a property of the base
+    // terminal surface (a direct/local link has no remote to be down); it's
+    // composed ONLY at the nix-host re-serve seam via `mirroredSurface(...)`, so
+    // a re-serve over a HostSession carries it by construction (#1564) and the
+    // daemon serves a connection-free surface.
   },
   collections: {
     awareness: {
@@ -191,6 +175,12 @@ export const terminalWorkspaceSurface = defineSurface({
 });
 
 type SF = SurfaceTypes<typeof terminalWorkspaceSurface.spec>;
+
+/** The base surface SPEC — what a re-serve's `SurfaceSink`/`ProcedureForwarders`
+ *  are generic over when they fold/forward the daemon's (connection-free)
+ *  primitives. Exported so a consumer types against it WITHOUT importing the
+ *  surface value purely for a `typeof` query. */
+export type TerminalWorkspaceSpec = (typeof terminalWorkspaceSurface)["spec"];
 
 /** The collection's key — a terminal id (same `TerminalId` the sensors use). */
 export type AwarenessKey = SF["collections"]["awareness"]["Key"];

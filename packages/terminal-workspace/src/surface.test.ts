@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { seedAwarenessValue } from "./index.ts";
 import { AwarenessValueSchema } from "./schema.ts";
 import {
-  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   terminalWorkspaceSurface,
@@ -48,46 +47,26 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("is at 1.1 — additive `connection` cell over 1.0, still skew in BOTH directions vs 0.3", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.1");
-    // 0.3 → 1.0 was BREAKING: the getStatus `local` arm dropped the always-null
-    // `base` (and grew branch/working-tree fields), so a 0.3 viewer's schema
-    // (which requires `base` in every mode) fails to parse a 1.0 daemon's
-    // `local` result. The gate marks 1.x and 0.3 mutually incompatible, both
-    // directions — the major boundary still holds at 1.1:
-    expect(isContractVersionCompatible("1.1", "0.3")).toBe(false);
-    expect(isContractVersionCompatible("0.3", "1.1")).toBe(false);
-    // 1.0 → 1.1 is ADDITIVE (a new `connection` cell): a 1.1 daemon still serves
-    // a 1.0 viewer (extra cell ignored)…
+  it("bumped the contract to 1.0 — a BREAKING getStatus reshape, skew in BOTH directions vs 0.3", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.0");
+    // The 1.0 getStatus `local` arm dropped the always-null `base` (and grew the
+    // branch/working-tree fields). A 0.3 viewer's schema requires `base` in every
+    // mode, so a 1.0 daemon's `local` result fails its parse — NOT additive. The
+    // gate must therefore mark the two mutually incompatible, both directions:
+    expect(isContractVersionCompatible("1.0", "0.3")).toBe(false);
+    expect(isContractVersionCompatible("0.3", "1.0")).toBe(false);
+    // A newer-minor 1.x daemon (a future additive bump) still serves a 1.0 viewer.
     expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
-    // …but a 1.0 daemon does NOT satisfy a 1.1 viewer that may read the new cell
-    // (higher-minor consumer doesn't trust a lower-minor peer) — the standard
-    // additive-handshake direction.
-    expect(isContractVersionCompatible("1.0", "1.1")).toBe(false);
   });
 
-  it("composes the gate-closed `connection` cell onto the surface", () => {
-    // The cell rides the surface so the daemon stubs it and a re-serving parent
-    // writes it live; its default is `connecting` (gate-closed) so "healthy-empty
-    // before the first frame" is unrepresentable.
-    expect(Object.keys(terminalWorkspaceSurface.spec.cells ?? {})).toEqual(
-      expect.arrayContaining(["version", "connection"]),
-    );
-    expect(DEFAULT_CONNECTION.state).toBe("connecting");
-  });
-
-  it("exposes `connection.get` over the wire but NOT `connection.set`", () => {
-    // The cell is read-only over RPC: the parent host writes it server-side off
-    // `session.onState`; a browser-facing client must never be able to
-    // `connection.set` the host's health and forge the stale-health gate. The
-    // surface contract is the wire shape RPC clients can reach, so assert the
-    // composed contract carries `get` and has no `set` verb on `connection`.
-    const connection = (
-      terminalWorkspaceSurface.contract as {
-        surface: { connection: Record<string, unknown> };
-      }
-    ).surface.connection;
-    expect(connection.get).toBeTruthy();
-    expect("set" in connection).toBe(false);
+  it("the base surface carries NO `connection` cell — link health lives only at the mirror seam", () => {
+    // `connection` is composed onto the surface ONLY by `mirroredSurface(...)` at
+    // the nix-host re-serve seam — never on the base surface a daemon / direct
+    // link serves. So the base contract stays connection-free and version-stable;
+    // the cell's read-only-over-the-wire shape is asserted in surface-nix-host's
+    // `connection.test.ts` (against `mirroredSurface`).
+    expect(Object.keys(terminalWorkspaceSurface.spec.cells ?? {})).toEqual([
+      "version",
+    ]);
   });
 });

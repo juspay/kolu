@@ -41,19 +41,29 @@ import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   type AwarenessValue,
-  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type ArivuBrowserContract, arivuSurface } from "../shared/contract.ts";
 import { type ArivuContract, buildReServe } from "./reserve.ts";
 
 // Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
 // so a bare "A"/"B" would fail validation at the agent's collection boundary).
 const TERM_A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const TERM_B = "22222222-2222-4222-8222-222222222222" as TerminalId;
+
+/** A `directLink` to a re-serve router, typed over the BROWSER contract
+ *  (`arivuSurface` = base + connection). The documented fragment→client cast (the
+ *  `implementSurface` router's `Lazy<Router>` shape isn't accepted by
+ *  `directLink`'s input type; the runtime is a valid router) lives here, once,
+ *  rather than at every call site. */
+function browserLink(router: unknown) {
+  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — runtime shape is valid.
+  return directLink<ArivuBrowserContract>(router as any);
+}
 
 /** Stand up a REAL `terminalWorkspaceSurface` agent over `directLink`. The
  *  awareness collection is backed by the returned `cache` Map and driven through
@@ -68,15 +78,11 @@ function standUpAgent(
   const cache = new Map<TerminalId, AwarenessValue>();
   cache.set(TERM_A, seedAwarenessValue("/work/repo-a"));
 
+  // The agent serves the BASE surface (connection-free) — link health is the
+  // PARENT's, added only at the re-serve seam via `mirroredSurface`.
   const { router, ctx } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: {
-      version: { store: inMemoryStore({ ...DEFAULT_VERSION }) },
-      // The agent's inert connection stub (the daemon never writes it). The
-      // re-serve provides the LIVE browser-facing connection cell from the
-      // session, NOT by mirroring this — see the connection-state test below.
-      connection: { store: inMemoryStore({ ...DEFAULT_CONNECTION }) },
-    },
+    cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
     collections: {
       awareness: {
         readAll: () => cache,
@@ -216,13 +222,12 @@ describe("buildReServe — the mirror's connection health reaches the browser", 
     // folded from the mirror; it's the SESSION's state, written via
     // `setConnection` (what `pipeSessionStateToCell` does off `session.onState`).
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     let connNow: () => ConnectionInfo | undefined = () => undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const conn = app.cells.connection.use({});
       connNow = () => conn.value();
     });
@@ -290,13 +295,12 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
 
     // 4. A SECOND client to the RE-SERVE router, wrapped in a Solid client, with
     //    its awareness collection read inside a reactive root.
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as the agent above.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -391,8 +395,7 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
 
   it("yields the lead frame before any client, then forwards a client's pulses, then rebinds to the next spawn", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browser = directLink<ArivuContract>(reServe.router as any);
+    const browser = browserLink(reServe.router);
 
     const ac = new AbortController();
     const seen: number[] = [];
@@ -443,8 +446,7 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
 
   it("survives a remote stream ERROR (not just a clean end) — holds open and rebinds (F2)", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browser = directLink<ArivuContract>(reServe.router as any);
+    const browser = browserLink(reServe.router);
 
     const ac = new AbortController();
     const seen: number[] = [];
@@ -533,15 +535,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // FINE-GRAINED membership readers — exactly how a row reads its green dot.
     let aLive: boolean | undefined;
     let bLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -619,8 +620,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // First: an awareness subscription, so we can wait until TERM_A has folded
     // into the re-serve's cache. This makes the `activity` subscribe below land
@@ -629,7 +629,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let keys: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keys = () => awareness.keys();
     });
@@ -646,7 +646,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let snapshot: readonly TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -704,15 +704,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
 describe("buildReServe — resets the remote-derived fold on link death (#1549)", () => {
   it("drops a terminal that departed during the link-down window across the respawn", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // A browser subscribed BEFORE the reconnect — the one that must see the
     // ghost depart, not a fresh-subscribe browser reading the rebuilt cache.
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -795,15 +794,14 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // An ALREADY-subscribed browser — the one that must hear the dot go dark on
     // link death, not just a fresh-subscribe browser reading the reset snapshot.
     let aLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -840,7 +838,7 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     let freshLive: TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       createEffect(() => {
         freshLive = live();

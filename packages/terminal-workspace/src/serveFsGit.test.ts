@@ -16,7 +16,6 @@ import {
 import { makeTempRepo } from "./gitRepo.testlib.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
 import {
-  DEFAULT_CONNECTION,
   DEFAULT_VERSION,
   type RepoChangePulse,
   terminalWorkspaceSurface,
@@ -97,10 +96,7 @@ function makeClient() {
   const deps = fsGitSurfaceDeps(createTerminalWorkspaceEndpoint(log), log);
   const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: {
-      version: { store: inMemoryStore(DEFAULT_VERSION) },
-      connection: { store: inMemoryStore(DEFAULT_CONNECTION) },
-    },
+    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
       awareness: {
         readAll: () => new Map(),
