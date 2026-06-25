@@ -35,6 +35,7 @@ import {
 import {
   createSurfaceHealthRegistry,
   type HealthSource,
+  mergeSurfaceHealth,
   type SurfaceHealth,
 } from "./health";
 import { type UseCellResult, useCell } from "./useCell";
@@ -507,4 +508,24 @@ export function surfaceClients<
       } as any),
     ]),
   ) as SurfaceClients<E>;
+}
+
+/** The combined health FACT across every sibling client `surfaceClients` built —
+ *  the Leak D closure. `surfaceClients` hands back N INDEPENDENT clients, each
+ *  with its OWN `health()`; without a fold a consumer that wants ONE "is the app
+ *  healthy" answer has to hand-assemble them (and would likely forget one, the
+ *  exact partial-gate hazard `client.health()` exists to kill). This merges them
+ *  via {@link mergeSurfaceHealth}, prefixing each sub's name with its surface key
+ *  (`<surfaceKey>/<sub>`) and AND-reducing `live`, so the result reads as ONE fact
+ *  a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` can gate
+ *  on. Reactive — call it inside a tracking scope (or wrap in an accessor). */
+export function surfaceClientsHealth(
+  clients: Record<string, Pick<SurfaceClient<SurfaceSpec>, "health">>,
+): SurfaceHealth {
+  return mergeSurfaceHealth(
+    Object.entries(clients).map(([key, client]) => [
+      key,
+      () => client.health(),
+    ]),
+  );
 }

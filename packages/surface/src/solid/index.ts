@@ -39,6 +39,7 @@ export {
   type SurfaceClients,
   surfaceClient,
   surfaceClients,
+  surfaceClientsHealth,
 } from "./surfaceClient";
 export {
   type Authority,

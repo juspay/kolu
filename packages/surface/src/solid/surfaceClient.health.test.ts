@@ -25,7 +25,8 @@ import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
-import { surfaceClient } from "./surfaceClient";
+import type { SurfaceHealth } from "./health";
+import { surfaceClient, surfaceClientsHealth } from "./surfaceClient";
 
 const surface = defineSurface({
   cells: {
@@ -145,6 +146,34 @@ describe("surfaceClient health registry — totality", () => {
       expect(conn?.error?.message).toMatch(/stream boom/);
       dispose();
     });
+  });
+
+  it("surfaceClientsHealth folds sibling clients into ONE prefixed FACT (Leak D)", () => {
+    // `surfaceClients` hands back N independent clients; this folds their health
+    // into one fact a single `<SurfaceGate>` can gate on — prefixing each sub's
+    // name with its surface key and AND-reducing `live` (one dead sibling makes
+    // the composed app not-live). Stubbed `health()` accessors stand in for the
+    // real per-client registries (whose folding `health.test.ts` already pins).
+    const clients = {
+      kolu: {
+        health: (): SurfaceHealth => ({
+          live: true,
+          subs: [{ name: "conn", pending: false, error: undefined }],
+        }),
+      },
+      surfaceApp: {
+        health: (): SurfaceHealth => ({
+          live: false,
+          subs: [{ name: "buildInfo", pending: true, error: undefined }],
+        }),
+      },
+    };
+    const merged = surfaceClientsHealth(clients);
+    expect(merged.live).toBe(false);
+    expect(merged.subs).toEqual([
+      { name: "kolu/conn", pending: false, error: undefined },
+      { name: "surfaceApp/buildInfo", pending: true, error: undefined },
+    ]);
   });
 
   it("threads a transport `live` accessor into health().live", async () => {
