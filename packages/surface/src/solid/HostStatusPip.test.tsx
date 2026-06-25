@@ -17,8 +17,8 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SurfaceHealth } from "./health";
 import { HostStatusPip } from "./HostStatusPip";
+import type { SurfaceHealth } from "./health";
 
 const READY: SurfaceHealth = {
   live: true,

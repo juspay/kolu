@@ -49,15 +49,15 @@ import { reloadForUpdate, retireSocket } from "../lifecycle";
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
 // subpath, not the framework-free `/connect`.
 export {
-  connectSurface,
   type ConnectSurfaceOptions,
+  connectSurface,
   type SurfaceConnection,
 } from "./connectSurface";
 // The turnkey MULTI-surface connect seam (one socket → a `surfaceClients`
 // bundle + one default-on heartbeat + the combined `surfaceClientsHealth` fact).
 export {
-  connectSurfaces,
   type ConnectSurfacesOptions,
+  connectSurfaces,
   type SurfacesConnection,
 } from "./connectSurfaces";
 export {

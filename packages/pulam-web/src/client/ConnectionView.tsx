@@ -16,9 +16,9 @@
  *     `failed` — the real error + the link-log tail + a Reconnect button.
  */
 
-import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
+import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   type Accessor,
   createEffect,
@@ -28,8 +28,8 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { CONN_STATE, HEALTH_PALETTE } from "./connectionStates.ts";
 import { type EffectiveHealth, hostBodyReady } from "./connectionHealth.ts";
+import { CONN_STATE, HEALTH_PALETTE } from "./connectionStates.ts";
 
 /** Re-arm a host's parent session — the only recovery from terminal `failed`
  *  short of a page reload. Hits the parent's reconnect route, which calls

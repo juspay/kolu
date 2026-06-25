@@ -57,11 +57,11 @@
 
 import { StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
+import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 import {
   type ConnectionInfo,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-nix-host/connection";
-import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
 import {
   agentShortName,
   agentUrgency,

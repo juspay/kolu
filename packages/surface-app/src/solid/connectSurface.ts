@@ -29,8 +29,8 @@ import type {
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
-import type { Accessor } from "solid-js";
 import type { WebSocket as PartySocket } from "partysocket";
+import type { Accessor } from "solid-js";
 import {
   createHeartbeat,
   createSurfaceSocket,

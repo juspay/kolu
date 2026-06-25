@@ -12,16 +12,16 @@
  * pixels it drives.
  */
 
+import type { SurfaceHealth } from "@kolu/surface/solid";
+import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
 import type {
   ConnectionInfo,
   ConnectionState,
 } from "@kolu/surface-nix-host/connection";
-import type { SurfaceConnectionStatus } from "@kolu/surface-app/solid";
-import type { SurfaceHealth } from "@kolu/surface/solid";
 import {
   CONN_STATE,
-  HEALTH_PALETTE,
   type ConnPresentation,
+  HEALTH_PALETTE,
 } from "./connectionStates.ts";
 
 /** pulam-web's hard-gate readiness over the framework FACT — the ONE predicate

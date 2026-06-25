@@ -21,17 +21,17 @@
  * path; it just doesn't add a duplicate watchdog.
  */
 
-import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { Surface } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
   type SurfaceClients,
-  surfaceClients,
   type SurfaceHealth,
+  surfaceClients,
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
-import type { Accessor } from "solid-js";
 import type { WebSocket as PartySocket } from "partysocket";
+import type { Accessor } from "solid-js";
 import {
   createHeartbeat,
   createSurfaceSocket,

@@ -109,6 +109,10 @@ export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
       // The folded verdict, exposed for CSS theming — green is CSS-ownable via
       // `[data-health="ready"]` without an app being able to set it imperatively.
       data-health={display()}
+      // A status dot is an image-with-a-text-alternative (the rich label), not an
+      // interactive control — `role="img"` is what makes `aria-label` valid on the
+      // span and gives a screen reader the connection state.
+      role="img"
       title={props.title}
       aria-label={props.title}
     />
