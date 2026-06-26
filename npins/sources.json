@@ -1,18 +1,5 @@
 {
   "pins": {
-    "bun2nix": {
-      "type": "Git",
-      "repository": {
-        "type": "GitHub",
-        "owner": "juspay",
-        "repo": "bun2nix"
-      },
-      "branch": "rawflake",
-      "submodules": false,
-      "revision": "ce67cc1885e5e28fcc3ff865479be1a19ff396cb",
-      "url": "https://github.com/juspay/bun2nix/archive/ce67cc1885e5e28fcc3ff865479be1a19ff396cb.tar.gz",
-      "hash": "sha256-8ypPqVPCxiLD6GAvGjA+cJ3REJzgMJDGkGJLZYuCfGo="
-    },
     "iTerm2-Color-Schemes": {
       "type": "Git",
       "repository": {

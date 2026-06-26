@@ -1,25 +1,18 @@
+import { agentStatusLabel } from "@kolu/terminal-workspace/agentProjection";
 import type {
   AwarenessValue,
-  GitStatusOutput,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
-import type { FleetHostState } from "./fleetTypes.ts";
 import {
-  agentTone,
-  dashRow,
-  dashRows,
-  flattenRows,
-  type FleetRow,
-  fleetRow,
   formatAwarenessJson,
-  formatFleetJson,
-  gitCell,
-  gitDetail,
-  prTone,
-  projectFleet,
+  formatStatus,
+  formatWatchEvent,
+  formatWatchJson,
+  formatWatchRemoval,
+  formatWatchRemovalJson,
+  resolveTerminalId,
   shortId,
-  step,
 } from "./render.ts";
 
 /** A seed awareness value; `over` patches the fields a case cares about. The
@@ -37,800 +30,175 @@ function val(over: Partial<AwarenessValue>): AwarenessValue {
   } as AwarenessValue;
 }
 
+const agentVal = (state: string): AwarenessValue["agent"] =>
+  ({ kind: "claude-code", state }) as AwarenessValue["agent"];
+
+const gitVal = (repoName: string, branch: string): AwarenessValue["git"] =>
+  ({ repoName, branch, repoRoot: `/r/${repoName}` }) as AwarenessValue["git"];
+
 const id = (s: string): TerminalId => s as TerminalId;
 const NOW = 1_700_000_000_000;
 
 describe("shortId", () => {
-  it("keeps the leading 8 chars", () => {
+  it("keeps the leading 8 chars (the whole id when shorter)", () => {
     expect(shortId("a3f1c0de-1234-5678")).toBe("a3f1c0de");
     expect(shortId("abc")).toBe("abc");
   });
 });
 
-describe("agentTone", () => {
-  const agent = (state: string): AwarenessValue["agent"] =>
-    ({ kind: "claude-code", state }) as AwarenessValue["agent"];
-  it("tones by PAINT class (mirrors the Dock pip); no agent is muted, unknown is plain", () => {
-    expect(agentTone(null)).toBe("muted");
-    expect(agentTone(agent("thinking"))).toBe("working");
-    expect(agentTone(agent("awaiting_user"))).toBe("awaiting");
-    // `waiting` paints `awaiting` — the lingering amber cue — even though its
-    // idle urgency sorts it down (the Dock's order≠colour split), NOT idle grey.
-    expect(agentTone(agent("waiting"))).toBe("awaiting");
-    expect(agentTone(agent("??"))).toBe("plain");
-  });
-});
+describe("resolveTerminalId", () => {
+  const ID_A = id("a3f1aaaa-1111-4222-8333-444455556666");
+  const ID_B = id("b7c2bbbb-1111-4222-8333-444455556666");
+  const ID_C = id("a3f1cccc-1111-4222-8333-444455556666");
+  const ids = [ID_A, ID_B];
 
-describe("fleetRow — the pip paints by agentPaintClass, the label tones by urgency", () => {
-  const row = (state: string | null): FleetRow =>
-    fleetRow(
-      "zest",
-      "zest",
-      id("t"),
-      val({ agent: state === null ? null : agentVal(state) }),
-      false,
-    );
-  it("a just-finished `waiting` agent: pip paints awaiting (amber) but label + sort stay idle", () => {
-    const r = row("waiting");
-    expect(r.glyphTone).toBe("awaiting"); // the lingering amber pip — mirrors the Dock
-    expect(r.state.tone).toBe("idle"); // the LABEL stays calm urgency grey
-    expect(r.urgency).toBe("idle"); // …and it SORTS idle (order≠colour)
+  it("resolves a unique prefix to the full id", () => {
+    expect(resolveTerminalId("b7c2", ids)).toEqual({ kind: "found", id: ID_B });
   });
-  it("an `awaiting_user` agent: pip, label, and sort are all need-amber (genuinely blocked)", () => {
-    const r = row("awaiting_user");
-    expect(r.glyphTone).toBe("awaiting");
-    expect(r.state.tone).toBe("awaiting");
-    expect(r.urgency).toBe("need");
-  });
-  it("a working agent pips working; no agent pips muted", () => {
-    expect(row("thinking").glyphTone).toBe("working");
-    expect(row(null).glyphTone).toBe("muted");
-  });
-});
 
-describe("prTone", () => {
-  const ok = (checks: string): AwarenessValue["pr"] =>
-    ({
-      kind: "ok",
-      value: { number: 1, state: "open", checks },
-    }) as AwarenessValue["pr"];
-  it("tones a resolved PR by its checks", () => {
-    expect(prTone(ok("pass"))).toBe("pass");
-    expect(prTone(ok("fail"))).toBe("fail");
-    expect(prTone(ok("pending"))).toBe("pending");
-  });
-  it("folds null checks (no checks configured) to pending", () => {
-    expect(
-      prTone({
-        kind: "ok",
-        value: { number: 1, state: "open", checks: null },
-      } as AwarenessValue["pr"]),
-    ).toBe("pending");
-  });
-  it("mutes anything unresolved", () => {
-    expect(prTone({ kind: "pending" } as AwarenessValue["pr"])).toBe("muted");
-    expect(prTone({ kind: "absent" } as AwarenessValue["pr"])).toBe("muted");
-    expect(
-      prTone({
-        kind: "unavailable",
-        source: { provider: "gh", code: "not-authenticated" },
-      } as AwarenessValue["pr"]),
-    ).toBe("muted");
-  });
-});
-
-describe("dashRow", () => {
-  it("projects the dashboard columns with tones", () => {
-    const row = dashRow(
-      id("a3f1c0de-xyz"),
-      val({
-        git: { repoName: "kolu", branch: "feat/x" } as AwarenessValue["git"],
-        pr: {
-          kind: "ok",
-          value: { number: 12, state: "open", checks: "pass" },
-        } as AwarenessValue["pr"],
-        agent: {
-          kind: "claude-code",
-          state: "awaiting_user",
-        } as AwarenessValue["agent"],
-        foreground: {
-          name: "nvim",
-          title: "x",
-        } as AwarenessValue["foreground"],
-        lastActivityAt: NOW - 3_000,
-      }),
-      NOW,
-    );
-    expect(row).toEqual({
-      id: { text: "a3f1c0de", tone: "plain" },
-      repoBranch: { text: "kolu·feat/x", tone: "plain" },
-      pr: { text: "#12 open ✓", tone: "pass" },
-      agent: { text: "claude · awaiting", tone: "awaiting" },
-      foreground: { text: "nvim", tone: "plain" },
-      active: { text: "3s", tone: "muted" },
+  it("lets an exact id win over a longer id that shares its prefix", () => {
+    expect(resolveTerminalId(ID_A, [ID_A, ID_C])).toEqual({
+      kind: "found",
+      id: ID_A,
     });
   });
-  it("dashes a terminal with no git", () => {
-    const row = dashRow(id("b7"), val({ git: null }), NOW);
-    expect(row.repoBranch.text).toBe("—");
+
+  it("is case-insensitive (upper-case prefix still lands)", () => {
+    expect(resolveTerminalId("B7C2", ids)).toEqual({ kind: "found", id: ID_B });
   });
-  it("sanitizes control bytes in repoName/branch (path-derived, can be hostile)", () => {
-    const row = dashRow(
-      id("c8"),
-      val({
-        git: {
-          repoName: "ko\x1blu\n",
-          branch: "fe\x00at\x07/x",
-        } as AwarenessValue["git"],
-      }),
-      NOW,
-    );
-    // ESC/NUL/BEL/newline collapse to a space and the value is trimmed, so no
-    // raw control byte reaches the painted cell.
-    expect(row.repoBranch.text).toBe("ko lu·fe at /x");
-    expect(row.repoBranch.text).not.toMatch(/[\x00-\x1f\x7f]/);
+
+  it("reports ambiguity with the matching ids", () => {
+    expect(resolveTerminalId("a3f1", [ID_A, ID_C])).toEqual({
+      kind: "ambiguous",
+      matches: [ID_A, ID_C],
+    });
+  });
+
+  it("treats an empty query as a no-match, not a silent sole-terminal match", () => {
+    expect(resolveTerminalId("", [ID_A])).toEqual({ kind: "none" });
+  });
+
+  it("reports no-match when nothing has the prefix", () => {
+    expect(resolveTerminalId("zz", ids)).toEqual({ kind: "none" });
   });
 });
 
-describe("dashRows", () => {
-  it("sorts by id and projects each", () => {
-    const rows = dashRows(
+describe("formatStatus", () => {
+  it("is an honest one-liner when there are no terminals", () => {
+    expect(formatStatus([], { now: NOW })).toBe("no terminals.");
+  });
+
+  it("renders a header + one row per terminal, sorted by id", () => {
+    const out = formatStatus(
       [
-        [id("c-9"), val({})],
-        [id("a-1"), val({})],
-        [id("b-5"), val({})],
+        [
+          id("b7c2bbbb"),
+          val({
+            git: gitVal("drishti", "master"),
+            agent: agentVal("awaiting_user"),
+            foreground: { name: "codex" } as AwarenessValue["foreground"],
+          }),
+        ],
+        [
+          id("a3f1aaaa"),
+          val({
+            git: gitVal("kolu", "feat/dial-ssh"),
+            pr: {
+              kind: "ok",
+              value: { number: 1412, state: "open", checks: "pass" },
+            } as AwarenessValue["pr"],
+            agent: agentVal("tool_use"),
+            foreground: { name: "node" } as AwarenessValue["foreground"],
+            lastActivityAt: NOW - 5000,
+          }),
+        ],
       ],
-      NOW,
+      { now: NOW },
     );
-    expect(rows.map((r) => r.id.text)).toEqual(["a-1", "b-5", "c-9"]);
+    const lines = out.split("\n");
+    expect(lines[0]).toContain("ID");
+    expect(lines[0]).toContain("REPO·BRANCH");
+    expect(lines[0]).toContain("FOREGROUND");
+    // Sorted by id: a3f1 before b7c2.
+    expect(lines[1]).toContain("a3f1aaaa");
+    expect(lines[2]).toContain("b7c2bbbb");
+    // The resolved PR with passing checks renders its number + glyph.
+    expect(lines[1]).toContain("#1412");
+    expect(lines[1]).toContain("✓");
+    // The agent cell is `claude · <label>` (the shared projection).
+    expect(lines[1]).toContain(`claude · ${agentStatusLabel("tool_use")}`);
+    // repo·branch joined with the middle dot.
+    expect(lines[1]).toContain("kolu·feat/dial-ssh");
+    // 5s of idle on the a3f1 row.
+    expect(lines[1]).toContain("5s");
+  });
+
+  it("strips control bytes from a hostile branch so the table can't be corrupted", () => {
+    const out = formatStatus(
+      [[id("aaaa1111"), val({ git: gitVal("kolu", "main\n\x1b[31mEVIL") })]],
+      { now: NOW },
+    );
+    expect(out).not.toContain("\n\x1b");
+    expect(out).not.toContain("\x1b[31m");
   });
 });
 
 describe("formatAwarenessJson", () => {
-  it("emits a top-level array of { id, ...value }, full ids, valid JSON", () => {
-    const out = formatAwarenessJson([[id("full-id-1234"), val({ cwd: "/x" })]]);
+  it("is a parseable top-level array with the FULL id and deep fields", () => {
+    const out = formatAwarenessJson([
+      [id("a3f1aaaa-1111-2222"), val({ git: gitVal("kolu", "main") })],
+    ]);
     const parsed = JSON.parse(out);
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed[0].id).toBe("full-id-1234");
-    expect(parsed[0].cwd).toBe("/x");
-  });
-  it("honest empty array when there are no terminals", () => {
-    expect(JSON.parse(formatAwarenessJson([]))).toEqual([]);
+    expect(parsed[0].id).toBe("a3f1aaaa-1111-2222"); // full id, not shortened
+    expect(parsed[0].git.repoName).toBe("kolu");
+    expect(parsed[0].cwd).toBe("/repo");
   });
 });
 
-// ─── Fleet (PR2b) ────────────────────────────────────────────────────────────
-
-const agentVal = (state: string): AwarenessValue["agent"] =>
-  ({ kind: "claude-code", state }) as AwarenessValue["agent"];
-
-function host(
-  label: string,
-  status: FleetHostState["status"],
-  terminals: Record<string, AwarenessValue>,
-  live: string[] = [],
-  gitStatuses: FleetHostState["gitStatuses"] = {},
-): FleetHostState {
-  return {
-    label,
-    status,
-    terminals: terminals as FleetHostState["terminals"],
-    live,
-    gitStatuses,
-  };
-}
-
-describe("projectFleet — host mode", () => {
-  it("groups per host, floats needs-you first, and counts the summary", () => {
-    const states = [
-      host(
-        "zest",
-        { kind: "connected" },
-        {
-          [id("z-work")]: val({
-            agent: agentVal("thinking"),
-            lastActivityAt: NOW - 1_000,
-          }),
-          [id("z-need")]: val({
-            agent: agentVal("awaiting_user"),
-            lastActivityAt: NOW - 9_000,
-          }),
-          [id("z-idle")]: val({ agent: null, lastActivityAt: NOW - 60_000 }),
-        },
-      ),
-      host("staging", { kind: "unreachable", reason: "ECONNREFUSED" }, {}),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-
-    expect(view.groups.map((g) => g.label)).toEqual(["zest", "staging"]);
-    // needs-you bubbles above the (more recent) working row.
-    expect(view.groups[0]?.rows.map((r) => r.id)).toEqual([
-      "z-need",
-      "z-work",
-      "z-idle",
-    ]);
-    expect(view.groups[0]?.rows[0]?.state.text).toBe("awaiting you");
-    // the unreachable host is a distinct, empty group — never vanished.
-    expect(view.groups[1]?.status).toEqual({
-      kind: "unreachable",
-      reason: "ECONNREFUSED",
-    });
-    expect(view.groups[1]?.rows).toEqual([]);
-
-    expect(view.summary).toEqual({
-      needYou: 1,
-      working: 1,
-      idle: 1,
-      hostsDown: 1,
-      hostsTotal: 2,
-    });
-    expect(view.alertHosts).toEqual(["zest"]);
-  });
-
-  it("marks a row live iff its terminal is in the host's activity set", () => {
-    const states = [
-      host(
-        "zest",
-        { kind: "connected" },
-        {
-          [id("z-loud")]: val({ agent: agentVal("thinking") }),
-          [id("z-quiet")]: val({ agent: agentVal("thinking") }),
-        },
-        // Only z-loud is moving bytes right now (the `activity` stream frame).
-        [id("z-loud")],
-      ),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    const rows = view.groups[0]?.rows ?? [];
-    const live = new Map(rows.map((r) => [r.id, r.live]));
-    expect(live.get("z-loud")).toBe(true);
-    expect(live.get("z-quiet")).toBe(false);
-  });
-
-  it("does not count or alert on a cleared unreachable host (no stale rows)", () => {
-    // After a link drops, `fleet.ts` clears the host's terminals + live set and
-    // flips it to unreachable. The projection must then count/animate/alert on
-    // NOTHING for it — a dead box can't keep contributing a `need`/`work` row or
-    // firing the alert strip from data captured before it died. (Live data still
-    // flows for the surviving host.)
-    const states = [
-      host(
-        "up",
-        { kind: "connected" },
-        { [id("u-need")]: val({ agent: agentVal("awaiting_user") }) },
-        [id("u-need")],
-      ),
-      // The dead host: unreachable AND cleared (the post-`clearHost` shape).
-      host(
-        "down",
-        { kind: "unreachable", reason: "connection closed" },
-        {},
-        [],
-      ),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    const down = view.groups.find((g) => g.label === "down");
-    expect(down?.rows).toEqual([]);
-    // Only the live host's terminal counts; the dead host adds nothing but its
-    // hostsDown tally, and never names itself in the alert strip.
-    expect(view.summary).toEqual({
-      needYou: 1,
-      working: 0,
-      idle: 0,
-      hostsDown: 1,
-      hostsTotal: 2,
-    });
-    expect(view.alertHosts).toEqual(["up"]);
-  });
-
-  it("keeps two hosts' identical terminal ids distinct (host, terminalId key)", () => {
-    const states = [
-      host(
-        "a",
-        { kind: "connected" },
-        {
-          [id("same")]: val({ agent: agentVal("thinking") }),
-        },
-      ),
-      host(
-        "b",
-        { kind: "connected" },
-        {
-          [id("same")]: val({ agent: agentVal("awaiting_user") }),
-        },
-      ),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    expect(view.groups[0]?.rows).toHaveLength(1);
-    expect(view.groups[1]?.rows).toHaveLength(1);
-    expect(view.groups[0]?.rows[0]?.host).toBe("a");
-    expect(view.groups[1]?.rows[0]?.host).toBe("b");
-    expect(view.summary.needYou).toBe(1);
-    expect(view.summary.working).toBe(1);
-  });
-});
-
-describe("projectFleet — needs & agent modes", () => {
-  const states = [
-    host(
-      "a",
-      { kind: "connected" },
-      {
-        [id("a-idle")]: val({ agent: null }),
-        [id("a-need")]: val({ agent: agentVal("awaiting_user") }),
-      },
-    ),
-    host(
-      "b",
-      { kind: "connected" },
-      {
-        [id("b-work")]: val({ agent: agentVal("thinking") }),
-      },
-    ),
-  ];
-
-  it("needs mode flattens across hosts, urgency-sorted, no groups", () => {
-    const view = projectFleet(states, "needs");
-    // The view is a sum on `mode`: a needs view carries `flat` and has no
-    // `groups` field at all (the type forbids reading it), so there is no dead
-    // `[]` to assert against.
-    expect(view.mode).toBe("needs");
-    if (view.mode !== "needs") throw new Error("unreachable");
-    expect(view.flat.map((r) => r.urgency)).toEqual(["need", "work", "idle"]);
-    expect(view.flat.map((r) => r.host)).toEqual(["a", "b", "a"]);
-  });
-
-  it("agent mode groups into non-empty urgency sections across hosts", () => {
-    const view = projectFleet(states, "agent");
-    expect(view.mode).toBe("agent");
-    if (view.mode === "needs") throw new Error("unreachable");
-    expect(view.groups.map((g) => g.label)).toEqual([
-      "awaiting you",
-      "working",
-      "idle",
-    ]);
-    expect(view.groups.every((g) => g.status === undefined)).toBe(true);
-  });
-
-  it("needs mode tiebreaks the whole fleet by recency then id, not host order", () => {
-    // Two hosts, two equally-urgent (working) terminals. The fleet-wide order
-    // must put the more-recently-active one first regardless of host iteration
-    // order — the tiebreak the per-host sort defines, kept once the scope is the
-    // whole fleet.
-    const fleet = [
-      host(
-        "alpha",
-        { kind: "connected" },
-        {
-          [id("a-stale")]: val({
-            agent: agentVal("thinking"),
-            lastActivityAt: NOW - 60_000,
-          }),
-        },
-      ),
-      host(
-        "beta",
-        { kind: "connected" },
-        {
-          [id("b-fresh")]: val({
-            agent: agentVal("thinking"),
-            lastActivityAt: NOW - 1_000,
-          }),
-        },
-      ),
-    ];
-    const view = projectFleet(fleet, "needs");
-    if (view.mode !== "needs") throw new Error("unreachable");
-    // beta's fresher row leads even though alpha is the first host.
-    expect(view.flat.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
-  });
-
-  it("agent mode tiebreaks within a section by recency, not host order", () => {
-    const fleet = [
-      host(
-        "alpha",
-        { kind: "connected" },
-        {
-          [id("a-stale")]: val({
-            agent: agentVal("awaiting_user"),
-            lastActivityAt: NOW - 60_000,
-          }),
-        },
-      ),
-      host(
-        "beta",
-        { kind: "connected" },
-        {
-          [id("b-fresh")]: val({
-            agent: agentVal("awaiting_user"),
-            lastActivityAt: NOW - 1_000,
-          }),
-        },
-      ),
-    ];
-    const view = projectFleet(fleet, "agent");
-    if (view.mode === "needs") throw new Error("unreachable");
-    const awaiting = view.groups.find((g) => g.label === "awaiting you");
-    expect(awaiting?.rows.map((r) => r.id)).toEqual(["b-fresh", "a-stale"]);
-  });
-});
-
-describe("projectFleet — terminal-safety", () => {
-  it("strips control bytes from host labels and unreachable reasons", () => {
-    const states = [
-      host("ze\x1bst\n", { kind: "connected" }, {}),
-      host(
-        "ba\x07d",
-        { kind: "unreachable", reason: "ssh: bad\x1b]0;hijack\x07\nstderr" },
-        {},
-      ),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    // No raw control byte reaches the painted group label or the reason.
-    for (const g of view.groups) {
-      expect(g.label).not.toMatch(/[\x00-\x1f\x7f]/);
-      if (g.status?.kind === "unreachable") {
-        expect(g.status.reason).not.toMatch(/[\x00-\x1f\x7f]/);
-      }
-    }
-    expect(view.alertHosts.join("")).not.toMatch(/[\x00-\x1f\x7f]/);
-  });
-
-  it("strips control bytes from the row host cell in needs mode", () => {
-    const states = [
-      host(
-        "ho\x1bst",
-        { kind: "connected" },
-        { [id("t")]: val({ agent: agentVal("thinking") }) },
-      ),
-    ];
-    const view = projectFleet(states, "needs");
-    if (view.mode !== "needs") throw new Error("unreachable");
-    expect(view.flat[0]?.host).not.toMatch(/[\x00-\x1f\x7f]/);
-  });
-
-  it("keeps distinct hosts that sanitize to the same display string in separate buckets", () => {
-    // `a\nb` and `a b` both sanitize to `a b`, but they are DISTINCT hosts.
-    // Sanitization is display-only; it must not merge identities, or one host's
-    // terminals would leak into the other's group.
-    const states = [
-      host(
-        "a\nb",
-        { kind: "connected" },
-        { [id("t-newline")]: val({ agent: agentVal("thinking") }) },
-      ),
-      host(
-        "a b",
-        { kind: "connected" },
-        { [id("t-space")]: val({ agent: agentVal("awaiting_user") }) },
-      ),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    // Two distinct groups, each with ONLY its own terminal — never merged. Use
-    // `sortId` (the full id), since `id` is the shortened display form.
-    expect(view.groups).toHaveLength(2);
-    expect(view.groups[0]?.rows.map((r) => r.sortId)).toEqual(["t-newline"]);
-    expect(view.groups[1]?.rows.map((r) => r.sortId)).toEqual(["t-space"]);
-    // Both paint the same sanitized label, but their rows stayed distinct.
-    expect(view.groups[0]?.label).toBe("a b");
-    expect(view.groups[1]?.label).toBe("a b");
-  });
-
-  it("keeps distinct selection keys for same-id terminals on hosts that sanitize alike", () => {
-    // The sharpest collision: two distinct raw hosts (`a\nb`, `a b`) that paint
-    // the same display text AND own a terminal with the SAME id. The stable
-    // selection key must stay distinct (built from the RAW label, not the
-    // sanitized display), or ↑/↓/Enter would highlight or drill the wrong row.
-    const shared = id("dup");
-    const states = [
-      host("a\nb", { kind: "connected" }, { [shared]: val({}) }),
-      host("a b", { kind: "connected" }, { [shared]: val({}) }),
-    ];
-    const view = projectFleet(states, "host");
-    if (view.mode === "needs") throw new Error("unreachable");
-    const k0 = view.groups[0]?.rows[0]?.key;
-    const k1 = view.groups[1]?.rows[0]?.key;
-    expect(k0).toBeDefined();
-    expect(k1).toBeDefined();
-    expect(k0).not.toBe(k1);
-    // Yet both rows still PAINT the same sanitized host (display is collapsed,
-    // identity is not).
-    expect(view.groups[0]?.rows[0]?.host).toBe("a b");
-    expect(view.groups[1]?.rows[0]?.host).toBe("a b");
-  });
-});
-
-describe("formatFleetJson", () => {
-  it("flattens to { host, terminalId, ...value } and surfaces down hosts", () => {
-    const out = formatFleetJson([
-      {
-        label: "a",
-        kind: "ok",
-        entries: [[id("t1"), val({ cwd: "/x" })]],
-      },
-      { label: "b", kind: "unreachable", reason: "timeout" },
-    ]);
-    const parsed = JSON.parse(out);
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0]).toMatchObject({ host: "a", terminalId: "t1", cwd: "/x" });
-    expect(parsed[1]).toEqual({
-      host: "b",
-      terminalId: null,
-      unreachable: "timeout",
-    });
-  });
-
-  it("tags a skewed host's rows with the version mismatch", () => {
-    const out = formatFleetJson([
-      {
-        label: "old",
-        kind: "skew",
-        localVersion: "0.1",
-        hostVersion: "9.9",
-        entries: [[id("t1"), val({ cwd: "/x" })]],
-      },
-    ]);
-    const parsed = JSON.parse(out);
-    expect(parsed).toHaveLength(1);
-    expect(parsed[0]).toMatchObject({
-      host: "old",
-      terminalId: "t1",
-      skew: { localVersion: "0.1", hostVersion: "9.9" },
-    });
-  });
-
-  it("emits a skew sentinel for a skewed host with no terminals", () => {
-    // A row-less skewed host must still surface its skew — otherwise an empty
-    // skewed box is indistinguishable from an absent one in JSON, even though
-    // the live board shows its skew header.
-    const out = formatFleetJson([
-      {
-        label: "old",
-        kind: "skew",
-        localVersion: "0.1",
-        hostVersion: "9.9",
-        entries: [],
-      },
-    ]);
-    const parsed = JSON.parse(out);
-    expect(parsed).toEqual([
-      {
-        host: "old",
-        terminalId: null,
-        skew: { localVersion: "0.1", hostVersion: "9.9" },
-      },
-    ]);
-  });
-});
-
-// ─── Git status projections (R4.7) ───────────────────────────────────────────
-
-/** A local-mode `GitStatusOutput` for tests (the only mode the fleet board reads
- *  — `getStatus({ mode: "local" })`); `over` patches the local arm's fields. */
-type LocalStatus = Extract<GitStatusOutput, { mode: "local" }>;
-function makeStatus(over: Partial<LocalStatus> = {}): LocalStatus {
-  return {
-    mode: "local",
-    files: [],
-    branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
-    workingTree: { staged: 0, modified: 0, untracked: 0 },
-    ...over,
-  };
-}
-
-function gitInfo(repoRoot: string): AwarenessValue["git"] {
-  return {
-    repoRoot,
-    repoName: "repo",
-    worktreePath: repoRoot,
-    branch: "main",
-    isWorktree: false,
-    mainRepoRoot: repoRoot,
-    remoteUrl: null,
-  };
-}
-
-describe("gitCell", () => {
-  it("is blank for an unresolved status (no pulse yet)", () => {
-    expect(gitCell(undefined)).toEqual({ text: "", tone: "muted" });
-  });
-  it("shows a check for a clean tree", () => {
-    expect(gitCell(makeStatus()).text).toBe("✓");
-  });
-  it("shows the changed-file count for a dirty tree", () => {
-    const s = makeStatus({
-      files: [
-        { path: "a", status: "M" },
-        { path: "b", status: "?" },
-      ],
-    });
-    expect(gitCell(s).text).toBe("✎2");
-  });
-  it("appends ahead/behind when the branch diverges", () => {
-    const s = makeStatus({
-      files: [{ path: "a", status: "M" }],
-      branch: { name: "x", upstream: "origin/x", ahead: 2, behind: 1 },
-    });
-    expect(gitCell(s).text).toBe("✎1 ↑2↓1");
-  });
-  it("shows ahead/behind even on a clean tree", () => {
-    const s = makeStatus({
-      branch: { name: "x", upstream: "origin/x", ahead: 3, behind: 0 },
-    });
-    expect(gitCell(s).text).toBe("✓ ↑3");
-  });
-});
-
-describe("gitDetail", () => {
-  const rowWith = (status: LocalStatus | undefined): FleetRow =>
-    fleetRow(
-      "zest",
-      "zest",
-      id("t"),
-      val({ git: gitInfo("/r") }),
-      false,
-      status,
+describe("formatWatchEvent", () => {
+  it("renders `HH:MM:SS  <id>  <repo·branch>  <agent>` with no live dot when idle", () => {
+    const line = formatWatchEvent(
+      id("a3f1aaaa-1111"),
+      val({ git: gitVal("kolu", "feat/x"), agent: agentVal("tool_use") }),
+      { now: NOW, live: false },
     );
-
-  it("reads loading until the first pulse resolves", () => {
-    expect(gitDetail(rowWith(undefined)).summary).toBe("loading…");
-  });
-  it("titles the pane from the raw repo·branch source, not the compact cell", () => {
-    // The detail heading is formatted from the row's raw `repoName`/`branch`
-    // (via the shared `repoBranchText`), independent of the compact `where`
-    // cell's width/truncation — so it reads the full repo·branch regardless.
-    expect(gitDetail(rowWith(undefined)).title).toBe("repo·main");
-  });
-  it("summarizes the working tree and lists changed files", () => {
-    const d = gitDetail(
-      rowWith(
-        makeStatus({
-          files: [
-            { path: "x.ts", status: "M" },
-            { path: "n.ts", status: "A" },
-            { path: "u.md", status: "?" },
-          ],
-          workingTree: { staged: 1, modified: 1, untracked: 1 },
-          branch: {
-            name: "feat",
-            upstream: "origin/feat",
-            ahead: 2,
-            behind: 0,
-          },
-        }),
-      ),
+    expect(line).toMatch(
+      /^\d\d:\d\d:\d\d {2}a3f1aaaa {2}kolu·feat\/x {2}claude · /,
     );
-    expect(d.summary).toBe("staged 1 · modified 1 · untracked 1");
-    expect(d.tracking).toBe("↑2");
-    expect(d.files.map((f) => f.code)).toEqual(["M", "A", "?"]);
-    expect(d.more).toBe(0);
-  });
-  it("reads 'clean working tree' for no changes", () => {
-    expect(gitDetail(rowWith(makeStatus())).summary).toBe("clean working tree");
-  });
-  it("caps the file list and reports the overflow count", () => {
-    const files = Array.from({ length: 25 }, (_, i) => ({
-      path: `f${i}`,
-      status: "?" as const,
-    }));
-    const d = gitDetail(
-      rowWith(
-        makeStatus({
-          files,
-          workingTree: { staged: 0, modified: 0, untracked: 25 },
-        }),
-      ),
-    );
-    expect(d.files).toHaveLength(20);
-    expect(d.more).toBe(5);
-  });
-  it("strips control bytes from changed file paths (a hostile filename can't corrupt the alt-screen)", () => {
-    // A working-tree / committed filename is arbitrary bytes — it can carry a
-    // newline, ESC, or BEL. The detail pane is TUI-bound, so the path must funnel
-    // through the same control-byte strip the rest of the renderer uses.
-    const d = gitDetail(
-      rowWith(
-        makeStatus({
-          files: [
-            { path: "ev\x1b[31mil.ts", status: "M" },
-            { path: "new\nname.ts", oldPath: "old\x07name.ts", status: "R" },
-          ],
-          workingTree: { staged: 0, modified: 1, untracked: 0 },
-        }),
-      ),
-    );
-    for (const f of d.files) {
-      expect(f.path).not.toMatch(/[\x00-\x1f\x7f]/);
-    }
-    // The rename arrow survives — each half is sanitized, the ` → ` join is intact.
-    expect(d.files[1]?.path).toBe("old name.ts → new name.ts");
-  });
-});
-
-describe("step (identity-based selection cursor)", () => {
-  // Three rows in visual order, each with its own stable key.
-  const rows = (...keys: string[]): FleetRow[] =>
-    keys.map((k) => ({ key: k }) as FleetRow);
-  const r = rows("a", "b", "c");
-
-  it("moves to the neighbour's key and wraps at both ends", () => {
-    expect(step("a", 1, r)).toBe("b");
-    expect(step("b", 1, r)).toBe("c");
-    expect(step("c", 1, r)).toBe("a"); // ↓ past the last wraps to the first
-    expect(step("a", -1, r)).toBe("c"); // ↑ before the first wraps to the last
+    expect(line).not.toContain("●");
   });
 
-  it("enters the list at the end the keypress points toward when nothing is selected", () => {
-    // No live selection: the first ↓ lands on the FIRST row (not the second —
-    // it must not skip past row 0), and the first ↑ on the LAST row.
-    expect(step(null, 1, r)).toBe("a"); // first ↓ → first row
-    expect(step(null, -1, r)).toBe("c"); // first ↑ → last row
-  });
-
-  it("treats a stale key (selected row gone) the same as no selection", () => {
-    // The selected terminal left, so no row carries the key: re-enter at the
-    // pointed-toward end rather than stepping off a phantom index-0 selection.
-    expect(step("gone", 1, r)).toBe("a"); // ↓ → first row
-    expect(step("gone", -1, r)).toBe("c"); // ↑ → last row
-  });
-
-  it("returns null for an empty list (no row to name)", () => {
-    expect(step("a", 1, [])).toBe(null);
-    expect(step(null, 1, [])).toBe(null);
-  });
-
-  it("follows the selected row through a REORDER, not a position", () => {
-    // The live row set reorders (an agent's urgency changed): the SAME terminal
-    // "b" is now first. An index cursor pinned at index 1 would step from a
-    // different row; tracking the key steps from b's new neighbour regardless.
-    const reordered = rows("b", "c", "a");
-    expect(step("b", 1, reordered)).toBe("c"); // still steps from b, now at 0
-    expect(step("b", -1, reordered)).toBe("a"); // ↑ from b wraps to the last (a)
-  });
-});
-
-describe("flattenRows", () => {
-  it("concatenates group rows (host/agent) and returns the flat list (needs)", () => {
-    const states = [
-      host("a", { kind: "connected" }, { [id("a1")]: val({}) }),
-      host("b", { kind: "connected" }, { [id("b1")]: val({}) }),
-    ];
-    expect(flattenRows(projectFleet(states, "host"))).toHaveLength(2);
-    expect(flattenRows(projectFleet(states, "needs"))).toHaveLength(2);
-  });
-});
-
-describe("projectFleet — git status join", () => {
-  it("joins each terminal to its repo status by repo root, shared across repo mates", () => {
-    const status = makeStatus({
-      files: [{ path: "x", status: "M" }],
-      branch: { name: "m", upstream: null, ahead: 1, behind: 0 },
+  it("appends the live dot when the terminal is moving bytes", () => {
+    const line = formatWatchEvent(id("a3f1aaaa"), val({}), {
+      now: NOW,
+      live: true,
     });
-    const states = [
-      host(
-        "zest",
-        { kind: "connected" },
-        {
-          [id("t1")]: val({ git: gitInfo("/repo") }),
-          [id("t2")]: val({ git: gitInfo("/repo") }), // same repo
-        },
-        [],
-        { "/repo": status },
-      ),
-    ];
-    const rows = flattenRows(projectFleet(states, "host"));
-    expect(rows).toHaveLength(2);
-    // Both terminals in /repo carry the same raw per-repo status; the compact
-    // cell is derived from it at the read site (no stored copy on the row).
-    for (const r of rows) {
-      expect(gitCell(r.gitStatus).text).toBe("✎1 ↑1");
-      expect(r.gitStatus).toBe(status);
-    }
+    expect(line.endsWith("●")).toBe(true);
+  });
+});
+
+describe("formatWatchJson / removal", () => {
+  it("is one-line NDJSON carrying id, live, and the raw value", () => {
+    const line = formatWatchJson(
+      id("a3f1aaaa-1111-2222"),
+      val({ git: gitVal("kolu", "main") }),
+      { live: true },
+    );
+    expect(line).not.toContain("\n");
+    const parsed = JSON.parse(line);
+    expect(parsed.id).toBe("a3f1aaaa-1111-2222");
+    expect(parsed.live).toBe(true);
+    expect(parsed.git.repoName).toBe("kolu");
+  });
+
+  it("emits a removal sentinel, human and JSON", () => {
+    expect(formatWatchRemoval(id("a3f1aaaa"), { now: NOW })).toContain(
+      "(gone)",
+    );
+    expect(JSON.parse(formatWatchRemovalJson(id("a3f1aaaa-1111")))).toEqual({
+      id: "a3f1aaaa-1111",
+      removed: true,
+    });
   });
 });

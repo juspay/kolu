@@ -29,7 +29,7 @@ const h = vi.hoisted(() => ({ dialAgentOnce: vi.fn() }));
 vi.mock("@kolu/surface-nix-host", () => ({ dialAgentOnce: h.dialAgentOnce }));
 
 import { dialAgentOnce } from "@kolu/surface-nix-host";
-import { connectArivuViaHost } from "./hostConnect.ts";
+import { connectPulamViaHost } from "./hostConnect.ts";
 import { snapshotAwareness } from "./read.ts";
 
 /** A stub for the fs/git primitives this probe never exercises: it asserts loud
@@ -42,7 +42,7 @@ function unusedInProbe(name: string): never {
  *  collection backed by a plain Map, the `version` cell at this build's default.
  *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
  *  the probe exercises a real `terminalWorkspaceSurface` round-trip in place of the ssh wire. */
-function makeInProcessArivuClient(
+function makeInProcessPulamClient(
   cache = new Map<TerminalId, AwarenessValue>(),
 ) {
   const { router } = implementSurface(terminalWorkspaceSurface, {
@@ -93,12 +93,12 @@ function makeInProcessArivuClient(
 
 afterEach(() => vi.clearAllMocks());
 
-describe("connectArivuViaHost", () => {
+describe("connectPulamViaHost", () => {
   it("dials with pulam's binary, env var, and drvNoun", async () => {
-    const client = makeInProcessArivuClient();
+    const client = makeInProcessPulamClient();
     h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
 
-    const conn = await connectArivuViaHost("nix@prod");
+    const conn = await connectPulamViaHost("nix@prod");
 
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
     expect(opts).toMatchObject({
@@ -118,10 +118,10 @@ describe("connectArivuViaHost", () => {
 
   it("forwards --kaval as extraArgs to the remote pulam", async () => {
     h.dialAgentOnce.mockResolvedValue({
-      client: makeInProcessArivuClient(),
+      client: makeInProcessPulamClient(),
       dispose: () => {},
     });
-    await connectArivuViaHost(
+    await connectPulamViaHost(
       "nix@prod",
       "/run/user/1000/kaval-7692/pty-host.sock",
     );
@@ -133,10 +133,10 @@ describe("connectArivuViaHost", () => {
   });
 
   it("the probe reads the first frame of the version cell (pulam has no heartbeat)", async () => {
-    const client = makeInProcessArivuClient();
+    const client = makeInProcessPulamClient();
     h.dialAgentOnce.mockResolvedValue({ client, dispose: () => {} });
 
-    await connectArivuViaHost("nix@prod");
+    await connectPulamViaHost("nix@prod");
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
 
     // pulam OVERRIDES the dial's default `system.live` with a protocol assertion,
@@ -151,10 +151,10 @@ describe("connectArivuViaHost", () => {
 
   it("the probe THROWS when the version stream ends empty (link/protocol failure, not connected)", async () => {
     h.dialAgentOnce.mockResolvedValue({
-      client: makeInProcessArivuClient(),
+      client: makeInProcessPulamClient(),
       dispose: () => {},
     });
-    await connectArivuViaHost("nix@prod");
+    await connectPulamViaHost("nix@prod");
     const opts = vi.mocked(dialAgentOnce).mock.calls[0]?.[0];
 
     // A client whose `version.get` resolves to a stream that ends WITHOUT a
@@ -181,10 +181,10 @@ describe("connectArivuViaHost", () => {
   it("threads dispose back through the Connection", async () => {
     const dispose = vi.fn();
     h.dialAgentOnce.mockResolvedValue({
-      client: makeInProcessArivuClient(),
+      client: makeInProcessPulamClient(),
       dispose,
     });
-    const conn = await connectArivuViaHost("nix@prod");
+    const conn = await connectPulamViaHost("nix@prod");
     conn.dispose();
     expect(dispose).toHaveBeenCalledTimes(1);
   });

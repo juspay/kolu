@@ -29,11 +29,6 @@ pkgs.mkShell {
     nodejs
     pnpm
     tsx
-    # bun runs the pulam-tui viewer in local dev (`pnpm --filter pulam-tui start`)
-    # and its OpenTUI render test (`… test:render`) — the viewer re-platformed to
-    # Bun so @opentui/core's native renderer (Bun.dlopen) loads (pulam P3). The
-    # daemon + the rest of kolu stay on tsx/node.
-    bun
     nixpkgs-fmt
     # Biome from nixpkgs — single toolchain source, avoids per-platform Rust
     # binary fetches via pnpm postinstall. Version drift between this and

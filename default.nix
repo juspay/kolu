@@ -115,7 +115,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-0MErMC4ejmpNsIWYkZFCmVdAMiHCM94HSghf5w3ilmo=";
+    hash = "sha256-BEtm8PlwwopLdhoqYJ813dZ9abiZjdLASXdJmhzdBH4=";
     fetcherVersion = 3;
   };
 
@@ -402,11 +402,9 @@ let
 
   # A surface-agent TUI wrapper: a `tsx` entrypoint from the built workspace
   # closure whose `--host <ssh>` path ships a TARGET-arch agent derivation to a
-  # remote. kaval-tui is the sole consumer today — pulam-tui re-platformed to Bun
-  # in pulam P3 PR1 (its own wrapper below) and no longer shares this shape. The
-  # factory still earns its keep as kaval-tui's home and the template a future
-  # tsx-based `--host` CLI would reuse: name, entrypoint, and the per-system
-  # `{ system → agent .drv }` map env var are the only volatile axes. The map is
+  # remote. kaval-tui and pulam-tui both consume it (the two thin, single-daemon
+  # `--host` CLIs): name, entrypoint, and the per-system `{ system → agent .drv }`
+  # map env var are the only volatile axes. The map is
   # baked with `--set` (NOT `--set-default`): it is a baked build
   # fact — the exact derivations this wrapper ships and realises on the remote —
   # not a tunable. `--set-default` would let an ambient/stale
@@ -470,51 +468,25 @@ let
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
   '';
 
-  # pulam-tui (pulam plan P1c + P2; re-platformed to Bun in P3 PR1): the
-  # terminal-side viewer that dials a running pulam's awareness socket and
-  # lists/watches what each terminal IS IN (branch · PR · agent · foreground).
-  # A pure surface CLIENT, so it needs no git/gh and no state dir.
+  # pulam-tui: the terminal-side CLI that dials a running pulam's awareness
+  # socket and shows what each terminal IS IN (repo·branch · PR · agent ·
+  # foreground) — `status` (a one-shot snapshot) + `watch` (a live follow). A
+  # pure surface CLIENT (kaval-tui's sibling), so it needs no git/gh and no state
+  # dir; the rich browser fleet dashboard is `pulam-web`.
   #
-  # Unlike kaval-tui (still tsx, via mkAgentTuiWrapper above), the viewer runs
-  # under **Bun** — the contained, deliberate runtime split pulam P3 needs: PR1
-  # stood up the Bun runtime; PR2a compiles the OpenTUI/Solid bundle (dist/bin.js)
-  # in the `pulamTuiBuilt` tree and runs it. The Bun-ness is one wrapper, one
-  # binary: the daemon (`pulam`, below) and the rest of kolu stay Node, so the Bun
-  # runtime never crosses ssh. See packages/pulam-tui/nix.
-  #
-  # LD_LIBRARY_PATH below carries libstdc++ for @opentui/core's native dlopen —
-  # see packages/pulam-tui/build.ts for why that one package stays native.
-  #
-  # P2's `--host <ssh>` still rides this wrapper: PULAM_AGENT_DRVS_JSON carries
-  # the per-system `{ system → pulam .drv }` map so the viewer can ship the
-  # target-arch pulam DAEMON derivation to a remote (the daemon stays Node).
-  # openssh + nix are on PATH for that provision (the same `nix copy` /
-  # `nix-store` path mkAgentTuiWrapper documents); nodejs is NOT — Bun replaces
-  # it, and the viewer spawns no node locally.
-  pulam-tui =
-    let
-      # bun2nix via npins (NOT a flake input) — see nix/bun2nix.nix. Forced only
-      # here (the daemon-drvPath import in flake.nix and a bare `nix-build
-      # default.nix` never touch this attr), so `nix develop` cold eval and the
-      # Node build paths never realise bun2nix's transitive nodes.
-      b2n = import ./nix/bun2nix.nix { inherit pkgs; };
-      pulamTuiBuilt = pkgs.callPackage ./packages/pulam-tui/nix {
-        bun2nix = b2n;
-        koluSrc = src;
-      };
-    in
-    pkgs.runCommand "pulam-tui"
-      {
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        meta.mainProgram = "pulam-tui";
-      } ''
-      mkdir -p $out/bin
-      makeWrapper ${pkgs.bun}/bin/bun $out/bin/pulam-tui \
-        --add-flags "${pulamTuiBuilt.entryPath}" \
-        --set PULAM_AGENT_DRVS_JSON '${pulamAgentDrvsJson}' \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.nix ]} \
-        --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]}
-    '';
+  # Runs from the SAME built workspace closure as `kolu` under **tsx**, via
+  # `mkAgentTuiWrapper` above — exactly like kaval-tui. (It was briefly a Bun +
+  # OpenTUI dashboard; with `pulam-web` carrying the rich fleet view that whole
+  # runtime split was walked back — see docs/atlas/src/content/atlas/pulam-tui.mdx.)
+  # `--host <ssh>` rides the wrapper's PULAM_AGENT_DRVS_JSON: the per-system
+  # `{ system → pulam .drv }` map so the CLI can ship the target-arch pulam
+  # DAEMON derivation to a remote (the remote runs `pulam --stdio`).
+  pulam-tui = mkAgentTuiWrapper {
+    name = "pulam-tui";
+    entry = "packages/pulam-tui/src/main.ts";
+    envVar = "PULAM_AGENT_DRVS_JSON";
+    agentDrvsJson = pulamAgentDrvsJson;
+  };
 
   # pulam-web (R4.8a): the browser fleet of terminals over ssh — drishti's twin
   # for the terminal-workspace surface. Two pieces, mirroring kolu's own
