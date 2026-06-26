@@ -44,5 +44,8 @@ schemas **flat** and isolate the adversary so one failure can't abort the run.
 ## Report
 
 Lead with **credit** for what's closed — don't move goalposts on done work — then the
-**residual surfaces**, ranked, each with its structural fix. Separate "the product is fine"
-from "the claim isn't yet true". Post to the PR only when asked (`--post`).
+**residual surfaces**, ranked, each with its structural fix. Frame each finding as the
+**invariant it violates**, not a lone exploit: a single proof-of-concept trains a one-line
+patch and the defect just relocates — give the property, and if you must show an example,
+give a few from different angles and call it one costume of many. Separate "the product is
+fine" from "the claim isn't yet true". Post to the PR only when asked (`--post`).
