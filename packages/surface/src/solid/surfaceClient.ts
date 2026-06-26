@@ -34,6 +34,7 @@ import type {
   SurfaceSpec,
 } from "../define";
 import { resolveCellVerbs } from "../define";
+import { isHalfOpenLink } from "../links/websocket";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -50,6 +51,29 @@ import { type UseCellResult, useCell } from "./useCell";
 import { type UseCollectionResult, useCollection } from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
+
+/** Crash if `link` can silently half-open (a `websocketLink`) but no transport
+ *  `live` watchdog was supplied. The constant-`true` default `health()` would
+ *  otherwise apply is honest ONLY for an in-process link that can't half-open
+ *  (`directLink`/`stdioLink`); over a websocket it paints a green/ready dot atop
+ *  a dead backend↔remote link (the #1564 lie, one seam upstream). Fail-fast per
+ *  the repo's "no silent fallback / crash loudly" philosophy: build the client
+ *  through `connectSurface`/`connectSurfaces` (which wire the half-open
+ *  heartbeat) or thread a real `{ live }` — there is no degraded default. */
+function requireTransportLive(
+  link: unknown,
+  live: Accessor<boolean> | undefined,
+): void {
+  if (!live && isHalfOpenLink(link)) {
+    throw new Error(
+      "surfaceClient: a websocket link can silently half-open, so its transport " +
+        "liveness must be supplied via `{ live }`. Build the client through " +
+        "`connectSurface`/`connectSurfaces` (which wire the half-open heartbeat), " +
+        "or pass a real `{ live }` watchdog signal. Defaulting to constant-true " +
+        "would paint a green/ready dot over a dead backend↔remote link (#1564).",
+    );
+  }
+}
 
 // ── Bound-primitive option shapes ──────────────────────────────────────
 
@@ -292,17 +316,25 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   link: Rpc,
   opts?: {
     /** Transport liveness for `health().live` — the socket/heartbeat watchdog's
-     *  reactive answer. Defaults to a constant `true`: a direct/stdio link can't
-     *  be silently half-open, so it is live by construction. The socket
-     *  transports (`@kolu/surface-app`'s `connectSurface`) thread the real
+     *  reactive answer. Omitted ONLY for a link that can't be silently half-open
+     *  (a `directLink`/`stdioLink`), where it is live by construction; for a
+     *  `websocketLink` it is REQUIRED, and omitting it crashes (see below) rather
+     *  than silently defaulting the transport leg to a constant `true`. The
+     *  socket transports (`@kolu/surface-app`'s `connectSurface`) thread the real
      *  signal in; `health()` originates the per-subscription FACT either way. */
     live?: Accessor<boolean>;
   },
 ): SurfaceClient<S, Rpc> {
   const spec = surface.spec;
+  // FAIL FAST: a `websocketLink` can silently half-open, so its transport leg
+  // MUST be supplied — defaulting it to constant-`true` would paint a
+  // green/ready dot over a dead backend↔remote link (#1564), one seam upstream.
+  requireTransportLive(link, opts?.live);
   // The per-client subscription-health registry. Every `.use()` below enrols its
   // subscription, so `health()` folds a TOTAL picture (a partial registry behind
-  // a confident gate is worse than no gate — `./health`).
+  // a confident gate is worse than no gate — `./health`). The transport leg is
+  // the supplied `live` for a half-openable link, else a constant `true` (sound
+  // only because `requireTransportLive` already proved this link can't half-open).
   const registry = createSurfaceHealthRegistry(opts?.live ?? (() => true));
 
   // Build-time standing subscriptions for `liveWhen` cells (the readiness legs)
@@ -680,6 +712,12 @@ export function surfaceClients<
    *  combined socket invisible to every sibling. */
   opts?: { live?: Accessor<boolean> },
 ): SurfaceClients<E> {
+  // Same fail-fast as `surfaceClient`, BEFORE scoping: the combined `link` is the
+  // half-openable websocket (the per-sibling slices below are fresh wrappers that
+  // no longer carry the marker), so a missing `{ live }` over it is the
+  // green-over-dead-link lie for EVERY sibling. Crash here rather than let each
+  // scoped client silently default its transport leg to constant-`true`.
+  requireTransportLive(link, opts?.live);
   return Object.fromEntries(
     Object.entries(entries).map(([k, surface]) => [
       k,

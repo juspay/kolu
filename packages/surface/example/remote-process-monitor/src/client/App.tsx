@@ -13,8 +13,10 @@
  * still sees the initial `state === "connecting"` (or `"copying"`).
  */
 
+import type { SurfaceHealth } from "@kolu/surface/solid";
+import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   type CoreId,
@@ -25,14 +27,6 @@ import {
   type Process,
 } from "../common/surface";
 import { app } from "./wire";
-
-const STATE_COLOR: Record<string, string> = {
-  connected: "text-emerald-500",
-  disconnected: "text-amber-500",
-  copying: "text-amber-500",
-  connecting: "text-amber-500",
-  failed: "text-red-500",
-};
 
 type SortKey = "cpu" | "mem" | "pid" | "user";
 
@@ -142,6 +136,7 @@ export default function App() {
         <Header
           system={currentSystem()}
           connection={currentConnection()}
+          health={app.health}
           count={allPids().length}
         />
         {/* The body is ready when the agent link is CONNECTED (domain policy —
@@ -201,6 +196,7 @@ type Row = { pid: Pid; proc: Process };
 function Header(props: {
   system: ReturnType<() => typeof DEFAULT_SYSTEM>;
   connection: ReturnType<() => typeof DEFAULT_CONNECTION>;
+  health: Accessor<SurfaceHealth>;
   count: number;
 }) {
   const memPct = () => {
@@ -231,8 +227,26 @@ function Header(props: {
             <span class="text-gray-500">host:</span>{" "}
             <span class="font-semibold">{props.system.hostname || "—"}</span>
           </span>
-          <span class={STATE_COLOR[props.connection.state]}>
-            ● {props.connection.state}
+          <span class="flex items-center gap-1.5 text-xs">
+            {/* The connection dot is the framework `<HostStatusPip>` — its GREEN
+                comes ONLY from the health FACT (the same `ready` the gate below
+                uses), so a stale `connected` cell over a dead link can't paint it.
+                The state WORD stays a neutral label, never a raw-state green. */}
+            <HostStatusPip
+              health={props.health}
+              ready={(h) =>
+                h.live &&
+                props.connection.state === "connected" &&
+                !h.subs.some((s) => s.error)
+              }
+              readyColor="#10b981"
+              notReadyTone={() =>
+                props.connection.state === "failed" ? "#ef4444" : "#f59e0b"
+              }
+              pulse={props.connection.state !== "failed"}
+              title={props.connection.state}
+            />
+            <span class="text-gray-500">{props.connection.state}</span>
           </span>
           <span class="text-gray-500">·</span>
           <span class="text-gray-500">

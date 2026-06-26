@@ -104,15 +104,21 @@ export function HostHealthIndicator(props: {
           body `<SurfaceGate>` uses (so dot and body agree), and `h.live` carries
           the mirror leg by construction, so a stale `connected` cell can NOT
           paint it green over a dead link. Its NOT-ready color stays pulam-web's
-          rich 5-state `effectiveHealth.dot` — except a `degraded` (link up, a sub
-          erroring) shows amber rather than the connected green, so the dot never
-          reads green while something's broken. */}
+          rich 5-state `effectiveHealth.dot` — but that fold is transport∘mirror
+          ONLY (it can't see sub errors), so it reads the CONNECTED GREEN whenever
+          the link itself is fine. Reaching `notReadyTone` means the FACT is not
+          ready, so a green `view().dot` here means the trouble is a sub (pending/
+          erroring), not the link — clamp it to amber. The pip ALSO refuses a tone
+          equal to `readyColor`, so this clamp is the belt to its suspenders: the
+          dot can never read green while something's broken. */}
       <HostStatusPip
         health={props.fact}
         ready={hostBodyReady}
         readyColor={HEALTH_PALETTE.green}
-        notReadyTone={(status) =>
-          status === "degraded" ? HEALTH_PALETTE.amber : view().dot
+        notReadyTone={() =>
+          view().dot === HEALTH_PALETTE.green
+            ? HEALTH_PALETTE.amber
+            : view().dot
         }
         pulse={view().pending}
         title={view().label}

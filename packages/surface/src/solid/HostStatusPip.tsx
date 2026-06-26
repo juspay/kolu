@@ -13,9 +13,14 @@
  *     (`gateStatus` lives in the JSX-free `./health`, read by both), so the dot's
  *     green and the body's "show it" are one decision that cannot diverge; and
  *   - the not-ready color comes from {@link HostStatusPipProps.notReadyTone},
- *     typed to receive `Exclude<GateStatus, "ready">` — so an app LITERALLY
- *     CANNOT return the ready color from there. There is no raw-state / cell prop:
- *     the only thing this component can read is the folded fact.
+ *     whose ARGUMENT is typed `Exclude<GateStatus, "ready">`. The type stops the
+ *     green from the argument, but the RETURN is an unconstrained string, so an app
+ *     CAN hand back the ready color (the round-5-found hole — pulam-web's
+ *     transport∘mirror-only tone was green for a connected link). So the component
+ *     ENFORCES the invariant: a not-ready tone equal to `readyColor` is REFUSED
+ *     (it throws) rather than painted — green is fact-only by construction, not by
+ *     convention. There is no raw-state / cell prop: the only thing this component
+ *     reads is the folded fact.
  *
  * The dot owns exactly one pixel of truth — the honest connected-or-not color.
  * An app keeps all its richer PRESENTATION (a 5-state "provisioning…/reconnecting…"
@@ -57,12 +62,15 @@ export interface HostStatusPipProps {
   /** The dot color when `ready` holds — the ONLY path to a "good" color.
    *  Default: a framework green. */
   readyColor?: string;
-  /** The dot color for a NOT-ready fact. Typed to receive only
-   *  `Exclude<GateStatus, "ready">` (`"connecting" | "degraded"`), so an app can
-   *  tint reconnecting vs erroring — or read its own richer presentation in the
-   *  closure (e.g. `() => effectiveHealth(...).dot` for a 5-state amber/red) —
-   *  but CANNOT return the ready color from here: green stays fact-only. Default:
-   *  a framework amber. */
+  /** The dot color for a NOT-ready fact. Receives `Exclude<GateStatus, "ready">`
+   *  (`"connecting" | "degraded"`), so an app can tint reconnecting vs erroring —
+   *  or read its own richer presentation in the closure for a 5-state amber/red.
+   *  It MUST NOT return `readyColor`: green is fact-only, and a tone equal to the
+   *  ready color is REFUSED (the component throws) rather than painted. A closure
+   *  reading a transport∘mirror presentation (e.g. an `effectiveHealth(...).dot`
+   *  that is green when the mirror is connected) MUST clamp its connected-green to
+   *  a not-ready tone — `() => v.dot === green ? amber : v.dot` — never pass the raw
+   *  green straight through (the round-5-found hole). Default: a framework amber. */
   notReadyTone?: (status: Exclude<GateStatus, "ready">) => string;
   /** Pulse the dot while not ready (a living "reconnecting" cue). Default `true`. */
   pulse?: boolean;
@@ -74,7 +82,8 @@ export interface HostStatusPipProps {
 
 /** The fact-governed connection dot. Green ⇔ the `ready` predicate (default
  *  `gateStatus(health()) === "ready"`) holds over the FACT; every other state is
- *  `notReadyTone`'s, which cannot be green. */
+ *  `notReadyTone`'s, which is REFUSED (throws) if it equals `readyColor`, so the
+ *  green is fact-only by construction, not by convention. */
 export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
   const status = createMemo(() => gateStatus(props.health()));
   const ready = createMemo(() =>
@@ -90,13 +99,30 @@ export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
     return s === "ready" ? "degraded" : s;
   });
   const color = createMemo(() => {
-    if (display() === "ready") return props.readyColor ?? DEFAULT_READY_COLOR;
-    // Never `ready` here, so the tone callback is structurally incapable of
-    // forging the ready color.
+    const readyColor = props.readyColor ?? DEFAULT_READY_COLOR;
+    if (display() === "ready") return readyColor;
+    // The `notReadyTone` ARGUMENT is typed `Exclude<GateStatus,"ready">`, but its
+    // RETURN is an unconstrained string — so an app CAN hand back the ready color
+    // here (the round-5-found hole: pulam-web's transport∘mirror-only tone was
+    // green for a connected link, so a degraded host with a pending sibling painted
+    // a green dot while a sub was silently dead). The type stops the green from the
+    // ARGUMENT, not the RETURN — so the component enforces it: a not-ready tone that
+    // equals the ready color is REFUSED loudly (a misconfigured tone is a defect,
+    // not a state to silently degrade) rather than emit the one green this component
+    // makes fact-only over a fact that reports the link down.
     const notReady = display() as Exclude<GateStatus, "ready">;
-    return props.notReadyTone
+    const tone = props.notReadyTone
       ? props.notReadyTone(notReady)
       : DEFAULT_NOT_READY_COLOR;
+    if (tone === readyColor) {
+      throw new Error(
+        `HostStatusPip: notReadyTone returned the readyColor ("${tone}") for a ` +
+          `"${notReady}" (not-ready) fact. Green is emitted ONLY from the fact's ` +
+          `ready verdict; a not-ready tone must be visually distinct, so a dot can ` +
+          `never read green over a link the fact reports down.`,
+      );
+    }
+    return tone;
   });
   return (
     <span

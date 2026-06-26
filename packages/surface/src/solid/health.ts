@@ -96,15 +96,25 @@ export type GateStatus = "connecting" | "degraded" | "ready";
 
 /** Derive the default verdict from the health FACT:
  *   - `connecting` — not fully `live` (transport down/half-open OR a readiness
- *     cell not yet `connected`), OR some subscription is still waiting for its
- *     first frame (a fresh or reconnecting surface);
- *   - `degraded`  — live and past first-frame, but some subscription is erroring;
+ *     cell not yet `connected`), OR live-and-error-free but some subscription is
+ *     still waiting for its first frame (a fresh or reconnecting surface);
+ *   - `degraded`  — live, but some subscription is erroring — even if ANOTHER sub
+ *     is still pending (an error OUTRANKS a concurrent pending, below);
  *   - `ready`     — live, every sub past first-frame, none erroring.
  *  This is POLICY: an app overrides it via `<SurfaceGate ready={…}>`. Exported so
- *  a consumer can reuse the same triage when rendering its own fallback. */
+ *  a consumer can reuse the same triage when rendering its own fallback.
+ *
+ *  Precedence note (load-bearing): a present `error` is reported BEFORE a concurrent
+ *  `pending`. Checking pending first would MASK an error behind a still-loading
+ *  sibling — a live host with one sub erroring AND one sub pending would read
+ *  `connecting`, hiding the error. That masking was the round-5-found relocation of
+ *  the #1564 lie: a consumer coloring the `connecting` verdict from a transport∘
+ *  mirror-only signal painted a green dot while a sub was silently dead. So an error
+ *  always surfaces as `degraded` while live, never collapses into `connecting`. */
 export function gateStatus(health: SurfaceHealth): GateStatus {
-  if (!health.live || health.subs.some((s) => s.pending)) return "connecting";
+  if (!health.live) return "connecting";
   if (health.subs.some((s) => s.error)) return "degraded";
+  if (health.subs.some((s) => s.pending)) return "connecting";
   return "ready";
 }
 

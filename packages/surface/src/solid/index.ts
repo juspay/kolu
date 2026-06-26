@@ -22,6 +22,8 @@ export {
 } from "./createSubscription";
 export {
   createSurfaceHealthRegistry,
+  type GateStatus,
+  gateStatus,
   type HealthSource,
   mergeSurfaceHealth,
   type SubHealth,

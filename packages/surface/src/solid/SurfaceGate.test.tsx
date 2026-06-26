@@ -56,9 +56,13 @@ describe("gateStatus — the pure verdict", () => {
       }),
     ).toBe("ready");
   });
-  it("prefers connecting over degraded when a sub both pends and others error", () => {
-    // A reconnecting surface (some sub pending) reads `connecting`, NOT `degraded`,
-    // even if a sibling carries a stale error — first-frame wins.
+  it("an error OUTRANKS a concurrent pending — degraded, not connecting (no masked error)", () => {
+    // A live surface with one sub still loading (pending) AND another erroring reads
+    // `degraded`, NOT `connecting`: a present error is a real, actionable problem that
+    // must not be MASKED behind a still-loading sibling. Reporting `connecting` here
+    // was the round-5-found relocation of the #1564 lie — a consumer coloring the
+    // `connecting` verdict from a transport∘mirror-only signal painted a green dot
+    // while the erroring sub was silently dead. So the error always surfaces.
     expect(
       gateStatus({
         live: true,
@@ -67,7 +71,7 @@ describe("gateStatus — the pure verdict", () => {
           { name: "b", pending: false, error: new Error("x") },
         ],
       }),
-    ).toBe("connecting");
+    ).toBe("degraded");
   });
 });
 

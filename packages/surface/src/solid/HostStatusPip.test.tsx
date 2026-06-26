@@ -33,6 +33,17 @@ const DEGRADED: SurfaceHealth = {
   live: true,
   subs: [{ name: "conn", pending: false, error: new Error("boom") }],
 };
+// The round-5-found relocation: live, with ONE sub still pending AND ANOTHER
+// erroring. `gateStatus` must report `degraded` (the error OUTRANKS the concurrent
+// pending), never `connecting` — a masked error let a transport∘mirror-only tone
+// paint a green dot while a sub was silently dead.
+const MASKED: SurfaceHealth = {
+  live: true,
+  subs: [
+    { name: "loading", pending: true, error: undefined },
+    { name: "dead", pending: false, error: new Error("boom") },
+  ],
+};
 
 const disposers: Array<() => void> = [];
 afterEach(() => {
@@ -71,20 +82,45 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     expect(dot.style.background).toBe("#ff0000");
   });
 
-  it("never reports `ready` while not ready, no matter what notReadyTone returns", () => {
-    // An app that (wrongly) returns the green from notReadyTone still can't make
-    // the FACT read ready — `data-health` is honest, and the readyColor branch is
-    // reachable ONLY via the ready verdict, never from a raw signal.
+  it("REFUSES a not-ready tone equal to readyColor — green can't be forged for a not-ready fact", () => {
+    // The round-5-found hole: `notReadyTone`'s RETURN is an unconstrained string, so
+    // an app CAN hand back the ready color (pulam-web's transport∘mirror tone was
+    // green for a connected link). The component refuses it LOUDLY rather than paint
+    // a green dot over a not-ready fact — the #1564 lie, one prop over, made to crash.
     const [h] = createSignal<SurfaceHealth>(DEGRADED);
+    expect(() =>
+      mount(() => (
+        <HostStatusPip
+          health={h}
+          readyColor="#7ec699"
+          notReadyTone={() => "#7ec699"}
+        />
+      )),
+    ).toThrow(/notReadyTone returned the readyColor/);
+  });
+
+  it("an error OUTRANKS a concurrent pending — a masked-error fact reads degraded, dot amber, never green", () => {
+    // pulam-web's exact trigger (sleep/wake): transport live + mirror connected
+    // (fact.live), one sub still loading (pending) while another is dead (error).
+    // gateStatus must report `degraded` (not `connecting`), so the custom
+    // hostBodyReady predicate (ignores pending, fails on error) drives a degraded
+    // dot. The tone returns the ready color for any NON-degraded status, so if
+    // gateStatus wrongly masked the error as `connecting` this would THROW — proving
+    // the precedence routes to degraded amber, never the connected green.
+    const ready = (hh: SurfaceHealth): boolean =>
+      hh.live && !hh.subs.some((s) => s.error);
+    const [h] = createSignal<SurfaceHealth>(MASKED);
     const dot = mount(() => (
       <HostStatusPip
         health={h}
+        ready={ready}
         readyColor="#7ec699"
-        notReadyTone={() => "#7ec699"}
+        notReadyTone={(s) => (s === "degraded" ? "#e6a23c" : "#7ec699")}
       />
     ));
-    expect(dot.getAttribute("data-health")).not.toBe("ready");
     expect(dot.getAttribute("data-health")).toBe("degraded");
+    expect(dot.style.background).toBe("#e6a23c");
+    expect(dot.style.background).not.toBe("#7ec699");
   });
 
   it("a custom `ready` predicate governs green and matches a gate (ignores pending)", () => {
