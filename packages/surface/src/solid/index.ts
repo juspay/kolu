@@ -45,6 +45,10 @@ export {
   type SurfaceConnectionStatus,
   type WatchableSocket,
 } from "./liveSignal";
+// Re-exported so `@kolu/surface-app` (which has no direct `@orpc` dependency) can
+// constrain its own generics (`connectSurfaces<C extends AnyContractRouter>`) over
+// the combined contract without reaching into `@orpc/contract` itself.
+export type { AnyContractRouter } from "@orpc/contract";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports
 // `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)

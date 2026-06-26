@@ -25,8 +25,10 @@
 
 import type { Surface } from "@kolu/surface/define";
 import {
+  type AnyContractRouter,
   createLiveSignal,
   type HeartbeatTuning,
+  type LiveSignalHandle,
   type SurfaceClients,
   type SurfaceConnectionStatus,
   type SurfaceHealth,
@@ -62,12 +64,14 @@ export interface ConnectSurfacesOptions<
 }
 
 /** A live multi-surface connection: the shared socket, its `pid` echo, the per-key
- *  client bundle, the reactive transport `status`, the COMBINED health fact across
- *  every sibling, and a `dispose` that stops the heartbeat and tears down every
- *  client's standing subscriptions. */
+ *  client bundle, the COMBINED combined link (for root-level raw procedures), the
+ *  reactive transport `status`, the COMBINED health fact across every sibling, and a
+ *  `dispose` that stops the heartbeat and tears down every client's standing
+ *  subscriptions. */
 export interface SurfacesConnection<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
   E extends Record<string, Surface<any>>,
+  C extends AnyContractRouter = AnyContractRouter,
 > {
   ws: PartySocket;
   echo: ProcessIdEcho;
@@ -75,6 +79,16 @@ export interface SurfacesConnection<
    *  Reach a sibling's primitives through `clients.<key>` and its procedures
    *  through `clients.<key>.rpc` (the scoped slice). */
   clients: SurfaceClients<E>;
+  /** The combined oRPC link `createLiveSignal` built over the shared socket — the
+   *  one the per-sibling clients are scoped FROM, with the sibling surfaces under
+   *  `link.surface.<key>`. A consumer with ROOT-level raw procedures multiplexed at
+   *  the same socket (kolu's `terminal`/`git`/`server` at the combined link's root)
+   *  reaches them here, so it no longer has to re-assemble `createSurfaceSocket` →
+   *  `createLiveSignal` → `surfaceClients` by hand just to get the link. Typed
+   *  `ContractRouterClient<C, …>` (via the handle's own `link`) when
+   *  `connectSurfaces<C>` was called with the combined contract (kolu), else the
+   *  loose default. */
+  link: LiveSignalHandle<C>["link"];
   /** Reactive transport status (`connecting`/`live`/`reconnecting`/`down`) from
    *  the one shared socket's open/close. */
   status: Accessor<SurfaceConnectionStatus>;
@@ -88,9 +102,10 @@ export interface SurfacesConnection<
 }
 
 export function connectSurfaces<
+  C extends AnyContractRouter = AnyContractRouter,
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
-  const E extends Record<string, Surface<any>>,
->(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E> {
+  const E extends Record<string, Surface<any>> = Record<string, Surface<any>>,
+>(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E, C> {
   const { surfaces, heartbeat: hb, ...socketOptions } = opts;
   // Fail fast on an empty surface map: the watchdog probes `system.live` on the
   // FIRST sibling's slice, so with no sibling there is no probe target and the
@@ -114,7 +129,7 @@ export function connectSurfaces<
   // `surfaceClientsHealth` AND-reduces, so a dead combined socket flips the merged
   // fact not-live). We hand the WHOLE handle to `surfaceClients` so clients and probe
   // share ONE link — there is no separate, fabricatable probe target.
-  const transport = createLiveSignal(ws, {
+  const transport = createLiveSignal<C>(ws, {
     siblingKey,
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
@@ -129,6 +144,10 @@ export function connectSurfaces<
     ws,
     echo,
     clients,
+    // The combined link createLiveSignal built — exposed so a consumer with
+    // root-level raw procedures multiplexed at the same socket (kolu) reaches them
+    // without re-assembling the socket+watchdog+clients wiring this seam owns.
+    link: transport.link,
     status: transport.status,
     health: () => surfaceClientsHealth(clients),
     dispose: () => {
