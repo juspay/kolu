@@ -27,7 +27,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import * as pty from "node-pty";
@@ -544,6 +544,15 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // depth dial — deep history lives in the transcript, off the heap.
     const scrollback = mirrorScrollback(rows);
 
+    // Build the transcript DB path BEFORE the fork: an unsafe caller-supplied id
+    // is a contract violation that must crash loudly (F1), and doing it here
+    // means it throws before any child exists — never orphaning a live shell
+    // process. (undefined when history is off or no transcriptDir is configured.)
+    const dbPath =
+      spawnOpts.history.enabled && transcriptDir !== undefined
+        ? transcriptDbPath(transcriptDir, id)
+        : undefined;
+
     log.debug({ id, shell: spawnOpts.shell, cwd: spawnOpts.cwd }, "spawning");
     const proc = pty.spawn(spawnOpts.shell, spawnOpts.args ?? [], {
       name: "xterm-256color",
@@ -554,18 +563,36 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     });
     log.debug({ id, pid: proc.pid }, "spawned");
 
-    // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
-    // changes drop it, fail loud here instead of silently breaking agent
-    // detection. The accessor returns 0 momentarily before the child
-    // finishes setsid, so any number (including 0) means the property
-    // exists.
-    if (
-      typeof (proc as unknown as { foregroundPid?: unknown }).foregroundPid !==
-      "number"
-    ) {
-      throw new Error(
-        "node-pty.foregroundPid accessor missing — fork patch may have regressed",
-      );
+    // The fork is now live. Any post-fork fail-fast below (the foregroundPid
+    // sanity check) must kill the orphaned child before it propagates, or a
+    // rejected spawn leaks a shell process the host never tracked (F1). The
+    // transcript open further down can't throw — it degrades to a faulted
+    // transcript — so the foregroundPid check is the only throwing site left
+    // between the fork and `entries.set`.
+    try {
+      // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
+      // changes drop it, fail loud here instead of silently breaking agent
+      // detection. The accessor returns 0 momentarily before the child
+      // finishes setsid, so any number (including 0) means the property
+      // exists.
+      if (
+        typeof (proc as unknown as { foregroundPid?: unknown })
+          .foregroundPid !== "number"
+      ) {
+        throw new Error(
+          "node-pty.foregroundPid accessor missing — fork patch may have regressed",
+        );
+      }
+    } catch (err) {
+      try {
+        proc.kill();
+      } catch (killErr) {
+        log.error(
+          { id, err: killErr },
+          "pty-host: orphan-kill on spawn failure",
+        );
+      }
+      throw err;
     }
 
     // Headless terminal parses PTY output into screen state for
@@ -614,13 +641,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // transcript that can't be opened must never block the PTY (survivability
     // outranks deep history), so a failure logs and runs without one.
     let transcript: Transcript | undefined;
-    if (spawnOpts.history.enabled && transcriptDir !== undefined) {
-      // Build the path OUTSIDE the degradation try: an unsafe id is a contract
-      // violation that must crash loudly (F1), never collapse into the
-      // "running without history" path a disk fault takes.
-      const dbPath = transcriptDbPath(transcriptDir, id);
+    if (dbPath !== undefined) {
       try {
-        mkdirSync(transcriptDir, { recursive: true, mode: 0o700 });
+        mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
         transcript = Transcript.open({
           policy: spawnOpts.history,
           dbPath,
@@ -922,8 +945,12 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry.transcript.history(args);
   }
   async function* exportHistory(id: PtyId): AsyncIterable<ExportSegment> {
-    const entry = entries.get(id);
-    if (!entry?.transcript) return;
+    // requireEntry, NOT entries.get: a missing PTY must surface as a hard error
+    // (like history/searchHistory), never an empty stream indistinguishable from
+    // a live terminal with history disabled (F2). A disabled-but-live entry still
+    // yields nothing — that's the honest "no transcript" signal.
+    const entry = requireEntry(id);
+    if (!entry.transcript) return;
     yield* entry.transcript.exportSegments();
   }
   function searchHistory(
@@ -942,8 +969,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry.transcript.searchHistory(args);
   }
   function historyText(id: PtyId): Promise<string> {
-    const entry = entries.get(id);
-    if (!entry?.transcript) return Promise.resolve("");
+    // requireEntry, NOT entries.get: a missing PTY is a hard error (consistent
+    // with history/searchHistory), distinct from a live history-disabled entry
+    // that honestly returns "" so the caller falls back to the screen buffer (F2).
+    const entry = requireEntry(id);
+    if (!entry.transcript) return Promise.resolve("");
     return entry.transcript.readAllText();
   }
   function resize(id: PtyId, cols: number, rows: number): void {

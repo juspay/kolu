@@ -136,18 +136,25 @@ const HistoryResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     ansi: z.string(),
-    nextCursor: z.number(),
+    // Cursors are opaque byte positions at record boundaries — nonnegative
+    // integers, never fractional or negative (F9).
+    nextCursor: z.number().int().nonnegative(),
     atFloor: z.boolean(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
-  z.object({ kind: z.literal("faulted"), lastGoodSeq: z.number().int() }),
+  z.object({
+    kind: z.literal("faulted"),
+    lastGoodSeq: z.number().int().nonnegative(),
+  }),
 ]);
 
 const HistoryInputSchema = z.object({
   id: PtyIdSchema,
-  /** The byteSeq at the top of the content the client holds; null = the tip. */
-  beforeCursor: z.number().nullable(),
+  /** The byteSeq at the top of the content the client holds; null = the tip. A
+   *  cursor is an opaque nonnegative byte offset — reject negative/fractional
+   *  raw input at the boundary rather than serving a misleading empty page (F9). */
+  beforeCursor: z.number().int().nonnegative().nullable(),
   maxLines: z.number().int().positive(),
   width: z.number().int().positive(),
 });
@@ -155,15 +162,15 @@ const HistoryInputSchema = z.object({
 const SearchHistoryInputSchema = z.object({
   id: PtyIdSchema,
   query: z.string(),
-  beforeCursor: z.number().nullable(),
+  beforeCursor: z.number().int().nonnegative().nullable(),
   regex: z.boolean(),
   caseSensitive: z.boolean(),
   maxResults: z.number().int().positive(),
 });
 
 const SearchHistoryOutputSchema = z.object({
-  hits: z.array(z.object({ cursor: z.number() })),
-  nextCursor: z.number().nullable(),
+  hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
+  nextCursor: z.number().int().nonnegative().nullable(),
   truncated: z.boolean(),
 });
 

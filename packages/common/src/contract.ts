@@ -123,7 +123,10 @@ export const TerminalSetParentInputSchema = z.object({
  *  render-time parameter (line numbers never go on the wire). */
 export const TerminalHistoryInputSchema = z.object({
   id: TerminalIdSchema,
-  beforeCursor: z.number().nullable(),
+  // A cursor is an opaque nonnegative byte offset at a record/checkpoint
+  // boundary — reject negative/fractional raw RPC input at the boundary rather
+  // than serving a misleading empty/evicted page (F9).
+  beforeCursor: z.number().int().nonnegative().nullable(),
   maxLines: z.number().int().positive(),
   width: z.number().int().positive(),
 });
@@ -134,18 +137,21 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     ansi: z.string(),
-    nextCursor: z.number(),
+    nextCursor: z.number().int().nonnegative(),
     atFloor: z.boolean(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
-  z.object({ kind: z.literal("faulted"), lastGoodSeq: z.number().int() }),
+  z.object({
+    kind: z.literal("faulted"),
+    lastGoodSeq: z.number().int().nonnegative(),
+  }),
 ]);
 
 export const TerminalSearchHistoryInputSchema = z.object({
   id: TerminalIdSchema,
   query: z.string(),
-  beforeCursor: z.number().nullable(),
+  beforeCursor: z.number().int().nonnegative().nullable(),
   /** Opt-in capabilities (xterm's ISearchOptions shape), not degradation knobs:
    *  the default (both false) reproduces the find bar exactly — literal,
    *  case-insensitive. */
@@ -155,8 +161,8 @@ export const TerminalSearchHistoryInputSchema = z.object({
 });
 
 export const TerminalSearchHistoryOutputSchema = z.object({
-  hits: z.array(z.object({ cursor: z.number() })),
-  nextCursor: z.number().nullable(),
+  hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
+  nextCursor: z.number().int().nonnegative().nullable(),
   truncated: z.boolean(),
 });
 

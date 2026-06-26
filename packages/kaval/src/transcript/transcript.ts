@@ -374,17 +374,20 @@ export class Transcript {
       // the span so global order stays newest-first).
       const logical = joinLogical(seg.rows);
       for (let i = logical.length - 1; i >= 0; i--) {
-        if (test(logical[i]!)) {
-          hits.push({ cursor });
-          if (hits.length >= cap) {
-            truncated = true;
-            nextCursor = from;
-            return { hits, nextCursor, truncated };
-          }
-        }
+        if (test(logical[i]!)) hits.push({ cursor });
       }
       cursor = from;
       if (!seed) break;
+      // Cap at a SPAN boundary, never mid-span: every hit in `[from, prevCursor)`
+      // is now recorded, so resuming at `nextCursor = from` skips nothing (F8). A
+      // mid-span cut + `nextCursor = from` would have re-opened the SAME span and
+      // dropped its remaining older matches. The cap is therefore soft — it may
+      // overshoot by one span's matches — which is the price of lossless resume.
+      if (hits.length >= cap) {
+        truncated = true;
+        nextCursor = from;
+        return { hits, nextCursor, truncated };
+      }
     }
     return { hits, nextCursor, truncated };
   }

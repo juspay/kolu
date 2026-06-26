@@ -228,12 +228,14 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
         },
       },
-      // PR2: faithful per-resize-epoch export segments, oldest→newest. Guarded
-      // (a gone PTY yields nothing; the stream simply ends).
+      // PR2: faithful per-resize-epoch export segments, oldest→newest. A missing
+      // PTY surfaces as a hard error from host.exportHistory (requireEntry), NOT
+      // an empty stream — an empty stream is reserved for a live terminal with
+      // history disabled, so the export path can tell the two apart (F2).
       exportHistory: {
         source: async function* (input, _signal) {
-          if (!host.has(input.id as PtyId)) return;
-          for await (const seg of host.exportHistory(input.id)) yield seg;
+          for await (const seg of host.exportHistory(input.id as PtyId))
+            yield seg;
         },
       },
     },
