@@ -120,6 +120,12 @@ export function makeBuildEntry(
       // never paint a finished agent's stale `working` (or a departed terminal's
       // ghost), nor a dead link's last live dot, across the reconnect (#1549).
       onLinkDown: () => reServe.resetRemoteFold(),
+      // Carry the session's link health (copying → … → failed) onto the
+      // browser-facing `connection` cell — the pump owns this subscription for
+      // the session's lifetime and tears it down on exit. This is the "green dot
+      // + no terminals" fix made un-forgettable: pumping a session carries its
+      // health by construction (#1564), so it can't be wired wrong here.
+      connection: { set: reServe.setConnection },
       log: hostLog,
     });
 

@@ -88,6 +88,24 @@ export interface CellSpec<T = unknown, P = T> {
    *  (terminalList et al. don't need it). */
   equals?: (a: T, b: T) => boolean;
   verbs?: readonly CellVerb[];
+  /** Mark this cell as a READINESS GATE: a pure predicate over its own value that
+   *  the client folds into `client.health().live` (AND-reduced with the transport
+   *  leg and every other readiness cell). A mirrored surface's `connection` cell
+   *  declares `liveWhen: (v) => v.state === "connected"`, so a surface composing
+   *  that cell carries the mirror-liveness leg in its fact BY CONSTRUCTION —
+   *  `<SurfaceGate>`/`<HostStatusPip>` read the whole "is it connected?" truth and
+   *  no consumer hand-ANDs the cell state (the round-5 collapse).
+   *
+   *  This is the runtime sibling of {@link equals}: the GENERIC mechanism lives in
+   *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
+   *  literal or any domain vocabulary), while the predicate itself (`v.state ===
+   *  "connected"`) is declared on the cell where its schema lives (e.g.
+   *  `surface-nix-host`'s `connectionCell`) — the same mechanism/vocabulary split
+   *  as `resolveCellVerbs`. Keep it PURE and CHEAP (it runs on every cell frame
+   *  and every `health()` read), and ensure the cell's `default` does NOT satisfy
+   *  it (gate-closed cold start), so a freshly-composed surface reads `connecting`
+   *  until a genuine "ready" frame arrives — `DEFAULT_CONNECTION` already complies. */
+  liveWhen?: (value: T) => boolean;
 }
 
 export interface CollectionSpec<K = unknown, T = unknown> {
@@ -143,6 +161,24 @@ export const DEFAULT_COLLECTION_VERBS = [
   "delete",
 ] as const;
 
+/** A cell's effective verbs — `spec.verbs` when present, else the patch /
+ *  no-patch default. The SINGLE runtime source of this rule: the contract
+ *  derivation (`cellContractEntries`), the server handler walk (`server.ts`),
+ *  and the client binding (`surfaceClient`) all call this, so the wire shape,
+ *  the handler set, and the bound client can't drift on a `??` someone forgot
+ *  to update. `CellVerbsOf` is its type-level dual (TS can't reuse the runtime
+ *  value); keep the two in step. */
+export function resolveCellVerbs(
+  spec: CellSpec<any, any>,
+): readonly CellVerb[] {
+  return (
+    spec.verbs ??
+    (spec.patchSchema
+      ? DEFAULT_CELL_VERBS_WITH_PATCH
+      : DEFAULT_CELL_VERBS_WITHOUT_PATCH)
+  );
+}
+
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
@@ -154,11 +190,7 @@ export const DEFAULT_COLLECTION_VERBS = [
 function cellContractEntries<T, P>(
   spec: CellSpec<T, P>,
 ): Record<string, unknown> {
-  const verbs =
-    spec.verbs ??
-    (spec.patchSchema
-      ? DEFAULT_CELL_VERBS_WITH_PATCH
-      : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
+  const verbs = resolveCellVerbs(spec);
   const entries: Record<string, unknown> = {};
   for (const v of verbs) {
     if (v === "get") {
@@ -269,14 +301,83 @@ type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
     : EmptyObj
 >;
 
+/** The verb set a cell exposes — the TYPE counterpart of the runtime
+ *  {@link resolveCellVerbs}: `spec.verbs` when present, else the patch/no-patch
+ *  default. TS can't reuse the runtime value, so this mirrors it; keep the two
+ *  in step. Honoring `verbs` here is load-bearing, not cosmetic:
+ *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-nix-host`'s
+ *  connection-health cell) must NOT type a `.set` the runtime contract router
+ *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
+ *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
+ *  exact cell whose stale-health safety relies on `set` being absent. */
+export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
+  verbs: readonly CellVerb[];
+}
+  ? S["verbs"][number]
+  : S extends { patchSchema: ZodType<any> }
+    ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
+    : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
+
+/** Whether a cell exposes a CLIENT-facing wire-mutation verb — `set` or
+ *  `patch`, the verbs the Solid client's `.use()` mutate path actually calls.
+ *  `test__set` does NOT count: it's the opt-in e2e reset procedure, never a
+ *  consumer mutation, so a cell whose only non-`get` verb is `test__set` (e.g.
+ *  `activityFeed` / `session`, `["get", "test__set"]`) is read-only on the
+ *  client — the server is the sole writer. A get-only cell (`verbs: ["get"]`)
+ *  is likewise `false`. This is the client-side dual of {@link CellVerbsOf}
+ *  honoring `verbs` in the raw contract: it must select the SAME mutation verb
+ *  the runtime binds in `surfaceClient`, or the bound type advertises a `.set` /
+ *  local-authority path the runtime closure can't service (`mutate` undefined). */
+export type CellIsMutable<S extends CellSpec<any, any>> =
+  "set" extends CellVerbsOf<S>
+    ? true
+    : "patch" extends CellVerbsOf<S>
+      ? true
+      : false;
+
+/** Whether a cell exposes the `patch` wire verb (the partial-payload mutation).
+ *  Load-bearing for the client bound shape: `patch` carries `patchSchema` (`P`),
+ *  but `set` carries the full value schema (`T`). A cell that mutates via `set`
+ *  alone — even one that also declares a `patchSchema` (a legal but unusual
+ *  combination, e.g. `patchSchema` + explicit `verbs: ["get", "set"]`) — has NO
+ *  `P`-shaped wire procedure, so the client must NOT advertise a `.patch(P)` that
+ *  would post a partial `P` to the full-value `set` endpoint. `surfaceClient`
+ *  collapses such a cell's client patch shape to `T` (full replacement through
+ *  `set`); this type is what drives that collapse. */
+export type CellHasPatchVerb<S extends CellSpec<any, any>> =
+  "patch" extends CellVerbsOf<S> ? true : false;
+
+/** One contract entry per resolved verb — `get` streams the schema, `set` /
+ *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the
+ *  runtime `entries[v] = …` switch in {@link cellContractEntries} 1:1. */
+type CellVerbEntry<V extends CellVerb, T, P> = V extends "get"
+  ? { get: ReturnType<typeof buildCellGet<T>> }
+  : V extends "set"
+    ? { set: ReturnType<typeof buildCellSet<T>> }
+    : V extends "patch"
+      ? { patch: ReturnType<typeof buildCellPatch<P>> }
+      : V extends "test__set"
+        ? { test__set: ReturnType<typeof buildCellSet<T>> }
+        : EmptyObj;
+
 type CellContract<S extends CellSpec<any, any>> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
 }
-  ? ReturnType<typeof buildCellWithPatch<T, P>>
+  ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, P>>
   : S extends { schema: ZodType<infer T> }
-    ? ReturnType<typeof buildCellNoPatch<T>>
+    ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, never>>
     : never;
+
+/** Fold the per-verb entry union into one object type — the type-level dual of
+ *  the runtime `entries` accumulation. */
+type UnionToIntersection<U> = (
+  U extends unknown
+    ? (k: U) => void
+    : never
+) extends (k: infer I) => void
+  ? I
+  : never;
 
 type CollectionContract<S extends CollectionSpec<any, any>> = S extends {
   keySchema: ZodType<infer K>;
@@ -449,21 +550,22 @@ export type SurfaceEventPayload<
 // runtime `xxxContractEntries` (above) AND the matching `build*`
 // oracle (below).
 
-function buildCellWithPatch<T, P>(opts: {
-  schema: ZodType<T>;
-  patchSchema: ZodType<P>;
-}) {
-  return {
-    get: oc.output(eventIterator(opts.schema)),
-    patch: oc.input(opts.patchSchema).output(z.void()),
-  };
+// One oracle per cell VERB (was `buildCellNoPatch` / `buildCellWithPatch`,
+// which baked the verb SET into the function): `CellContract<S>` now resolves
+// the verb set from `S["verbs"]` and maps each verb to its entry, so a
+// `verbs`-narrowed cell (`["get"]`) types exactly the verbs the runtime
+// contract router carries — no phantom `set`. Mirrors the per-verb `entries[v]`
+// switch in `cellContractEntries` 1:1 (drift watch above applies).
+function buildCellGet<T>(opts: { schema: ZodType<T> }) {
+  return oc.output(eventIterator(opts.schema));
 }
 
-function buildCellNoPatch<T>(opts: { schema: ZodType<T> }) {
-  return {
-    get: oc.output(eventIterator(opts.schema)),
-    set: oc.input(opts.schema).output(z.void()),
-  };
+function buildCellSet<T>(opts: { schema: ZodType<T> }) {
+  return oc.input(opts.schema).output(z.void());
+}
+
+function buildCellPatch<P>(opts: { patchSchema: ZodType<P> }) {
+  return oc.input(opts.patchSchema).output(z.void());
 }
 
 function buildCollection<K, T>(opts: {

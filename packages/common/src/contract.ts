@@ -161,7 +161,7 @@ export const contract = oc.router({
     setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
     setRightPanel: oc.input(TerminalSetRightPanelInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
-    /** Bidirectional binary stream — clients use `streamCall` with a
+    /** Bidirectional binary stream — clients use `unenrolledStreamCall` with a
      *  custom `onRetry` (xterm buffer reset before re-subscribe). Doesn't
      *  fit a surface primitive; stays raw. */
     attach: oc

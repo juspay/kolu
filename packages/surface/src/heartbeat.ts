@@ -37,6 +37,31 @@
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
 
+/** Upper bounds on the tunable timing — a watchdog this is the whole point of must
+ *  fire on a useful cadence, so a value past these (`intervalMs: 2_000_000_000` — a
+ *  ~23-day interval under `setTimeout`'s 2³¹−1 cap — or a multi-minute `timeoutMs`)
+ *  is a watchdog that effectively never fires: a branded-but-blind signal. Per the
+ *  repo's fail-fast rule, an absurd value CRASHES rather than silently degrades. The
+ *  bounds are generous (default 15s/10s; tuning to a slower minute-scale cadence is
+ *  fine) — they only reject the pathological. */
+export const MAX_HEARTBEAT_INTERVAL_MS = 300_000; // 5 min
+export const MAX_HEARTBEAT_TIMEOUT_MS = 120_000; // 2 min
+
+/** The app-facing knob to TUNE (never disable) the watchdog the connect seams /
+ *  `createLiveSignal` wire. Framework-free (no solid) so the framework-free
+ *  `@kolu/surface-app/connect` can build its `HeartbeatConfig` on it too. `onStale`
+ *  here is the REPORTER (run after the recovery), not the action. There is no
+ *  disable variant: a brand-minting seam that disabled its watchdog would mint a
+ *  branded-but-blind signal. */
+export interface HeartbeatTuning {
+  /** How often to probe while the link is live. Default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}. */
+  intervalMs?: number;
+  /** How long to wait for a probe before declaring half-open. Default {@link DEFAULT_HEARTBEAT_TIMEOUT_MS}. */
+  timeoutMs?: number;
+  /** Report a forced reconnect (a missed probe). Defaults to a `console.warn`. */
+  onStale?: () => void;
+}
+
 /** Options for {@link createHeartbeat}. */
 export interface HeartbeatOptions {
   /** Gate: probe only when the link is live enough to answer. The browser leg
@@ -71,6 +96,19 @@ export interface HeartbeatOptions {
   onProbeError?: (error: unknown) => void;
 }
 
+/** Crash unless `value` is a positive, finite millisecond count within `max` — the
+ *  fail-fast guard against a watchdog tuned so slow it effectively never fires (a
+ *  branded-but-blind signal). */
+function assertSaneMs(label: string, value: number, max: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > max) {
+    throw new Error(
+      `createHeartbeat: ${label} must be a positive number ≤ ${max}ms — got ${value}. ` +
+        "A watchdog whose timing effectively never fires is a branded-but-blind " +
+        "liveness signal; the value is rejected rather than silently degraded.",
+    );
+  }
+}
+
 /** Build the half-open-link watchdog. Each tick — only while `isLive()` — races
  *  `probe` against `timeoutMs`. A probe that doesn't answer in time means the
  *  link is half-open, so `onStale()` runs (abandon-and-recover). One miss forces
@@ -83,6 +121,12 @@ export function createHeartbeat(opts: HeartbeatOptions): {
 } {
   const intervalMs = opts.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS;
+  // FAIL FAST on absurd timing — a watchdog whose interval/timeout effectively
+  // never fires is a branded-but-blind signal, so crash loudly rather than wire a
+  // dead watchdog (the repo's "no silent degradation" rule). Catches a positive
+  // value past the sane max AND a non-positive / non-finite one.
+  assertSaneMs("intervalMs", intervalMs, MAX_HEARTBEAT_INTERVAL_MS);
+  assertSaneMs("timeoutMs", timeoutMs, MAX_HEARTBEAT_TIMEOUT_MS);
   let inFlight = false;
   let disposed = false;
   // The CURRENT probe's timeout, at function scope so `dispose()` can clear it —

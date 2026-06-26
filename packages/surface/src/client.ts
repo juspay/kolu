@@ -1,10 +1,19 @@
 /**
- * Client-side streaming helpers. `streamCall` is the one-shot escape hatch
- * for raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor,
- * and `STREAM_RETRY` is the retry context the framework threads through every
- * such call. The transport constructors that *build* a client live in the
- * link family (`./links/websocket`, `./links/stdio`, `./links/direct`);
- * Solid-specific hooks live in `./solid`.
+ * Client-side streaming helpers. `unenrolledStreamCall` is the one-shot escape
+ * hatch for raw streaming RPCs that don't fit a Cell/Collection/Stream
+ * descriptor, and `STREAM_RETRY` is the retry context the framework threads
+ * through every such call. The transport constructors that *build* a client
+ * live in the link family (`./links/websocket`, `./links/stdio`,
+ * `./links/direct`); Solid-specific hooks live in `./solid`.
+ *
+ * The name is a WARNING. This call does NOT enrol into any `client.health()`
+ * fact — it is the deliberately-unenrolled primitive, for a ROOT RPC stream
+ * that belongs to no surface (the terminal `attach`), or as the inner factory
+ * of a `createSubscription` that owns its OWN `pending`/`error` and joins via
+ * `client.enroll`. For a SURFACE-scoped raw stream use `client.rawStream`
+ * instead — it enrols structurally and throws if you forget the owner. So a
+ * bare `unenrolledStreamCall` at a call site reads as "I am intentionally
+ * outside the health fact", never as a forgotten enrol.
  */
 
 import { ORPCError } from "@orpc/client";
@@ -48,8 +57,8 @@ export function deadTransportError(
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
  *  errors propagate so consumers can surface them. Internal —
- *  consumers thread it via the hooks (`useCell` etc.) or `streamCall`,
- *  never directly. */
+ *  consumers thread it via the hooks (`useCell` etc.) or
+ *  `unenrolledStreamCall`, never directly. */
 export const STREAM_RETRY: ClientRetryPluginContext = {
   retry: Number.POSITIVE_INFINITY,
   retryDelay: (o) => o.lastEventRetry ?? 1000,
@@ -65,17 +74,22 @@ export type StreamingProcedure<I, O> = (
   opts: { signal?: AbortSignal; context?: ClientRetryPluginContext },
 ) => Promise<AsyncIterable<O>>;
 
-/** Call a streaming procedure with `STREAM_RETRY` context applied. The
- *  one-line escape hatch for raw streaming RPCs that don't fit a
- *  Cell/Collection/Stream descriptor — bidirectional binary attaches,
- *  lifecycle events, anything outside the three primitives. For those
- *  that do fit, prefer the matching hook; it wraps internally.
+/** Call a streaming procedure with `STREAM_RETRY` context applied, WITHOUT
+ *  enrolling it into any `client.health()` fact. The one-line escape hatch for
+ *  raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor —
+ *  bidirectional binary attaches, lifecycle events, anything outside the three
+ *  primitives. For those that do fit, prefer the matching hook; it wraps
+ *  internally. For a SURFACE-scoped raw stream that SHOULD be in the health
+ *  fact, use `client.rawStream` (structural, throws outside an owner) — reach
+ *  for this only when the stream is deliberately outside a surface's health
+ *  (a root RPC) or is hand-joined via `client.enroll`; the `unenrolled-` prefix
+ *  makes that choice legible at the call site.
  *
  *  When `onRetry` is supplied, it merges into the retry context so the
  *  plugin invokes the callback before each re-subscribe. Used by xterm's
  *  attach loop to clear the buffer before the new iterator's first
  *  snapshot lands. */
-export function streamCall<I, O>(
+export function unenrolledStreamCall<I, O>(
   procedure: StreamingProcedure<I, O>,
   input: I,
   opts?: { signal?: AbortSignal; onRetry?: () => void },

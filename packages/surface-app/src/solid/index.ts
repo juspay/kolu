@@ -49,14 +49,33 @@ import { reloadForUpdate, retireSocket } from "../lifecycle";
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
 // subpath, not the framework-free `/connect`.
 export {
-  connectSurface,
   type ConnectSurfaceOptions,
+  connectSurface,
   type SurfaceConnection,
 } from "./connectSurface";
+// The turnkey MULTI-surface connect seam (one socket → a `surfaceClients`
+// bundle + one default-on heartbeat + the combined `surfaceClientsHealth` fact).
 export {
-  createSocketStatus,
+  type ConnectSurfacesOptions,
+  connectSurfaces,
+  type SurfacesConnection,
+} from "./connectSurfaces";
+// The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
+// AND brands the liveness accessor in one call — now lives in `@kolu/surface`
+// (co-located with the module-private brand symbol, so nothing can forge a brand).
+// Re-exported here for compat: `connectSurface`/`connectSurfaces` wrap it, and a
+// hand-built `surfaceClient + websocketLink` (an example, or kolu's combined
+// `wire.ts`) calls it directly. `SurfaceConnectionStatus` / `HeartbeatTuning` also
+// moved there; re-exported so existing `@kolu/surface-app/solid` importers keep one
+// import path.
+export {
+  createLiveSignal,
+  type CreateLiveSignalOptions,
+  type HeartbeatTuning,
+  type LiveSignalHandle,
   type SurfaceConnectionStatus,
-} from "./socketStatus";
+  type WatchableSocket,
+} from "@kolu/surface/solid";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";
@@ -481,6 +500,14 @@ export type ConnectionSource<P extends ServerProbe = ServerProbe> =
       };
       probe: () => Promise<P>;
       restartCloseCode?: number;
+      /** Opt the lifecycle's OWN half-open watchdog out (`heartbeat: false`) when
+       *  another layer over the SAME socket already owns it — e.g. the
+       *  `connectSurfaces` that built this socket's client bundle wires a
+       *  watchdog-backed `LiveSignal` by construction. The lifecycle then only
+       *  observes open/close + the identity probe (it mints no brand, so disabling
+       *  its watchdog is watchdog-OWNERSHIP coordination, never a branded-but-blind
+       *  signal). Omit it (default) for a socket no other layer watches. */
+      heartbeat?: HeartbeatConfig;
       /** Fired with each observed `processId` (forwards `createServerLifecycle`'s
        *  `onProcessId`). A turnkey caller stashes it in the mutable its socket's
        *  URL thunk echoes as the `pid` handshake param — without re-wrapping its
@@ -578,6 +605,11 @@ export function SurfaceAppProvider<
       // `createServerLifecycle` — no need to drop to the `{ status }` mode
       // just to set it.
       restartCloseCode: props.restartCloseCode,
+      // Forward the watchdog opt-out: when `connectSurfaces` already wired a
+      // watchdog over this same admin socket (the usual control-plane shape), the
+      // lifecycle takes `heartbeat: false` so the socket isn't double-watched — it
+      // mints no brand, so this is ownership coordination, not a blind signal.
+      heartbeat: props.heartbeat,
       // Forward the observed-id publisher so a turnkey caller can echo the `pid`
       // handshake param from its own URL thunk without re-wrapping `probe`.
       onProcessId: props.onProcessId,

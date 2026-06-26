@@ -42,6 +42,14 @@ export interface UseCollectionOptions<K, T, I> {
   keyToInput: (key: K) => I;
   /** Called when any per-key subscription errors. */
   onError?: SubscriptionOptions<unknown>["onError"];
+  /** Enrol each per-key value subscription into a client health registry
+   *  (`surfaceClient` wires this). Invoked inside the `mapArray` factory — i.e.
+   *  the per-key reactive owner — so the registry's matching `onCleanup` drop
+   *  fires when the key leaves the set, on the SAME owner disposal the
+   *  subscription's own teardown already rides. Without it, a per-key sub error
+   *  would be invisible to `client.health()` and the registry would not be
+   *  TOTAL. */
+  enroll?: (key: K, sub: Subscription<T>) => void;
 }
 
 export interface UseCollectionResult<K, T> {
@@ -68,6 +76,10 @@ export function useCollection<Name extends string, K, T, I>(
         options.valueSource(options.keyToInput(key), { context: STREAM_RETRY }),
       { onError: options.onError },
     );
+    // Enrol this per-key sub into the client health registry (when wired). Runs
+    // in the per-key owner, so the registry's `onCleanup` drop fires on the same
+    // disposal that tears the subscription down when this key leaves the set.
+    options.enroll?.(key, sub);
     return { key, sub };
   });
 

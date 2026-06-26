@@ -4,6 +4,7 @@
  *  in one place so they evolve together. */
 
 import { shellQuoteArg } from "@kolu/shell-quote";
+import type { FailureCause } from "./connection";
 import { controlOptPairs } from "./controlMaster";
 
 export function isLocalHost(host: string): boolean {
@@ -28,8 +29,12 @@ export function isLocalHost(host: string): boolean {
  *     ran and exited before the first RPC (bad binary, startup crash).
  *     Retrying can't fix a misconfiguration or a broken build, so after
  *     `MAX_CONSECUTIVE_FAILURES` it gives up into the terminal `failed`
- *     state. */
-export type FailureCause = "network" | "remote";
+ *     state.
+ *
+ *  The literal pair is single-sourced (with the cell's `z.enum`) from the
+ *  browser-safe `./connection` tuple; re-exported here so `provisionAgent` /
+ *  `HostSession` keep importing it from this module. */
+export type { FailureCause };
 
 /** A `resolveDrvPath` rejection that carries its own {@link FailureCause}, so the
  *  resolver can tell `HostSession` that THIS failure is not a transport blip.

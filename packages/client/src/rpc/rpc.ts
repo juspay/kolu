@@ -14,7 +14,6 @@
  * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  */
 
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { STALE_PROCESS_CLOSE_CODE } from "@kolu/surface-app";
 import {
   createServerLifecycle,
@@ -44,14 +43,13 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // probe call shape lives in surface-app's `surfaceAppProbe`, beside the surface
   // that defines the probe — not re-cast here.
   probe: () => surfaceAppProbe(surfaceApp),
-  // The half-open watchdog asks a SEPARATE question from `probe` ("is the link
-  // answering at all?" vs "which process is on the other end?"), so it probes the
-  // framework-reserved `system.live` round-trip — not `identity.info`. Every
-  // surface answers `system.live`, so this is the same reserved verb the ssh-leg
-  // HostSession and `connectSurface` use; the watchdog no longer reaches for an
-  // app-nominated probe. `surfaceApp.rpc` is the SCOPED link, so `system.live`
-  // resolves on it just like the identity probe above.
-  livenessProbe: () => probeSurfaceLive(surfaceApp.rpc),
+  // The half-open watchdog is NOT wired here — it lives in `wire.ts`'s
+  // `createLiveSignal` over this same `ws`, beside the transport it guards (and
+  // the branded `LiveSignal` it mints for the clients). So this lifecycle opts the
+  // watchdog OUT (`heartbeat: false`) to avoid a SECOND `system.live` probe on the
+  // one socket; the wire-side watchdog forces `ws.reconnect()` on a half-open
+  // socket, which this lifecycle observes as a close/open like any other.
+  heartbeat: false,
   // Echo each observed identity back as the `pid` handshake param on the next
   // reconnect — that's how the server recognizes a stale tab after a restart and
   // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
@@ -83,11 +81,11 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // The half-open liveness watchdog (partysocket ships no keepalive, so a SILENTLY
 // half-open socket — TCP dead with no FIN/RST after a laptop sleep / Wi-Fi roam /
 // NAT idle-eviction — would otherwise sit `OPEN` forever, every stream hung, the
-// UI frozen until a manual reload) is now folded INTO `createServerLifecycle`
-// above: it probes the framework-reserved `system.live` round-trip (via the
-// `livenessProbe` above, NOT the `identity.info` lifecycle probe) and forces
-// `ws.reconnect()` on a missed probe, default-on. There is no separate
-// `createHeartbeat` call to wire (or forget) here anymore.
+// UI frozen until a manual reload) lives in `wire.ts`'s `createLiveSignal`, which
+// owns this `ws`'s transport-liveness leg: it probes `system.live` and forces
+// `ws.reconnect()` on a missed probe, then mints the BRANDED `LiveSignal` the
+// clients require. So the lifecycle above takes `heartbeat: false` — one watchdog
+// on the socket, beside the transport, not a second one in this UI layer.
 
 // `status` is the surface-app `ConnectionStatus` projection of the same
 // lifecycle — handed to `<SurfaceAppProvider status=...>` so the provider reads

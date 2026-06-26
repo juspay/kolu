@@ -195,4 +195,33 @@ describe("createHeartbeat (lifted primitive)", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(probe).toHaveBeenCalledTimes(1);
   });
+
+  // Round-8: a watchdog whose timing effectively never fires is a branded-but-blind
+  // signal. createHeartbeat FAILS FAST on absurd timing rather than wire a dead one.
+  it("CRASHES on a pathologically large intervalMs (the ~23-day blind-watchdog case)", () => {
+    const make = (intervalMs: number) =>
+      createHeartbeat({
+        isLive: () => true,
+        onStale: vi.fn(),
+        probe: vi.fn().mockResolvedValue(null),
+        intervalMs,
+      });
+    expect(() => make(2_000_000_000)).toThrow(
+      /intervalMs must be a positive number/,
+    );
+    // A multi-minute timeout is the same blind-watchdog hazard on the other axis.
+    expect(() =>
+      createHeartbeat({
+        isLive: () => true,
+        onStale: vi.fn(),
+        probe: vi.fn().mockResolvedValue(null),
+        timeoutMs: 600_000,
+      }),
+    ).toThrow(/timeoutMs must be a positive number/);
+    // Non-positive / non-finite are rejected too.
+    expect(() => make(0)).toThrow();
+    expect(() => make(Number.NaN)).toThrow();
+    // A sane minute-scale cadence is still allowed.
+    expect(() => make(60_000).dispose()).not.toThrow();
+  });
 });

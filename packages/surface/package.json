@@ -20,6 +20,8 @@
     "./server": "./src/server.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",
+    "./solid/SurfaceGate": "./src/solid/SurfaceGate.tsx",
+    "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
     "./links/direct": "./src/links/direct.ts",
@@ -33,7 +35,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "happy-dom": "^15.11.7",
     "typescript": "^5.8.0",
+    "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.0"
   },
   "dependencies": {
