@@ -220,25 +220,6 @@ export class TranscriptStore {
     return row.m ?? 0;
   }
 
-  /** DATA records newest-first starting strictly before `beforeByteSeq`, for
-   *  searchHistory's replay-and-scan (the schema keeps no plaintext column —
-   *  that is write-amplification and a second source of truth). */
-  dataRecordsNewestBefore(
-    beforeByteSeq: Seq,
-    limit: number,
-  ): { firstByteSeq: Seq; firstRow: Row; byteLen: number }[] {
-    return this.db
-      .prepare(
-        `SELECT firstByteSeq, firstRow, byteLen FROM record
-         WHERE kind=? AND firstByteSeq<? ORDER BY firstByteSeq DESC LIMIT ?`,
-      )
-      .all(Kind.DATA, beforeByteSeq, limit) as {
-      firstByteSeq: Seq;
-      firstRow: Row;
-      byteLen: number;
-    }[];
-  }
-
   /** Total stored payload bytes — the retention cap's independent variable. */
   totalPayloadBytes(): number {
     const row = this.db
