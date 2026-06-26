@@ -52,11 +52,10 @@ export {
 } from "./inProcessPtyHost.ts";
 export {
   createPtyHost,
-  // VALUE export (the per-terminal mirror-depth constant): a type-only re-export
-  // would collapse it to nothing at runtime. The server imports this as the
-  // scrollback it sends, so the same number governs every spawn path.
-  DEFAULT_MIRROR_SCROLLBACK,
   type ForegroundSample,
+  // VALUE exports (PR2 mirror/snapshot tuning constants): the attach-snapshot
+  // window the mirror is pinned to, and the scrape-tail floor it must clear.
+  HOT_WINDOW,
   type PtyAttachment,
   type PtyHandle,
   type PtyHost,
@@ -65,7 +64,17 @@ export {
   type PtyListEntry,
   type PtySpawnOpts,
   type PtySpawnResult,
+  SCRAPE_TAIL_LINES,
 } from "./ptyHost.ts";
+// PR2 transcript types consumers (kolu-server's router/proxy) read back.
+export type {
+  ExportSegment,
+  HistoryPolicy,
+  HistoryResult,
+  SearchMatch,
+  SearchResult,
+  TranscriptStatus,
+} from "./transcript/index.ts";
 // The pty-host wire contract — the surface and its version. `ptyHostSurface`
 // is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`
 // to type their client, which collapses to `unknown` under a type-only re-export.

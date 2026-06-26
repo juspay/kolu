@@ -18,7 +18,8 @@ import { TranscriptStore } from "./store.ts";
 import type { MirrorView } from "./types.ts";
 
 const require = createRequire(import.meta.url);
-const { Terminal } = require("@xterm/headless") as typeof import("@xterm/headless");
+const { Terminal } =
+  require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
@@ -64,9 +65,16 @@ function readPlain(term: InstanceType<typeof Terminal>): string[] {
   const rows: { t: string; w: boolean }[] = [];
   for (let i = 0; i < b.length; i++) {
     const l = b.getLine(i);
-    rows.push({ t: l?.translateToString(true) ?? "", w: l?.isWrapped ?? false });
+    rows.push({
+      t: l?.translateToString(true) ?? "",
+      w: l?.isWrapped ?? false,
+    });
   }
-  while (rows.length && rows[rows.length - 1]!.t === "" && !rows[rows.length - 1]!.w)
+  while (
+    rows.length &&
+    rows[rows.length - 1]!.t === "" &&
+    !rows[rows.length - 1]!.w
+  )
     rows.pop();
   return rows.map((r) => r.t);
 }
@@ -138,7 +146,11 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       const ansiParts: string[] = [];
       let guard = 0;
       while (guard++ < 1000) {
-        const page = await tx.history({ beforeCursor: cursor, maxLines: 50, width: W });
+        const page = await tx.history({
+          beforeCursor: cursor,
+          maxLines: 50,
+          width: W,
+        });
         expect(page.kind).toBe("ok");
         if (page.kind !== "ok") break;
         ansiParts.unshift(page.ansi);
@@ -205,7 +217,11 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     const ansiParts: string[] = [];
     let guard = 0;
     while (guard++ < 5000) {
-      const page = await tx.history({ beforeCursor: cursor, maxLines: 40, width: W });
+      const page = await tx.history({
+        beforeCursor: cursor,
+        maxLines: 40,
+        width: W,
+      });
       expect(page.kind).toBe("ok");
       if (page.kind !== "ok") break;
       ansiParts.unshift(page.ansi);
@@ -262,10 +278,13 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     rmSync(join(dir, "x"), { force: true });
     raw.close();
     // simulate a future schema by writing a different version directly
-    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const { DatabaseSync } =
+      require("node:sqlite") as typeof import("node:sqlite");
     const db = new DatabaseSync(dbPath);
     db.prepare("UPDATE meta SET value=? WHERE key='formatVersion'").run("999");
     db.close();
-    expect(() => TranscriptStore.open(dbPath)).toThrow(/unknown on-disk format/);
+    expect(() => TranscriptStore.open(dbPath)).toThrow(
+      /unknown on-disk format/,
+    );
   });
 });

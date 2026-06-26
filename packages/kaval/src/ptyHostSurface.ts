@@ -70,8 +70,17 @@ import { z } from "zod";
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
- *  is recycled on adoption rather than feeding the server unparseable marks. */
-export const PTY_HOST_CONTRACT_VERSION = "3.3";
+ *  is recycled on adoption rather than feeding the server unparseable marks.
+ *  Bumped to 4.0 (BREAKING · major) by PR2's on-disk transcript: `spawn` drops
+ *  `scrollback` (the mirror is pinned to the hot window in-kaval, no longer a
+ *  wire depth dial) and gains a REQUIRED `history` policy (B0 — the daemon
+ *  derives nothing, a missing field is a loud crash); the new `history` /
+ *  `searchHistory` / `historyText` verbs and the `exportHistory` stream serve
+ *  deep history. Persistence can't be layered onto a pre-persistence daemon
+ *  (the verbs would 404, the required policy field would be missing), so this is
+ *  one forced recycle that kills every live terminal once — there is no lossless
+ *  path around it. */
+export const PTY_HOST_CONTRACT_VERSION = "4.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -111,7 +120,70 @@ const TerminalSpawnInputSchema = z.object({
   initFiles: z.array(InitFileSchema),
   cols: z.number().int().positive().optional(),
   rows: z.number().int().positive().optional(),
-  scrollback: z.number().int().positive().optional(),
+  /** Per-terminal on-disk history policy (PR2). REQUIRED — the daemon derives
+   *  nothing, so a missing field is a loud crash, not a silent default.
+   *  `enabled: false` keeps no transcript; `retentionBytes` caps the per-PTY
+   *  on-disk depth (oldest records past it are evicted to a checkpoint floor). */
+  history: z.object({
+    enabled: z.boolean(),
+    retentionBytes: z.number().int().nonnegative(),
+  }),
+});
+
+/** A backward history page (or an honest non-content state), keyed on the opaque
+ *  reflow-stable byte cursor. `ansi` writes into the pager's read-only xterm. */
+const HistoryResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    ansi: z.string(),
+    rowCount: z.number().int(),
+    nextCursor: z.number(),
+    atFloor: z.boolean(),
+    firstRow: z.number().int(),
+  }),
+  z.object({ kind: z.literal("unavailable") }),
+  z.object({ kind: z.literal("evicted") }),
+  z.object({ kind: z.literal("faulted"), lastGoodSeq: z.number().int() }),
+]);
+
+const HistoryInputSchema = z.object({
+  id: PtyIdSchema,
+  /** The byteSeq at the top of the content the client holds; null = the tip. */
+  beforeCursor: z.number().nullable(),
+  maxLines: z.number().int().positive(),
+  width: z.number().int().positive(),
+});
+
+const SearchHistoryInputSchema = z.object({
+  id: PtyIdSchema,
+  query: z.string(),
+  beforeCursor: z.number().nullable(),
+  regex: z.boolean(),
+  caseSensitive: z.boolean(),
+  maxResults: z.number().int().positive(),
+});
+
+const SearchHistoryOutputSchema = z.object({
+  hits: z.array(
+    z.object({
+      cursor: z.number(),
+      firstRow: z.number().int(),
+      text: z.string(),
+      matches: z.array(
+        z.object({ start: z.number().int(), end: z.number().int() }),
+      ),
+    }),
+  ),
+  nextCursor: z.number().nullable(),
+  truncated: z.boolean(),
+});
+
+/** One faithful per-resize-epoch export segment, rendered at its historical
+ *  width — the un-clipped PDF / archival source. */
+const ExportSegmentSchema = z.object({
+  cols: z.number().int(),
+  rows: z.number().int(),
+  ansi: z.string(),
 });
 
 const TerminalSpawnOutputSchema = z.object({
@@ -280,6 +352,13 @@ export const ptyHostSurface = defineSurface({
       inputSchema: z.object({}),
       outputSchema: InventoryEventSchema,
     },
+    /** Faithful per-resize-epoch export segments (PR2), oldest→newest — a finite
+     *  ordered stream so a deep transcript isn't one giant message. The client
+     *  resizes an offscreen themed xterm per segment and accumulates the HTML. */
+    exportHistory: {
+      inputSchema: TerminalIdInputSchema,
+      outputSchema: ExportSegmentSchema,
+    },
   },
   procedures: {
     terminal: {
@@ -318,6 +397,22 @@ export const ptyHostSurface = defineSurface({
           endLine: z.number().int().optional(),
           tailLines: z.number().int().optional(),
         }),
+        output: z.object({ text: z.string() }),
+      },
+      /** PR2: one backward history page (request/response paging on the opaque
+       *  byte cursor — the pager is the past, not a live tail). */
+      history: {
+        input: HistoryInputSchema,
+        output: HistoryResultSchema,
+      },
+      /** PR2: search the on-disk transcript (replay-and-scan, cursor-paged). */
+      searchHistory: {
+        input: SearchHistoryInputSchema,
+        output: SearchHistoryOutputSchema,
+      },
+      /** PR2: whole-transcript plain text — the deep "copy all" source. */
+      historyText: {
+        input: TerminalIdInputSchema,
         output: z.object({ text: z.string() }),
       },
     },

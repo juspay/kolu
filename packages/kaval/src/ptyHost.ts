@@ -26,30 +26,50 @@
 
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
+import { Transcript } from "./transcript/index.ts";
+import type {
+  ExportSegment,
+  HistoryPolicy,
+  HistoryResult,
+  MirrorView,
+  SearchResult,
+  TranscriptStatus,
+} from "./transcript/index.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-/** The per-live-terminal headless-mirror depth, in lines — the SINGLE source of
- *  truth for "how deep a mirror kaval keeps per terminal". It lives in kaval
- *  because the mirror lives in kaval: this is the number every spawn path lands
- *  on when it doesn't override scrollback (the in-process host, kaval-tui's
- *  `composeCreateInput`), AND the value the server's `composeSpawnInput` imports
- *  and sends explicitly — so all three paths provably agree.
- *
- *  Deliberately smaller than the CLIENT's visible scrollback (kolu-common's
- *  `DEFAULT_SCROLLBACK`, a distinct axis the user sees in their own tab): kaval
- *  keeps one mirror per live terminal and live terminals accumulate without
- *  bound, so a large shared depth × unbounded terminals exhausted the heap and
- *  SIGABRT'd the daemon. The mirror only needs enough to feed live readers and
- *  repaint a cold-attaching client; a warm client keeps its own buffer and PDF
- *  export reads the client buffer, so shrinking it regresses neither. See
- *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`. */
-export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
+
+/** The deepest screen-scrape tail any live reader asks for — the floor the hot
+ *  mirror must clear so OSC/agent detectors still see their tail after the
+ *  shrink. Equals claude-code's `TAIL_REGION_LINES` (`screen.ts`); kaval can't
+ *  import that leaf (it sits ABOVE kaval), so the value is duplicated here with
+ *  a guard test pinning them together — the floor can't drift below a reader's
+ *  need. No OSC (7, 0/2, 633;E) or device-query handler reads past it. */
+export const SCRAPE_TAIL_LINES = 40;
+
+/** The bounded attach-snapshot window AND the hot mirror's depth (PR2). A reload
+ *  paints these ~500 lines instantly (`serialize({ scrollback: HOT_WINDOW })` →
+ *  tens-to-low-hundreds of KB, vs the old full-10K-mirror serialize that drove
+ *  the reconnect-storm spike), then the copy-mode pager backfills anything
+ *  deeper from the on-disk transcript. Deep history left the heap for the
+ *  transcript, so the mirror no longer carries a 10K depth dial — it is pinned
+ *  to this window (≥ the scrape floor). See
+ *  `docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`. */
+export const HOT_WINDOW = 500;
+
+/** The hot mirror's scrollback depth — the snapshot window, never below the
+ *  scrape floor — so `serialize({ scrollback: HOT_WINDOW })` delivers the whole
+ *  window and the scrape tail is always present. */
+function mirrorScrollback(rows: number): number {
+  return Math.max(HOT_WINDOW, rows + SCRAPE_TAIL_LINES);
+}
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exitPromise(id)` resolves with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
@@ -151,8 +171,10 @@ export interface PtySpawnOpts {
   cols?: number;
   /** Grid height (default 24). */
   rows?: number;
-  /** Headless scrollback override for this PTY. */
-  scrollback?: number;
+  /** Per-terminal on-disk history policy (PR2) — required on the wire (B0): the
+   *  daemon derives nothing, so a missing field is a loud crash, not a silent
+   *  default. `enabled: false` writes no DB; reads return `unavailable`. */
+  history: HistoryPolicy;
   /** Fired once when the PTY is torn down — e.g. to clean up the
    *  per-terminal rc files the caller wrote before spawning. */
   onDispose?: () => void;
@@ -217,8 +239,12 @@ export interface PtyListEntry {
 /** Construction options for {@link createPtyHost}. */
 export interface PtyHostOptions {
   log: Logger;
-  /** Default headless scrollback for spawns that don't set their own. */
-  defaultScrollback?: number;
+  /** Absolute directory under which per-PTY transcript DBs live
+   *  (`<transcriptDir>/<id>.db`), injected by the host (the daemon resolves
+   *  `$XDG_STATE_HOME/kaval/transcripts`; the in-process host passes its own).
+   *  When absent, no transcript is kept regardless of a spawn's `history`
+   *  policy — the in-process fallback for environments without durable state. */
+  transcriptDir?: string;
   /** Id generator (defaults to `randomUUID`). */
   generateId?: () => PtyId;
 }
@@ -297,6 +323,35 @@ export interface PtyHost {
   ): string;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
+  /** One backward history page from the on-disk transcript (PR2), ending at
+   *  `beforeCursor` (or the tip when null), rendered at `width`. Returns an
+   *  honest non-content state (`unavailable` / `evicted` / `faulted`) rather
+   *  than silent-empty. Throws if the PTY is gone. */
+  history(
+    id: PtyId,
+    args: { beforeCursor: number | null; maxLines: number; width: number },
+  ): Promise<HistoryResult>;
+  /** Faithful per-resize-epoch export segments (PR2), oldest→newest, each at its
+   *  historical width — the un-clipped PDF / archival source. Empty if gone. */
+  exportHistory(id: PtyId): AsyncIterable<ExportSegment>;
+  /** Search the on-disk transcript (PR2) — replay-and-scan by logical line,
+   *  newest-first, cursor-paged. */
+  searchHistory(
+    id: PtyId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      regex: boolean;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchResult>;
+  /** Whole-transcript plain text (PR2) — the deep "copy all" source. Empty if
+   *  gone or history disabled. */
+  historyText(id: PtyId): Promise<string>;
+  /** The transcript's status (PR2: enabled / faulted / floor), or `undefined`
+   *  if the PTY is gone. */
+  historyStatus(id: PtyId): TranscriptStatus | undefined;
   /** Kill every PTY this host owns. */
   dispose(): void;
 }
@@ -312,6 +367,14 @@ interface Entry {
    *  Read and invalidated ONLY through `snapshotOf` / `invalidateSnapshot`,
    *  which own the epoch invariant (see their definitions). */
   snapshotCache: string | undefined;
+  /** The cold on-disk history for this PTY (PR2) — `undefined` when history is
+   *  disabled or no `transcriptDir` is configured. Written from the SAME
+   *  `proc.onData` callback the mirror is, so it shares the byte stream and
+   *  inherits attach's race-freedom. */
+  transcript: Transcript | undefined;
+  /** A stable read-only view of the mirror the transcript reads for
+   *  checkpoint placement (clean-boundary detection + the viewport seed). */
+  mirrorView: MirrorView;
   cwd: string;
   title: string;
   lastActivity: number;
@@ -359,7 +422,7 @@ function readForegroundPid(proc: pty.IPty): number | undefined {
 
 export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const { log } = opts;
-  const defaultScrollback = opts.defaultScrollback ?? DEFAULT_MIRROR_SCROLLBACK;
+  const transcriptDir = opts.transcriptDir;
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
   // Bounded tombstone of exit codes for PTYs that have exited and been torn
@@ -431,6 +494,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.commandRunChannel.close();
     entry.foregroundChannel.close();
     entry.headless.dispose();
+    // Flush the pending block and close the transcript DB. The DB file persists
+    // on disk (a cold restore / wake on the same id reopens + appends it); only
+    // the connection is released here.
+    entry.transcript?.close();
     if (entry.onDispose) {
       try {
         entry.onDispose();
@@ -453,7 +520,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     const id = spawnOpts.id ?? generateId();
     const cols = spawnOpts.cols ?? DEFAULT_COLS;
     const rows = spawnOpts.rows ?? DEFAULT_ROWS;
-    const scrollback = spawnOpts.scrollback ?? defaultScrollback;
+    // PR2: the mirror is pinned to the hot window (≥ scrape floor), not a 10K
+    // depth dial — deep history lives in the transcript, off the heap.
+    const scrollback = mirrorScrollback(rows);
 
     log.debug({ id, shell: spawnOpts.shell, cwd: spawnOpts.cwd }, "spawning");
     const proc = pty.spawn(spawnOpts.shell, spawnOpts.args ?? [], {
@@ -498,12 +567,59 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     const serialize = new SerializeAddon();
     headless.loadAddon(serialize);
 
+    // A stable read-only view of the mirror for the transcript's checkpoint
+    // placement — clean-boundary detection + the viewport seed.
+    const mirrorView: MirrorView = {
+      get cols() {
+        return headless.cols;
+      },
+      get rows() {
+        return headless.rows;
+      },
+      atCleanBoundary() {
+        const b = headless.buffer.active;
+        return (
+          b.type === "normal" &&
+          b.cursorX === 0 &&
+          !(b.getLine(b.baseY)?.isWrapped ?? false)
+        );
+      },
+      serializeViewport() {
+        return serialize.serialize({ scrollback: 0 });
+      },
+    };
+
+    // The cold on-disk history — opened (and resumed, for a cold restore on the
+    // SAME id) when history is enabled and a transcriptDir is configured. A
+    // transcript that can't be opened must never block the PTY (survivability
+    // outranks deep history), so a failure logs and runs without one.
+    let transcript: Transcript | undefined;
+    if (spawnOpts.history.enabled && transcriptDir !== undefined) {
+      try {
+        mkdirSync(transcriptDir, { recursive: true, mode: 0o700 });
+        transcript = Transcript.open({
+          policy: spawnOpts.history,
+          dbPath: join(transcriptDir, `${id}.db`),
+          cols,
+          rows,
+        });
+      } catch (err) {
+        log.error(
+          { id, err },
+          "pty-host: transcript open failed; running without history",
+        );
+        transcript = undefined;
+      }
+    }
+
     const entry: Entry = {
       id,
       proc,
       headless,
       serialize,
       snapshotCache: undefined,
+      transcript,
+      mirrorView,
       cwd: spawnOpts.cwd,
       title: "",
       lastActivity: Date.now(),
@@ -624,6 +740,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // stale: clear it BEFORE publishing, so a cached value always implies
           // "no parse since it was taken" — the invariant `attach()` leans on.
           invalidateSnapshot(entry);
+          // Append to the cold transcript AFTER the parse (so the mirror — and
+          // thus `mirrorView.atCleanBoundary()` — reflects `data`), sharing the
+          // mirror's byte stream. A disk fault degrades the transcript to a
+          // surfaced state inside `appendData`; it never throws here.
+          entry.transcript?.appendData(data, entry.mirrorView);
           entry.data.publish(data);
         });
       }),
@@ -656,7 +777,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // `invalidateSnapshot` is the only place the memo is dropped, called from
   // EVERY mutator of the serialized state (the data-publish path and resize()).
   function snapshotOf(entry: Entry): string {
-    entry.snapshotCache ??= entry.serialize.serialize();
+    // PR2: bound the attach snapshot to the hot window. Now lossless — a reload
+    // paints this window instantly and the pager backfills the rest from the
+    // transcript on scroll. This is what takes a reconnect-storm serialize from
+    // multi-MB (the full 10K mirror) to tens-to-low-hundreds of KB.
+    entry.snapshotCache ??= entry.serialize.serialize({
+      scrollback: HOT_WINDOW,
+    });
     return entry.snapshotCache;
   }
   function invalidateSnapshot(entry: Entry): void {
@@ -751,6 +878,48 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entries.get(id)?.proc.write(data);
   }
 
+  // ---- Transcript read verbs (PR2). They require a LIVE entry (the transcript
+  // connection is open on it); the serving layer gates on an active terminal,
+  // and a cold restore re-spawns on the same id (reopening the DB) before its
+  // history is read. A disabled/absent transcript returns the honest
+  // non-content state, never silent-empty. ------------------------------------
+  function history(
+    id: PtyId,
+    args: { beforeCursor: number | null; maxLines: number; width: number },
+  ): Promise<HistoryResult> {
+    const entry = requireEntry(id);
+    if (!entry.transcript) return Promise.resolve({ kind: "unavailable" });
+    return entry.transcript.history(args);
+  }
+  async function* exportHistory(id: PtyId): AsyncIterable<ExportSegment> {
+    const entry = entries.get(id);
+    if (!entry?.transcript) return;
+    yield* entry.transcript.exportSegments();
+  }
+  function searchHistory(
+    id: PtyId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      regex: boolean;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchResult> {
+    const entry = requireEntry(id);
+    if (!entry.transcript)
+      return Promise.resolve({ hits: [], nextCursor: null, truncated: false });
+    return entry.transcript.searchHistory(args);
+  }
+  function historyText(id: PtyId): Promise<string> {
+    const entry = entries.get(id);
+    if (!entry?.transcript) return Promise.resolve("");
+    return entry.transcript.readAllText();
+  }
+  function historyStatus(id: PtyId): TranscriptStatus | undefined {
+    return entries.get(id)?.transcript?.status();
+  }
+
   function resize(id: PtyId, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
@@ -761,6 +930,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // the memo — invalidate here too, or a same-epoch attach after a resize
     // hands back the stale pre-resize snapshot.
     invalidateSnapshot(entry);
+    // Journal the out-of-band grid change at its true stream position — the
+    // load-bearing RESIZE record that makes a faithful replay reflow-correct.
+    entry.transcript?.appendResize(cols, rows);
   }
 
   function handle(id: PtyId): PtyHandle {
@@ -812,6 +984,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     getScreenState,
     getScreenText: getScreenTextFor,
     handle,
+    history,
+    exportHistory,
+    searchHistory,
+    historyText,
+    historyStatus,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();
       // Host shutdown — end every inventory subscription gracefully. The async

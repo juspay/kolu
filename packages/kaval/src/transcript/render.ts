@@ -71,7 +71,10 @@ function makeTerm(cols: number): Throwaway {
   return { term, serialize };
 }
 
-function write(term: InstanceType<typeof Terminal>, data: Uint8Array): Promise<void> {
+function write(
+  term: InstanceType<typeof Terminal>,
+  data: Uint8Array,
+): Promise<void> {
   return new Promise((resolve) => term.write(data, resolve));
 }
 
@@ -87,7 +90,11 @@ function readRows(term: InstanceType<typeof Terminal>): RenderedRow[] {
       wrapped: line?.isWrapped ?? false,
     });
   }
-  while (rows.length && rows[rows.length - 1]!.text === "" && !rows[rows.length - 1]!.wrapped)
+  while (
+    rows.length &&
+    rows[rows.length - 1]!.text === "" &&
+    !rows[rows.length - 1]!.wrapped
+  )
     rows.pop();
   return rows;
 }

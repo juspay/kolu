@@ -164,7 +164,10 @@ export class Transcript {
     this.row += countNewlines(data);
     this.bytesSinceCheckpoint += bytes;
     try {
-      if (mirror.atCleanBoundary() && this.bytesSinceCheckpoint >= CHECKPOINT_BYTES) {
+      if (
+        mirror.atCleanBoundary() &&
+        this.bytesSinceCheckpoint >= CHECKPOINT_BYTES
+      ) {
         this.flushPending();
         this.captureCheckpoint(mirror);
         this.bytesSinceCheckpoint = 0;
@@ -275,7 +278,8 @@ export class Transcript {
     width: number;
   }): Promise<HistoryResult> {
     if (!this.policy.enabled) return { kind: "unavailable" };
-    if (this.fault) return { kind: "faulted", lastGoodSeq: this.fault.lastGoodSeq };
+    if (this.fault)
+      return { kind: "faulted", lastGoodSeq: this.fault.lastGoodSeq };
     if (!this.store) return { kind: "unavailable" };
     this.flushPending();
     const tip = this.byteSeq;
