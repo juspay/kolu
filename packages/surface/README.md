@@ -628,8 +628,10 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 // the client over. The brand has no other minter (`brandLiveSignal` is
 // module-private + the brand is an un-reflectable WeakSet), there is no
 // caller-supplied probe target to fabricate, and there is no `heartbeat: false` to
-// disable the watchdog. A bare `() => status() === "live"` is half-open-blind and is
-// REFUSED; defaulting it to a constant `true` would too.
+// disable the watchdog. The brand is also BOUND to this returned link by identity,
+// so building the client over a self-rolled `websocketLink(otherWs)` is REFUSED — the
+// brand vouches only for the link the watchdog probes. A bare `() => status() ===
+// "live"` is half-open-blind and is REFUSED; defaulting it to a constant `true` would too.
 const transport = createLiveSignal<typeof surface.contract>(ws, {});
 export const app = surfaceClient(surface, transport.link, {
   live: transport.live,

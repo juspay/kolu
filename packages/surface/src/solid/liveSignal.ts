@@ -21,6 +21,16 @@
  *     the probe channel IS the reconnected channel. The brand certifies the socket it
  *     guards is being PROBED — "I probed something" cannot differ from "I probed the
  *     thing I'm guarding."
+ *   - The brand is **bound to that built link by identity** ({@link LIVE_SIGNAL_LINK}),
+ *     and `requireTransportLive` checks the binding — so a caller cannot mint a brand
+ *     over a HEALTHY socket and then build the client over a self-rolled
+ *     `websocketLink(deadWs2)`: the brand vouches only for the link the watchdog
+ *     actually probes. "I hold a brand" cannot differ from "I hold the brand for THIS
+ *     link." Build the client over the returned {@link LiveSignalHandle.link}.
+ *
+ * The probe gate reads the SAME `status` `live` reads (not a second, independent
+ * `ws.readyState`), so a socket can't be "open enough to set live, too closed to
+ * probe" — the gate and the signal can never disagree.
  *
  * So the half-open-blind transport leg (`() => true`, or an open/close-only
  * `() => socketStatus() === "live"`) is not merely refused by the guard — it
@@ -87,6 +97,33 @@ function brandLiveSignal(live: Accessor<boolean>): LiveSignal {
  *  never add to the WeakSet. */
 export function isLiveSignal(live: unknown): live is LiveSignal {
   return typeof live === "function" && BRANDED_LIVE.has(live as object);
+}
+
+/** The oRPC link each {@link LiveSignal} was minted to guard, keyed by the live
+ *  accessor's identity. `createLiveSignal` builds the link AND wires the watchdog
+ *  over ONE socket, then records the pair here — the ONLY writer. It is read by
+ *  {@link liveSignalGuardsLink} so `requireTransportLive` can prove the `{ live }`
+ *  and the `link` the client is built over watch the **same** socket. Module-private
+ *  and GC-safe (a `WeakMap` keyed on the opaque accessor, never mutating it). */
+const LIVE_SIGNAL_LINK = new WeakMap<object, object>();
+
+/** True if `live` is a {@link LiveSignal} minted to guard **this exact `link`**
+ *  (object identity) — strictly stronger than {@link isLiveSignal}. Membership in
+ *  {@link LIVE_SIGNAL_LINK} implies the brand (the sole writer brands in the same
+ *  breath), and additionally pins *which* link the watchdog probes. This closes the
+ *  contrived "brand minted over `createLiveSignal(healthyWs1)` but client built over
+ *  a self-rolled `websocketLink(deadWs2)`" forge: a branded signal now certifies a
+ *  watchdog AND the link that watchdog reconnects, so it cannot vouch for a different
+ *  socket's link. Read-only: a lookup never writes the map. */
+export function liveSignalGuardsLink(live: unknown, link: unknown): boolean {
+  if (
+    typeof live !== "function" ||
+    (typeof link !== "object" && typeof link !== "function") ||
+    link === null
+  ) {
+    return false;
+  }
+  return LIVE_SIGNAL_LINK.get(live as object) === (link as object);
 }
 
 /** The transport-level status of a reconnecting surface socket: `connecting`
@@ -222,7 +259,13 @@ export function createLiveSignal<
   // recover. The race/settle/skip-overlap/dispose algorithm is the framework-free
   // `@kolu/surface/heartbeat` primitive.
   const heartbeat = createHeartbeat({
-    isLive: () => ws.readyState === ws.OPEN,
+    // Gate the probe on the SAME source `live` reads (`status`), not a second,
+    // independent `ws.readyState === ws.OPEN`. The two readings of the socket's
+    // openness could disagree — a socket whose `open` fired while `readyState`
+    // never reached `OPEN` would freeze the gate shut forever, so the probe never
+    // runs and `live` stays `true` over a dead socket. Reading one source means the
+    // gate and the signal can never diverge: if `live` says `live`, the probe runs.
+    isLive: () => status() === "live",
     onStale: () => {
       setStatus("reconnecting");
       ws.reconnect();
@@ -237,5 +280,11 @@ export function createLiveSignal<
   // Because this is the one place that builds the link, wires the watchdog, AND
   // mints, a `LiveSignal` existing IS proof a watchdog probes the socket it guards.
   const live = brandLiveSignal(() => status() === "live");
+  // Record WHICH link this brand guards, by identity. `requireTransportLive` reads
+  // it (via `liveSignalGuardsLink`) so a caller can't pass this brand alongside a
+  // SELF-ROLLED `websocketLink(otherWs)`: the brand vouches only for the link built
+  // here, over the socket the watchdog actually probes and reconnects. Build the
+  // client over the returned `link` and the pairing holds by construction.
+  LIVE_SIGNAL_LINK.set(live, link as object);
   return { live, status, link, dispose: () => heartbeat.dispose() };
 }

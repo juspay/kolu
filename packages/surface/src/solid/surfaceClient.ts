@@ -35,7 +35,7 @@ import type {
 } from "../define";
 import { resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/websocket";
-import { isLiveSignal } from "./liveSignal";
+import { isLiveSignal, liveSignalGuardsLink } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -54,28 +54,40 @@ import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
 /** Crash if `link` can silently half-open (a `websocketLink`) but the `{ live }`
- *  supplied is not a watchdog-backed {@link LiveSignal}. A WebSocket can half-open
- *  silently (the socket stays `open` while no bytes flow), so its `health().live`
- *  is honest ONLY when a heartbeat actively probes it — and the only signal that
- *  PROVES a heartbeat backs it is a `LiveSignal`, minted by `@kolu/surface-app`'s
- *  `createLiveSignal` (which `connectSurface`/`connectSurfaces` wrap) THROUGH the
- *  watchdog it wires. So `!isLiveSignal(live)` rejects BOTH a missing `{ live }`
- *  AND a truthy-but-unbranded one — a bare `() => true` or an open/close-only
- *  `() => socketStatus() === "live"` is half-open-BLIND (it reads `live` forever
- *  over a silently dead link), and the brand is exactly what it lacks. An
- *  in-process link (`directLink`/`stdioLink`) can't half-open, so it is never
- *  recorded in the half-open set and any `{ live }` (or none) is honest there.
- *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
- *  half-open-blind transport leg is now UNSPELLABLE over a websocket, not merely
- *  discouraged (the #1564 lie, one seam upstream of the dot). */
+ *  supplied is not a watchdog-backed {@link LiveSignal} **minted to guard this exact
+ *  link**. A WebSocket can half-open silently (the socket stays `open` while no
+ *  bytes flow), so its `health().live` is honest ONLY when a heartbeat actively
+ *  probes it — and the only signal that PROVES a heartbeat backs THIS link is a
+ *  `LiveSignal` `createLiveSignal` built over the same socket (which
+ *  `connectSurface`/`connectSurfaces` wrap) THROUGH the watchdog it wires. So
+ *  `!liveSignalGuardsLink(live, link)` rejects three things at once — a missing
+ *  `{ live }`, a truthy-but-unbranded one (a bare `() => true` or an open/close-only
+ *  `() => socketStatus() === "live"`, half-open-BLIND), AND a genuine brand that
+ *  guards a *different* socket's link (the contrived "watch ws1, build over ws2"
+ *  forge): the brand vouches only for the link it was built over. An in-process link
+ *  (`directLink`/`stdioLink`) can't half-open, so it is never recorded in the
+ *  half-open set and any `{ live }` (or none) is honest there. Fail-fast per the
+ *  repo's "no silent fallback / crash loudly" philosophy: the half-open-blind
+ *  transport leg is now UNSPELLABLE over a websocket, not merely discouraged (the
+ *  #1564 lie, one seam upstream of the dot). */
 function requireTransportLive(
   link: unknown,
   live: Accessor<boolean> | undefined,
 ): void {
-  if (!isLiveSignal(live) && isHalfOpenLink(link)) {
+  if (!liveSignalGuardsLink(live, link) && isHalfOpenLink(link)) {
+    // A genuine brand pointed at a DIFFERENT link is the most surprising case —
+    // name it specifically so the fix ("build over THIS transport.link") is obvious.
+    const mismatched = isLiveSignal(live)
+      ? "The `{ live }` is a genuine `LiveSignal`, but it was minted over a " +
+        "DIFFERENT socket than this link — build the client over the SAME " +
+        "`transport.link` `createLiveSignal` returned, so the watchdog guards the " +
+        "link you actually call. "
+      : "";
     throw new Error(
       "surfaceClient: a websocket link can silently half-open, so its transport " +
-        "liveness must be a watchdog-backed `LiveSignal`, not a bare `{ live }`. " +
+        "liveness must be a watchdog-backed `LiveSignal` built over THIS link, not a " +
+        "bare `{ live }`. " +
+        mismatched +
         "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
         "hand-built client, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
         "build over its returned `transport.link`: it builds the link over `ws` " +

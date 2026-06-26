@@ -51,15 +51,19 @@ function fakeWs(): WebSocket {
 
 /** Mint a REAL `LiveSignal` via `createLiveSignal` (the only minter) over a fake
  *  watchable socket — proving the brand round-trips end-to-end (no test-only stub
- *  brander; `brandLiveSignal` is module-private and un-importable now). The 15s
+ *  brander; `brandLiveSignal` is module-private and un-importable now). Returns the
+ *  `link` `createLiveSignal` built over that socket too: the brand is bound to it by
+ *  identity, so a client accepted by `requireTransportLive` must be built over THIS
+ *  link (real usage — `surfaceClient(surface, transport.link, { live })`). The 15s
  *  watchdog interval never fires within a sync test; dispose it to be tidy. */
 function brandedLive(): {
   live: ReturnType<typeof createLiveSignal>["live"];
+  link: ReturnType<typeof createLiveSignal>["link"];
   dispose: () => void;
 } {
   // biome-ignore lint/suspicious/noExplicitAny: fakeWs is a structural stand-in for a partysocket.
   const t = createLiveSignal(fakeWs() as any, {});
-  return { live: t.live, dispose: t.dispose };
+  return { live: t.live, link: t.link, dispose: t.dispose };
 }
 
 const surface = defineSurface({
@@ -514,12 +518,28 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
     );
   });
 
-  it("surfaceClient over a websocketLink with a BRANDED `LiveSignal` is accepted — the watchdog-backed brand is the cure", () => {
-    const link = websocketLink(fakeWs());
+  it("surfaceClient over a BRANDED `LiveSignal`'s OWN link is accepted — the watchdog-backed brand is the cure", () => {
     // The brand is minted ONLY by `createLiveSignal` (which wires the watchdog);
-    // there is no importable `brandLiveSignal` to forge one with.
+    // there is no importable `brandLiveSignal` to forge one with. The client is built
+    // over the SAME link `createLiveSignal` returned — the only shape `requireTransportLive`
+    // accepts (the brand is bound to that link by identity).
     const t = brandedLive();
-    expect(() => surfaceClient(surface, link, { live: t.live })).not.toThrow();
+    expect(() =>
+      surfaceClient(surface, t.link, { live: t.live }),
+    ).not.toThrow();
+    t.dispose();
+  });
+
+  it("surfaceClient over a SEPARATE websocketLink with a brand minted on a DIFFERENT socket STILL throws — the brand vouches only for the link it guards", () => {
+    // The contrived "watch ws1, build the client over websocketLink(ws2)" forge: a
+    // genuine brand, but for a different socket's link. `requireTransportLive` checks
+    // brand→link IDENTITY (not just brandedness), so it's refused — the half-open
+    // watchdog must guard the very link the client calls.
+    const otherLink = websocketLink(fakeWs());
+    const t = brandedLive();
+    expect(() => surfaceClient(surface, otherLink, { live: t.live })).toThrow(
+      /minted over a DIFFERENT socket/,
+    );
     t.dispose();
   });
 
@@ -539,11 +559,13 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
         { live: () => true },
       ),
     ).toThrow(/watchdog-backed `LiveSignal`/);
+    // Accepted over the brand's OWN link (built by `createLiveSignal`), the real
+    // multi-surface shape: `surfaceClients(transport.link, surfaces, { live })`.
     const t = brandedLive();
     expect(() =>
       surfaceClients(
         // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
-        link as any,
+        t.link as any,
         { a: surface, b: surface },
         { live: t.live },
       ),

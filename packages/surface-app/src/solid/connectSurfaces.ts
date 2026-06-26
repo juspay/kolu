@@ -92,6 +92,20 @@ export function connectSurfaces<
   const E extends Record<string, Surface<any>>,
 >(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E> {
   const { surfaces, heartbeat: hb, ...socketOptions } = opts;
+  // Fail fast on an empty surface map: the watchdog probes `system.live` on the
+  // FIRST sibling's slice, so with no sibling there is no probe target and the
+  // heartbeat would degrade noisily (a wrong/absent `siblingKey` reached
+  // `createLiveSignal`, which — over a lazy oRPC proxy — cannot itself tell a real
+  // key from a typo). The key is only knowable here, where the surface map lives, so
+  // the existence assertion belongs here (the call site), not on the proxy. This also
+  // removes the old `Object.keys(surfaces)[0] as string`, which CAST away `undefined`.
+  const siblingKey = Object.keys(surfaces)[0];
+  if (siblingKey === undefined) {
+    throw new Error(
+      "connectSurfaces: `surfaces` is empty — there is no sibling whose reserved " +
+        "`system.live` the half-open watchdog can probe. Pass at least one surface.",
+    );
+  }
   const { ws, echo } = createSurfaceSocket(socketOptions);
   // `createLiveSignal` builds the combined oRPC link over THIS socket, wires the
   // half-open watchdog (probing `system.live` over that link, sliced to the FIRST
@@ -99,9 +113,9 @@ export function connectSurfaces<
   // feeds to every sibling's `health().live` (the leg `surfaceClientsHealth`
   // AND-reduces, so a dead combined socket flips the merged fact not-live). We build
   // the bundle over `transport.link` so clients and probe share ONE link — there is
-  // no separate, fabricatable probe target. A valid call carries ≥1 sibling.
+  // no separate, fabricatable probe target.
   const transport = createLiveSignal(ws, {
-    siblingKey: Object.keys(surfaces)[0] as string,
+    siblingKey,
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     restartCloseCode:
