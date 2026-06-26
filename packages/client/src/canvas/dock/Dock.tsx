@@ -91,7 +91,7 @@ import {
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
 import { chipInitials } from "./chipInitials";
-import type { DockRowBucket } from "./dockRowRanking";
+import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
@@ -528,7 +528,7 @@ const DockRow: Component<{
            *  no-reflow width contract lives in RecencyCell. The live signal
            *  rides the leading StatePip's ring, not here. */}
           <RecencyCell
-            lastActivityAt={c().meta.lastActivityAt}
+            recencyAt={rowRecencyAt(c().meta)}
             textSize="text-[0.6rem]"
           />
           <Show when={showShortcutHint()}>

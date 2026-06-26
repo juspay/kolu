@@ -318,13 +318,25 @@ shipped without noticing.
 - **First-class *and visually distinct* in every presence surface — from ONE
   classifier.** A sleeping terminal renders — moonlit, ☾, dimmed — in the canvas,
   dock, minimap, switcher, and mobile; arrange clusters it with its repo; the cycle
-  traverses it. The distinction keys on `state === "sleeping"`, **decoupled from the
-  staleness / "parked" vocabulary** (else a freshly-slept tile looks merely idle and
-  the dock's parked filter drops a long-slept terminal). The first cut routed
-  sleeping through a *parallel* check that the switcher/minimap/mobile classifiers
-  never saw — so make the **one canonical bucket classifier** branch on the
-  discriminant, and verify presence on each surface (omission is a runtime fact).
-  Mobile must render a dormant body, not attempt a live PTY attach.
+  traverses it. The **paint** distinction keys on `state === "sleeping"`, decoupled
+  from the staleness / "parked" vocabulary — a *fresh* slept tile wears its ☾ row
+  and moonlit treatment, never reading as merely idle. The first cut routed sleeping
+  through a *parallel* check that the switcher/minimap/mobile classifiers never saw —
+  so make the **one canonical bucket classifier** branch on the discriminant, and
+  verify presence on each surface (omission is a runtime fact). Mobile must render a
+  dormant body, not attempt a live PTY attach. **The dock's activity-window hide is
+  the one place staleness wins over the ☾** (<PrLink pr={1593} />): a tile slept
+  longer ago than the window — keyed on its `sleptAt` (the deliberate sleep moment),
+  *not* its last agent transition — routes to `parked` and drops, so the window
+  compresses yesterday's dormant terminals too instead of letting them pile up.
+  Keying on `sleptAt` is load-bearing: a plain shell carries `lastActivityAt === 0`
+  (which `isStale` exempts), so an agent-less dormant tile would otherwise *never*
+  park; and a just-slept tile whose agent went quiet days ago still keeps its ☾.
+  `parked` is checked *before* `sleeping` in the dock's classifier. One
+  `rowRecencyAt(meta)` derives this recency once and the row's "Xs ago" cell
+  displays it too, so the age a row shows is the exact age the window acts on —
+  no "why is my 3h-ago row hidden?" gap. ("Show all" re-reveals them, and the "N
+  hidden by … window" footer counts them.)
 - **A sleeping tile can be the active tile.** Click/select focuses it; input routing
   narrows to `active`, so it is never an input target — a type fact, not a runtime
   guard. Its content panels (right panel, inspector, theme) show the frozen view +

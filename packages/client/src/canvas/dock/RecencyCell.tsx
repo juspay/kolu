@@ -1,5 +1,10 @@
 /** Dock recency cell — renders a terminal's "Xs ago" (`formatTimeAgo`).
  *
+ *  The timestamp is the row's `rowRecencyAt` — `lastActivityAt` for a live
+ *  tile, `sleptAt` for a sleeping one — the SAME value the activity window
+ *  keys on, so the age a row shows is the age that decides whether the window
+ *  hides it.
+ *
  *  The live-output signal no longer rides here: it leads the row as the
  *  green RING around the `StatePip` indicator (left edge), so the timestamp
  *  stays put and the two axes — "when last" (right) and "moving now" (left) —
@@ -17,7 +22,9 @@ import type { Component } from "solid-js";
 import { formatTimeAgo } from "../../terminal/staleness";
 
 const RecencyCell: Component<{
-  lastActivityAt: number;
+  /** The row's recency timestamp (`rowRecencyAt`) — `lastActivityAt` for a
+   *  live tile, `sleptAt` for a sleeping one. The age the window acts on. */
+  recencyAt: number;
   /** Tailwind text-size token — the only thing the desktop and touch rows
    *  differ by (e.g. `text-[0.6rem]` vs `text-[0.65rem]`). */
   textSize: string;
@@ -25,7 +32,7 @@ const RecencyCell: Component<{
   <span
     class={`inline-flex justify-end w-[8ch] font-mono tabular-nums text-fg-3 ${props.textSize}`}
   >
-    {formatTimeAgo(props.lastActivityAt)}
+    {formatTimeAgo(props.recencyAt)}
   </span>
 );
 
