@@ -276,12 +276,16 @@ export async function watchAwareness(
 }
 
 /** The outcome of a `wait`: the agent reached a target bucket (`met`, carrying
- *  the matched agent), the wait elapsed its cap (`timeout`), or the mirror
- *  settled without either (`closed` — a dropped link, or the caller's signal
- *  aborting; `error` holds the first upstream failure if there was one). */
+ *  the matched agent), the wait elapsed its cap (`timeout`), the caller's signal
+ *  aborted the wait (`interrupted` — a Ctrl+C), or the mirror settled without any
+ *  of those (`closed` — a genuinely dropped link; `error` holds the first
+ *  upstream failure if there was one). The `interrupted`/`closed` split is decided
+ *  here from `opts.signal`, so the outcome alone carries the full result and the
+ *  caller never re-derives it from a side channel. */
 export type WaitOutcome =
   | { kind: "met"; agent: NonNullable<AwarenessValue["agent"]> }
   | { kind: "timeout" }
+  | { kind: "interrupted" }
   | { kind: "closed"; error?: string };
 
 /** Block until one terminal's agent enters a target bucket (`matches` true),
@@ -294,9 +298,10 @@ export type WaitOutcome =
  *  value on connect: an agent already in a target bucket matches immediately
  *  (no hang waiting for a transition that already happened). An external
  *  `signal` (the CLI's Ctrl+C) is chained into the internal abort, so a caller
- *  interrupt unwinds the same way the timeout does — but leaves `outcome`
- *  unset, surfacing as `closed` (which `cmdWait` distinguishes from a real link
- *  drop via its own signal). */
+ *  interrupt unwinds the same way the timeout does — and when the mirror settles
+ *  with no `met`/`timeout`, `opts.signal?.aborted` tells a Ctrl+C (`interrupted`)
+ *  apart from a real link drop (`closed`), so `cmdWait` switches on the outcome
+ *  alone. */
 export async function awaitAgentState(
   client: PulamClient,
   opts: {
@@ -347,5 +352,10 @@ export async function awaitAgentState(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
-  return outcome ?? { kind: "closed", error: upstreamError };
+  return (
+    outcome ??
+    (opts.signal?.aborted
+      ? { kind: "interrupted" }
+      : { kind: "closed", error: upstreamError })
+  );
 }

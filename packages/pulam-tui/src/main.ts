@@ -353,9 +353,8 @@ async function cmdWait(
 ): Promise<void> {
   // Ctrl+C (and external kill) abort our controller, which `awaitAgentState`
   // chains into its internal one → the mirror settles → we dispose and exit.
-  // A met/timeout aborts only the INTERNAL controller, so `abort.signal.aborted`
-  // below is true ONLY for a user interrupt — that's how we tell Ctrl+C from a
-  // real link drop in the `closed` branch.
+  // `awaitAgentState` reads this signal to return `interrupted` vs `closed`, so
+  // the outcome alone tells Ctrl+C from a real link drop — no re-derivation here.
   const abort = new AbortController();
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => abort.abort());
@@ -399,15 +398,15 @@ async function cmdWait(
     );
     process.exit(2);
   }
-  // closed: a user interrupt (our signal aborted) exits cleanly; otherwise the
-  // pulam link dropped before the state landed — a failure, like cmdWatch treats
-  // an un-aborted settle.
-  if (abort.signal.aborted) {
+  if (outcome.kind === "interrupted") {
+    // A user interrupt (Ctrl+C) exits cleanly with the conventional 130.
     process.stderr.write(
       `— interrupted; ${shortId(resolvedId)} left waiting\n`,
     );
     process.exit(130);
   }
+  // closed: the pulam link dropped before the state landed — a failure, like
+  // cmdWatch treats an un-aborted settle.
   fail(
     outcome.error ??
       "the pulam link closed — the daemon stopped or the connection dropped. Is `pulam` still running?",
