@@ -22,9 +22,9 @@ consumer, fat frames.</p>
 <span class="line"><span>    ▲                                            ▲</span></span>
 <span class="line"><span>  every frame carries the FULL status      consumer just shows the latest frame</span></span></code></pre>
 <p>In code, it’s a <code>stream</code> member the consumer reads with <code>.use()</code>:</p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// koluSurface (kolu's own, in-process)</span></span>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// koluSurface (kolu's own, in-process) — schematic</span></span>
 <span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> status</span><span style="color:#D73A49"> =</span><span style="color:#24292E"> app.streams.gitStatus.</span><span style="color:#6F42C1">use</span><span style="color:#24292E">(() </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ repoPath }));</span></span>
-<span class="line"><span style="color:#6A737D">//    ^ each emission is the full GitStatusOutput; render it.</span></span></code></pre>
+<span class="line"><span style="color:#6A737D">//    ^ a reactive accessor: each emission is the full GitStatusOutput, render it.</span></span></code></pre>
 <h2 id="pattern-2--procedure--pulse-then-requery-the-server-pings-ask-again">Pattern 2 — procedure + pulse-then-requery (the server pings “ask again”)</h2>
 <p>The server exposes a <strong>procedure</strong> (<code>git.getStatus</code>, request → response) <em>and</em> a
 tiny <strong>pulse</strong> stream (<code>subscribeRepoChange</code>, whose payload is just a counter
@@ -46,10 +46,10 @@ pulse <strong>re-queries</strong> the procedure. The pulse carries <strong>no da
 <span class="line"><span>  the pulse carries NO data ({seq} only)   consumer pulls the full status</span></span>
 <span class="line"><span>                                           only when it actually changed</span></span></code></pre>
 <p>In code, two members the consumer wires together itself:</p>
-<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// terminalWorkspaceSurface (the shared surface pulam serves)</span></span>
-<span class="line"><span style="color:#D73A49">const</span><span style="color:#005CC5"> snap</span><span style="color:#D73A49"> =</span><span style="color:#D73A49"> await</span><span style="color:#24292E"> app.rpc.git.</span><span style="color:#6F42C1">getStatus</span><span style="color:#24292E">({ repoPath });        </span><span style="color:#6A737D">// 1. snapshot</span></span>
-<span class="line"><span style="color:#24292E">app.streams.subscribeRepoChange.</span><span style="color:#6F42C1">use</span><span style="color:#24292E">(() </span><span style="color:#D73A49">=></span><span style="color:#24292E"> ({ repoPath }))      </span><span style="color:#6A737D">// 2. on each pulse…</span></span>
-<span class="line"><span style="color:#24292E">   .</span><span style="color:#6F42C1">on</span><span style="color:#24292E">(() </span><span style="color:#D73A49">=></span><span style="color:#6F42C1"> refetch</span><span style="color:#24292E">(app.rpc.git.</span><span style="color:#6F42C1">getStatus</span><span style="color:#24292E">({ repoPath })));    </span><span style="color:#6A737D">//    …re-query.</span></span></code></pre>
+<pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="ts"><code><span class="line"><span style="color:#6A737D">// terminalWorkspaceSurface (the shared surface pulam serves) — schematic</span></span>
+<span class="line"><span style="color:#D73A49">let</span><span style="color:#24292E"> status </span><span style="color:#D73A49">=</span><span style="color:#D73A49"> await</span><span style="color:#6F42C1"> getStatus</span><span style="color:#24292E">(repoPath);              </span><span style="color:#6A737D">// 1. snapshot (a procedure call)</span></span>
+<span class="line"><span style="color:#D73A49">for</span><span style="color:#D73A49"> await</span><span style="color:#24292E"> (</span><span style="color:#D73A49">const</span><span style="color:#005CC5"> _</span><span style="color:#D73A49"> of</span><span style="color:#6F42C1"> subscribeRepoChange</span><span style="color:#24292E">(repoPath)) </span><span style="color:#6A737D">// 2. on each {seq} pulse…</span></span>
+<span class="line"><span style="color:#24292E">  status </span><span style="color:#D73A49">=</span><span style="color:#D73A49"> await</span><span style="color:#6F42C1"> getStatus</span><span style="color:#24292E">(repoPath);                </span><span style="color:#6A737D">//    …re-query the procedure.</span></span></code></pre>
 <h2 id="same-information-different-wire-cost">Same information, different wire cost</h2>
 <p>The two are interchangeable in <em>what the consumer ends up showing</em>. They trade
 <strong>bandwidth</strong> against <strong>consumer simplicity</strong>:</p>
@@ -138,7 +138,7 @@ so push it and keep the Code tab dumb.</li>
 host serves over ssh) uses <strong>procedure + pulse</strong>. Streaming a full git diff
 continuously over ssh is wasteful, so it sends a tiny pulse and lets the consumer
 pull on demand — the deliberate choice the surface’s own header records
-(<code>packages/terminal-workspace/src/surface.ts:88-105</code>: <em>“re-queries procedures
+(<code>packages/terminal-workspace/src/surface.ts:89-109</code>: <em>“re-queries procedures
 rather than streaming full diffs over the wire”</em>).</li>
 </ul>
 <p>That difference is the crux of <a href="remote-terminals.html#r8">remote-terminals R8/R9</a>.
@@ -147,7 +147,7 @@ kolu’s Code tab reads <code>koluSurface</code>’s <strong>value-bearing</stro
 to <strong>pulse-then-requery</strong> — a real client change (re-query on the pulse instead of
 rendering pushed frames). That’s the bigger fs/git move, so it rides <strong>R9</strong> (when
 kolu mirrors the shared surface whole), not R8.</p>
-<p>Awareness has <strong>no</strong> such split: it’s a <code>collection</code>, identical on both surfaces —
+<p>Awareness has <strong>no</strong> such split: it’s a <code>collection</code>, the same <em>kind</em> on both (kolu’s <code>terminalMetadata</code> is a superset; only the awareness slice matches) —
 which is exactly why R8’s awareness half is the clean, do-now move and fs/git is
 the heavier one that waits for R9.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./pulam.html" data-astro-cid-aziudkuj>pulam — the terminal-workspace surface as an ephemeral daemon on kaval</a></li><li data-astro-cid-aziudkuj><a href="./pulam-web.html" data-astro-cid-aziudkuj>pulam-web — the browser twin (kolu&#39;s surface-consumption leg, proven standalone)</a></li><li data-astro-cid-aziudkuj><a href="./remote-terminals.html" data-astro-cid-aziudkuj>Remote terminals over SSH</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
 </body></html>

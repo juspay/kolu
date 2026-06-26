@@ -41,9 +41,9 @@ VALUE-BEARING STREAM — the server pushes the whole value on every change
 In code, it's a `stream` member the consumer reads with `.use()`:
 
 ```ts
-// koluSurface (kolu's own, in-process)
+// koluSurface (kolu's own, in-process) — schematic
 const status = app.streams.gitStatus.use(() => ({ repoPath }));
-//    ^ each emission is the full GitStatusOutput; render it.
+//    ^ a reactive accessor: each emission is the full GitStatusOutput, render it.
 ```
 
 ## Pattern 2 — procedure + pulse-then-requery (the server pings "ask again")
@@ -74,10 +74,10 @@ PROCEDURE + PULSE-THEN-REQUERY — the server pings; the consumer pulls
 In code, two members the consumer wires together itself:
 
 ```ts
-// terminalWorkspaceSurface (the shared surface pulam serves)
-const snap = await app.rpc.git.getStatus({ repoPath });        // 1. snapshot
-app.streams.subscribeRepoChange.use(() => ({ repoPath }))      // 2. on each pulse…
-   .on(() => refetch(app.rpc.git.getStatus({ repoPath })));    //    …re-query.
+// terminalWorkspaceSurface (the shared surface pulam serves) — schematic
+let status = await getStatus(repoPath);              // 1. snapshot (a procedure call)
+for await (const _ of subscribeRepoChange(repoPath)) // 2. on each {seq} pulse…
+  status = await getStatus(repoPath);                //    …re-query the procedure.
 ```
 
 ## Same information, different wire cost
@@ -145,7 +145,7 @@ two surface shapes — chosen by where the consumer sits.
   host serves over ssh) uses **procedure + pulse**. Streaming a full git diff
   continuously over ssh is wasteful, so it sends a tiny pulse and lets the consumer
   pull on demand — the deliberate choice the surface's own header records
-  (`packages/terminal-workspace/src/surface.ts:88-105`: *"re-queries procedures
+  (`packages/terminal-workspace/src/surface.ts:89-109`: *"re-queries procedures
   rather than streaming full diffs over the wire"*).
 
 That difference is the crux of [remote-terminals R8/R9](remote-terminals.html#r8).
@@ -155,6 +155,6 @@ to **pulse-then-requery** — a real client change (re-query on the pulse instea
 rendering pushed frames). That's the bigger fs/git move, so it rides **R9** (when
 kolu mirrors the shared surface whole), not R8.
 
-Awareness has **no** such split: it's a `collection`, identical on both surfaces —
+Awareness has **no** such split: it's a `collection`, the same *kind* on both (kolu's `terminalMetadata` is a superset; only the awareness slice matches) —
 which is exactly why R8's awareness half is the clean, do-now move and fs/git is
 the heavier one that waits for R9.
