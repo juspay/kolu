@@ -639,7 +639,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // is mid-write, so a checkpoint forced here lands BETWEEN rows and the
         // backward pager never splits a row across the seam.
         const b = headless.buffer.active;
-        return b.type === "normal" && (b.cursorX === 0 || b.cursorX >= headless.cols);
+        return (
+          b.type === "normal" && (b.cursorX === 0 || b.cursorX >= headless.cols)
+        );
       },
       serializeViewport() {
         return serialize.serialize({ scrollback: 0 });
