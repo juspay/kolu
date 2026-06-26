@@ -100,8 +100,9 @@ Build it bottom-up *inside the PR* so the bound/shrink is last — the transcrip
 - **The `transcript/` leaf over SQLite.** One DB per PTY (`$XDG_STATE_HOME/kaval/transcripts/<id>.db`), opened via `@kolu/shared/sqlite`'s `withDb` in WAL mode. A single `record` table — `(seq INTEGER PK, kind, firstRow, firstByteSeq, tsMs, cols, payload BLOB)` — indexed on `firstRow`, `firstByteSeq`, `tsMs` for the three range queries. `payload` is a `node:zlib` zstd-compressed run of coalesced output (batched ~64 KB, *not* one row per chunk — the write-amplification trap). The writer is the existing `proc.onData` callback (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:624-630" />), so the transcript shares the mirror's byte stream and inherits attach's race-freedom — no new race. SQLite owns the index, WAL durability, crash recovery, and range reads; the leaf owns only the schema + the `DATA`/`RESIZE`/`CKPT` framing.
 - **Checkpoints** make backfill correct *and* cheap (the RCA omits them): without one, rendering any range replays from byte 0 — re-creating the multi-GB spike on every scroll. Every ~K lines write a `CKPT` row = `serialize({ scrollback: 0 })` (viewport + modal preamble, a few KB — *not* a full-buffer serialize, which would be ~4 MB/checkpoint = gigabytes of index). A range render = restore the nearest checkpoint into a throwaway headless, replay one bounded run, dispose — behind a semaphore so backfill can't re-storm the read path.
 - **The read verbs.** `history({ id, beforeCursor, maxLines, width })` keyed on an opaque **byte-offset cursor**, not a line number — render-line numbers shift under reflow (`reflowCursorLine`), so a line-range API bakes in a coordinate that silently moves under resize; a byte offset is reflow-stable, width a *render-time* parameter. Returns rendered ANSI at the client's current width; the snapshot frame carries `historyCursor` (nearest checkpoint ≤ window top) so the join overlaps-not-gaps. Plus `exportHistory` / `searchHistory`, extending the existing range-read `getScreenText` idiom (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts:314" />).
-- **Then, and only then, bound the snapshot and shrink the mirror.** With backfill in place, `attach()` serializes a `HOT_WINDOW` viewport (`serialize({ scrollback: HOT_WINDOW })`, the 0.14.0 option; same bound on `getScreenState`, <Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:728" />) — now **lossless**, because a reload paints the window instantly and backfills the rest from the transcript on scroll. This is what finally takes the storm to ~tens of KB/snapshot. The mirror itself shrinks to `rows + SCRAPE_TAIL_LINES` (grep the `tailLines` call sites; drop `DEFAULT_MIRROR_SCROLLBACK` as a depth dial). **In the same commit, re-route the whole-buffer reads** the shrink would otherwise truncate: **Copy-terminal-text** calls `screenText` with *no range* = the whole buffer (<Cite file="packages/client/src/terminal/useTerminalCrud.ts" label="useTerminalCrud.ts:280" />), and scrollback search reads deep — both now read the transcript. The bounded screen-scrape tail stays on the mirror.
-- **Retention & privacy as spawn-frame policy (B0-style), not a daemon knob.** The spawn input carries a **required** `history: { enabled, retentionBytes }` — the daemon derives nothing, a missing field is a loud crash. Retention = `DELETE` oldest rows past the per-terminal byte cap (raise an `oldestRow` watermark; a sub-floor read returns `{kind:"evicted"}`, never empty) + a global sweeper that reaps *exited*-terminal DBs first (live ones never reaped — survivability). `enabled:false` writes no DB; reads return `{kind:"unavailable"}`. Files `0600` under `0700` — a perms mismatch is a loud crash.
+- **The client copy-mode pager.** A read-only pager surface that, on scroll past the hot window, fetches older ranges by byte-offset cursor through the **`stream` namespace** (<Cite file="packages/client/src/rpc/rpc.ts" label="rpc.ts" />, per `streaming.md` — snapshot-then-deltas, reconnect-safe) and renders them at the pager's fixed width, re-fetching on resize. PDF export (<Cite file="packages/client/src/exportScrollbackAsPdf.ts" label="exportScrollbackAsPdf.ts" />) repoints at `exportHistory`; scrollback search at `searchHistory`. The live `Terminal.tsx` view is untouched — the pager is a separate surface, so there is no live-grid splice.
+- **Then, and only then, bound the snapshot and shrink the mirror.** With backfill in place, `attach()` serializes a `HOT_WINDOW` viewport (`serialize({ scrollback: HOT_WINDOW })`, the 0.14.0 option; same bound on `getScreenState`, <Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:728" />) — now **lossless**, because a reload paints the window instantly and backfills the rest from the transcript on scroll. This is what finally takes the storm to ~tens of KB/snapshot. The mirror itself shrinks to `rows + SCRAPE_TAIL_LINES` — the screen-scrape promoter's tail (<Cite file="packages/server/src/terminalEndpoint/local.ts" label="local.ts:265" />), a screen-sized constant, *not* 10 K — so `DEFAULT_MIRROR_SCROLLBACK` stops being a depth dial. **In the same commit, re-route the whole-buffer reads** the shrink would otherwise truncate: **Copy-terminal-text** calls `screenText` with *no range* = the whole buffer (<Cite file="packages/client/src/terminal/useTerminalCrud.ts" label="useTerminalCrud.ts:280" />), and scrollback search reads deep — both now read the transcript. The bounded screen-scrape tail (`readScreenText(tailLines)`) stays on the mirror.
+- **Retention & privacy as spawn-frame policy (B0-style), not a daemon knob.** The spawn input carries a **required** `history: { enabled, retentionBytes }`, threaded through the same three paths that carry `scrollback` today — `composeSpawnInput` (<Cite file="packages/server/src/ptyHost/index.ts" label="ptyHost/index.ts:233" />), kaval-tui's `composeCreateInput`, and the in-process host (<Cite file="packages/kaval/src/inProcessPtyHost.ts" label="inProcessPtyHost.ts:260" />) — so the daemon derives nothing and a missing field is a loud crash. Retention = `DELETE` oldest rows past the per-terminal byte cap (raise an `oldestRow` watermark; a sub-floor read returns `{kind:"evicted"}`, never empty) + a global sweeper that reaps *exited*-terminal DBs first (live ones never reaped — survivability). `enabled:false` writes no DB; reads return `{kind:"unavailable"}`. Files `0600` under `0700` — a perms mismatch is a loud crash.
 - **Disk fault never kills the PTY.** A runtime `ENOSPC`/`EIO` degrades *that one* terminal's transcript to a surfaced `{faulted, lastGoodSeq}` (via `daemonStatus`), never a truncated log shown as complete, never a daemon crash — the one place survivability outranks fail-fast (<Cite file=".claude/rules/conventions.md" label="caught-error-must-not-collapse-to-empty" />).
 - **Guards:** flat-in-count heap soak (slope ≈ 0); a fast-check **lossless round-trip** (random `write`/`resize` interleavings, replayed per epoch == live grid, concatenated `DATA` == input); a `formatVersion` row that **fails loud** on an unknown schema (distinct from `PTY_HOST_CONTRACT_VERSION`).
 
@@ -109,9 +110,242 @@ Build it bottom-up *inside the PR* so the bound/shrink is last — the transcrip
 Persistence can't be layered onto a running pre-persistence daemon: the new `history` verbs would 404 and the required `history` spawn-policy field would be missing — a silent degradation fail-fast forbids. So PR2's wire changes (remove `scrollback`; add required `history` policy; add the verbs; bound the snapshot) are **one major `PTY_HOST_CONTRACT_VERSION` 4.0 bump** (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts:74" />) — one forced recycle that **kills every live terminal once**. The feature that enables session-restore is born from the one event that loses every currently-live session; there is no lossless path around it. (This is also why it can't be split further: a half-shipped persistence layer is a broken one.)
 </Callout>
 
-<Callout kind="note" title="One open decision — default baked in">
-Interactive deep-scroll *past the client's own 50 K buffer* (<Cite file="packages/common/src/config.ts" label="config.ts:29" />; PDF already reads that buffer) is **out of scope** by default — the transcript serves the four discrete lossless consumers. If a product need appears it ships as a fixed-width copy-mode pager, never a live splice into the reflowing grid.
+<Callout kind="good" title="PR2 is build-ready — every prior open fork is closed (2026-06-25)">
+The six items left open after the first decision pass are all settled below, each grounded in code or a clean-box spike. Nothing here is a placeholder.
+
+1. **Backfill seam protocol + cross-width reflow** — *spiked, 11/11.* The `history()` shape, the client stitch, and the checkpoint-placement constraint are pinned; cross-width reflow is **byte-identical to a single-shot render** under the two constraints proven below.
+2. **Copy-mode pager UI** — *mocked.* Invocation (keybind + palette + title-bar), desktop modal + mobile drawer mockups, interactions, and the reused primitives are all named.
+3. **Constants** — *pinned:* `SCRAPE_TAIL_LINES = 40`, `HOT_WINDOW = 500`, checkpoint `K = one CKPT per ~64 KB DATA block (≈500 lines)`.
+4. **Product semantics** — *answered:* `searchHistory` (literal+case-insensitive default, regex/case opt-in), PDF export (full on-disk depth, historical-per-span width), session restore (visible screen unchanged, deep reach added).
+5. **Mobile resize** — *answered by construction:* one shared PTY size (pre-existing), `RESIZE`-journaled; scrollback + PDF stay correct because reads are width-parameterized and export is width-faithful per span.
+6. **`node:sqlite` in the real nix closure** — *verified two ways:* the analytic closure chain and an empirical run of `node:sqlite` under the exact pinned `pkgs.nodejs` (24.13.0) on a fresh box.
+
+This supersedes the open-fork language in the "Decisions resolved" callout below.
 </Callout>
+
+#### Pinned constants
+
+| Constant | Value | Where it lives | Why this value |
+| --- | --- | --- | --- |
+| `SCRAPE_TAIL_LINES` | **40** | the mirror-floor formula in <Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts" /> | Exactly `TAIL_REGION_LINES` (<Cite file="packages/integrations/claude-code/src/screen.ts" label="screen.ts:61" />), the deepest detector tail any live reader asks for — consumed at <Cite file="packages/integrations/claude-code/src/agent-adapter.ts" label="agent-adapter.ts:88" /> and flowing through `readScreenText(tailLines)` at <Cite file="packages/server/src/terminalEndpoint/local.ts" label="local.ts:265" />. Derived from that constant (not a fresh magic number) so the floor can't drift below a reader's need — *reuse the source of truth*. |
+| mirror floor | **`rows + 40`** | same | The mirror only owes the screen plus the deepest scrape tail. No OSC handler (7, 0/2, 633;E) or device-query handler reads the scrollback buffer — they extract metadata only — so nothing reads past `rows + 40`. `DEFAULT_MIRROR_SCROLLBACK` stops being a depth dial. |
+| `HOT_WINDOW` | **500 lines** | the `attach()` bound and `getScreenState`, `serialize({ scrollback: HOT_WINDOW })` (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:728" />) | The bounded attach snapshot. ~500 lines serializes to **tens-to-low-hundreds of KB** (vs today's multi-MB full-mirror serialize), repaints the visible screen plus ~10× viewport of over-scroll margin so a reload rarely hits a backfill round in the first gesture, and the pager fetches anything deeper on scroll. Independent of `K`; tunable. |
+| checkpoint `K` | **one `CKPT` per ~64 KB zstd DATA block (≈500 lines)**, deferred to the next clean line boundary | the `proc.onData` writer (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:624-630" />) | Pinned below. |
+
+**Why `K` is block-anchored, not a raw line count.** The replay-cost spike measured *restore checkpoint → resize → replay K lines → render a range* on Node 24 / `@xterm/headless@6.0.0` / `addon-serialize@0.14.0`: `K=50: 2.9 ms`, `K=100: 3.6 ms`, `K=200: 4.3 ms`, `K=500: 4.1 ms`, `K=1000: 6.0 ms`. The curve is **flat and fixed-cost-dominated** — ~2.5–3 ms of throwaway-construct + serialize-restore + reflow, then ~0.003 ms/line marginal. An earlier draft floated a flat `K = 1000 lines`; the spike refines it to **one checkpoint per ~64 KB DATA block** because:
+
+- it bounds the *real* cost driver (**bytes parsed**, not lines), so a pathological long line can't blow the replay budget;
+- a single huge logical line can never host a checkpoint (the clean-boundary constraint below), so it's always replayed whole — block-anchoring makes that cheap by letting a render decompress whole blocks;
+- it **reuses the existing ~64 KB write-batch cadence** the transcript already uses, instead of bolting on a second cadence.
+
+Under the DATA-replayed-return rule, worst-case replay distance per page is `≈ K + maxLines + rows ≈ 560 lines` → `~4 ms/page render` — comfortably sub-frame (`< 16 ms`) even on a 2–3×-slower production host, and it runs behind the read semaphore so backfill can't re-storm the read path. Checkpoint storage is negligible: each `CKPT = serialize({ scrollback: 0 })` ≈ a few KB, so ~200 checkpoints per 100 K retained lines is sub-MB. `K` can range 256 (~32 KB) to 1000 (~128 KB) without harm; smaller buys little (fixed cost dominates), larger trims the frame-budget margin.
+
+#### The backfill seam protocol
+
+**Cursor type.** `byteSeq` is an **opaque, monotonic byte offset** into the per-PTY decoded DATA stream (the running sum of decoded-output byte lengths). It is *always* minted and consumed at a **ground-state clean line boundary** — cursor column 0, primary screen, top row is the first row of a logical line (not a wrapped continuation). The `record.firstByteSeq` index resolves a `byteSeq` to the ~64 KB block that contains it. **Line numbers never go on the wire** — they shift under reflow (`reflowCursorLine`); a byte offset is reflow-stable, width a render-time parameter.
+
+**Request** (client `stream` namespace, snapshot-then-deltas):
+
+`` `history({ id, beforeCursor: byteSeq, maxLines: int, width: int })` ``
+
+- `beforeCursor` — the `byteSeq` at the **top** of the content the client currently holds. The first backfill uses the snapshot frame's `historyCursor` (the `byteSeq` of the nearest `CKPT ≤ hot-window top`, already a clean boundary). The server returns the rendered rows immediately **above** `beforeCursor`.
+- `maxLines` — a target of physical (rendered) rows, a **soft minimum**: the server returns whole logical lines totaling `≥ maxLines`, so it never splits a wrapped line at the top edge.
+- `width` — the pager's current render width.
+
+**Response:** `` `{ rows: string[] /* rendered ANSI, top→bottom */, nextCursor: byteSeq, atFloor: bool }` ``
+
+- `rows` — whole logical lines, `≥ maxLines` physical rows (fewer only at the floor).
+- `nextCursor` — the `byteSeq` at the **top** of the returned block (`== firstByteSeq` of the topmost returned logical line; a clean boundary). The client passes it as the next `beforeCursor`.
+- `atFloor` — `true` when `nextCursor` reached the oldest retained `byteSeq` / eviction watermark. A sub-floor read returns `` `{kind:"evicted"}` ``, never empty.
+
+**Server algorithm** (one call; every render runs behind the read semaphore):
+
+1. **Seed checkpoint C** = the latest `CKPT` captured *at or before the first line that will be returned*. Analytic pick: latest `CKPT` with `capture-line ≤ line(beforeCursor) − maxLines − rows`. The `−rows` margin guarantees `C`'s own restored viewport (the "seed") has scrolled entirely **above** the returned window. Fall back through earlier checkpoints, ultimately the implicit **byte-0 checkpoint** (a fresh terminal at the initial width).
+2. **Render the segment:** throwaway headless at `C.cols` → restore `C.vtState` (`serialize` restore) → `resize(width, rows)` (xterm native reflow of the seed) → write the zstd-decompressed DATA run for `(C.firstByteSeq, beforeCursor]`. **Do not replay RESIZE records** — this is reflow-to-current. Dispose.
+3. **Slice:** take the last `≥ maxLines` rows; snap the top edge **up** to a logical-line start (the row whose `isWrapped === false`). `nextCursor` = that line's `firstByteSeq`. **Load-bearing invariant:** the topmost returned line MUST be **DATA-replayed** (parsed fresh after `C.firstByteSeq`), never a reflowed-seed line. If the slice would include a seed line, walk back to an earlier `C` and re-render.
+4. Return `rows + nextCursor + atFloor`.
+
+**Client backward-paging + stitch.**
+
+- On attach, the snapshot carries `historyCursor` (nearest `CKPT ≤ hot-window top`). Render the `HOT_WINDOW` snapshot; its top `== historyCursor`.
+- Scroll up past the loaded top: keep a **cursor stack**; call `` `history({ beforeCursor: topCursor, maxLines: viewportRows × overscan, width })` ``; **prepend** rows; push `nextCursor`; set `topCursor = nextCursor`; repeat; stop at `atFloor`.
+- **Resize the pager:** discard rendered rows, **keep the cursor stack** (byte offsets); re-issue `history()` from the bottom cursor at the new width and rebuild upward. Because every cursor is a clean ground-state boundary, the *same* `byteSeq` re-renders to a clean physical-row boundary at *any* width — no row duplicated or dropped across the resize.
+
+**No-gap / no-overlap.** Page *k* covers exactly `[nextCursor_k, beforeCursor_k)` in `byteSeq`, snapped to clean line boundaries, and `beforeCursor_k == nextCursor_{k−1}` (adjacent pages share the boundary). A ground-state boundary maps to a physical-row boundary at *every* width, so concatenation reconstructs the single-shot render with no duplicated or missing row. The **hot↔cold join**: the first `history()` uses `beforeCursor = historyCursor` (the snapshot top, a `CKPT` byteSeq), so its rows end exactly at the snapshot top — prepend with no overlap. `exportHistory` routes the same machinery in **FAITHFUL** mode (restore@`C.cols`, replay DATA + RESIZE, render at the historical width, per resize-epoch); `searchHistory` ranges over the same index.
+
+**Cross-width reflow verdict — YES, byte-identical, under two constraints.** A checkpoint-rooted segment render is **byte-identical** to the global single-shot reflow at the client's width `W`, validated across `W ∈ {40, 80, 100, 120, 160}`, every range, a 4000-char wrapped logical line, and wide-CJK / emoji / combining-mark content — *provided*:
+
+- **Constraint 1 — checkpoint placement.** A `CKPT` is captured **only at a ground-state clean line boundary**: `buffer.getLine(baseY).isWrapped === false` (viewport top is the first row of a logical line), cursor at column 0, primary screen. The writer marks a checkpoint "due" every `K` worth of bytes but **defers** capture to the next byte boundary where `isWrapped(baseY) === false`. *Why:* `serialize({ scrollback: 0 })` preserves **logical** lines (it joins wrapped rows), so a terminal re-wraps them at its own width — faithful only if each captured logical line is *complete*. The viewport bottom is always completed by DATA replayed after the checkpoint; only the top can be irreparably partial, so forbidding a wrapped top closes the only hole. The same constraint governs `nextCursor`, guaranteed by snapping to a logical-line start.
+- **Constraint 2 — return from DATA.** Every returned line must be DATA-replayed; the checkpoint is only a VT **seed** for content above the window, and its restored-viewport lines are never returned. This neutralizes the one imperfection found (below).
+
+<Callout kind="warn" title="The seam spike — 11/11, and the one upstream artifact it contains">
+Run on a clean Node 24 box against the production versions (`@xterm/headless@6.0.0` + `@xterm/addon-serialize@0.14.0`). The store was modeled as in-memory record arrays + raw-concatenated DATA blocks — the persistence layer (`node:sqlite` WAL, ~64 KB zstd append 0.02 ms, indexed range reads sub-ms, retention `DELETE` 0.6 ms) was de-risked in the prior store spike and is unchanged.
+
+| # | Case | Result |
+| --- | --- | --- |
+| A1 | reflow-to-current, 5 ranges × `W ∈ {40,80,100,120,160}`, clean checkpoint; SGR/CJK/emoji/combining, two interleaved historical resizes ignored | **byte-identical** to single-shot |
+| A1b | 4000-char single logical line reflowed at `W=120` from a clean checkpoint | 33 rows, **exact** match to oracle |
+| A2 | *pathological:* checkpoint captured mid-wrapped-line | **diverges** — proves the clean-boundary constraint is load-bearing |
+| A3 | FAITHFUL mode (replay RESIZE, render at historical width) | `==` full resize-replay across epochs |
+| A4 | DATA-replayed range incl. the seed-diverging line L735 (wide+combining) @`W=80` | **byte-exact** when DATA-replayed |
+| B | no-gap/no-overlap backward paging @`W=120` — 68 pages × 37 rows | `concat(2541) == single-shot(2541)`, byte-identical |
+| B | same @`W=80` with wide+combining — 80 pages × 37 rows | `concat(3004) == single-shot(3004)`, byte-identical |
+| D-ctrl | determinism: `oracle@80 == byte-0-checkpoint replay@80` | identical — checkpoints add no nondeterminism |
+| D-iso | the one imperfection isolated | see below |
+| K | replay cost K=50…1000 | flat, 2.9–6.0 ms (drives the `K` pin) |
+
+**The one imperfection is upstream xterm, fully contained.** When xterm's `resize()`/reflow re-wraps a line mixing wide chars + combining marks across a width change, a combining mark can misattach to a different base (observed `Z-acute → G-acute`). It is **reproduced by a plain `fresh@80` vs `fresh@100→resize-80` with no checkpoint or serialize involved** — i.e. a *live-terminal* resize shows it today, so the pager is **not a regression**. It can only ever touch a reflowed checkpoint *seed*, and the DATA-replayed-return rule keeps it out of every returned and stitched line (proven by A4 and B@80). A future xterm that fixes combining-mark reflow removes even the seed-level artifact.
+
+**Scope caveat — normal flow only.** Reflow-to-current is correct only for normal-flow scrollback (newline-terminated output) — exactly what the copy-mode pager shows. Alt-screen / absolute-cursor / in-place-overwrite spans (full-screen TUIs) have no width-independent logical-line structure and **must not be reflowed**; the transcript already journals them via `CKPT` + `RESIZE`, and the pager renders such spans at their historical width. Alt-screen is reproduced, never reflowed — consistent with the plan.
+</Callout>
+
+#### The copy-mode pager
+
+A read-only, fixed-width reader surface — never a splice into the live reflowing grid. The live `Terminal.tsx` is untouched; it stays mounted and running behind the pager the whole time.
+
+**Invocation — three entry points, one state owner.**
+
+- **Keybinding `viewHistory` = Mod+Shift+H** (Cmd+Shift+H mac / Ctrl+Shift+H Linux/Win), added to `_ACTIONS` in <Cite file="packages/client/src/input/actions.ts" label="actions.ts" />. Verified clean: `KeyH` is unused across the whole ACTIONS map, and Mod+Shift+`<letter>` is the established app-chord convention that clears in-PTY bytes — same family as `shuffleTheme` (actions.ts:279), `toggleDock` (actions.ts:311), `toggleCanvasPosture` (actions.ts:320). It is **not** in `PROHIBITED_KEYBINDS` (only Ctrl+B and Ctrl+J are reserved, <Cite file="packages/client/src/input/prohibitedKeybinds.ts" label="prohibitedKeybinds.ts:21-33" />); `keyboard.test.ts` proves no collision. Set `focusScopeMarker: TERMINAL_SEARCH_MARKER` (actions.ts:158) exactly like `findInTerminal` (actions.ts:215-227) so the chord is claimed only inside a terminal subtree — Firefox's own Ctrl+Shift+H still works everywhere else. Add `toggleHistoryPager: (id) => void` to `ActionContext`.
+- **Command palette** — "View terminal history" in the `active-terminal` section of <Cite file="packages/client/src/commands.tsx" label="commands.tsx:234-369" />, beside "Export scrollback as PDF" (commands.tsx:284-289), via `actionPaletteCommand("viewHistory", …)` (actions.ts:399-413). Offered on **both** the active *and* sleeping arms — history is disk-backed (`$XDG_STATE_HOME/kaval/transcripts/<id>.db`), so it needs no live PTY — but gated on a new `meta.history?.enabled` flag so an opted-out terminal never offers a dead pager.
+- **Title-bar button** — a clock / History icon in <Cite file="packages/client/src/canvas/TileTitleActions.tsx" label="TileTitleActions.tsx" /> between Find (140-152) and Screenshot (153-165), reusing `TILE_BUTTON_CLASS`, `Tip`, and the `onTile` select-then-act wrapper (63-67). Add a `HistoryIcon` to <Cite file="packages/client/src/ui/Icons.tsx" label="Icons.tsx" /> (a clock with a counter-clockwise arrow). Register a one-time tip in `settings/tips.ts` per the Feature-Discoverability rule.
+
+**State owner:** a `useHistoryPager` singleton built with `createSharedRoot`, a near-clone of <Cite file="packages/client/src/terminal/useTerminalSearch.ts" label="useTerminalSearch.ts:31-78" /> — per-`TerminalId` open-state, `openFor(id)` / `isOpen(id)` / `close()`, and an `on(store.activeId)` effect that closes the pager on active-terminal switch (the find-bar contract).
+
+**Close:** Esc / backdrop (desktop) or drag-down / backdrop tap (mobile), the ✕, or "Jump to live ↓". Every close routes through `withKeyboardDismiss` and returns focus to the live grid via `refocusTerminal` (<Cite file="packages/client/src/ui/ModalDialog.tsx" label="ModalDialog.tsx:25-39" />, opted in with `refocusOnClose`).
+
+**Desktop mockup** — a tall `ModalDialog size="lg"` reader, backdrop dims the whole canvas so it reads as a separate surface:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ⏱  History — claude-code (feat/female-flat)      [Aa] [.*]  Find… 3/57  ‹  › │
+│                                          Jump ▾    ⤓ PDF              ✕  Esc    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ····· Older output trimmed to stay under the 256 MB history limit ··········· │  ← evicted sentinel
+│  $ pnpm test                                                                   │
+│  ✓ packages/kaval   (42)                                                       │
+│  ✓ packages/shared  (18)                                                       │     read-only xterm
+│  …                                                                             │     (DOM renderer, no WebGL)
+│  $ git log --oneline -5                                                        │     fixed width = pager cols
+│  3eb6cc8  fix(kaval): defang the reconnect storm (#1573)                       │     text is selectable → copy
+│  ▓▓▓ match: "reconnect storm" highlighted in view ▓▓▓                          │
+│  …                                                                             │
+│                                                                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  line ~1,284,330 · 3 days ago · 132 cols                ↓ Jump to live   ◴ new │  ← footer; ◴ ring pulses
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  Top-sentinel variants (whichever applies as you scroll up):
+    backfilling →   ····· ⠋ loading older history… ·····
+    true start  →   ──────────── Beginning of session ────────────
+    disabled    →   History isn't being recorded for this terminal.
+    disk fault  →   ⚠ History may be incomplete — disk error; showing up to the last good point.
+
+  Jump ▾ menu (anchored popover):     Search field toggles:
+    ┌──────────────────────┐           [Aa] case-sensitive   [.*] regex
+    │ ⤒  Top of history    │           (chips inside the field, ripgrep-style)
+    │ ⤓  Latest            │
+    │ ─────────────────    │
+    │ 🕘 1 hour ago        │           NOTE: no "jump to line N" — render-line
+    │ 🕘 Today 09:00       │           numbers shift under reflow, so the only
+    │ 🕘 Yesterday         │           position anchors are TIME and top/latest
+    │ 🕘 Pick a time…      │           (the byte-offset cursor is opaque).
+    └──────────────────────┘
+```
+
+**Mobile mockup** — a `@corvu/drawer side="bottom"` sheet at `h-[90vh]` (the `RightPanelDrawer` pattern), grabber pill, ≥44 px tap targets:
+
+```
+              ▁▁▁▁▁▁                                   ← grabber (w-10 h-1 rounded-full)
+   ┌────────────────────────────────────────────┐
+   │ ⏱ History                 Find…    ⤓    ✕   │     header — each control ≥44px
+   │ claude-code · feat/female-flat              │
+   │ [ Top ]  [ Latest ]  [ Jump to time ▾ ]     │     jump row (full-width buttons)
+   ├────────────────────────────────────────────┤
+   │ $ pnpm test                                 │
+   │ ✓ packages/kaval (42)                       │     read-only xterm
+   │ …                                           │     native touch scroll;
+   │ ▓ match highlighted ▓                       │     backfills on scroll-near-top
+   │ …                                           │
+   │                                             │
+   ├────────────────────────────────────────────┤
+   │  line ~1,284,330 · 3 days ago               │
+   │        ↓   Jump to live   ◴                 │     big target, ring pulses on new output
+   └────────────────────────────────────────────┘
+        (Drawer.Overlay backdrop dims the tile behind)
+```
+
+The component forks on `layoutMode()` (<Cite file="packages/client/src/useMobile.ts" label="useMobile.ts:58-67" />): `ModalDialog` for `desktop`, `Drawer` for `phone`/`compact` — exactly as the right panel forks between a Resizable split and `RightPanelDrawer`. Touch invocation is a "History" row in <Cite file="packages/client/src/MobileChromeSheet.tsx" label="MobileChromeSheet.tsx:87-141" /> next to Palette/Settings/Inspector (with a `Kbd` chip via `formatKeybind`), plus the palette. Every control is ≥44 px (above the 24 px WCAG floor the codebase already targets, <Cite file="packages/client/src/MobileTileView.tsx" label="MobileTileView.tsx:191-211" />).
+
+**Interactions.**
+
+- **Scroll / page / backfill.** The body is a dedicated read-only `@xterm/headless`-on-DOM instance (its own `FitAddon` + `SearchAddon`, **DOM renderer** to spare the WebGL budget, <Cite file="packages/client/src/terminal/webglBudget.ts" label="webglBudget.ts" />), never attached to the live PTY. It opens at the **bottom**, contiguous with the screen the user just left (the snapshot's `historyCursor` makes the join overlap, not gap). Reading is upward. Bindings: wheel/trackpad, PageUp/PageDown, ↑/↓, plus pager idioms — Space/b page down/up, g/G top/latest, `/` focuses search. Within ~N rows of the loaded top it fires `` `history({ id, beforeCursor: topCursor, maxLines, width })` `` and **prepends** the returned ANSI, holding scroll position stable by re-anchoring on the previous top line's cursor (byte cursors are reflow-stable; line numbers are not). A thin top sentinel shimmers in flight.
+- **Search within history (two-tier).** The header field mirrors <Cite file="packages/client/src/terminal/SearchBar.tsx" label="SearchBar.tsx:35-184" /> — "n / m" count, up/down chevrons, Enter = next, Shift+Enter = previous, Esc closes. But finding goes through `searchHistory({ id, query, regex, caseSensitive })` (cross-window seeking on disk), not xterm's in-buffer `SearchAddon`. Selecting a match fetches and centers the range; once in view, the pager's own `SearchAddon` paints the in-view occurrences with the live search decorations (`SEARCH_OPTIONS`, SearchBar.tsx:22-32). Clean split: `searchHistory` seeks, the local `SearchAddon` highlights.
+- **Jump ▾** — an anchored popover (`surface()` chrome) offering Top (g/Home), Latest (G/End), and **time anchors** (relative quick-picks + "Pick a time…") because the transcript is time-indexed (by-time range reads at 0.004 ms). **No jump-to-line** — render-line numbers drift under reflow, the whole reason the cursor is an opaque byte offset.
+- **Export PDF** — the "⤓ PDF" button repoints <Cite file="packages/client/src/exportScrollbackAsPdf.ts" label="exportScrollbackAsPdf.ts:19-89" /> from the in-buffer `serializeAsHTML()` (today clipped to the 50 K client ring, <Cite file="packages/common/src/config.ts" label="config.ts:29" />) to `exportHistory({ id, width, fromCursor?, toCursor? })` — full on-disk depth, rendered per the rules in *Full PDF export* below. A live text selection offers "Export selection".
+- **Copy** — native selection over the read-only xterm; Ctrl+Shift+C / Cmd+C reuses `copySelection` (actions.ts:294-302). An overflow "Copy all history" calls the *same* transcript text read that `handleCopyTerminalText` is re-routed onto (<Cite file="packages/client/src/terminal/useTerminalCrud.ts" label="useTerminalCrud.ts:275-293" />) — palette "Copy terminal text" and the pager share one disk-backed source.
+- **Coexistence with the live tile.** New PTY output keeps accruing to the mirror *and* the transcript while you read; the pager doesn't tail it (it is the past), but a "◴ new" ring on "Jump to live ↓" pulses when output arrived, reusing `ScrollToBottom`'s `animate-ping` ring (<Cite file="packages/client/src/terminal/ScrollToBottom.tsx" label="ScrollToBottom.tsx:30-33" />). "Jump to live ↓" closes the pager and scrolls the live grid to the bottom.
+- **State edges.** *Reconnect:* backfill rides the reconnect-safe `stream` namespace; `onRetry` clears the pager xterm (`terminal?.reset()`) before the re-subscribed snapshot lands — the same double-paint defense the live attach uses (<Cite file="packages/client/src/terminal/Terminal.tsx" label="Terminal.tsx:795-808" />). *Evicted:* "Older output trimmed to stay under the NN MB history limit" — the honest `` `{kind:"evicted"}` `` state, never silent-empty. *Unavailable* (`history.enabled:false`): "History isn't being recorded for this terminal" (`` `{kind:"unavailable"}` ``). *Faulted:* on a runtime disk fault the daemon degrades that one transcript to `` `{faulted, lastGoodSeq}` `` via `daemonStatus`; the pager shows a top warning banner, never presenting a truncated log as complete — the one place survivability outranks fail-fast (<Cite file=".claude/rules/conventions.md" label="caught-error-must-not-collapse-to-empty" />).
+
+**Reused primitives:** `ModalDialog` (desktop host, `size="lg"`, height `min(74vh, 60rem)`); `RightPanelDrawer.tsx:58-85` (mobile host — grabber, overlay, `withKeyboardDismiss` + `restoreFocus={false}`); `SearchBar.tsx:35-184` (header field clone); `ScrollToBottom.tsx:7-37` (jump-to-live ring); `Terminal.tsx:34,795-808` (`streamCall(client.stream.history, …, { signal, onRetry })`); `useTerminalSearch.ts:31-78` (`useHistoryPager` singleton); `webglBudget.ts` (DOM renderer); `Surface.ts` + `Kbd.tsx` (popover chrome + chips).
+
+#### Full PDF export (product question — answered)
+
+**Will users get the full PDF instead of a clipped one? YES, decisively.** Today <Cite file="packages/client/src/exportScrollbackAsPdf.ts" label="exportScrollbackAsPdf.ts:28" /> serializes `serializeAsHTML()` off the **live client xterm ring** — clipped to `DEFAULT_SCROLLBACK` (50 K) and in practice only to what that client buffered (the header even admits it is "NOT the full session"). After PR2, `useTerminalCrud.exportScrollbackPdf` (useTerminalCrud.ts:325) repoints at `exportHistory`, which reads the **entire per-id transcript on disk** — bounded only by the per-terminal `retentionBytes`, surviving server restarts. A multi-hour session that scrolled past the client cap exports in full.
+
+**Render width = historical-per-span (faithful), not a fixed export width and not the live width.** `exportHistory` walks the transcript oldest→newest and renders each inter-`RESIZE` span at the cols actually in effect then, freezing each span's wrapped lines before the next `RESIZE` is applied. A PDF is an archival document; a 200-col table re-wrapped to a narrow width is the exact content the user exported to keep, turned to garbage. The `RESIZE` epochs make per-span width recoverable (each `CKPT` stores `cols`), and the spike proved checkpoint-replay reproduces the exact screen across resize with `RESIZE` records load-bearing (the negative control) — using them is *reuse the source of truth*. **When the pager is the export source, "current width" = pager width** for the visible-range case; the full-depth archival export uses historical-per-span. (This is a *desirable* divergence from a live xterm, which reflows all scrollback to one final width.)
+
+**Theming handoff** (preserving `exportScrollbackAsPdf.ts`'s existing "server headless has no theme" constraint): the **server** streams per-span rendered ANSI-with-SGR segments through the `stream` namespace (a finite ordered stream, idempotent restart on reconnect, so deep depth isn't one giant message); the **client** writes each segment into an *offscreen* `@xterm/headless` + `SerializeAddon` carrying the live theme — resizing it to each segment's historical cols before writing — then `serializeAsHTML()` → the same themed print window the file opens today. Depth moves to the server (un-clipped, faithful); theme stays client-side.
+
+**Edge — `history.enabled:false`.** No transcript, so deep export falls to the live client buffer exactly as today (clipped). Not a fail-fast violation: nothing *required* is missing — the user chose no retention, and exporting the visible buffer is the correct behavior for that mode. The default is `enabled:true`, so full-depth is the path almost every terminal takes.
+
+#### Mobile resize (product question — answered)
+
+A mobile (or any narrow) client resizing a terminal is **harmless to scrollback and PDF**, because width is render-time for reads and historical-per-span for export.
+
+**Width is one shared PTY size — pre-existing, unchanged by PR2.** The resize path: client `Terminal.tsx` `FitAddon` → `client.terminal.resize({id,cols,rows})` → <Cite file="packages/server/src/router.ts" label="router.ts:113" /> → `PtyHostTerminalProxy.resize` (local.ts:161) → `ptyHost.resize` (<Cite file="packages/kaval/src/ptyHost.ts" label="ptyHost.ts:754" />) → `entry.proc.resize` (the one node-pty child) + `entry.headless.resize` (the one shared mirror) + `invalidateSnapshot`. There is exactly **one** `proc`/`headless` per terminal — no per-client size. All attached clients share the width, last-write-wins; a mobile client fitting to 40 cols reflows the live grid for everyone via SIGWINCH. **This is today's behavior, not introduced by PR2.**
+
+**What PR2 adds and why it stays correct:**
+
+- **`RESIZE` journaling:** `ptyHost.resize` gains, beside the proc/headless resize + `invalidateSnapshot`, an **append of a typed `RESIZE` record** (`kind=RESIZE`, cols, rows) at the current `byteSeq` — recorded at its true stream position, the load-bearing record the negative control validated. It lands on the same `proc.onData`/resize writer path, inheriting attach's race-freedom.
+- **`history()` reads** render at the **reading** client's current width (a render-time parameter), keyed on the reflow-stable byte cursor. A desktop client backfills the same byte range at 200 cols while a phone backfills it at 40 — both get full depth, neither clips the other, and because the cursor is a byte offset, a resize never moves a client's scroll position.
+- **Live snapshot on attach** (`serialize({ scrollback: HOT_WINDOW })`) reflects the current shared width; a desktop attaching while a phone holds the PTY narrow paints narrow for a frame, then its own `FitAddon` re-fits and resizes the shared PTY back (existing behavior). Transcript / history / PDF untouched.
+- **PDF is historical-per-span,** so a mobile-narrow span renders at 40 and a desktop-wide span at 200 in the *same* export — the document is never clipped or squeezed to a narrow live width. **A mobile resize cannot shrink the exported document.**
+- **The pager is its own fixed-width surface.** A phone rotating or a foldable unfolding just recomputes the pager xterm's cols (its own `FitAddon`) and re-fetches the visible range at the new width — it never reflows or corrupts the live grid and **never writes anything back to the transcript** (typed records are width-agnostic; width is render-time only).
+
+#### searchHistory semantics
+
+A **server-side scan over the on-disk transcript** that re-routes the find-bar's deep search — *not* the live xterm `SearchAddon`.
+
+- **Default = literal substring, case-INsensitive** — exactly what `SearchBar.tsx`'s `SEARCH_OPTIONS` does today (it sets only `incremental` + `decorations`; `regex`/`caseSensitive` unset → false), so the re-route changes nothing the user sees.
+- **`regex` and `caseSensitive` are opt-in booleans** on the input, mirroring xterm's `ISearchOptions` shape 1:1 (*reuse the source of truth* — these are genuine search capabilities, not degradation knobs, so the fail-fast "no override knobs" rule does not apply). The find-bar can expose toggles later; until then the default reproduces today exactly.
+- **Invalid user regex is surfaced** as a find-bar validation error ("invalid pattern"), never collapsed to empty results (a malformed pattern is user input, a surfaced error, not an internal swallow).
+- **How it scans:** the schema keeps only the zstd VT payload (no plain-text column — that is write-amplification and a second source of truth), so search **replays rather than greps**. It walks `record` rows newest-first from `beforeCursor` (or the tip); for each zstd DATA block it decompresses and replays from the nearest preceding `CKPT` into a throwaway headless — the same machinery `history()`/`exportHistory` use — joins `isWrapped` continuation rows into **logical** lines (so matching is **width-independent**: a hit is never split by an arbitrary wrap column), and applies the literal-substring or `RegExp` test per logical line. Runs behind the same read semaphore as `history()`.
+- **Returns** an ordered (newest-first) bounded array: `` `{ cursor: ByteSeq (reflow-stable, feeds history() so the pager opens AT the match), firstRow: Row, text: string, matches: [{ start, end }] }` `` + `nextCursor: ByteSeq | null` + `truncated: boolean`. Capped at `maxResults` (hard cap 1000) per call; on hitting the cap it sets `truncated` and returns `nextCursor` so the find-bar pages "search older". **One-shot request/response RPC**, cursor-paged — only the paging `history()` backfill needs the `stream` namespace; a search reconnect just re-issues the query.
+
+#### Session restore semantics
+
+The **visible-screen restore is unchanged**; the transcript only adds deep, durable reach — it does not resurrect a killed PTY's live screen.
+
+- **Warm restart** (daemon outlives kolu-server — the common case, `reconcile.ts → adoptTerminal`): the live PTY and its in-kaval mirror survive in the daemon's memory, so the visible screen repaints from the surviving mirror via re-attach exactly as today. PR2 only shrinks that mirror to `rows + 40` and bounds the snapshot to `HOT_WINDOW` — and the reload now reaches **more** history (full on-disk depth via backfill), not less. No regression.
+- **Cold restore** (no survivor — the "restore card" re-spawns onto a fresh daemon): the re-spawn reuses the **saved terminal id** (id stability is already the architecture's invariant — kolu-server mints terminal id == PTY id), so it reopens the *same* `<id>.db` and **appends** (seq continues from the persisted max). The fresh shell is blank on screen (only the existing agent-resume replay repopulates it), but the pager/search/PDF reach the pre-restart deep history through the continued transcript.
+- **Sleep→wake:** wake re-spawns the PTY fresh on the same id and reopens/appends the same `<id>.db`, so a woken terminal's pager scrolls back into its pre-sleep history — reach sleep/wake lacked. Live screen = the fresh resumed shell (unchanged).
+- **The one-time 4.0 recycle:** the breaking `PTY_HOST_CONTRACT_VERSION` 3.3→4.0 bump (<Cite file="packages/kaval/src/ptyHostSurface.ts" label="ptyHostSurface.ts:74" />) kills every live terminal once. Their transcripts persist on disk but the terminals are gone — exited-terminal DBs the global sweeper reclaims first. Restore does not resurrect them; durable history begins for terminals spawned at/after the recycle.
+
+#### `node:sqlite` inside the real nix closure — confirmed
+
+**It loads, two ways.**
+
+1. **Analytic closure chain.** `nix/nixpkgs.nix` pins nixpkgs rev `f8573b9c935cfaa162dd62cc9e75ae2db86f85df`; `nix/overlay.nix` adds only `kolu-fonts` and does **not** override `nodejs`; `default.nix`'s kaval derivation wraps `${pkgs.nodejs}/bin/node` with the tsx loader and `bin.ts` (no extra flags, no `NODE_OPTIONS`). So the kaval runtime **is** exactly `pkgs.nodejs`, which at that pin resolves (`nix eval` locally + a clean `nix build` on a box) to `/nix/store/sy0c7j0npsq33d9zhnnzvjnzc52f4y0p-nodejs-24.13.0`. `node:sqlite` is a C++ builtin compiled into that binary, so the full-closure build cannot change the result.
+2. **Empirical, on a fresh pu box** (destroyed after; egress probed 200): built that exact pinned `pkgs.nodejs` + `pkgs.tsx`, then ran `node:sqlite` three ways under `…-nodejs-24.13.0/bin/node`, all exit 0 — (a) bare `require("node:sqlite")` → `DatabaseSync` is a function; (b) a real WAL DB: `PRAGMA journal_mode=WAL` → `{journal_mode:wal}`, 1000 zstd-magic BLOB rows inserted, indexed range-by-`firstByteSeq` SELECT returned the right row, BLOB round-tripped as `Uint8Array`; (c) kaval's exact launch shape `node --import <tsx loader.mjs> file.ts` importing `node:sqlite` from TypeScript — works, the tsx loader passes the builtin specifier through.
+
+**No flag, no `NODE_OPTIONS`, no suppression knob.** Node 24.13.0 exposes `node:sqlite` by default (the `--experimental-sqlite` requirement was dropped in v23.4); both `require()` and ESM `import` return exit 0 with zero flags, including through tsx. The only runtime effect is one `ExperimentalWarning: SQLite is an experimental feature…` printed to stderr on the **first** `DatabaseSync` construction. **The implementer must leave the kaval wrapper's `--add-flags` unchanged and must NOT add `--no-warnings` / `NODE_NO_WARNINGS` / `--experimental-sqlite`:** a suppression knob is exactly the override the fail-fast rule forbids, it would mask unrelated warnings, and the existing `codex`/`opencode` integrations already `import { DatabaseSync } from "node:sqlite"` and emit this same warning in the shipped server with no special handling — PR2 follows that precedent. **Net:** `import { DatabaseSync } from "node:sqlite"` in `@kolu/shared/sqlite`, do nothing to the nix wrapper, accept the one cosmetic stderr line.
+
+*Watch-item (not an open question):* `node:sqlite` is officially experimental — the API "might change at any time." The surface used (`new DatabaseSync(path)`, `prepare`/`run`/`get`/`exec`, `PRAGMA journal_mode=WAL`, BLOB↔`Uint8Array`) is stable across the 24.x line and the version is locked by nixpkgs via npins, so any Node bump rides a deliberate `npins update`, never silent drift. A future major could change the API — the implementer's to watch, not a blocker.
+
+---
+
+**Open questions: NONE.** Every prior fork is closed and every constant pinned. The single artifact surfaced by the seam spike is **not an open decision**: the combining-mark-on-width-change misattachment is an *upstream xterm reflow limitation*, reproduced by a plain live-terminal resize with no checkpoint involved (so the pager is not a regression), and the protocol's DATA-replayed-return rule keeps it out of every returned and stitched line — it can only touch a reflowed checkpoint *seed*, which is never displayed. Stated here in the open rather than papered over; it gates nothing in PR2 and a future xterm fix removes even the seed-level trace.
+
 
 <Callout kind="good" title="Supersedes in the OOM RCA">
 (1) the store is **typed records with resize epochs**, not raw bytes; (2) **checkpointing is mandatory**, inseparable from lazy backfill; (3) the **acute transient is a distinct bug, shipped first** (PR1) — <PrLink pr={1427} />'s 50 K→10 K shrink raised the ceiling but left the full-buffer serialize in place; (4) the store **reuses `@kolu/shared/sqlite` (node:sqlite)**, not a hand-rolled binary log + index — and so is a kaval *leaf*, not a new package; (5) the wire change is **one breaking 4.0 recycle**, not #417's additive multi-PR.
