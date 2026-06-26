@@ -252,6 +252,17 @@ async function cmdStatus(conn: Connection, json: boolean): Promise<void> {
   );
 }
 
+/** An `AbortController` that fires on the process's stop signals — the shared
+ *  "Ctrl+C / external kill unwinds the live mirror" wiring both `watch` and
+ *  `wait` hold open a link with. */
+function abortOnShutdownSignals(): AbortController {
+  const abort = new AbortController();
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => abort.abort());
+  }
+  return abort;
+}
+
 async function cmdWatch(
   conn: Connection,
   query: string | undefined,
@@ -259,10 +270,7 @@ async function cmdWatch(
 ): Promise<void> {
   // Ctrl+C (and external kill) abort the mirror → its `.done` settles → we
   // dispose the link and exit cleanly. The link is held open until then.
-  const abort = new AbortController();
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => abort.abort());
-  }
+  const abort = abortOnShutdownSignals();
   // A closed stdout — `pulam-tui watch | head -1`, the reader hanging up —
   // surfaces as an stdout `error` (EPIPE). Without a handler that's an unhandled
   // crash; treat it as the consumer hanging up and abort the mirror so we unwind
@@ -355,10 +363,7 @@ async function cmdWait(
   // chains into its internal one → the mirror settles → we dispose and exit.
   // `awaitAgentState` reads this signal to return `interrupted` vs `closed`, so
   // the outcome alone tells Ctrl+C from a real link drop — no re-derivation here.
-  const abort = new AbortController();
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => abort.abort());
-  }
+  const abort = abortOnShutdownSignals();
 
   // Resolve the required <id> against the live snapshot, then block on the agent
   // state — both inside the try so a thrown read still disposes the link.
