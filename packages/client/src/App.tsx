@@ -58,6 +58,7 @@ import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
+import HistoryPager from "./terminal/HistoryPager";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { exportSession, importSession } from "./sessionTransfer";
 import TipBanner from "./settings/TipBanner";
@@ -323,6 +324,7 @@ const App: Component = () => {
         transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp />
+      <HistoryPager />
       <DiagnosticInfo activeId={store.activeId()} />
       <AboutDialog />
       <WelcomeDialog install={pwaInstall} />

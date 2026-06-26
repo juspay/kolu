@@ -287,6 +287,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   section: "active-terminal" as const,
                   onSelect: () => deps.handleExportScrollbackAsPdf(),
                 },
+                actionPaletteCommand("viewHistory", deps, {
+                  name: "View terminal history",
+                  section: "active-terminal",
+                }),
                 ...(activeArm(deps.activeMeta())?.agent
                   ? [
                       {

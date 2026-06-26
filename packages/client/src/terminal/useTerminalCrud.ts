@@ -277,7 +277,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
-      text = await client.terminal.screenText({ id });
+      // PR2: read the FULL on-disk transcript, not just the bounded mirror. An
+      // empty result means history is disabled for this terminal, so fall back
+      // to the live screen buffer — copy still works for an opted-out terminal.
+      text = await client.terminal.historyText({ id });
+      if (text === "") text = await client.terminal.screenText({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
       toast.error(`Failed to read terminal text: ${(err as Error).message}`);
@@ -325,7 +329,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   function exportScrollbackPdf() {
     const id = store.activeId();
     if (id === null) return;
-    exportScrollbackAsPdf(id, store.getMetadata(id));
+    void exportScrollbackAsPdf(id, store.getMetadata(id)).catch((err: Error) =>
+      toast.error(`Failed to export PDF: ${err.message}`),
+    );
   }
 
   /** Export the active terminal's session as a standalone HTML page. */

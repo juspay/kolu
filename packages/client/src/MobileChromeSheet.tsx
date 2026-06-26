@@ -24,7 +24,8 @@ import { wsDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import { useHistoryPager } from "./terminal/useHistoryPager";
+import { HistoryIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
@@ -38,6 +39,7 @@ const MobileChromeSheet: Component<{
   onClose: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
+  const historyPager = useHistoryPager();
   const pwa = useSurfaceApp();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -101,6 +103,19 @@ const MobileChromeSheet: Component<{
         >
           <Kbd>{formatKeybind(ACTIONS.commandPalette.keybind)}</Kbd>
           <span>Palette</span>
+        </button>
+        <button
+          type="button"
+          data-testid="history-trigger"
+          class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            historyPager.toggleActive();
+            props.onClose();
+          }}
+          aria-label="View terminal history"
+        >
+          <HistoryIcon />
         </button>
         <div>
           <button
