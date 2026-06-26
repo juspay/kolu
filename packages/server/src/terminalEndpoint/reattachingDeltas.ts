@@ -5,7 +5,7 @@
  *
  * kaval bounds each attach subscriber's buffer and DROPS a consumer that lags
  * (a wedged browser tab on a chatty PTY), ending its stream. Before contract
- * 3.4 that drop was indistinguishable on the wire from a PTY exit, so the web
+ * 4.0 that drop was indistinguishable on the wire from a PTY exit, so the web
  * tier ended the stream and the client froze its scrollback as if the terminal
  * had died. The host now emits a typed `overflow` control frame as the stream's
  * last frame; here we read it as "re-attach for a fresh snapshot", distinct from
