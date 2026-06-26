@@ -1,12 +1,5 @@
 packages:
   - packages/**
-  # The pulam-tui VIEWER's Bun-only manifest lives at packages/pulam-tui/nix/bun/
-  # so the package is self-contained (its Nix derivation sits beside it at
-  # packages/pulam-tui/nix/default.nix). It must NOT be a pnpm workspace member:
-  # its deps are hydrated from the Nix store at build time, not pnpm-installed, so
-  # pnpm and bun never fight over a second package.json. Exclude it here. (The
-  # viewer's real pnpm manifest stays at packages/pulam-tui/package.json.)
-  - "!packages/pulam-tui/nix/**"
 
 # @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
 # need them for their /react entry points. Kolu consumes the vanilla classes
