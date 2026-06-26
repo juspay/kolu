@@ -86,15 +86,20 @@ export async function drainForOverflow(
 ): Promise<string[]> {
   const kinds: string[] = [];
   for (let i = 0; i < maxPulls; i++) {
+    // Clear the timer the instant the race settles — otherwise every pull that
+    // beats the timeout (i.e. every frame, up to `maxPulls`) leaves an 8s timer
+    // that later rejects an orphaned promise: an unhandled rejection and a
+    // process the test can't exit. Mirrors `nextFrame`'s `finally`-clear.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const r = await Promise.race([
       iter.next(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
           () => reject(new Error("overflow frame never arrived")),
           8000,
-        ),
-      ),
-    ]);
+        );
+      }),
+    ]).finally(() => clearTimeout(timer));
     if (r.done) break;
     kinds.push(r.value.kind);
     if (r.value.kind === "overflow") break;
