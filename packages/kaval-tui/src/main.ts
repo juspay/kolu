@@ -52,11 +52,7 @@ import {
 import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
-import {
-  ACCEPTED_KEY_NAMES,
-  encodeKey,
-  planSend,
-} from "./send.ts";
+import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
@@ -662,8 +658,7 @@ async function main(): Promise<void> {
         paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
         key: argv.flags.key,
       });
-    }
-    else if (argv.command === "attach")
+    } else if (argv.command === "attach")
       await cmdAttach(
         conn,
         await resolveOne(conn, argv._.id),

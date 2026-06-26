@@ -639,7 +639,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // above. A working agent streams output, so this captures its
         // `foregroundPid` so agent detection can key on it; dedup makes a steady
         // foreground free, and the throttle bounds `tcgetpgrp` under a flood.
-        if (now - entry.lastForegroundSampleAt >= FOREGROUND_SAMPLE_THROTTLE_MS) {
+        if (
+          now - entry.lastForegroundSampleAt >=
+          FOREGROUND_SAMPLE_THROTTLE_MS
+        ) {
           entry.lastForegroundSampleAt = now;
           sampleForeground(entry);
         }
