@@ -58,11 +58,10 @@ export interface ExportSegment {
 }
 
 /** A search hit, newest-first. `cursor` feeds `history()` so the pager opens at
- *  the match's span; `matches` are per-logical-line offsets for in-view paint. */
+ *  the match's span; the client's SearchAddon re-finds the offsets in-view, so
+ *  the server records only the span cursor. */
 export interface SearchMatch {
   cursor: Seq;
-  text: string;
-  matches: { start: number; end: number }[];
 }
 
 export interface SearchResult {
@@ -333,9 +332,8 @@ export class Transcript {
       // the span so global order stays newest-first).
       const logical = joinLogical(seg.rows);
       for (let i = logical.length - 1; i >= 0; i--) {
-        const m = test(logical[i]!);
-        if (m.length > 0) {
-          hits.push({ cursor, text: logical[i]!, matches: m });
+        if (test(logical[i]!)) {
+          hits.push({ cursor });
           if (hits.length >= cap) {
             truncated = true;
             nextCursor = from;
@@ -410,36 +408,24 @@ function joinLogical(rows: { text: string; wrapped: boolean }[]): string[] {
   return out;
 }
 
-/** Compile a per-logical-line matcher. Default literal + case-insensitive
- *  (exactly what the find bar does today); regex/case are opt-in capabilities
- *  (reuse the source of truth — xterm's ISearchOptions shape), not knobs. */
+/** Compile a per-logical-line predicate — "does this line match". Default
+ *  literal + case-insensitive (exactly what the find bar does today); regex/case
+ *  are opt-in capabilities (reuse the source of truth — xterm's ISearchOptions
+ *  shape), not knobs. The server only needs to record a hit's span cursor; the
+ *  client's SearchAddon re-finds the offsets in-view. */
 function compileMatcher(
   query: string,
   regex: boolean,
   caseSensitive: boolean,
-): (line: string) => { start: number; end: number }[] {
+): (line: string) => boolean {
   if (regex) {
-    const re = new RegExp(query, caseSensitive ? "g" : "gi");
-    return (line) => {
-      const out: { start: number; end: number }[] = [];
-      for (const m of line.matchAll(re)) {
-        if (m.index === undefined) continue;
-        out.push({ start: m.index, end: m.index + m[0].length });
-        if (m[0].length === 0) re.lastIndex++;
-      }
-      return out;
-    };
+    const re = new RegExp(query, caseSensitive ? "" : "i");
+    return (line) => re.test(line);
   }
   const needle = caseSensitive ? query : query.toLowerCase();
   return (line) => {
-    if (needle.length === 0) return [];
+    if (needle.length === 0) return false;
     const hay = caseSensitive ? line : line.toLowerCase();
-    const out: { start: number; end: number }[] = [];
-    let i = hay.indexOf(needle);
-    while (i !== -1) {
-      out.push({ start: i, end: i + needle.length });
-      i = hay.indexOf(needle, i + needle.length);
-    }
-    return out;
+    return hay.includes(needle);
   };
 }

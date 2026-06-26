@@ -155,15 +155,7 @@ export const TerminalSearchHistoryInputSchema = z.object({
 });
 
 export const TerminalSearchHistoryOutputSchema = z.object({
-  hits: z.array(
-    z.object({
-      cursor: z.number(),
-      text: z.string(),
-      matches: z.array(
-        z.object({ start: z.number().int(), end: z.number().int() }),
-      ),
-    }),
-  ),
+  hits: z.array(z.object({ cursor: z.number() })),
   nextCursor: z.number().nullable(),
   truncated: z.boolean(),
 });
