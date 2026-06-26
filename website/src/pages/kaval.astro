@@ -479,7 +479,11 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       blocks until a terminal's agent finishes its turn — the done-signal that
       lets one agent drive another: prompt it with{" "}
       <code class="mono text-ink">kaval-tui send</code>, wait, then read the
-      reply.{" "}
+      reply. (Since <code class="mono text-ink">wait</code> matches the state the
+      moment it connects, a robust driver waits in two phases —{" "}
+      <code class="mono text-ink">--until working</code> for the pickup, then{" "}
+      <code class="mono text-ink">--until awaiting,waiting</code> for the
+      turn-end — so a stale previous-turn state can't satisfy it early.){" "}
       <code class="mono text-ink">--json</code> dumps the same surface (NDJSON
       under <code class="mono text-ink">watch</code>) for scripts. It runs the{" "}
       <em>same</em> awareness sensors kolu uses internally, now read by a thin

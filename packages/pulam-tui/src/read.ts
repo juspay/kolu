@@ -276,14 +276,17 @@ export async function watchAwareness(
 }
 
 /** The outcome of a `wait`: the agent reached a target bucket (`met`, carrying
- *  the matched agent), the wait elapsed its cap (`timeout`), the caller's signal
- *  aborted the wait (`interrupted` — a Ctrl+C), or the mirror settled without any
- *  of those (`closed` — a genuinely dropped link; `error` holds the first
- *  upstream failure if there was one). The `interrupted`/`closed` split is decided
- *  here from `opts.signal`, so the outcome alone carries the full result and the
- *  caller never re-derives it from a side channel. */
+ *  the matched agent), the terminal we were waiting on was removed before it got
+ *  there (`gone` — its PTY exited, so the bucket can never land), the wait elapsed
+ *  its cap (`timeout`), the caller's signal aborted the wait (`interrupted` — a
+ *  Ctrl+C), or the mirror settled without any of those (`closed` — a genuinely
+ *  dropped link; `error` holds the first upstream failure if there was one). The
+ *  `interrupted`/`closed` split is decided here from `opts.signal`, so the outcome
+ *  alone carries the full result and the caller never re-derives it from a side
+ *  channel. */
 export type WaitOutcome =
   | { kind: "met"; agent: NonNullable<AwarenessValue["agent"]> }
+  | { kind: "gone" }
   | { kind: "timeout" }
   | { kind: "interrupted" }
   | { kind: "closed"; error?: string };
@@ -296,12 +299,15 @@ export type WaitOutcome =
  *
  *  It rides `watchAwareness`, so the mirror REPLAYS each terminal's current
  *  value on connect: an agent already in a target bucket matches immediately
- *  (no hang waiting for a transition that already happened). An external
- *  `signal` (the CLI's Ctrl+C) is chained into the internal abort, so a caller
- *  interrupt unwinds the same way the timeout does — and when the mirror settles
- *  with no `met`/`timeout`, `opts.signal?.aborted` tells a Ctrl+C (`interrupted`)
- *  apart from a real link drop (`closed`), so `cmdWait` switches on the outcome
- *  alone. */
+ *  (no hang waiting for a transition that already happened). If the watched
+ *  terminal is REMOVED before it reaches a target bucket — its PTY exited, so the
+ *  daemon drops it from awareness — the bucket can never land, so we resolve
+ *  `gone` at once rather than blocking until `timeoutMs` (or, with no timeout,
+ *  forever). An external `signal` (the CLI's Ctrl+C) is chained into the internal
+ *  abort, so a caller interrupt unwinds the same way the timeout does — and when
+ *  the mirror settles with no `met`/`gone`/`timeout`, `opts.signal?.aborted` tells
+ *  a Ctrl+C (`interrupted`) apart from a real link drop (`closed`), so `cmdWait`
+ *  switches on the outcome alone. */
 export async function awaitAgentState(
   client: PulamClient,
   opts: {
@@ -342,7 +348,15 @@ export async function awaitAgentState(
             abort.abort();
           }
         },
-        onRemove: () => {},
+        // The terminal we're waiting on left awareness — its PTY exited, so no
+        // future frame can carry the target bucket. Resolve `gone` and unwind
+        // rather than hanging until the timeout (or, with none, indefinitely).
+        // Removals of OTHER terminals are noise here; ignore them.
+        onRemove: (id) => {
+          if (id !== opts.id) return;
+          outcome ??= { kind: "gone" };
+          abort.abort();
+        },
       },
       abort.signal,
       (line) => {

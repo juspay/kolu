@@ -28,7 +28,7 @@ terminal, the done-signal is **watching the screen settle**, below.
 ## The loop
 
 ```sh
-id=$(kaval-tui create -- claude --json | jq -r .id)            # spawn the inner agent
+id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
 kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. TYPE the prompt
 kaval-tui send  "$id" --key Enter                              # 2. SUBMIT it (its own step)
 wait_until_settled "$id"                                       # 3. let its turn finish (below)
@@ -121,7 +121,23 @@ exits 0:
 
 `awaiting` and `waiting` both mean "your move", so `--until awaiting,waiting`
 catches a turn ending; `--timeout <ms>` fails loud (exit 2) so a wedged agent
-can't hang the loop; `--json` → `{ id, agent }`.
+can't hang the loop; if the terminal **exits** before reaching the state, `wait`
+fails loud too (exit 3 — the agent you were driving died); `--json` →
+`{ id, agent }`.
+
+> **Mind the stale-state race — wait in two phases.** `wait` matches the agent's
+> state **the instant it connects**, replaying whatever it is right now. So right
+> after a `send`, the agent may still report the *previous* turn's
+> `waiting`/`awaiting` for a beat before it picks up the new prompt — and a lone
+> `wait --until awaiting,waiting` would return immediately on that stale state,
+> before the turn you asked for has even begun. For a robust loop, wait for the
+> pickup first, then the turn-end:
+>
+> ```sh
+> kaval-tui send "$id" "fix the parser"; kaval-tui send "$id" --key Enter
+> pulam-tui wait "$id" --until working           # 1. it picked up the prompt
+> pulam-tui wait "$id" --until awaiting,waiting   # 2. its turn ended
+> ```
 
 > **Caveat — agent state needs HOOKED terminals.** Detection keys on kolu's shell
 > rc-hooks (the OSC marks a terminal emits as commands run). `kaval-tui create`

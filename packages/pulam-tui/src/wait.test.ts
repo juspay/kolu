@@ -5,8 +5,9 @@
  * `awaitAgentState` directly (NOT `cmdWait`, which calls `process.exit` and
  * would kill the runner): it must block while the agent is in a non-target
  * bucket, resolve `met` the instant it enters a target bucket (including when it
- * is ALREADY there at dial — the mirror replays current values), and resolve
- * `timeout` when the state never lands.
+ * is ALREADY there at dial — the mirror replays current values), resolve `gone`
+ * when the watched terminal is removed before the state lands (its PTY exited),
+ * and resolve `timeout` when the state never lands.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,6 +110,7 @@ let socketPath: string;
 let cache: Map<TerminalId, AwarenessValue>;
 let activity: ReturnType<typeof makeActivity>;
 let publishUpsert: (id: TerminalId, v: AwarenessValue) => void;
+let publishRemove: (id: TerminalId) => void;
 
 beforeEach(async () => {
   cache = new Map();
@@ -150,6 +152,7 @@ beforeEach(async () => {
   });
   publishUpsert = (key, value) =>
     fragment.ctx.collections.awareness.upsert(key, value);
+  publishRemove = (key) => fragment.ctx.collections.awareness.remove(key);
 
   const router = implement(terminalWorkspaceSurface.contract).router(
     // biome-ignore lint/suspicious/noExplicitAny: the Lazy<Router> spread vs oRPC's Router<any,T> input — same cast the daemon + surface tests use.
@@ -212,6 +215,69 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
       });
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met") expect(outcome.agent.state).toBe("waiting");
+    } finally {
+      conn.dispose();
+    }
+  });
+
+  it("resolves `gone` immediately when the target terminal is removed before the state lands", async () => {
+    const tid = id("d1e50000-1111-4222-8333-444455556666");
+    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // working
+
+    const conn = await connectPulam(socketPath);
+    try {
+      let settled = false;
+      const p = awaitAgentState(conn.client, {
+        id: tid,
+        matches: matchTurnEnded,
+        // A generous cap: a `gone` MUST resolve well before this, proving the
+        // removal short-circuits rather than the timeout firing.
+        timeoutMs: 5000,
+      }).then((o) => {
+        settled = true;
+        return o;
+      });
+      // It's working (not a target bucket), so the wait stays open at first.
+      await new Promise((r) => setTimeout(r, 120));
+      expect(settled).toBe(false);
+
+      // The PTY exits → the daemon drops it from awareness → the wait can never
+      // be met, so it resolves `gone` at once rather than hanging to the timeout.
+      const t0 = Date.now();
+      publishRemove(tid);
+      const outcome = await p;
+      expect(outcome.kind).toBe("gone");
+      expect(Date.now() - t0).toBeLessThan(2000); // not the 5s timeout
+    } finally {
+      conn.dispose();
+    }
+  });
+
+  it("ignores removal of a DIFFERENT terminal", async () => {
+    const tid = id("e2f60000-1111-4222-8333-444455556666");
+    const other = id("f3a70000-1111-4222-8333-444455556666");
+    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // working
+    publishUpsert(other, awareness({ agent: agentVal("thinking") }));
+
+    const conn = await connectPulam(socketPath);
+    try {
+      let settled = false;
+      const p = awaitAgentState(conn.client, {
+        id: tid,
+        matches: matchTurnEnded,
+      }).then((o) => {
+        settled = true;
+        return o;
+      });
+      // Removing a sibling terminal is noise — the wait on `tid` must stay open.
+      publishRemove(other);
+      await new Promise((r) => setTimeout(r, 120));
+      expect(settled).toBe(false);
+
+      // tid ends its own turn — now it matches.
+      publishUpsert(tid, awareness({ agent: agentVal("awaiting_user") }));
+      const outcome = await p;
+      expect(outcome.kind).toBe("met");
     } finally {
       conn.dispose();
     }

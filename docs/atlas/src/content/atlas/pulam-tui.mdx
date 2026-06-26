@@ -23,6 +23,8 @@ import PrLink from "../../components/PrLink.astro";
 
 Three verbs against one daemon — **`status`** (a one-shot snapshot), **`watch`** (a live follow), and **`wait`** (block until a terminal's agent reaches a state, then exit) — each scriptable with `--json`, and `watch` optionally narrowed to a single terminal id. No alt-screen, no full-screen UI: `pulam-tui` prints to your terminal and exits, or streams line-by-line, exactly the way kaval-tui's `list` / `snapshot` do. `wait` is the awareness analog of a blocking read: it's the **done-signal** an agent uses to drive another agent — prompt a Claude Code / Codex / opencode in a kaval terminal, then `wait --until awaiting,waiting` for its turn to end before reading the reply.
 
+`wait` matches the agent's state **the instant it connects** (it replays the current value), so a robust driver waits in **two phases** — `--until working` to confirm the prompt was picked up, *then* `--until awaiting,waiting` for the turn to end — rather than a lone post-`send` wait that the *previous* turn's stale `waiting`/`awaiting` would satisfy immediately. It fails loud on a `--timeout <ms>` (exit 2) and on the terminal **exiting** before the state lands (exit 3 — the agent you were driving died), so a stuck or dead agent can't hang the loop.
+
 The surface mapping — each command is a thin read over the `terminalWorkspaceSurface` the daemon serves:
 
 | Subcommand | Surface read | Behaviour |

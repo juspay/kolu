@@ -398,6 +398,15 @@ async function cmdWait(
     );
     process.exit(2);
   }
+  if (outcome.kind === "gone") {
+    // The terminal exited before reaching the state — it can never get there now.
+    // Distinct exit code (3) so a driver tells "the agent I was driving died" from
+    // a timeout (2, still alive but stuck) or a link/usage error (1).
+    process.stderr.write(
+      `pulam-tui: ${shortId(resolvedId)} disappeared before reaching ${[...targets].join("/")} — its terminal exited.\n`,
+    );
+    process.exit(3);
+  }
   if (outcome.kind === "interrupted") {
     // A user interrupt (Ctrl+C) exits cleanly with the conventional 130.
     process.stderr.write(

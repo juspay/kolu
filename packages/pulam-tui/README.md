@@ -49,16 +49,19 @@ a comma list to `--until`; `awaiting,waiting` is "the agent's turn ended" (it
 left `working`):
 
 ```sh
-id=$(kaval-tui create -- claude --json | jq -r .id)   # spawn an agent terminal
-kaval-tui send  "$id" "refactor the parser to use a lexer"   # prompt it (submits)
+id=$(kaval-tui create --json -- claude | jq -r .id)          # spawn an agent terminal
+kaval-tui send  "$id" "refactor the parser to use a lexer"   # type the prompt
+kaval-tui send  "$id" --key Enter                            # submit it (its own step — no implicit Enter)
 pulam-tui  wait "$id" --until awaiting,waiting               # block until its turn ends
 kaval-tui snapshot "$id"                                     # read its reply — then loop
 ```
 
 `--timeout <ms>` caps the wait and **fails loud** (exit code `2`) rather than
 hanging forever; without it `wait` blocks until the state, the link drops, or
-`Ctrl+C`. `--json` prints `{ id, agent }` so the driver reads the new state
-without a second call.
+`Ctrl+C`. If the terminal **exits** before reaching the state — its PTY died, so
+the bucket can never land — `wait` also fails loud (exit code `3`) rather than
+waiting on a terminal that's gone. `--json` prints `{ id, agent }` so the driver
+reads the new state without a second call.
 
 > **Mind the stale-state race.** Right after `send`, the agent may still report
 > the *previous* turn's `waiting`/`awaiting` for a beat before it picks up. For a
