@@ -71,26 +71,40 @@ export function effectiveHealth(
   status: SurfaceConnectionStatus,
   info: ConnectionInfo,
 ): EffectiveHealth {
-  if (status === "down")
-    return {
-      state: "failed",
-      source: "transport",
-      dot: HEALTH_PALETTE.red,
-      text: HEALTH_PALETTE.red,
-      label: "disconnected — reload",
-      message: "Lost the connection to the dashboard. Reload to reconnect.",
-      pending: false,
-    };
-  if (status === "reconnecting")
-    return {
-      state: "disconnected",
-      source: "transport",
-      dot: HEALTH_PALETTE.amber,
-      text: HEALTH_PALETTE.amber,
-      label: "reconnecting…",
-      message: "Reconnecting to the dashboard…",
-      pending: true,
-    };
-  // Transport live/connecting → the MIRROR's health is the real signal.
-  return { state: info.state, source: "mirror", ...CONN_STATE[info.state] };
+  // Dispatch on the transport status, fenced exhaustive (the repo's `satisfies
+  // never` fold idiom): a new `SurfaceConnectionStatus` variant forces a compile
+  // error here rather than silently falling through to the mirror branch.
+  switch (status) {
+    case "down":
+      return {
+        state: "failed",
+        source: "transport",
+        dot: HEALTH_PALETTE.red,
+        text: HEALTH_PALETTE.red,
+        label: "disconnected — reload",
+        message: "Lost the connection to the dashboard. Reload to reconnect.",
+        pending: false,
+      };
+    case "reconnecting":
+      return {
+        state: "disconnected",
+        source: "transport",
+        dot: HEALTH_PALETTE.amber,
+        text: HEALTH_PALETTE.amber,
+        label: "reconnecting…",
+        message: "Reconnecting to the dashboard…",
+        pending: true,
+      };
+    // Transport live/connecting → the MIRROR's health is the real signal. The two
+    // siblings share one handler (the mirror passthrough) explicitly.
+    case "connecting":
+    case "live":
+      return { state: info.state, source: "mirror", ...CONN_STATE[info.state] };
+    default: {
+      const unreachable: never = status;
+      throw new Error(
+        `effectiveHealth: unhandled SurfaceConnectionStatus ${String(unreachable)}`,
+      );
+    }
+  }
 }
