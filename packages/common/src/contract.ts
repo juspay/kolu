@@ -180,8 +180,11 @@ export const TerminalSearchHistoryOutputSchema = z.object({
  *  client resizes an offscreen themed xterm to `(cols, rows)`, writes `ansi`,
  *  and accumulates `serializeAsHTML()`. */
 export const TerminalExportSegmentSchema = z.object({
-  cols: z.number().int(),
-  rows: z.number().int(),
+  // A grid is always positive — the historical cols/rows come from a real
+  // terminal. Assert the invariant on the wire so the client renders directly
+  // instead of defensively clamping (which would hide a server-side mismatch).
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
   ansi: z.string(),
 });
 

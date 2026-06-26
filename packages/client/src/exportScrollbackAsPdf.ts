@@ -60,7 +60,8 @@ async function streamHistoryHtml(
     const segs = await streamCall(client.terminal.exportHistory, { id });
     for await (const seg of segs) {
       term.reset();
-      term.resize(Math.max(1, seg.cols), Math.max(1, seg.rows));
+      // cols/rows are contract-guaranteed positive — render directly.
+      term.resize(seg.cols, seg.rows);
       await write(seg.ansi);
       sink(serialize.serializeAsHTML({ includeGlobalBackground: true }));
       wrote = true;

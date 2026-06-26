@@ -188,8 +188,9 @@ const SearchHistoryOutputSchema = z.object({
 /** One faithful per-resize-epoch export segment, rendered at its historical
  *  width — the un-clipped PDF / archival source. */
 const ExportSegmentSchema = z.object({
-  cols: z.number().int(),
-  rows: z.number().int(),
+  // A grid is always positive (real terminal cols/rows) — assert it on the wire.
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
   ansi: z.string(),
 });
 
