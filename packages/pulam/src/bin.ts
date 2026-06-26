@@ -19,7 +19,7 @@
 
 import { parseArgs } from "node:util";
 import pino from "pino";
-import { runArivuDaemon } from "./daemon.ts";
+import { runPulamDaemon } from "./daemon.ts";
 
 const USAGE = `pulam — the standalone terminal-awareness daemon
 
@@ -67,7 +67,7 @@ const log = pino(
   pino.destination(2),
 );
 
-runArivuDaemon({
+runPulamDaemon({
   kavalSocket: values.kaval,
   serve: values.stdio
     ? { kind: "stdio" }

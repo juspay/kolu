@@ -5,7 +5,7 @@
  * so it can't catch a FORGOTTEN enrol in pulam-web's actual surface — a raw
  * stream added later that never joins `client.health()`, the exact partial-gate
  * hazard the primitive exists to kill. This builds the REAL `surfaceClient` over
- * pulam-web's REAL `arivuSurface` (a stub link standing in for the websocket) and
+ * pulam-web's REAL `pulamSurface` (a stub link standing in for the websocket) and
  * asserts the subscriptions HostGroup gates on appear in `health()` BY NAME — the
  * non-vacuous shape `surfaceClient.health.test.ts` pins for the generic surface,
  * here over the production surface. Revert any birth-site enrol (or add an
@@ -15,7 +15,7 @@
 import { surfaceClient } from "@kolu/surface/solid";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { arivuSurface } from "../shared/contract.ts";
+import { pulamSurface } from "../shared/contract.ts";
 
 /** A wire stream that yields `value` once then completes — the sub goes
  *  past-first-frame and stays healthy. Ignores its `(input, opts)` args. */
@@ -57,11 +57,11 @@ const stubLink = {
   ),
 };
 
-describe("pulam-web surfaceClient health — the real registry over arivuSurface", () => {
+describe("pulam-web surfaceClient health — the real registry over pulamSurface", () => {
   it("enrols the connection cell, the awareness keys-stream, and the activity stream by name", async () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(
-        arivuSurface,
+        pulamSurface,
         // biome-ignore lint/suspicious/noExplicitAny: Proxy stub link stands in for the typed websocket ContractRouterClient.
         stubLink as any,
       );

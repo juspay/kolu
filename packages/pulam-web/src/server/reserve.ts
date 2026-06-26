@@ -56,13 +56,13 @@ import type {
 } from "@kolu/terminal-workspace/surface";
 import { DEFAULT_VERSION } from "@kolu/terminal-workspace/surface";
 import { implement } from "@orpc/server";
-import { arivuSurface, type ArivuContract } from "../shared/contract.ts";
+import { pulamSurface, type PulamContract } from "../shared/contract.ts";
 
-export type { ArivuContract };
+export type { PulamContract };
 
 /** The surface SPEC (the structural twin of the contract) — the type
  *  `SurfaceSink` / `ProcedureForwarders` are generic over. */
-type ArivuSpec = TerminalWorkspaceSpec;
+type PulamSpec = TerminalWorkspaceSpec;
 
 export interface ReServe {
   /** The flattened oRPC router an `RPCHandler` upgrades the browser onto. Held
@@ -78,13 +78,13 @@ export interface ReServe {
    *  so it takes no client argument. The first `version` frame is the link-live
    *  handshake — `onFirstVersion` runs there (the session loop wires
    *  `markConnected` into it). */
-  makeSink: (onFirstVersion?: () => void) => SurfaceSink<ArivuSpec>;
+  makeSink: (onFirstVersion?: () => void) => SurfaceSink<PulamSpec>;
   /** The live-client holder for forwarding input-param streams. OBSERVABLE —
    *  the forwarders rebind to each successive spawn via `whenChanged()`. */
-  liveClient: ObservableHolder<AgentClient<ArivuContract>>;
+  liveClient: ObservableHolder<AgentClient<PulamContract>>;
   /** The live-procedures holder for forwarding `fs.*`/`git.*`. Read on demand
    *  (a procedure call reads `.current` at call time), so a plain holder. */
-  liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>;
+  liveProcedures: LiveSpawnHolder<ProcedureForwarders<PulamSpec>>;
   /** Write the browser-facing `connection` cell — the backend↔remote mirror's
    *  health. The host session loop wires this to `session.onState` (via
    *  `pipeSessionStateToCell`), so the browser sees copying → connecting →
@@ -155,9 +155,9 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // The live client is OBSERVABLE: its input-param stream forwarders must hold
   // open across remote respawns and rebind to each new spawn, so they await
   // `whenChanged()` (woken by the pump's `onChange`) rather than completing.
-  const liveClient = observableHolder<AgentClient<ArivuContract>>();
+  const liveClient = observableHolder<AgentClient<PulamContract>>();
   // The procedures are read on demand at call time, so a plain holder suffices.
-  const liveProcedures: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>> = {
+  const liveProcedures: LiveSpawnHolder<ProcedureForwarders<PulamSpec>> = {
     current: null,
   };
 
@@ -166,7 +166,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // base primitives are folded/forwarded from the daemon's surface; `connection`
   // is the seeded local store the session pump writes — so the browser reads the
   // augmented surface while the mirror still tracks the connection-free base.
-  const fragment = implementSurface(arivuSurface, {
+  const fragment = implementSurface(pulamSurface, {
     channel: inMemoryChannelByName(),
     cells: {
       version: { store: versionStore },
@@ -255,7 +255,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // same shape drishti's `buildRouter` uses). Held as `unknown` — the precise
   // `Lazy<Router>` type RPCHandler can't accept anyway, so the single documented
   // cast lands at the `RPCHandler`/`directLink` boundary, not here.
-  const router: unknown = implement(arivuSurface.contract).router({
+  const router: unknown = implement(pulamSurface.contract).router({
     ...fragment.router,
   });
 
@@ -267,7 +267,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
    * (`subscribe*Change`, `fs.*`, `git.*`) are NOT in the sink — they're pulled
    * via the live holders.
    */
-  const makeSink = (onFirstVersion?: () => void): SurfaceSink<ArivuSpec> => {
+  const makeSink = (onFirstVersion?: () => void): SurfaceSink<PulamSpec> => {
     let firstVersionFrame = true;
     return {
       cells: {
@@ -352,8 +352,8 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
  *  degraded state — surface it. The call site names the procedure path, so the
  *  error stays generic over the namespace. */
 function liveProcs(
-  holder: LiveSpawnHolder<ProcedureForwarders<ArivuSpec>>,
-): ProcedureForwarders<ArivuSpec> {
+  holder: LiveSpawnHolder<ProcedureForwarders<PulamSpec>>,
+): ProcedureForwarders<PulamSpec> {
   const procs = holder.current;
   if (procs === null) {
     throw new Error("procedure forwarded with no live pulam connection");
@@ -396,9 +396,9 @@ interface ForwardableStream<I, P> {
  * `whenChanged()` await below.
  */
 function forwardInputStream<I, P>(
-  holder: ObservableHolder<AgentClient<ArivuContract>>,
+  holder: ObservableHolder<AgentClient<PulamContract>>,
   select: (
-    surface: AgentClient<ArivuContract>["surface"],
+    surface: AgentClient<PulamContract>["surface"],
   ) => ForwardableStream<I, P>,
   lead: P,
   label: string,
