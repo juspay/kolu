@@ -1,0 +1,160 @@
+---
+title: How a Surface Ships Live Data — Value-Bearing vs Pulse-Then-Requery
+description: The two ways a @kolu/surface stream keeps a consumer live — push the whole value, or ping "ask again" — why they carry the same information at different wire cost, and why kolu uses both.
+parents: [electricity, reference]
+status: accepted
+maturity: budding
+updated: 2026-06-26
+---
+
+import Callout from "../../components/Callout.astro";
+
+A kolu **surface** keeps a consumer's view live in one of two ways. They deliver
+the **same information**; they differ in *what crosses the wire on every change*
+and *who does the re-read*. That single distinction is the whole of the
+[remote-terminals R8/R9](remote-terminals.html#r8) fs/git move — so it's worth a
+picture.
+
+We'll use **git status** (the Code tab's changed-file list) as the running
+example, since kolu serves it *both* ways.
+
+## Pattern 1 — value-bearing stream (the server pushes the whole value)
+
+Each frame **is** the data. The server re-computes the full value on every change
+and pushes it; the consumer subscribes once and renders the latest frame. Dumb
+consumer, fat frames.
+
+```text
+VALUE-BEARING STREAM — the server pushes the whole value on every change
+
+  server                                   consumer (Code tab)
+    │                                            │
+  git change ──► frame: { 5 changed files } ───► render
+    │                                            │
+  git change ──► frame: { 6 changed files } ───► render
+    │                                            │
+  git change ──► frame: { 6 changed files } ───► render
+    ▲                                            ▲
+  every frame carries the FULL status      consumer just shows the latest frame
+```
+
+In code, it's a `stream` member the consumer reads with `.use()`:
+
+```ts
+// koluSurface (kolu's own, in-process)
+const status = app.streams.gitStatus.use(() => ({ repoPath }));
+//    ^ each emission is the full GitStatusOutput; render it.
+```
+
+## Pattern 2 — procedure + pulse-then-requery (the server pings "ask again")
+
+The server exposes a **procedure** (`git.getStatus`, request → response) *and* a
+tiny **pulse** stream (`subscribeRepoChange`, whose payload is just a counter
+`{ seq }`). The consumer calls the procedure once for a snapshot, then on each
+pulse **re-queries** the procedure. The pulse carries **no data** — it's a
+"something changed, ask again" tap. Smart consumer, thin frames.
+
+```text
+PROCEDURE + PULSE-THEN-REQUERY — the server pings; the consumer pulls
+
+  server                                   consumer (Code tab)
+    │   ◄────────── getStatus() ───────────── (1) ask once
+    │   ──────────► { 5 changed files } ─────► render
+    │                                            │
+  git change ─► pulse { seq: 1 } ─────────────► (2) "something changed"
+    │   ◄────────── getStatus() ─────────────       re-query
+    │   ──────────► { 6 changed files } ─────► render
+    │                                            │
+  git change ─► pulse { seq: 2 } ─────────────► re-query ──► render
+    ▲                                            ▲
+  the pulse carries NO data ({seq} only)   consumer pulls the full status
+                                           only when it actually changed
+```
+
+In code, two members the consumer wires together itself:
+
+```ts
+// terminalWorkspaceSurface (the shared surface pulam serves)
+const snap = await app.rpc.git.getStatus({ repoPath });        // 1. snapshot
+app.streams.subscribeRepoChange.use(() => ({ repoPath }))      // 2. on each pulse…
+   .on(() => refetch(app.rpc.git.getStatus({ repoPath })));    //    …re-query.
+```
+
+## Same information, different wire cost
+
+The two are interchangeable in *what the consumer ends up showing*. They trade
+**bandwidth** against **consumer simplicity**:
+
+| | value-bearing stream | procedure + pulse-then-requery |
+| --- | --- | --- |
+| each change sends… | the **full value** | a tiny **`{seq}` pulse** |
+| who re-reads | the **server** (pushes) | the **consumer** (pulls) |
+| consumer code | subscribe → render latest | call once → re-call on each pulse |
+| frame size | fat (the whole status) | thin (a counter) |
+| best for | in-process / cheap wire | remote / ssh |
+| in kolu | `koluSurface` (Code tab today) | `terminalWorkspaceSurface` (the shared one) |
+
+- **Value-bearing** is simplest for the consumer, but you stream the *whole value*
+  on every change.
+- **Pulse-then-requery** sends only a counter on every change; the full value
+  crosses the wire **only when the consumer pulls it** — and only the slice it
+  asks for.
+
+## The framework view — both are `stream` members, and `pollOnEvent` bridges them
+
+In `@kolu/surface`, a surface declares members of five **kinds** — `cell`,
+`collection`, `stream`, `event`, `procedure`. Both patterns are assembled from
+these:
+
+- a **value-bearing stream** is a `stream` member whose frames carry the value;
+- **pulse-then-requery** is a `procedure` member **+** a `stream` member that
+  carries only `{ seq }`.
+
+So the lower-level shape is the procedure + pulse; the value-bearing stream is the
+*derived* one. The framework helper **`pollOnEvent`** is exactly that derivation —
+it builds a value-bearing stream **out of** a procedure + a pulse:
+
+```text
+pollOnEvent  ── builds a value-bearing stream from a procedure + a pulse
+
+   read:    () => git.getStatus(repo)        ← pull the value   (the procedure)
+   install: (cb) => subscribeRepoChange(cb)  ← when to re-pull   (the pulse)
+   isEqual: gitStatusOutputEqual             ← drop a frame if nothing changed
+        │
+        ▼
+   ┌──────────────────────────────────────────────┐
+   │  a value-bearing stream                       │
+   │  (re-reads on each pulse, emits only on change)│
+   └──────────────────────────────────────────────┘
+```
+
+<Callout kind="note" title="One endpoint, two surface shapes">
+kolu has a single fs/git **implementation** (`createTerminalWorkspaceEndpoint`,
+R6) exposing `getStatus` + `subscribeRepoChange`. `koluSurface` runs it through
+`pollOnEvent` **in-process** and serves value-bearing streams; the `pulam` daemon
+serves the **raw** procedure + pulse on `terminalWorkspaceSurface`. Same endpoint,
+two surface shapes — chosen by where the consumer sits.
+</Callout>
+
+## Why kolu uses both
+
+- **`koluSurface`** (kolu's own surface, served in-process to kolu's own browser)
+  uses **value-bearing streams**. In-process the full value is essentially free,
+  so push it and keep the Code tab dumb.
+- **`terminalWorkspaceSurface`** (the surface `pulam` serves, and the one a remote
+  host serves over ssh) uses **procedure + pulse**. Streaming a full git diff
+  continuously over ssh is wasteful, so it sends a tiny pulse and lets the consumer
+  pull on demand — the deliberate choice the surface's own header records
+  (`packages/terminal-workspace/src/surface.ts:88-105`: *"re-queries procedures
+  rather than streaming full diffs over the wire"*).
+
+That difference is the crux of [remote-terminals R8/R9](remote-terminals.html#r8).
+kolu's Code tab reads `koluSurface`'s **value-bearing** streams today
+(`CodeTab.tsx`); to read the **shared** `terminalWorkspaceSurface` it must switch
+to **pulse-then-requery** — a real client change (re-query on the pulse instead of
+rendering pushed frames). That's the bigger fs/git move, so it rides **R9** (when
+kolu mirrors the shared surface whole), not R8.
+
+Awareness has **no** such split: it's a `collection`, identical on both surfaces —
+which is exactly why R8's awareness half is the clean, do-now move and fs/git is
+the heavier one that waits for R9.
