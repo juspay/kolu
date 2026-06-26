@@ -143,6 +143,11 @@ export default function App() {
       clientCommit={shellCommit()}
       buildInfo={buildInfo}
       ws={ws}
+      // `wire.ts`'s `createLiveSignal` already wires the half-open watchdog over
+      // this admin socket (minting the branded `{ live }` the clients require), so
+      // the lifecycle opts ITS watchdog out — one watchdog on the socket, not two.
+      // (The lifecycle mints no brand, so this is ownership coordination only.)
+      heartbeat={false}
       // The probe rides the SCOPED `surfaceApp` client: its `.rpc` is the
       // `{ surface: link.surface.surfaceApp }` slice, so `surface.identity.info`
       // resolves at the wire path `/surface/surfaceApp/identity/info`. The key

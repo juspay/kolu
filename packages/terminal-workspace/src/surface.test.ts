@@ -53,11 +53,20 @@ describe("terminal-workspace surface", () => {
     // branch/working-tree fields). A 0.3 viewer's schema requires `base` in every
     // mode, so a 1.0 daemon's `local` result fails its parse — NOT additive. The
     // gate must therefore mark the two mutually incompatible, both directions:
-    // a 1.0 daemon can't serve a 0.3 viewer that still expects `base`…
     expect(isContractVersionCompatible("1.0", "0.3")).toBe(false);
-    // …and a 0.3 daemon can't serve a 1.0 viewer that expects branch/ahead-behind.
     expect(isContractVersionCompatible("0.3", "1.0")).toBe(false);
     // A newer-minor 1.x daemon (a future additive bump) still serves a 1.0 viewer.
     expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
+  });
+
+  it("the base surface carries NO `connection` cell — link health lives only at the mirror seam", () => {
+    // `connection` is composed onto the surface ONLY by `mirroredSurface(...)` at
+    // the nix-host re-serve seam — never on the base surface a daemon / direct
+    // link serves. So the base contract stays connection-free and version-stable;
+    // the cell's read-only-over-the-wire shape is asserted in surface-nix-host's
+    // `connection.test.ts` (against `mirroredSurface`).
+    expect(Object.keys(terminalWorkspaceSurface.spec.cells ?? {})).toEqual([
+      "version",
+    ]);
   });
 });

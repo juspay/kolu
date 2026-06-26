@@ -33,7 +33,7 @@ import {
   type SurfaceConnectionStatus,
 } from "@kolu/surface-app/solid";
 import type { Accessor } from "solid-js";
-import { terminalWorkspaceSurface } from "../shared/contract.ts";
+import { arivuSurface } from "../shared/contract.ts";
 
 /** The shared `pid` echo every per-host socket reads. One instance for the whole
  *  app (all hosts dial the SAME server, so they echo ONE identity), populated by
@@ -72,7 +72,7 @@ function buildHostSurface(host: string) {
   // it returns is what `<HostGroup>` renders as the per-host connection indicator,
   // so that recovery is VISIBLE rather than silent.
   return connectSurface({
-    surface: terminalWorkspaceSurface,
+    surface: arivuSurface,
     url: () => wsUrlFor(host),
     echo: processIdEcho,
     socketOptions: {

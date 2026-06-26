@@ -6,16 +6,21 @@
  * no shared connection-status UI driven off the socket — pulam-web's per-host
  * fleet sockets, drishti's per-host sockets — builds its reactive client AND its
  * half-open watchdog in one call, instead of hand-rolling `createSurfaceSocket`
- * → `websocketLink` → `surfaceClient` and (the step every such app FORGOT) a
- * `createHeartbeat`. The heartbeat is default-on and probes the framework-
- * reserved `system.live` round-trip (`@kolu/surface/liveness`), so it needs no
- * app-supplied probe — there is no probe left for an app to forget.
+ * → `createLiveSignal` → `surfaceClient` (the steps every such app FORGOT — the
+ * watchdog, and threading its handle). The heartbeat is default-on and probes the
+ * framework-reserved `system.live` round-trip (`@kolu/surface/liveness`), so it
+ * needs no app-supplied probe — there is no probe left for an app to forget.
  *
  * An app that DOES drive shared connection-status UI off the socket (kolu's
  * header dot) derives a `createServerLifecycle` instead — which folds the SAME
  * watchdog in — and builds its own (possibly multi-sibling) clients over the
- * combined link. So between the two seams, no surface socket can be built
- * without a liveness watchdog.
+ * combined link. So an app that reaches for either of the two seams gets the
+ * liveness watchdog BY DEFAULT — there is no probe to forget. (A consumer that
+ * hand-builds the raw seam, like a minimal example, calls `createLiveSignal(ws)`
+ * itself and passes the WHOLE handle to `surfaceClient(surface, transport)` — that
+ * is the only hand-built path, since handing `surfaceClient` a bare `websocketLink`
+ * THROWS, and the branded handle can't be obtained any other way. The seams exist so
+ * it doesn't have to wire the socket + client + watchdog by hand.)
  */
 
 import type {
@@ -23,34 +28,33 @@ import type {
   SurfaceContractFor,
   SurfaceSpec,
 } from "@kolu/surface/define";
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
-import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
-import type { Accessor } from "solid-js";
-import type { WebSocket as PartySocket } from "partysocket";
 import {
-  createHeartbeat,
+  createLiveSignal,
+  type HeartbeatTuning,
+  type SurfaceConnectionStatus,
+  type SurfaceClient,
+  surfaceClient,
+} from "@kolu/surface/solid";
+import type { WebSocket as PartySocket } from "partysocket";
+import type { Accessor } from "solid-js";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
+import {
   createSurfaceSocket,
-  type HeartbeatConfig,
-  normalizeHeartbeat,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
-import {
-  createSocketStatus,
-  type SurfaceConnectionStatus,
-} from "./socketStatus";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends SurfaceSocketOptions {
   /** The surface to build a reactive client for. */
   surface: Surface<S>;
-  /** Disable or tune the default-on liveness heartbeat. Default ON, probing the
-   *  framework-reserved `system.live` round-trip — so an app needn't (and can't
-   *  forget to) supply a probe. Pass `false` only if a different layer owns this
-   *  socket's liveness; pass an object to tune `intervalMs`/`timeoutMs`/`onStale`.
-   *  The same {@link HeartbeatConfig} knob `createServerLifecycle` accepts. */
-  heartbeat?: HeartbeatConfig;
+  /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`).
+   *  There is deliberately NO disable option: the seam mints the watchdog-backed
+   *  brand `surfaceClient` requires, and a disabled watchdog would mint a
+   *  branded-but-blind signal — the override knob the design philosophy forbids.
+   *  A socket whose liveness another layer owns simply doesn't use this seam (it
+   *  passes that layer's `LiveSignal` to `surfaceClient` directly). */
+  heartbeat?: HeartbeatTuning;
 }
 
 /** A live single-surface connection: the socket, its `pid` echo, the reactive
@@ -82,21 +86,38 @@ export function connectSurface<const S extends SurfaceSpec>(
 ): SurfaceConnection<S> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
-  const client = surfaceClient(
-    surface,
-    websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket),
-  );
-  // One normalizer, not four `typeof hb === "object" ? hb.x : undefined` ternaries.
-  // The base `probe` is the framework-reserved `system.live` round-trip — every
-  // surface answers it, so this needs no per-app probe.
-  const heartbeatOptions = normalizeHeartbeat(hb, {
-    ws,
-    probe: () => probeSurfaceLive(client.rpc),
-  });
-  const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
-  const status = createSocketStatus(ws, {
+  // `createLiveSignal` builds the oRPC link over THIS socket, derives the reactive
+  // transport `status`, wires the half-open watchdog (probing `system.live` over the
+  // link it just built — anchored to the socket it reconnects), AND mints the BRANDED
+  // handle the client requires — in one call. We hand the WHOLE handle to
+  // `surfaceClient`, so client and watchdog share ONE link over the ONE socket by
+  // construction. Without that handle `surfaceClient` refuses a bare websocket link: a
+  // surface whose socket is silently half-open (or retired `down`) but whose subs
+  // already yielded a first frame would otherwise read `ready` — the green-dot-over-
+  // a-dead-link lie.
+  const transport = createLiveSignal<SurfaceContractFor<S>>(ws, {
+    ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
-    restartCloseCode: socketOptions.restartCloseCode,
+    // The stale-restart code is a surface-app protocol constant, defaulted HERE
+    // (createLiveSignal lives in @kolu/surface and takes it explicitly).
+    restartCloseCode:
+      socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
-  return { ws, echo, client, status, dispose: () => heartbeat?.dispose() };
+  // Pass the WHOLE handle — `surfaceClient` reads `.link` and `.live` off it, so the
+  // client and the watchdog's probe share ONE link by construction (no separate,
+  // fabricatable probe target, nothing to re-prove at runtime).
+  const client = surfaceClient(surface, transport);
+  return {
+    ws,
+    echo,
+    client,
+    status: transport.status,
+    // Stop the watchdog AND tear down the client's build-time standing
+    // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
+    // surface is mirrored), so a torn-down socket leaks neither.
+    dispose: () => {
+      transport.dispose();
+      client.dispose();
+    },
+  };
 }

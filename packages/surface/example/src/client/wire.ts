@@ -10,15 +10,18 @@
  *     don't cover.
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClient } from "@kolu/surface/solid";
+import { createLiveSignal, surfaceClient } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { surface } from "../common/surface";
 
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
 export const ws = new PartySocket(wsUrl);
 
-export const app = surfaceClient(
-  surface,
-  websocketLink<typeof surface.contract>(ws as unknown as WebSocket),
-);
+// A websocket CAN silently half-open, so `surfaceClient` requires a watchdog-backed
+// `LiveSignalHandle` — minted here by `createLiveSignal`, which BUILDS the oRPC link
+// over `ws` (so the watchdog probes the socket it reconnects) and bundles it with the
+// branded `live`. Pass the WHOLE handle. `createLiveSignal` lives in `@kolu/surface`,
+// so this minimal example needs no `@kolu/surface-app` dependency.
+const transport = createLiveSignal<typeof surface.contract>(ws, {});
+
+export const app = surfaceClient(surface, transport);

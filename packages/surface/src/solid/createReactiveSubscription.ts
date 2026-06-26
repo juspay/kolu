@@ -66,17 +66,38 @@ export function createReactiveSubscription<I, T>(
           }
         } catch (err) {
           if (controller.signal.aborted) return;
-          const e = toError(err);
-          setError(e);
+          setError(toError(err));
           setPending(false);
-          options?.onError?.(e);
         }
       })();
     }),
   );
 
-  return Object.assign((() => store.v) as Accessor<T | undefined>, {
+  const sub = Object.assign((() => store.v) as Accessor<T | undefined>, {
     error,
     pending,
   }) as Subscription<T>;
+
+  // Route `onError` through the SAME self-clearing EDGE effect `createSubscription`
+  // uses (`createSubscription.ts`: the `on(() => sub.error(), …)` block), NOT
+  // inline in the `catch`. Inline-in-catch fires on every re-throw AND diverges
+  // the callback from the self-clearing `error()` LEVEL: a consumer wiring
+  // `onError → signal → render` would latch on a transient blip while `error()`
+  // had already cleared on the next good frame (the #1564 latch, the reactive
+  // path's copy of it). Driving the callback off `error()` makes the edge fire
+  // once per rising error transition and clear with the signal — so the two
+  // error channels can never disagree, the property `client.health()` relies on.
+  if (options?.onError) {
+    const handler = options.onError;
+    createEffect(
+      on(
+        () => sub.error(),
+        (err) => {
+          if (err) handler(err);
+        },
+      ),
+    );
+  }
+
+  return sub;
 }

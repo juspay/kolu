@@ -1,0 +1,261 @@
+---
+title: "pulam-web: a dead mirror lies as an empty fleet — surface the connection"
+description: "pulam-web shows a green connected dot + no terminals when the backend↔remote ssh mirror is actually down/failed (build mismatch, unreachable host). Root cause — the browser only ever sees its own socket health, never the mirror's. Fix (one PR) — graduate a thin onState→cell projection into @kolu/surface-nix-host, declare a gate-closed connection cell on the surface, pipe the session's health into it, and gate the browser UI on it (drishti's proven shape, now shared)."
+parents: [pulam-web, bug]
+status: implemented
+maturity: seedling
+updated: 2026-06-25
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Svg from "../../components/Svg.astro";
+import diagram from "../../diagrams/pulam-web-mirror-health.svg?raw";
+
+**pulam-web can sit in a state where a host reads as a healthy, empty fleet when its data link is dead** — a green “connected” dot and “0 terminals / no terminals”, while that host actually has live terminals running on it. It is a confident lie: nothing on screen says “this host is unreachable”. Reproduced in the wild by a kolu **build-version mismatch** between the two ends of the mirror ([gist](https://gist.github.com/srid/6309facf79fbe92703da49306c6ea3e2): remote `kaval` speaks pty-host **3.2**, local `pulam` needs **3.3**, so the remote agent exits and the session gives up — terminal `failed` — yet the browser stays green). Filed as [#1564](https://github.com/juspay/kolu/issues/1564). The mismatch is only the *trigger*; **any** dead backend↔remote leg collapses into the same silent empty state.
+
+The fix is small and already proven next door: **[drishti](electricity.html) does not have this bug** — it surfaces the mirror's health to the browser as a first-class `connection` cell and gates its UI on it. pulam-web is the lone consumer that never plugged in. Shipped in <PrLink pr={1568} /> (with the linked drishti gate PR adopting the shared cell).
+
+## User-facing description
+
+export const PAL = { bg: "#0f1117", card: "#0f1216", head: "#141922", line: "#1b2026", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", red: "#e06c75", violet: "#a78bfa" };
+
+export const Dot = ({ c, pulse }) => (
+  <span class={pulse ? "mh-pulse" : ""} style={`display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};flex:none`} />
+);
+
+export const Card = ({ host, dotColor, pulse, statusLabel, statusColor, children, count }) => (
+  <div style={`font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:${PAL.card};border:1px solid ${PAL.line};border-radius:10px;overflow:hidden;margin:.7rem 0`}>
+    <div style={`display:flex;align-items:center;gap:.5rem;padding:.5rem .75rem;background:${PAL.head};border-bottom:1px solid ${PAL.line}`}>
+      <span style={`color:${PAL.violet}`}>▌</span>
+      <span style={`color:#aeb7c7;font-weight:600`}>{host}</span>
+      <span style={`color:${PAL.dim};font-size:.82em`}>· {count}</span>
+      <span style={`margin-left:auto;display:inline-flex;align-items:center;gap:.4rem;font-size:.82em;color:${statusColor}`}>
+        <Dot c={dotColor} pulse={pulse} />{statusLabel}
+      </span>
+    </div>
+    <div style="padding:.7rem .75rem">{children}</div>
+  </div>
+);
+
+export const Body = ({ children, color }) => (
+  <div style={`color:${color ?? PAL.dim};font-size:.92em`}>{children}</div>
+);
+
+<style>{`
+  .mh-pulse { animation: mhpulse 1.4s ease-in-out infinite; }
+  @keyframes mhpulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+`}</style>
+
+export const BeforeAfter = () => (
+  <div style={`background:${PAL.bg};border:1px solid #05070b;border-radius:12px;padding:.4rem 1rem 1rem;box-shadow:0 10px 30px rgba(0,0,0,.4)`}>
+    <div style={`color:${PAL.red};font-size:.78em;letter-spacing:.08em;text-transform:uppercase;margin:.8rem 0 0`}>Today — the lie (mirror is <b>failed</b>, build mismatch)</div>
+    <Card host="pureintent" count="0 terminals" dotColor={PAL.green} pulse={false} statusLabel="" statusColor={PAL.green}>
+      <Body>no terminals</Body>
+    </Card>
+    <div style={`color:${PAL.green};font-size:.78em;letter-spacing:.08em;text-transform:uppercase;margin:1.4rem 0 0`}>After — honest states, driven by the mirror's real health</div>
+    <Card host="pureintent" count="provisioning…" dotColor={PAL.amber} pulse statusLabel="provisioning agent…" statusColor={PAL.amber}>
+      <Body>Copying agent to remote… <span style={`color:${PAL.dim}`}>(nix copy)</span></Body>
+    </Card>
+    <Card host="pureintent" count="connecting…" dotColor={PAL.amber} pulse statusLabel="connecting…" statusColor={PAL.amber}>
+      <Body>Connecting… <span style={`color:${PAL.dim}`}>18s</span></Body>
+    </Card>
+    <Card host="pureintent" count="reconnecting…" dotColor={PAL.amber} pulse statusLabel="reconnecting…" statusColor={PAL.amber}>
+      <Body>Host unreachable — retrying…</Body>
+    </Card>
+    <Card host="pureintent" count="failed" dotColor={PAL.red} pulse={false} statusLabel="failed" statusColor={PAL.red}>
+      <div style={`border:1px solid rgba(224,108,117,.4);background:rgba(224,108,117,.06);border-radius:7px;padding:.55rem .65rem`}>
+        <div style={`color:${PAL.red};font-weight:600;margin-bottom:.15rem`}>Remote connection failed</div>
+        <div style={`color:${PAL.dim};font-size:.82em;margin-bottom:.45rem`}>Gave up after repeated connection failures.</div>
+        <pre style={`margin:0 0 .5rem;white-space:pre-wrap;background:#0b0d12;border-radius:5px;padding:.45rem .55rem;color:#c7b8b8;font-size:.82em`}>kaval speaks pty-host 3.2, pulam needs 3.3 — run them from the same build
+remote agent exited (code=1)</pre>
+        <span style={`display:inline-block;border:1px solid #38507a;border-radius:5px;padding:.2rem .55rem;color:#9fb4d8;font-size:.82em`}>↻ Reconnect</span>
+      </div>
+    </Card>
+    <Card host="zest" count="0 terminals" dotColor={PAL.green} pulse={false} statusLabel="" statusColor={PAL.green}>
+      <Body>no terminals</Body>
+    </Card>
+    <div style={`color:${PAL.dim};font-size:.78em;margin-top:.3rem`}>↑ the only place “no terminals” is honest: a genuinely-<b>connected</b> host with an empty roster.</div>
+  </div>
+);
+
+<BeforeAfter />
+
+The host card's status indicator and body are now driven by **the mirror's real health**, not by the browser's own socket. The shape mirrors kolu's own connection language and drishti's exactly:
+
+- **`copying` / `connecting` / `disconnected`** are *in-flight* — an **amber, pulsing** dot with a live status line (`Copying agent to remote…`, `Connecting… 18s`, `Host unreachable — retrying…`). The browser is honestly told work is happening; no terminal list is painted yet.
+- **`failed`** is *terminal* — a **solid red** dot and a card carrying the **real failure**: `lastError`, the tail of the connection log (the gist's `pty-host 3.2 vs 3.3` line lands here verbatim), and a **↻ Reconnect** button (the only recovery short of a reload).
+- **`connected`** is the only state that paints the terminal list — and the only state in which **“no terminals” is allowed to mean an empty host** (see `zest` above).
+
+<Callout kind="note" title="One subtle but load-bearing distinction">
+The existing green dot today comes from `connectSurface`'s **transport** status — the *browser↔backend* websocket, which is healthy even when the remote host is dead. That signal is real and stays (a half-open browser↔backend socket is its own failure, fixed default-on by [#1542](https://github.com/juspay/kolu/issues/1542)). But it must **never** be what decides “healthy vs empty”. That decision moves to the new `connection` cell — the *backend↔remote* mirror's health. Two channels, two seams; conflating them **is** the bug.
+</Callout>
+
+## Architecture-level changes
+
+<Svg svg={diagram} caption="pulam-web is browser ↔ backend ↔ remote pulam. Tier-1 health (the browser↔backend socket) is already surfaced. Tier-2 health (the backend↔remote mirror, tracked by HostSession.onState as copying→…→failed) lives on the backend and TODAY never crosses to the browser — so a dead mirror paints green + “no terminals”. The fix adds a `connection` cell the parent writes from session.onState and the browser gates on. drishti already does exactly this." />
+
+**The volatility is already a receptacle — pulam-web just never plugged in.** The hard, changing thing here is the remote link's lifecycle: `nix copy`, ssh dial, reconnect/backoff, the connect watchdog, the `network`-vs-`remote` failure-cause split, the give-up-into-`failed`. That volatility was lifted into **`@kolu/surface-nix-host`** long ago — `HostSession` exposes it as a domain-agnostic, snapshot-then-delta **`onState`** callback carrying `HostSessionState` (`connection` · `lastError` · `failureCause` · `progressLines` · `remoteProgressLines`). The mirror *loop* (`pumpRemoteSurface`) graduated out of drishti into the same package. What pulam-web is missing is the **wiring** that carries that already-owned state onto the browser surface — and this PR graduates the common pieces of that wiring so a third consumer can't neglect it either: a **composable `connection` cell fragment** (schema + gate-closed default) apps compose at the mirror seam via **`mirroredSurface(base)`** — never hand-spread (the seam reserves the `connection` name and throws on a collision) — plus the node-side `onState → cell` projection. Only the *UI* and the per-site cell *implementation* stay app-local (see the verdict below).
+
+drishti is the worked reference, three pieces:
+
+1. A browser-facing **`connection` cell** on its surface, seeded `DEFAULT_CONNECTION` with `state: "connecting"` — *gate-closed by default*, so “healthy-empty before the first real frame” is structurally unrepresentable (`drishti common/src/surface.ts`).
+2. The parent **pipes `session.onState` straight into that cell** (`router.ts` — `session.onState(s => connection.set({ state: s.connection, lastError, failureCause, progressLines }))`). The agent serves an **inert stub** of the cell; only the parent writes it.
+3. The client **gates all content on `state === "connected"`** and renders a state-driven dot + overlay otherwise (`connectionColors.ts`'s `STATE` map + `ConnectingOverlay`/`FailedCard`).
+
+<Callout kind="note" title="Decomposition — what graduates, what stays put (lens panel)">
+The instinct to *upstream this so consumers can't neglect it* is the same move [#1542](https://github.com/juspay/kolu/issues/1542) made for liveness — and the surface framework is **composition-first** (`defineSurface` is spread-based; `system.live` is already auto-composed into every surface), so the right shape is a **composable `connection` fragment apps compose via `mirroredSurface(base)`** (which owns the spread and reserves the name), not a per-app re-declaration or a raw hand-spread. The **browser boundary** then splits *where* each piece lives, because `@kolu/surface-nix-host`'s main entry is node-only (it spawns ssh) while `terminalWorkspaceSurface` is browser-bundled:
+
+- **Graduates → a new browser-safe `@kolu/surface-nix-host/connection` subpath: the cell AND the mirror-seam composer.** The state literals, `ConnectionInfoSchema`, the gate-closed `DEFAULT_CONNECTION` (`state: "connecting"`), the `connectionCell` descriptor, and — the shape that landed — **`mirroredSurface(base)`**, which composes the cell onto a surface **only at the nix-host mirror seam**. The base surface (`terminalWorkspaceSurface`, drishti's own) stays **connection-free**; the browser/mirror surface is `mirroredSurface(base)`. A subpath that imports only zod + `@kolu/surface` (no ssh code), so the schema **and** the safety default are single-sourced for every mirror — pulam-web's `arivuSurface = mirroredSurface(terminalWorkspaceSurface)` and drishti's mirror compose the *same* fragment.
+- **Graduates → `@kolu/surface-nix-host` (node main entry): the `onState → cell` projection.** `projectConnection(HostSessionState) → ConnectionInfo` + `pipeSessionStateToCell(session, set)` — the mapping both apps' *parents* do identically, beside its volatility owner (`getHostSession`/`pumpRemoteSurface`). The *dual* of the already-graduated mirror loop: the pump streams data out, this streams state out. **`pumpRemoteSurface` itself wires it** when the re-served surface carries the `connection` cell — passing a `connection` setter makes the pump call `pipeSessionStateToCell` for the session's life, so a mirror consumer can't forget it (the omission that was #1564).
+- **Stays app-local: the UI and the per-site *implementation*.** The `STATE`→colour/label map, the overlay/failed card, and *which* content hides behind the gate are each app's own socket (folding them up would drag a SolidJS/UI dep into a transport package — the *location-is-structure* trap). And composition single-sources the cell's *declaration*, not its *implementation*: only the **re-serve** (`implementSurface(mirroredSurface(base), …)`) provides the live `connection` cell; a direct/local serve of the base surface carries no `connection` cell at all (no inert stub, no contract-version dance).
+
+Two non-homes, by design: **not `@kolu/surface-app`** — it owns the *other* connection concept, the browser↔backend socket status (`createSocketStatus`), the one we must keep strictly separate (conflating them is this bug), and it has no business knowing the ssh `copying`/`failed` vocabulary; **not a framework-reserved member** like `system.live` — those states only mean something for a surface *mirrored over a HostSession*, so it's an opt-in fragment, not a universal one. The lens panel had split 2–1 on whether *anything* should graduate (the volatility itself already did); the deciding point is that the fragment makes **drishti the second consumer that drops its hand-rolled copy** — which earns the extraction (test ③) and is exactly what the surface gate's linked drishti PR delivers.
+</Callout>
+
+## Implementation details
+
+**One PR**, threading seams that already exist — the new state rides the **same** per-host ws the awareness collection already uses, so there's no new socket and no second surface. (Plus the surface gate's linked drishti PR, step 7 — mandated, not deferred.)
+
+**1 — Add the composable cell to a new browser-safe `@kolu/surface-nix-host/connection` subpath**, plus the node-side projection on the main entry. Two faces, split by the browser boundary:
+
+- New subpath `@kolu/surface-nix-host/connection` (new `exports` map entry; imports only `zod` + `@kolu/surface` — **no** node/ssh code, so it's safe in the browser bundle): `CONNECTION_STATES` (the literal tuple), `ConnectionInfo` (type), `ConnectionInfoSchema` (zod), `DEFAULT_CONNECTION` (`state: "connecting"` — the gate-closed default), **`connectionCell`** — the get-only `{ schema, default, verbs }` descriptor — and **`mirroredSurface(base)`**, the composer that adds `connectionCell` at the mirror seam (reserving the `connection` name). Apps reach for `mirroredSurface(base)`, not a hand-spread of `connectionCell` into `cells`. To keep one source of truth, move the `ConnectionState` literal tuple here and have `hostSession.ts` derive its `ConnectionState` type from it (`typeof CONNECTION_STATES[number]`).
+- Main entry `@kolu/surface-nix-host` (node-side, no new runtime dep — pure TS over the existing `session.onState`, `hostSession.ts:265`): `projectConnection(s: HostSessionState): ConnectionInfo` (`state: s.connection`, `progressLines: [...s.progressLines]`, …) and `pipeSessionStateToCell(session, set): () => void` (`session.onState(s => set(projectConnection(s)))`, returning the unsubscribe).
+
+```ts
+// @kolu/surface-nix-host/connection — browser-safe (zod + @kolu/surface only)
+export const CONNECTION_STATES = [
+  "copying", "connecting", "connected", "disconnected", "failed",
+] as const;
+
+export const ConnectionInfoSchema = z.object({
+  state: z.enum(CONNECTION_STATES),
+  lastError: z.string().nullable(),
+  failureCause: z.enum(["network", "remote"]).nullable(),
+  progressLines: z.array(z.string()).readonly(),
+});
+export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
+
+// Gate-closed by default: a freshly-composed cell reads "connecting", so
+// "healthy-empty before the first frame" is structurally unrepresentable.
+export const DEFAULT_CONNECTION: ConnectionInfo = {
+  state: "connecting", lastError: null, failureCause: null, progressLines: [],
+};
+
+// The composable cell — the fragment `mirroredSurface(base)` spreads in at the
+// mirror seam; apps compose via `mirroredSurface`, never hand-spread this.
+// `verbs: ["get"]` makes it READ-ONLY over the wire: the parent host owns it
+// (writes server-side off `session.onState`), so a remote client must never be
+// able to `connection.set` the health to `connected` and forge the gate's
+// signal. Without it, a no-`patchSchema` cell defaults to `["get", "set"]`.
+export const connectionCell = {
+  schema: ConnectionInfoSchema,
+  default: DEFAULT_CONNECTION,
+  verbs: ["get"],
+} as const;
+```
+
+```ts
+// @kolu/surface-nix-host (node main entry)
+import type { ConnectionInfo } from "./connection";
+
+export const projectConnection = (s: HostSessionState): ConnectionInfo => ({
+  state: s.connection,
+  lastError: s.lastError,
+  failureCause: s.failureCause,
+  progressLines: [...s.progressLines],
+});
+
+// The dual of pumpRemoteSurface (which streams DATA out); this streams STATE
+// out. Returns the unsubscribe.
+export const pipeSessionStateToCell = <C>(
+  session: HostSession<C>,
+  set: (info: ConnectionInfo) => void,
+): (() => void) => session.onState((s) => set(projectConnection(s)));
+```
+
+**2 — Compose the cell at the mirror seam, NOT into the base surface.** The base `terminalWorkspaceSurface` (`packages/terminal-workspace/src/surface.ts`) stays **connection-free** — link health is not a property of the daemon's own surface (a direct/local link has no remote to be down). pulam-web's browser/mirror surface wraps it: `arivuSurface = mirroredSurface(terminalWorkspaceSurface)` (`packages/pulam-web/src/shared/contract.ts`). `mirroredSurface` adds the gate-closed get-only `connection` cell; the gate-closed `state: "connecting"` seed comes baked in. drishti composes the *same* `mirroredSurface(base)` at its own mirror (the step-7 companion). Only the browser-safe `@kolu/surface-nix-host/connection` subpath + `import type`s reach the client bundle (the node main entry never does).
+
+```ts
+// packages/pulam-web/src/shared/contract.ts
+import { mirroredSurface } from "@kolu/surface-nix-host/connection";
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+
+// The browser-facing surface = base + the get-only `connection` cell.
+export const arivuSurface = mirroredSurface(terminalWorkspaceSurface);
+```
+
+**3 — Only the re-serve implements the cell; the daemon serves the connection-free base.** There is no inert per-site stub. The daemon (`packages/pulam/src/daemon.ts`) and every direct/local serve implement `terminalWorkspaceSurface`, which has no `connection` cell — fail-fast doesn't ask for one. Only pulam-web's re-serve implements the augmented `arivuSurface`, backing `connection` with a seeded local store (`seedConnectionCell()`) it writes from the session. The store is **NOT** folded by the mirror sink (it's the session's state, not the daemon's data) and writes go through the framework-wrapped `ctx.cells.connection.set` (persist + PUBLISH the delta) so a browser already subscribed across a reconnect hears the new state.
+
+```ts
+// packages/pulam-web/src/server/reserve.ts — re-serve of the MIRRORED surface
+const connection = seedConnectionCell(); // gate-closed "connecting" seed
+const fragment = implementSurface(arivuSurface, {
+  cells: { version: { store: versionStore }, connection },
+  // collections / streams folded/forwarded from the daemon's base surface…
+});
+// Expose the framework-wrapped setter on the ReServe result:
+setConnection: (info: ConnectionInfo) => fragment.ctx.cells.connection.set(info),
+```
+
+**4 — The pump carries session state into the cell — by construction.** `pumpRemoteSurface` (the reconnect-mirror loop) takes a `connection` setter; passing it makes the pump wire `pipeSessionStateToCell(session, set)` itself for the session's life. So `packages/pulam-web/src/server/hostEntry.ts` doesn't pipe it by hand — it hands the setter to the pump, and the session's existing lifecycle (first-version `markConnected`, the connect watchdog, give-up-into-`failed`) drives every transition. Pumping a session carries its health by construction (#1564), so it can't be wired wrong.
+
+```ts
+// packages/pulam-web/src/server/hostEntry.ts
+const reServe = buildReServe({ log: hostLog });
+void pumpRemoteSurface({
+  source: terminalWorkspaceSurface,
+  session,
+  makeSink: () => reServe.makeSink(() => session.markConnected()),
+  // …live holders + onLinkDown reset…
+  connection: { set: reServe.setConnection }, // ← pump wires pipeSessionStateToCell
+});
+```
+
+**5 — Gate the client on the cell, not on `version.pending()`.** In `packages/pulam-web/src/client/HostGroup.tsx`: read `app.cells.connection.use()` and make the top-level gate `connection.state === "connected"` — replacing the `version.pending()` “connecting…” gate (~line 289) and the `awareness.keys().length` “no terminals” decision (~line 297). Off-`connected` renders the state-driven body: provisioning / connecting+elapsed / reconnecting (refined by `failureCause`) / the **failed card** (`lastError` + `progressLines` tail + a **Reconnect** button that hits a small `POST /api/reconnect?host=` route calling `registry.getSession(host).reconnect()`). Only `connected` reaches the existing awareness rendering, where “no terminals” is finally honest. The header dot reads a pulam-web-local `STATE` map keyed by `connection.state` (its own palette — the UI the panel keeps app-local). `statusForHost` (the browser↔backend socket) stays a *secondary* indicator and no longer decides healthy-vs-empty. `DEFAULT_VERSION` keeps its real job (a version snapshot) and simply stops being abused as a link-live proxy.
+
+```tsx
+// packages/pulam-web/src/client/HostGroup.tsx
+const connection = app.cells.connection.use({ onError });
+const info = (): ConnectionInfo => connection.value() ?? DEFAULT_CONNECTION;
+
+<Show
+  when={info().state === "connected"}
+  fallback={<ConnectionView info={info()} host={props.host} />}
+>
+  {/* the existing awareness rendering — "no terminals" is honest only here */}
+</Show>
+```
+
+**6 — Hermetic test.** Extend `reserve.test.ts` (the existing agent→mirror→re-serve→browser-store proof): drive a `session.onState` sequence ending in **`failed`** with no awareness keys, and assert the browser-consumed `connection` cell reads `failed` with its `lastError` — the surface carries the down state — instead of the old empty/healthy path. Goes red if the gate ever reverts to the socket/version proxy. Visual proof is pulam-web over a real ws against a deliberately build-mismatched host (a chrome-devtools or e2e still of the failed card).
+
+**7 — The linked drishti PR (surface gate — ships with this one).** Adding exports to `@kolu/surface-nix-host` is API-facing, so `.claude/rules/surface.md` requires a linked drishti PR with green CI. drishti already hand-rolls *both* halves — its own `ConnectionSchema`/`DEFAULT_CONNECTION` in `drishti-common` and the inline `session.onState(s => cell.set({ state: s.connection, … }))` in `router.ts`. The companion bumps drishti's kolu pin and replaces them: **wrap its mirror surface in `mirroredSurface(base)`** (dropping its copy of the schema + default and its hand-spread cell) and let the pump wire `pipeSessionStateToCell` / `projectConnection` (dropping the inline mapping). Its green CI proves the lift behaviour-preserving — and makes drishti the second consumer that earns the extraction.
+
+**Unaffected, stated plainly:** kolu's Code tab and `pulam-tui` consume `terminalWorkspaceSurface` directly and track their link in-process. The base surface stays connection-free, so there is no new cell for them to read and nothing to stub — they build unchanged. The `connection` cell exists only on `mirroredSurface(base)`, which only a re-serving parent (pulam-web, drishti) serves.
+
+**Done when** a host whose mirror is `copying`/`connecting`/`disconnected`/`failed` renders an honest state (failure cause + Reconnect on `failed`) instead of green + “no terminals”; a genuinely-empty *connected* host still reads “no terminals”; the hermetic test asserts the `failed` mirror reaches the browser as a down state; and both kolu and the linked drishti PR are green. [Issue #1564](https://github.com/juspay/kolu/issues/1564) tracks it.
+
+## The follow-on layer: `client.health()` — one complete fact, two policies
+
+The connection cell above kills the *one* lie #1564 was filed for (a dead **mirror** painting green). But it left a *class* of the same lie open one level down: a `surfaceClient` runs many subscriptions, and **any** of them can be silently dead — a cell that 500s on resubscribe, a raw snapshot feed that stalled — while the surface still paints as if whole. The cell answers “is the **mirror** up?”; it can’t answer “is **every subscription** the browser depends on actually live?”. So the same review run grew a second, lower primitive: **`client.health()`** — a *total* subscription-health **fact**, `{ live: boolean, subs: [{ name, pending, error }] }`. Every framework subscription enrols at its birth site (cell, the keys-stream, each per-key value, a stream); a **raw** stream joins **structurally** through `client.rawStream(name, proc, input, { onItem })`, which throws if driven outside a reactive owner — so a raw stream *cannot* silently escape the fact the way a hand-rolled loop could. Transport liveness is one leg, threaded by the socket owner: `connectSurface` passes `{ live: () => status() === "live" }` off its own `createSocketStatus`, so `health().live` is the real socket state, not a constant `true` — and, as of the round-5 collapse, it carries *more* than the socket (see the callout below). The socket owner is now `connectSurface` (single-surface) or **`connectSurfaces`** (the multi-surface seam: one socket → a `surfaceClients` bundle + one merged fact), each wiring a **default-on half-open heartbeat** that probes the reserved `system.live`, so `live` means *bytes are flowing*, not merely *no close event fired* — a silent half-open ws reads not-live without any consumer hand-building a watchdog.
+
+The fact carries **no triage** — no “connecting vs degraded” verdict, no human string. That precedence is **policy**, and policy is a *separate* primitive: **`<SurfaceGate>`**, which derives `connecting > degraded > ready` from the fact in exactly one place. Its **default is stale-while-degraded** (a sub erroring keeps the last-good children on screen, with a non-blocking notice) — the gentler of the two policies, and the right default for a fleet board; **hard-gating** (blank the surface on any sub error) is the explicit opt-in. The split exists because two real consumers **disagree on the policy**, and a framework that bakes one in forces the other to hand-roll a parallel gate (the very thing #1564 was):
+
+- **pulam-web hard-gates.** `HostGroup` mounts `<SurfaceGate ready={hostBodyReady}>` whose predicate is just **`h.live && no sub errors`** — and as of round-5 `h.live` *already carries the mirror state*: the `connection` cell's `liveWhen` predicate AND-folds `state === "connected"` into `live` by construction (the callout below), so the gate no longer hand-ANDs `connInfo.state === "connected"`. A half-open/reconnecting ws **or** a non-`connected` mirror both fail the gate closed off that one boolean. A *persistent* error must win over the body and never collapse to a healthy-looking empty host (the #1524 lesson), so it is the **outermost** gate. (A *transient* error self-heals: each sub’s `error()` clears on its next frame, so the host recovers without a reload — the zest launchd-restart fix.) The same `hostBodyReady` predicate also governs the header dot, because the dot is now the shared `<HostStatusPip>` (callout below) — one verdict, gate and dot.
+- **drishti renders stale-while-degraded.** It mounts its OWN `<SurfaceGate>` with the framework **default** policy (stale-while-degraded): a sub error or a transport blip keeps the body visible under a non-blocking amber notice, the opposite of pulam-web’s hard gate over the same fact. It joins its raw metric feed structurally via **`app.rawStream`** (so the throw guards the real adopter, not just the example), and folds its admin-vs-app sibling clients into one fact with **`surfaceClientsHealth`** (Leak D) — now threading the admin socket’s `live`, so a dead control plane flips the merged fact, not a constant `true`.
+
+<Callout kind="note" title="Completing the fact: `live` folds the mirror, and the fact STILL stays `{live, subs}` (the third re-review)">
+Earlier rounds threaded the transport `live` but left each consumer to **hand-AND** the mirror state — pulam-web's gate was `app.health().live && connInfo.state === "connected"`, drishti's dot read the raw cell. A third re-review named that for what it is: the *same lie waiting to relocate*. A hand-AND is forgettable, and drishti's per-host dot **forgot it** — green over a dead mirror, the #1564 lie one viewer over. The cure is not "fold the missing leg in at one more consumer" (whack-a-mole against forgetting); it is to **complete the fact** so the partial signal is unrenderable.
+
+So `health().live` now folds the mirror's readiness **by construction** — *without* dragging the ssh vocabulary into the core. A generic `CellSpec.liveWhen?: (value) => boolean` hook marks a cell a **readiness gate**; `surfaceClient` AND-folds its predicate into `live` via an **eager** build-time standing subscription (so a dot-only viewer that never `.use()`s the cell still reads the complete fact — the fold is *not* `.use()`-conditional). The `connection` cell declares `liveWhen: (v) => v.state === "connected"` **in `@kolu/surface-nix-host`**, beside the schema it reads — so the four-state ssh vocabulary (`copying`/`connecting`/`connected`/`disconnected`/`failed`) stays exactly where it lived, and `@kolu/surface` only *invokes* the predicate (the runtime sibling of `CellSpec.equals` / `resolveCellVerbs`: core owns the mechanism, the plug owns the meaning). The fact's **shape is unchanged** (`{live, subs}`); only `live`'s meaning widened from "transport open" to "transport ∧ every readiness leg." It is the client-side **symmetry** to `pumpRemoteSurface` auto-wiring the server *write* (`pipeSessionStateToCell`): composing the mirror seam now entails the write (populate the cell), the read (fold it into `live`), and the display — all by construction. No `source` discriminant, no ssh vocabulary, ever entered the transport-agnostic core; the earlier round's *location-is-structure* boundary holds, the boolean just stopped being something each consumer re-derives.
+
+The earlier note's distinction survives **intact**: the BOOLEAN readiness now lives in the fact (no consumer re-ANDs it), while the RICHER four-state vocabulary — *which* leg died, **reload** (`down`) vs **Reconnect** (`failed` mirror) — stays app-local in pulam-web's `effectiveHealth` for **presentation**. The header dot is now the framework **`<HostStatusPip health={…}>`** (rendered by BOTH viewers), whose **green** is *only* the fact's readiness verdict — there is no raw-state prop, so a stale `connected` cell can no longer color a dot green over a dead link — with pulam-web's rich five-state color supplied as its `notReadyTone`, and `gateStatus` shared with `<SurfaceGate>` so the dot's green and the body's "show it" are provably one decision. The fact stays `{live, subs}`; what changed is that `live` finally carries the *whole* "is it connected?" truth, and there is **one** such value no widget can read half of.
+</Callout>
+
+<Callout kind="note" title="Every producer is now consumed (the second re-review)">
+A first pass threaded the `live` leg and built the structural `client.rawStream` — but a second re-review caught that **nothing drank from either**: every gate routed *around* the new liveness, and the one shipping adopter (drishti) bypassed the structural throw with a hand-enrolled bare stream. Producers without consumers are plumbing, not a fix. So this pass wires the faucets:
+
+- **A real gate reads `health().live`.** pulam-web’s body gate (above), the example’s `<SurfaceGate ready={(h) => h.live && …}>`, and drishti’s `surfaceClientsHealth(...).live` control-plane strip all consume the threaded leg — and `surfaceClients` now takes a `{ live }` it AND-reduces, so a multi-surface fact is no longer structurally constant-true. A `connectSurface`-driven test (a mocked socket, not a hand-rebuilt predicate) goes red if the thread is reverted.
+- **The shipping adopter uses the structural path.** drishti’s `metricHistory` moved to `app.rawStream`; the bare `@kolu/surface/client` export was renamed **`unenrolledStreamCall`** so the one genuinely-exempt root stream (the terminal `attach`) and a `createSubscription` factory *self-flag* as deliberately-unenrolled — a hand-enrol can no longer read as a forgotten one.
+- **The default fails soft on a blip.** `<SurfaceGate>`’s default gained a one-way *has-painted* latch: after the first ready frame a transport drop renders **stale-while-reconnecting** (last-good children + a notice) instead of hard-blanking — only a cold connect blocks. And drishti is now a real component-level `<SurfaceGate>` *adopter* (not just a fact-consumer), so the two-policy premise holds at the component level too.
+</Callout>

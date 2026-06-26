@@ -13,8 +13,10 @@
  * still sees the initial `state === "connecting"` (or `"copying"`).
  */
 
-import { streamCall } from "@kolu/surface/client";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import type { SurfaceHealth } from "@kolu/surface/solid";
+import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
+import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
+import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import {
   type CoreId,
@@ -25,14 +27,6 @@ import {
   type Process,
 } from "../common/surface";
 import { app } from "./wire";
-
-const STATE_COLOR: Record<string, string> = {
-  connected: "text-emerald-500",
-  disconnected: "text-amber-500",
-  copying: "text-amber-500",
-  connecting: "text-amber-500",
-  failed: "text-red-500",
-};
 
 type SortKey = "cpu" | "mem" | "pid" | "user";
 
@@ -55,16 +49,20 @@ export default function App() {
   // (R-2's `terminalMetadata` is the canonical fit — ~3-20 keys, where
   // per-key reactivity is exactly what you want).
   const [processes, setProcesses] = createStore<Record<Pid, Process>>({});
-  const ctl = new AbortController();
-  onCleanup(() => ctl.abort());
-  void (async () => {
-    try {
-      const stream = await streamCall(
-        app.rpc.surface.processesSnapshot.get,
-        {},
-        { signal: ctl.signal },
-      );
-      for await (const msg of stream) {
+  // Leak A: this bulk table is a RAW streaming RPC (not a framework Cell/
+  // Collection/Stream), so it owns its loop. `app.rawStream` is the STRUCTURAL
+  // path — it can't bypass `app.health()`: it owns the `pending`/`error`, enrols
+  // them, runs the loop self-clearing on each frame, and aborts on cleanup. So a
+  // snapshot-stream failure surfaces in the one health FACT (closing the
+  // `<SurfaceGate>` below) instead of a private `console.error` nobody sees — and
+  // `rawStream` THROWS if it were ever driven outside this component owner, so
+  // forgetting to enrol isn't possible, not just discouraged.
+  app.rawStream(
+    "processesSnapshot",
+    app.rpc.surface.processesSnapshot.get,
+    {},
+    {
+      onItem: (msg) => {
         if (msg.kind === "snapshot") {
           const next: Record<Pid, Process> = {};
           for (const [pid, value] of msg.entries) next[pid] = value;
@@ -73,12 +71,9 @@ export default function App() {
           for (const [pid, value] of msg.upserts) setProcesses(pid, value);
           for (const pid of msg.removes) setProcesses(pid, undefined!);
         }
-      }
-    } catch (err) {
-      if (!ctl.signal.aborted)
-        console.error("processesSnapshot stream failed", err);
-    }
-  })();
+      },
+    },
+  );
 
   const [filter, setFilter] = createSignal("");
   const [sortKey, setSortKey] = createSignal<SortKey>("cpu");
@@ -96,9 +91,10 @@ export default function App() {
   // Small-N (typical 4-32), so per-key fan-out is exactly the right
   // shape; each core gets its own reactive subscription, the strip
   // updates per-cell independently.
-  const cores = app.collections.cpuCores.use({
-    onError: (err) => console.error("cpuCores subscription failed", err),
-  });
+  // No `onError`: each per-core sub is enrolled in `app.health()` (the framework
+  // does it), so a core's failure surfaces through the one health FACT and the
+  // `<SurfaceGate>` below — not a private `console.error`.
+  const cores = app.collections.cpuCores.use();
   const coreIds = createMemo<CoreId[]>(() =>
     [...cores.keys()].sort((a, b) => a - b),
   );
@@ -140,11 +136,31 @@ export default function App() {
         <Header
           system={currentSystem()}
           connection={currentConnection()}
+          health={app.health}
           count={allPids().length}
         />
-        <Show
-          when={currentConnection().state === "connected"}
-          fallback={<ConnectingOverlay state={currentConnection().state} />}
+        {/* The body is ready when `h.live` holds AND no subscription is erroring
+            (the framework health FACT, which now includes the enrolled
+            `processesSnapshot` stream and every per-core sub). `h.live` ALREADY
+            implies the agent link is `connected`: the `connection` cell declares
+            `liveWhen: v => v.state === "connected"`, so `surfaceClient` AND-folds
+            that leg into `health().live` BY CONSTRUCTION — re-reading
+            `connection.state === "connected"` into the gate here would be pure
+            redundancy (and would teach the fold this five-round effort retired).
+            `<SurfaceGate>` owns the policy via its `ready` override; the
+            `fallback` shows the connecting overlay, surfacing a subscription error
+            if one is what's holding the gate closed. Don't gate on `pending` — the
+            original example never blocked the table on per-key first-frames, and a
+            single slow core shouldn't blank the whole view. */}
+        <SurfaceGate
+          health={app.health}
+          ready={(h) => h.live && !h.subs.some((s) => s.error)}
+          fallback={(h) => (
+            <ConnectingOverlay
+              state={h().live ? currentConnection().state : "connecting"}
+              error={h().subs.find((s) => s.error)?.error?.message}
+            />
+          )}
         >
           <CpuStrip coreIds={coreIds()} getCore={(id) => cores.byKey(id)?.()} />
           <FilterBar
@@ -159,7 +175,7 @@ export default function App() {
             onSort={setSortKey}
             onKill={killProcess}
           />
-        </Show>
+        </SurfaceGate>
       </div>
     </div>
   );
@@ -180,6 +196,7 @@ type Row = { pid: Pid; proc: Process };
 function Header(props: {
   system: ReturnType<() => typeof DEFAULT_SYSTEM>;
   connection: ReturnType<() => typeof DEFAULT_CONNECTION>;
+  health: Accessor<SurfaceHealth>;
   count: number;
 }) {
   const memPct = () => {
@@ -210,8 +227,22 @@ function Header(props: {
             <span class="text-gray-500">host:</span>{" "}
             <span class="font-semibold">{props.system.hostname || "—"}</span>
           </span>
-          <span class={STATE_COLOR[props.connection.state]}>
-            ● {props.connection.state}
+          <span class="flex items-center gap-1.5 text-xs">
+            {/* The connection dot is the framework `<HostStatusPip>` — its GREEN
+                comes ONLY from the health FACT (the same `ready` the gate below
+                uses), so a stale `connected` cell over a dead link can't paint it.
+                The state WORD stays a neutral label, never a raw-state green. */}
+            <HostStatusPip
+              health={props.health}
+              ready={(h) => h.live && !h.subs.some((s) => s.error)}
+              readyColor="#10b981"
+              notReadyTone={() =>
+                props.connection.state === "failed" ? "#ef4444" : "#f59e0b"
+              }
+              pulse={props.connection.state !== "failed"}
+              title={props.connection.state}
+            />
+            <span class="text-gray-500">{props.connection.state}</span>
           </span>
           <span class="text-gray-500">·</span>
           <span class="text-gray-500">
@@ -288,14 +319,19 @@ function FilterBar(props: {
   );
 }
 
-function ConnectingOverlay(props: { state: string }) {
+function ConnectingOverlay(props: { state: string; error?: string }) {
+  // A live subscription error (the gate held closed while CONNECTED) wins the
+  // headline — it's the actionable failure; otherwise show the link-lifecycle
+  // line keyed off the `connection` cell's state.
   const msg = () =>
-    ({
+    props.error ??
+    {
       copying: "Copying agent to remote…",
       connecting: "Connecting…",
       disconnected: "Reconnecting…",
       failed: "Connection failed — gave up retrying.",
-    })[props.state] ?? "Initializing…";
+    }[props.state] ??
+    "Initializing…";
   return (
     <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>

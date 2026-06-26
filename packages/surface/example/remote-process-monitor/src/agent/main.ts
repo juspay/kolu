@@ -37,7 +37,6 @@ import { implement } from "@orpc/server";
 import {
   type CoreId,
   type CpuCore,
-  DEFAULT_CONNECTION,
   type Pid,
   type Process,
   type ProcessesSnapshotMsg,
@@ -99,14 +98,11 @@ async function main(): Promise<void> {
   const fragment = implementSurface(surface, {
     channel: inMemoryChannelByName(),
     cells: {
+      // The agent serves the connection-FREE base surface. Link health is the
+      // *parent's* observation of the parent↔agent link (lesson #6 — the agent
+      // can't see it from the inside), so it's composed only at the parent's
+      // re-serve via `mirroredSurface`, never here.
       system: { store: systemStore },
-      // `connection` lives in the shared surface so the browser can
-      // subscribe via the framework's snapshot-then-delta. The agent
-      // has no visibility into the parent↔agent link from the inside
-      // (lesson #6 — the link's health is the *parent's* observation,
-      // not the agent's), so the agent serves the default and the
-      // parent overrides on its own surface implementation.
-      connection: { store: inMemoryStore({ ...DEFAULT_CONNECTION }) },
     },
     collections: {
       processes: {

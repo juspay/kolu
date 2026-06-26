@@ -1,15 +1,19 @@
 /**
  * Parent-side router — bridges browser ↔ remote agent.
  *
- * The browser subscribes to the same `surface` as the agent serves. The
- * parent doesn't re-define a different surface; it implements the agent
- * surface locally by *forwarding* every read to the remote stdio client.
- * On a fresh subscriber, the parent:
+ * The agent serves the connection-free base `surface`. The parent re-serves the
+ * MIRRORED surface — `monitorSurface = mirroredSurface(surface)`, i.e. the base
+ * plus the get-only `connection` cell — and the browser subscribes to THAT. The
+ * parent doesn't re-define a different base; it implements the base primitives
+ * locally by *forwarding* every read to the remote stdio client, and owns the
+ * extra `connection` cell itself. On a fresh subscriber, the parent:
  *
- *   1. Synchronously yields the parent's connection-state-aware
- *      `system` snapshot (state = "copying" / "connecting" / etc.).
+ *   1. Synchronously yields the seeded, gate-closed `connection` cell — link
+ *      health (state = "copying" / "connecting" / etc.) lives in its OWN cell,
+ *      not folded into the `system` snapshot.
  *   2. Once the agent's link is up, mirrors the agent's `system` and
- *      `processes` updates into the parent's local store/collection.
+ *      `processes` updates into the parent's local store/collection, and the
+ *      session pump writes link health into the `connection` cell.
  *   3. Per-key process upserts/removes from the agent flow through to
  *      the framework's channels and on to the browser.
  *
@@ -30,19 +34,20 @@ import {
   type AgentClient,
   type HostSession,
   makeClientCursor,
+  pipeSessionStateToCell,
+  seedConnectionCell,
 } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import {
-  type ConnectionInfo,
   type CoreId,
   type CpuCore,
-  DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
+  monitorSurface,
   type Pid,
   type Process,
   type ProcessesSnapshotMsg,
-  type SystemInfo,
   surface,
+  type SystemInfo,
 } from "../common/surface";
 
 type ProcessMonitorAgent = AgentClient<typeof surface.contract>;
@@ -59,9 +64,10 @@ export function buildRouter(opts: BuildRouterOptions) {
   const systemStore: CellStore<SystemInfo> = inMemoryStore({
     ...DEFAULT_SYSTEM,
   });
-  const connectionStore: CellStore<ConnectionInfo> = inMemoryStore({
-    ...DEFAULT_CONNECTION,
-  });
+  // The seeded, gate-closed connection cell — the shared `seedConnectionCell()`,
+  // not a hand-rolled store. Written below by `pipeSessionStateToCell` off the
+  // session's `onState`, exactly as pulam-web's re-serve does.
+  const connection = seedConnectionCell();
   const processCache = new Map<Pid, Process>();
   const coreCache = new Map<CoreId, CpuCore>();
   // Local snapshot bus — every msg the parent receives from the
@@ -71,13 +77,17 @@ export function buildRouter(opts: BuildRouterOptions) {
   const browserSnapshotBus: Channel<ProcessesSnapshotMsg> =
     inMemoryChannel<ProcessesSnapshotMsg>();
 
-  const fragment = implementSurface(surface, {
+  // Implements the MIRRORED surface (base + the get-only `connection` cell). The
+  // base primitives are forwarded/folded from the agent; `connection` is the
+  // seeded local store the session pump writes — the agent's surface stays
+  // connection-free.
+  const fragment = implementSurface(monitorSurface, {
     // Name-keyed in-memory channel factory — publish/subscribe sites
     // land on the same `Channel<T>` instance per name.
     channel: inMemoryChannelByName(),
     cells: {
       system: { store: systemStore },
-      connection: { store: connectionStore },
+      connection,
     },
     collections: {
       processes: {
@@ -149,9 +159,17 @@ export function buildRouter(opts: BuildRouterOptions) {
   });
 
   // ── Mirror session connection state → parent's `connection` cell ──
-  session.onState((s) => {
-    fragment.ctx.cells.connection.set({ state: s.connection });
-  });
+  // The shared `pipeSessionStateToCell` (projects every `onState` frame onto the
+  // cell), not a hand-rolled `onState` → `{ state }` mapping — so the full
+  // `ConnectionInfo` (lastError / failureCause / progress) reaches the browser,
+  // single-sourced with pulam-web. This is the MANUAL form of the production
+  // wiring: a re-serve that drives the parent surface via `pumpRemoteSurface`
+  // passes `connection: { set }` and the pump calls this for you (the default-on
+  // path pulam-web uses). This example runs its own `bridgeAgentToParent` pump,
+  // so it wires the same mapping by hand here.
+  pipeSessionStateToCell(session, (info) =>
+    fragment.ctx.cells.connection.set(info),
+  );
 
   // ── Bridge remote agent surface → parent's local surface ──────────
   // Start a background pump that pins the session, then loops over each
@@ -176,7 +194,9 @@ export function buildRouter(opts: BuildRouterOptions) {
   // `implement(contract).router({...fragment})` to flatten the prefix
   // — this is the same pattern Kolu's own server uses when spreading
   // the surface fragment alongside raw oRPC procedures.
-  const router = implement(surface.contract).router({ ...fragment.router });
+  const router = implement(monitorSurface.contract).router({
+    ...fragment.router,
+  });
   return { router, session };
 }
 

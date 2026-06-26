@@ -23,8 +23,17 @@
  * checklist for the full mapping.)
  */
 
+// The shared, gate-closed connection cell + the seam that composes it — the
+// SAME source of truth pulam-web uses, instead of a hand-rolled parallel copy.
+import { mirroredSurface } from "@kolu/surface-nix-host/connection";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
+
+export {
+  type ConnectionInfo,
+  type ConnectionState,
+  DEFAULT_CONNECTION,
+} from "@kolu/surface-nix-host/connection";
 
 const PidSchema = z.number().int().nonnegative();
 const ProcessSchema = z.object({
@@ -56,28 +65,6 @@ const SystemSchema = z.object({
   hostname: z.string(),
 });
 
-/** Parent-to-agent link lifecycle. Owned by the parent's `HostSession`;
- *  the agent has no business reporting on a link it doesn't see from
- *  the inside.
- *
- *  Row 4 of the R-1.5 falsifiability checklist hinges on this — the
- *  browser subscribes via `useCell(connection)`, which yields the
- *  current value synchronously to a new subscriber. The browser
- *  attaches its overlay before `connect()` returns and still sees the
- *  initial `connecting` state. */
-const ConnectionSchema = z.object({
-  state: z.enum([
-    "copying",
-    "connecting",
-    "connected",
-    "disconnected",
-    // Terminal: the parent's reconnect loop gave up. Mirrors the
-    // `HostSession` `failed` state so the overlay can distinguish
-    // "still retrying" from "needs intervention".
-    "failed",
-  ]),
-});
-
 export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {
   loadAvg: [0, 0, 0],
   memUsed: 0,
@@ -85,10 +72,6 @@ export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {
   uptime: 0,
   os: "unknown",
   hostname: "",
-};
-
-export const DEFAULT_CONNECTION: z.infer<typeof ConnectionSchema> = {
-  state: "connecting",
 };
 
 /** Snapshot-then-delta `Stream<>` shape — the bulk-friendly counterpart
@@ -118,10 +101,9 @@ export const surface = defineSurface({
       schema: SystemSchema,
       default: DEFAULT_SYSTEM,
     },
-    connection: {
-      schema: ConnectionSchema,
-      default: DEFAULT_CONNECTION,
-    },
+    // NOTE: no `connection` cell here. Link health is composed ONLY at the
+    // nix-host re-serve seam via `mirroredSurface(surface)` below — the agent
+    // serves this connection-free base; the parent mirrors it and adds the cell.
   },
   collections: {
     processes: {
@@ -158,6 +140,12 @@ export const surface = defineSurface({
   },
 });
 
+/** The surface the BROWSER consumes and the PARENT re-serves: the agent's base
+ *  `surface` augmented at the mirror seam with the gate-closed `connection` cell.
+ *  The agent serves the base; the parent mirrors it and writes `connection` from
+ *  `session.onState` — exactly pulam-web's split, on the shared combinator. */
+export const monitorSurface = mirroredSurface(surface);
+
 type SF = SurfaceTypes<typeof surface.spec>;
 
 export type Pid = SF["collections"]["processes"]["Key"];
@@ -165,6 +153,4 @@ export type Process = SF["collections"]["processes"]["Value"];
 export type CoreId = SF["collections"]["cpuCores"]["Key"];
 export type CpuCore = SF["collections"]["cpuCores"]["Value"];
 export type SystemInfo = SF["cells"]["system"]["Value"];
-export type ConnectionInfo = SF["cells"]["connection"]["Value"];
-export type ConnectionState = ConnectionInfo["state"];
 export type ProcessesSnapshotMsg = SF["streams"]["processesSnapshot"]["Output"];

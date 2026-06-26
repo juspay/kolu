@@ -1,10 +1,12 @@
 lockfile_version: '1'
-generated_at: '2026-06-19T18:03:35.165646+00:00'
-apm_version: 0.21.0
+generated_at: '2026-06-26T10:33:55.405379+00:00'
+apm_version: 0.22.0
 dependencies:
 - repo_url: anthropics/skills
+  name: skills
   host: github.com
   resolved_commit: da20c92503b2e8ff1cf28ca81a0df4673debdbf7
+  version: unknown
   virtual_path: skills/frontend-design
   is_virtual: true
   package_type: claude_skill
@@ -22,8 +24,10 @@ dependencies:
     .claude/skills/frontend-design/SKILL.md: sha256:b81e2ff87ed8fa4d6c377ccb127a7254c9e6a77e3ae94f21e6b514f7bb2945a0
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/nix-chrome-devtools-mcp
+  name: nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: a202612693800c9d9ac9035ca0df80f2e92ded3b
+  version: 0.1.0
   package_type: apm_package
   deployed_files:
   - .agents/skills/nix-chrome-devtools-mcp
@@ -39,8 +43,10 @@ dependencies:
     .claude/skills/nix-chrome-devtools-mcp/bin/serve: sha256:d8988c3305ba7faf43293c911c47beb7df09b72ed00b324a58e73abe253820a8
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
 - repo_url: juspay/odu
+  name: odu
   host: github.com
   resolved_commit: f3a3e553c00486e7e2999d79495e2e52f6192703
+  version: 1.0.0
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
@@ -62,8 +68,10 @@ dependencies:
     .claude/skills/odu-mcp/bin/serve: sha256:6152e8fc4d3478b70a5cd547c172be596787e600b5757233fb82b307186b9e26
   content_hash: sha256:07ac573bff03b3ce4df3dffa5b5a15095acf5ac8131a77c2b23ee7a22dd67a58
 - repo_url: juspay/project-unknown
+  name: project-unknown
   host: github.com
   resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
+  version: 1.0.0
   package_type: apm_package
   deployed_files:
   - .agents/skills/pu
@@ -76,8 +84,10 @@ dependencies:
   content_hash: sha256:3694a4feafcb2a8e33364e0eacd9ef5ab37f893733769570e2f18e4eb13ae3c8
   declared_license: MIT
 - repo_url: juspay/skills
+  name: skills
   host: github.com
   resolved_commit: e5791cf388499456c8083a1667ecc1bd6c35fe2c
+  version: unknown
   virtual_path: skills/nix-justfile
   is_virtual: true
   package_type: claude_skill
@@ -91,8 +101,10 @@ dependencies:
     .claude/skills/nix-justfile/SKILL.md: sha256:730345294a6536793ede474dc7f624faa83af6e97dbcbeb10fed1954a0d408fd
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
+  name: skills
   host: github.com
   resolved_commit: e5791cf388499456c8083a1667ecc1bd6c35fe2c
+  version: unknown
   virtual_path: skills/nix-typescript
   is_virtual: true
   package_type: claude_skill
@@ -106,8 +118,10 @@ dependencies:
     .claude/skills/nix-typescript/SKILL.md: sha256:cd771d988edb89b88b233c7b799f3816c9982d669419d75fb409dd38103b1962
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: juspay/skills
+  name: skills
   host: github.com
   resolved_commit: 84d6c6f102151246fb1da96ce39996757c11179c
+  version: unknown
   virtual_path: skills/pg
   is_virtual: true
   package_type: claude_skill
@@ -125,9 +139,11 @@ dependencies:
     .claude/skills/pg/SOURCES.md: sha256:883da1d6a48c91b555c1df085523865badc917b1cc051ea37ea85ab745e8197d
   content_hash: sha256:55aa91acea2f65028147786dffec979d5c2f1b18f402ee441353dada10ffbb2a
 - repo_url: srid/agency
+  name: agency
   host: github.com
   resolved_commit: 81455051ccca654c57ad6088838c85e7248ac159
   resolved_ref: master
+  version: 1.0.0
   package_type: apm_package
   deployed_files:
   - .agents/skills/code-police
@@ -260,12 +276,16 @@ local_deployed_files:
 - .agents/skills/parcel/SKILL.md
 - .agents/skills/perf-diagnose
 - .agents/skills/perf-diagnose/SKILL.md
+- .agents/skills/perfection-review
+- .agents/skills/perfection-review/SKILL.md
 - .agents/skills/pierre
 - .agents/skills/pierre/SKILL.md
 - .agents/skills/release
 - .agents/skills/release/SKILL.md
 - .agents/skills/self-improve
 - .agents/skills/self-improve/SKILL.md
+- .agents/skills/surface
+- .agents/skills/surface/SKILL.md
 - .agents/skills/test
 - .agents/skills/test/SKILL.md
 - .claude/rules/apm-sources.md
@@ -311,12 +331,16 @@ local_deployed_files:
 - .claude/skills/parcel/SKILL.md
 - .claude/skills/perf-diagnose
 - .claude/skills/perf-diagnose/SKILL.md
+- .claude/skills/perfection-review
+- .claude/skills/perfection-review/SKILL.md
 - .claude/skills/pierre
 - .claude/skills/pierre/SKILL.md
 - .claude/skills/release
 - .claude/skills/release/SKILL.md
 - .claude/skills/self-improve
 - .claude/skills/self-improve/SKILL.md
+- .claude/skills/surface
+- .claude/skills/surface/SKILL.md
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
@@ -338,9 +362,11 @@ local_deployed_file_hashes:
   .agents/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
+  .agents/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .agents/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
   .agents/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
+  .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
   .agents/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
@@ -352,7 +378,7 @@ local_deployed_file_hashes:
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-  .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367
+  .claude/rules/solidjs.md: sha256:156b8f697a45d2c3260a230a61a3a047b3ce9f008c6c68abbdb46af81f5d3475
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2f96cb3cd96e5e985130c5baae68ac4f6d4c91097085dcb96979b8bd9353db8d
@@ -375,7 +401,9 @@ local_deployed_file_hashes:
   .claude/skills/lens-debate/debate.workflow.js: sha256:73f8ad4f76b3da5b398aceed8a26f2079933773804ef75071876fb7fe928cc90
   .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
+  .claude/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .claude/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
   .claude/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
+  .claude/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
   .claude/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53

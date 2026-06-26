@@ -19,14 +19,47 @@ import { RPCLink } from "@orpc/client/websocket";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { wireClient, wireRetryPlugins } from "./_wire";
 
+// Every client `websocketLink` builds, by identity. A WebSocket transport can
+// silently HALF-OPEN — the socket stays `open` at the OS level while no bytes
+// flow either way — so a client over it has NO honest transport-liveness of its
+// own; that signal must be supplied by a watchdog (the heartbeat
+// `connectSurface`/`connectSurfaces` wire in). A WeakSet (keyed on the opaque
+// oRPC proxy by identity, never mutating it, GC-safe) lets `surfaceClient` /
+// `surfaceClients` FAIL FAST when handed such a bare link instead of a
+// watchdog-backed `LiveSignalHandle`, rather than silently defaulting the
+// transport leg to constant-`true` — the
+// green/ready-dot-over-a-dead-link lie (#1564), one seam upstream. The
+// in-process links (`directLink`/`stdioLink`) are NOT recorded: they cannot
+// half-open, so their constant-`true` transport leg is honest by construction.
+const HALF_OPEN_LINKS = new WeakSet<object>();
+
+/** True if `link` was built by {@link websocketLink} — a transport that can
+ *  silently half-open, so its `health().live` is a LIE unless a liveness
+ *  watchdog supplies the real transport signal. `surfaceClient`/`surfaceClients`
+ *  consult this to crash loudly when such a bare link arrives instead of a
+ *  watchdog-backed `LiveSignalHandle`, rather than defaulting the transport leg
+ *  to constant-`true`. */
+export function isHalfOpenLink(link: unknown): boolean {
+  return (
+    (typeof link === "object" || typeof link === "function") &&
+    link !== null &&
+    HALF_OPEN_LINKS.has(link as object)
+  );
+}
+
 /** Connect a typed oRPC client over a WebSocket transport, with
  *  `ClientRetryPlugin` installed. The contract type parameter pins the
  *  client end-to-end:
  *
  *  ```ts
  *  const client = websocketLink<typeof contract>(ws);
- *  // …or, for Solid hooks:
- *  const app = surfaceClient(surface, websocketLink<typeof contract>(ws));
+ *  // …or, for Solid hooks. A websocket CAN half-open, so `surfaceClient` REQUIRES
+ *  // a watchdog-backed handle (a bare client throws): reach for `connectSurface`,
+ *  // or use `createLiveSignal`, which BUILDS the link over `ws` itself (so the
+ *  // watchdog probes the socket it reconnects) and returns ONE handle pairing
+ *  // `link` + `live`. Pass that whole handle — there is no `{ live }` seam:
+ *  const transport = createLiveSignal<typeof contract>(ws, {});
+ *  const app = surfaceClient(surface, transport);
  *  ```
  *
  *  The websocket is passed through unchanged — partysocket and other
@@ -40,5 +73,10 @@ export function websocketLink<C extends AnyContractRouter>(
     websocket,
     plugins: wireRetryPlugins(),
   });
-  return wireClient<C>(link);
+  const client = wireClient<C>(link);
+  // Record this client as half-openable so `surfaceClient`/`surfaceClients`
+  // refuse it unless wrapped in a watchdog-backed `LiveSignalHandle` (see
+  // `HALF_OPEN_LINKS` above).
+  HALF_OPEN_LINKS.add(client as object);
+  return client;
 }
