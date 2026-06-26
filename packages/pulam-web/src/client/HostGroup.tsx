@@ -237,7 +237,10 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   const liveSet = createMemo(() => new Set<string>(live() ?? []));
 
   // One terminal's current value, or undefined while its per-key stream is
-  // pending. Per-key errors already surface via the collection's `onError`.
+  // pending. Per-key errors enrol into `client.health()` automatically (the
+  // collection binding's `enroll` hook), so they surface through the
+  // `<SurfaceGate>` fallback — not a per-call `onError` (this PR dropped that for
+  // the self-clearing health fact).
   const valueForId = (id: TerminalId): AwarenessValue | undefined => {
     const sub = awareness.byKey(id);
     return sub !== undefined && !sub.pending() ? sub() : undefined;
