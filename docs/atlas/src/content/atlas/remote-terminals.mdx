@@ -1,10 +1,10 @@
 ---
 title: Remote terminals over SSH
-description: The skeleton plan for kolu#951 — remote terminals over SSH, as one R1–R10 phase tree. R1–R4 shipped (foundation · local kaval survivor · the remote-ssh spike · the standalone pulam awareness daemon), R6 shipped (the @kolu/terminal-workspace library — one fs/git impl, two homes) and R7 shipped (mirrorRemoteSurface is now a total dual, procedures forwarded); the remaining work R5 · R8 (kolu serves one shared surface) · R9 (dial remotes) · R10 (canvas) is a linear roadmap defined in this note. Build logs live in the child notes — pty-daemon (R2), kaval-sessions (R3), pulam (R4).
+description: The skeleton plan for kolu#951 — remote terminals over SSH, as one R1–R10 phase tree. R1–R4 shipped (foundation · local kaval survivor · the remote-ssh spike · the standalone pulam awareness daemon), R5 shipped (the overflow-recovery loop — a typed overflow frame so a dropped slow subscriber re-attaches instead of freezing), R6 shipped (the @kolu/terminal-workspace library — one fs/git impl, two homes) and R7 shipped (mirrorRemoteSurface is now a total dual, procedures forwarded); the remaining work R8 (kolu serves one shared surface) · R9 (dial remotes) · R10 (canvas) is a linear roadmap defined in this note. Build logs live in the child notes — pty-daemon (R2), kaval-sessions (R3), pulam (R4).
 parents: [feature]
 status: accepted
 maturity: budding
-updated: 2026-06-24
+updated: 2026-06-26
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -15,7 +15,7 @@ import PhaseTree from "../../components/PhaseTree.astro";
 import Phase from "../../components/Phase.astro";
 import arch from "../../diagrams/remote-terminals-architecture.svg?raw";
 
-**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R4, R6 and R7 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, the standalone pulam awareness daemon, `@kolu/terminal-workspace` (one fs/git impl, two homes; the surface is pulam's until R8), and the total-dual surface mirror (procedures forwarded). **What remains (R5 · R8 · R9) is one linear roadmap, defined in this note**: harden reconnect, dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [pulam](pulam.html) (R4).
+**The skeleton plan for <Issue n={951} /> — remote terminals over SSH.** Every host — this machine and each ssh remote — runs the *same* kaval daemon; kolu-server keys its terminal endpoint by `hostId`, and you switch hosts from the ChromeBar, *kinda like tmux sessions*. **R1–R7 are shipped** — the foundation, the local kaval survivor, the remote-ssh spike, the standalone pulam awareness daemon, the overflow-recovery loop (R5 — a dropped slow subscriber re-attaches instead of freezing), `@kolu/terminal-workspace` (one fs/git impl, two homes; the surface is pulam's until R8), and the total-dual surface mirror (procedures forwarded). **What remains (R8 · R9) is one linear roadmap, defined in this note**: serve one shared surface, dial remotes and wire those into the tile, then multiplex the canvas. The shipped branches' build logs live in the child notes: [pty-daemon](pty-daemon.html) (R2), [kaval-sessions](kaval-sessions.html) (R3), [pulam](pulam.html) (R4).
 
 export const PAL = { bg: "#0f1117", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
@@ -103,11 +103,11 @@ Two volatility axes stay open (R1/R2 closed the rest):
 Today the sensors write awareness into kolu's **own** `terminalMetadata` record — a private copy. R8 has them write the shared `terminalWorkspaceSurface.awareness` instead, and kolu (and the browser) just **read** it through one seam (`awarenessFor`). One copy, one writer. Detail in **R8**.
 </Callout>
 
-**Already paid for, so R5–R10 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (now a total dual). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R9 is an ssh driver behind shipped seams; R8 makes kolu serve the one shared surface; R7 *completed* the surface mirror (<PrLink pr={1505} />); R6 grew pulam's fs/git (<PrLink pr={1506} />); R5 is one wire signal.
+**Already paid for, so R5–R10 are narrow.** `@kolu/surface-nix-host` ships `HostSession`, `provisionAgent` (ships the *derivation* — a darwin parent drives a linux remote with no cross-builder), and `resolveSystem`; `@kolu/surface` ships `mirrorRemoteSurface` (now a total dual). R2 already shipped the host-count-agnostic spine: `@kolu/surface-daemon-supervisor` and the per-connect `system.version` handshake. So R9 is an ssh driver behind shipped seams; R8 makes kolu serve the one shared surface; R7 *completed* the surface mirror (<PrLink pr={1505} />); R6 grew pulam's fs/git (<PrLink pr={1506} />); R5 added the one wire signal that distinguishes a slow-subscriber drop from a PTY exit (<PrLink pr={1588} />).
 
 ## Implementation details
 
-The whole epic as one tree — bird's-eye, with each row's right-hand link a **drill-down** to where that phase lives (the child notes for shipped branches, the `###` sections below for the rest). **R1–R4 (incl. pulam-web's framework) · R6 · R7 are shipped; R5 · R8–R10 remain.**
+The whole epic as one tree — bird's-eye, with each row's right-hand link a **drill-down** to where that phase lives (the child notes for shipped branches, the `###` sections below for the rest). **R1–R7 (incl. pulam-web's framework) are shipped; R8–R10 remain.**
 
 export const PT = [
   { d: 0, g: "✓", c: "ship", l: "R1 · Foundation — seam · framework · engine", m: "#981·984·1004" },
@@ -124,7 +124,7 @@ export const PT = [
   { d: 2, g: "✓", c: "ship", l: "R-pulamweb-2 · framework — provision · fan-out · list", m: "#1524", h: "pulam-web.html#r-pulamweb-2" },
   { d: 2, g: "✓", c: "ship", l: "R-pulamweb-3 · agent dashboard — agents by state", m: "#1535", h: "pulam-web.html#r-pulamweb-3" },
   { d: 2, g: "○", c: "prog", l: "R-pulamweb-4 · git status — dirty cell + drill-in (live file tree)", m: "after R8 · proves the remote leg", h: "pulam-web.html#r-pulamweb-4" },
-  { d: 0, g: "○", c: "prog", l: "R5 · Overflow-recovery loop (independent — any time)", m: "defined ↓", h: "#r5" },
+  { d: 0, g: "✓", c: "ship", l: "R5 · Overflow-recovery loop — typed overflow frame, web tier re-attaches", m: "#1588", h: "#r5" },
   { d: 0, g: "✓", c: "ship", l: "R-dock-unify · kolu's Dock reads the shared agentProjection (consistency)", m: "#1541", h: "#r-dock-unify" },
   { d: 0, g: "✓", c: "ship", l: "R-pip-unify · one status pip — Dock + dashboard render the same icon", m: "#1551", h: "#r-pip-unify" },
   { d: 0, g: "✓", c: "ship", l: "R-activity-merge · merge the activity dot into the state pip, one shared indicator", m: "#1555", h: "#r-activity-merge" },
@@ -138,16 +138,16 @@ export const PT = [
 
 <PhaseTree title="ROADMAP — remote terminals over ssh (#951)" phases={PT} />
 
-Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now the [R8 surface unification](#r8)** — collapsing the *"one impl, two shapes"* state R6 left: kolu still serves its **own** `koluSurface` fs/git streams + its own copy of awareness, duplicating the `terminalWorkspaceSurface` the daemon serves. R8 drops the duplication so kolu serves the **one** surface. Pierre's de-gating unblocked it (R8 no longer waits on a renderer proof), and kolu already consumes value-bearing streams in-process, so it's done **directly in kolu** — no standalone proof first. **[R-pulamweb-4](pulam-web.html#r-pulamweb-4)** (the live git drill-in) then *consumes* that unified surface over the mirror, proving the **remote** leg for R9. In parallel: **R5** (overflow) is independent; **R9** is blocked-on R8 + R-pulamweb-4; **R10** needs R9. The web-UI thread that single-sources the per-row indicators has now landed in full: **[R-dock-unify](#r-dock-unify)** (<PrLink pr={1541} />) made the *semantics* one source (kolu's Dock is the third consumer of the shared `agentProjection`), **[R-pip-unify](#r-pip-unify)** (<PrLink pr={1551} />) made the *state pip* one component, and **[R-activity-merge](#r-activity-merge)** (<PrLink pr={1555} />) merged the **last two drifted axes** — the live-activity dot and the unread alert — into that same `StatePip` as a sweeping green ring + an amber corner badge, so each row now renders one indicator from one leaf. The live state-desync users actually see is now **[R9a](#r9a)** — localhost dedup, one sensor set (these semantic/visual unifies sit *downstream* of it and can't fix a two-derivation problem). Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
+Everything marked ✓ is shipped (PRs linked). pulam-web's **agent dashboard** ([R-pulamweb-3](pulam-web.html#r-pulamweb-3)) just shipped (#1535) — every agent across the fleet, by state, a render layer on already-shipped data. **The live edge is now the [R8 surface unification](#r8)** — collapsing the *"one impl, two shapes"* state R6 left: kolu still serves its **own** `koluSurface` fs/git streams + its own copy of awareness, duplicating the `terminalWorkspaceSurface` the daemon serves. R8 drops the duplication so kolu serves the **one** surface. Pierre's de-gating unblocked it (R8 no longer waits on a renderer proof), and kolu already consumes value-bearing streams in-process, so it's done **directly in kolu** — no standalone proof first. **[R-pulamweb-4](pulam-web.html#r-pulamweb-4)** (the live git drill-in) then *consumes* that unified surface over the mirror, proving the **remote** leg for R9. In parallel: **R5** (overflow) shipped independently (<PrLink pr={1588} />); **R9** is blocked-on R8 + R-pulamweb-4; **R10** needs R9. The web-UI thread that single-sources the per-row indicators has now landed in full: **[R-dock-unify](#r-dock-unify)** (<PrLink pr={1541} />) made the *semantics* one source (kolu's Dock is the third consumer of the shared `agentProjection`), **[R-pip-unify](#r-pip-unify)** (<PrLink pr={1551} />) made the *state pip* one component, and **[R-activity-merge](#r-activity-merge)** (<PrLink pr={1555} />) merged the **last two drifted axes** — the live-activity dot and the unread alert — into that same `StatePip` as a sweeping green ring + an amber corner badge, so each row now renders one indicator from one leaf. The live state-desync users actually see is now **[R9a](#r9a)** — localhost dedup, one sensor set (these semantic/visual unifies sit *downstream* of it and can't fix a two-derivation problem). Each row drills into its detail — the child notes for shipped branches, the `###` sections below for the rest.
 
 <a id="r5"></a>
 
 ### R5 — overflow-recovery loop
 
-<Phase id="R5" name="overflow-recovery loop" status="todo" />
-*Independent — needs nothing, blocks nothing; landable any time.*
+<Phase id="R5" name="overflow-recovery loop" status="shipped" links={[{ label: "#1588", href: "https://github.com/juspay/kolu/pull/1588" }]} />
+*Independent — needed nothing, blocked nothing; landed on its own.*
 
-~130 LoC w/ tests; the next step. kaval sheds a slow attach subscriber by *ending* its iterator, today indistinguishable on the wire from a PTY exit, so the client treats the drop as terminal and freezes scrollback (`onOverflow` exists but is unwired). Thread a typed *overflow → re-attach* signal through the attach contract so the client re-attaches for a **fresh snapshot** (reusing the existing `onRetry` reset), distinct from PTY-exit. **Ships independently of the remote work**: a slow subscriber is reproducible on the *local* socket, so it is CI-testable today, and the fix hardens the attach contract for *both* transports — a clean prerequisite for the remote reconnect R8 leans on. [herdr vs kolu](herdr-vs-kolu.html) flagged the same gap.
+**Shipped** (<PrLink pr={1588} />). kaval sheds a slow attach subscriber by *ending* its iterator, which was indistinguishable on the wire from a PTY exit — so the client treated the drop as terminal and froze scrollback. The attach contract (`ptyHostSurface`, bumped to 3.4) now carries a typed `overflow` control frame, emitted as the stream's last frame when the host drops a lagging subscriber, distinct from a PTY `exit`. The web tier (`terminalEndpoint/local.ts`) reads it and **re-attaches for a fresh snapshot** — reset-then-snapshot so the repaint replaces stale rows rather than double-painting — instead of freezing; kaval-tui's existing re-attach loop reads it to skip writing a dataless frame; pulam ignores it (activity is best-effort). The drop is reproducible on the *local* socket, so it is CI-tested today (`inProcessPtyHost.test.ts`, `reattachingDeltas.test.ts`), and the hardened contract is a clean prerequisite for the remote reconnect R8/R9 lean on. [herdr vs kolu](herdr-vs-kolu.html) flagged the same gap.
 
 <a id="r6"></a>
 
@@ -240,6 +240,7 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 
 ## History
 
+- **R5 shipped — overflow-recovery loop** (2026-06-26, <PrLink pr={1588} />) — the attach contract (`ptyHostSurface` 3.4) gained a typed `overflow` control frame; the web tier re-attaches for a fresh snapshot on it instead of freezing scrollback, distinct from a PTY exit. Hardens the attach contract for both transports ahead of R8/R9.
 - **Pierre de-gated; R8 unification is next** (2026-06-26) — the `@pierre/trees` swallow-emit was reproduced harmless in kolu ([#1534](https://github.com/juspay/kolu/issues/1534)), so R8 (kolu serves `terminalWorkspaceSurface`, deleting `koluSurface`) no longer waits on a renderer proof and becomes the next phase; R-pulamweb-4 moves after it (consumes the surface over the mirror).
 - **R-activity-merge** (2026-06-24, <PrLink pr={1555} />) — activity dot + unread alert merged into `StatePip`.
 - **R-pip-unify** (2026-06-23, <PrLink pr={1551} />) — one status pip via `@kolu/solid-statepip` + `@kolu/theme`.

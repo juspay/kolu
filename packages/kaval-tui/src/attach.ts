@@ -275,6 +275,12 @@ export async function runAttach(
           await tty.write(snapshot);
           attachedOnce = true;
           for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
+            // A typed `overflow` frame says the host dropped us for lagging (a
+            // slow consumer). It carries no data — break to the re-attach below
+            // rather than writing `undefined`; the inventory pre-flight then
+            // confirms the PTY is still live and we re-attach for a fresh
+            // snapshot. (Contract 3.3 and earlier never emit it.)
+            if (msg.kind === "overflow") break;
             // Backpressure-aware: tty.write resolves on drain, so a slow
             // local terminal slows this consumer rather than ballooning
             // memory. (The server side bounds its queue regardless; if we

@@ -29,10 +29,11 @@ const silentLog: Logger = {
   error: () => {},
 };
 
-function makeClient(): PtyHostClient {
+function makeClient(opts?: { dataMaxQueue?: number }): PtyHostClient {
   return createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+    dataMaxQueue: opts?.dataMaxQueue,
   }).client;
 }
 
@@ -163,6 +164,76 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
     expect(replayFrame.replayed).toBe(true);
 
     ac2.abort();
+    await client.surface.terminal.kill({ id });
+  });
+
+  it("terminalAttach yields a typed `overflow` frame when a slow subscriber is dropped", {
+    timeout: 20000,
+  }, async () => {
+    // The R5 bug: kaval sheds a slow attach subscriber by ENDING its iterator —
+    // which, before this fix, was indistinguishable on the wire from a PTY exit,
+    // so the consumer (kolu-server's web tier) treated the drop as terminal and
+    // froze scrollback instead of re-attaching. The fix surfaces a typed
+    // `overflow` control frame as the stream's last frame, so the drop is
+    // distinguishable from a graceful end. A 1-deep data queue makes the drop
+    // deterministic.
+    const client = makeClient({ dataMaxQueue: 1 });
+    const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
+
+    // Read the snapshot first — that pull starts the (lazy) source generator,
+    // so it subscribes to the data channel before we flood it. Then STOP
+    // reading: live PTY output piles into this subscriber's 1-deep queue and
+    // trips the slow-subscriber drop while we look away.
+    const ac = new AbortController();
+    const iter = (
+      await client.surface.terminalAttach.get({ id }, { signal: ac.signal })
+    )[Symbol.asyncIterator]();
+    const snap = await iter.next();
+    expect(snap.done).toBe(false);
+    if (!snap.done) expect(snap.value.kind).toBe("snapshot");
+
+    // Produce well more than one chunk of output without reading any of it.
+    for (let i = 0; i < 8; i++) {
+      await client.surface.terminal.write({
+        id,
+        data: `printf 'OVF-%s\\n' ${i}\n`,
+      });
+    }
+    // Poll the rendered mirror (a separate RPC — it does NOT drain the attach
+    // stream) until the last line lands, proving the host produced the output
+    // and so the drop has latched before we start reading.
+    let text = "";
+    for (let i = 0; i < 120; i++) {
+      ({ text } = await client.surface.terminal.getScreenText({ id }));
+      if (text.includes("OVF-7")) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(text).toContain("OVF-7");
+
+    // Drain: the contract must surface a typed `overflow` frame. Before the fix
+    // the stream simply ended here (no such frame) — the exact ambiguity the fix
+    // removes. Each pull is timeout-guarded so a regression fails loudly rather
+    // than hanging.
+    const pull = (): Promise<IteratorResult<{ kind: string }>> =>
+      Promise.race([
+        iter.next(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("overflow frame never arrived")),
+            8000,
+          ),
+        ),
+      ]);
+    const kinds: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const r = await pull();
+      if (r.done) break;
+      kinds.push(r.value.kind);
+      if (r.value.kind === "overflow") break;
+    }
+    expect(kinds).toContain("overflow");
+
+    ac.abort();
     await client.surface.terminal.kill({ id });
   });
 });

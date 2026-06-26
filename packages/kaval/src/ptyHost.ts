@@ -172,7 +172,8 @@ export interface PtyAttachment {
    *  for a brand-new PTY. */
   snapshot: string;
   /** Live output deltas after the snapshot. Ends on iterator return,
-   *  signal abort, or PTY exit. */
+   *  signal abort, PTY exit, or a slow-subscriber drop (which also fires
+   *  `attach`'s `onOverflow`, so the serving layer can tell that end apart). */
   deltas: AsyncIterable<string>;
 }
 
@@ -221,6 +222,11 @@ export interface PtyHostOptions {
   defaultScrollback?: number;
   /** Id generator (defaults to `randomUUID`). */
   generateId?: () => PtyId;
+  /** Per-attach-subscriber buffered-chunk cap for the data (attach) channel
+   *  before a slow consumer is dropped (and an `overflow` frame emitted).
+   *  Defaults to the {@link Channel} default (10,000). Lowered in tests to drive
+   *  the slow-subscriber drop deterministically. */
+  dataMaxQueue?: number;
 }
 
 /** The multi-client PTY-owner primitive. */
@@ -228,8 +234,15 @@ export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
   spawn(opts: PtySpawnOpts): PtySpawnResult;
   /** Subscribe-before-serialize: returns a race-free snapshot + delta
-   *  stream for a late-joining client. */
-  attach(id: PtyId, signal?: AbortSignal): PtyAttachment;
+   *  stream for a late-joining client. `onOverflow` fires (once) if THIS
+   *  attachment's delta subscriber is dropped for lagging past the bound — the
+   *  serving layer turns it into an `overflow` frame so the consumer re-attaches
+   *  rather than mistaking the drop for a PTY exit. */
+  attach(
+    id: PtyId,
+    signal?: AbortSignal,
+    onOverflow?: () => void,
+  ): PtyAttachment;
   /** Per-PTY cwd update stream (OSC 7). */
   subscribeCwd(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
   /** Per-PTY title update stream (OSC 0/2). */
@@ -360,6 +373,7 @@ function readForegroundPid(proc: pty.IPty): number | undefined {
 export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const { log } = opts;
   const defaultScrollback = opts.defaultScrollback ?? DEFAULT_MIRROR_SCROLLBACK;
+  const dataMaxQueue = opts.dataMaxQueue;
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
   // Bounded tombstone of exit codes for PTYs that have exited and been torn
@@ -510,7 +524,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       exitCode: undefined,
       exitWaiters: [],
       disposables: [],
-      data: new Channel<string>(),
+      data: new Channel<string>({ maxQueue: dataMaxQueue }),
       cwdChannel: new Channel<string>(),
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
@@ -663,12 +677,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.snapshotCache = undefined;
   }
 
-  function attach(id: PtyId, signal?: AbortSignal): PtyAttachment {
+  function attach(
+    id: PtyId,
+    signal?: AbortSignal,
+    onOverflow?: () => void,
+  ): PtyAttachment {
     const entry = requireEntry(id);
     // Subscribe BEFORE serializing, both synchronously: no headless parse
     // (and thus no post-parse publish) can interleave between the two, so
     // every chunk lands in exactly one of snapshot / deltas.
-    const deltas = entry.data.subscribe(signal);
+    const deltas = entry.data.subscribe(signal, onOverflow);
     // An attach whose signal is ALREADY aborted — the re-issued half of a
     // reconnect storm, whose client has gone — does zero serialize work: the
     // subscribe above already returned an empty stream, so an empty snapshot

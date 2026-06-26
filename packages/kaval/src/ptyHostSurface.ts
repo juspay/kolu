@@ -70,8 +70,13 @@ import { z } from "zod";
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
- *  is recycled on adoption rather than feeding the server unparseable marks. */
-export const PTY_HOST_CONTRACT_VERSION = "3.3";
+ *  is recycled on adoption rather than feeding the server unparseable marks.
+ *  Bumped to 3.4 (additive · minor): `terminalAttach` gained an `overflow`
+ *  control frame — emitted when the host drops a slow attach subscriber, so a
+ *  consumer re-attaches for a fresh snapshot rather than mistaking the drop for
+ *  a PTY exit. A 3.3 survivor never emits it (it falls back to the old silent
+ *  end), so it stays wire-compatible — no forced recycle. */
+export const PTY_HOST_CONTRACT_VERSION = "3.4";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -151,6 +156,15 @@ const TerminalListEntrySchema = z.object({
 const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("snapshot"), data: z.string() }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
+  // The host dropped THIS attach subscriber for exceeding its buffered-chunk
+  // cap (a slow consumer), then ended the stream. A pure CONTROL frame (no
+  // `data`) — distinct from a PTY exit (the `exit` stream) and from a graceful
+  // end, so a consumer re-attaches for a fresh snapshot instead of treating the
+  // drop as terminal and freezing scrollback. Yielded as the LAST frame before
+  // the stream ends. Added in contract 3.4 (additive · minor): a 3.3 survivor
+  // never emits it, so a consumer that predates the variant simply never sees
+  // one — wire-compatible.
+  z.object({ kind: z.literal("overflow") }),
 ]);
 
 /** A membership change in the host's live-PTY set — the host-global inventory

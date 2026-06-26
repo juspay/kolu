@@ -88,6 +88,11 @@ export interface InProcessPtyHostDeps {
    *  `kolu-server` runtime-path import; surfaced to clients on `system.info`
    *  so they can name init files and point `argv`/`env` at their paths. */
   rcDir: string;
+  /** Per-attach-subscriber buffered-chunk cap before a slow consumer is dropped
+   *  (and an `overflow` frame emitted). Forwarded to {@link createPtyHost}'s
+   *  `dataMaxQueue`; defaults to the {@link Channel} default. Lowered in tests
+   *  to drive the drop deterministically. */
+  dataMaxQueue?: number;
 }
 
 /** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
@@ -99,7 +104,7 @@ export interface InProcessPtyHostDeps {
  *  one host per call. */
 export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, rcDir } = deps;
-  const host = createPtyHost({ log });
+  const host = createPtyHost({ log, dataMaxQueue: deps.dataMaxQueue });
   const startedAt = Date.now();
 
   // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
@@ -121,11 +126,20 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       terminalAttach: {
         source: async function* (input, signal) {
           requirePty(input.id as PtyId);
-          const att = host.attach(input.id, signal);
+          // `overflow` flips if THIS subscriber is dropped for lagging past the
+          // bound. The deltas then end (the drop pushes CLOSE), so we surface a
+          // typed `overflow` frame as the LAST frame — distinct from a graceful
+          // end (PTY exit / abort), which yields no such frame. A consumer reads
+          // it as "re-attach for a fresh snapshot", not "the PTY is gone".
+          let overflow = false;
+          const att = host.attach(input.id, signal, () => {
+            overflow = true;
+          });
           yield { kind: "snapshot" as const, data: att.snapshot };
           for await (const data of att.deltas) {
             yield { kind: "delta" as const, data };
           }
+          if (overflow) yield { kind: "overflow" as const };
         },
       },
       cwd: {
