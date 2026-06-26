@@ -4,17 +4,22 @@
  * unit-testable without a socket. `main.ts` is the thin glue that resolves the
  * id, reads stdin, issues `terminal.write` for each planned chunk, and prints.
  *
- * `send` is the *write* half of driving a program in a terminal — typically a
- * prompt to a Claude Code / Codex / opencode agent. Two details make it correct
- * for those agents rather than just for one-liners:
- *   - Multiline text is wrapped in a BRACKETED PASTE so the agent's input box
- *     takes it as ONE block instead of submitting line-by-line (each `\n` would
- *     otherwise fire a half-written prompt). Paste is auto: on for multiline or
- *     piped-stdin text, off for a single-line argument; `--paste`/`--no-paste`
- *     force it.
- *   - The submit Enter after a paste is a SEPARATE write from the paste block.
- *     Claude Code races a carriage return that rides inside the same write as the
- *     paste terminator, so the `\r` is emitted on its own, after `\x1b[201~`.
+ * `send` writes EXACTLY what the caller asked for — the literal text, plus any
+ * explicit `--key`s — and nothing more. It does NOT append a submit Enter on its
+ * own: a prompt is sent only when you say so, with `kaval-tui send <id> --key
+ * Enter`. Keeping submit explicit avoids two traps an implicit Enter fell into:
+ * it's invisible magic the caller can't time, and against Claude Code's
+ * bracketed-paste / debounced input it raced the paste and was silently dropped —
+ * so `send` would report success while the prompt sat staged, unsubmitted. Make
+ * submitting its own `send --key Enter` (a separate write, after the text has
+ * settled) and the race is gone too.
+ *
+ * The one transformation `send` does apply is BRACKETED PASTE for multiline or
+ * piped-stdin text: the agent's input box takes it as ONE block instead of
+ * submitting line-by-line (each `\n` would otherwise fire a half-written prompt).
+ * It is auto — on for multiline / stdin, off for a single-line argument — and
+ * `--paste` / `--no-paste` force it; the `paste` field of the result makes it
+ * visible, never silent.
  */
 import {
   BRACKETED_PASTE_END,
@@ -23,9 +28,6 @@ import {
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
 import { shortId } from "./render.ts";
-
-/** The carriage return that submits a line — what pressing Enter sends a PTY. */
-const CR = "\r";
 
 /** A named key (`Escape`, `Up`, `Enter`, case-insensitive) or a modifier chord
  *  (`C-c`, `M-b`) → its raw bytes; `undefined` when unrecognized. The named-key
@@ -46,24 +48,23 @@ export function encodeKey(name: string): string | undefined {
 }
 
 /** The ordered byte writes a `send` issues, plus what it actually did (for the
- *  human/JSON line). `enter`/`paste` are the EFFECTIVE values — text-gated and
- *  paste-auto-resolved — not the raw flags. */
+ *  human/JSON line). `paste` is the EFFECTIVE value — text-gated and
+ *  paste-auto-resolved — not the raw flag. */
 export interface SendPlan {
   /** Each element is one `terminal.write` payload, issued in order. */
   writes: string[];
-  /** Total UTF-8 bytes across every write (markers + keys included). */
+  /** Total UTF-8 bytes across every write (paste markers + keys included). */
   bytes: number;
-  enter: boolean;
   paste: boolean;
 }
 
-/** Plan the writes for a send. Pure: the text, the flags, whether the text came
- *  from stdin, and the already-encoded `keyData` are passed in. Paste is
- *  resolved here (auto unless `paste` is set); the submit Enter is split into its
- *  own write after a paste block; named keys are appended last, in order. */
+/** Plan the writes for a send. Pure: the text, the paste flag, whether the text
+ *  came from stdin, and the already-encoded `keyData` are passed in. Paste is
+ *  resolved here (auto unless `paste` is set); the text goes first, then the keys
+ *  verbatim. No submit Enter is ever synthesized — the caller sends one as an
+ *  explicit `--key Enter`, which lands in `keyData`. */
 export function planSend(opts: {
   text: string;
-  enter: boolean;
   paste: boolean | undefined;
   fromStdin: boolean;
   keyData: string;
@@ -73,34 +74,35 @@ export function planSend(opts: {
   // stdin is bracketed so it lands as one block. An explicit flag overrides.
   const paste =
     hasText && (opts.paste ?? (opts.fromStdin || opts.text.includes("\n")));
-  const enter = hasText && opts.enter;
 
   const writes: string[] = [];
   if (hasText) {
-    if (paste) {
-      writes.push(`${BRACKETED_PASTE_START}${opts.text}${BRACKETED_PASTE_END}`);
-      // The submit Enter is its OWN write, after the paste terminator — a `\r`
-      // riding inside the paste write races Claude Code's paste handling.
-      if (enter) writes.push(CR);
-    } else {
-      writes.push(enter ? `${opts.text}${CR}` : opts.text);
-    }
+    writes.push(
+      paste
+        ? `${BRACKETED_PASTE_START}${opts.text}${BRACKETED_PASTE_END}`
+        : opts.text,
+    );
   }
+  // Keys are their own write, after the text — so a `--key Enter` submit lands
+  // after the (possibly pasted) text rather than riding inside its write.
   if (opts.keyData.length > 0) writes.push(opts.keyData);
 
   const bytes = writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0);
-  return { writes, bytes, enter, paste };
+  return { writes, bytes, paste };
 }
 
 /** The human one-liner (stderr trailer) — `sent 14 bytes to a1b2c3d4 · pasted ·
- *  ⏎`. The `· pasted` / `· ⏎` marks appear only when those happened. */
+ *  keys: Enter`. The `· pasted` / `· keys: …` marks appear only when those
+ *  happened, so the line never claims an action `send` didn't take. */
 export function formatSend(result: {
   id: string;
   bytes: number;
-  enter: boolean;
   paste: boolean;
+  keys: readonly string[];
 }): string {
   const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
-  const marks = `${result.paste ? " · pasted" : ""}${result.enter ? " · ⏎" : ""}`;
-  return `${base}${marks}`;
+  const pasteMark = result.paste ? " · pasted" : "";
+  const keysMark =
+    result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
+  return `${base}${pasteMark}${keysMark}`;
 }

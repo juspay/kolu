@@ -36,8 +36,8 @@ const commands = [
   },
   {
     cmd: "kaval-tui send <id> [text...]",
-    flags: "--no-enter · --paste/--no-paste · --key <name> · --json",
-    what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Submits with Enter by default (--no-enter stages it); multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key sends named/control keys (Escape, C-c, Up…) in order after the text. --json emits { id, bytes, enter, paste }.",
+    flags: "--paste/--no-paste · --key <name> · --json",
+    what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Sends exactly the text (and any --key) you pass — no implicit Enter; submit as a separate step with `send <id> --key Enter`. Multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key also sends control keys (Escape, C-c, Up…) after the text. --json emits { id, bytes, paste, keys }.",
   },
   {
     cmd: "kaval-tui kill <id>",

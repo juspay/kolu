@@ -48,75 +48,56 @@ describe("encodeKey — named keys and modifier chords", () => {
 });
 
 describe("planSend — building the ordered writes", () => {
-  it("a single-line argument types literally and submits with Enter", () => {
+  it("a single-line argument is written literally — NO implicit Enter", () => {
     const plan = planSend({
       text: "fix the parser",
-      enter: true,
-      paste: undefined,
-      fromStdin: false,
-      keyData: "",
-    });
-    expect(plan.writes).toEqual(["fix the parser\r"]);
-    expect(plan.paste).toBe(false);
-    expect(plan.enter).toBe(true);
-    expect(plan.bytes).toBe(Buffer.byteLength("fix the parser\r"));
-  });
-
-  it("--no-enter leaves the text on the line, unsubmitted", () => {
-    const plan = planSend({
-      text: "fix the parser",
-      enter: false,
       paste: undefined,
       fromStdin: false,
       keyData: "",
     });
     expect(plan.writes).toEqual(["fix the parser"]);
-    expect(plan.enter).toBe(false);
+    expect(plan.paste).toBe(false);
+    expect(plan.bytes).toBe(Buffer.byteLength("fix the parser"));
   });
 
-  it("multiline text auto-pastes, with the submit Enter as a SEPARATE write", () => {
+  it("multiline text auto-pastes as one block, NO trailing Enter", () => {
     const text = "line one\nline two";
     const plan = planSend({
       text,
-      enter: true,
       paste: undefined,
       fromStdin: false,
       keyData: "",
     });
-    expect(plan.writes).toEqual([`${START}${text}${END}`, "\r"]);
+    expect(plan.writes).toEqual([`${START}${text}${END}`]);
     expect(plan.paste).toBe(true);
-    expect(plan.enter).toBe(true);
   });
 
   it("piped stdin auto-pastes even when single-line", () => {
     const plan = planSend({
       text: "do the thing",
-      enter: true,
       paste: undefined,
       fromStdin: true,
       keyData: "",
     });
-    expect(plan.writes).toEqual([`${START}do the thing${END}`, "\r"]);
+    expect(plan.writes).toEqual([`${START}do the thing${END}`]);
     expect(plan.paste).toBe(true);
   });
 
-  it("--no-paste forces literal even for multiline (submits line-by-line)", () => {
+  it("--no-paste forces literal even for multiline", () => {
     const text = "a\nb";
     const plan = planSend({
       text,
-      enter: true,
       paste: false,
       fromStdin: false,
       keyData: "",
     });
-    expect(plan.writes).toEqual([`${text}\r`]);
+    expect(plan.writes).toEqual([text]);
     expect(plan.paste).toBe(false);
   });
 
   it("--paste forces a bracket wrap for a single-line argument", () => {
     const plan = planSend({
       text: "hi",
-      enter: false,
       paste: true,
       fromStdin: false,
       keyData: "",
@@ -125,27 +106,24 @@ describe("planSend — building the ordered writes", () => {
     expect(plan.paste).toBe(true);
   });
 
-  it("appends key data after the text, in order", () => {
+  it("text then a --key Enter submit: text first, key its own write", () => {
     const plan = planSend({
       text: "yes",
-      enter: true,
       paste: undefined,
       fromStdin: false,
-      keyData: "\x1b", // an Escape sent after
+      keyData: "\r", // `--key Enter`
     });
-    expect(plan.writes).toEqual(["yes\r", "\x1b"]);
+    expect(plan.writes).toEqual(["yes", "\r"]);
   });
 
-  it("keys-only (no text) sends just the key bytes, no enter/paste", () => {
+  it("keys-only (no text) sends just the key bytes", () => {
     const plan = planSend({
       text: "",
-      enter: true, // ignored — no text to submit
       paste: undefined,
       fromStdin: false,
       keyData: "\x03",
     });
     expect(plan.writes).toEqual(["\x03"]);
-    expect(plan.enter).toBe(false);
     expect(plan.paste).toBe(false);
     expect(plan.bytes).toBe(1);
   });
@@ -154,15 +132,12 @@ describe("planSend — building the ordered writes", () => {
     const text = "café\nlatte"; // é is 2 bytes, the \n forces paste
     const plan = planSend({
       text,
-      enter: true,
       paste: undefined,
       fromStdin: false,
-      keyData: "\x03",
+      keyData: "\r",
     });
     const expected =
-      Buffer.byteLength(`${START}${text}${END}`) +
-      Buffer.byteLength("\r") +
-      Buffer.byteLength("\x03");
+      Buffer.byteLength(`${START}${text}${END}`) + Buffer.byteLength("\r");
     expect(plan.bytes).toBe(expected);
   });
 });
@@ -173,10 +148,21 @@ describe("formatSend — the human trailer", () => {
       formatSend({
         id: "a1b2c3d4-1111-2222-3333-444455556666",
         bytes: 14,
-        enter: true,
         paste: true,
+        keys: ["Enter"],
       }),
-    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · ⏎");
+    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
+  });
+
+  it("lists multiple keys in order", () => {
+    expect(
+      formatSend({
+        id: "a1b2c3d4-1111-2222-3333-444455556666",
+        bytes: 2,
+        paste: false,
+        keys: ["Escape", "C-c"],
+      }),
+    ).toBe("sent 2 bytes to a1b2c3d4 · keys: Escape, C-c");
   });
 
   it("omits marks that did not happen and singularizes one byte", () => {
@@ -184,8 +170,8 @@ describe("formatSend — the human trailer", () => {
       formatSend({
         id: "a1b2c3d4-1111-2222-3333-444455556666",
         bytes: 1,
-        enter: false,
         paste: false,
+        keys: [],
       }),
     ).toBe("sent 1 byte to a1b2c3d4");
   });

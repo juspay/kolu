@@ -34,35 +34,48 @@ on pulam's surface, never on kaval's raw pty contract. So `send`/`snapshot` are
 
 ```sh
 id=$(kaval-tui create -- claude --json | jq -r .id)            # spawn the inner agent
-kaval-tui send  "$id" "refactor the parser to use a lexer"     # prompt it (submitted)
+kaval-tui send  "$id" "refactor the parser to use a lexer"     # TYPE the prompt
+kaval-tui send  "$id" --key Enter                              # SUBMIT it (its own step)
 pulam-tui  wait "$id" --until working  --timeout 30000         # it picked the prompt up…
 pulam-tui  wait "$id" --until awaiting,waiting --timeout 600000 # …and finished its turn
 kaval-tui snapshot "$id" | tail -40                            # read the reply
-kaval-tui send  "$id" "now add tests for it"                   # follow up — loop
+kaval-tui send  "$id" "now add tests for it"; kaval-tui send "$id" --key Enter  # loop
 ```
 
-Four leaf commands: **create** (spawn) · **send** (prompt) · **wait**
-(done-signal) · **snapshot** (read). `create`/`send`/`snapshot`/`kill` are
-`kaval-tui`; `wait`/`status`/`watch` are `pulam-tui`.
+Leaf commands: **create** (spawn) · **send** (type) · **send --key Enter**
+(submit) · **wait** (done-signal) · **snapshot** (read).
+`create`/`send`/`snapshot`/`kill` are `kaval-tui`; `wait`/`status`/`watch` are
+`pulam-tui`. **Typing and submitting are two separate `send`s** — see below.
 
-## `kaval-tui send` — prompt the agent
+## `kaval-tui send` — type, then submit (two steps)
 
-`kaval-tui send <id> [text...]` writes input to the terminal. It **submits with
-Enter by default** — a prompt isn't sent until Enter, and that's the headline
-case. Specifics:
+`kaval-tui send <id> [text...]` writes input to the terminal — **exactly the text
+(and any `--key`s) you pass, with NO implicit Enter**. It types; it does not
+submit. **Submitting a prompt is its own second `send`:**
 
-- **Don't append `\n` yourself** to submit — the default Enter does it. Use
-  `--no-enter` when you want to stage text on the line without sending (e.g. to
-  add a `--key` afterward).
+```sh
+kaval-tui send "$id" "fix the failing test in parser.ts"   # 1. type the prompt
+kaval-tui send "$id" --key Enter                           # 2. submit it
+```
+
+**Do this as two separate `send` commands — not `send "text" --key Enter` in one
+call.** The separation is load-bearing: an Enter sent in the same breath as the
+text races Claude Code's bracketed-paste / debounced input handling — it arrives
+before the pasted text has registered and is **silently dropped**, leaving the
+prompt staged on the `❯` line while `send` reports success. (`wait --until
+working` then times out — your only clue.) A standalone follow-up `send --key
+Enter` lands after the text has settled, so it actually submits.
+
+Specifics:
+
 - **Multiline prompts and piped stdin go as one bracketed paste**, so they land
-  in the input box as a block instead of submitting line-by-line; a single submit
-  Enter follows. This is automatic (`--paste` / `--no-paste` force it). For a big
-  prompt, pipe it — `cat task.md | kaval-tui send "$id"` — and skip shell-quoting
-  hell.
-- **`--key <name>`** (repeatable, sent after the text) for control keys:
-  `Escape`, `C-c`, `Enter`, `Up`/`Down`/`Left`/`Right`, `Tab`, `Home`, `End`,
-  `Backspace`, `M-<char>`.
-- **`--json`** → `{ id, bytes, enter, paste }` to confirm what was written.
+  in the input box as a block instead of submitting line-by-line. Automatic
+  (`--paste` / `--no-paste` force it). For a big prompt, pipe it —
+  `cat task.md | kaval-tui send "$id"` — then `send "$id" --key Enter`.
+- **`--key <name>`** (repeatable, sent after the text) is both the submit channel
+  (`Enter`) and the control channel: `Escape`, `C-c`, `Enter`,
+  `Up`/`Down`/`Left`/`Right`, `Tab`, `Home`, `End`, `Backspace`, `M-<char>`.
+- **`--json`** → `{ id, bytes, paste, keys }` to confirm what was written.
 
 **`send` is blind** — it writes whether or not the agent is ready for input.
 Always pair it with `wait` or `snapshot` so you don't fire a prompt into a
@@ -133,6 +146,10 @@ you can still `send` and poll `snapshot` by hand.
 
 Before calling a driven turn done:
 
+- You **submitted with a separate `send --key Enter`** (not an implicit Enter,
+  not `send "text" --key Enter` in one call), and `wait --until working` confirmed
+  the turn actually started — a prompt left staged on the `❯` line is the #1
+  failure here.
 - The inner agent's **reply is actually in the `snapshot`** — not an empty box
   (the stale-state race) or a half-rendered stream.
 - **Every `wait` carried a `--timeout`** so a wedged agent fails loudly instead

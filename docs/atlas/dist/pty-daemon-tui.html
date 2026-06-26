@@ -157,7 +157,7 @@
 <tr>
 <td><code>kaval-tui send &lt;id&gt; [text]</code></td>
 <td><code>terminal.write({id, data})</code></td>
-<td>One-shot, non-interactive: write input to a PTY (typically a prompt to a Claude Code / Codex / opencode agent), then exit. Submits with Enter by default (<code>--no-enter</code> stages it); multiline or piped-stdin text is wrapped in a <strong>bracketed paste</strong> (with the submit Enter as a <em>separate</em> write) so it lands as a block, not line-by-line; <code>--key</code> sends named/control keys (Escape, C-c, arrows) after the text. The <em>write</em> half of the <code>create</code> → <code>send</code> → <code>snapshot</code> loop one agent uses to drive another.</td>
+<td>One-shot, non-interactive: write input to a PTY (typically a prompt to a Claude Code / Codex / opencode agent), then exit. Sends <strong>exactly the text (and any <code>--key</code>s) — no implicit Enter</strong>; submit as its own step, <code>send &lt;id&gt; --key Enter</code> (a separate write after the text settles, dodging a race against Claude Code’s bracketed-paste input). Multiline or piped-stdin text is wrapped in a <strong>bracketed paste</strong> so it lands as a block, not line-by-line; <code>--key</code> also sends control keys (Escape, C-c, arrows) after the text. The <em>write</em> half of the <code>create</code> → <code>send</code> → <code>send --key Enter</code> → <code>snapshot</code> loop one agent uses to drive another.</td>
 </tr>
 <tr>
 <td><code>kaval-tui kill &lt;id&gt;</code></td>

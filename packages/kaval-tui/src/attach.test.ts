@@ -308,19 +308,19 @@ describe("send — over the same real unix socket", () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-send-"));
     const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
 
-    // The SAME plan `cmdSend` builds — a single-line argument types literally and
-    // submits with Enter. `$((…))` keeps the marker out of the echoed command
-    // line, so a screen match proves the shell really ran the sent input (not
-    // that the bytes were merely echoed). Drive `terminal.write` per planned
-    // chunk, exactly as the dispatch does, so this covers the write round-trip.
+    // The SAME plan `cmdSend` builds — the literal text plus an explicit
+    // `--key Enter` to submit (`keyData: "\r"`), since `send` never adds an Enter
+    // on its own. `$((…))` keeps the marker out of the echoed command line, so a
+    // screen match proves the shell really ran the sent input (not that the bytes
+    // were merely echoed). Drive `terminal.write` per planned chunk, exactly as
+    // the dispatch does, so this covers the write round-trip.
     const plan = planSend({
       text: "echo SENDMARK-$((6 * 7))",
-      enter: true,
       paste: undefined,
       fromStdin: false,
-      keyData: "",
+      keyData: "\r", // an explicit `--key Enter`
     });
-    expect(plan.writes).toEqual(["echo SENDMARK-$((6 * 7))\r"]);
+    expect(plan.writes).toEqual(["echo SENDMARK-$((6 * 7))", "\r"]);
     for (const data of plan.writes) {
       await conn.client.surface.terminal.write({ id, data });
     }
