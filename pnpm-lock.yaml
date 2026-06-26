@@ -1420,6 +1420,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../../../surface-app
       '@kolu/surface-nix-host':
         specifier: workspace:*
         version: link:../../../surface-nix-host

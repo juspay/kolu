@@ -64,6 +64,16 @@ export {
   createSocketStatus,
   type SurfaceConnectionStatus,
 } from "./socketStatus";
+// The single minter of a `LiveSignal` — wires the half-open watchdog AND brands
+// the liveness accessor in one call. `connectSurface`/`connectSurfaces` wrap it;
+// a hand-built `surfaceClient + websocketLink` (an example, or kolu's combined
+// `wire.ts`) calls it directly to mint the `{ live }` its client requires.
+export {
+  createLiveSignal,
+  type CreateLiveSignalOptions,
+  type LiveSignalHandle,
+  type WatchableSocket,
+} from "./createLiveSignal";
 
 /** The live relationship to the server this client is bound to. */
 export type ConnectionStatus = "live" | "reconnecting" | "restarted" | "down";

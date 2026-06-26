@@ -27,6 +27,7 @@ import { z } from "zod";
 import { defineSurface } from "../define";
 import { websocketLink } from "../links/websocket";
 import type { SurfaceHealth } from "./health";
+import { brandLiveSignal } from "./liveSignal";
 import {
   surfaceClient,
   surfaceClients,
@@ -469,38 +470,53 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
   });
 });
 
-describe("a half-openable (websocket) link with no `{ live }` CRASHES — the transport leg can't silently default true", () => {
+describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal` — the half-open-blind leg is UNSPELLABLE", () => {
   // The round-5-found relocation, one seam upstream of the dot: `surfaceClient`'s
   // transport leg used to SILENTLY default to constant-`true` when `{ live }` was
-  // omitted. That default is honest only for an in-process link that can't
-  // half-open; over a websocket (which CAN half-open — the socket stays `open`
-  // while no bytes flow) it paints a green/ready dot over a dead backend↔remote
-  // link (the #1564 lie). A hand-built `surfaceClient(surface, websocketLink(ws))`
-  // is the exact "minimal example" a future viewer would write. It must now
-  // CRASH, not silently lie — there is no constant-true fallback to forget.
+  // omitted; round 5.2 made omitting it crash. But a TRUTHY-but-half-open-blind
+  // `{ live }` — `() => true`, or an open/close-only `() => socketStatus() ===
+  // "live"` — still read `live` forever over a silently dead websocket, so it was
+  // a lie a future viewer could still SPELL. Now the guard requires a `LiveSignal`,
+  // the brand only `createLiveSignal` mints (THROUGH the half-open watchdog it
+  // wires). So a bare `() => true` is refused exactly like a missing one — the lie
+  // can't be spelled, not merely not-rendered.
 
-  it("surfaceClient over a bare websocketLink throws, naming connectSurface / `{ live }`", () => {
+  it("surfaceClient over a bare websocketLink throws, naming connectSurface / the cure", () => {
     const link = websocketLink(fakeWs());
     expect(() => surfaceClient(surface, link)).toThrow(
       /websocket link can silently half-open/,
     );
-    // The message points at the cure (the turnkey seams / a real watchdog).
+    // The message points at the cure (the turnkey seams / `createLiveSignal`).
     expect(() => surfaceClient(surface, link)).toThrow(/connectSurface/);
   });
 
-  it("surfaceClient over a websocketLink WITH `{ live }` is accepted — the watchdog signal is the cure", () => {
+  it("surfaceClient over a websocketLink with a BARE (unbranded) `{ live }` STILL throws — a half-open-blind signal is refused even though it's truthy", () => {
     const link = websocketLink(fakeWs());
+    // `() => true` is the canonical half-open-blind signal: truthy forever, blind
+    // to a silently dead socket. Round 5.2 would have accepted it (it only checked
+    // presence); the brand refuses it.
+    expect(() => surfaceClient(surface, link, { live: () => true })).toThrow(
+      /watchdog-backed `LiveSignal`/,
+    );
+  });
+
+  it("surfaceClient over a websocketLink with a BRANDED `LiveSignal` is accepted — the watchdog-backed brand is the cure", () => {
+    const link = websocketLink(fakeWs());
+    // `brandLiveSignal` stands in for the brand `createLiveSignal` mints after
+    // wiring the watchdog (the test can't run a real heartbeat over `fakeWs`).
     expect(() =>
-      surfaceClient(surface, link, { live: () => true }),
+      surfaceClient(surface, link, { live: brandLiveSignal(() => true) }),
     ).not.toThrow();
   });
 
-  it("surfaceClients (the multi-surface bundle) over a bare websocketLink throws too — every sibling would otherwise default true", () => {
+  it("surfaceClients (the multi-surface bundle) refuses a bare or unbranded `{ live }`, accepts a branded one", () => {
     const link = websocketLink(fakeWs());
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
       surfaceClients(link as any, { a: surface, b: surface }),
     ).toThrow(/websocket link can silently half-open/);
+    // Unbranded `{ live }` over the combined socket is the green-over-dead lie for
+    // EVERY sibling — refused.
     expect(() =>
       surfaceClients(
         // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
@@ -508,17 +524,31 @@ describe("a half-openable (websocket) link with no `{ live }` CRASHES — the tr
         { a: surface, b: surface },
         { live: () => true },
       ),
+    ).toThrow(/watchdog-backed `LiveSignal`/);
+    expect(() =>
+      surfaceClients(
+        // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
+        link as any,
+        { a: surface, b: surface },
+        { live: brandLiveSignal(() => true) },
+      ),
     ).not.toThrow();
   });
 
-  it("a direct/in-process link (not half-openable) is accepted with NO `{ live }` — constant-true is honest by construction there", () => {
+  it("a direct/in-process link (not half-openable) is accepted with NO `{ live }` — and with a plain accessor too — constant-true is honest there", () => {
     // A plain stub link stands in for `directLink`/`stdioLink`: it was never
-    // recorded in the half-open set, so the constant-`true` transport leg stays
-    // the legitimate default (an in-process transport can't silently half-open).
+    // recorded in the half-open set, so the brand is NOT required — an in-process
+    // transport can't silently half-open, so any `{ live }` (or none) is honest.
     const direct = { surface: { conn: { get: once({ state: "ok" }) } } };
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: stub direct link.
       surfaceClient(surface, direct as any),
+    ).not.toThrow();
+    // A plain (unbranded) accessor is fine over a direct link — the brand gates
+    // only half-openable links.
+    expect(() =>
+      // biome-ignore lint/suspicious/noExplicitAny: stub direct link.
+      surfaceClient(surface, direct as any, { live: () => true }),
     ).not.toThrow();
   });
 });

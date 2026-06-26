@@ -5,9 +5,10 @@
  * The multi-surface counterpart to `connectSurface`: where that builds one
  * `surfaceClient` over one socket, this builds a `surfaceClients` BUNDLE (drishti's
  * control plane multiplexes `admin` + `surfaceApp` over a single transport) and
- * wires the SAME default-on heartbeat — one socket, one `createSocketStatus`, one
- * `createHeartbeat` probing the framework-reserved `system.live` round-trip on the
- * first sibling. So a multi-surface app gets half-open detection BY CONSTRUCTION,
+ * wires the SAME default-on watchdog — one socket, one `createLiveSignal` (which
+ * derives the transport status, wires the half-open heartbeat probing the
+ * framework-reserved `system.live` round-trip on the first sibling, AND mints the
+ * branded `live`). So a multi-surface app gets half-open detection BY CONSTRUCTION,
  * exactly like a single-surface one — instead of hand-rolling `createSurfaceSocket`
  * → `websocketLink` → `surfaceClients` and (the step the hand-built path forgot) a
  * `createHeartbeat`. The combined fact folds via {@link surfaceClientsHealth}, and
@@ -33,17 +34,13 @@ import {
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
 import {
-  createHeartbeat,
   createSurfaceSocket,
   type HeartbeatConfig,
-  normalizeHeartbeat,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
-import {
-  createSocketStatus,
-  type SurfaceConnectionStatus,
-} from "./socketStatus";
+import { createLiveSignal } from "./createLiveSignal";
+import type { SurfaceConnectionStatus } from "./socketStatus";
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -93,36 +90,36 @@ export function connectSurfaces<
 >(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E> {
   const { surfaces, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
-  // Derive transport `status` BEFORE the clients so the one socket's liveness
-  // feeds every sibling's `health().live` — the leg `surfaceClientsHealth`
-  // AND-reduces, so a dead combined socket flips the merged fact not-live.
-  const status = createSocketStatus(ws, {
+  // biome-ignore lint/suspicious/noExplicitAny: the combined link's `.rpc` is too complex to represent generically (TS2590); the scoped per-sibling specs carry call-site safety.
+  const link = websocketLink(ws as unknown as WebSocket) as any;
+  // `createLiveSignal` wires the half-open watchdog AND mints the BRANDED `live`
+  // the one socket feeds to every sibling's `health().live` — the leg
+  // `surfaceClientsHealth` AND-reduces, so a dead combined socket flips the merged
+  // fact not-live. `surfaceClients` refuses a bare `{ live }` over this websocket;
+  // only the brand minted here (through the watchdog) is accepted. The watchdog's
+  // base probe is the framework-reserved `system.live` round-trip on the FIRST
+  // sibling's scoped rpc — every surface answers it, so no per-app probe. The probe
+  // thunk is lazy (it fires on the heartbeat interval), so it reads `clients` built
+  // just below: `clients` is assigned synchronously before any interval fires.
+  let clients: SurfaceClients<E>;
+  const transport = createLiveSignal(ws, {
+    probe: () =>
+      probeSurfaceLive(
+        (Object.values(clients)[0] as { rpc: unknown } | undefined)?.rpc,
+      ),
+    heartbeat: hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     restartCloseCode: socketOptions.restartCloseCode,
   });
-  const clients = surfaceClients(
-    // biome-ignore lint/suspicious/noExplicitAny: the combined link's `.rpc` is too complex to represent generically (TS2590); the scoped per-sibling specs carry call-site safety.
-    websocketLink(ws as unknown as WebSocket) as any,
-    surfaces,
-    { live: () => status() === "live" },
-  );
-  // The base probe is the framework-reserved `system.live` round-trip on the
-  // FIRST sibling's scoped link (`clients.<key>.rpc.surface.system.live`) — every
-  // surface answers it, so this needs no per-app probe.
-  const firstClient = Object.values(clients)[0] as { rpc: unknown } | undefined;
-  const heartbeatOptions = normalizeHeartbeat(hb, {
-    ws,
-    probe: () => probeSurfaceLive(firstClient?.rpc),
-  });
-  const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
+  clients = surfaceClients(link, surfaces, { live: transport.live });
   return {
     ws,
     echo,
     clients,
-    status,
+    status: transport.status,
     health: () => surfaceClientsHealth(clients),
     dispose: () => {
-      heartbeat?.dispose();
+      transport.dispose();
       for (const client of Object.values(clients)) {
         (client as { dispose: () => void }).dispose();
       }

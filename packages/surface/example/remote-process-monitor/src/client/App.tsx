@@ -139,22 +139,22 @@ export default function App() {
           health={app.health}
           count={allPids().length}
         />
-        {/* The body is ready when the agent link is CONNECTED (domain policy —
-            the `connection` cell's lifecycle state) AND no subscription is
-            erroring (the framework health FACT, which now includes the enrolled
-            `processesSnapshot` stream and every per-core sub). `<SurfaceGate>`
-            owns that policy via its `ready` override; the `fallback` shows the
-            connecting overlay, surfacing a subscription error if one is what's
-            holding the gate closed. Don't gate on `pending` — the original
-            example never blocked the table on per-key first-frames, and a single
-            slow core shouldn't blank the whole view. */}
+        {/* The body is ready when `h.live` holds AND no subscription is erroring
+            (the framework health FACT, which now includes the enrolled
+            `processesSnapshot` stream and every per-core sub). `h.live` ALREADY
+            implies the agent link is `connected`: the `connection` cell declares
+            `liveWhen: v => v.state === "connected"`, so `surfaceClient` AND-folds
+            that leg into `health().live` BY CONSTRUCTION — re-reading
+            `connection.state === "connected"` into the gate here would be pure
+            redundancy (and would teach the fold this five-round effort retired).
+            `<SurfaceGate>` owns the policy via its `ready` override; the
+            `fallback` shows the connecting overlay, surfacing a subscription error
+            if one is what's holding the gate closed. Don't gate on `pending` — the
+            original example never blocked the table on per-key first-frames, and a
+            single slow core shouldn't blank the whole view. */}
         <SurfaceGate
           health={app.health}
-          ready={(h) =>
-            h.live &&
-            currentConnection().state === "connected" &&
-            !h.subs.some((s) => s.error)
-          }
+          ready={(h) => h.live && !h.subs.some((s) => s.error)}
           fallback={(h) => (
             <ConnectingOverlay
               state={h().live ? currentConnection().state : "connecting"}
@@ -234,11 +234,7 @@ function Header(props: {
                 The state WORD stays a neutral label, never a raw-state green. */}
             <HostStatusPip
               health={props.health}
-              ready={(h) =>
-                h.live &&
-                props.connection.state === "connected" &&
-                !h.subs.some((s) => s.error)
-              }
+              ready={(h) => h.live && !h.subs.some((s) => s.error)}
               readyColor="#10b981"
               notReadyTone={() =>
                 props.connection.state === "failed" ? "#ef4444" : "#f59e0b"

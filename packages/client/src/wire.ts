@@ -21,9 +21,10 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { surfaceClients } from "@kolu/surface/solid";
 import { createSurfaceSocket } from "@kolu/surface-app/connect";
-import { createSocketStatus } from "@kolu/surface-app/solid";
+import { createLiveSignal } from "@kolu/surface-app/solid";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -51,17 +52,6 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 // lifecycle (`rpc.ts`) owns this socket and retires it through `onStaleRestart`.
 const { ws, echo } = createSurfaceSocket({ url: wsBaseUrl });
 
-// The transport-liveness leg for `health().live`, derived from this one socket's
-// own open/close — the SAME `createSocketStatus` `connectSurface` threads, so kolu
-// folds the socket's liveness into its health FACT exactly like pulam-web/drishti
-// instead of letting the leg silently default to a constant `true`. The half-open
-// watchdog that makes this honest lives in `rpc.ts`'s `createServerLifecycle` over
-// this very `ws` (default-on, probing `system.live` and forcing `ws.reconnect()` on
-// a missed probe): a silently half-open socket gets reconnected, which flips this
-// status off `"live"` → `health().live` false. So a dead/half-open link can't read
-// `live`, even though kolu reads failures per-cell rather than gating a global dot.
-const transportStatus = createSocketStatus(ws);
-
 /** Stash the latest observed server `processId` for the next reconnect's `pid`
  *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
  *  probe, so the very first connect omits the param. */
@@ -79,6 +69,22 @@ export { ws };
 // sibling surfaces live under `surface.<key>`.
 const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 
+// The transport-liveness leg for `health().live` AND the half-open watchdog,
+// minted together by `createLiveSignal` over this one socket — the same brand
+// `connectSurface`/`connectSurfaces` thread, so kolu folds the socket's liveness
+// into its health FACT exactly like pulam-web/drishti. `surfaceClients` REFUSES a
+// bare `{ live }` over a websocket: only this watchdog-backed `LiveSignal` is
+// accepted, so kolu can't silently default the leg to a half-open-blind `true`.
+// The watchdog probes the framework-reserved `system.live` round-trip (on the
+// `kolu` sibling's scoped slice) and forces `ws.reconnect()` on a missed probe,
+// which flips `live` off `"live"`. This is why `rpc.ts`'s `createServerLifecycle`
+// runs with `heartbeat: false` — the watchdog lives HERE, beside the transport it
+// guards, not duplicated in the UI-lifecycle layer.
+const transport = createLiveSignal(ws, {
+  // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string (TS2590); `system.live` resolves on it.
+  probe: () => probeSurfaceLive({ surface: (link as any).surface.kolu }),
+});
+
 // kolu serves TWO sibling surfaces over one transport (kolu#1197). Build one
 // client per sibling over the single combined link, each scoped to its key's
 // slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
@@ -94,9 +100,7 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // fold ships for a consumer whose control plane WANTS one answer: drishti folds
 // its admin + surface-app siblings with `surfaceClientsHealth` (its `MultiHostApp`
 // control-plane strip); `surfaceClient.health.test.ts` pins the fold itself.
-const clients = surfaceClients(link, surfaces, {
-  live: () => transportStatus() === "live",
-});
+const clients = surfaceClients(link, surfaces, { live: transport.live });
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
  *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,

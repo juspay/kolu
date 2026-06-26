@@ -30,6 +30,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import { connectSurface } from "./connectSurface";
+import { createLiveSignal } from "./createLiveSignal";
 import { createSocketStatus } from "./socketStatus";
 
 // `connectSurface` builds its OWN socket via `createSurfaceSocket`. To exercise
@@ -198,25 +199,33 @@ describe("connectSurface threads the real socket liveness into health().live", (
   });
 });
 
-describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST thread the transport live leg", () => {
+describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST thread a BRANDED transport live leg", () => {
   // kolu's main app (packages/client/src/wire.ts) builds `surfaceClients(link,
   // surfaces, { live })` over ONE `websocketLink`, exactly like `connectSurface`
-  // does for a single surface. It used to omit `{ live }`, leaving the transport
-  // leg a silent constant `true` — a half-open kolu socket would have read
-  // `health().live === true`. The surfaceClient guard now CRASHES that omission
-  // (a half-openable link with no `{ live }`), which once broke production at
-  // module-load. This pins the FIXED pattern: a real websocketLink + the socket's
-  // own `createSocketStatus` threaded as `{ live }` builds cleanly AND folds the
-  // transport into the merged fact — drop the thread and the build throws.
-  it("builds without crashing and folds the socket's liveness into the merged fact", () => {
+  // does for a single surface — minting the `{ live }` with `createLiveSignal`
+  // (which wires the half-open watchdog AND brands the signal). It used to omit
+  // `{ live }`, leaving the transport leg a silent constant `true`; then it
+  // threaded a BARE `() => status() === "live"`, half-open-blind. The brand now
+  // refuses BOTH — only `createLiveSignal`'s output is accepted — so a half-open
+  // kolu socket can't read `health().live === true`. This pins the FIXED pattern:
+  // a real websocketLink + `createLiveSignal`'s branded live builds cleanly AND
+  // folds the transport into the merged fact; drop the brand and the build throws.
+  it("builds with createLiveSignal's branded live and folds the socket's liveness into the merged fact", () => {
     const t = fakeWs();
     createRoot((dispose) => {
-      const status = createSocketStatus(t.ws as never);
+      // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string, as in wire.ts.
+      const link = websocketLink(t.ws as never) as any;
+      // The wire.ts pattern: `createLiveSignal` mints the branded live (watchdog
+      // disabled here so no probe timer fires in the unit test; the live FOLD it
+      // exposes is the same with or without the watchdog).
+      const transport = createLiveSignal(t.ws as never, {
+        probe: () => Promise.resolve({}),
+        heartbeat: false,
+      });
       const clients = surfaceClients(
-        // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string, as in wire.ts.
-        websocketLink(t.ws as never) as any,
+        link,
         { a: surface, b: surface },
-        { live: () => status() === "live" },
+        { live: transport.live },
       );
       // Before the first open: connecting → not live → merged fact not-live.
       expect(surfaceClientsHealth(clients).live).toBe(false);
@@ -225,6 +234,7 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
       // A drop (the half-open watchdog forces a reconnect → close) → not live.
       t.fire("close", 1006);
       expect(surfaceClientsHealth(clients).live).toBe(false);
+      transport.dispose();
       for (const c of Object.values(clients))
         (c as { dispose: () => void }).dispose();
       dispose();
@@ -237,5 +247,18 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
       // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string.
       surfaceClients(websocketLink(t.ws as never) as any, { a: surface }),
     ).toThrow(/websocket link can silently half-open/);
+  });
+
+  it("CRASHES if the live leg is a BARE (unbranded) accessor — the half-open-blind signal is refused", () => {
+    const t = fakeWs();
+    const status = createSocketStatus(t.ws as never);
+    expect(() =>
+      surfaceClients(
+        // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string.
+        websocketLink(t.ws as never) as any,
+        { a: surface },
+        { live: () => status() === "live" },
+      ),
+    ).toThrow(/watchdog-backed `LiveSignal`/);
   });
 });

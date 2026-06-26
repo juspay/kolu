@@ -35,6 +35,7 @@ import type {
 } from "../define";
 import { resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/websocket";
+import { isLiveSignal } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -52,25 +53,36 @@ import { type UseCollectionResult, useCollection } from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
-/** Crash if `link` can silently half-open (a `websocketLink`) but no transport
- *  `live` watchdog was supplied. The constant-`true` default `health()` would
- *  otherwise apply is honest ONLY for an in-process link that can't half-open
- *  (`directLink`/`stdioLink`); over a websocket it paints a green/ready dot atop
- *  a dead backend↔remote link (the #1564 lie, one seam upstream). Fail-fast per
- *  the repo's "no silent fallback / crash loudly" philosophy: build the client
- *  through `connectSurface`/`connectSurfaces` (which wire the half-open
- *  heartbeat) or thread a real `{ live }` — there is no degraded default. */
+/** Crash if `link` can silently half-open (a `websocketLink`) but the `{ live }`
+ *  supplied is not a watchdog-backed {@link LiveSignal}. A WebSocket can half-open
+ *  silently (the socket stays `open` while no bytes flow), so its `health().live`
+ *  is honest ONLY when a heartbeat actively probes it — and the only signal that
+ *  PROVES a heartbeat backs it is a `LiveSignal`, minted by `@kolu/surface-app`'s
+ *  `createLiveSignal` (which `connectSurface`/`connectSurfaces` wrap) THROUGH the
+ *  watchdog it wires. So `!isLiveSignal(live)` rejects BOTH a missing `{ live }`
+ *  AND a truthy-but-unbranded one — a bare `() => true` or an open/close-only
+ *  `() => socketStatus() === "live"` is half-open-BLIND (it reads `live` forever
+ *  over a silently dead link), and the brand is exactly what it lacks. An
+ *  in-process link (`directLink`/`stdioLink`) can't half-open, so it is never
+ *  recorded in the half-open set and any `{ live }` (or none) is honest there.
+ *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
+ *  half-open-blind transport leg is now UNSPELLABLE over a websocket, not merely
+ *  discouraged (the #1564 lie, one seam upstream of the dot). */
 function requireTransportLive(
   link: unknown,
   live: Accessor<boolean> | undefined,
 ): void {
-  if (!live && isHalfOpenLink(link)) {
+  if (!isLiveSignal(live) && isHalfOpenLink(link)) {
     throw new Error(
       "surfaceClient: a websocket link can silently half-open, so its transport " +
-        "liveness must be supplied via `{ live }`. Build the client through " +
-        "`connectSurface`/`connectSurfaces` (which wire the half-open heartbeat), " +
-        "or pass a real `{ live }` watchdog signal. Defaulting to constant-true " +
-        "would paint a green/ready dot over a dead backend↔remote link (#1564).",
+        "liveness must be a watchdog-backed `LiveSignal`, not a bare `{ live }`. " +
+        "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
+        "hand-built `surfaceClient + websocketLink`, mint the signal with " +
+        "`createLiveSignal(ws, { probe })` from `@kolu/surface-app/solid` (it wires " +
+        "the half-open heartbeat AND brands the live signal in one call). A bare " +
+        "`() => true` or an open/close-only `() => socketStatus() === 'live'` is " +
+        "half-open-blind — it would paint a green/ready dot over a dead " +
+        "backend↔remote link (#1564).",
     );
   }
 }
@@ -300,7 +312,15 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
  *  drop the wire-identity args from the per-call signature.
  *
  *  ```ts
- *  const app = surfaceClient(surface, websocketLink<typeof contract>(ws));
+ *  // Direct/stdio link (can't half-open) — no `{ live }` needed:
+ *  const app = surfaceClient(surface, directLink(server));
+ *
+ *  // Websocket link (CAN half-open) — REQUIRES a watchdog-backed `{ live }`.
+ *  // Reach for `connectSurface` (`@kolu/surface-app`), which wires it for you;
+ *  // or, hand-built, mint it with `createLiveSignal` (NEVER a bare `() => true`):
+ *  const link = websocketLink<typeof contract>(ws);
+ *  const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
+ *  const app = surfaceClient(surface, link, { live });
  *  ```
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket
@@ -318,10 +338,12 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
     /** Transport liveness for `health().live` — the socket/heartbeat watchdog's
      *  reactive answer. Omitted ONLY for a link that can't be silently half-open
      *  (a `directLink`/`stdioLink`), where it is live by construction; for a
-     *  `websocketLink` it is REQUIRED, and omitting it crashes (see below) rather
-     *  than silently defaulting the transport leg to a constant `true`. The
-     *  socket transports (`@kolu/surface-app`'s `connectSurface`) thread the real
-     *  signal in; `health()` originates the per-subscription FACT either way. */
+     *  `websocketLink` it is REQUIRED and must be a watchdog-backed `LiveSignal`
+     *  (minted by `createLiveSignal` / `connectSurface` / `connectSurfaces`) —
+     *  omitting it OR passing a bare/open-close-only accessor crashes (see
+     *  `requireTransportLive`) rather than silently defaulting the transport leg
+     *  to a half-open-blind `true`. The seams thread the real signal in;
+     *  `health()` originates the per-subscription FACT either way. */
     live?: Accessor<boolean>;
   },
 ): SurfaceClient<S, Rpc> {
@@ -703,13 +725,13 @@ export function surfaceClients<
   link: any,
   entries: E,
   /** Transport liveness for EVERY sibling's `health().live`. The siblings ride
-   *  ONE combined socket, so they share ONE `live` — pass the socket's reactive
-   *  liveness (e.g. `() => createSocketStatus(ws)() === "live"`) and every
-   *  sibling reports it, so `surfaceClientsHealth`'s AND-reduce can flip the
-   *  merged fact `live: false` when that socket dies. Omit only for a
-   *  direct/stdio link that can't be half-open (then it stays constant `true`).
-   *  Without it a multi-surface fact is structurally constant-true — a dead
-   *  combined socket invisible to every sibling. */
+   *  ONE combined socket, so they share ONE `live` — and over a websocket it must
+   *  be a watchdog-backed `LiveSignal` (minted by `createLiveSignal` /
+   *  `connectSurfaces`), not a bare `() => socketStatus(ws)() === "live"`: a
+   *  half-open-blind accessor would read `live` forever over a dead combined
+   *  socket. Every sibling reports it, so `surfaceClientsHealth`'s AND-reduce
+   *  flips the merged fact `live: false` when that socket dies. Omit only for a
+   *  direct/stdio link that can't be half-open (then it stays constant `true`). */
   opts?: { live?: Accessor<boolean> },
 ): SurfaceClients<E> {
   // Same fail-fast as `surfaceClient`, BEFORE scoping: the combined `link` is the

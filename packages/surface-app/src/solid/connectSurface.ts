@@ -32,17 +32,13 @@ import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
 import {
-  createHeartbeat,
   createSurfaceSocket,
   type HeartbeatConfig,
-  normalizeHeartbeat,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
-import {
-  createSocketStatus,
-  type SurfaceConnectionStatus,
-} from "./socketStatus";
+import { createLiveSignal } from "./createLiveSignal";
+import type { SurfaceConnectionStatus } from "./socketStatus";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends SurfaceSocketOptions {
@@ -85,42 +81,35 @@ export function connectSurface<const S extends SurfaceSpec>(
 ): SurfaceConnection<S> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
-  // Derive the reactive transport `status` (from the socket's own open/close)
-  // BEFORE the client, so it can feed `health().live`. This is the liveness leg
-  // of the FACT — without it `health().live` would fall to the default constant
-  // `true` and a surface whose socket is silently half-open (or retired `down`)
-  // but whose subs already yielded a first frame would read `ready`. That is the
-  // exact green-dot-over-a-dead-link lie this change exists to end, one level up.
-  // `live` is `true` only while the socket is `live`; a `down`/`reconnecting`
-  // transport (incl. after the half-open watchdog forces a reconnect) flips it
-  // `false`, so `gateStatus` returns `connecting` rather than a confident `ready`.
-  const status = createSocketStatus(ws, {
+  const link = websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket);
+  // `createLiveSignal` derives the reactive transport `status` (from the socket's
+  // open/close) AND wires the half-open watchdog AND mints the BRANDED `live` the
+  // client requires — in one call. Without that brand `surfaceClient` refuses a
+  // bare `{ live }` over this websocket: a surface whose socket is silently
+  // half-open (or retired `down`) but whose subs already yielded a first frame
+  // would otherwise read `ready` — the exact green-dot-over-a-dead-link lie this
+  // change exists to end, one seam up. The watchdog's base probe is the
+  // framework-reserved `system.live` round-trip (every surface answers it, so no
+  // per-app probe); `live` is `true` only while the socket is `live`, so a
+  // `down`/`reconnecting` transport (incl. after the watchdog forces a reconnect)
+  // makes `gateStatus` return `connecting` rather than a confident `ready`.
+  const transport = createLiveSignal(ws, {
+    probe: () => probeSurfaceLive(link),
+    heartbeat: hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     restartCloseCode: socketOptions.restartCloseCode,
   });
-  const client = surfaceClient(
-    surface,
-    websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket),
-    { live: () => status() === "live" },
-  );
-  // One normalizer, not four `typeof hb === "object" ? hb.x : undefined` ternaries.
-  // The base `probe` is the framework-reserved `system.live` round-trip — every
-  // surface answers it, so this needs no per-app probe.
-  const heartbeatOptions = normalizeHeartbeat(hb, {
-    ws,
-    probe: () => probeSurfaceLive(client.rpc),
-  });
-  const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
+  const client = surfaceClient(surface, link, { live: transport.live });
   return {
     ws,
     echo,
     client,
-    status,
-    // Stop the heartbeat AND tear down the client's build-time standing
+    status: transport.status,
+    // Stop the watchdog AND tear down the client's build-time standing
     // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
     // surface is mirrored), so a torn-down socket leaks neither.
     dispose: () => {
-      heartbeat?.dispose();
+      transport.dispose();
       client.dispose();
     },
   };

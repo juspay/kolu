@@ -94,10 +94,16 @@ export const connectionCell = {
   // `client.health().live` AND-folds this predicate over the cell's live value,
   // so a mirror reading anything but `connected` flips the fact not-live BY
   // CONSTRUCTION — the client-side symmetry to `pumpRemoteSurface` auto-wiring the
-  // server WRITE. Every surface that composes this cell (drishti, pulam-web, any
-  // future viewer) inherits the fold by building a `surfaceClient` over the
-  // mirrored surface; no consumer hand-ANDs `connection.state === "connected"`,
-  // and a widget can no longer paint a dot green from the raw cell state. The ssh
+  // server WRITE. Every surface that composes this cell (drishti, pulam-web, the
+  // teaching example, any future viewer) inherits the fold by building a
+  // `surfaceClient` over the mirrored surface, so no consumer hand-ANDs
+  // `connection.state === "connected"` — they read `health().live`, which already
+  // carries the leg. And no SHIPPED widget paints a dot green from the raw cell
+  // state: every connection dot is the fact-gated `<HostStatusPip>`, whose green is
+  // emitted only from the ready verdict. That last guarantee is by CONVENTION, not
+  // construction — nothing structurally stops a NEW widget from reading the raw
+  // `.state` — so the rule for a new one is: paint via `<HostStatusPip>`, never
+  // colour a dot from `.state`. The ssh
   // VOCABULARY (`"connected"`, the four-state enum) stays HERE beside the schema;
   // `@kolu/surface` only invokes the predicate (the `resolveCellVerbs`-style
   // mechanism/vocabulary split). `DEFAULT_CONNECTION` is `connecting` — gate-closed

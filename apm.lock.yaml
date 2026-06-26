@@ -357,7 +357,7 @@ local_deployed_file_hashes:
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-  .claude/rules/solidjs.md: sha256:0ef04af26df26843d03430b8e59329a6562aa90b477794e020590ad13382b014
+  .claude/rules/solidjs.md: sha256:f1041bb8a7cc7a015e4c62fcd08f8b42d41597f7139183b88dfc6c1000b7b6e8
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/surface.md: sha256:2f96cb3cd96e5e985130c5baae68ac4f6d4c91097085dcb96979b8bd9353db8d

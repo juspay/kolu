@@ -7,9 +7,10 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { surfaceClient } from "@kolu/surface/solid";
+import { createLiveSignal } from "@kolu/surface-app/solid";
 import { WebSocket as PartySocket } from "partysocket";
-import { createSignal } from "solid-js";
 import { monitorSurface } from "../common/surface";
 
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
@@ -27,29 +28,36 @@ export const ws = new PartySocket(wsUrl, undefined, {
   maxReconnectionDelay: 15_000,
 });
 
-// Vite HMR re-evaluates this module on edits — without this dispose
-// hook each reload leaks a PartySocket (and the parent server logs a
-// fresh `browser ws connect` every time a client file is saved).
+const link = websocketLink<typeof monitorSurface.contract>(
+  ws as unknown as WebSocket,
+);
+
+// Transport liveness for `app.health().live`. A real app reaches for the turnkey
+// `connectSurface` (`@kolu/surface-app`), which wires all of this for free; this
+// example hand-builds `surfaceClient + websocketLink` to show the raw seam, so it
+// mints the `{ live }` itself — but NOT off a bare open/close signal. A websocket
+// can silently HALF-OPEN (the socket stays `open` while no bytes flow), so an
+// open/close-only `live` reads `true` forever over a dead link (the #1564
+// green-over-a-dead-link lie); `surfaceClient` REFUSES such a signal. The only
+// `{ live }` it accepts over a websocket is a watchdog-backed `LiveSignal`, and
+// `createLiveSignal` is the one minter — it derives the liveness accessor AND wires
+// the half-open heartbeat (probing the framework-reserved `system.live` round-trip,
+// forcing `ws.reconnect()` on a missed probe) in one call. So even the hand-built
+// seam gets the real watchdog, instead of a signal that can't see a half-open link.
+const transport = createLiveSignal(ws, {
+  probe: () => probeSurfaceLive(link),
+});
+
+// Vite HMR re-evaluates this module on edits — without this dispose hook each
+// reload leaks a PartySocket and its watchdog (and the parent server logs a fresh
+// `browser ws connect` every time a client file is saved).
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    transport.dispose();
     ws.close();
   });
 }
 
-// Transport liveness for `app.health().live`. A real app reaches for the
-// turnkey `connectSurface` (`@kolu/surface-app`), which derives this from the
-// socket AND runs a half-open heartbeat for free; this example hand-builds
-// `surfaceClient + websocketLink` to show the raw seam, so it must thread its
-// own `{ live }` — without it `surfaceClient` THROWS (a websocket link can
-// silently half-open, so the constant-`true` transport leg it would otherwise
-// default to is refused — the #1564 green-over-a-dead-link lie). Flip a signal
-// off the socket's own open/close.
-const [isLive, setIsLive] = createSignal(false);
-ws.addEventListener("open", () => setIsLive(true));
-ws.addEventListener("close", () => setIsLive(false));
-
-export const app = surfaceClient(
-  monitorSurface,
-  websocketLink<typeof monitorSurface.contract>(ws as unknown as WebSocket),
-  { live: () => isLive() },
-);
+export const app = surfaceClient(monitorSurface, link, {
+  live: transport.live,
+});

@@ -377,7 +377,7 @@ app.health();
 // { live: boolean, subs: [{ name: string, pending: boolean, error: Error | undefined }] }
 ```
 
-It's a **FACT, not a verdict**: a reactive accessor that enrols every **framework** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). A _raw_ stream (one that owns its own loop) is NOT auto-enrolled — it joins the fact through `client.rawStream`, the structural path below, which makes forgetting impossible rather than merely discouraged. Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is no longer just the transport's liveness — it is the full **conjunction**: transport-live ∧ every readiness-cell's predicate (sub errors stay in `subs`, never folded into `live`). The transport leg is the socket signal threaded in (`@kolu/surface-app`'s `connectSurface` / `connectSurfaces` seam passes `{ live: () => status() === "live" }`, so a `down`/`reconnecting` socket reads `live: false` and the gate reads `connecting`, never a confident `ready` over a dead link); a direct/stdio link — which can't be silently half-open — contributes a constant `true`.
+It's a **FACT, not a verdict**: a reactive accessor that enrols every **framework** subscription the client creates — each cell (`"<cell>"`), a collection's keys-stream (`"<coll>.keys"`) and each per-key value sub (`"<coll>[<id>]"`), and every stream (`"<stream>"`). A _raw_ stream (one that owns its own loop) is NOT auto-enrolled — it joins the fact through `client.rawStream`, the structural path below, which makes forgetting impossible rather than merely discouraged. Each sub's error flows through its own *self-clearing* reactive `error()`, so the fact **un-latches by construction** — a transient blip disappears from `health()` the instant the stream re-delivers. `live` is no longer just the transport's liveness — it is the full **conjunction**: transport-live ∧ every readiness-cell's predicate (sub errors stay in `subs`, never folded into `live`). The transport leg is the socket signal threaded in (`@kolu/surface-app`'s `connectSurface` / `connectSurfaces` seam mints it with `createLiveSignal` — a watchdog-backed `LiveSignal` that reads `status() === "live"` — so a `down`/`reconnecting` socket reads `live: false` and the gate reads `connecting`, never a confident `ready` over a dead link); a direct/stdio link — which can't be silently half-open — contributes a constant `true`.
 
 The **readiness leg** is wired generically. A cell spec marks itself a READINESS GATE with the hook **`CellSpec.liveWhen?: (value: T) => boolean`** (`@kolu/surface/define`): `surfaceClient` opens an EAGER, build-time **standing subscription** for every `liveWhen` cell (a detached `createRoot`, torn down by the new **`SurfaceClient.dispose()`**) that both enrols the cell's `pending`/`error` into `subs` (totality) AND threads a readiness leg in via `registry.enrollReadiness(name, accessor)`, which AND-folds the predicate's verdict into `live`. So any surface composed through `mirroredSurface` carries its mirror-liveness leg in the fact **by construction** — no consumer hand-ANDs `connection.state === "connected"` onto `health().live` anymore. (`.use()` on a `liveWhen` cell SHARES that one eager standing sub — no duplicate subscription.) The mechanism/vocabulary split mirrors `resolveCellVerbs` / `CellSpec.equals`: the ssh **vocabulary** — the predicate and the 4-state enum — lives in `surface-nix-host`, whose `connectionCell` declares `liveWhen: (v) => v.state === "connected"`; `@kolu/surface` core only **invokes** the generic predicate, knowing nothing of ssh.
 
@@ -443,7 +443,7 @@ The bare `unenrolledStreamCall` lives at `@kolu/surface/client`, NOT on the `@ko
 
 For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on — drishti folds its admin + surface-app siblings this way for a control-plane health strip.
 
-Don't hand-wire that fold for a socket-backed app: reach for **`connectSurfaces({ surfaces, heartbeat?, ...SurfaceSocketOptions })`** (`@kolu/surface-app/solid`) — one seam that opens one socket + one `createSocketStatus` + `surfaceClients` + ONE default-on heartbeat probing the first sibling's reserved `system.live`, and returns `{ ws, echo, clients, status, health: () => surfaceClientsHealth(clients), dispose }`. Because the half-open **watchdog is intrinsic to the seam**, `health().live` reflects a silent half-open (laptop sleep, wifi roam) however the socket was built. The constant-`true` transport-leg default is no longer something a socket consumer can fall into silently: **`websocketLink` marks its clients half-openable, and `surfaceClient`/`surfaceClients` THROW when handed one with no `{ live }`** — so the default survives only for an in-process `direct`/`stdio` link that *can't* half-open. Over a socket you either build through `connectSurface` / `connectSurfaces` (the watchdog can't be forgotten) or thread a real `{ live }` yourself (the example's raw seam); there is no silent no-heartbeat hand-built path left to forget.
+Don't hand-wire that fold for a socket-backed app: reach for **`connectSurfaces({ surfaces, heartbeat?, ...SurfaceSocketOptions })`** (`@kolu/surface-app/solid`) — one seam that opens one socket + one `createLiveSignal` (which wires the half-open watchdog and mints the branded `live`) + `surfaceClients`, and returns `{ ws, echo, clients, status, health: () => surfaceClientsHealth(clients), dispose }`. Because the half-open **watchdog is intrinsic to the seam**, `health().live` reflects a silent half-open (laptop sleep, wifi roam) however the socket was built. The half-open-blind transport leg is not merely discouraged but **unspellable** over a socket: **`websocketLink` marks its clients half-openable, and `surfaceClient`/`surfaceClients` THROW unless handed a watchdog-backed `LiveSignal`** — so a missing `{ live }` AND a bare `() => true` (or an open/close-only `() => socketStatus() === "live"`) are both refused; the brand can be minted *only* by `createLiveSignal` (which wires the watchdog first), so there is no path to a green `live` over a dead socket. An in-process `direct`/`stdio` link can't half-open, so any `{ live }` (or none) is honest there. Over a socket you either build through `connectSurface` / `connectSurfaces` (the watchdog can't be forgotten) or, hand-building the raw seam, mint the `{ live }` with `createLiveSignal` (the example's path) — there is no silent no-heartbeat hand-built path left to spell.
 
 ## How Kolu uses this framework
 
@@ -621,13 +621,18 @@ import { surfaceClient } from "@kolu/surface/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
+const link = websocketLink(ws);
+// A socket link MUST thread a watchdog-backed `{ live }` — minted by
+// `createLiveSignal` (`@kolu/surface-app/solid`), which wires the half-open
+// heartbeat AND brands the signal. A bare `() => status() === "live"` is
+// half-open-blind and is REFUSED; defaulting it to a constant `true` would too.
+const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
 export const app = surfaceClient<
   typeof surface.spec,
   ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
->(surface, websocketLink(ws), { live: () => status() === "live" });
-// the 2nd arg is a LINK (`websocketLink(ws)`); a socket link also threads the
-// transport `{ live }` (a bare socket link with no `{ live }` throws) — or build
-// the whole socket + client + watchdog via `connectSurface` (`@kolu/surface-app`).
+>(surface, link, { live });
+// …or build the whole socket + client + watchdog in one call via `connectSurface`
+// (`@kolu/surface-app`), which mints and threads the `{ live }` for you.
 
 // In components:
 const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
@@ -688,11 +693,11 @@ const { router, ctx } = implementSurfaces(surfaces, { channel }, {
 ctx.kolu.cells.X.set(...)         // ctx is keyed per surface
 
 // client — reuse `surfaces`; one link split into a per-key client bundle,
-// each scoped to its surface.<key>.* slice. A SOCKET link must thread the
-// transport `{ live }` as the 3rd arg (`surfaceClients(link, surfaces, { live })`)
-// — or build via `connectSurfaces`, which threads it for you; a bare socket link
-// with no `{ live }` throws (it can silently half-open).
-const clients = surfaceClients(link, surfaces);
+// each scoped to its surface.<key>.* slice. A SOCKET link must thread a
+// watchdog-backed `{ live }` as the 3rd arg (minted by `createLiveSignal`) —
+// or build via `connectSurfaces`, which mints and threads it for you. A bare or
+// unbranded `{ live }` over a socket link throws (it can silently half-open).
+const clients = surfaceClients(link, surfaces, { live });
 clients.kolu.cells.X.use(...)     // e.g. re-export `app = clients.kolu`, `surfaceApp = clients.surfaceApp`
 ```
 
@@ -989,14 +994,16 @@ getRuntimeSocketPath({ app, file, override? }): string
 surfaceClients(link, { <key>: Surface }, { live? }): { <key>: SurfaceClient }
   // split one combined link into a per-key client bundle; each client is scoped to
   // its `{ surface: link.surface[key] }` slice, so its primitives resolve at surface.<key>.*
-  // `{ live }` is the shared transport leg for every sibling — REQUIRED for a socket
-  // link (a bare `websocketLink` with no `{ live }` throws; `connectSurfaces` threads it)
+  // `{ live }` is the shared transport leg for every sibling — over a socket it must be a
+  // watchdog-backed LiveSignal (a bare/unbranded `{ live }` throws; `connectSurfaces` mints it)
 
 surfaceClient<S, Rpc>(surface, link, { live? }): SurfaceClient<S, Rpc>
   // `link` is a link-family member (`websocketLink`/`stdioLink`/`directLink`); `{ live }`
   // is the transport-liveness accessor for `health().live`. A `websocketLink` (which can
-  // silently half-open) with NO `{ live }` THROWS — build via `connectSurface` or pass a
-  // real `{ live }`; the constant-`true` default is for in-process direct/stdio links only.
+  // silently half-open) needs a watchdog-backed LiveSignal — minted ONLY by `createLiveSignal`
+  // (`@kolu/surface-app/solid`) / `connectSurface` / `connectSurfaces`. A missing OR bare
+  // `{ live }` (a half-open-blind `() => true`) THROWS; the brand is unspellable without the
+  // watchdog. An in-process direct/stdio link can't half-open, so any `{ live }` (or none) is fine.
   // client.cells.<K>.use(policy)                  ← drops source/mutate
   // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream
   // client.collections.<K>.{upsert, delete}       ← lifecycle-free mutations

@@ -30,6 +30,11 @@ export {
   type SurfaceHealth,
   type SurfaceHealthRegistry,
 } from "./health";
+export {
+  brandLiveSignal,
+  isLiveSignal,
+  type LiveSignal,
+} from "./liveSignal";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports
 // `@kolu/surface/solid` for the hooks/registry (e.g. `@kolu/surface-app`, drishti)
