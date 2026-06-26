@@ -1,0 +1,60 @@
+---
+title: The Terminal Metadata Model — authored ⋈ observed
+description: One picture of how a terminal's facts are modelled — two collections (kolu authors one, the sensors observe the other), joined by id. The "metadata record" is the join, not a thing. Plus the first principle we kept missing.
+parents: [remote-terminals, reference]
+status: proposed
+maturity: seedling
+updated: 2026-06-26
+---
+
+import Svg from "../../components/Svg.astro";
+import Callout from "../../components/Callout.astro";
+import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
+
+<Svg svg={diagram} caption="A terminal's facts split by WHO PRODUCES them: kolu authors the durable ones; the sensors observe the ephemeral ones. Same id, two collections, one writer each. The 'TerminalMetadata record' the Dock and Code tab render is the JOIN of the two — derived at the reader, never a stored thing." />
+
+## Where each half is backed
+
+```text
+OBSERVED  is backed by one of:
+
+   local terminal    →   in-process sensor store          ← today
+   remote terminal   →   the host's mirrored awareness     ← R9
+
+the join never changes.  "kolu dials a remote" = swap the backing, nothing else.
+```
+
+## The one trap (twice)
+
+```text
+✗  MATERIALISE the join  →  store/serve a fused "metadata record"
+       old kolu      :  two writers share one record   → the green-dot lies (#1564)
+       PR #1594      :  re-fuse it server-side, every ~150ms tick  (composeTerminalMetadata)
+
+✓  KEEP the join virtual  →  two collections, joined only at the reader
+       one writer each · disk holds the two halves · remote is a backing-swap
+```
+
+## First principle
+
+<Callout kind="note" title="A terminal has no metadata. It is a join.">
+**`authored ⋈ observed`, keyed by id. Store the two halves; never the join.**
+
+The "`TerminalMetadata` record" is a *derived view*, not a stored entity. Every defect in this area is the same move — **materialising the join**: the original sin was *co-owning* one record (two writers → the status lies); the repeat is *re-fusing* it server-side to keep the old shape. Keep it virtual and the rest falls out:
+
+- **disk** = the two halves — authored fields + a *sampled snapshot* of observed (restore-seeds); observed re-derives live on restart (it's ephemeral).
+- **wire** = the two collections; the reader joins them fine-grained.
+- **local vs remote** = only *where `observed` is backed* (store vs mirror).
+- even the odd cases fall out: *frozen-pr-on-sleep* = "author a snapshot of `observed` at sleep" — the same move as restore-seeds.
+
+The framework already has the shapes: `observed` and `authored` are each a `Collection` (an `Incremental`); the view is a join of two `Collection`s — see [surface live data](surface-live-data.html). There is nothing to invent.
+</Callout>
+
+## The plan, briefly
+
+The roadmap's [remote-terminals R8](remote-terminals.html#r8) is exactly this: kolu serves `observed` as the shared `terminalWorkspaceSurface.awareness` collection and reads it through one seam, so `R9` is a backing-swap. **PR #1594 ships the producer side correctly** (one store, one writer, the authored/observed type-split) **but materialises the join again** — `composeTerminalMetadata` re-fuses the two halves into the legacy record on the wire *and* on disk, so kolu's own browser still reads the fused record and never reads the collection it now serves. The perfection-bar redo is the virtual join, in two phases:
+
+1. **consumption** — kolu's browser reads `authored` + the `awareness` collection and joins them client-side (in the one `getMetadata` accessor); slim the wire to `authored`; delete the server re-fusion + the per-tick double-publish.
+2. **disk** — persist the two halves (authored + restore-seeds), not the fused record; the last `composeTerminalMetadata` goes away.
+
+Done-criterion that a shim can't satisfy: **kolu's browser reads the served `awareness` collection; the wire carries `authored` only; no server-side recompose.**

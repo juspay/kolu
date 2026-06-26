@@ -1,0 +1,60 @@
+<svg viewBox="0 0 760 480" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
+    <marker id="arv" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+  </defs>
+
+  <text x="380" y="30" text-anchor="middle" font-size="15" font-weight="600" fill="#334155">one terminal-id  →  two independent sets of facts about it</text>
+
+  <!-- writers -->
+  <text x="198" y="62" text-anchor="middle" font-size="12.5" fill="#5a3ff0" font-weight="600">kolu app  ▾</text>
+  <text x="562" y="62" text-anchor="middle" font-size="12.5" fill="#b06d12" font-weight="600">sensors  ▾</text>
+
+  <!-- AUTHORED -->
+  <rect x="48" y="72" width="300" height="168" rx="11" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="68" y="100" font-size="16" font-weight="700" fill="#3a2bb8">AUTHORED</text>
+  <text x="68" y="120" font-size="11.5" fill="#6b5fd0">kolu writes · durable · one writer</text>
+  <line x1="68" y1="130" x2="328" y2="130" stroke="#d4cbff"/>
+  <text x="68" y="152" font-size="13" fill="#352a7a">id · restore-cwd</text>
+  <text x="68" y="174" font-size="13" fill="#352a7a">theme · layout · sub-panels</text>
+  <text x="68" y="196" font-size="13" fill="#352a7a">sleeping-state</text>
+  <text x="68" y="218" font-size="13" fill="#352a7a">frozen-pr snapshot</text>
+
+  <!-- OBSERVED -->
+  <rect x="412" y="72" width="300" height="168" rx="11" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="432" y="100" font-size="16" font-weight="700" fill="#8a5a12">OBSERVED</text>
+  <text x="628" y="100" font-size="12" fill="#b58a4a" font-style="italic">awareness</text>
+  <text x="432" y="120" font-size="11.5" fill="#b07d2a">sensors write · ephemeral · one writer</text>
+  <line x1="432" y1="130" x2="692" y2="130" stroke="#f0d9b0"/>
+  <text x="432" y="152" font-size="13" fill="#7a4f10">cwd · git</text>
+  <text x="432" y="174" font-size="13" fill="#7a4f10">agent · pr · foreground</text>
+  <text x="432" y="196" font-size="13" fill="#7a4f10">lastActivity · lastCommand</text>
+  <text x="432" y="218" font-size="13" fill="#7a4f10">agentSession</text>
+
+  <!-- writer arrows -->
+  <line x1="198" y1="66" x2="198" y2="72" stroke="#5a3ff0" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="562" y1="66" x2="562" y2="72" stroke="#d98a1f" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- keyed by id -->
+  <text x="380" y="170" text-anchor="middle" font-size="11.5" fill="#94a3b8">— same id —</text>
+
+  <!-- join -->
+  <line x1="198" y1="240" x2="356" y2="300" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="562" y1="240" x2="404" y2="300" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
+  <circle cx="380" cy="312" r="22" fill="#ffffff" stroke="#15803d" stroke-width="1.8"/>
+  <text x="380" y="319" text-anchor="middle" font-size="20" font-weight="700" fill="#15803d">⋈</text>
+  <text x="416" y="316" font-size="12" fill="#15803d" font-weight="600">join by id</text>
+
+  <!-- view (derived) -->
+  <line x1="380" y1="334" x2="380" y2="372" stroke="#15803d" stroke-width="1.8" marker-end="url(#arv)"/>
+  <rect x="262" y="384" width="236" height="74" rx="11" fill="#e6f4ea" stroke="#15803d" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="380" y="412" text-anchor="middle" font-size="15" font-weight="700" fill="#15803d">the VIEW</text>
+  <text x="380" y="432" text-anchor="middle" font-size="12" fill="#15803d">Dock · Code tab read this</text>
+  <text x="380" y="449" text-anchor="middle" font-size="11" fill="#3f8f5f" font-style="italic">derived — never stored</text>
+
+  <!-- punchline -->
+  <text x="528" y="404" font-size="12.5" fill="#475569">there is no</text>
+  <text x="528" y="421" font-size="12.5" fill="#475569" font-weight="600">"metadata record" —</text>
+  <text x="528" y="438" font-size="12.5" fill="#475569">it's the join, made</text>
+  <text x="528" y="455" font-size="12.5" fill="#475569">at the reader.</text>
+</svg>
