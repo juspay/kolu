@@ -194,7 +194,7 @@ describe("watch — live over a real socket", () => {
     removes = [];
     conn = await connectPulam(socketPath);
     done = watchAwareness(
-      conn,
+      conn.client,
       {
         onUpsert: (id, value, live) => upserts.push({ id, value, live }),
         onRemove: (id) => removes.push(id),

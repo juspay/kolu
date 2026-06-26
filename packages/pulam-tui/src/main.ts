@@ -248,7 +248,7 @@ async function cmdWatch(
 
   try {
     await watchAwareness(
-      conn,
+      conn.client,
       {
         onUpsert: (id, value, live) => {
           if (only !== undefined && id !== only) return;

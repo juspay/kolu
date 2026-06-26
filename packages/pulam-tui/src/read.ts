@@ -16,7 +16,7 @@ import {
   type AwarenessValue,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
-import type { Connection, PulamClient } from "./connect.ts";
+import type { PulamClient } from "./connect.ts";
 
 /** Confirm the running pulam speaks a wire-compatible workspace contract before
  *  we read it — a newer pulam-tui against an older/different daemon would
@@ -82,14 +82,14 @@ export interface WatchHandlers {
   onRemove: (id: TerminalId) => void;
 }
 
-/** Follow the awareness collection live until the link closes (`conn.dispose()`
- *  on Ctrl+C) or `signal` aborts. One `mirrorRemoteSurface` drives both the
- *  `awareness` collection (the rows) and the `activity` stream (the live dot):
- *  the activity frame updates a local live-set the upsert handler reads, so a
- *  printed line reflects whether that terminal was moving bytes at the time.
+/** Follow the awareness collection live until the link closes (the caller
+ *  disposes on Ctrl+C) or `signal` aborts. One `mirrorRemoteSurface` drives both
+ *  the `awareness` collection (the rows) and the `activity` stream (the live
+ *  dot): the activity frame updates a local live-set the upsert handler reads,
+ *  so a printed line reflects whether that terminal was moving bytes at the time.
  *  Resolves when the mirror settles (every subscription ended = link closed). */
 export async function watchAwareness(
-  conn: Connection,
+  client: PulamClient,
   handlers: WatchHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -98,7 +98,7 @@ export async function watchAwareness(
   const live = new Set<TerminalId>();
   await mirrorRemoteSurface(
     terminalWorkspaceSurface,
-    conn.client,
+    client,
     {
       collections: {
         awareness: {
