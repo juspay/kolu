@@ -2,8 +2,8 @@
 title: pulam-tui — the thin CLI client for the pulam daemon
 description: Now that pulam-web carries the rich fleet dashboard, pulam-tui no longer needs to be a full-blown TUI. It sheds Bun + OpenTUI and reverts to a kaval-tui-style raw client — status / status --json / watch <id> / watch <id> --json against one pulam daemon over a unix socket or ssh. The CLI face of pulam; the multi-host fleet board moves wholesale to the browser.
 parents: [pulam, feature]
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-06-26
 ---
 
@@ -150,4 +150,4 @@ The `dock-fleet-mirror` instruction pins a three-surface agent-state contract �
 
 ## History
 
-- **Proposed** (2026-06-26) — with [pulam-web](pulam-web.html) shipped as the browser fleet dashboard (R-pulamweb-3, <PrLink pr={1535} />), the OpenTUI/Bun fleet board in `pulam-tui` is redundant. This note reverts `pulam-tui` to a [kaval-tui](pty-daemon-tui.html)-style raw client — `status` and `watch` (all terminals, or one by id) over one daemon, Node/`tsx` instead of Bun, no OpenTUI, no multi-host fleet. Split out of [pulam](pulam.html)'s R4.5 (the fleet board) and its "Why this stays a TUI" / "Why Bun" sections, which this supersedes; the daemon note keeps the daemon story and points here for the client.
+- **Shipped** (2026-06-26, <PrLink pr={1582} />) — with [pulam-web](pulam-web.html) shipped as the browser fleet dashboard (R-pulamweb-3, <PrLink pr={1535} />), the OpenTUI/Bun fleet board in `pulam-tui` was redundant. This reverts `pulam-tui` to a [kaval-tui](pty-daemon-tui.html)-style raw client — `status` and `watch` (all terminals, or one by id) over one daemon, Node/`tsx` instead of Bun, no OpenTUI, no multi-host fleet. Split out of [pulam](pulam.html)'s R4.5 (the fleet board) and its "Why this stays a TUI" / "Why Bun" sections, which this supersedes; the daemon note keeps the daemon story and points here for the client.
