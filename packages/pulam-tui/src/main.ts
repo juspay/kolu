@@ -429,6 +429,29 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // `wait`'s flag checks are pure — they need no daemon — so validate them
+  // BEFORE the dial: a bad `--until`/`--timeout` fails fast with no connection to
+  // tear down and, under --host, no Nix provisioning of a daemon we'd just drop.
+  // `waitTargets` is non-null exactly when the command is `wait`; its parsed
+  // targets flow straight into cmdWait below.
+  let waitTargets: ReadonlySet<string> | null = null;
+  if (argv.command === "wait") {
+    if (argv.flags.until === undefined) {
+      fail(
+        "--until is required — e.g. `pulam-tui wait <id> --until awaiting,waiting`.",
+      );
+    }
+    const parsed = parseUntilStates(argv.flags.until);
+    if (parsed.kind === "error") fail(parsed.message);
+    if (
+      argv.flags.timeout !== undefined &&
+      !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
+    ) {
+      fail("--timeout must be a positive number of milliseconds.");
+    }
+    waitTargets = parsed.targets;
+  }
+
   const conn = await connect({
     host: argv.flags.host,
     socket: argv.flags.socket,
@@ -445,31 +468,15 @@ async function main(): Promise<void> {
   }
 
   // `cmdStatus` disposes its own link (it snapshots then releases); `cmdWatch`
-  // holds the link and disposes in its finally.
+  // and `cmdWait` hold the link and dispose in their finally. The wait branch
+  // keys off `waitTargets` (set iff the command is `wait`), so the pre-parsed
+  // targets narrow to a non-null set here.
   if (argv.command === "status") {
     await cmdStatus(conn, argv.flags.json);
   } else if (argv.command === "watch") {
     await cmdWatch(conn, argv._.id, argv.flags.json);
-  } else if (argv.command === "wait") {
-    if (argv.flags.until === undefined) {
-      conn.dispose();
-      fail(
-        "--until is required — e.g. `pulam-tui wait <id> --until awaiting,waiting`.",
-      );
-    }
-    const parsed = parseUntilStates(argv.flags.until);
-    if (parsed.kind === "error") {
-      conn.dispose();
-      fail(parsed.message);
-    }
-    if (
-      argv.flags.timeout !== undefined &&
-      !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
-    ) {
-      conn.dispose();
-      fail("--timeout must be a positive number of milliseconds.");
-    }
-    await cmdWait(conn, argv._.id, parsed.targets, {
+  } else if (waitTargets !== null) {
+    await cmdWait(conn, argv._.id, waitTargets, {
       json: argv.flags.json,
       timeoutMs: argv.flags.timeout,
     });
