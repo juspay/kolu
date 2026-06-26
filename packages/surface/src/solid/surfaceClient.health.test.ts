@@ -27,7 +27,7 @@ import { z } from "zod";
 import { defineSurface } from "../define";
 import { websocketLink } from "../links/websocket";
 import type { SurfaceHealth } from "./health";
-import { brandLiveSignal } from "./liveSignal";
+import { createLiveSignal } from "./liveSignal";
 import {
   surfaceClient,
   surfaceClients,
@@ -42,10 +42,26 @@ function fakeWs(): WebSocket {
     removeEventListener: () => {},
     send: () => {},
     close: () => {},
+    reconnect: () => {},
     readyState: 0,
     OPEN: 1,
     // biome-ignore lint/suspicious/noExplicitAny: minimal stand-in for the WebSocket shape websocketLink threads through.
   } as any;
+}
+
+/** Mint a REAL `LiveSignal` via `createLiveSignal` (the only minter) over a fake
+ *  watchable socket — proving the brand round-trips end-to-end (no test-only stub
+ *  brander; `brandLiveSignal` is module-private and un-importable now). The 15s
+ *  watchdog interval never fires within a sync test; dispose it to be tidy. */
+function brandedLive(): {
+  live: ReturnType<typeof createLiveSignal>["live"];
+  dispose: () => void;
+} {
+  // biome-ignore lint/suspicious/noExplicitAny: fakeWs is a structural stand-in for a partysocket.
+  const t = createLiveSignal(fakeWs() as any, {
+    probe: () => Promise.resolve({}),
+  });
+  return { live: t.live, dispose: t.dispose };
 }
 
 const surface = defineSurface({
@@ -502,11 +518,11 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
 
   it("surfaceClient over a websocketLink with a BRANDED `LiveSignal` is accepted — the watchdog-backed brand is the cure", () => {
     const link = websocketLink(fakeWs());
-    // `brandLiveSignal` stands in for the brand `createLiveSignal` mints after
-    // wiring the watchdog (the test can't run a real heartbeat over `fakeWs`).
-    expect(() =>
-      surfaceClient(surface, link, { live: brandLiveSignal(() => true) }),
-    ).not.toThrow();
+    // The brand is minted ONLY by `createLiveSignal` (which wires the watchdog);
+    // there is no importable `brandLiveSignal` to forge one with.
+    const t = brandedLive();
+    expect(() => surfaceClient(surface, link, { live: t.live })).not.toThrow();
+    t.dispose();
   });
 
   it("surfaceClients (the multi-surface bundle) refuses a bare or unbranded `{ live }`, accepts a branded one", () => {
@@ -525,14 +541,16 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
         { live: () => true },
       ),
     ).toThrow(/watchdog-backed `LiveSignal`/);
+    const t = brandedLive();
     expect(() =>
       surfaceClients(
         // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
         link as any,
         { a: surface, b: surface },
-        { live: brandLiveSignal(() => true) },
+        { live: t.live },
       ),
     ).not.toThrow();
+    t.dispose();
   });
 
   it("a direct/in-process link (not half-openable) is accepted with NO `{ live }` — and with a plain accessor too — constant-true is honest there", () => {

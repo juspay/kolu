@@ -101,25 +101,19 @@ export function HostHealthIndicator(props: {
       {/* The connection dot is the framework `<HostStatusPip>` — the SAME
           component drishti renders — so the two fleet viewers can't diverge. Its
           GREEN is fact-only: `ready` is the SAME `hostBodyReady` predicate the
-          body `<SurfaceGate>` uses (so dot and body agree), and `h.live` carries
-          the mirror leg by construction, so a stale `connected` cell can NOT
-          paint it green over a dead link. Its NOT-ready color stays pulam-web's
-          rich 5-state `effectiveHealth.dot` — but that fold is transport∘mirror
-          ONLY (it can't see sub errors), so it reads the CONNECTED GREEN whenever
-          the link itself is fine. Reaching `notReadyTone` means the FACT is not
-          ready, so a green `view().dot` here means the trouble is a sub (pending/
-          erroring), not the link — clamp it to amber. The pip ALSO refuses a tone
-          equal to `readyColor`, so this clamp is the belt to its suspenders: the
-          dot can never read green while something's broken. */}
+          body `<SurfaceGate>` uses (so dot and body agree), via its own
+          `readyColor`; `h.live` carries the mirror leg by construction, so a stale
+          `connected` cell can NOT paint it green over a dead link. Its NOT-ready
+          color is pulam-web's rich 5-state `effectiveHealth.dot`, which carries NO
+          green any more (the `connected` row's dot is amber — green lives only in
+          `readyColor`), so `notReadyTone` passes it straight through. The pip ALSO
+          refuses a tone equal to `readyColor`, so even a future green leaking back
+          into the palette can't paint a green dot while the fact says not-ready. */}
       <HostStatusPip
         health={props.fact}
         ready={hostBodyReady}
         readyColor={HEALTH_PALETTE.green}
-        notReadyTone={() =>
-          view().dot === HEALTH_PALETTE.green
-            ? HEALTH_PALETTE.amber
-            : view().dot
-        }
+        notReadyTone={() => view().dot}
         pulse={view().pending}
         title={view().label}
       />

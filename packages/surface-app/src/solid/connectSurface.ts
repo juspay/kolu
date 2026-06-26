@@ -17,8 +17,9 @@
  * combined link. So an app that reaches for either of the two seams gets the
  * liveness watchdog BY DEFAULT — there is no probe to forget. (A consumer that
  * hand-builds `surfaceClient + websocketLink` directly, like a minimal example,
- * still must thread its own `{ live }` and run no heartbeat; the seams exist so
- * it doesn't have to.)
+ * still mints its own `{ live }` — but through `createLiveSignal`, which wires the
+ * SAME watchdog; the brand can't be obtained any other way. The seams exist so it
+ * doesn't have to wire the socket + client + watchdog by hand.)
  */
 
 import type {
@@ -28,28 +29,33 @@ import type {
 } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
-import { type SurfaceClient, surfaceClient } from "@kolu/surface/solid";
+import {
+  createLiveSignal,
+  type HeartbeatTuning,
+  type SurfaceConnectionStatus,
+  type SurfaceClient,
+  surfaceClient,
+} from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
-  type HeartbeatConfig,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
-import { createLiveSignal } from "./createLiveSignal";
-import type { SurfaceConnectionStatus } from "./socketStatus";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
   extends SurfaceSocketOptions {
   /** The surface to build a reactive client for. */
   surface: Surface<S>;
-  /** Disable or tune the default-on liveness heartbeat. Default ON, probing the
-   *  framework-reserved `system.live` round-trip — so an app needn't (and can't
-   *  forget to) supply a probe. Pass `false` only if a different layer owns this
-   *  socket's liveness; pass an object to tune `intervalMs`/`timeoutMs`/`onStale`.
-   *  The same {@link HeartbeatConfig} knob `createServerLifecycle` accepts. */
-  heartbeat?: HeartbeatConfig;
+  /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`).
+   *  There is deliberately NO disable option: the seam mints the watchdog-backed
+   *  brand `surfaceClient` requires, and a disabled watchdog would mint a
+   *  branded-but-blind signal — the override knob the design philosophy forbids.
+   *  A socket whose liveness another layer owns simply doesn't use this seam (it
+   *  passes that layer's `LiveSignal` to `surfaceClient` directly). */
+  heartbeat?: HeartbeatTuning;
 }
 
 /** A live single-surface connection: the socket, its `pid` echo, the reactive
@@ -95,9 +101,12 @@ export function connectSurface<const S extends SurfaceSpec>(
   // makes `gateStatus` return `connecting` rather than a confident `ready`.
   const transport = createLiveSignal(ws, {
     probe: () => probeSurfaceLive(link),
-    heartbeat: hb,
+    ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
-    restartCloseCode: socketOptions.restartCloseCode,
+    // The stale-restart code is a surface-app protocol constant, defaulted HERE
+    // (createLiveSignal lives in @kolu/surface and takes it explicitly).
+    restartCloseCode:
+      socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
   const client = surfaceClient(surface, link, { live: transport.live });
   return {

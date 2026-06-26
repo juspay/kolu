@@ -26,8 +26,7 @@ const mocked = vi.hoisted(() => ({
   probedClients: [] as unknown[],
 }));
 
-// Mock the socket seam (hand back the fake ws) AND `createHeartbeat` (capture the
-// probe thunk so the test can fire it without waiting on the 15s interval).
+// Mock the socket seam (hand back the fake ws).
 vi.mock("../connect", async (importActual) => {
   const actual = await importActual<typeof import("../connect")>();
   return {
@@ -36,6 +35,17 @@ vi.mock("../connect", async (importActual) => {
       ws: mocked.ws,
       echo: { remember: () => {}, appendTo: (u: string) => u },
     }),
+  };
+});
+
+// Mock the heartbeat PRIMITIVE (capture the probe thunk so the test can fire it
+// without waiting on the 15s interval). `connectSurfaces` now wires the watchdog
+// through `createLiveSignal` (`@kolu/surface`), which uses THIS primitive — so the
+// capture lives here, not on surface-app's `../connect` wrapper.
+vi.mock("@kolu/surface/heartbeat", async (importActual) => {
+  const actual = await importActual<typeof import("@kolu/surface/heartbeat")>();
+  return {
+    ...actual,
     createHeartbeat: (opts: { probe: () => Promise<unknown> }) => {
       mocked.heartbeatProbe = opts.probe;
       return { dispose: () => {} };

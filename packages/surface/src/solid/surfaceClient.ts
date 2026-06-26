@@ -78,8 +78,9 @@ function requireTransportLive(
         "liveness must be a watchdog-backed `LiveSignal`, not a bare `{ live }`. " +
         "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
         "hand-built `surfaceClient + websocketLink`, mint the signal with " +
-        "`createLiveSignal(ws, { probe })` from `@kolu/surface-app/solid` (it wires " +
-        "the half-open heartbeat AND brands the live signal in one call). A bare " +
+        "`createLiveSignal(ws, { probe })` from `@kolu/surface/solid` (it wires " +
+        "the half-open heartbeat AND brands the live signal in one call — the brand " +
+        "has no other minter). A bare " +
         "`() => true` or an open/close-only `() => socketStatus() === 'live'` is " +
         "half-open-blind — it would paint a green/ready dot over a dead " +
         "backend↔remote link (#1564).",

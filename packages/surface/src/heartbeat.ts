@@ -37,6 +37,21 @@
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
 
+/** The app-facing knob to TUNE (never disable) the watchdog the connect seams /
+ *  `createLiveSignal` wire. Framework-free (no solid) so the framework-free
+ *  `@kolu/surface-app/connect` can build its `HeartbeatConfig` on it too. `onStale`
+ *  here is the REPORTER (run after the recovery), not the action. There is no
+ *  disable variant: a brand-minting seam that disabled its watchdog would mint a
+ *  branded-but-blind signal. */
+export interface HeartbeatTuning {
+  /** How often to probe while the link is live. Default {@link DEFAULT_HEARTBEAT_INTERVAL_MS}. */
+  intervalMs?: number;
+  /** How long to wait for a probe before declaring half-open. Default {@link DEFAULT_HEARTBEAT_TIMEOUT_MS}. */
+  timeoutMs?: number;
+  /** Report a forced reconnect (a missed probe). Defaults to a `console.warn`. */
+  onStale?: () => void;
+}
+
 /** Options for {@link createHeartbeat}. */
 export interface HeartbeatOptions {
   /** Gate: probe only when the link is live enough to answer. The browser leg

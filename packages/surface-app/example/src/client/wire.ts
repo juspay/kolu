@@ -8,7 +8,8 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClients } from "@kolu/surface/solid";
+import { probeSurfaceLive } from "@kolu/surface/liveness";
+import { createLiveSignal, surfaceClients } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { type contract, surfaces } from "../common/surface";
 
@@ -20,4 +21,13 @@ export const ws = new PartySocket(wsUrl);
 // (`{ surface: link.surface[key] }`), so a primitive reached through it resolves
 // at `/surface/<key>/<prim>/<verb>` — the wire path `implementSurfaces` serves.
 const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
-export const clients = surfaceClients(link, surfaces);
+// A websocket CAN silently half-open, so `surfaceClients` requires a watchdog-backed
+// `{ live }` — minted by `createLiveSignal` (the one minter: it wires the half-open
+// heartbeat AND brands the signal). This seam OWNS the watchdog over the admin
+// socket, so `App.tsx` passes `heartbeat={false}` to `<SurfaceAppProvider>` (its
+// lifecycle observes the same socket but doesn't double-watch it).
+const transport = createLiveSignal(ws, {
+  // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string.
+  probe: () => probeSurfaceLive({ surface: (link as any).surface.surfaceApp }),
+});
+export const clients = surfaceClients(link, surfaces, { live: transport.live });

@@ -15,32 +15,34 @@
  * the per-sibling `{ live }` is threaded from the one socket's status so the
  * AND-reduce flips on a dead transport.
  *
- * `heartbeat: false` is the explicit opt-out for a socket whose liveness another
- * layer already owns (drishti's admin socket is watched by `<SurfaceAppProvider>`'s
- * `createServerLifecycle`, which runs its OWN heartbeat — a second one here would
- * double the probe). The seam still threads `{ live }` and removes the hand-built
- * path; it just doesn't add a duplicate watchdog.
+ * There is NO `heartbeat: false` opt-out here: this seam mints the watchdog-backed
+ * brand, so disabling its watchdog would mint a branded-but-blind signal. When the
+ * same socket carries a SECOND consumer (drishti's admin socket also drives a
+ * `<SurfaceAppProvider>` lifecycle), the watchdog lives HERE (one socket, one
+ * watchdog, one honest brand) and the lifecycle — which mints no brand — opts ITS
+ * own watchdog out (`heartbeat: false` on `createServerLifecycle` / the provider).
  */
 
 import type { Surface } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
+  createLiveSignal,
+  type HeartbeatTuning,
   type SurfaceClients,
+  type SurfaceConnectionStatus,
   type SurfaceHealth,
   surfaceClients,
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
 import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
+import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
-  type HeartbeatConfig,
   type ProcessIdEcho,
   type SurfaceSocketOptions,
 } from "../connect";
-import { createLiveSignal } from "./createLiveSignal";
-import type { SurfaceConnectionStatus } from "./socketStatus";
 
 export interface ConnectSurfacesOptions<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
@@ -50,12 +52,15 @@ export interface ConnectSurfacesOptions<
    *  `surfaceClients` takes (`{ admin: adminSurface, surfaceApp: appSurface }`).
    *  Each becomes a scoped client at `/surface/<key>/<prim>/<verb>`. */
   surfaces: E;
-  /** Disable or tune the default-on liveness heartbeat — the same knob
-   *  `connectSurface` accepts. Pass `false` when another layer already owns this
-   *  socket's liveness (e.g. `<SurfaceAppProvider>`'s `createServerLifecycle`),
-   *  so the seam threads `{ live }` and drops the hand-built path WITHOUT adding a
-   *  second probe. */
-  heartbeat?: HeartbeatConfig;
+  /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`) —
+   *  the same knob `connectSurface` accepts. There is deliberately NO disable
+   *  option: this seam mints the watchdog-backed brand, and a disabled watchdog
+   *  would mint a branded-but-blind signal (the forbidden override knob). When
+   *  another layer owns the socket's lifecycle (drishti's admin socket, watched by
+   *  `<SurfaceAppProvider>`'s `createServerLifecycle`), THAT layer opts its
+   *  watchdog out (`heartbeat: false` on the lifecycle, which mints no brand) — so
+   *  this seam stays the single watchdog and the single, honest brand. */
+  heartbeat?: HeartbeatTuning;
 }
 
 /** A live multi-surface connection: the shared socket, its `pid` echo, the per-key
@@ -107,9 +112,10 @@ export function connectSurfaces<
       probeSurfaceLive(
         (Object.values(clients)[0] as { rpc: unknown } | undefined)?.rpc,
       ),
-    heartbeat: hb,
+    ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
-    restartCloseCode: socketOptions.restartCloseCode,
+    restartCloseCode:
+      socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
   clients = surfaceClients(link, surfaces, { live: transport.live });
   return {

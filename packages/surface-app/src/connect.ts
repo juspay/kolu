@@ -27,6 +27,7 @@ import {
   createHeartbeat as createHeartbeatPrimitive,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
+  type HeartbeatTuning,
 } from "@kolu/surface/heartbeat";
 import { WebSocket as PartySocket } from "partysocket";
 import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
@@ -242,21 +243,18 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   });
 }
 
-/** The "tune-or-disable the watchdog" knob, as ONE shape both client seams accept
- *  (`connectSurface` and `createServerLifecycle`). `false` disables it; an object
- *  tunes `intervalMs`/`timeoutMs`/`onStale` (the reporter). Single-sourced so the
- *  two seams carry the SAME knob and normalize it the SAME way, instead of each
- *  re-declaring the union and hand-unpacking it per field. The liveness `probe`
- *  is NOT tunable here on purpose — each seam supplies the framework-reserved
- *  `system.live` round-trip as the one liveness verb, which is the whole point of
- *  the reserved receptacle (no app nominates or overrides a probe). */
-export type HeartbeatConfig =
-  | false
-  | {
-      intervalMs?: number;
-      timeoutMs?: number;
-      onStale?: () => void;
-    };
+/** The "tune-or-disable the watchdog" knob for `createServerLifecycle` ONLY.
+ *  `false` disables the lifecycle's own watchdog — legitimate, because the
+ *  lifecycle mints NO brand (it derives connecting/restarted/… for the UI), so a
+ *  disabled lifecycle watchdog is watchdog-OWNERSHIP coordination (the socket is
+ *  watched by a `createLiveSignal` elsewhere — kolu's `wire.ts`, or the
+ *  `connectSurfaces` that built the same admin socket's clients), NOT a path to a
+ *  branded-but-blind signal. The brand-minting seams (`connectSurface` /
+ *  `connectSurfaces` / `createLiveSignal`) take {@link HeartbeatTuning} instead —
+ *  no `false` — so a brand can never be minted without a watchdog. The liveness
+ *  `probe` is NOT tunable here: each seam supplies the framework-reserved
+ *  `system.live` round-trip as the one liveness verb. */
+export type HeartbeatConfig = false | HeartbeatTuning;
 
 /** Normalize a {@link HeartbeatConfig} + the seam's `{ ws, probe }` base into the
  *  {@link HeartbeatOptions} `createHeartbeat` takes — `undefined` when the config

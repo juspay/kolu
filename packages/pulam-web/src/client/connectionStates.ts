@@ -47,7 +47,15 @@ export interface ConnPresentation {
 
 export const CONN_STATE: Record<ConnectionState, ConnPresentation> = {
   connected: {
-    dot: HEALTH_PALETTE.green,
+    // NOT green. The `dot` field feeds ONLY the `<HostStatusPip>`'s NOT-ready tone
+    // (the pip emits its green solely from the fact-`ready` branch, via its own
+    // `readyColor={HEALTH_PALETTE.green}`). `notReadyTone` is reached only when the
+    // host is NOT ready — a connected mirror with an erroring/pending sub — where
+    // amber is the honest colour. A green here was dead re-spelling material (the
+    // round-7 review's residual): never painted, but a raw-state green a future
+    // widget could read. The connected `text` stays green (the status WORD's colour
+    // is legitimate presentation, fact-independent).
+    dot: HEALTH_PALETTE.amber,
     text: HEALTH_PALETTE.green,
     label: "connected",
     message: "Connected.",

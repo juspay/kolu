@@ -30,10 +30,20 @@ export {
   type SurfaceHealth,
   type SurfaceHealthRegistry,
 } from "./health";
+// `createLiveSignal` is the SINGLE, unforgeable minter of a `LiveSignal` (the
+// transport-liveness brand `surfaceClient` requires over a websocket). It lives
+// here — not in `@kolu/surface-app` — so the brand symbol and its sole minter
+// share one module; `brandLiveSignal` is module-private and deliberately NOT
+// exported. `@kolu/surface-app`'s connect seams re-export `createLiveSignal`.
 export {
-  brandLiveSignal,
+  type CreateLiveSignalOptions,
+  createLiveSignal,
+  type HeartbeatTuning,
   isLiveSignal,
   type LiveSignal,
+  type LiveSignalHandle,
+  type SurfaceConnectionStatus,
+  type WatchableSocket,
 } from "./liveSignal";
 // NOTE: `SurfaceGate` (a JSX `.tsx` component) is intentionally NOT re-exported
 // here. This barrel must stay free of JSX so a consumer that imports

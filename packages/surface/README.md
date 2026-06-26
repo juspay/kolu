@@ -623,9 +623,10 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
 const link = websocketLink(ws);
 // A socket link MUST thread a watchdog-backed `{ live }` — minted by
-// `createLiveSignal` (`@kolu/surface-app/solid`), which wires the half-open
-// heartbeat AND brands the signal. A bare `() => status() === "live"` is
-// half-open-blind and is REFUSED; defaulting it to a constant `true` would too.
+// `createLiveSignal` (`@kolu/surface/solid`), which wires the half-open
+// heartbeat AND brands the signal (the brand has no other minter — `brandLiveSignal`
+// is module-private). A bare `() => status() === "live"` is half-open-blind and is
+// REFUSED; defaulting it to a constant `true` would too.
 const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
 export const app = surfaceClient<
   typeof surface.spec,
@@ -1001,7 +1002,7 @@ surfaceClient<S, Rpc>(surface, link, { live? }): SurfaceClient<S, Rpc>
   // `link` is a link-family member (`websocketLink`/`stdioLink`/`directLink`); `{ live }`
   // is the transport-liveness accessor for `health().live`. A `websocketLink` (which can
   // silently half-open) needs a watchdog-backed LiveSignal — minted ONLY by `createLiveSignal`
-  // (`@kolu/surface-app/solid`) / `connectSurface` / `connectSurfaces`. A missing OR bare
+  // (`@kolu/surface/solid`; `brandLiveSignal` is module-private) / `connectSurface` / `connectSurfaces`. A missing OR bare
   // `{ live }` (a half-open-blind `() => true`) THROWS; the brand is unspellable without the
   // watchdog. An in-process direct/stdio link can't half-open, so any `{ live }` (or none) is fine.
   // client.cells.<K>.use(policy)                  ← drops source/mutate

@@ -29,8 +29,8 @@ import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
+import { createLiveSignal } from "@kolu/surface/solid";
 import { connectSurface } from "./connectSurface";
-import { createLiveSignal } from "./createLiveSignal";
 import { createSocketStatus } from "./socketStatus";
 
 // `connectSurface` builds its OWN socket via `createSurfaceSocket`. To exercise
@@ -102,6 +102,7 @@ function fakeWs() {
       },
       send: () => {},
       close: () => {},
+      reconnect: () => {},
       readyState: 0,
       OPEN: 1,
     },
@@ -177,12 +178,12 @@ describe("connectSurface threads the real socket liveness into health().live", (
       // assertion exercises the actual thread — drop it back to the default
       // constant `true` and these expectations fail (the regression the first
       // re-review flagged: the old test rebuilt the predicate by hand and never
-      // called connectSurface). `heartbeat: false` keeps the watchdog (which would
-      // probe `system.live` over the fake socket) out of the way.
+      // called connectSurface). The watchdog is always-on now (no disable knob),
+      // but its 15s probe never fires within this synchronous test, and
+      // `conn.dispose()` clears the interval — so the live FOLD is exercised cleanly.
       const conn = connectSurface({
         surface,
         url: "ws://test",
-        heartbeat: false,
       });
       // Before the first open: `connecting` → not live (NOT the default `true`).
       expect(conn.client.health().live).toBe(false);
@@ -215,12 +216,12 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
     createRoot((dispose) => {
       // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string, as in wire.ts.
       const link = websocketLink(t.ws as never) as any;
-      // The wire.ts pattern: `createLiveSignal` mints the branded live (watchdog
-      // disabled here so no probe timer fires in the unit test; the live FOLD it
-      // exposes is the same with or without the watchdog).
+      // The wire.ts pattern: `createLiveSignal` mints the branded live. The
+      // always-on watchdog's 15s probe never fires within this synchronous test,
+      // and `transport.dispose()` clears the interval, so the live FOLD is exercised
+      // cleanly (the half-open chain itself is pinned in `createLiveSignal.test.ts`).
       const transport = createLiveSignal(t.ws as never, {
         probe: () => Promise.resolve({}),
-        heartbeat: false,
       });
       const clients = surfaceClients(
         link,

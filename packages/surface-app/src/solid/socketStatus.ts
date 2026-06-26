@@ -12,19 +12,14 @@
  * from the socket's own `open`/`close` events alone.
  */
 
+import type { SurfaceConnectionStatus } from "@kolu/surface/solid";
 import { type Accessor, createSignal } from "solid-js";
 import { STALE_PROCESS_CLOSE_CODE } from "../index";
 
-/** The transport-level status of a reconnecting surface socket: `connecting`
- *  until the first `open`, `live` while open, `reconnecting` after a transient
- *  drop (partysocket auto-reconnects), `down` after a stale-close the socket was
- *  retired on (a parent restart — it won't reconnect until the page reloads to
- *  re-fetch the fresh server identity). No identity probe, so no `restarted`. */
-export type SurfaceConnectionStatus =
-  | "connecting"
-  | "live"
-  | "reconnecting"
-  | "down";
+// `SurfaceConnectionStatus` moved to `@kolu/surface` (beside `createLiveSignal`,
+// which is now the primary status+watchdog source); re-exported so any direct
+// `./socketStatus` importer keeps one path.
+export type { SurfaceConnectionStatus };
 
 /** A reconnecting socket reduced to the two events this reads. */
 type ObservableSocket = {
