@@ -219,18 +219,6 @@ async function cmdWatch(
   query: string | undefined,
   json: boolean,
 ): Promise<void> {
-  // Narrow to one terminal? Resolve the prefix against the current snapshot to a
-  // full id, then filter the live stream to exactly it. (A prefix that matches
-  // nothing / many fails loud here, before the stream opens.)
-  let only: TerminalId | undefined;
-  if (query !== undefined) {
-    const entries = await snapshotAwareness(conn.client);
-    only = resolveOne(
-      query,
-      entries.map(([id]) => id),
-    );
-  }
-
   // Ctrl+C (and external kill) abort the mirror → its `.done` settles → we
   // dispose the link and exit cleanly. The link is held open until then.
   const abort = new AbortController();
@@ -265,7 +253,18 @@ async function cmdWatch(
     process.stderr.write(`pulam-tui: ${line}\n`);
   };
 
+  // Narrow to one terminal? Resolve the prefix to a full id INSIDE the try so a
+  // thrown read still disposes the link (like `cmdStatus`); then filter the live
+  // stream to exactly it. A no-match / ambiguous prefix fails loud and exits.
+  let only: TerminalId | undefined;
   try {
+    if (query !== undefined) {
+      const entries = await snapshotAwareness(conn.client);
+      only = resolveOne(
+        query,
+        entries.map(([id]) => id),
+      );
+    }
     await watchAwareness(
       conn.client,
       {

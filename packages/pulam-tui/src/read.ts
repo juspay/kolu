@@ -126,8 +126,27 @@ export async function watchAwareness(
     {
       collections: {
         awareness: {
-          upsert: (id, value) => handlers.onUpsert(id, value, live.has(id)),
-          remove: (id) => handlers.onRemove(id),
+          // Guard the consumer callbacks at this funnel: a throwing handler must
+          // not escape into mirrorRemoteSurface's internal loop and wedge the
+          // whole watch — contain it to the one frame and surface it via `log`.
+          upsert: (id, value) => {
+            try {
+              handlers.onUpsert(id, value, live.has(id));
+            } catch (err) {
+              log?.(
+                `awareness upsert handler failed: ${(err as Error).message}`,
+              );
+            }
+          },
+          remove: (id) => {
+            try {
+              handlers.onRemove(id);
+            } catch (err) {
+              log?.(
+                `awareness remove handler failed: ${(err as Error).message}`,
+              );
+            }
+          },
         },
       },
       streams: {
