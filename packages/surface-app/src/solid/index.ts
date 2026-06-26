@@ -60,7 +60,6 @@ export {
   connectSurfaces,
   type SurfacesConnection,
 } from "./connectSurfaces";
-export { createSocketStatus } from "./socketStatus";
 // The single, UNFORGEABLE minter of a `LiveSignal` — wires the half-open watchdog
 // AND brands the liveness accessor in one call — now lives in `@kolu/surface`
 // (co-located with the module-private brand symbol, so nothing can forge a brand).

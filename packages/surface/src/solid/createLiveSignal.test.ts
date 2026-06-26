@@ -1,7 +1,7 @@
 /**
  * `createLiveSignal` — the single, UNFORGEABLE minter of a watchdog-backed
- * `LiveSignal`. It lives in `@kolu/surface` (beside the module-private brand
- * symbol), so `brandLiveSignal` is un-importable and a brand can only come from
+ * `LiveSignalHandle`. It lives in `@kolu/surface` (beside the module-private brand
+ * set), so there is no importable stamper and a branded handle can only come from
  * here. Two things must hold, end-to-end:
  *
  *   1. Its output is BRANDED — `surfaceClient`/`surfaceClients` accept it over a

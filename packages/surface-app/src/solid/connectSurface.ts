@@ -6,20 +6,21 @@
  * no shared connection-status UI driven off the socket — pulam-web's per-host
  * fleet sockets, drishti's per-host sockets — builds its reactive client AND its
  * half-open watchdog in one call, instead of hand-rolling `createSurfaceSocket`
- * → `websocketLink` → `surfaceClient` and (the step every such app FORGOT) a
- * `createHeartbeat`. The heartbeat is default-on and probes the framework-
- * reserved `system.live` round-trip (`@kolu/surface/liveness`), so it needs no
- * app-supplied probe — there is no probe left for an app to forget.
+ * → `createLiveSignal` → `surfaceClient` (the steps every such app FORGOT — the
+ * watchdog, and threading its handle). The heartbeat is default-on and probes the
+ * framework-reserved `system.live` round-trip (`@kolu/surface/liveness`), so it
+ * needs no app-supplied probe — there is no probe left for an app to forget.
  *
  * An app that DOES drive shared connection-status UI off the socket (kolu's
  * header dot) derives a `createServerLifecycle` instead — which folds the SAME
  * watchdog in — and builds its own (possibly multi-sibling) clients over the
  * combined link. So an app that reaches for either of the two seams gets the
  * liveness watchdog BY DEFAULT — there is no probe to forget. (A consumer that
- * hand-builds `surfaceClient + websocketLink` directly, like a minimal example,
- * still mints its own `{ live }` — but through `createLiveSignal`, which wires the
- * SAME watchdog; the brand can't be obtained any other way. The seams exist so it
- * doesn't have to wire the socket + client + watchdog by hand.)
+ * hand-builds the raw seam, like a minimal example, calls `createLiveSignal(ws)`
+ * itself and passes the WHOLE handle to `surfaceClient(surface, transport)` — that
+ * is the only hand-built path, since handing `surfaceClient` a bare `websocketLink`
+ * THROWS, and the branded handle can't be obtained any other way. The seams exist so
+ * it doesn't have to wire the socket + client + watchdog by hand.)
  */
 
 import type {

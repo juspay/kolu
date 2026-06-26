@@ -223,14 +223,16 @@ export function createLiveSignal<
   // own `reconnect()` somehow never fires a `close`) AND calls `ws.reconnect()` to
   // recover. The race/settle/skip-overlap/dispose algorithm is the framework-free
   // `@kolu/surface/heartbeat` primitive.
+  // ONE source of truth for "is the socket live": the heartbeat's probe gate AND the
+  // handle's `live` are the SAME closure, not two that merely happen to match. It
+  // reads `status` (NOT a second, independent `ws.readyState === ws.OPEN`): the two
+  // readings of the socket's openness could disagree — a socket whose `open` fired
+  // while `readyState` never reached `OPEN` would freeze the gate shut forever, so
+  // the probe never runs and `live` stays `true` over a dead socket. One closure
+  // makes "the gate and the signal can never diverge" true by construction.
+  const isLive = () => status() === "live";
   const heartbeat = createHeartbeat({
-    // Gate the probe on the SAME source `live` reads (`status`), not a second,
-    // independent `ws.readyState === ws.OPEN`. The two readings of the socket's
-    // openness could disagree — a socket whose `open` fired while `readyState`
-    // never reached `OPEN` would freeze the gate shut forever, so the probe never
-    // runs and `live` stays `true` over a dead socket. Reading one source means the
-    // gate and the signal can never diverge: if `live` says `live`, the probe runs.
-    isLive: () => status() === "live",
+    isLive,
     onStale: () => {
       setStatus("reconnecting");
       ws.reconnect();
@@ -249,7 +251,7 @@ export function createLiveSignal<
   // `surfaceClient`/`surfaceClients` need re-prove nothing — they read both legs off
   // this one object.
   const handle: LiveSignalHandle<C> = {
-    live: () => status() === "live",
+    live: isLive,
     status,
     link,
     dispose: () => heartbeat.dispose(),

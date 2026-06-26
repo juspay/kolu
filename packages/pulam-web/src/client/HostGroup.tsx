@@ -220,7 +220,16 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // mirror flips `live` false the same way. `effectiveHealth` still resolves the
   // two axes for PRESENTATION (the dot + ConnectionView — reload vs Reconnect,
   // finer than the boolean), but no consumer re-ANDs the mirror state anymore.
-  const bodyReady = createMemo(() => hostBodyReady(app.health()));
+  // The host's health FACT, folded ONCE per change. `app.health` is the registry's
+  // plain accessor (deliberately not a memo — it allocates a fresh `subs` array on
+  // every read), and this host hands it to FIVE reactive readers: `bodyReady` here,
+  // the `<SurfaceGate health>` + its `ready` memo, and the dot's `<HostStatusPip>` +
+  // its `ready` memo. Reading the bare accessor in each would re-run the full O(subs)
+  // fold 5× per tick (agent-state ticks are frequent). Memoize once for one fold +
+  // one stable identity per change; the downstream gate/dot memos then read a cached
+  // object and only run their cheap `gateStatus`/`hostBodyReady` derivations.
+  const fact = createMemo(app.health);
+  const bodyReady = createMemo(() => hostBodyReady(fact()));
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -303,7 +312,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             · {awareness.keys().length} terminals
           </span>
         </Show>
-        <HostHealthIndicator view={health} fact={app.health} />
+        <HostHealthIndicator view={health} fact={fact} />
       </header>
       {/* The ONE gate over the host body is the framework's `<SurfaceGate>` — this
           fleet board is a real consumer of the shared primitive, not a hand-rolled
@@ -324,7 +333,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
           the fact); the dot reads it, the gate reads `h.live`, and the two never
           disagree because `live` false ⟺ `status` non-`live` ⟺ the dot is off. */}
       <SurfaceGate
-        health={app.health}
+        health={fact}
         ready={hostBodyReady}
         fallback={(h) => {
           // Precedence (was the outermost error Show): a live subscription error

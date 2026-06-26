@@ -406,6 +406,27 @@ function openReadinessLeg<S extends SurfaceSpec>(
   return { standing, dispose };
 }
 
+/** The read-only `.use()` projection — `value/pending/error/sub` WITHOUT `set`/`patch`
+ *  (absent at runtime, matching {@link ReadOnlyUseCellResult}). Both get-only branches
+ *  of {@link bindCell} (the shared standing sub, and the server-authority cell) return
+ *  it, so the shape AND the one cast that bridges the walk-by-string `BoundCell<unknown>`
+ *  map live here once (`BoundCellsFor` already narrows a get-only cell to
+ *  `ReadOnlyBoundCell` at the type level). */
+function readOnlyCellView(src: {
+  value: unknown;
+  pending: unknown;
+  error: unknown;
+  sub: unknown;
+  // biome-ignore lint/suspicious/noExplicitAny: read-only projection (no set/patch) over the BoundCell<unknown> map type
+}): any {
+  return {
+    value: src.value,
+    pending: src.pending,
+    error: src.error,
+    sub: src.sub,
+  };
+}
+
 /** Bind ONE cell to its `BoundCell` — the per-cell concern, lifted out of the
  *  cells loop so each step (verb resolution, read-only detection, the readiness leg,
  *  ordinary `.use()` enrolment) reads as one named thing instead of one fused body.
@@ -489,13 +510,7 @@ function bindCell<S extends SurfaceSpec>(
             if (e) cb(e);
           });
         }
-        return {
-          value: shared.value,
-          pending: shared.pending,
-          error: shared.error,
-          sub: shared.sub,
-          // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
-        } as any;
+        return readOnlyCellView(shared);
       }
       if (readOnly) {
         if (opts.authority === "local") {
@@ -517,17 +532,9 @@ function bindCell<S extends SurfaceSpec>(
         // Enrol the cell's self-clearing error()/pending() into health() — rides this
         // `.use()`'s consumer owner, so it drops when the component unmounts.
         registry.enroll(key, { pending: cell.pending, error: cell.error });
-        // Return ONLY the read-only projection — `set`/`patch` are absent at runtime,
-        // matching `ReadOnlyUseCellResult`. The cast bridges the walk-by-string
-        // `BoundCell` map; the typed `BoundCellsFor` already narrows a get-only cell
-        // to `ReadOnlyBoundCell`.
-        return {
-          value: cell.value,
-          pending: cell.pending,
-          error: cell.error,
-          sub: cell.sub,
-          // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
-        } as any;
+        // Return ONLY the read-only projection (`set`/`patch` absent at runtime) — the
+        // shared `readOnlyCellView` owns the shape + the single bridging cast.
+        return readOnlyCellView(cell);
       }
       // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
       const merged: any = { ...opts, source, mutate };

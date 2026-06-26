@@ -626,12 +626,13 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 // watchdog probes the very socket it reconnects, via a real `system.live`
 // round-trip) AND brands the signal, returning ONE handle that pairs `link` and
 // `live`. Pass that whole handle to `surfaceClient` — there is no separate
-// `{ live }` seam to thread a blind accessor through. The brand has no other minter
-// (`brandLiveSignal` is module-private + the brand is an un-reflectable WeakSet),
+// `{ live }` seam to thread a blind accessor through. The brand is an un-reflectable
+// WeakSet on the handle (added only by `createLiveSignal`, no exported stamper),
 // there is no caller-supplied probe target to fabricate, and there is no
-// `heartbeat: false` to disable the watchdog. The brand is also BOUND to the
-// handle's link by identity, so building over a self-rolled `websocketLink(otherWs)`
-// is REFUSED — the brand vouches only for the link the watchdog probes. A bare
+// `heartbeat: false` to disable the watchdog. Because `surfaceClient` reads `.link`
+// and `.live` off the WHOLE handle, building over a self-rolled
+// `websocketLink(otherWs)` is UNSPELLABLE — there is no separate link to supply, so
+// the client and the watchdog share one link by construction. A bare
 // `() => status() === "live"` is half-open-blind and is REFUSED; a constant `true`
 // over a socket would too.
 const transport = createLiveSignal<typeof surface.contract>(ws, {});
@@ -1007,8 +1008,8 @@ surfaceClient<S, Rpc>(surface, transport): SurfaceClient<S, Rpc>
   // `transport` is EITHER a watchdog-backed `LiveSignalHandle` (its `link` + paired `live`,
   // minted by `createLiveSignal` / `connectSurface` / `connectSurfaces`) OR a bare in-process
   // link (`stdioLink`/`directLink`). A bare `websocketLink` (which can silently half-open) THROWS —
-  // there is no `{ live }` seam to thread a blind accessor through, and the brand is unspellable
-  // without the watchdog (`brandLiveSignal` is module-private). An in-process direct/stdio link
+  // there is no `{ live }` seam to thread a blind accessor through, and the branded handle is
+  // unspellable without the watchdog (an un-reflectable WeakSet, no exported stamper). An in-process direct/stdio link
   // can't half-open, so it is passed bare (its transport leg is constant-`true`, honest).
   // client.cells.<K>.use(policy)                  ← drops source/mutate
   // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream

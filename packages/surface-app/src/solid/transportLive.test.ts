@@ -1,21 +1,20 @@
 /**
  * R1 — the liveness leg of the health FACT is REAL, not a constant `true`.
  *
- * `connectSurface` threads the socket's reactive transport `status` into
- * `surfaceClient`'s `live` option (`{ live: () => status() === "live" }`), so a
+ * `connectSurface` builds a `createLiveSignal` handle over its socket and hands the
+ * WHOLE handle (its watchdog-backed `live` + link) to `surfaceClient`, so a
  * `down`/`reconnecting` transport flips `health().live` to `false` and a gate
  * reads `connecting` rather than a confident `ready` over a dead socket. The
  * pre-fix code dropped `live` to its default constant `true` — the exact
  * green-dot-over-a-dead-link lie, one level up, in the very primitive built to
  * end it.
  *
- * This drives the SAME `createSocketStatus` accessor `connectSurface` builds
- * (over the fake open/close socket `socketStatus.test.ts` uses), threaded into a
- * real `surfaceClient` by the SAME predicate, and asserts `health().live` tracks
- * the transport — NOT a hand-toggled boolean. A live partysocket flakes in a
- * Node unit test (see `connect.test.ts`), so the socket is faked at its two
- * observable events; everything else — the status derivation and the live fold —
- * is the real production code.
+ * This drives the SAME `createLiveSignal` handle `connectSurface` builds (over a
+ * fake open/close socket), folded into a real `surfaceClient`, and asserts
+ * `health().live` tracks the transport — NOT a hand-toggled boolean. A live
+ * partysocket flakes in a Node unit test (see `connect.test.ts`), so the socket is
+ * faked at its two observable events; everything else — the status derivation and
+ * the live fold — is the real production code.
  */
 
 import { defineSurface } from "@kolu/surface/define";
@@ -34,8 +33,8 @@ import { connectSurface } from "./connectSurface";
 
 // `connectSurface` builds its OWN socket via `createSurfaceSocket`. To exercise
 // its real threading (not a hand-rebuilt predicate), mock ONLY that seam to hand
-// back a fake socket the test drives; everything else — `createSocketStatus`, the
-// `{ live: () => status() === "live" }` thread at connectSurface.ts:101, the
+// back a fake socket the test drives; everything else — the `createLiveSignal`
+// handle `connectSurface` builds, the whole-handle hand-off to `surfaceClient`, the
 // `surfaceClient` fold — is the real production path. A `vi.hoisted` holder lets
 // each test swap in its fake before calling `connectSurface`.
 const mocked = vi.hoisted(() => ({
