@@ -8,7 +8,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./connection": "./src/connection.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -18,13 +19,13 @@
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/client": "^1.13.13",
-    "@orpc/contract": "^1.13.13"
+    "@orpc/contract": "^1.13.13",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@orpc/server": "^1.13.13",
     "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
-    "vitest": "^4.1.0",
-    "zod": "^4.3.6"
+    "vitest": "^4.1.0"
   }
 }

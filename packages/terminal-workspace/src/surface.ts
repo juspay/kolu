@@ -110,6 +110,11 @@ export const FsReadFileTextOutputSchema = z.object({
 export const terminalWorkspaceSurface = defineSurface({
   cells: {
     version: { schema: VersionSchema, default: DEFAULT_VERSION },
+    // NOTE: no `connection` cell here. Link health is NOT a property of the base
+    // terminal surface (a direct/local link has no remote to be down); it's
+    // composed ONLY at the nix-host re-serve seam via `mirroredSurface(...)`, so
+    // a re-serve over a HostSession carries it by construction (#1564) and the
+    // daemon serves a connection-free surface.
   },
   collections: {
     awareness: {
@@ -170,6 +175,12 @@ export const terminalWorkspaceSurface = defineSurface({
 });
 
 type SF = SurfaceTypes<typeof terminalWorkspaceSurface.spec>;
+
+/** The base surface SPEC — what a re-serve's `SurfaceSink`/`ProcedureForwarders`
+ *  are generic over when they fold/forward the daemon's (connection-free)
+ *  primitives. Exported so a consumer types against it WITHOUT importing the
+ *  surface value purely for a `typeof` query. */
+export type TerminalWorkspaceSpec = (typeof terminalWorkspaceSurface)["spec"];
 
 /** The collection's key — a terminal id (same `TerminalId` the sensors use). */
 export type AwarenessKey = SF["collections"]["awareness"]["Key"];

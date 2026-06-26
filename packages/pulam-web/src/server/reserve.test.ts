@@ -31,6 +31,7 @@
 
 import { directLink } from "@kolu/surface/links/direct";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
+import { StandardRPCMatcher } from "@orpc/server/standard";
 import {
   implementSurface,
   inMemoryChannelByName,
@@ -38,6 +39,7 @@ import {
 } from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
 import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   type AwarenessValue,
   DEFAULT_VERSION,
@@ -46,12 +48,23 @@ import {
 } from "@kolu/terminal-workspace/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type ArivuBrowserContract, arivuSurface } from "../shared/contract.ts";
 import { type ArivuContract, buildReServe } from "./reserve.ts";
 
 // Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
 // so a bare "A"/"B" would fail validation at the agent's collection boundary).
 const TERM_A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const TERM_B = "22222222-2222-4222-8222-222222222222" as TerminalId;
+
+/** A `directLink` to a re-serve router, typed over the BROWSER contract
+ *  (`arivuSurface` = base + connection). The documented fragment→client cast (the
+ *  `implementSurface` router's `Lazy<Router>` shape isn't accepted by
+ *  `directLink`'s input type; the runtime is a valid router) lives here, once,
+ *  rather than at every call site. */
+function browserLink(router: unknown) {
+  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — runtime shape is valid.
+  return directLink<ArivuBrowserContract>(router as any);
+}
 
 /** Stand up a REAL `terminalWorkspaceSurface` agent over `directLink`. The
  *  awareness collection is backed by the returned `cache` Map and driven through
@@ -66,6 +79,8 @@ function standUpAgent(
   const cache = new Map<TerminalId, AwarenessValue>();
   cache.set(TERM_A, seedAwarenessValue("/work/repo-a"));
 
+  // The agent serves the BASE surface (connection-free) — link health is the
+  // PARENT's, added only at the re-serve seam via `mirroredSurface`.
   const { router, ctx } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
@@ -202,6 +217,73 @@ function makeFeed<T>() {
   };
 }
 
+describe("buildReServe — the mirror's connection health reaches the browser", () => {
+  it("surfaces a FAILED mirror as `failed` (with lastError), never a healthy-empty fleet", async () => {
+    // The re-serve alone — no agent, no mirror. The `connection` cell is NOT
+    // folded from the mirror; it's the SESSION's state, written via
+    // `setConnection` (what `pipeSessionStateToCell` does off `session.onState`).
+    const reServe = buildReServe();
+    const browserClient = browserLink(reServe.router);
+
+    let connNow: () => ConnectionInfo | undefined = () => undefined;
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(arivuSurface, browserClient);
+      const conn = app.cells.connection.use({});
+      connNow = () => conn.value();
+    });
+
+    // Gate-closed default: the browser reads `connecting` BEFORE any session
+    // frame — never `connected`, so the dashboard can't paint a healthy-empty
+    // host while the link is still coming up.
+    await waitFor(() => connNow()?.state === "connecting");
+
+    // The session gives up. The parent writes the terminal `failed` state. NO
+    // awareness keys are present: the down state must reach the browser ON ITS
+    // OWN, not be inferred from — or hidden behind — an empty awareness set.
+    reServe.setConnection({
+      state: "failed",
+      lastError: "exited with code 1",
+      failureCause: "remote",
+      progressLines: ["[remote] kaval speaks pty-host 3.2, pulam needs 3.3"],
+    });
+
+    // The browser cell RE-NOTIFIES to `failed`, carrying the real error — and a
+    // concurrent `get` (this `surfaceClient.use()`) reads the parent-written
+    // value. This pins the cell VALUE reaching the browser; the empty-vs-error
+    // RENDER GATE (`HostGroup`'s `<Show>`) is pinned separately by the render
+    // test in `HostGroup.test.tsx` — reverting the gate leaves this cell at
+    // `failed` and would NOT flip this test, which is why both exist.
+    await waitFor(() => connNow()?.state === "failed");
+    expect(connNow()?.lastError).toBe("exited with code 1");
+    expect(connNow()?.failureCause).toBe("remote");
+    expect(connNow()?.progressLines.at(-1)).toContain("pty-host 3.2");
+  });
+
+  it("the wire contract is unforgeable — the SERVER router routes `connection.get`, never `connection.set`", () => {
+    // The whole promise is "a wire client cannot forge connection=connected". A
+    // `directLink` forge would throw a client-side `TypeError` (the client router
+    // lacks `.set`) and never reach the server — proving nothing. So assert the
+    // SERVER's dispatch: build a `StandardRPCMatcher` over the REAL re-serve
+    // router (the exact value an `RPCHandler` upgrades the browser onto, the same
+    // matcher it dispatches through), and confirm a forged `surface.connection.set`
+    // has NO route to match — a `NO_MATCH` at the trust boundary — while `get` and
+    // the base primitives route normally.
+    const reServe = buildReServe();
+    const matcher = new StandardRPCMatcher();
+    // biome-ignore lint/suspicious/noExplicitAny: matcher.init expects a Router; reServe.router is the valid runtime router (the documented fragment→router cast).
+    matcher.init(reServe.router as any);
+    const routes = Object.keys(
+      (matcher as unknown as { tree: Record<string, unknown> }).tree,
+    );
+    expect(routes).toContain("/surface/connection/get");
+    expect(routes).not.toContain("/surface/connection/set");
+    // Sanity: the base primitives route at the right depth (no double-prefix).
+    expect(routes).toContain("/surface/version/get");
+    expect(routes).toContain("/surface/awareness/keys");
+  });
+});
+
 describe("buildReServe — agent → mirror → re-serve → browser store", () => {
   it("seeds the browser store from the agent snapshot, then re-notifies on a delta", async () => {
     // 1 + 2. The real agent surface and its in-process client.
@@ -239,13 +321,12 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
 
     // 4. A SECOND client to the RE-SERVE router, wrapped in a Solid client, with
     //    its awareness collection read inside a reactive root.
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as the agent above.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -340,8 +421,7 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
 
   it("yields the lead frame before any client, then forwards a client's pulses, then rebinds to the next spawn", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browser = directLink<ArivuContract>(reServe.router as any);
+    const browser = browserLink(reServe.router);
 
     const ac = new AbortController();
     const seen: number[] = [];
@@ -392,8 +472,7 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
 
   it("survives a remote stream ERROR (not just a clean end) — holds open and rebinds (F2)", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browser = directLink<ArivuContract>(reServe.router as any);
+    const browser = browserLink(reServe.router);
 
     const ac = new AbortController();
     const seen: number[] = [];
@@ -482,15 +561,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // FINE-GRAINED membership readers — exactly how a row reads its green dot.
     let aLive: boolean | undefined;
     let bLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -568,8 +646,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // First: an awareness subscription, so we can wait until TERM_A has folded
     // into the re-serve's cache. This makes the `activity` subscribe below land
@@ -578,7 +655,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let keys: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keys = () => awareness.keys();
     });
@@ -595,7 +672,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let snapshot: readonly TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -653,15 +730,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
 describe("buildReServe — resets the remote-derived fold on link death (#1549)", () => {
   it("drops a terminal that departed during the link-down window across the respawn", async () => {
     const reServe = buildReServe();
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // A browser subscribed BEFORE the reconnect — the one that must see the
     // ghost depart, not a fresh-subscribe browser reading the rebuilt cache.
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -744,15 +820,14 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
       void mirror.done.catch(() => {});
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: same documented fragment→client cast as elsewhere.
-    const browserClient = directLink<ArivuContract>(reServe.router as any);
+    const browserClient = browserLink(reServe.router);
 
     // An ALREADY-subscribed browser — the one that must hear the dot go dark on
     // link death, not just a fresh-subscribe browser reading the reset snapshot.
     let aLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -789,7 +864,7 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     let freshLive: TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(terminalWorkspaceSurface, browserClient);
+      const app = surfaceClient(arivuSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       createEffect(() => {
         freshLive = live();

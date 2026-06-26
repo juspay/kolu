@@ -20,9 +20,7 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { surfaceClients } from "@kolu/surface/solid";
-import { createSurfaceSocket } from "@kolu/surface-app/connect";
+import { connectSurfaces } from "@kolu/surface-app/solid";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -39,16 +37,31 @@ import { toast } from "solid-sonner";
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
-// The server mints a fresh `processId` per boot. `createSurfaceSocket` owns the
-// `pid` echo: it threads the last-observed id back as a query param on every
-// (re)connect so a stale tab reconnecting to a RESTARTED server is recognized at
-// the handshake — the server closes the socket with `STALE_PROCESS_CLOSE_CODE`
-// rather than letting dead-terminal subscriptions replay and storm its logs. The
-// library owns the URL thunk + the `new PartySocket(...)` (see
-// `@kolu/surface-app/connect`); `rpc.ts` feeds each observed id into the echo via
-// `rememberServerProcessId`. No `restartCloseCode` self-retire here — kolu's
-// lifecycle (`rpc.ts`) owns this socket and retires it through `onStaleRestart`.
-const { ws, echo } = createSurfaceSocket({ url: wsBaseUrl });
+// `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
+// reconnecting socket with the half-open watchdog wired in." kolu plugs into it
+// like pulam-web/drishti do, instead of re-assembling `createSurfaceSocket` →
+// `createLiveSignal` → `surfaceClients` by hand: it owns the socket + the `pid`
+// echo (which threads the last-observed server `processId` back as a query param on
+// every (re)connect, so a stale tab reconnecting to a RESTARTED server is recognized
+// at the handshake), the always-on half-open watchdog (probing `system.live` over
+// the first sibling's slice of the combined link it builds — the probe channel is
+// provably the reconnected channel), and the per-sibling clients. We pass the
+// combined `typeof contract` so `conn.link` is fully typed.
+//
+// No `retireOnStaleClose`/`restartCloseCode` here — kolu's lifecycle (`rpc.ts`)
+// owns this socket and retires it through `onStaleRestart`. The watchdog lives HERE
+// (one socket, one watchdog), which is why `rpc.ts`'s `createServerLifecycle` runs
+// with `heartbeat: false`. `siblingKey` is auto-picked (`Object.keys(surfaces)[0]`)
+// — every sibling answers `system.live`, so the choice is immaterial.
+//
+// Both type args are explicit (`<combined contract, surfaces map>`): TypeScript has
+// no partial inference, so once `C` is given for the typed `conn.link`, `E` must be
+// given too or it would fall back to its loose default and untype `conn.clients`.
+const conn = connectSurfaces<typeof contract, typeof surfaces>({
+  surfaces,
+  url: wsBaseUrl,
+});
+const { ws, echo } = conn;
 
 /** Stash the latest observed server `processId` for the next reconnect's `pid`
  *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
@@ -61,17 +74,30 @@ export { ws };
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
-// The single combined oRPC link over the one transport. The contract is the
-// combined one (`{ surface: { kolu, surfaceApp }, server, terminal, git }`) — the
-// raw oRPC procedures (`terminal`, `git`, `server`) live at its root; the two
-// sibling surfaces live under `surface.<key>`.
-const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
+// The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
+// surfaceApp }, server, terminal, git }`) — the raw oRPC procedures (`terminal`,
+// `git`, `server`) live at its root (kolu's ROOT-level multiplexed procedures, the
+// reason kolu needs the combined link back from the seam); the two sibling surfaces
+// live under `surface.<key>`. Typed off `typeof contract`, so `client` below is
+// fully typed.
+const link = conn.link;
 
-// kolu serves TWO sibling surfaces over one transport (kolu#1197). Build one
-// client per sibling over the single combined link, each scoped to its key's
-// slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
-// path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
-const clients = surfaceClients(link, surfaces);
+// kolu serves TWO sibling surfaces over one transport (kolu#1197); `connectSurfaces`
+// scopes each per-key client to its slice (`{ surface: link.surface[key] }`) so its
+// primitives resolve at the wire path `/surface/<key>/<prim>/<verb>` that
+// `implementSurfaces` serves.
+//
+// kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
+// Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
+// failure PER CELL, colocated — each `.use({ onError })` below raises its own
+// `toast.error` next to the state it owns (preferences / activityFeed / session /
+// terminalList) — which is the house style (`.claude/rules/toast-conventions.md`:
+// "colocated, not centralized"). A single global "is the app healthy?" gate is the
+// wrong shape for a terminal workspace, where one degraded cell must not blank the
+// canvas. The fold ships for a consumer whose control plane WANTS one answer:
+// drishti folds its admin + surface-app siblings with `surfaceClientsHealth` (its
+// `MultiHostApp` control-plane strip); `surfaceClient.health.test.ts` pins the fold.
+const clients = conn.clients;
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
  *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,

@@ -7,6 +7,22 @@
  */
 
 export { resolveSystem } from "./arch";
+// The connection-health cell + its node-side pump. The cell fragment
+// (`connectionCell`, schema, default) is ALSO exported from the browser-safe
+// `@kolu/surface-nix-host/connection` subpath — a surface composes it from
+// there; node consumers (the pump) read it from the root.
+// `ConnectionState` / `FailureCause` stay exported via `./hostSession` (which
+// now re-exports them from `./connection`) — re-exporting here too would
+// duplicate. The root surfaces only the NODE-side pump + the `ConnectionInfo`
+// it produces; the browser-safe cell members (`connectionCell`, schema,
+// `CONNECTION_STATES`, …) live solely on the `@kolu/surface-nix-host/connection`
+// subpath, which is where a surface composes them.
+export type { ConnectionInfo } from "./connection";
+export {
+  pipeSessionStateToCell,
+  projectConnection,
+  seedConnectionCell,
+} from "./connectionPipe";
 export {
   type AgentDial,
   type DialAgentOnceOptions,

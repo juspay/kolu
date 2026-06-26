@@ -50,6 +50,7 @@ import {
   type HostEntry,
   makeBuildEntry,
 } from "./hostEntry.ts";
+import { registerReconnectRoute } from "./reconnectRoute.ts";
 
 const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
@@ -111,6 +112,15 @@ async function main(): Promise<void> {
     log,
   });
 
+  // The RPC surface is unauthenticated; allowlist extra browser origins (a
+  // reverse-proxy FQDN) via `PULAM_WEB_ALLOWED_ORIGINS` for the proxied case.
+  // Declared up here (not just before `serve`) because the mutating
+  // `POST /api/reconnect` route below must apply the SAME CSWSH Origin gate the
+  // ws upgrade does — so the policy has to exist before the routes are wired.
+  const allowedOrigins = parseAllowedOrigins(
+    process.env.PULAM_WEB_ALLOWED_ORIGINS,
+  );
+
   // ── HTTP app: the host-list API + the built client bundle ────────────────
   const app = new Hono();
 
@@ -122,6 +132,14 @@ async function main(): Promise<void> {
   // below (and retired client-side) instead of silently replaying onto a fresh
   // instance. The first-ever connect omits `pid` and always passes.
   app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
+
+  // `POST /api/reconnect?host=<id>` — the failed-card Reconnect button. A
+  // session that gave up into the terminal `failed` state only retries on an
+  // explicit re-arm (or a parent restart); `reconnect()` is that re-arm, here
+  // exposed to the browser. The route's gate / unknown-host-404 / fail-loud
+  // missing-session / rearm branches live in `reconnectRoute.ts` so each is
+  // reachable from a route-level test (`reconnectRoute.test.ts`).
+  registerReconnectRoute(app, { registry, allowedOrigins, log });
 
   // PWA manifest — served dynamically so it's one source of truth with the
   // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
@@ -159,12 +177,6 @@ async function main(): Promise<void> {
     ? process.env.PULAM_WEB_DIST_DIR
     : resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist");
   installFreshStatic(app, { root: distDir, serviceWorker: "notify" });
-
-  // The RPC surface is unauthenticated; allowlist extra browser origins (a
-  // reverse-proxy FQDN) via `PULAM_WEB_ALLOWED_ORIGINS` for the proxied case.
-  const allowedOrigins = parseAllowedOrigins(
-    process.env.PULAM_WEB_ALLOWED_ORIGINS,
-  );
 
   // Fail-fast on a malformed/0 port rather than silently binding the default.
   const port = parsePort(

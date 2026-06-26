@@ -26,11 +26,10 @@ import {
   type CellSpec,
   type CollectionSpec,
   composeSurfaceContracts,
-  DEFAULT_CELL_VERBS_WITH_PATCH,
-  DEFAULT_CELL_VERBS_WITHOUT_PATCH,
   DEFAULT_COLLECTION_VERBS,
   type EventSpec,
   type ProcedureSpec,
+  resolveCellVerbs,
   type StreamSpec,
   type Surface,
   type SurfaceSpec,
@@ -1177,11 +1176,7 @@ function walkSurface<const S extends SurfaceSpec>(
     if (cd.connect)
       void cd.connect(cellsCtx[key] as { set: (v: unknown) => void });
 
-    const verbs =
-      cellSpec.verbs ??
-      (cellSpec.patchSchema
-        ? DEFAULT_CELL_VERBS_WITH_PATCH
-        : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
+    const verbs = resolveCellVerbs(cellSpec);
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
