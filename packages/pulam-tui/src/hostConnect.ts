@@ -52,15 +52,13 @@ const PULAM_AGENT_DRVS_ENV = "PULAM_AGENT_DRVS_JSON";
 export function connectPulamViaHost(
   host: string,
   kavalSocket?: string,
-  onLog?: (line: string) => void,
 ): Promise<Connection> {
   return dialAgentOnce<PulamContract>({
     host,
-    // Where the dial's lifecycle / forwarded-daemon-stderr lines go. The CLI
-    // omits it, so the lines reach process.stderr — harmless: `status`/`watch`
-    // print their data to stdout and own no alt-screen, so a forwarded stderr
-    // line can't corrupt the output.
-    onLog,
+    // The dial's lifecycle / forwarded-daemon-stderr lines fall to its default
+    // sink, process.stderr — harmless: `status`/`watch` print their data to
+    // stdout and own no alt-screen, so a forwarded stderr line can't corrupt
+    // the output.
     // `${agentPath}/bin/pulam`, run as `pulam --stdio`. The drv map is keyed to
     // the pulam DAEMON drv (sensors + git/gh), not the pulam-tui viewer.
     binary: "pulam",
