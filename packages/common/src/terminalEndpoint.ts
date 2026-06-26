@@ -172,14 +172,10 @@ export interface TerminalEndpoint {
     args: {
       query: string;
       beforeCursor: number | null;
-      regex: boolean;
       caseSensitive: boolean;
       maxResults: number;
     },
   ): Promise<SearchHistoryResult>;
-
-  /** PR2: whole-transcript plain text — the deep "copy all" source. */
-  historyText(id: TerminalId): Promise<string>;
 
   /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). */
   exportHistory(

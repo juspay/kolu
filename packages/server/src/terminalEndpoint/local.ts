@@ -985,19 +985,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     args: {
       query: string;
       beforeCursor: number | null;
-      regex: boolean;
       caseSensitive: boolean;
       maxResults: number;
     },
   ): Promise<SearchHistoryResult> {
     await getActiveTerminal(id)?.handle.ready;
     return ptyHostClient.surface.terminal.searchHistory({ id, ...args });
-  }
-
-  async historyText(id: TerminalId): Promise<string> {
-    await getActiveTerminal(id)?.handle.ready;
-    const { text } = await ptyHostClient.surface.terminal.historyText({ id });
-    return text;
   }
 
   async exportHistory(

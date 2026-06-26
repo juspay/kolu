@@ -28,6 +28,7 @@ import {
 import {
   BLOCK_BYTES,
   CHECKPOINT_BYTES,
+  HARD_CHECKPOINT_GAP_BYTES,
   type HistoryPolicy,
   MAX_CHECKPOINT_GAP_BYTES,
   type MirrorView,
@@ -44,6 +45,13 @@ export type HistoryResult =
       ansi: string;
       nextCursor: Seq;
       atFloor: boolean;
+      /** When `atFloor`, distinguishes WHY this is the last page: `false` = the
+       *  genuine byte-0 start of the session; `true` = the eviction floor (older
+       *  output was trimmed under retention, possibly raced in mid-read). Lets the
+       *  pager show "older trimmed" vs "beginning of session" instead of
+       *  conflating an evicted floor with the true start. Meaningless when
+       *  `atFloor` is false. */
+      floorEvicted: boolean;
     }
   | { kind: "unavailable" }
   | { kind: "evicted" }
@@ -69,20 +77,25 @@ export interface SearchResult {
   hits: SearchMatch[];
   nextCursor: Seq | null;
   truncated: boolean;
+  /** The paged search reached the eviction floor with `beforeCursor` at/below it
+   *  (older content was trimmed under retention, possibly raced in mid-search) —
+   *  so the search is NOT exhaustive. The same honest signal `history()` carries,
+   *  so a sub-floor resume surfaces "older trimmed" instead of "no more matches"
+   *  (a silent-empty page read as complete). */
+  evicted: boolean;
 }
 
 const SEARCH_HARD_CAP = 1000;
 
-/** Wall-clock budget for one `searchHistory` request. A regex search runs
- *  user-supplied patterns across the replayed transcript on the single-threaded
- *  daemon; a slow-but-benign pattern over a large history (or a mildly
- *  backtracking one spread across many lines) would otherwise block live output
- *  for every terminal this host owns. When the budget is spent we stop at the
- *  current span and return a `truncated` page with a resume cursor — the same
- *  honest soft-cap shape `SEARCH_HARD_CAP` already uses, never a silent partial.
- *  This bounds the realistic "regex over a huge transcript" hang; a single
- *  catastrophic-backtracking pattern on one very long line is the residual that
- *  only a non-backtracking engine (RE2) fully defeats — see the README. */
+/** Wall-clock budget for one `searchHistory` request. History search is a
+ *  LITERAL substring scan (no user regex — see {@link compileMatcher}), so each
+ *  line test is linear and cannot catastrophically backtrack; the worst case is
+ *  merely a benign-but-large scan over a deep transcript, which would still block
+ *  live output for every terminal this host owns. When the budget is spent we
+ *  stop at the current span and return a `truncated` page with a resume cursor —
+ *  the same honest soft-cap shape `SEARCH_HARD_CAP` already uses, never a silent
+ *  partial. The deadline is a total-work amortizer, not a rescue from a single
+ *  pathological line: with regex removed, no single line can exceed O(n). */
 const SEARCH_DEADLINE_MS = 2000;
 
 export class Transcript {
@@ -105,10 +118,12 @@ export class Transcript {
     cols: number,
     rows: number,
     private readonly now: () => number,
-    /** Fired once, when the FIRST runtime write fault is recorded, so the disk
+    /** Fired for each DISTINCT fault cause (deduped by message), so the disk
      *  failure logs at the moment it happens — not only if a reader later opens
-     *  history. The leaf stays `@kolu/logger`-free: the ptyHost injects a closure
-     *  that logs at `error` (F7). */
+     *  history, and a second distinct failure (e.g. a close-flush error after a
+     *  prior write fault) is never swallowed behind the fault latch. The leaf
+     *  stays `@kolu/logger`-free: the ptyHost injects a closure that logs at
+     *  `error` (F7). */
     private readonly onFault?: (err: unknown, lastGoodSeq: number) => void,
   ) {
     this.cols = cols;
@@ -124,7 +139,7 @@ export class Transcript {
     cols: number;
     rows: number;
     now?: () => number;
-    /** Logged-at-error sink for the first runtime write fault (F7). */
+    /** Logged-at-error sink for each distinct runtime write fault (F7). */
     onFault?: (err: unknown, lastGoodSeq: number) => void;
   }): Transcript {
     const t = new Transcript(
@@ -185,15 +200,24 @@ export class Transcript {
     this.byteSeq += bytes;
     this.bytesSinceCheckpoint += bytes;
     try {
-      // Checkpoint when we've buffered a cadence's worth of bytes AND either the
-      // grid is at a clean line boundary (the common path — keeps cross-width
-      // reflow byte-exact) OR we've blown past the hard ceiling with no clean
-      // boundary in sight (the pathological no-newline span — force one to keep
-      // the replay span bounded; see MAX_CHECKPOINT_GAP_BYTES) (F2).
+      // Checkpoint when we've buffered a cadence's worth of bytes AND either:
+      //  - the grid is at a clean LINE boundary (the common path — keeps
+      //    cross-width reflow byte-exact); or
+      //  - we've passed the soft ceiling in a no-newline span AND the cursor is at
+      //    a physical-ROW boundary (column 0, or the deferred-wrap `cursorX===cols`
+      //    a wrapping stream actually hits) — a forced seed whose seam falls
+      //    between rows, so the seeded span's `+1` boundary drop keeps the pager
+      //    and export byte-exact at the captured width (F5); or
+      //  - we've passed the absolute HARD ceiling (an adversarial stream pinning
+      //    the cursor mid-row — CUP escapes that never reach a row boundary) —
+      //    force regardless of column to keep the replay span bounded, accepting
+      //    the one rare mid-row seam (F2).
       if (
         this.bytesSinceCheckpoint >= CHECKPOINT_BYTES &&
         (mirror.atCleanBoundary() ||
-          this.bytesSinceCheckpoint >= MAX_CHECKPOINT_GAP_BYTES)
+          (this.bytesSinceCheckpoint >= MAX_CHECKPOINT_GAP_BYTES &&
+            mirror.cursorAtRowBoundary()) ||
+          this.bytesSinceCheckpoint >= HARD_CHECKPOINT_GAP_BYTES)
       ) {
         this.flushPending();
         this.captureCheckpoint(mirror);
@@ -282,15 +306,21 @@ export class Transcript {
   }
 
   private handleFault(err: unknown): void {
-    if (this.fault) return;
+    const message = err instanceof Error ? err.message : String(err);
+    if (this.fault) {
+      // Already faulted: the FIRST fault stays the surfaced state (lastGoodSeq /
+      // the `faulted` page). But a SECOND DISTINCT cause (e.g. a close-flush
+      // error after a prior write fault) must still reach the operator, not
+      // vanish behind the latch — log each distinct message exactly once (F7).
+      if (message !== this.fault.error)
+        this.onFault?.(err, this.fault.lastGoodSeq);
+      return;
+    }
     // Retain the cause (not swallowed) alongside the last-good seq. Surfaced via
     // history()'s `faulted` page and the PTY keeps running — the one place
     // survivability outranks fail-fast (caught-error-must-not-collapse-to-empty:
     // we surface `faulted`, never present a truncated log as complete).
-    this.fault = {
-      lastGoodSeq: this.seq,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    this.fault = { lastGoodSeq: this.seq, error: message };
     // Log the actual I/O failure NOW (at error), so an operator sees the disk
     // fault even if no one ever opens history/copy/export to surface it (F7).
     this.onFault?.(err, this.fault.lastGoodSeq);
@@ -317,11 +347,13 @@ export class Transcript {
     this.flushPending();
     const tip = this.byteSeq;
     let cursor = args.beforeCursor ?? tip;
-    const oldest = this.store.oldestByteSeq();
-    if (cursor <= oldest && oldest > 0) return { kind: "evicted" };
+    // The whole requested page is already below the floor — nothing to render.
+    if (cursor <= this.store.oldestByteSeq() && this.store.oldestByteSeq() > 0)
+      return { kind: "evicted" };
     const ansiParts: string[] = [];
     let rowCount = 0;
     let atFloor = false;
+    let floorEvicted = false;
     while (true) {
       const seed = this.store.latestCheckpointBefore(cursor);
       const from = seed ? seed.firstByteSeq : 0;
@@ -330,8 +362,21 @@ export class Transcript {
       ansiParts.unshift(seg.ansi);
       rowCount += seg.rows.length;
       cursor = from;
-      if (!seed || cursor <= oldest) {
+      // RE-SAMPLE the floor AFTER the render. node:sqlite reads are synchronous,
+      // so the only interleaving point is the `await renderReflow` above — across
+      // it, a concurrent `appendData → maybeEvict → evictBefore` (a separate
+      // macrotask) can raise the floor. Classify the new `cursor`/`from` against
+      // the FRESH floor: a once-sampled `oldest` would let this span's `from`
+      // become a `nextCursor` at/below the floor, deferring the floor to a
+      // follow-up `evicted` call (or hiding a raced eviction as a plain page).
+      const oldest = this.store.oldestByteSeq();
+      if (cursor <= oldest) {
+        // This span reached the floor — the genuine byte-0 start (oldest === 0)
+        // or the eviction watermark (oldest > 0, whether it was there to begin
+        // with or rose during the render await). Classify so the pager shows
+        // "older trimmed" vs "beginning of session" instead of conflating them.
         atFloor = true;
+        floorEvicted = oldest > 0;
         break;
       }
       if (rowCount >= args.maxLines) break;
@@ -341,26 +386,8 @@ export class Transcript {
       ansi: ansiParts.join(""),
       nextCursor: cursor,
       atFloor,
+      floorEvicted,
     };
-  }
-
-  /** Whole-transcript plain text, faithful per resize-epoch — the source both
-   *  "Copy terminal text" and the pager's "Copy all history" read. */
-  async readAllText(): Promise<string> {
-    // A fault must surface, not silently fall back to the clipped live buffer:
-    // throw so the caller's copy/PDF path toasts the failure (F3). A genuinely
-    // disabled transcript (no fault, no store) returns "" → the honest opt-out
-    // fallback.
-    if (this.fault) throw new Error(`transcript faulted: ${this.fault.error}`);
-    if (!this.store) return "";
-    this.flushPending();
-    const lines: string[] = [];
-    for await (const seg of this.faithfulSegments(0, this.byteSeq)) {
-      // Re-render each segment to plain rows via the same machinery.
-      const rendered = await renderFaithful(seg.seed, seg.cols, seg.blocks);
-      for (const r of rendered.rows) lines.push(r.text);
-    }
-    return lines.join("\n");
   }
 
   /** Stream faithful export segments oldest→newest (one per resize-epoch),
@@ -383,7 +410,6 @@ export class Transcript {
   async searchHistory(args: {
     query: string;
     beforeCursor: Seq | null;
-    regex: boolean;
     caseSensitive: boolean;
     maxResults: number;
   }): Promise<SearchResult> {
@@ -391,18 +417,34 @@ export class Transcript {
     // transcript; a disabled/store-less transcript still returns empty.
     if (this.fault) throw new Error(`transcript faulted: ${this.fault.error}`);
     if (!this.store || !this.policy.enabled) {
-      return { hits: [], nextCursor: null, truncated: false };
+      return { hits: [], nextCursor: null, truncated: false, evicted: false };
     }
     this.flushPending();
     const cap = Math.min(args.maxResults, SEARCH_HARD_CAP);
-    const test = compileMatcher(args.query, args.regex, args.caseSensitive);
+    const test = compileMatcher(args.query, args.caseSensitive);
     const hits: SearchMatch[] = [];
     let cursor = args.beforeCursor ?? this.byteSeq;
-    const oldest = this.store.oldestByteSeq();
-    let truncated = false;
-    let nextCursor: Seq | null = null;
     const deadline = this.now() + SEARCH_DEADLINE_MS;
-    while (cursor > oldest) {
+    while (true) {
+      // RE-SAMPLE the floor each iteration (F4): the only await is `renderReflow`
+      // below, across which a concurrent `appendData → maybeEvict → evictBefore`
+      // (a separate macrotask) can raise the floor into the unsearched region. A
+      // once-sampled `oldest` would silently stop short and report a complete
+      // search. node:sqlite reads are synchronous, so the read trio below is
+      // atomic w.r.t. eviction.
+      const oldest = this.store.oldestByteSeq();
+      if (cursor <= oldest) {
+        // Reached the floor. oldest > 0 ⟹ older content was evicted — a sub-floor
+        // `beforeCursor` resume OR a mid-search eviction — so the search is NOT
+        // exhaustive: surface `evicted` rather than an empty page read as "no
+        // more matches" (F3). oldest === 0 ⟹ genuine end of history (exhaustive).
+        return {
+          hits,
+          nextCursor: null,
+          truncated: false,
+          evicted: oldest > 0,
+        };
+      }
       const seed = this.store.latestCheckpointBefore(cursor);
       const from = seed ? seed.firstByteSeq : 0;
       const blocks = this.store.dataInRange(from, cursor);
@@ -414,15 +456,13 @@ export class Transcript {
         if (test(logical[i]!)) hits.push({ cursor });
       }
       cursor = from;
-      if (!seed) break;
       // Soft wall-clock cap at a SPAN boundary (like the hit cap below, never
-      // mid-span): a slow/backtracking regex over a large history yields a
+      // mid-span): a benign-but-large literal scan over a deep history yields a
       // `truncated` page with `nextCursor = from` to resume from, rather than
-      // blocking the daemon's event loop indefinitely (F5).
+      // blocking the daemon's event loop indefinitely (F5). Each line test is
+      // linear (literal substring), so total work — not one line — is the bound.
       if (this.now() >= deadline) {
-        truncated = true;
-        nextCursor = from;
-        return { hits, nextCursor, truncated };
+        return { hits, nextCursor: from, truncated: true, evicted: false };
       }
       // Cap at a SPAN boundary, never mid-span: every hit in `[from, prevCursor)`
       // is now recorded, so resuming at `nextCursor = from` skips nothing (F8). A
@@ -430,12 +470,9 @@ export class Transcript {
       // dropped its remaining older matches. The cap is therefore soft — it may
       // overshoot by one span's matches — which is the price of lossless resume.
       if (hits.length >= cap) {
-        truncated = true;
-        nextCursor = from;
-        return { hits, nextCursor, truncated };
+        return { hits, nextCursor: from, truncated: true, evicted: false };
       }
     }
-    return { hits, nextCursor, truncated };
   }
 
   // ---- internals ----------------------------------------------------------
@@ -474,12 +511,18 @@ export class Transcript {
     blocks: Uint8Array[];
   }> {
     if (!this.store || to <= from) return;
-    const seed = this.store.latestCheckpointAtOrBefore(from === 0 ? 0 : from);
+    const store = this.store;
+    const seed = store.latestCheckpointAtOrBefore(from === 0 ? 0 : from);
     const start = seed ? seed.firstByteSeq : 0;
-    const dataRecs = this.store.dataRecordsInRange(start, to);
-    const resizes = this.store.resizesInRange(start, to);
+    // Only the SMALL boundary streams (positions + grids) are loaded up front;
+    // the bulk zstd DATA payloads are fetched PER SEGMENT below, so the daemon
+    // holds at most one segment's blocks at a time — never the whole retained
+    // history (the bounded cousin of the removed copy-all OOM). The opening width
+    // of a seedless first segment comes from one indexed row, not a full scan.
+    const resizes = store.resizesInRange(start, to);
     // Checkpoints AFTER the priming seed are same-width seams to split each epoch.
-    const ckpts = this.store.checkpointsInRange(start + 1, to);
+    const ckpts = store.checkpointsInRange(start + 1, to);
+    const firstGrid = seed ? undefined : store.firstDataGrid(start, to);
 
     // Merge the two boundary streams (resize → width change + clean restart;
     // checkpoint → re-seed at the same width), oldest first. A checkpoint sorts
@@ -504,22 +547,17 @@ export class Transcript {
     // The width in effect at the start of the current segment: the seed's cols, or
     // the FIRST data record's cols (the width when that block flushed — before any
     // later resize), not `this.cols` (the latest width).
+    let segStart = start;
     let segSeed = seed;
-    let cols = seed?.cols ?? dataRecs[0]?.cols ?? this.cols;
-    let rows = seed?.rows ?? dataRecs[0]?.rows ?? this.rows;
-    let di = 0;
-    const drain = (until: Seq): Uint8Array[] => {
-      const blocks: Uint8Array[] = [];
-      while (di < dataRecs.length && dataRecs[di]!.firstByteSeq < until) {
-        blocks.push(dataRecs[di]!.payload);
-        di++;
-      }
-      return blocks;
-    };
+    let cols = seed?.cols ?? firstGrid?.cols ?? this.cols;
+    let rows = seed?.rows ?? firstGrid?.rows ?? this.rows;
     for (const b of boundaries) {
-      const blocks = drain(b.at);
+      // Fetch only THIS segment's DATA payloads (released after the consumer
+      // renders the yield), never the whole range at once.
+      const blocks = store.dataInRange(segStart, b.at);
       if (blocks.length > 0 || segSeed)
         yield { seed: segSeed, cols, rows, blocks };
+      segStart = b.at;
       if (b.kind === "resize") {
         // A later epoch begins clean at the resize boundary, on the new grid.
         segSeed = undefined;
@@ -532,7 +570,7 @@ export class Transcript {
       // else: a width-mismatched checkpoint (coincident with a resize) — never
       // restore a seed at the wrong width; keep accumulating with the prior seed.
     }
-    const tail = drain(to);
+    const tail = store.dataInRange(segStart, to);
     if (tail.length > 0 || segSeed)
       yield { seed: segSeed, cols, rows, blocks: tail };
   }
@@ -558,20 +596,18 @@ function joinLogical(rows: { text: string; wrapped: boolean }[]): string[] {
   return out;
 }
 
-/** Compile a per-logical-line predicate — "does this line match". Default
- *  literal + case-insensitive (exactly what the find bar does today); regex/case
- *  are opt-in capabilities (reuse the source of truth — xterm's ISearchOptions
- *  shape), not knobs. The server only needs to record a hit's span cursor; the
- *  client's SearchAddon re-finds the offsets in-view. */
+/** Compile a per-logical-line predicate — "does this line match". LITERAL
+ *  substring only (case-insensitive by default; `caseSensitive` is the one opt-in
+ *  capability). Deliberately NOT regex: a user-supplied pattern on the
+ *  single-threaded daemon can catastrophically backtrack over a long line and
+ *  wedge the event loop for every terminal the host owns, and a wall-clock budget
+ *  checked only at span boundaries can't interrupt one in-flight match. A literal
+ *  `includes()` is linear, so that defect is not expressible. The server only
+ *  records a hit's span cursor; the client's SearchAddon re-finds offsets in-view. */
 function compileMatcher(
   query: string,
-  regex: boolean,
   caseSensitive: boolean,
 ): (line: string) => boolean {
-  if (regex) {
-    const re = new RegExp(query, caseSensitive ? "" : "i");
-    return (line) => re.test(line);
-  }
   const needle = caseSensitive ? query : query.toLowerCase();
   return (line) => {
     if (needle.length === 0) return false;

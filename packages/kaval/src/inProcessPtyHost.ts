@@ -343,14 +343,9 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           return host.searchHistory(input.id, {
             query: input.query,
             beforeCursor: input.beforeCursor,
-            regex: input.regex,
             caseSensitive: input.caseSensitive,
             maxResults: input.maxResults,
           });
-        },
-        historyText: async ({ input }) => {
-          requirePty(input.id as PtyId);
-          return { text: await host.historyText(input.id) };
         },
         // NO requirePty: the server deletes a terminal's transcript on KILL /
         // DISCARD, and discardSleeping has no live entry — deleting a gone

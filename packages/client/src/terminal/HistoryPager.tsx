@@ -27,7 +27,6 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
 import { client } from "../wire";
-import { readDeepTerminalText } from "./readDeepTerminalText";
 import { SEARCH_DECORATIONS } from "./SearchBar";
 import { getTerminalRefs } from "./terminalRefs";
 import { useHistoryPager } from "./useHistoryPager";
@@ -80,7 +79,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   const [sentinel, setSentinel] = createSignal<Sentinel>({ kind: "loading" });
   const [query, setQuery] = createSignal("");
   const [caseSensitive, setCaseSensitive] = createSignal(false);
-  const [regex, setRegex] = createSignal(false);
   const [matchCount, setMatchCount] = createSignal(0);
   const [matchIndex, setMatchIndex] = createSignal(-1);
   let hits: { cursor: number }[] = [];
@@ -92,17 +90,16 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   // Search pagination + invalidation (F3, F8). `searchNextCursor` resumes the
   // server scan beyond the first capped page; `searchTruncated` drives the "+"
   // in the match label so a partial hit list is never shown as complete.
-  // `executedKey` is the (query, regex, case) signature of the hit list we hold,
-  // so editing the query / toggling an option re-runs the search instead of
+  // `executedKey` is the (query, case) signature of the hit list we hold,
+  // so editing the query / toggling case re-runs the search instead of
   // stepping the stale hits.
   let searchNextCursor: number | null = null;
   const [searchTruncated, setSearchTruncated] = createSignal(false);
   let executedKey: string | null = null;
-  // Two fixed-width flag chars (regex r/l, case c/i) then the raw query — a
-  // `:` delimiter keeps it readable; the fixed prefix makes the signature
-  // unambiguous even when the query itself contains a `:`.
-  const searchKey = (): string =>
-    `${regex() ? "r" : "l"}:${caseSensitive() ? "c" : "i"}:${query()}`;
+  // One fixed-width flag char (case c/i) then the raw query — a `:` delimiter
+  // keeps it readable; the fixed prefix makes the signature unambiguous even
+  // when the query itself contains a `:`.
+  const searchKey = (): string => `${caseSensitive() ? "c" : "i"}:${query()}`;
   // A monotonic token guarding the fetch→render races (F7): mount, the
   // ResizeObserver, the Latest button, and search jumps all start loads; only
   // the newest may apply its pages, so an older response can't overwrite a
@@ -179,7 +176,11 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     await renderAll();
     if (token !== loadSeq) return;
     term?.scrollToBottom();
-    setSentinel(atFloor ? { kind: "start" } : null);
+    // At the floor: an EVICTED floor (older trimmed) reads differently from the
+    // genuine start of session — show the honest sentinel for each (F4).
+    setSentinel(
+      atFloor ? { kind: res.floorEvicted ? "evicted" : "start" } : null,
+    );
   }
 
   /** One backward page. Returns an explicit outcome so `jumpTop` can stop the
@@ -214,7 +215,11 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       term.scrollToLine(anchor + (after - before));
       topCursor = res.nextCursor;
       atFloor = res.atFloor;
-      setSentinel(atFloor ? { kind: "start" } : null);
+      // At the floor: an EVICTED floor (older trimmed) reads differently from the
+      // genuine start of session — show the honest sentinel for each (F4).
+      setSentinel(
+        atFloor ? { kind: res.floorEvicted ? "evicted" : "start" } : null,
+      );
       return atFloor ? "floor" : "loaded";
     } catch (err) {
       // Same fire-and-forget surface as loadInitial — surface the failure rather
@@ -240,7 +245,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     const opts: ISearchOptions = {
       decorations: SEARCH_DECORATIONS,
       caseSensitive: caseSensitive(),
-      regex: regex(),
     };
     if (cursor !== loadedCursor) {
       const token = ++loadSeq;
@@ -288,6 +292,17 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     search?.clearDecorations();
   }
 
+  /** A search that ran out at the eviction floor (older content trimmed under
+   *  retention) is NOT exhaustive — say so, rather than let the "n / m" count
+   *  read as the complete set of matches (F3). Terminal (nextCursor is null), so
+   *  this fires at most once per query as the search reaches the floor. */
+  function noteIfEvicted(res: { evicted: boolean }): void {
+    if (res.evicted)
+      toast.warning(
+        "Older history was trimmed under the retention limit — earlier matches may be missing",
+      );
+  }
+
   async function runSearch() {
     const q = query();
     if (!q) {
@@ -301,7 +316,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         id: props.id,
         query: q,
         beforeCursor: null,
-        regex: regex(),
         caseSensitive: caseSensitive(),
         maxResults: 500,
       });
@@ -312,6 +326,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       setMatchCount(hits.length);
       searchNextCursor = res.nextCursor;
       setSearchTruncated(res.truncated);
+      noteIfEvicted(res);
       executedKey = key;
       loadedCursor = null;
       if (hits.length > 0) await jumpToHit(0);
@@ -331,7 +346,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       id: props.id,
       query: query(),
       beforeCursor: cursor,
-      regex: regex(),
       caseSensitive: caseSensitive(),
       maxResults: 500,
     });
@@ -342,6 +356,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     setMatchCount(hits.length);
     searchNextCursor = res.nextCursor;
     setSearchTruncated(res.truncated);
+    noteIfEvicted(res);
     return res.hits.length;
   }
 
@@ -372,20 +387,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       if (outcome !== "loaded") break;
     }
     term?.scrollToTop();
-  }
-
-  function copyAll() {
-    void (async () => {
-      try {
-        // The shared deep-read owns the history-disabled fallback; never
-        // overwrite the clipboard with empty text (F6).
-        const text = await readDeepTerminalText(props.id);
-        await navigator.clipboard.writeText(text);
-        toast.success("Copied full history to clipboard");
-      } catch (err) {
-        toast.error(`Copy failed: ${(err as Error).message}`);
-      }
-    })();
   }
 
   function exportPdf() {
@@ -535,16 +536,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
           >
             Aa
           </ChipButton>
-          <ChipButton
-            active={regex()}
-            onClick={() => {
-              setRegex((v) => !v);
-              resetSearch();
-            }}
-            label="Regex"
-          >
-            .*
-          </ChipButton>
           <span class="text-xs text-fg-3 min-w-[3.5rem] text-center tabular-nums">
             {matchLabel()}
           </span>
@@ -561,9 +552,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         </HeaderButton>
         <HeaderButton onClick={() => void loadInitial()} label="Latest">
           ⤓
-        </HeaderButton>
-        <HeaderButton onClick={copyAll} label="Copy all history">
-          ⧉
         </HeaderButton>
         <HeaderButton onClick={exportPdf} label="Export as PDF">
           ⤓ PDF

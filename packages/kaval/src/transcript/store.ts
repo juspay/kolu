@@ -169,27 +169,24 @@ export class TranscriptStore {
     return rows.map((r) => r.payload);
   }
 
-  /** DATA records (positioned) whose content lies in `[fromByteSeq, toByteSeq)`,
-   *  oldest first — like {@link dataInRange} but carrying each block's
-   *  `firstByteSeq` and historical grid (`cols`/`rows`) so FAITHFUL export can
-   *  partition the blocks into resize-epochs and render each at the width then in
-   *  effect (the reflow-to-current pager needs only the payloads). */
-  dataRecordsInRange(
+  /** The grid (`cols`/`rows`) of the OLDEST DATA record in `[fromByteSeq,
+   *  toByteSeq)`, or `undefined` if none — the width in effect at the start of a
+   *  seedless first export segment. A single indexed row, so FAITHFUL export can
+   *  derive the opening width WITHOUT loading every DATA payload in the range up
+   *  front (it streams them per segment instead). */
+  firstDataGrid(
     fromByteSeq: Seq,
     toByteSeq: Seq,
-  ): { firstByteSeq: Seq; cols: number; rows: number; payload: Uint8Array }[] {
+  ): { cols: number; rows: number } | undefined {
     return this.db
       .prepare(
-        `SELECT firstByteSeq, cols, rows, payload FROM record
+        `SELECT cols, rows FROM record
          WHERE kind=? AND firstByteSeq>=? AND firstByteSeq<? AND payload IS NOT NULL
-         ORDER BY firstByteSeq`,
+         ORDER BY firstByteSeq LIMIT 1`,
       )
-      .all(Kind.DATA, fromByteSeq, toByteSeq) as {
-      firstByteSeq: Seq;
-      cols: number;
-      rows: number;
-      payload: Uint8Array;
-    }[];
+      .get(Kind.DATA, fromByteSeq, toByteSeq) as
+      | { cols: number; rows: number }
+      | undefined;
   }
 
   /** RESIZE records in `(fromByteSeq, toByteSeq]`, oldest first — FAITHFUL mode

@@ -75,16 +75,20 @@ import { z } from "zod";
  *  `scrollback` (the mirror is pinned to the hot window in-kaval, no longer a
  *  wire depth dial) and gains a REQUIRED `history` policy (B0 — the daemon
  *  derives nothing, a missing field is a loud crash); the new `history` /
- *  `searchHistory` / `historyText` verbs and the `exportHistory` stream serve
+ *  `searchHistory` verbs and the `exportHistory` stream serve
  *  deep history. Persistence can't be layered onto a pre-persistence daemon
  *  (the verbs would 404, the required policy field would be missing), so this is
  *  one forced recycle that kills every live terminal once — there is no lossless
  *  path around it.
  *  Bumped to 4.1 (additive · minor): the new `deleteTranscript` verb lets the
  *  server reclaim a terminal's on-disk transcript when it is KILLED / DISCARDED
- *  (not slept), so a removed terminal no longer leaves an orphan DB on disk. A
- *  4.0 survivor lacking the verb just can't be told to delete — additive, so it
- *  is adopted, not recycled. */
+ *  (not slept), so a removed terminal no longer leaves an orphan DB on disk.
+ *  Compatibility is `major == && reportedMinor >= expectedMinor`
+ *  (`isContractVersionCompatible`), so a survivor reporting an OLDER minor than
+ *  the server expects is INCOMPATIBLE: a 4.0 daemon outliving a 4.1 server is
+ *  RECYCLED (its live terminals killed once), exactly like every prior minor
+ *  bump — the additive verb buys forward compat for a 4.1 survivor against a
+ *  future 4.2 server, NOT lossless adoption of an older 4.0 survivor. */
 export const PTY_HOST_CONTRACT_VERSION = "4.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
@@ -145,6 +149,10 @@ const HistoryResultSchema = z.discriminatedUnion("kind", [
     // integers, never fractional or negative (F9).
     nextCursor: z.number().int().nonnegative(),
     atFloor: z.boolean(),
+    // When atFloor: false = genuine byte-0 start; true = the eviction floor
+    // (older output trimmed, possibly raced in mid-read). Lets the pager tell
+    // "older trimmed" from "beginning of session" (F4).
+    floorEvicted: z.boolean(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
@@ -169,11 +177,10 @@ const HistoryInputSchema = z.object({
 
 const SearchHistoryInputSchema = z.object({
   id: PtyIdSchema,
-  // Bounded — a length cap is the first line of defense against a pathological
-  // regex on the server-side scan (F5).
+  // Bounded — a short needle. History search is LITERAL substring only (no
+  // user regex), so the server-side scan is linear and cannot backtrack (F5).
   query: z.string().max(1000),
   beforeCursor: z.number().int().nonnegative().nullable(),
-  regex: z.boolean(),
   caseSensitive: z.boolean(),
   // Bounded at the boundary (the server also clamps to SEARCH_HARD_CAP) (F6).
   maxResults: z.number().int().positive().max(10_000),
@@ -183,6 +190,9 @@ const SearchHistoryOutputSchema = z.object({
   hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
   nextCursor: z.number().int().nonnegative().nullable(),
   truncated: z.boolean(),
+  // Reached the eviction floor with the cursor at/below it (older content
+  // trimmed) — the search is not exhaustive (F3/F4).
+  evicted: z.boolean(),
 });
 
 /** One faithful per-resize-epoch export segment, rendered at its historical
@@ -417,11 +427,6 @@ export const ptyHostSurface = defineSurface({
       searchHistory: {
         input: SearchHistoryInputSchema,
         output: SearchHistoryOutputSchema,
-      },
-      /** PR2: whole-transcript plain text — the deep "copy all" source. */
-      historyText: {
-        input: TerminalIdInputSchema,
-        output: z.object({ text: z.string() }),
       },
       /** PR2: permanently delete a terminal's on-disk transcript (the DB + its
        *  WAL/SHM sidecars). The server calls this on a KILL / DISCARD — never on

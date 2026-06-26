@@ -59,19 +59,38 @@ export const BLOCK_BYTES = 64 * 1024;
  *  bolting on a second one. Replay cost was flat at 2.9–6.0 ms across K=50…1000. */
 export const CHECKPOINT_BYTES = 64 * 1024;
 
-/** Hard ceiling on the gap between checkpoints. A checkpoint is normally
- *  DEFERRED to the next clean line boundary (so cross-width reflow is byte-exact),
- *  but a pathological span with NO clean boundary — megabytes emitted with no
- *  newline and the cursor never at column 0 — would otherwise accumulate one
- *  unbounded replay span: `history()` reads every DATA block since the last
- *  checkpoint and `render.ts` `Buffer.concat`s them, recreating the memory spike
- *  this design exists to avoid (and defeating retention, which can only evict to a
- *  checkpoint). So past this many bytes-since-checkpoint we force a checkpoint at
- *  the current (non-clean) position. The forced seed is captured mid-line, so
- *  reflow to a DIFFERENT width may be imprecise across that one rare seam — a
- *  bounded fidelity cost paid only in the pathological case, strictly better than
- *  an unbounded span. Faithful export (same historical width) stays exact. */
+/** Soft ceiling on the gap between checkpoints. A checkpoint is normally DEFERRED
+ *  to the next clean LINE boundary (so cross-width reflow is byte-exact), but a
+ *  pathological span with NO clean line boundary — megabytes emitted with no
+ *  newline — would otherwise accumulate one unbounded replay span: `history()`
+ *  reads every DATA block since the last checkpoint and `render.ts`
+ *  `Buffer.concat`s them, recreating the memory spike this design exists to avoid
+ *  (and defeating retention, which can only evict to a checkpoint). So past this
+ *  many bytes-since-checkpoint we force a checkpoint at the next physical-ROW
+ *  boundary ({@link MirrorView.cursorAtRowBoundary}) — column 0, or the
+ *  deferred-wrap `cursorX===cols` a wrapping stream actually hits every `cols`
+ *  chars (the live cursor never returns to column 0 mid-wrap, so a plain
+ *  column-0 test would be DEAD here and the span would always overrun to the HARD
+ *  ceiling). Forcing at a ROW boundary (not an arbitrary mid-row position) keeps
+ *  the seam between physical rows: the seed's last row is COMPLETE, so it is owned
+ *  wholly by the older span and dropped from the seeded span by
+ *  `seedBoundaryRow`'s `+1` — no row is duplicated/split across the seam. The seed
+ *  is still mid-LOGICAL-line, so this matters only at the captured width:
+ *  faithful export (historical width) and same-width paging are byte-exact;
+ *  reflowing this one forced seam to a DIFFERENT width may show a one-row artifact
+ *  — a bounded fidelity cost on a >1 MiB no-newline line viewed after a resize. */
 export const MAX_CHECKPOINT_GAP_BYTES = 16 * CHECKPOINT_BYTES;
+
+/** Absolute hard ceiling. A truly adversarial stream can pin the cursor mid-row
+ *  for megabytes (absolute cursor-positioning escapes that never reach a row
+ *  boundary — neither column 0 nor the deferred-wrap `cursorX===cols`), starving
+ *  the {@link MAX_CHECKPOINT_GAP_BYTES} row-boundary force. Past this many
+ *  bytes-since-checkpoint we force REGARDLESS of column to keep the replay span +
+ *  disk bounded — accepting, only in this contrived case, the one mid-row seam the
+ *  row-boundary force normally prevents (the seed's partial cursor row is then
+ *  shared between the older span's tail and the seeded span's head; a mid-row cut
+ *  is inherently lossy, so `seedBoundaryRow` does NOT count it). */
+export const HARD_CHECKPOINT_GAP_BYTES = 2 * MAX_CHECKPOINT_GAP_BYTES;
 
 /** Default per-terminal retention cap (compressed payload bytes). Oldest
  *  records past this are DELETEd and an eviction watermark is raised; a
@@ -97,6 +116,15 @@ export interface MirrorView {
    *  `serialize({ scrollback: 0 })` preserves whole logical lines, so a
    *  checkpoint captured here re-wraps faithfully at any width. */
   atCleanBoundary(): boolean;
+  /** True iff the cursor is at a physical-ROW boundary on the primary screen:
+   *  column 0 of a fresh row, OR `cursorX === cols` on a FULL row (xterm's
+   *  deferred wrap — the realistic boundary a wrapping no-newline stream actually
+   *  hits, since the cursor never returns to column 0 mid-wrap). Weaker than
+   *  {@link atCleanBoundary} (the row may be a wrapped continuation). The
+   *  `MAX_CHECKPOINT_GAP_BYTES` forced checkpoint waits for this so the seam falls
+   *  BETWEEN physical rows, never mid-row — the property that keeps the backward
+   *  pager and faithful export from duplicating a row at the seam. */
+  cursorAtRowBoundary(): boolean;
   /** Serialize the current viewport only (no scrollback) — the CKPT seed. */
   serializeViewport(): string;
 }

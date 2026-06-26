@@ -149,13 +149,28 @@ function serializeTail(t: Throwaway, seedRows: number): string {
   return `${ansi.replace(/(?:\x1b\[[0-9;]*[Hf]|[ \t\r\n])+$/, "")}\r\n`;
 }
 
-/** The exact seed/DATA boundary row: after restoring `serialize({scrollback:0})`
- *  the cursor sits at column 0 of the first row DATA will write into, so its
- *  absolute index is precisely how many rows the seed occupies. (Measuring via
- *  trimmed `readRows` was off by the blank cursor row at some boundaries.) */
+/** How many physical rows the restored seed occupies — i.e. the row index where
+ *  the first DATA byte will land, which is exactly what {@link withThrowaway}
+ *  drops so only DATA-replayed rows are returned.
+ *
+ *  After restoring `serialize({scrollback:0})` the cursor sits at the position the
+ *  next byte continues from. Two boundary shapes both leave the seed's content
+ *  rows COMPLETE — and the DATA starting on a FRESH row — so the whole cursor row
+ *  is seed, not shared with DATA:
+ *    - a clean line boundary: cursor at column 0 of an empty row (`cursorX === 0`),
+ *      so `baseY + cursorY` already counts every seed row; and
+ *    - a deferred-wrap boundary: the cursor parks at `cursorX === cols` on a FULL
+ *      row (xterm defers the wrap), and the next byte wraps to the next row — so
+ *      that full cursor row is also pure seed and must be counted (`+ 1`).
+ *  Without the `+1`, a checkpoint forced at a deferred-wrap boundary (a >1 MiB
+ *  no-newline span; see `MAX_CHECKPOINT_GAP_BYTES`) would leave its last full row
+ *  in BOTH the older span's tail and this seeded span's head — duplicated/split
+ *  across the seam. A genuine mid-row seed (`0 < cursorX < cols`, only at the
+ *  adversarial HARD ceiling) is the one case DATA shares the cursor row, so it is
+ *  NOT counted — there the split is inherent (see `HARD_CHECKPOINT_GAP_BYTES`). */
 function seedBoundaryRow(term: InstanceType<typeof Terminal>): number {
   const b = term.buffer.active;
-  return b.baseY + b.cursorY;
+  return b.baseY + b.cursorY + (b.cursorX >= term.cols ? 1 : 0);
 }
 
 /** The shared throwaway-terminal lifecycle both render modes run inside: behind
@@ -193,10 +208,16 @@ export function renderReflow(
     if (seed) {
       await write(t.term, zstdDecompressSync(seed.payload));
       t.term.resize(width, DEFAULT_GRID_ROWS);
-      // Rows the restored+resized seed occupies BEFORE any DATA — dropped from
-      // the return. Checkpoints sit at clean boundaries (cursor col 0, top not
-      // wrapped), so the seed's last line is complete and the first DATA byte
-      // starts a fresh line: seed and DATA rows never merge.
+      // Rows the restored+resized seed occupies BEFORE any DATA — dropped from the
+      // return. A clean-line checkpoint, or a FORCED one at a physical-row boundary
+      // (see `MAX_CHECKPOINT_GAP_BYTES`), leaves the seed's last row COMPLETE, so
+      // `seedBoundaryRow`'s `+1` attributes it wholly to the older span and DATA
+      // starts a fresh row — no row duplicated across the seam. This holds exactly
+      // when rendering at the SEED's width (always true for faithful export; true
+      // for the pager when the reader hasn't resized). Reflowing a forced seam to a
+      // DIFFERENT width moves the row boundary, so a >1 MiB no-newline line paged
+      // after a resize may show a one-row artifact at that one seam — bounded and
+      // documented, not a silent corruption (clean-line seams reflow exactly).
       seedRows = seedBoundaryRow(t.term);
     }
     await write(t.term, inflate(dataBlocks));

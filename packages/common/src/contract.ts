@@ -145,6 +145,10 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
     ansi: z.string(),
     nextCursor: z.number().int().nonnegative(),
     atFloor: z.boolean(),
+    // When atFloor: false = genuine byte-0 start; true = the eviction floor
+    // (older output trimmed). Lets the pager show "older trimmed" vs "beginning
+    // of session" instead of conflating the two.
+    floorEvicted: z.boolean(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
@@ -156,14 +160,15 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
 
 export const TerminalSearchHistoryInputSchema = z.object({
   id: TerminalIdSchema,
-  // Bounded: a terminal search needle is short, and a length cap is the first
-  // line of defense against a pathological regex on the server scan (F5).
+  // Bounded: a terminal search needle is short. History search is LITERAL
+  // substring only — never a user-supplied regex — so a server-side scan over a
+  // 1MB line is linear and can never catastrophically backtrack the single
+  // daemon's event loop (the residual a non-backtracking engine would otherwise
+  // be needed to defeat is simply not expressible without regex).
   query: z.string().max(1000),
   beforeCursor: z.number().int().nonnegative().nullable(),
-  /** Opt-in capabilities (xterm's ISearchOptions shape), not degradation knobs:
-   *  the default (both false) reproduces the find bar exactly — literal,
-   *  case-insensitive. */
-  regex: z.boolean(),
+  /** Case-sensitivity is an opt-in capability (the default `false` reproduces the
+   *  find bar exactly — literal, case-insensitive). */
   caseSensitive: z.boolean(),
   // Bounded — the server also clamps to its own SEARCH_HARD_CAP, but reject an
   // absurd page size at the wire boundary too (F6).
@@ -174,6 +179,10 @@ export const TerminalSearchHistoryOutputSchema = z.object({
   hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
   nextCursor: z.number().int().nonnegative().nullable(),
   truncated: z.boolean(),
+  // The paged search reached the eviction floor with the cursor at/below it
+  // (older content trimmed under retention) — the search is not exhaustive, so
+  // the pager shows "older trimmed" rather than "no more matches".
+  evicted: z.boolean(),
 });
 
 /** One faithful per-resize-epoch export segment (the un-clipped PDF source). The
@@ -277,9 +286,6 @@ export const contract = oc.router({
     searchHistory: oc
       .input(TerminalSearchHistoryInputSchema)
       .output(TerminalSearchHistoryOutputSchema),
-    /** PR2: whole-transcript plain text — the deep "copy all" source that
-     *  "Copy terminal text" and the pager's "Copy all history" both read. */
-    historyText: oc.input(TerminalAttachInputSchema).output(z.string()),
     /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). A
      *  finite ordered stream — consumed via the `stream` namespace, idempotent
      *  restart on reconnect. */

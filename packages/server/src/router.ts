@@ -342,15 +342,9 @@ export const appRouter = t.router({
       return localTerminalEndpoint.searchHistory(input.id, {
         query: input.query,
         beforeCursor: input.beforeCursor,
-        regex: input.regex,
         caseSensitive: input.caseSensitive,
         maxResults: input.maxResults,
       });
-    }),
-
-    historyText: t.terminal.historyText.handler(async ({ input }) => {
-      requireActiveTerminal(input.id);
-      return localTerminalEndpoint.historyText(input.id);
     }),
 
     exportHistory: t.terminal.exportHistory.handler(async function* ({

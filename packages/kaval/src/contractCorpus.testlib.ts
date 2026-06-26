@@ -43,7 +43,6 @@ export const CONTRACT_COVERAGE = {
     "terminal.getScreenText",
     "terminal.history",
     "terminal.searchHistory",
-    "terminal.historyText",
     "terminal.deleteTranscript",
     "system.version",
     "system.heartbeat",
@@ -327,15 +326,11 @@ export function runContractCorpus(opts: {
         id,
         query: "anything",
         beforeCursor: null,
-        regex: false,
         caseSensitive: false,
         maxResults: 100,
       });
       expect(search.hits).toEqual([]);
       expect(search.truncated).toBe(false);
-
-      const { text } = await client().surface.terminal.historyText({ id });
-      expect(text).toBe("");
 
       // The export stream ends with no segments (history disabled).
       const exp = await client().surface.exportHistory.get({ id });

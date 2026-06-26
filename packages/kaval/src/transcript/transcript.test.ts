@@ -5,7 +5,7 @@
  *   - cross-width reflow: byte-identical across widths;
  *   - no-gap/no-overlap backward paging by byte cursor;
  *   - format-version fail-loud;
- *   - disabled → unavailable; copy-all whole-text read.
+ *   - disabled → unavailable.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TranscriptStore } from "./store.ts";
 import { Transcript } from "./transcript.ts";
-import type { MirrorView } from "./types.ts";
+import { type MirrorView, RecordKind } from "./types.ts";
 
 const require = createRequire(import.meta.url);
 const { Terminal } =
@@ -51,6 +51,10 @@ function makeMirror(cols: number, rows: number) {
         b.cursorX === 0 &&
         !(b.getLine(b.baseY)?.isWrapped ?? false)
       );
+    },
+    cursorAtRowBoundary() {
+      const b = term.buffer.active;
+      return b.type === "normal" && (b.cursorX === 0 || b.cursorX >= term.cols);
     },
     serializeViewport() {
       return ser.serialize({ scrollback: 0 });
@@ -306,12 +310,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     await write(replay1, segs[0]!.ansi);
     expect(readPlain(replay1)).toEqual(oracleRows1);
 
-    // copy-all carries every line of both spans.
-    const text = await tx.readAllText();
-    for (let i = 0; i < 20; i++) {
-      expect(text).toContain(`A${String(i).padStart(3, "0")}|`);
-      expect(text).toContain(`B${String(i).padStart(3, "0")}|`);
-    }
     tx.close();
   }, 30_000);
 
@@ -370,15 +368,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     tx.close();
   }, 30_000);
 
-  it("copy-all returns every line's text", async () => {
-    const { tx } = await feed(120);
-    const text = await tx.readAllText();
-    for (let i = 0; i < 120; i++) {
-      expect(text).toContain(`L${String(i).padStart(5, "0")}|`);
-    }
-    tx.close();
-  }, 30_000);
-
   it("disabled policy → unavailable, no DB", async () => {
     const tx = Transcript.open({
       policy: { enabled: false, retentionBytes: 1 << 30 },
@@ -415,4 +404,266 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       /unknown on-disk format/,
     );
   });
+
+  /** Feed `n` lines under a TINY retention cap so eviction actually fires (the
+   *  floor rises above byte 0), and return the tx plus the live floor. */
+  async function feedEvicted(n: number, retentionBytes: number) {
+    const dbPath = join(dir, "evict.db");
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes },
+      dbPath,
+      cols: 80,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+    });
+    const { term: mirror, view } = makeMirror(80, 24);
+    for (const c of buildStream(n).chunks) {
+      await write(mirror, c);
+      tx.appendData(c, view);
+    }
+    // A second WAL reader observes the post-eviction floor (the tx owns its own
+    // connection; node:sqlite WAL allows a concurrent reader).
+    const store = TranscriptStore.open(dbPath);
+    const floor = store.oldestByteSeq();
+    store.close();
+    return { tx, floor };
+  }
+
+  it("paging to an EVICTED floor reports floorEvicted (≠ genuine start) — F4", async () => {
+    const { tx, floor } = await feedEvicted(2400, 600);
+    // Retention actually trimmed older records — the floor is above byte 0.
+    expect(floor).toBeGreaterThan(0);
+
+    let cursor: number | null = null;
+    let last: Awaited<ReturnType<typeof tx.history>> | undefined;
+    let guard = 0;
+    while (guard++ < 2000) {
+      const page = await tx.history({
+        beforeCursor: cursor,
+        maxLines: 50,
+        width: 80,
+      });
+      last = page;
+      if (page.kind !== "ok") break;
+      if (page.atFloor) break;
+      cursor = page.nextCursor;
+    }
+    expect(last?.kind).toBe("ok");
+    if (last?.kind === "ok") {
+      expect(last.atFloor).toBe(true);
+      // The honest distinction: this floor is the eviction watermark, NOT the
+      // beginning of the session — so the pager shows "older trimmed".
+      expect(last.floorEvicted).toBe(true);
+    }
+    tx.close();
+  }, 30_000);
+
+  it("paging to the GENUINE start reports floorEvicted=false", async () => {
+    const N = 200;
+    const { tx } = await (async () => {
+      const dbPath = join(dir, "genuine.db");
+      const t = Transcript.open({
+        policy: { enabled: true, retentionBytes: 1 << 30 }, // no eviction
+        dbPath,
+        cols: 80,
+        rows: 24,
+        now: () => 1_700_000_000_000,
+      });
+      const { term: mirror, view } = makeMirror(80, 24);
+      for (const c of buildStream(N).chunks) {
+        await write(mirror, c);
+        t.appendData(c, view);
+      }
+      return { tx: t };
+    })();
+    let cursor: number | null = null;
+    let last: Awaited<ReturnType<typeof tx.history>> | undefined;
+    let guard = 0;
+    while (guard++ < 2000) {
+      const page = await tx.history({
+        beforeCursor: cursor,
+        maxLines: 50,
+        width: 80,
+      });
+      last = page;
+      if (page.kind !== "ok") break;
+      if (page.atFloor) break;
+      cursor = page.nextCursor;
+    }
+    expect(last?.kind).toBe("ok");
+    if (last?.kind === "ok") {
+      expect(last.atFloor).toBe(true);
+      expect(last.floorEvicted).toBe(false); // genuine beginning of session
+    }
+    tx.close();
+  }, 30_000);
+
+  it("searchHistory below / down to the eviction floor returns evicted — F3", async () => {
+    const { tx, floor } = await feedEvicted(2400, 600);
+    expect(floor).toBeGreaterThan(0);
+
+    // (a) A sub-floor RESUME (a stale cursor the floor has risen past) is NOT an
+    // exhausted search — it must surface `evicted`, never an empty-complete page.
+    const resume = await tx.searchHistory({
+      query: "L0",
+      beforeCursor: Math.max(0, floor - 1),
+      caseSensitive: false,
+      maxResults: 500,
+    });
+    expect(resume.evicted).toBe(true);
+    expect(resume.nextCursor).toBeNull();
+
+    // (b) A fresh search that scans the whole RETAINED history down to the floor
+    // is likewise non-exhaustive (older matches were trimmed) → evicted.
+    const fresh = await tx.searchHistory({
+      query: "L0",
+      beforeCursor: null,
+      caseSensitive: false,
+      maxResults: 500,
+    });
+    expect(fresh.evicted).toBe(true);
+    tx.close();
+  }, 30_000);
+
+  it("a forced row-boundary checkpoint seam does not duplicate/split the line — F5", async () => {
+    // Emit > MAX_CHECKPOINT_GAP_BYTES (16×64KB = 1 MiB) with NO newline, so no
+    // clean LINE boundary is ever reached and a checkpoint is FORCED. xterm's
+    // deferred wrap parks the cursor at cursorX===cols (never 0) on each completed
+    // physical row, so cursorAtRowBoundary() fires there and the force lands at a
+    // ROW boundary; seedBoundaryRow's `+1` then attributes the completed seam row
+    // to exactly one span. Paging across the seam at the SAME width must reproduce
+    // a single-shot render with NO duplicated/split row — and the seam must really
+    // exist (a forced CKPT past byte 0), or the test proves nothing.
+    const dbPath = join(dir, "midline.db");
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes: 1 << 30 },
+      dbPath,
+      cols: 80,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+    });
+    const { term: mirror, view } = makeMirror(80, 24);
+    // ~1.15 MiB of newline-free, marker-bearing content (so any duplicated slice
+    // is detectable), fed in odd-sized chunks; the next completed-row boundary
+    // after 1 MiB triggers the forced checkpoint.
+    const total = 1_150_000;
+    const chunkLen = 997;
+    let written = 0;
+    let k = 0;
+    while (written < total) {
+      const len = Math.min(chunkLen, total - written);
+      // A rolling marker every 10 chars keeps the long line non-degenerate.
+      let s = "";
+      for (let i = 0; i < len; i++)
+        s += (written + i) % 10 === 0 ? String((k++ % 36).toString(36)) : "x";
+      await write(mirror, s);
+      tx.appendData(s, view);
+      written += len;
+    }
+
+    // Oracle: the same stream into a fresh terminal at width 80.
+    const oracle = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: 200_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    // Rebuild the identical byte stream for the oracle.
+    {
+      let w = 0;
+      let kk = 0;
+      while (w < total) {
+        const len = Math.min(chunkLen, total - w);
+        let s = "";
+        for (let i = 0; i < len; i++)
+          s += (w + i) % 10 === 0 ? String((kk++ % 36).toString(36)) : "x";
+        await write(oracle, s);
+        w += len;
+      }
+    }
+    const oracleRows = readPlain(oracle);
+
+    // Page backward at width 80 (same width — isolates the duplicate from the
+    // documented cross-width reflow imprecision of a forced mid-line seed).
+    let cursor: number | null = null;
+    const ansiParts: string[] = [];
+    let guard = 0;
+    while (guard++ < 5000) {
+      const page = await tx.history({
+        beforeCursor: cursor,
+        maxLines: 200,
+        width: 80,
+      });
+      expect(page.kind).toBe("ok");
+      if (page.kind !== "ok") break;
+      ansiParts.unshift(page.ansi);
+      if (page.atFloor) break;
+      cursor = page.nextCursor;
+    }
+    const replay = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: 200_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const a of ansiParts) await write(replay, a);
+    const gotRows = readPlain(replay);
+
+    // No duplicated/split row at the seam: the reassembled rows match the oracle
+    // exactly (same count, same content).
+    expect(gotRows.length).toBe(oracleRows.length);
+    expect(gotRows).toEqual(oracleRows);
+    tx.close();
+
+    // Non-vacuousness: a checkpoint was actually FORCED past byte 0 (not just the
+    // implicit byte-0 seed), so the paging above genuinely crossed a forced seam.
+    // Before the #5 fix this stream produced NO forced checkpoint (the dead
+    // column-0 detector never fired and the stream stayed under the HARD ceiling),
+    // so the seam test passed without exercising a seam at all.
+    const store = TranscriptStore.open(dbPath);
+    const forcedCkpts = store
+      .allRecords()
+      .filter((r) => r.kind === RecordKind.CKPT && r.firstByteSeq > 0);
+    store.close();
+    expect(forcedCkpts.length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("a SECOND distinct write-fault cause still reaches onFault (not swallowed by the latch) — F6", async () => {
+    const { DatabaseSync } =
+      require("node:sqlite") as typeof import("node:sqlite");
+    const dbPath = join(dir, "twofault.db");
+    const faults: string[] = [];
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes: 1 << 30 },
+      dbPath,
+      cols: 80,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+      onFault: (err) =>
+        faults.push(err instanceof Error ? err.message : String(err)),
+    });
+    const { view } = makeMirror(80, 24);
+    tx.appendData("seed\r\n", view); // buffered, not yet flushed
+
+    // Cause A: drop the table out from under the connection → the next flush's
+    // INSERT throws "no such table".
+    const c1 = new DatabaseSync(dbPath);
+    c1.exec("DROP TABLE record");
+    c1.close();
+    tx.appendData("a".repeat(70_000), view); // forces a flush → fault A
+
+    // Cause B (DISTINCT): recreate `record` with a CHECK that the insert violates
+    // → close()'s flush-retry throws a DIFFERENT message.
+    const c2 = new DatabaseSync(dbPath);
+    c2.exec(
+      "CREATE TABLE record(seq INTEGER PRIMARY KEY, kind INTEGER, firstByteSeq INTEGER, byteLen INTEGER, tsMs INTEGER, cols INTEGER, rows INTEGER, payload BLOB, CHECK(seq < 0))",
+    );
+    c2.close();
+    tx.close(); // flush-retry → CHECK fails → fault B
+
+    expect(faults.length).toBe(2); // BOTH distinct causes surfaced (old code: 1)
+    expect(new Set(faults).size).toBe(2); // genuinely different messages
+  }, 30_000);
 });

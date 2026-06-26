@@ -76,7 +76,7 @@ a per-PTY **transcript** (`src/transcript/`): typed `DATA` / `RESIZE` / `CKPT`
 records in `node:sqlite` (WAL), written from the same `proc.onData` callback the
 mirror is, with periodic checkpoints so any range renders without replaying from
 byte 0. The pager reads it back by an opaque, reflow-stable **byte cursor**
-(`history` / `searchHistory` / `historyText` / the `exportHistory` stream) at the
+(`history` / `searchHistory` / the `exportHistory` stream) at the
 reader's current width. Persistence is a breaking wire change — the contract is
 **`PTY_HOST_CONTRACT_VERSION` 4.1** (4.0 dropped `scrollback` from `spawn` and
 added the required `history` policy; 4.1 added the `deleteTranscript` verb that
@@ -126,11 +126,13 @@ host.deleteTranscript(id); // reclaim the on-disk history of a permanently-remov
 ```
 
 > **Search budget.** `searchHistory` replays the transcript and tests each
-> logical line with the user's pattern (optionally a JS `RegExp`). It is capped
-> by both a hit count and a wall-clock budget (a `truncated` page with a resume
-> cursor), so a slow regex over a large history can't pin the single-threaded
-> daemon. A single catastrophic-backtracking pattern on one very long line is the
-> residual a non-backtracking engine (RE2) would fully close — not yet a dep.
+> logical line for a LITERAL substring (case-insensitive by default). It is
+> deliberately not a regex: a user pattern can catastrophically backtrack over a
+> long line and a span-boundary wall-clock budget can't interrupt one in-flight
+> match, so the single-threaded daemon could be wedged for every terminal it
+> owns. A literal scan is linear, so that defect is not expressible; the budget
+> (a `truncated` page with a resume cursor, plus a hit-count cap) then only has to
+> amortize total work over a deep history, never rescue a single line.
 
 ## Scope
 

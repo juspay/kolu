@@ -363,14 +363,10 @@ export interface PtyHost {
     args: {
       query: string;
       beforeCursor: number | null;
-      regex: boolean;
       caseSensitive: boolean;
       maxResults: number;
     },
   ): Promise<SearchResult>;
-  /** Whole-transcript plain text (PR2) — the deep "copy all" source. Empty if
-   *  gone or history disabled. */
-  historyText(id: PtyId): Promise<string>;
   /** Permanently delete a PTY's on-disk transcript (DB + WAL/SHM), releasing any
    *  still-open connection first (PR2). Called on a KILL / DISCARD — never on
    *  sleep — so a removed terminal leaves no orphan DB. A no-op when history is
@@ -634,6 +630,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           b.cursorX === 0 &&
           !(b.getLine(b.baseY)?.isWrapped ?? false)
         );
+      },
+      cursorAtRowBoundary() {
+        // A PHYSICAL-row boundary: the cursor is either at column 0 of a fresh
+        // row, OR parked at `cursorX === cols` on a FULL row (xterm's deferred
+        // wrap — the realistic boundary a wrapping no-newline stream actually
+        // hits; the cursor NEVER returns to 0 mid-wrap). Either way no partial row
+        // is mid-write, so a checkpoint forced here lands BETWEEN rows and the
+        // backward pager never splits a row across the seam.
+        const b = headless.buffer.active;
+        return b.type === "normal" && (b.cursorX === 0 || b.cursorX >= headless.cols);
       },
       serializeViewport() {
         return serialize.serialize({ scrollback: 0 });
@@ -969,23 +975,19 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     args: {
       query: string;
       beforeCursor: number | null;
-      regex: boolean;
       caseSensitive: boolean;
       maxResults: number;
     },
   ): Promise<SearchResult> {
     const entry = requireEntry(id);
     if (!entry.transcript)
-      return Promise.resolve({ hits: [], nextCursor: null, truncated: false });
+      return Promise.resolve({
+        hits: [],
+        nextCursor: null,
+        truncated: false,
+        evicted: false,
+      });
     return entry.transcript.searchHistory(args);
-  }
-  function historyText(id: PtyId): Promise<string> {
-    // requireEntry, NOT entries.get: a missing PTY is a hard error (consistent
-    // with history/searchHistory), distinct from a live history-disabled entry
-    // that honestly returns "" so the caller falls back to the screen buffer (F2).
-    const entry = requireEntry(id);
-    if (!entry.transcript) return Promise.resolve("");
-    return entry.transcript.readAllText();
   }
   function deleteTranscript(id: PtyId): void {
     // No transcripts are kept without a configured dir — nothing to delete.
@@ -1070,7 +1072,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     history,
     exportHistory,
     searchHistory,
-    historyText,
     deleteTranscript,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();

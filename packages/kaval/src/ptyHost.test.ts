@@ -769,7 +769,7 @@ describe("on-disk transcript integration (PR2)", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("enabled history: a real PTY's output is paged back from disk; copy-all reads it", async () => {
+  it("enabled history: a real PTY's output is paged back from disk", async () => {
     dir = mkdtempSync(join(tmpdir(), "kaval-tx-host-"));
     host = createPtyHost({ log: silentLog, transcriptDir: dir });
     const { id } = host.spawn({
@@ -799,11 +799,6 @@ describe("on-disk transcript integration (PR2)", () => {
       expect(page.ansi).toContain("HISTLINE-300");
       expect(page.ansi).toContain("HISTLINE-7");
     }
-
-    // copy-all reads the whole transcript as plain text.
-    const text = await host.historyText(id);
-    expect(text).toContain("HISTLINE-1\n");
-    expect(text).toContain("HISTLINE-300");
   });
 
   it("disabled history: read verbs return the honest non-content state", async () => {
@@ -823,7 +818,6 @@ describe("on-disk transcript integration (PR2)", () => {
       width: 80,
     });
     expect(page.kind).toBe("unavailable");
-    expect(await host.historyText(id)).toBe("");
   });
 
   it("deleteTranscript removes the on-disk DB (no orphan after a kill)", async () => {
