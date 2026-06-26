@@ -83,6 +83,7 @@ import {
 } from "solid-js";
 import { ConnectionView, HostHealthIndicator } from "./ConnectionView.tsx";
 import { effectiveHealth, hostBodyReady } from "./connectionHealth.ts";
+import { HEALTH_PALETTE } from "./connectionStates.ts";
 import {
   compareFleetEntries,
   type FleetEntry,
@@ -344,7 +345,11 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
                 />
               }
             >
-              {(message) => <div class="p-3 text-[#ff8d8d]">{message()}</div>}
+              {(message) => (
+                <div class="p-3" style={`color:${HEALTH_PALETTE.red}`}>
+                  {message()}
+                </div>
+              )}
             </Show>
           );
         }}

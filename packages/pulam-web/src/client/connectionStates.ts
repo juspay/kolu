@@ -16,10 +16,19 @@ import type {
 } from "@kolu/surface-nix-host/connection";
 
 /**
- * pulam-web's health palette — the ONE home for the dashboard's link-health
- * hexes. CONN_STATE's rows and `effectiveHealth`'s transport branches both read
- * these, so a re-theme of the failed/pending/healthy colour is a single edit
- * here, not a hunt across two modules for a hand-spelled `#ff8d8d`.
+ * pulam-web's health palette — the home for the dashboard's CONN_STATE /
+ * `effectiveHealth` PRESENTATION hexes (the per-(mirror)-state dot/text colour and
+ * the inline error-message colour `HostGroup`/`ConnectionView` paint from it). Those
+ * read these, so a re-theme of the failed/pending/healthy colour is a single edit
+ * here for that surface.
+ *
+ * It is NOT the home for every hex in the app: the error-card chrome
+ * (`#e06c75`-family borders/backgrounds) and a handful of Tailwind arbitrary-value
+ * hover/accent colours are intentionally their own (distinct) shades and stay inline
+ * — they can't interpolate a JS constant into a static utility class cleanly, and
+ * folding them in here would conflate "the health-state palette" with "every colour
+ * the dashboard uses". Route a hex through here only when it IS a CONN_STATE /
+ * `effectiveHealth` health colour.
  */
 export const HEALTH_PALETTE = {
   red: "#ff8d8d",
