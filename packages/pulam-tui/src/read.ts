@@ -274,3 +274,78 @@ export async function watchAwareness(
     { signal, log },
   ).done;
 }
+
+/** The outcome of a `wait`: the agent reached a target bucket (`met`, carrying
+ *  the matched agent), the wait elapsed its cap (`timeout`), or the mirror
+ *  settled without either (`closed` — a dropped link, or the caller's signal
+ *  aborting; `error` holds the first upstream failure if there was one). */
+export type WaitOutcome =
+  | { kind: "met"; agent: NonNullable<AwarenessValue["agent"]> }
+  | { kind: "timeout" }
+  | { kind: "closed"; error?: string };
+
+/** Block until one terminal's agent enters a target bucket (`matches` true),
+ *  then resolve `met`; or resolve `timeout` after `timeoutMs`, or `closed` if
+ *  the link settles first. Pure data layer (no tty, no `process.exit`) so it is
+ *  testable over a real socket — `cmdWait` is the thin glue that maps the
+ *  outcome to output + exit code.
+ *
+ *  It rides `watchAwareness`, so the mirror REPLAYS each terminal's current
+ *  value on connect: an agent already in a target bucket matches immediately
+ *  (no hang waiting for a transition that already happened). An external
+ *  `signal` (the CLI's Ctrl+C) is chained into the internal abort, so a caller
+ *  interrupt unwinds the same way the timeout does — but leaves `outcome`
+ *  unset, surfacing as `closed` (which `cmdWait` distinguishes from a real link
+ *  drop via its own signal). */
+export async function awaitAgentState(
+  client: PulamClient,
+  opts: {
+    id: TerminalId;
+    matches: (agent: AwarenessValue["agent"]) => boolean;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<WaitOutcome> {
+  const abort = new AbortController();
+  if (opts.signal !== undefined) {
+    if (opts.signal.aborted) abort.abort();
+    else
+      opts.signal.addEventListener("abort", () => abort.abort(), {
+        once: true,
+      });
+  }
+  let outcome: WaitOutcome | undefined;
+  let upstreamError: string | undefined;
+  const timer =
+    opts.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          outcome ??= { kind: "timeout" };
+          abort.abort();
+        }, opts.timeoutMs);
+  try {
+    await watchAwareness(
+      client,
+      {
+        onUpsert: (id, value) => {
+          if (id !== opts.id) return;
+          // Guard non-null first so `agent` narrows — `matches` only returns
+          // true for an agent in a target bucket, but the guard keeps the type
+          // honest without a cast.
+          if (value.agent !== null && opts.matches(value.agent)) {
+            outcome ??= { kind: "met", agent: value.agent };
+            abort.abort();
+          }
+        },
+        onRemove: () => {},
+      },
+      abort.signal,
+      (line) => {
+        upstreamError ??= line;
+      },
+    );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  return outcome ?? { kind: "closed", error: upstreamError };
+}

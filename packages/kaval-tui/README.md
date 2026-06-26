@@ -14,6 +14,7 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```
@@ -42,6 +43,53 @@ kaval-tui create -- htop -d 5    # run htop, not a shell
 ```sh
 id=$(kaval-tui create --json | jq -r .id)
 ```
+
+## Sending input
+
+`send` writes input to a terminal without attaching — the raw _write_ half of
+driving a program in a PTY. Its headline use is handing a prompt to an agent
+(Claude Code, Codex, opencode) running in a terminal, so one agent can drive
+another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
+
+```sh
+kaval-tui send a1b2 "refactor the parser to use a lexer"   # typed, then submitted
+```
+
+It **submits with Enter by default** — a prompt isn't sent until you press it.
+`--no-enter` leaves the text on the line, unsubmitted:
+
+```sh
+kaval-tui send a1b2 --no-enter 'git commit -m "wip'        # staged, not run
+```
+
+**Multiline text is sent as one bracketed paste**, so it lands in the agent's
+input box as a block instead of submitting line-by-line (each `\n` would
+otherwise fire a half-written prompt). Paste is automatic for multiline or piped
+text; `--no-paste` forces literal, `--paste` forces a wrap. Text comes from the
+positional words or, when you give none, from **stdin** — so large prompts skip
+shell quoting:
+
+```sh
+kaval-tui send a1b2 < prompt.md            # heredoc / file → bracketed paste + Enter
+cat spec.md | kaval-tui send a1b2          # …same, over a pipe
+```
+
+`--key` sends named or control keys **after** the text, in order — the channel
+for interrupting or steering an agent rather than typing at it:
+
+```sh
+kaval-tui send a1b2 --key Escape           # interrupt the agent mid-stream
+kaval-tui send a1b2 --key C-c              # SIGINT to whatever's running
+kaval-tui send a1b2 "yes" --key Enter      # text, then a bare Enter
+```
+
+Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
+`Backspace`, `Space`; chords: `C-<char>` (control), `M-<char>` (meta/alt).
+
+`send` is **blind** — it writes whether or not the program is ready for input —
+so pair it with `snapshot` to look before (or after) you write. `--json` prints
+`{ id, bytes, enter, paste }` for scripts; the human one-line confirmation goes
+to stderr, so stdout stays empty unless you ask for JSON.
 
 ## Short ids
 

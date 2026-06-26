@@ -8,6 +8,7 @@
  *   kaval-tui list [--json]     list your live terminals (id · pid · idle · cwd)
  *   kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
  *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+ *   kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *   kaval-tui kill <id>         end a terminal the daemon owns (id or prefix)
  *
@@ -51,6 +52,7 @@ import {
 import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
+import { encodeKey, formatSend, planSend } from "./send.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
@@ -151,6 +153,48 @@ const argv = cli({
           "Print a terminal's current rendered scrollback. <id> is the short id from `list` or any unique prefix.",
       },
       flags: { ...endpointFlags },
+    }),
+    command({
+      name: "send",
+      parameters: ["<id>", "[text...]"],
+      help: {
+        description:
+          "Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Submits with Enter by default (`--no-enter` stages it). Multiline or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words or stdin; `--key` sends named/control keys (Escape, C-c, Up…) after it. <id> is the short id from `list` or any unique prefix.",
+      },
+      flags: {
+        ...endpointFlags,
+        // cleye/type-flag has no `--no-<flag>` negation for a Boolean (it lands
+        // in `unknownFlags`), so the off-switches are their own flags whose
+        // kebab key IS the `--no-…` the user types: `noEnter`→`--no-enter`,
+        // `noPaste`→`--no-paste`. `paste`/`noPaste` together give the tristate
+        // (set/unset/auto); `cmdSend` folds them into `enter`/`paste`.
+        noEnter: {
+          type: Boolean,
+          description:
+            "stage the text on the line WITHOUT pressing Enter (default: submit with Enter)",
+          default: false,
+        },
+        paste: {
+          type: Boolean,
+          description:
+            "force bracketed paste ON (default: auto — on for multiline or stdin text, off for a single-line argument)",
+        },
+        noPaste: {
+          type: Boolean,
+          description: "force bracketed paste OFF — send the text verbatim",
+        },
+        key: {
+          type: [String],
+          description:
+            "a named/control key to send after the text — repeatable, in order. Names: Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space; chords: C-c, M-b.",
+        },
+        json: {
+          type: Boolean,
+          description:
+            "machine-readable JSON output ({ id, bytes, enter, paste })",
+          default: false,
+        },
+      },
     }),
     command({
       name: "attach",
@@ -323,6 +367,91 @@ async function cmdCreate(
   process.stderr.write(
     `— attach with \`kaval-tui attach ${shortId(result.id)}${endpointHint(endpoint)}\`\n`,
   );
+}
+
+/** Read all of stdin to a UTF-8 string — the `send` payload when no positional
+ *  text is given (a piped file or heredoc). Called only when stdin is NOT a tty,
+ *  so it never blocks on an interactive keyboard. */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/** Write input to a terminal — the *raw* write half of driving a program (a
+ *  prompt to an agent). One-shot: it issues each planned `terminal.write` in
+ *  order and exits, with no `enqueue` serialization (that guards `attach`'s
+ *  concurrent keystroke+resize loop; a single send has nothing to race). */
+async function cmdSend(
+  conn: Connection,
+  id: string,
+  textArgs: readonly string[],
+  flags: {
+    json: boolean;
+    enter: boolean;
+    paste: boolean | undefined;
+    key: readonly string[];
+  },
+): Promise<void> {
+  // The text to send: the positional words re-joined (the shell already split
+  // them), or piped stdin when no positional is given. Read stdin only when it's
+  // not a tty, so an interactive `send <id>` with nothing to say fails loud below
+  // instead of blocking on the keyboard.
+  let text = textArgs.join(" ");
+  let fromStdin = false;
+  if (text === "" && !process.stdin.isTTY) {
+    text = await readStdin();
+    fromStdin = true;
+  }
+
+  // Encode the named/control keys up front so an unknown key fails loud BEFORE
+  // any byte reaches the terminal (no half-send). Order is preserved.
+  let keyData = "";
+  for (const name of flags.key) {
+    const bytes = encodeKey(name);
+    if (bytes === undefined) {
+      fail(
+        `unknown --key ${JSON.stringify(name)} — use a name (Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space) or a chord (C-c, M-b).`,
+      );
+    }
+    keyData += bytes;
+  }
+
+  if (text === "" && keyData === "") {
+    fail(
+      'nothing to send — pass text, pipe it on stdin, or use --key (e.g. `kaval-tui send <id> "hello"` or `kaval-tui send <id> --key Escape`).',
+    );
+  }
+
+  const plan = planSend({
+    text,
+    enter: flags.enter,
+    paste: flags.paste,
+    fromStdin,
+    keyData,
+  });
+  // Issue each write in order; awaiting in turn preserves order and applies
+  // natural backpressure. The submit Enter after a bracketed-paste block is its
+  // OWN element in `plan.writes`, so it lands as a separate write (Claude Code
+  // races a `\r` riding inside the paste terminator).
+  for (const data of plan.writes) {
+    await conn.client.surface.terminal.write({ id, data });
+  }
+
+  const result = {
+    id,
+    bytes: plan.bytes,
+    enter: plan.enter,
+    paste: plan.paste,
+  };
+  if (flags.json) {
+    // Full id (for scripts), 2-space indented like `create --json`.
+    await writeOut(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  // Quiet stdout, status on stderr — there's no scriptable payload, so a non-json
+  // send leaves stdout empty (`--json` is the machine path).
+  process.stderr.write(`— ${formatSend(result)}\n`);
 }
 
 async function cmdAttach(
@@ -525,6 +654,15 @@ async function main(): Promise<void> {
       await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
     else if (argv.command === "snapshot")
       await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
+    else if (argv.command === "send")
+      await cmdSend(conn, await resolveOne(conn, argv._.id), argv._.text, {
+        json: argv.flags.json,
+        // Default submits; `--no-enter` (the `noEnter` flag) stages it.
+        enter: !argv.flags.noEnter,
+        // Tristate: `--paste` forces on, `--no-paste` off, neither = auto.
+        paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
+        key: argv.flags.key,
+      });
     else if (argv.command === "attach")
       await cmdAttach(
         conn,

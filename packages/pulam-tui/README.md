@@ -13,8 +13,9 @@ leave-it-on-a-second-monitor **fleet dashboard across many hosts** is
 [`pulam-web`](../pulam-web)'s job; pulam-tui is single-daemon.
 
 ```
-pulam-tui status [--json]        a one-shot snapshot of every terminal
-pulam-tui watch [<id>] [--json]  follow live until Ctrl+C — every terminal, or one by id
+pulam-tui status [--json]            a one-shot snapshot of every terminal
+pulam-tui watch [<id>] [--json]      follow live until Ctrl+C — every terminal, or one by id
+pulam-tui wait <id> --until <state>  block until that terminal's agent reaches a state, then exit
 ```
 
 ```
@@ -37,6 +38,32 @@ object per line (NDJSON), so `jq -c` streams it.
 # alert when any agent blocks on you
 pulam-tui watch --json | jq -rc 'select(.agent.state=="awaiting_user") | "\(.id) needs you"'
 ```
+
+## Waiting on an agent — `wait`
+
+`wait` blocks until one terminal's agent reaches a target **bucket**, then exits
+— the done-signal an agent uses to **drive another agent**. The buckets are the
+shared `agentProjection` fold's: `working` (thinking / tool_use / background),
+`awaiting` (the agent stopped to ask you), `waiting` (its turn just ended). Pass
+a comma list to `--until`; `awaiting,waiting` is "the agent's turn ended" (it
+left `working`):
+
+```sh
+id=$(kaval-tui create -- claude --json | jq -r .id)   # spawn an agent terminal
+kaval-tui send  "$id" "refactor the parser to use a lexer"   # prompt it (submits)
+pulam-tui  wait "$id" --until awaiting,waiting               # block until its turn ends
+kaval-tui snapshot "$id"                                     # read its reply — then loop
+```
+
+`--timeout <ms>` caps the wait and **fails loud** (exit code `2`) rather than
+hanging forever; without it `wait` blocks until the state, the link drops, or
+`Ctrl+C`. `--json` prints `{ id, agent }` so the driver reads the new state
+without a second call.
+
+> **Mind the stale-state race.** Right after `send`, the agent may still report
+> the *previous* turn's `waiting`/`awaiting` for a beat before it picks up. For a
+> robust loop, wait for the pickup first, then the turn-end: `pulam-tui wait $id
+> --until working` then `pulam-tui wait $id --until awaiting,waiting`.
 
 ## Short ids
 

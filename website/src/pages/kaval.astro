@@ -35,6 +35,11 @@ const commands = [
     what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
   },
   {
+    cmd: "kaval-tui send <id> [text...]",
+    flags: "--no-enter · --paste/--no-paste · --key <name> · --json",
+    what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Submits with Enter by default (--no-enter stages it); multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key sends named/control keys (Escape, C-c, Up…) in order after the text. --json emits { id, bytes, enter, paste }.",
+  },
+  {
     cmd: "kaval-tui kill <id>",
     flags: "",
     what: "End a terminal the daemon owns — the PTY is torn down, so it drops out of list and any attached client sees the shell exit. <id> is the short id or any unique prefix, like snapshot/attach; an id that matches nothing fails loud rather than silently doing nothing. Exits 0 on success.",
@@ -50,7 +55,7 @@ const escapes = [
 
 <BaseLayout
   title="kaval"
-  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, and kill your terminals from the shell."
+  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
 >
   <meta name="robots" content="noindex" slot="head" />
 
@@ -107,7 +112,8 @@ const escapes = [
       clients that come and go.{" "}
       <code class="mono text-ink">kaval-tui</code> is its terminal client: list
       your shells, <span class="text-ink">create</span> new ones, dump their
-      scrollback, attach and type, or <span class="text-ink">kill</span> them —
+      scrollback, attach and type, <span class="text-ink">send</span> a prompt to
+      an agent running in one, or <span class="text-ink">kill</span> them —
       locally, or on a remote machine over ssh
       (<code class="mono text-ink">--host</code>). Run the pair on a box where
       kolu has never been installed — a tmux/zellij-shaped duo, minus the
@@ -424,6 +430,9 @@ const escapes = [
       <span class="cmd"
         >nix run github:juspay/kolu#pulam-tui -- watch<span class="cmt">  # follow awareness live</span></span
       >
+      <span class="cmd"
+        >nix run github:juspay/kolu#pulam-tui -- wait $id --until awaiting,waiting<span class="cmt"> # block until its turn ends</span></span
+      >
     </div>
     <pre
       class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
@@ -465,7 +474,12 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       shows what each terminal <em>is in</em> — a compact{" "}
       <code class="mono text-ink">status</code> table or a live{" "}
       <code class="mono text-ink">watch</code> stream you can{" "}
-      <code class="mono text-ink">ssh</code> into.{" "}
+      <code class="mono text-ink">ssh</code> into. And{" "}
+      <code class="mono text-ink">wait &lt;id&gt; --until awaiting,waiting</code>{" "}
+      blocks until a terminal's agent finishes its turn — the done-signal that
+      lets one agent drive another: prompt it with{" "}
+      <code class="mono text-ink">kaval-tui send</code>, wait, then read the
+      reply.{" "}
       <code class="mono text-ink">--json</code> dumps the same surface (NDJSON
       under <code class="mono text-ink">watch</code>) for scripts. It runs the{" "}
       <em>same</em> awareness sensors kolu uses internally, now read by a thin

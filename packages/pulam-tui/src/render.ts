@@ -11,6 +11,7 @@
  */
 
 import {
+  agentBucket,
   agentShortName,
   agentStatusLabel,
   DASH,
@@ -66,6 +67,53 @@ export function resolveTerminalId(
   if (first === undefined) return { kind: "none" };
   if (rest.length > 0) return { kind: "ambiguous", matches };
   return { kind: "found", id: first };
+}
+
+/** The coarse agent buckets `wait --until` accepts as targets — the
+ *  `agentBucket` fold's vocabulary minus `other` (an `other` bucket never
+ *  matches a real agent, so accepting it would only ever time out). `wait`
+ *  compares against the *bucket*, never the raw `AgentInfo['state']` literals,
+ *  so the one fold in `@kolu/terminal-workspace/agentProjection` stays the
+ *  single source of truth (see `.claude/rules/dock-fleet-mirror.md`). */
+export const WAIT_STATES = ["working", "awaiting", "waiting"] as const;
+
+export type WaitState = (typeof WAIT_STATES)[number];
+
+/** Parse a `--until` value — a comma list of bucket names — into the set of
+ *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
+ *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
+ *  rejected (fail-fast — no silent drop of an unrecognized state). The caller
+ *  maps the error to `fail()`/exit. */
+export function parseUntilStates(
+  raw: string,
+):
+  | { kind: "ok"; targets: Set<WaitState> }
+  | { kind: "error"; message: string } {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  const valid = new Set<string>(WAIT_STATES);
+  const unknown = tokens.filter((t) => !valid.has(t));
+  if (tokens.length === 0 || unknown.length > 0) {
+    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
+    return {
+      kind: "error",
+      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
+    };
+  }
+  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+}
+
+/** Whether a terminal's agent is in one of the target buckets — the `wait`
+ *  predicate. A terminal with no agent (a bare shell, or an agent that exited)
+ *  is never a match; otherwise its `state` folds through the shared `agentBucket`
+ *  and is tested for membership. */
+export function agentMatchesUntil(
+  agent: AwarenessValue["agent"],
+  targets: ReadonlySet<string>,
+): boolean {
+  return agent !== null && targets.has(agentBucket(agent.state));
 }
 
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
@@ -190,6 +238,17 @@ export function formatAwarenessJson(
     null,
     2,
   );
+}
+
+/** The `wait` success trailer (stderr) — `a1b2c3d4 reached awaiting · claude
+ *  awaiting_user`: the short id, the bucket it landed in (the shared `agentBucket`
+ *  fold), and the agent's short name + raw state for the detail. `--json` emits
+ *  the full `{ id, agent }` instead. */
+export function formatWaitMet(
+  id: TerminalId,
+  agent: NonNullable<AwarenessValue["agent"]>,
+): string {
+  return `${shortId(id)} reached ${agentBucket(agent.state)} · ${agentShortName(agent.kind)} ${agentStatusLabel(agent.state)}`;
 }
 
 /** A wall-clock `HH:MM:SS` stamp for a `watch` line, in local time — the live

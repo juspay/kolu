@@ -28,6 +28,7 @@ import {
 import { buildCreateInput, newPtyId } from "./create.ts";
 import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
+import { planSend } from "./send.ts";
 
 const silentLog = {
   debug: () => {},
@@ -297,6 +298,42 @@ describe("runAttach — over a real unix socket", () => {
       id,
     });
     expect(text).not.toContain("kaval-tui escapes");
+  });
+});
+
+describe("send — over the same real unix socket", () => {
+  it("writes the planned bytes to the PTY so the shell runs the input", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-send-"));
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+
+    // The SAME plan `cmdSend` builds — a single-line argument types literally and
+    // submits with Enter. `$((…))` keeps the marker out of the echoed command
+    // line, so a screen match proves the shell really ran the sent input (not
+    // that the bytes were merely echoed). Drive `terminal.write` per planned
+    // chunk, exactly as the dispatch does, so this covers the write round-trip.
+    const plan = planSend({
+      text: "echo SENDMARK-$((6 * 7))",
+      enter: true,
+      paste: undefined,
+      fromStdin: false,
+      keyData: "",
+    });
+    expect(plan.writes).toEqual(["echo SENDMARK-$((6 * 7))\r"]);
+    for (const data of plan.writes) {
+      await conn.client.surface.terminal.write({ id, data });
+    }
+
+    let screen = "";
+    await until(
+      () => screen.includes("SENDMARK-42"),
+      "sent command output",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
   });
 });
 
