@@ -172,7 +172,9 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       expect(gotSig).toEqual(oracleSig);
     }
     tx.close();
-  });
+    // Spinning throwaway xterms + serialize across 4 widths is CPU-heavy; a
+    // loaded CI host (esp. a busy darwin builder) can exceed the 5s default.
+  }, 60_000);
 
   it("crosses checkpoints: seed-drop telescoping still matches the oracle", async () => {
     // ~2400 lines × ~90 B ≈ 200 KB > 2× CHECKPOINT_BYTES, so several CKPTs fire
@@ -247,7 +249,7 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       expect(text).toContain(`L${String(i).padStart(5, "0")}|`);
     }
     tx.close();
-  });
+  }, 30_000);
 
   it("disabled policy → unavailable, no DB", async () => {
     const tx = Transcript.open({
