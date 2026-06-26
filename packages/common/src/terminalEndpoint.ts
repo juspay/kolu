@@ -42,10 +42,16 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type { z } from "zod";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "@kolu/terminal-workspace/endpoint";
+import type {
+  TerminalExportSegmentSchema,
+  TerminalHistoryResultSchema,
+  TerminalSearchHistoryOutputSchema,
+} from "./contract.ts";
 import type {
   InitialTerminalMetadata,
   TerminalId,
@@ -185,32 +191,13 @@ export interface TerminalEndpoint {
   readonly git: TerminalEndpointGit;
 }
 
-/** A backward history page, or an honest non-content state (PR2). Mirrors the
- *  contract's `TerminalHistoryResultSchema`; defined here so this low-level
- *  interface stays independent of the contract/kaval layers. */
-export type HistoryPage =
-  | {
-      kind: "ok";
-      ansi: string;
-      nextCursor: number;
-      atFloor: boolean;
-    }
-  | { kind: "unavailable" }
-  | { kind: "evicted" }
-  | { kind: "faulted"; lastGoodSeq: number };
+/** A backward history page, the search result, and an export segment (PR2) —
+ *  inferred from the contract's zod schemas (one source of truth inside
+ *  kolu-common; contract.ts doesn't import this file, so there's no cycle). */
+export type HistoryPage = z.infer<typeof TerminalHistoryResultSchema>;
 
-export interface SearchHistoryResult {
-  hits: {
-    cursor: number;
-    text: string;
-    matches: { start: number; end: number }[];
-  }[];
-  nextCursor: number | null;
-  truncated: boolean;
-}
+export type SearchHistoryResult = z.infer<
+  typeof TerminalSearchHistoryOutputSchema
+>;
 
-export interface HistoryExportSegment {
-  cols: number;
-  rows: number;
-  ansi: string;
-}
+export type HistoryExportSegment = z.infer<typeof TerminalExportSegmentSchema>;
