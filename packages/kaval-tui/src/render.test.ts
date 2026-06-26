@@ -4,6 +4,7 @@ import {
   commandName,
   formatList,
   formatListJson,
+  formatSend,
   relativeTime,
   resolveTerminalId,
   SHORT_ID_LEN,
@@ -122,6 +123,41 @@ describe("formatListJson", () => {
     const id = "7f3e0a91-aaaa-bbbb-cccc-dddddddddddd";
     const parsed = JSON.parse(formatListJson([entry({ id })]));
     expect(parsed[0].id).toBe(id);
+  });
+});
+
+describe("formatSend — the human trailer", () => {
+  it("shows byte count, short id, and the marks that applied", () => {
+    expect(
+      formatSend({
+        id: "a1b2c3d4-1111-2222-3333-444455556666",
+        bytes: 14,
+        paste: true,
+        keys: ["Enter"],
+      }),
+    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
+  });
+
+  it("lists multiple keys in order", () => {
+    expect(
+      formatSend({
+        id: "a1b2c3d4-1111-2222-3333-444455556666",
+        bytes: 2,
+        paste: false,
+        keys: ["Escape", "C-c"],
+      }),
+    ).toBe("sent 2 bytes to a1b2c3d4 · keys: Escape, C-c");
+  });
+
+  it("omits marks that did not happen and singularizes one byte", () => {
+    expect(
+      formatSend({
+        id: "a1b2c3d4-1111-2222-3333-444455556666",
+        bytes: 1,
+        paste: false,
+        keys: [],
+      }),
+    ).toBe("sent 1 byte to a1b2c3d4");
   });
 });
 

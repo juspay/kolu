@@ -28,7 +28,6 @@ import {
   metaByte,
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
-import { shortId } from "./render.ts";
 
 /** The named keys `send` accepts, as one human string for the command help, the
  *  `--key` flag help, and the unknown-key error — so the vocabulary is written
@@ -100,20 +99,4 @@ export function planSend(opts: {
 
   const bytes = writes.reduce((n, s) => n + Buffer.byteLength(s, "utf8"), 0);
   return { writes, bytes, paste };
-}
-
-/** The human one-liner (stderr trailer) — `sent 14 bytes to a1b2c3d4 · pasted ·
- *  keys: Enter`. The `· pasted` / `· keys: …` marks appear only when those
- *  happened, so the line never claims an action `send` didn't take. */
-export function formatSend(result: {
-  id: string;
-  bytes: number;
-  paste: boolean;
-  keys: readonly string[];
-}): string {
-  const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
-  const pasteMark = result.paste ? " · pasted" : "";
-  const keysMark =
-    result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
-  return `${base}${pasteMark}${keysMark}`;
 }

@@ -1,11 +1,6 @@
 import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
-import {
-  ACCEPTED_KEY_NAMES,
-  encodeKey,
-  formatSend,
-  planSend,
-} from "./send.ts";
+import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
 
 const START = "\x1b[200~";
 const END = "\x1b[201~";
@@ -172,40 +167,5 @@ describe("planSend — building the ordered writes", () => {
     const expected =
       Buffer.byteLength(`${START}${text}${END}`) + Buffer.byteLength("\r");
     expect(plan.bytes).toBe(expected);
-  });
-});
-
-describe("formatSend — the human trailer", () => {
-  it("shows byte count, short id, and the marks that applied", () => {
-    expect(
-      formatSend({
-        id: "a1b2c3d4-1111-2222-3333-444455556666",
-        bytes: 14,
-        paste: true,
-        keys: ["Enter"],
-      }),
-    ).toBe("sent 14 bytes to a1b2c3d4 · pasted · keys: Enter");
-  });
-
-  it("lists multiple keys in order", () => {
-    expect(
-      formatSend({
-        id: "a1b2c3d4-1111-2222-3333-444455556666",
-        bytes: 2,
-        paste: false,
-        keys: ["Escape", "C-c"],
-      }),
-    ).toBe("sent 2 bytes to a1b2c3d4 · keys: Escape, C-c");
-  });
-
-  it("omits marks that did not happen and singularizes one byte", () => {
-    expect(
-      formatSend({
-        id: "a1b2c3d4-1111-2222-3333-444455556666",
-        bytes: 1,
-        paste: false,
-        keys: [],
-      }),
-    ).toBe("sent 1 byte to a1b2c3d4");
   });
 });

@@ -55,13 +55,13 @@ import { runKill } from "./kill.ts";
 import {
   ACCEPTED_KEY_NAMES,
   encodeKey,
-  formatSend,
   planSend,
 } from "./send.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
   formatListJson,
+  formatSend,
   resolveTerminalId,
   shortId,
 } from "./render.ts";
