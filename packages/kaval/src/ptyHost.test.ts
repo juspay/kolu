@@ -306,6 +306,33 @@ describe("createPtyHost", () => {
     expect(await firstEvent(host.subscribeTitle(id))).toBe("my title");
   });
 
+  it("samples foregroundPid from OUTPUT alone — no OSC hook needed", async () => {
+    // A bare `kaval-tui create` terminal carries none of kolu's rc-hooks, so it
+    // emits no OSC 0/2 title or 633;E command mark — the only two triggers for
+    // the OSC samplers. Agent detection keys on `foregroundPid`, so the
+    // foreground tap must still publish it; the output-driven fallback does. Here
+    // the process only ever PRINTS (no OSC anywhere), yet its foregroundPid lands
+    // on the tap — without the fallback this subscribe would never resolve.
+    host = createPtyHost({ log: silentLog });
+    const { id, pid } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "echo working; sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // The non-interactive `sh -c` runs its commands in its own process group, so
+    // the pty's foreground-group leader is the spawned shell itself. (`nextFrame`
+    // directly — `firstEvent` is the string-typed wrapper; this tap yields
+    // `ForegroundSample`.)
+    const sample = await nextFrame(
+      host.subscribeForeground(id)[Symbol.asyncIterator](),
+      3000,
+    );
+    expect(sample.foregroundPid).toBe(pid);
+    host.kill(id);
+    await host.exitPromise(id);
+  });
+
   it("trims the headless mirror to its configured scrollback under heavy output", async () => {
     // The per-terminal mirror is what accumulates in kaval's heap, so it must
     // honour the (small) spawn scrollback: FIRSTLINE drops, LASTLINE stays, and
