@@ -279,7 +279,8 @@ export async function runAttach(
             // slow consumer). It carries no data — break to the re-attach below
             // rather than writing `undefined`; the inventory pre-flight then
             // confirms the PTY is still live and we re-attach for a fresh
-            // snapshot. (Contract 3.3 and earlier never emit it.)
+            // snapshot. (A 3.x daemon never emits it — and the 4.0 major bump
+            // makes such a peer a clean skew, never a live attach.)
             if (msg.kind === "overflow") break;
             // Backpressure-aware: tty.write resolves on drain, so a slow
             // local terminal slows this consumer rather than ballooning

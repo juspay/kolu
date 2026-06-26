@@ -71,12 +71,22 @@ import { z } from "zod";
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
- *  Bumped to 3.4 (additive · minor): `terminalAttach` gained an `overflow`
- *  control frame — emitted when the host drops a slow attach subscriber, so a
- *  consumer re-attaches for a fresh snapshot rather than mistaking the drop for
- *  a PTY exit. A 3.3 survivor never emits it (it falls back to the old silent
- *  end), so it stays wire-compatible — no forced recycle. */
-export const PTY_HOST_CONTRACT_VERSION = "3.4";
+ *  Bumped to 4.0 (BREAKING · major): `terminalAttach` gained an `overflow`
+ *  control frame — a NEW discriminant the host EMITS on the existing attach
+ *  stream when it drops a slow subscriber, so a consumer re-attaches for a fresh
+ *  snapshot rather than mistaking the drop for a PTY exit. Unlike the additive
+ *  minor bumps above, a new EMITTED union variant is NOT backwards-compatible in
+ *  the direction `isContractVersionCompatible` actually allows: an older client
+ *  accepts a newer-minor daemon (reported minor >= its own), then meets an
+ *  `overflow` frame its `terminalAttach` schema cannot discriminate — it either
+ *  rejects the parse or writes a dataless frame. A field-add survives that
+ *  direction (the old client strips the unknown key); an emitted variant does
+ *  not. Every prior bump's breaking direction was new-client/old-daemon, which
+ *  the predicate already recycles; this one's is old-client/new-daemon, which a
+ *  minor bump would silently wave through. So it is a major bump: a 3.x peer on
+ *  EITHER side is now a clean skew (recycled / refused with an honest restart
+ *  message) instead of a silent mis-parse. */
+export const PTY_HOST_CONTRACT_VERSION = "4.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -161,9 +171,9 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
   // `data`) — distinct from a PTY exit (the `exit` stream) and from a graceful
   // end, so a consumer re-attaches for a fresh snapshot instead of treating the
   // drop as terminal and freezing scrollback. Yielded as the LAST frame before
-  // the stream ends. Added in contract 3.4 (additive · minor): a 3.3 survivor
-  // never emits it, so a consumer that predates the variant simply never sees
-  // one — wire-compatible.
+  // the stream ends. Added in contract 4.0 (BREAKING · major): a new EMITTED
+  // union variant an older client can't discriminate, so a 3.x peer is a clean
+  // skew rather than a silent mis-parse — see PTY_HOST_CONTRACT_VERSION.
   z.object({ kind: z.literal("overflow") }),
 ]);
 

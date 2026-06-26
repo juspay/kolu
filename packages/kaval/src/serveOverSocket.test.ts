@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { Logger } from "@kolu/surface-daemon";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spawnInput } from "./contractCorpus.testlib.ts";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -33,10 +34,11 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as Logger;
 
-function makeRouter() {
+function makeRouter(opts?: { dataMaxQueue?: number }) {
   const { servedRouter } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+    dataMaxQueue: opts?.dataMaxQueue,
   });
   return servedRouter;
 }
@@ -105,4 +107,105 @@ describe("servePtyHostOverUnixSocket — real unix-socket round-trip", () => {
     expect((await client.surface.terminal.list({})).entries).toEqual([]);
     dispose();
   });
+});
+
+// The `overflow` control frame must survive the REAL socket + oRPC
+// serialization boundary — not just the in-process loopback that
+// `inProcessPtyHost.test.ts` exercises. This is the exact attach transport
+// kaval-tui / pulam / kolu-server consume, so a serialization or schema mistake
+// in the `{ kind: "overflow" }` variant would only ever surface here. The
+// listener gets its OWN host bound to a 1-deep data queue so the slow-subscriber
+// drop is deterministic; the shared listener above keeps the default cap.
+describe("servePtyHostOverUnixSocket — `overflow` frame crosses the socket", () => {
+  let ovfListener: PtyHostSocketListener;
+  let ovfSocketPath: string;
+
+  beforeAll(async () => {
+    ovfSocketPath = join(
+      mkdtempSync(join(tmpdir(), "kolu-pty-ovf-sock-")),
+      "pty-host.sock",
+    );
+    ovfListener = await servePtyHostOverUnixSocket({
+      socketPath: ovfSocketPath,
+      router: makeRouter({ dataMaxQueue: 1 }),
+      log: silentLog,
+    });
+  });
+
+  afterAll(() => ovfListener.close());
+
+  it("yields a typed `overflow` frame to a slow subscriber over the real socket", async () => {
+    // Two SEPARATE connections. `ctrl` drives the terminal (spawn / write /
+    // getScreenText / kill); `attachConn` carries ONLY the un-drained attach
+    // stream. They must not share a socket: a saturated attach stream
+    // backpressures its whole connection, so a shared-socket `getScreenText`
+    // would deadlock behind the very stream we are deliberately not reading.
+    const ctrl = await unixSocketLink<typeof ptyHostSurface.contract>({
+      socketPath: ovfSocketPath,
+    });
+    const attachConn = await unixSocketLink<typeof ptyHostSurface.contract>({
+      socketPath: ovfSocketPath,
+    });
+    const cwd = mkdtempSync(join(tmpdir(), "kolu-pty-ovf-cwd-"));
+    const { id } = await ctrl.client.surface.terminal.spawn(spawnInput(cwd));
+
+    // Pull the snapshot — that starts the source generator (it subscribes to
+    // the data channel) — then STOP reading. Unlike the in-process loopback, a
+    // few chunks won't trip the drop here: the server drains the 1-deep channel
+    // straight into the socket's kernel buffer. We need a CONTINUOUS flood so
+    // the kernel buffer fills, the server's socket write backpressures, and the
+    // channel then overflows its 1-deep bound while we look away.
+    const ac = new AbortController();
+    const iter = (
+      await attachConn.client.surface.terminalAttach.get(
+        { id },
+        { signal: ac.signal },
+      )
+    )[Symbol.asyncIterator]();
+    const snap = await iter.next();
+    expect(snap.done).toBe(false);
+    if (!snap.done) expect(snap.value.kind).toBe("snapshot");
+
+    // `yes` floods the PTY without bound; the drop sheds the wedged attach
+    // subscriber while the screen mirror (a separate, always-drained consumer)
+    // keeps flowing, so `getScreenText` over `ctrl` still answers.
+    await ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" });
+    let text = "";
+    for (let i = 0; i < 120; i++) {
+      ({ text } = await ctrl.client.surface.terminal.getScreenText({ id }));
+      if (text.includes("OVFLINE")) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(text).toContain("OVFLINE");
+    // Give the flood a beat to saturate the attach socket and latch the drop
+    // before we start reading.
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Drain: a typed `overflow` frame must arrive over the socket — eventually,
+    // after the buffered deltas. Each pull is timeout-guarded so a regression
+    // (no overflow frame, just a silent end) fails loudly rather than hanging.
+    const pull = (): Promise<IteratorResult<{ kind: string }>> =>
+      Promise.race([
+        iter.next(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("overflow frame never arrived")),
+            8000,
+          ),
+        ),
+      ]);
+    const kinds: string[] = [];
+    for (let i = 0; i < 5000; i++) {
+      const r = await pull();
+      if (r.done) break;
+      kinds.push(r.value.kind);
+      if (r.value.kind === "overflow") break;
+    }
+    expect(kinds).toContain("overflow");
+
+    ac.abort();
+    await ctrl.client.surface.terminal.kill({ id });
+    ctrl.dispose();
+    attachConn.dispose();
+  }, 20000);
 });
