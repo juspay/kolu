@@ -170,6 +170,29 @@ describe("Channel", () => {
     expect(await next(slow)).toEqual({ done: true, value: undefined });
   });
 
+  it("does not mis-signal an abort as an overflow when a publish races it", async () => {
+    // Regression: onAbort queued CLOSE while leaving the sub in the live set, so
+    // a publish racing the abort could reach it and — with its queue already at
+    // the cap — trip the drop branch, firing onOverflow. An abort is a clean
+    // end, not an overflow; firing onOverflow there mis-reads it as one.
+    const ch = new Channel<number>({ maxQueue: 1 });
+    const ac = new AbortController();
+    let overflowed = false;
+    const it = ch
+      .subscribe(ac.signal, () => {
+        overflowed = true;
+      })
+      [Symbol.asyncIterator]();
+    // No pending next(): abort queues CLOSE, filling the 1-deep queue to the cap.
+    ac.abort();
+    // A publish racing the abort must NOT reach the now-dead subscriber.
+    ch.publish(1);
+    expect(overflowed).toBe(false);
+    expect(ch.subscriberCount).toBe(0);
+    // The consumer drains the queued CLOSE → a clean end, never an overflow.
+    expect(await next(it)).toEqual({ done: true, value: undefined });
+  });
+
   it("does not deliver to subscribers added after a value was published", async () => {
     const ch = new Channel<number>();
     ch.publish(1); // no subscribers yet — dropped on the floor

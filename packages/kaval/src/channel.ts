@@ -136,7 +136,18 @@ export class Channel<T> {
     };
     this.subs.add(sub);
 
-    const onAbort = () => sub.push(CLOSE);
+    const onAbort = () => {
+      // Remove from the live set BEFORE delivering CLOSE: an abort is a clean
+      // end, NOT an overflow. If the sub stayed in `subs`, a publish() racing the
+      // abort could still reach it and — with its queue already at the cap — trip
+      // the drop branch above, firing `onOverflow` and mis-signalling the abort
+      // as an overflow (inverting the exit-vs-overflow distinction the attach
+      // contract draws). Deleting first, like the drop branch does, keeps a
+      // post-abort publish from ever reaching it; the queued CLOSE still drains
+      // to end the consumer.
+      this.subs.delete(sub);
+      sub.push(CLOSE);
+    };
     signal?.addEventListener("abort", onAbort, { once: true });
 
     return {
