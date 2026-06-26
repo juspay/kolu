@@ -19,7 +19,7 @@
  */
 
 import { zstdCompressSync } from "node:zlib";
-import { renderFaithful, renderReflow } from "./render.ts";
+import { renderFaithful } from "./render.ts";
 import {
   type CheckpointRow,
   type ResumeState,
@@ -52,6 +52,10 @@ export type HistoryResult =
        *  conflating an evicted floor with the true start. Meaningless when
        *  `atFloor` is false. */
       floorEvicted: boolean;
+      /** The widest resize-epoch width in this page. History is rendered at its
+       *  HISTORICAL width (never reflowed), so the display sizes its xterm to this
+       *  and scrolls horizontally when it exceeds the viewport. */
+      contentWidth: number;
     }
   | { kind: "unavailable" }
   | { kind: "evicted" }
@@ -334,11 +338,15 @@ export class Transcript {
   }
 
   /** One backward page ending at `beforeCursor` (or the tip when null),
-   *  accumulating checkpoint-spans until ≥ `maxLines` rows or the floor. */
+   *  accumulating checkpoint-spans until ≥ `maxLines` rows or the floor. Rendered
+   *  FAITHFULLY: each span is split per resize-epoch and rendered at its HISTORICAL
+   *  width as fixed rows — never reflowed to a reader/display width (replaying a
+   *  TUI's `\r`/cursor bytes at a foreign width is the corruption this avoids). The
+   *  page carries `contentWidth` (the widest epoch) so the display sizes itself and
+   *  scrolls; the reader's own width is no longer an input. */
   async history(args: {
     beforeCursor: Seq | null;
     maxLines: number;
-    width: number;
   }): Promise<HistoryResult> {
     if (!this.policy.enabled) return { kind: "unavailable" };
     if (this.fault)
@@ -352,23 +360,33 @@ export class Transcript {
       return { kind: "evicted" };
     const ansiParts: string[] = [];
     let rowCount = 0;
+    let contentWidth = 0;
     let atFloor = false;
     let floorEvicted = false;
     while (true) {
-      const seed = this.store.latestCheckpointBefore(cursor);
-      const from = seed ? seed.firstByteSeq : 0;
-      const blocks = this.store.dataInRange(from, cursor);
-      const seg = await renderReflow(seed, args.width, blocks);
-      ansiParts.unshift(seg.ansi);
-      rowCount += seg.rows.length;
+      const from = this.store.latestCheckpointBefore(cursor)?.firstByteSeq ?? 0;
+      // Render the span [from, cursor) per resize-epoch at each epoch's historical
+      // width (faithfulSegments splits at every RESIZE + same-width checkpoint
+      // seam), concatenating the fixed-row ANSI oldest→newest. A span with no
+      // internal resize is one segment at one width — the common case.
+      let spanAnsi = "";
+      let spanRows = 0;
+      for await (const seg of this.faithfulSegments(from, cursor)) {
+        const rendered = await renderFaithful(seg.seed, seg.cols, seg.blocks);
+        spanAnsi += rendered.ansi;
+        spanRows += rendered.rows.length;
+        contentWidth = Math.max(contentWidth, seg.cols);
+      }
+      ansiParts.unshift(spanAnsi);
+      rowCount += spanRows;
       cursor = from;
       // RE-SAMPLE the floor AFTER the render. node:sqlite reads are synchronous,
-      // so the only interleaving point is the `await renderReflow` above — across
-      // it, a concurrent `appendData → maybeEvict → evictBefore` (a separate
-      // macrotask) can raise the floor. Classify the new `cursor`/`from` against
-      // the FRESH floor: a once-sampled `oldest` would let this span's `from`
-      // become a `nextCursor` at/below the floor, deferring the floor to a
-      // follow-up `evicted` call (or hiding a raced eviction as a plain page).
+      // so the only interleaving point is the `await` renders above — across them
+      // a concurrent `appendData → maybeEvict → evictBefore` (a separate macrotask)
+      // can raise the floor. Classify the new `cursor`/`from` against the FRESH
+      // floor: a once-sampled `oldest` would let this span's `from` become a
+      // `nextCursor` at/below the floor, deferring the floor to a follow-up
+      // `evicted` call (or hiding a raced eviction as a plain page).
       const oldest = this.store.oldestByteSeq();
       if (cursor <= oldest) {
         // This span reached the floor — the genuine byte-0 start (oldest === 0)
@@ -387,6 +405,9 @@ export class Transcript {
       nextCursor: cursor,
       atFloor,
       floorEvicted,
+      // The widest epoch in the page — the display sizes its xterm to this and
+      // scrolls horizontally; ≥ 1 so the positive wire schema always holds.
+      contentWidth: Math.max(contentWidth, 1),
     };
   }
 
@@ -426,12 +447,12 @@ export class Transcript {
     let cursor = args.beforeCursor ?? this.byteSeq;
     const deadline = this.now() + SEARCH_DEADLINE_MS;
     while (true) {
-      // RE-SAMPLE the floor each iteration (F4): the only await is `renderReflow`
-      // below, across which a concurrent `appendData → maybeEvict → evictBefore`
-      // (a separate macrotask) can raise the floor into the unsearched region. A
-      // once-sampled `oldest` would silently stop short and report a complete
-      // search. node:sqlite reads are synchronous, so the read trio below is
-      // atomic w.r.t. eviction.
+      // RE-SAMPLE the floor each iteration (F4): the only await is the faithful
+      // render below, across which a concurrent `appendData → maybeEvict →
+      // evictBefore` (a separate macrotask) can raise the floor into the unsearched
+      // region. A once-sampled `oldest` would silently stop short and report a
+      // complete search. node:sqlite reads are synchronous, so the read trio below
+      // is atomic w.r.t. eviction.
       const oldest = this.store.oldestByteSeq();
       if (cursor <= oldest) {
         // Reached the floor. oldest > 0 ⟹ older content was evicted — a sub-floor
@@ -448,7 +469,14 @@ export class Transcript {
       const seed = this.store.latestCheckpointBefore(cursor);
       const from = seed ? seed.firstByteSeq : 0;
       const blocks = this.store.dataInRange(from, cursor);
-      const seg = await renderReflow(seed, this.cols || 80, blocks);
+      // Render at the historical width (the seed's cols) for its rows only — search
+      // matching is width-independent (joinLogical rejoins wrapped continuation
+      // rows into logical lines), so the width choice doesn't affect a match.
+      const seg = await renderFaithful(
+        seed,
+        seed?.cols ?? this.cols ?? 80,
+        blocks,
+      );
       // Join wrapped continuation rows into logical lines (newest-first within
       // the span so global order stays newest-first).
       const logical = joinLogical(seg.rows);

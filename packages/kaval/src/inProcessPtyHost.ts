@@ -335,7 +335,6 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           return host.history(input.id, {
             beforeCursor: input.beforeCursor,
             maxLines: input.maxLines,
-            width: input.width,
           });
         },
         searchHistory: async ({ input }) => {

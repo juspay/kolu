@@ -333,7 +333,6 @@ export const appRouter = t.router({
       return localTerminalEndpoint.history(input.id, {
         beforeCursor: input.beforeCursor,
         maxLines: input.maxLines,
-        width: input.width,
       });
     }),
 

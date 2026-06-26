@@ -153,6 +153,9 @@ const HistoryResultSchema = z.discriminatedUnion("kind", [
     // (older output trimmed, possibly raced in mid-read). Lets the pager tell
     // "older trimmed" from "beginning of session" (F4).
     floorEvicted: z.boolean(),
+    // The widest resize-epoch width in this page — history renders at its
+    // historical width (never reflowed); the display sizes to this and h-scrolls.
+    contentWidth: z.number().int().positive(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
@@ -169,10 +172,10 @@ const HistoryInputSchema = z.object({
    *  raw input at the boundary rather than serving a misleading empty page (F9). */
   beforeCursor: z.number().int().nonnegative().nullable(),
   // Bound the per-page work in the headless xterm render — a malformed client
-  // must not force a giant allocation with an absurd width or page size. Full
-  // history is the streaming export path, never one unbounded page (F6).
+  // must not force a giant allocation. `maxLines` is the pager's overscan; full
+  // history is the streaming export path, never one unbounded page (F6). No
+  // `width` — history renders at its historical width, never the reader's.
   maxLines: z.number().int().positive().max(100_000),
-  width: z.number().int().positive().max(2000),
 });
 
 const SearchHistoryInputSchema = z.object({

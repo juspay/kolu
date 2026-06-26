@@ -113,8 +113,17 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   // change via `resetSearch` — bumps it, so a late response bails after the await.
   let searchSeq = 0;
 
-  const cols = () => term?.cols ?? 80;
   const overscanRows = () => Math.max(40, (term?.rows ?? 24) * 4);
+  // The pager renders history at its HISTORICAL width (never reflowed to the
+  // modal), so the xterm is sized to the content, not the viewport. `contentCols`
+  // grows monotonically as wider epochs page in (`res.contentWidth`); the modal
+  // scrolls horizontally past it. Fixed-row content is width-locked, so widening
+  // the xterm never re-wraps a row.
+  let contentCols = 80;
+  /** Adopt a page's content width — grow the xterm if this epoch is wider. */
+  function adoptWidth(w: number): void {
+    contentCols = Math.max(contentCols, w);
+  }
 
   /** Resolve once xterm has parsed `data` into the buffer — its write is async,
    *  so reading buffer length / scrolling / searching before the callback fires
@@ -128,6 +137,10 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
    *  buffer state, scrolling, or invoking search. */
   async function renderAll(): Promise<number> {
     if (!term) return 0;
+    // Size the xterm to the content BEFORE writing, so a fixed-row line wider than
+    // the modal is rendered at full width (the modal h-scrolls) rather than
+    // soft-wrapped. Widening never re-wraps fixed rows, so re-rendering is safe.
+    if (term.cols !== contentCols) term.resize(contentCols, term.rows);
     term.reset();
     for (const p of pages) {
       if (!term) return 0;
@@ -147,7 +160,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         id: props.id,
         beforeCursor: null,
         maxLines: overscanRows(),
-        width: cols(),
       });
     } catch (err) {
       // Don't leave the loading sentinel up forever on an RPC failure (F6) — the
@@ -173,6 +185,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     pages = [res.ansi];
     topCursor = res.nextCursor;
     atFloor = res.atFloor;
+    adoptWidth(res.contentWidth);
     await renderAll();
     if (token !== loadSeq) return;
     term?.scrollToBottom();
@@ -197,7 +210,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         id: props.id,
         beforeCursor: topCursor,
         maxLines: overscanRows(),
-        width: cols(),
       });
       if (token !== loadSeq || !term) return "stale";
       if (res.kind !== "ok") {
@@ -209,6 +221,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       const anchor = term.buffer.active.viewportY;
       pages = [res.ansi, ...pages];
       loadedCursor = null;
+      adoptWidth(res.contentWidth);
       const after = await renderAll();
       if (token !== loadSeq || !term) return "stale";
       // Hold the user's scroll anchor: the added rows pushed everything down.
@@ -254,7 +267,6 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
           id: props.id,
           beforeCursor: cursor,
           maxLines: overscanRows(),
-          width: cols(),
         });
       } catch (err) {
         if (token !== loadSeq) return;
@@ -268,6 +280,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       topCursor = res.nextCursor;
       atFloor = res.atFloor;
       loadedCursor = cursor;
+      adoptWidth(res.contentWidth);
       await renderAll();
       if (token !== loadSeq || !term) return;
       term.scrollToBottom();
@@ -420,26 +433,20 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     void loadInitial();
     useTips().showTipOnce(CONTEXTUAL_TIPS.historyPager);
 
-    let lastCols = term.cols;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
-      if (!term || !fit) return;
-      fit.fit();
-      // Server-rendered ANSI is width-specific, but ONLY the column count changes
-      // what we'd refetch — a height-only resize (or a drag that doesn't cross a
-      // column boundary) needs no new server render, so skip it. And debounce, so
-      // dragging the window edge coalesces into a SINGLE fetch at the settled
-      // width instead of queueing an RPC + headless render per observer tick (F4).
-      // The byte cursors are reflow-stable, so reopening at the tip is correct
-      // (depth re-pages on scroll).
-      const next = term.cols;
-      if (next === lastCols) return;
-      lastCols = next;
+      // History renders at its HISTORICAL width (never the reader's), so a resize
+      // NEVER refetches — only the visible ROW count changes (the modal grew/shrank
+      // in height). Keep the xterm at `contentCols` and just re-fit rows; the
+      // already-loaded pages stay in scrollback. Debounce so a drag coalesces.
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = undefined;
-        if (term) void loadInitial();
-      }, 150);
+        if (!term || !fit) return;
+        const dims = fit.proposeDimensions();
+        if (dims?.rows && dims.rows !== term.rows)
+          term.resize(contentCols, dims.rows);
+      }, 100);
     });
     ro.observe(host);
     onCleanup(() => {
@@ -576,8 +583,13 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         )}
       </Show>
 
-      {/* Read-only xterm body (DOM renderer) */}
-      <div ref={host} class="flex-1 min-h-0 overflow-hidden px-2" />
+      {/* Read-only xterm body (DOM renderer). History renders at its HISTORICAL
+          width (never reflowed), so the xterm is sized to the content and this
+          wrapper scrolls HORIZONTALLY when it's wider than the modal; the xterm
+          owns vertical scroll (its scrollback). */}
+      <div class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden px-2">
+        <div ref={host} class="h-full w-max" />
+      </div>
 
       {/* Footer — jump to live */}
       <div class="flex items-center justify-end px-3 py-1.5 border-t border-edge shrink-0">

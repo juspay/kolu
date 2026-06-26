@@ -78,6 +78,124 @@ function write(
   return new Promise((resolve) => term.write(data, resolve));
 }
 
+/** A minimal view of `@xterm`'s `IBufferCell` — the accessors the fixed-row
+ *  serializer reads. (`@xterm/headless` ships no types we can import here under
+ *  the `require` interop, so the shape is restated; it is exercised by the
+ *  width-lock + colour-fidelity tests.) */
+interface BufferCell {
+  getChars(): string;
+  getWidth(): number;
+  getFgColor(): number;
+  getBgColor(): number;
+  isFgRGB(): boolean;
+  isBgRGB(): boolean;
+  isFgPalette(): boolean;
+  isBgPalette(): boolean;
+  isBgDefault(): boolean;
+  isBold(): boolean;
+  isDim(): boolean;
+  isItalic(): boolean;
+  isUnderline(): boolean;
+  isBlink(): boolean;
+  isInverse(): boolean;
+  isInvisible(): boolean;
+  isStrikethrough(): boolean;
+  isOverline(): boolean;
+}
+
+/** The SGR parameter list for a cell's FULL style, built from a clean reset
+ *  (NOT a diff) — adapted 1:1 from `@xterm/addon-serialize`'s `_diffStyle` so the
+ *  pager's colours match export's `serialize()` exactly. Each row starts from
+ *  reset, so emitting the absolute style (rather than a cross-cell diff) keeps
+ *  rows independent — the property that lets every row carry its own hard
+ *  newline. Returns `[]` for the default style. */
+function cellSgr(cell: BufferCell): number[] {
+  const c: number[] = [];
+  if (cell.isFgRGB()) {
+    const v = cell.getFgColor();
+    c.push(38, 2, (v >>> 16) & 255, (v >>> 8) & 255, v & 255);
+  } else if (cell.isFgPalette()) {
+    const v = cell.getFgColor();
+    if (v >= 16) c.push(38, 5, v);
+    else c.push(v & 8 ? 90 + (v & 7) : 30 + (v & 7));
+  }
+  if (cell.isBgRGB()) {
+    const v = cell.getBgColor();
+    c.push(48, 2, (v >>> 16) & 255, (v >>> 8) & 255, v & 255);
+  } else if (cell.isBgPalette()) {
+    const v = cell.getBgColor();
+    if (v >= 16) c.push(48, 5, v);
+    else c.push(v & 8 ? 100 + (v & 7) : 40 + (v & 7));
+  }
+  if (cell.isInverse()) c.push(7);
+  if (cell.isBold()) c.push(1);
+  if (cell.isUnderline()) c.push(4);
+  if (cell.isOverline()) c.push(53);
+  if (cell.isBlink()) c.push(5);
+  if (cell.isInvisible()) c.push(8);
+  if (cell.isItalic()) c.push(3);
+  if (cell.isDim()) c.push(2);
+  if (cell.isStrikethrough()) c.push(9);
+  return c;
+}
+
+/** Serialize a row range as FIXED physical rows — each row's cells emitted with
+ *  their SGR, then a hard `\r\n`. Unlike `serialize()` (which leaves wrapped rows
+ *  un-terminated so they re-wrap at the consumer's width — the corruption when
+ *  the consumer is a foreign width), this LOCKS each physical row to its content,
+ *  so the output renders byte-identically at ANY display width: a TUI's
+ *  `\r`/cursor redraws were already resolved into the final grid by the replay,
+ *  and we ship that grid verbatim. Trailing cells are kept only while they carry
+ *  content or a non-default background (a full-width status bar survives); the
+ *  blank padding tail is dropped. Rows from `fromRow` to the last non-blank row. */
+export function serializeFixedRows(
+  term: InstanceType<typeof Terminal>,
+  fromRow: number,
+): string {
+  const buf = term.buffer.active;
+  const cell = buf.getNullCell() as unknown as BufferCell;
+  const rowText = (y: number): string =>
+    buf.getLine(y)?.translateToString(true) ?? "";
+  let last = buf.length - 1;
+  while (last >= fromRow && rowText(last) === "") last--;
+  const out: string[] = [];
+  for (let y = fromRow; y <= last; y++) {
+    const line = buf.getLine(y);
+    if (!line) {
+      out.push("");
+      continue;
+    }
+    // Last column worth emitting: the rightmost cell with content OR a
+    // non-default background (so a colour-filled bar keeps its fill, but plain
+    // trailing padding is trimmed).
+    let lastCol = -1;
+    for (let x = line.length - 1; x >= 0; x--) {
+      line.getCell(x, cell as unknown as Parameters<typeof line.getCell>[1]);
+      if (cell.getChars() !== "" || !cell.isBgDefault()) {
+        lastCol = x;
+        break;
+      }
+    }
+    let row = "";
+    let runKey = ""; // "" === the default (reset) style
+    for (let x = 0; x <= lastCol; x++) {
+      line.getCell(x, cell as unknown as Parameters<typeof line.getCell>[1]);
+      if (cell.getWidth() === 0) continue; // wide-char trailing cell (no glyph)
+      const codes = cellSgr(cell);
+      const key = codes.join(";");
+      if (key !== runKey) {
+        // Reset then apply the absolute style, so each run is self-contained.
+        row += `\x1b[0${codes.length ? `;${key}` : ""}m`;
+        runKey = key;
+      }
+      const ch = cell.getChars();
+      row += ch === "" ? " " : ch;
+    }
+    out.push(runKey === "" ? row : `${row}\x1b[0m`);
+  }
+  return out.map((r) => `${r}\r\n`).join("");
+}
+
 /** Read the buffer into rows, trimming the trailing all-blank, non-wrapped
  *  viewport tail (xterm pads the viewport to `rows`). */
 function readRows(term: InstanceType<typeof Terminal>): RenderedRow[] {
@@ -127,28 +245,6 @@ function inflate(blocks: Uint8Array[]): Buffer {
   return Buffer.concat(blocks.map((b) => zstdDecompressSync(b)));
 }
 
-/** Serialize only the DATA region — the physical rows BELOW the seed — so the
- *  seed never reaches the wire. `serialize` re-emits SGR from each cell's
- *  attributes (not from prior-line carry), so bounding scrollback to drop the
- *  top `seedRows` rows yields correct ANSI for the first kept row regardless of
- *  what scrolled above it. The bound is computed from the UNTRIMMED buffer
- *  length (serialize counts physical rows from the buffer bottom, trailing
- *  viewport blanks included); the trailing blanks are then stripped so pages
- *  concatenate without a spurious gap line. */
-function serializeTail(t: Throwaway, seedRows: number): string {
-  const bufLen = t.term.buffer.active.length;
-  // serialize returns the bottom (scrollback + viewport) physical rows; bound it
-  // to drop EXACTLY the top `seedRows` rows (the seed), keeping rows
-  // [seedRows, bufLen).
-  const scrollback = Math.max(0, bufLen - seedRows - DEFAULT_GRID_ROWS);
-  const ansi = t.serialize.serialize({ scrollback });
-  // Normalize the trailing edge to exactly one CRLF after the last content line:
-  // strip the live viewport's blank tail AND any trailing cursor-positioning
-  // escape, then re-terminate, so pages concatenate with neither a merged line
-  // nor a spurious gap.
-  return `${ansi.replace(/(?:\x1b\[[0-9;]*[Hf]|[ \t\r\n])+$/, "")}\r\n`;
-}
-
 /** How many physical rows the restored seed occupies — i.e. the row index where
  *  the first DATA byte will land, which is exactly what {@link withThrowaway}
  *  drops so only DATA-replayed rows are returned.
@@ -187,7 +283,11 @@ function withThrowaway(
     try {
       const seedRows = await body(t);
       const rows = readRows(t.term).slice(seedRows);
-      const ansi = serializeTail(t, seedRows);
+      // Fixed-row, width-locked ANSI (a hard \r\n per physical row), so the page
+      // renders byte-identically at any DISPLAY width — never reflowed to a foreign
+      // width (the corruption this render path was changed to kill). `seedRows`
+      // drops the restored seed exactly as before.
+      const ansi = serializeFixedRows(t.term, seedRows);
       return { rows, ansi };
     } finally {
       t.term.dispose();
@@ -195,44 +295,16 @@ function withThrowaway(
   });
 }
 
-/** REFLOW-to-current render of `(seed, toBlocks]` at `width`. `seed` is the
- *  checkpoint seed (or `null` for the implicit byte-0 seed = a fresh terminal).
- *  Returns the DATA-replayed rows with the seed dropped, plus their ANSI. */
-export function renderReflow(
-  seed: CheckpointRow | undefined,
-  width: number,
-  dataBlocks: Uint8Array[],
-): Promise<RenderedSegment> {
-  return withThrowaway(seed ? seed.cols : width, async (t) => {
-    let seedRows = 0;
-    if (seed) {
-      await write(t.term, zstdDecompressSync(seed.payload));
-      t.term.resize(width, DEFAULT_GRID_ROWS);
-      // Rows the restored+resized seed occupies BEFORE any DATA — dropped from the
-      // return. A clean-line checkpoint, or a FORCED one at a physical-row boundary
-      // (see `MAX_CHECKPOINT_GAP_BYTES`), leaves the seed's last row COMPLETE, so
-      // `seedBoundaryRow`'s `+1` attributes it wholly to the older span and DATA
-      // starts a fresh row — no row duplicated across the seam. This holds exactly
-      // when rendering at the SEED's width (always true for faithful export; true
-      // for the pager when the reader hasn't resized). Reflowing a forced seam to a
-      // DIFFERENT width moves the row boundary, so a >1 MiB no-newline line paged
-      // after a resize may show a one-row artifact at that one seam — bounded and
-      // documented, not a silent corruption (clean-line seams reflow exactly).
-      seedRows = seedBoundaryRow(t.term);
-    }
-    await write(t.term, inflate(dataBlocks));
-    return seedRows;
-  });
-}
-
-/** FAITHFUL render of one resize-epoch span for export/forensics: restore at the
- *  historical width (`seed.cols`, or `initialWidth` for the implicit byte-0 seed)
- *  and replay its DATA — NO reflow-to-current — so the span renders at the cols
- *  actually in effect then (a 200-col table is never re-wrapped to a narrow
- *  width). Resizes are NOT replayed here: the orchestrator (`faithfulSegments`)
- *  already partitions the stream at every RESIZE boundary and hands each span its
- *  own `seed.cols`, so a span is pure DATA at a single width — renderReflow minus
- *  the resize-to-reader-width step. */
+/** FAITHFUL render of one resize-epoch span — the SOLE renderer for both the
+ *  copy-mode pager and export. Restore at the historical width (`seed.cols`, or
+ *  `initialWidth` for the implicit byte-0 seed) and replay its DATA at THAT width
+ *  — never reflowed to a reader/display width — so a TUI's `\r`/cursor redraws
+ *  land on the rows they were emitted for (replaying at a foreign width is the
+ *  corruption this design eliminates). Resizes are NOT replayed here: the
+ *  orchestrator (`faithfulSegments`) partitions the stream at every RESIZE
+ *  boundary and hands each span its own `seed.cols`, so a span is pure DATA at a
+ *  single width. The returned ANSI is fixed-row (see {@link withThrowaway} →
+ *  {@link serializeFixedRows}); the display chooses its own width and scrolls. */
 export function renderFaithful(
   seed: CheckpointRow | undefined,
   initialWidth: number,

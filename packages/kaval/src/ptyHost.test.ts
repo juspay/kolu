@@ -790,7 +790,6 @@ describe("on-disk transcript integration (PR2)", () => {
     const page = await host.history(id, {
       beforeCursor: null,
       maxLines: 400,
-      width: 80,
     });
     expect(page.kind).toBe("ok");
     if (page.kind === "ok") {
@@ -815,7 +814,6 @@ describe("on-disk transcript integration (PR2)", () => {
     const page = await host.history(id, {
       beforeCursor: null,
       maxLines: 50,
-      width: 80,
     });
     expect(page.kind).toBe("unavailable");
   });

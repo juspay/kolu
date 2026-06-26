@@ -2,12 +2,15 @@
 title: Faithful History Render — Stop Reflowing Recorded Terminal Output
 description: The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow.
 parents: [kaval-memory-architecture, feature]
-status: proposed
-maturity: seedling
+status: implemented
+maturity: budding
 updated: 2026-06-26
 ---
 
 import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+
+<PrLink pr={1577} />
 
 export const Bad = () => (
   <pre style="background:#1a1320;color:#d8c8e8;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">{`Germinating... thinking with xhigh effort and a very long tail to push…

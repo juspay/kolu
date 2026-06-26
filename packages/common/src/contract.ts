@@ -119,8 +119,9 @@ export const TerminalSetParentInputSchema = z.object({
 // ── PR2: on-disk terminal history (the copy-mode pager + un-clipped PDF) ──────
 
 /** One backward history page request. `beforeCursor` is the opaque reflow-stable
- *  byte cursor at the top of what the client holds (null = the tip); `width` is a
- *  render-time parameter (line numbers never go on the wire). */
+ *  byte cursor at the top of what the client holds (null = the tip). No `width`:
+ *  history renders at its HISTORICAL width (never reflowed to the reader), and the
+ *  page reports its own `contentWidth` for the display to size to. */
 export const TerminalHistoryInputSchema = z.object({
   id: TerminalIdSchema,
   // A cursor is an opaque nonnegative byte offset at a record/checkpoint
@@ -128,13 +129,10 @@ export const TerminalHistoryInputSchema = z.object({
   // than serving a misleading empty/evicted page (F9).
   beforeCursor: z.number().int().nonnegative().nullable(),
   // Bound the per-page work in the server-side headless xterm: a malformed client
-  // must not request one enormous page or an absurd grid width and force a giant
-  // allocation/render. `width` covers any real display (a 4K monitor at a tiny
-  // font is well under 2000 cols); `maxLines` is the pager's overscan, far under
-  // the offscreen 100K scrollback. Full history goes through the streaming export
-  // path, never one unbounded page (F6).
+  // must not request one enormous page. `maxLines` is the pager's overscan, far
+  // under the offscreen 100K scrollback; full history goes through the streaming
+  // export path, never one unbounded page (F6).
   maxLines: z.number().int().positive().max(100_000),
-  width: z.number().int().positive().max(2000),
 });
 
 /** A history page (or an honest non-content state — never silent-empty). `ansi`
@@ -149,6 +147,10 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
     // (older output trimmed). Lets the pager show "older trimmed" vs "beginning
     // of session" instead of conflating the two.
     floorEvicted: z.boolean(),
+    // The widest resize-epoch width in this page. History renders at its
+    // historical width (never reflowed), so the pager sizes its xterm to this and
+    // scrolls horizontally when it exceeds the viewport.
+    contentWidth: z.number().int().positive(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),

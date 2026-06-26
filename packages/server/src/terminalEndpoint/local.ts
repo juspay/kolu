@@ -974,7 +974,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
   async history(
     id: TerminalId,
-    args: { beforeCursor: number | null; maxLines: number; width: number },
+    args: { beforeCursor: number | null; maxLines: number },
   ): Promise<HistoryPage> {
     await getActiveTerminal(id)?.handle.ready;
     return ptyHostClient.surface.terminal.history({ id, ...args });

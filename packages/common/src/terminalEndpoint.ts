@@ -159,11 +159,12 @@ export interface TerminalEndpoint {
   ): Promise<TerminalAttachment>;
 
   /** PR2: one backward page of on-disk history, ending at `beforeCursor` (or the
-   *  tip when null), rendered at `width`. Returns an honest non-content state
-   *  rather than silent-empty. */
+   *  tip when null), rendered FAITHFULLY at its historical width (the page reports
+   *  its own `contentWidth`). Returns an honest non-content state rather than
+   *  silent-empty. */
   history(
     id: TerminalId,
-    args: { beforeCursor: number | null; maxLines: number; width: number },
+    args: { beforeCursor: number | null; maxLines: number },
   ): Promise<HistoryPage>;
 
   /** PR2: search the on-disk transcript — replay-and-scan, cursor-paged. */

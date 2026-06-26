@@ -346,12 +346,13 @@ export interface PtyHost {
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** One backward history page from the on-disk transcript (PR2), ending at
-   *  `beforeCursor` (or the tip when null), rendered at `width`. Returns an
-   *  honest non-content state (`unavailable` / `evicted` / `faulted`) rather
-   *  than silent-empty. Throws if the PTY is gone. */
+   *  `beforeCursor` (or the tip when null), rendered FAITHFULLY at its historical
+   *  width (the page reports its own `contentWidth`). Returns an honest
+   *  non-content state (`unavailable` / `evicted` / `faulted`) rather than
+   *  silent-empty. Throws if the PTY is gone. */
   history(
     id: PtyId,
-    args: { beforeCursor: number | null; maxLines: number; width: number },
+    args: { beforeCursor: number | null; maxLines: number },
   ): Promise<HistoryResult>;
   /** Faithful per-resize-epoch export segments (PR2), oldest→newest, each at its
    *  historical width — the un-clipped PDF / archival source. Empty if gone. */
@@ -957,7 +958,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // non-content state, never silent-empty. ------------------------------------
   function history(
     id: PtyId,
-    args: { beforeCursor: number | null; maxLines: number; width: number },
+    args: { beforeCursor: number | null; maxLines: number },
   ): Promise<HistoryResult> {
     const entry = requireEntry(id);
     if (!entry.transcript) return Promise.resolve({ kind: "unavailable" });

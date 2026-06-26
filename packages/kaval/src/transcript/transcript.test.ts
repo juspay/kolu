@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { serializeFixedRows } from "./render.ts";
 import { TranscriptStore } from "./store.ts";
 import { Transcript } from "./transcript.ts";
 import { type MirrorView, RecordKind } from "./types.ts";
@@ -126,58 +127,57 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     return { tx, dbPath };
   }
 
-  it("paged-back history equals a single-shot oracle at multiple widths", async () => {
+  it("paged-back history equals a single-shot oracle at the capture width", async () => {
+    // History renders FAITHFULLY at its historical width (never reflowed to a
+    // reader), so the paged-back render must equal a single-shot render at the
+    // CAPTURE width (80 — the mirror `feed` records at), and `page.contentWidth`
+    // reports it. (The old test reflowed to 4 reader widths; that capability is
+    // gone — replaying a stream at a foreign width is the corruption removed here.)
     const N = 400;
+    const W = 80;
     const { tx } = await feed(N);
 
-    for (const W of [80, 100, 60, 120]) {
-      // Oracle: replay all input into a fresh terminal at width W.
-      const { chunks } = buildStream(N);
-      const oracleTerm = new Terminal({
-        cols: W,
-        rows: 24,
-        scrollback: 100_000,
-        allowProposedApi: true,
-        reflowCursorLine: true,
-      });
-      for (const c of chunks) await write(oracleTerm, c);
-      const oracle = readPlain(oracleTerm);
+    // Oracle: replay all input into a fresh terminal at the capture width.
+    const { chunks } = buildStream(N);
+    const oracleTerm = new Terminal({
+      cols: W,
+      rows: 24,
+      scrollback: 100_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const c of chunks) await write(oracleTerm, c);
+    const oracle = readPlain(oracleTerm);
 
-      // Page backward, accumulating ANSI, then rewrite into a fresh xterm.
-      let cursor: number | null = null;
-      const ansiParts: string[] = [];
-      let guard = 0;
-      while (guard++ < 1000) {
-        const page = await tx.history({
-          beforeCursor: cursor,
-          maxLines: 50,
-          width: W,
-        });
-        expect(page.kind).toBe("ok");
-        if (page.kind !== "ok") break;
-        ansiParts.unshift(page.ansi);
-        if (page.atFloor) break;
-        if (page.nextCursor >= (cursor ?? Number.POSITIVE_INFINITY)) break;
-        cursor = page.nextCursor;
-      }
-      const replay = new Terminal({
-        cols: W,
-        rows: 24,
-        scrollback: 100_000,
-        allowProposedApi: true,
-        reflowCursorLine: true,
-      });
-      for (const a of ansiParts) await write(replay, a);
-      const got = readPlain(replay);
-
-      // The paged history reconstructs every input line, in order, at width W.
-      const oracleSig = oracle.filter((l) => /^L\d{5}\|/.test(l));
-      const gotSig = got.filter((l) => /^L\d{5}\|/.test(l));
-      expect(gotSig).toEqual(oracleSig);
+    // Page backward, accumulating ANSI, then rewrite into a fresh xterm at W.
+    let cursor: number | null = null;
+    const ansiParts: string[] = [];
+    let guard = 0;
+    while (guard++ < 1000) {
+      const page = await tx.history({ beforeCursor: cursor, maxLines: 50 });
+      expect(page.kind).toBe("ok");
+      if (page.kind !== "ok") break;
+      expect(page.contentWidth).toBe(W);
+      ansiParts.unshift(page.ansi);
+      if (page.atFloor) break;
+      if (page.nextCursor >= (cursor ?? Number.POSITIVE_INFINITY)) break;
+      cursor = page.nextCursor;
     }
+    const replay = new Terminal({
+      cols: W,
+      rows: 24,
+      scrollback: 100_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const a of ansiParts) await write(replay, a);
+    const got = readPlain(replay);
+
+    // The paged history reconstructs every input line, in order, at the width.
+    const oracleSig = oracle.filter((l) => /^L\d{5}\|/.test(l));
+    const gotSig = got.filter((l) => /^L\d{5}\|/.test(l));
+    expect(gotSig).toEqual(oracleSig);
     tx.close();
-    // Spinning throwaway xterms + serialize across 4 widths is CPU-heavy; a
-    // loaded CI host (esp. a busy darwin builder) can exceed the 5s default.
   }, 60_000);
 
   it("crosses checkpoints: seed-drop telescoping still matches the oracle", async () => {
@@ -205,7 +205,8 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     store.close();
     expect(ckpts.length).toBeGreaterThanOrEqual(2);
 
-    const W = 100;
+    // Faithful render is at the CAPTURE width (80), so the oracle is too.
+    const W = 80;
     const { chunks: oc } = buildStream(N);
     const oracleTerm = new Terminal({
       cols: W,
@@ -224,7 +225,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       const page = await tx.history({
         beforeCursor: cursor,
         maxLines: 40,
-        width: W,
       });
       expect(page.kind).toBe("ok");
       if (page.kind !== "ok") break;
@@ -375,7 +375,7 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       cols: 80,
       rows: 24,
     });
-    const r = await tx.history({ beforeCursor: null, maxLines: 50, width: 80 });
+    const r = await tx.history({ beforeCursor: null, maxLines: 50 });
     expect(r.kind).toBe("unavailable");
     tx.close();
   });
@@ -441,7 +441,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       const page = await tx.history({
         beforeCursor: cursor,
         maxLines: 50,
-        width: 80,
       });
       last = page;
       if (page.kind !== "ok") break;
@@ -483,7 +482,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       const page = await tx.history({
         beforeCursor: cursor,
         maxLines: 50,
-        width: 80,
       });
       last = page;
       if (page.kind !== "ok") break;
@@ -593,7 +591,6 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
       const page = await tx.history({
         beforeCursor: cursor,
         maxLines: 200,
-        width: 80,
       });
       expect(page.kind).toBe("ok");
       if (page.kind !== "ok") break;
@@ -665,5 +662,118 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
 
     expect(faults.length).toBe(2); // BOTH distinct causes surfaced (old code: 1)
     expect(new Set(faults).size).toBe(2); // genuinely different messages
+  }, 30_000);
+
+  it("serializeFixedRows is width-locked and colour-faithful", async () => {
+    // A coloured stream with an in-place `\r` redraw, emitted for width 120.
+    const W = 120;
+    const stream =
+      "\x1b[32mgreen\x1b[0m plain \x1b[1;31mbold red\x1b[0m tail\r\n" +
+      "Germinating... thinking with xhigh effort and a long tail beyond ninety\r" +
+      "Germinating... \x1b[33mdone\x1b[0m\r\n";
+    const src = new Terminal({
+      cols: W,
+      rows: 24,
+      scrollback: 10_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    await write(src, stream);
+    const fixed = serializeFixedRows(src, 0);
+
+    // Written at the emit width AND at double width, the rows are IDENTICAL — a
+    // fixed-row render does not re-wrap (the property the whole fix rests on).
+    const mk = (cols: number) => {
+      const t = new Terminal({
+        cols,
+        rows: 24,
+        scrollback: 10_000,
+        allowProposedApi: true,
+        reflowCursorLine: true,
+      });
+      return t;
+    };
+    const a = mk(W);
+    const b = mk(W * 2);
+    await write(a, fixed);
+    await write(b, fixed);
+    const ra = readPlain(a);
+    const rb = readPlain(b);
+    expect(ra).toEqual(rb); // width-locked
+    expect(ra).toEqual(readPlain(src)); // faithful to the source (redraw resolved)
+
+    // Colour fidelity: the per-cell fg/bold signature survives the round-trip.
+    const sig = (t: InstanceType<typeof Terminal>): string[] => {
+      const buf = t.buffer.active;
+      const cell = buf.getNullCell();
+      const out: string[] = [];
+      for (let y = 0; y < buf.length; y++) {
+        const line = buf.getLine(y);
+        if (!line) continue;
+        let s = "";
+        for (let x = 0; x < line.length; x++) {
+          line.getCell(x, cell);
+          if (cell.getChars() === "" && cell.isBgDefault()) continue;
+          s += `${cell.getChars() || " "}@${cell.isFgPalette() ? `p${cell.getFgColor()}` : cell.isFgRGB() ? `r${cell.getFgColor()}` : "d"}${cell.isBold() ? "b" : ""}`;
+        }
+        if (s) out.push(s);
+      }
+      return out;
+    };
+    expect(sig(a)).toEqual(sig(src));
+  });
+
+  it("history() renders a TUI redraw faithfully, not reflowed mush", async () => {
+    // THE production-bug regression guard. Record a cursor-addressed TUI stream
+    // (`\r` in-place redraws — Claude Code's spinner/input box) at width 120, then
+    // page it back. The rendered page must equal the LIVE screen at the historical
+    // width 120 — NOT a reflowed mush. Under the old renderReflow (replay at the
+    // reader's width) the `\r` would land on the wrong physical row and corrupt;
+    // the faithful fixed-row render keeps it byte-exact.
+    const W = 120;
+    const dbPath = join(dir, "tui.db");
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes: 1 << 30 },
+      dbPath,
+      cols: W,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+    });
+    const { term: mirror, view } = makeMirror(W, 24);
+    // Several redraw lines that each WRAP at a narrower width (so a foreign-width
+    // replay would mis-place the `\r`) — proof the page is at the historical width.
+    const lines = [
+      "Refocusing on the concrete deliverable: the draft PR with all the plan changes here ok now done yes\rRefocusing... almost done\r\n",
+      "Germinating... thinking with xhigh effort and a very long tail to push beyond ninety columns wide\rGerminating... done\r\n",
+      "bypass permissions on (shift+tab to cycle) -- esc to interrupt -- a normal trailing line that is fine\r\n",
+    ];
+    for (const l of lines) {
+      await write(mirror, l);
+      tx.appendData(l, view);
+    }
+    const live = readPlain(mirror); // the faithful final screen at width 120
+
+    let cursor: number | null = null;
+    const ansiParts: string[] = [];
+    let guard = 0;
+    while (guard++ < 1000) {
+      const page = await tx.history({ beforeCursor: cursor, maxLines: 50 });
+      expect(page.kind).toBe("ok");
+      if (page.kind !== "ok") break;
+      expect(page.contentWidth).toBe(W); // rendered at the HISTORICAL width
+      ansiParts.unshift(page.ansi);
+      if (page.atFloor) break;
+      cursor = page.nextCursor;
+    }
+    const replay = new Terminal({
+      cols: W,
+      rows: 24,
+      scrollback: 10_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const a of ansiParts) await write(replay, a);
+    expect(readPlain(replay)).toEqual(live); // faithful, no redraw corruption
+    tx.close();
   }, 30_000);
 });
