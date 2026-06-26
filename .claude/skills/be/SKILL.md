@@ -108,14 +108,14 @@ green before capturing.
    the moment they land: fix→fmt→commit→retry on real failures, confirm green on
    the final `HEAD`.
    - **macOS (`aarch64-darwin`) CI host — pick by availability, in this order:
-     `rasam`, then `sincereintent`.** Both are Apple-Silicon darwin builders;
-     `rasam` is the primary and `sincereintent` the fallback. Before pinning the
+     `nix-infra@rasam.tail12b27.ts.net`, then `sincereintent`.** Both are Apple-Silicon darwin builders;
+     `nix-infra@rasam.tail12b27.ts.net` is the primary and `sincereintent` the fallback. Before pinning the
      darwin lane, probe them **in that order** — `tailscale status` (skip a host
      shown `offline` / `last seen Nh ago`) plus a quick `ssh -o ConnectTimeout=8
      <user>@<host> true` — and pin the **first that answers** in `mcp__odu__run
      hosts=["aarch64-darwin=<user>@<host>", …]`, noting in the report which host
      served the lane. An unreachable host is an infra fault, never a lane to park
-     or call green: if `rasam` is down, fall through to `sincereintent` and run the
+     or call green: if `nix-infra@rasam.tail12b27.ts.net` is down, fall through to `sincereintent` and run the
      lane yourself; only if **neither** answers is the darwin lane genuinely
      blocked (report it as blocked — never silently drop the platform or report
      green on a lane that never ran; an unreachable host is the no-fallbacks rule's
@@ -123,7 +123,7 @@ green before capturing.
      even where `.agency/do.md`'s steady-state note still reads "rasam, not
      sincereintent / sincereintent retired": that line is the default pin, this
      ordering supersedes it the moment the primary is dark.
-     - **The same `rasam → sincereintent` order governs *every* darwin lane this
+     - **The same `nix-infra@rasam.tail12b27.ts.net → sincereintent` order governs *every* darwin lane this
        run starts — including a downstream/companion repo's CI** (e.g. the drishti
        PR a `@kolu/surface` change requires per `surface.md`). A consuming repo's
        own `hosts.json` may name a *different*, possibly-dark darwin host (drishti's
