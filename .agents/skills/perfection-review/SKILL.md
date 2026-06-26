@@ -36,6 +36,8 @@ Track it across rounds until it has nowhere left to go.
 
 ## Verify adversarially — use Workflow
 
+**Review with fresh context, separate from the author** — a reviewer carrying the author's
+context rationalizes the author's intent; a fresh mind grounded only in the diff does not.
 Fan out grounded verifiers (one per claim) **plus an adversary whose only job is to express
 the defect anyway**, each citing the diff; then synthesize. Default to *refuted-if-uncertain*,
 loop until nothing new surfaces, and re-verify the headline finding yourself. Keep agent
