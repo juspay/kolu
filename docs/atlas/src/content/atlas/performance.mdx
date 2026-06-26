@@ -310,7 +310,7 @@ not the leak fix.
 </Finding>
 
 - **No backpressure / drop-visibility on `proc.onData` fan-out** (`ptyHost.ts:544-548`) — `publish()` is fire-and-forget; add a dropped-subscriber counter/metric. (The original "O(N) push" claim was wrong — `push` is O(1).) <Pill variant="lo">low</Pill>
-- **Per-attach scrollback serialization** (`ptyHost.ts:571`) — cache the serialized snapshot on the Entry, invalidate on data; **confirm the true snapshot size first** (code suggests ~4 KB, not the claimed 100–400 KB). <Pill variant="lo">low</Pill>
+- **Per-attach scrollback serialization** — **banked** <PrLink pr={1573} />: an already-aborted attach now does zero `serialize()`, and a burst of attaches to one PTY within a publish-epoch shares one memoized snapshot (`ptyHost.ts` `attach()` + `Entry.snapshotCache`). The leverage turned out to be the *reconnect storm*, not one snapshot's size: a WebSocket disconnect reissues ~60 attaches, and the measured transient was **2–3.2 GB** of concurrent full serializes (a filled 10 K/213-col snapshot is ~4 MB, not the ~4 KB guessed here) — now collapsed to O(live-terminal count). Bounding each snapshot to a viewport is the follow-up (PR2, [kaval memory](./kaval-memory-architecture.html)). <Pill variant="ok">banked</Pill>
 - **Exit-code tombstones FIFO-evicted, no TTL** (`ptyHost.ts:39-42`) — intentional bounded design; a missing tombstone falls back harmlessly to `0`. Add a TTL only if measurement shows the fallback is hit often. <Pill variant="lo">low</Pill>
 
 ## Mobile battery & wake-ups
