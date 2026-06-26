@@ -11,6 +11,7 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  resolveTerminalId,
   shortId,
 } from "./render.ts";
 
@@ -42,6 +43,43 @@ describe("shortId", () => {
   it("keeps the leading 8 chars (the whole id when shorter)", () => {
     expect(shortId("a3f1c0de-1234-5678")).toBe("a3f1c0de");
     expect(shortId("abc")).toBe("abc");
+  });
+});
+
+describe("resolveTerminalId", () => {
+  const ID_A = id("a3f1aaaa-1111-4222-8333-444455556666");
+  const ID_B = id("b7c2bbbb-1111-4222-8333-444455556666");
+  const ID_C = id("a3f1cccc-1111-4222-8333-444455556666");
+  const ids = [ID_A, ID_B];
+
+  it("resolves a unique prefix to the full id", () => {
+    expect(resolveTerminalId("b7c2", ids)).toEqual({ kind: "found", id: ID_B });
+  });
+
+  it("lets an exact id win over a longer id that shares its prefix", () => {
+    expect(resolveTerminalId(ID_A, [ID_A, ID_C])).toEqual({
+      kind: "found",
+      id: ID_A,
+    });
+  });
+
+  it("is case-insensitive (upper-case prefix still lands)", () => {
+    expect(resolveTerminalId("B7C2", ids)).toEqual({ kind: "found", id: ID_B });
+  });
+
+  it("reports ambiguity with the matching ids", () => {
+    expect(resolveTerminalId("a3f1", [ID_A, ID_C])).toEqual({
+      kind: "ambiguous",
+      matches: [ID_A, ID_C],
+    });
+  });
+
+  it("treats an empty query as a no-match, not a silent sole-terminal match", () => {
+    expect(resolveTerminalId("", [ID_A])).toEqual({ kind: "none" });
+  });
+
+  it("reports no-match when nothing has the prefix", () => {
+    expect(resolveTerminalId("zz", ids)).toEqual({ kind: "none" });
   });
 });
 

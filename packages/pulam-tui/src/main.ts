@@ -37,6 +37,7 @@ import {
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  resolveTerminalId,
   shortId,
 } from "./render.ts";
 import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
@@ -159,27 +160,18 @@ function connectHost(
  *  hex). An empty query is rejected as a no-match rather than silently matching
  *  the sole terminal. */
 function resolveOne(query: string, ids: TerminalId[]): TerminalId {
-  if (query === "") {
-    fail("empty terminal id — `pulam-tui status` shows the live ones.");
-  }
-  const q = query.toLowerCase();
-  const exact = ids.find((id) => id.toLowerCase() === q);
-  if (exact !== undefined) return exact;
-  const matches = ids.filter((id) => id.toLowerCase().startsWith(q));
-  const [first, ...rest] = matches;
-  if (first === undefined) {
+  const result = resolveTerminalId(query, ids);
+  if (result.kind === "found") return result.id;
+  if (result.kind === "none") {
     fail(
       `no terminal matching "${query}" — \`pulam-tui status\` shows the live ones.`,
     );
   }
-  if (rest.length > 0) {
-    fail(
-      `"${query}" matches ${matches.length} terminals — type more characters:\n  ${matches
-        .map(shortId)
-        .join("\n  ")}`,
-    );
-  }
-  return first;
+  fail(
+    `"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
+      .map(shortId)
+      .join("\n  ")}`,
+  );
 }
 
 /** Validate the endpoint flags shared by both commands and pick the transport.

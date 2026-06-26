@@ -31,6 +31,43 @@ export function shortId(id: string): string {
   return id.slice(0, SHORT_ID_LEN);
 }
 
+/** The outcome of resolving a user-typed id-or-prefix against the live ids —
+ *  pure, so the decision is unit-tested apart from the `fail()`/exit the CLI
+ *  glue maps it to. Mirrors kaval-tui's `resolveTerminalId`. */
+export type ResolveResult =
+  | { kind: "found"; id: TerminalId }
+  | { kind: "none" }
+  | { kind: "ambiguous"; matches: TerminalId[] };
+
+/** Resolve a user-supplied id-or-prefix to a single full terminal id against
+ *  the live awareness snapshot. A full id is a prefix of itself, so a pasted
+ *  full id keeps resolving to itself unchanged. Matching is case-insensitive —
+ *  UUIDs are lowercase hex, but a hand-typed or pasted upper-case prefix should
+ *  still land. Zero matches → `none`; more than one → `ambiguous` with the full
+ *  ids so the caller can ask for more chars. */
+export function resolveTerminalId(
+  query: string,
+  ids: TerminalId[],
+): ResolveResult {
+  // An empty query is a prefix of EVERY id (`"".startsWith("")` is true for all
+  // strings), so with one live terminal it would silently resolve to it — a
+  // wrong-terminal footgun when `$id` is accidentally empty. Reject it as a
+  // no-match so the caller fails loud instead.
+  if (query === "") return { kind: "none" };
+  const q = query.toLowerCase();
+  // An exact id wins outright, so a full id never reads as ambiguous against a
+  // longer id that happens to share its prefix.
+  const exact = ids.find((id) => id.toLowerCase() === q);
+  if (exact !== undefined) return { kind: "found", id: exact };
+  const matches = ids.filter((id) => id.toLowerCase().startsWith(q));
+  // Destructure so the single-match case yields a non-optional `first`
+  // (indexing would be `TerminalId | undefined` under noUncheckedIndexedAccess).
+  const [first, ...rest] = matches;
+  if (first === undefined) return { kind: "none" };
+  if (rest.length > 0) return { kind: "ambiguous", matches };
+  return { kind: "found", id: first };
+}
+
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
  *  title / process name / branch to anything (newlines, raw ESC), so painting
  *  them verbatim could break the column layout or inject control effects. JSON
