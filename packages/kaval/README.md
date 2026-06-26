@@ -67,6 +67,21 @@ populates the same slot). It's bounded — strictly smaller than the live mirror
 it shadows, freed on the next data/resize or on teardown — so it adds a fraction
 to the mirror's existing per-terminal footprint, not a new unbounded retention.
 
+**Small mirror over an on-disk transcript.** The headless mirror is pinned to a
+**hot window** (`HOT_WINDOW` = 500 lines; the `serialize()` clamp means the
+attach snapshot can't exceed the mirror's depth, so the window *is* the depth),
+not a 10 K-line scrollback — a ~20× per-terminal heap cut that ends the
+linear-in-count growth that OOM'd the daemon. Deep scrollback leaves the heap for
+a per-PTY **transcript** (`src/transcript/`): typed `DATA` / `RESIZE` / `CKPT`
+records in `node:sqlite` (WAL), written from the same `proc.onData` callback the
+mirror is, with periodic checkpoints so any range renders without replaying from
+byte 0. The pager reads it back by an opaque, reflow-stable **byte cursor**
+(`history` / `searchHistory` / `historyText` / the `exportHistory` stream) at the
+reader's current width. Persistence is a breaking wire change — the contract is
+**`PTY_HOST_CONTRACT_VERSION` 4.0** (`spawn` drops `scrollback`, gains the
+required `history` policy). See
+`docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`.
+
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
 browser tab on the chatty `data` stream — is **dropped** (its iterator ends)
@@ -80,19 +95,26 @@ import { createPtyHost } from "kaval";
 
 const host = createPtyHost({ log });
 
+const host = createPtyHost({ log, transcriptDir }); // transcriptDir enables history
+
 const { id, pid } = host.spawn({
   shell: "/bin/bash",
   args: ["--rcfile", wrapperRcPath],
   env, // fully prepared by the caller
   cwd: "/home/me/project",
-  scrollback: 10_000,
+  // Per-terminal on-disk history policy (required — the daemon derives nothing).
+  // The mirror is pinned to the hot window in-kaval; deep history lives on disk.
+  history: { enabled: true, retentionBytes: 256 * 1024 * 1024 },
   onDispose: () => cleanupRcFiles(),
 });
 
-// Late-join client: snapshot first, then live deltas.
+// Late-join client: snapshot first (bounded to the hot window), then live deltas.
 const { snapshot, deltas } = host.attach(id, signal);
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);
+
+// Deep history, off the heap — a backward page rendered at the reader's width.
+const page = await host.history(id, { beforeCursor: null, maxLines: 80, width: 120 });
 
 // Metadata taps.
 for await (const cwd of host.subscribeCwd(id, signal)) onCwd(cwd);
