@@ -1,16 +1,23 @@
 /**
  * `createLiveSignal` — derive a transport-liveness `LiveSignal` for a reconnecting
  * socket AND wire the half-open watchdog that makes it honest, in ONE call. This
- * is the ONLY way to obtain a `LiveSignal`, and it is **unforgeable**:
+ * is the ONLY way to obtain a `LiveSignal`, and it is **unforgeable** — by every
+ * vector, not just import:
  *
- *   - The brand is a module-private `Symbol` ({@link LIVE_SIGNAL_BRAND}) — nothing
- *     outside this file can name it.
+ *   - The brand is membership in a module-private, **un-reflectable** `WeakSet`
+ *     ({@link BRANDED_LIVE}). A `WeakSet` enumerates nothing, so — unlike the
+ *     round-7 symbol property — a consumer holding a genuine `LiveSignal` cannot
+ *     read the brand off it and copy it onto a blind accessor.
  *   - The function that stamps it ({@link brandLiveSignal}) is **never exported** —
- *     it is private to this module, called only by `createLiveSignal` below, AFTER
- *     the watchdog is wired.
+ *     private to this module, called only by `createLiveSignal` below, AFTER the
+ *     watchdog is wired.
  *   - There is no `heartbeat: false` opt-out: `createLiveSignal` ALWAYS wires the
- *     watchdog, so a `LiveSignal` existing is proof a watchdog backs it — not a
- *     marker the guard merely trusts.
+ *     watchdog, so a `LiveSignal` existing is proof a watchdog backs it.
+ *   - The probe is **hardcoded** to a real `system.live` round-trip
+ *     (`probeSurfaceLive` over the caller's link) — not a caller-supplied thunk a
+ *     consumer could make trivially settle (`() => Promise.resolve()`) and so mint
+ *     a brand whose watchdog ticks but never detects a dead link. The brand
+ *     certifies the link is being PROBED, not merely that a timer runs.
  *
  * So the half-open-blind transport leg (`() => true`, or an open/close-only
  * `() => socketStatus() === "live"`) is not merely refused by the guard — it
@@ -31,43 +38,49 @@
 
 import { type Accessor, createSignal } from "solid-js";
 import { createHeartbeat, type HeartbeatTuning } from "../heartbeat";
+import { probeSurfaceLive } from "../liveness";
 
 export type { HeartbeatTuning };
 
-/** The unforgeable brand. Module-private — nothing outside this file can name it,
- *  so the only way to stamp a `LiveSignal` is {@link brandLiveSignal}, which is
- *  itself never exported. */
-const LIVE_SIGNAL_BRAND = Symbol("kolu.surface.liveSignal");
+/** The brand membership set. Module-private and **un-reflectable**: a `WeakSet`
+ *  exposes no enumeration, so — unlike a symbol property — a consumer holding a
+ *  genuine `LiveSignal` cannot read the brand off it (`Object.getOwnPropertySymbols`
+ *  finds nothing) and stamp a fresh blind accessor with it. The only way into this
+ *  set is {@link brandLiveSignal}, which is never exported. */
+const BRANDED_LIVE = new WeakSet<object>();
+
+/** The phantom compile-time brand. `declare const … : unique symbol` is erased at
+ *  runtime (the property never exists), so it ONLY tightens the type — the runtime
+ *  truth is {@link BRANDED_LIVE} membership, which nothing outside this file can add to. */
+declare const LIVE_SIGNAL_BRAND: unique symbol;
 
 /** A transport-liveness accessor `createLiveSignal` minted AFTER wiring the
  *  half-open watchdog — the only `{ live }` `surfaceClient`/`surfaceClients` accept
- *  over a half-openable websocket link. Structurally an `Accessor<boolean>` plus
- *  the unforgeable {@link LIVE_SIGNAL_BRAND}. */
+ *  over a half-openable websocket link. Structurally an `Accessor<boolean>`; its
+ *  brand is membership in the module-private {@link BRANDED_LIVE} WeakSet (the
+ *  phantom property is a compile-time tag only). */
 export type LiveSignal = Accessor<boolean> & {
   readonly [LIVE_SIGNAL_BRAND]: true;
 };
 
 /** Stamp a liveness accessor as a {@link LiveSignal}. PRIVATE — never exported;
  *  the sole caller is {@link createLiveSignal} below, which stamps only after
- *  wiring the watchdog the brand asserts. Co-locating the stamp with the
- *  module-private symbol is what makes a `LiveSignal` un-forgeable: there is no
- *  reachable function anywhere that turns a watchdog-blind accessor into one. */
+ *  wiring the watchdog the brand asserts. The stamp adds `live` to the un-reflectable
+ *  {@link BRANDED_LIVE} WeakSet, so even a consumer holding a real `LiveSignal`
+ *  cannot copy the brand onto a watchdog-blind accessor (the round-7 symbol brand
+ *  was reflection-forgeable; this is not). */
 function brandLiveSignal(live: Accessor<boolean>): LiveSignal {
-  return Object.assign(live, {
-    [LIVE_SIGNAL_BRAND]: true as const,
-  }) as LiveSignal;
+  BRANDED_LIVE.add(live);
+  return live as unknown as LiveSignal;
 }
 
 /** True if `live` carries the {@link LiveSignal} brand — i.e. `createLiveSignal`
  *  minted it after wiring the half-open watchdog. `requireTransportLive` consults
  *  this to refuse a bare/open-close-only signal over a half-openable link (a
- *  missing OR unbranded `{ live }` both fail). Read-only: checking the brand can
- *  never mint one. */
+ *  missing OR unbranded `{ live }` both fail). Read-only: checking membership can
+ *  never add to the WeakSet. */
 export function isLiveSignal(live: unknown): live is LiveSignal {
-  return (
-    typeof live === "function" &&
-    (live as unknown as Record<symbol, unknown>)[LIVE_SIGNAL_BRAND] === true
-  );
+  return typeof live === "function" && BRANDED_LIVE.has(live as object);
 }
 
 /** The transport-level status of a reconnecting surface socket: `connecting`
@@ -95,11 +108,17 @@ export type WatchableSocket = {
 };
 
 export interface CreateLiveSignalOptions extends HeartbeatTuning {
-  /** The liveness round-trip the watchdog probes on an interval — the
-   *  framework-reserved `system.live` (`() => probeSurfaceLive(link)`). A TIMEOUT
-   *  (no answer) means the socket is half-open and is force-reconnected; a
-   *  rejection still counts as alive (the round-trip completed). */
-  probe: () => Promise<unknown>;
+  /** The link (or scoped per-sibling slice) whose framework-reserved `system.live`
+   *  the watchdog probes — a THUNK, read at probe time so a multi-surface seam can
+   *  return a sibling client built AFTER this call. The caller supplies only WHAT to
+   *  probe (the real link); the HOW is hardcoded: the watchdog ALWAYS calls
+   *  `probeSurfaceLive` over it, a real `system.live` round-trip whose TIMEOUT means
+   *  half-open. There is deliberately no arbitrary `probe` thunk — a caller could
+   *  make one trivially settle (`() => Promise.resolve()`) and so mint a brand whose
+   *  watchdog ticks but never detects a dead link. By pinning the probe to a real
+   *  round-trip, the brand certifies the link is being PROBED, not just that a timer
+   *  runs. */
+  link: () => unknown;
   /** A stale-close on a self-retiring socket reads `down` (terminally — reload to
    *  recover) instead of `reconnecting`. Off by default. */
   retireOnStaleClose?: boolean;
@@ -163,7 +182,11 @@ export function createLiveSignal(
   const heartbeat = createHeartbeat({
     isLive: () => ws.readyState === ws.OPEN,
     onStale: () => ws.reconnect(),
-    probe: opts.probe,
+    // The probe is HARDCODED to a real `system.live` round-trip over the caller's
+    // link — not a caller-supplied thunk that could trivially settle and blind the
+    // watchdog. A synchronous throw here (a miswired/absent link) is reported via
+    // `onProbeError`, never counted as liveness.
+    probe: () => probeSurfaceLive(opts.link()),
     intervalMs: opts.intervalMs,
     timeoutMs: opts.timeoutMs,
     onStaleReport: opts.onStale ?? warnStale,

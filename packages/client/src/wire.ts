@@ -21,7 +21,6 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { surfaceClients } from "@kolu/surface/solid";
 import { createSurfaceSocket } from "@kolu/surface-app/connect";
 import { createLiveSignal } from "@kolu/surface-app/solid";
@@ -81,8 +80,10 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // runs with `heartbeat: false` — the watchdog lives HERE, beside the transport it
 // guards, not duplicated in the UI-lifecycle layer.
 const transport = createLiveSignal(ws, {
+  // The watchdog probes the framework-reserved `system.live` on the `kolu` sibling's
+  // scoped slice (`createLiveSignal` hardcodes `probeSurfaceLive` over this link).
   // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string (TS2590); `system.live` resolves on it.
-  probe: () => probeSurfaceLive({ surface: (link as any).surface.kolu }),
+  link: () => ({ surface: (link as any).surface.kolu }),
 });
 
 // kolu serves TWO sibling surfaces over one transport (kolu#1197). Build one

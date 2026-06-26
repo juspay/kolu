@@ -59,7 +59,7 @@ function brandedLive(): {
 } {
   // biome-ignore lint/suspicious/noExplicitAny: fakeWs is a structural stand-in for a partysocket.
   const t = createLiveSignal(fakeWs() as any, {
-    probe: () => Promise.resolve({}),
+    link: () => ({ surface: { system: { live: () => Promise.resolve({}) } } }),
   });
   return { live: t.live, dispose: t.dispose };
 }

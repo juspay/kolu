@@ -55,7 +55,7 @@ export function isHalfOpenLink(link: unknown): boolean {
  *  // REQUIRES a watchdog-backed `{ live }` here (a bare client throws): reach
  *  // for `connectSurface`, or mint it with `createLiveSignal` (see below).
  *  const link = websocketLink<typeof contract>(ws);
- *  const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
+ *  const { live } = createLiveSignal(ws, { link: () => link });
  *  const app = surfaceClient(surface, link, { live });
  *  ```
  *

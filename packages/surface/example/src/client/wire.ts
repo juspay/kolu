@@ -11,7 +11,6 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { createLiveSignal, surfaceClient } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { surface } from "../common/surface";
@@ -24,6 +23,6 @@ export const ws = new PartySocket(wsUrl);
 // half-open heartbeat AND brands the signal). `createLiveSignal` lives in
 // `@kolu/surface`, so this minimal example needs no `@kolu/surface-app` dependency.
 const link = websocketLink<typeof surface.contract>(ws as unknown as WebSocket);
-const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
+const { live } = createLiveSignal(ws, { link: () => link });
 
 export const app = surfaceClient(surface, link, { live });

@@ -221,7 +221,9 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
       // and `transport.dispose()` clears the interval, so the live FOLD is exercised
       // cleanly (the half-open chain itself is pinned in `createLiveSignal.test.ts`).
       const transport = createLiveSignal(t.ws as never, {
-        probe: () => Promise.resolve({}),
+        link: () => ({
+          surface: { system: { live: () => Promise.resolve({}) } },
+        }),
       });
       const clients = surfaceClients(
         link,

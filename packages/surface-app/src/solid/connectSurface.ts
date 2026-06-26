@@ -28,7 +28,6 @@ import type {
   SurfaceSpec,
 } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
   createLiveSignal,
   type HeartbeatTuning,
@@ -100,7 +99,7 @@ export function connectSurface<const S extends SurfaceSpec>(
   // `down`/`reconnecting` transport (incl. after the watchdog forces a reconnect)
   // makes `gateStatus` return `connecting` rather than a confident `ready`.
   const transport = createLiveSignal(ws, {
-    probe: () => probeSurfaceLive(link),
+    link: () => link,
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     // The stale-restart code is a surface-app protocol constant, defaulted HERE

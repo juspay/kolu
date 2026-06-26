@@ -623,11 +623,13 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
 const link = websocketLink(ws);
 // A socket link MUST thread a watchdog-backed `{ live }` — minted by
-// `createLiveSignal` (`@kolu/surface/solid`), which wires the half-open
-// heartbeat AND brands the signal (the brand has no other minter — `brandLiveSignal`
-// is module-private). A bare `() => status() === "live"` is half-open-blind and is
+// `createLiveSignal` (`@kolu/surface/solid`), which wires the half-open heartbeat
+// (probing a real `system.live` round-trip over the `link` you pass) AND brands the
+// signal. The brand has no other minter (`brandLiveSignal` is module-private + the
+// brand is an un-reflectable WeakSet), and there is no arbitrary `probe` thunk to
+// blind the watchdog. A bare `() => status() === "live"` is half-open-blind and is
 // REFUSED; defaulting it to a constant `true` would too.
-const { live } = createLiveSignal(ws, { probe: () => probeSurfaceLive(link) });
+const { live } = createLiveSignal(ws, { link: () => link });
 export const app = surfaceClient<
   typeof surface.spec,
   ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>

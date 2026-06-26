@@ -68,13 +68,20 @@ function fakeSocket() {
   };
 }
 
+/** A probe TARGET thunk. `createLiveSignal` hardcodes `probeSurfaceLive` over the
+ *  link it returns (no caller-supplied `probe`), so the test drives liveness via
+ *  this fake link's `system.live` behaviour. */
+function liveLink(systemLive: () => Promise<unknown>): () => unknown {
+  return () => ({ surface: { system: { live: systemLive } } });
+}
+
 describe("createLiveSignal — the unforgeable, watchdog-backed live signal", () => {
   afterEach(() => vi.useRealTimers());
 
   it("mints a BRANDED LiveSignal a surfaceClient accepts over a websocketLink", () => {
     const f = fakeSocket();
     const transport = createLiveSignal(f.socket as never, {
-      probe: () => Promise.resolve({}),
+      link: liveLink(() => Promise.resolve({})),
     });
     expect(isLiveSignal(transport.live)).toBe(true);
     // The real guard: a websocketLink is half-open-marked, so surfaceClient demands
@@ -91,9 +98,9 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     vi.useFakeTimers();
     const f = fakeSocket();
     const transport = createLiveSignal(f.socket as never, {
-      // A probe that never answers = a silently half-open socket (the round-trip
+      // `system.live` never answers = a silently half-open socket (the round-trip
       // never completes), the exact case partysocket fires neither close nor error.
-      probe: () => new Promise<never>(() => {}),
+      link: liveLink(() => new Promise<never>(() => {})),
       intervalMs: 1000,
       timeoutMs: 500,
     });
@@ -105,6 +112,20 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     // `LiveSignal` that did NOT have a watchdog could never flip here.
     await vi.advanceTimersByTimeAsync(1600);
     expect(transport.live()).toBe(false);
+    transport.dispose();
+  });
+
+  it("the brand is un-reflectable — a real LiveSignal exposes no brand symbol to copy (round-8 WeakSet)", () => {
+    const f = fakeSocket();
+    const transport = createLiveSignal(f.socket as never, {
+      link: liveLink(() => Promise.resolve({})),
+    });
+    // The round-7 symbol brand could be lifted off a genuine instance via
+    // `Object.getOwnPropertySymbols` and copied onto a blind accessor. With the
+    // WeakSet brand there is NO own symbol to find, and a forged copy is not a member.
+    expect(Object.getOwnPropertySymbols(transport.live)).toHaveLength(0);
+    const forged = Object.assign(() => true, {});
+    expect(isLiveSignal(forged)).toBe(false);
     transport.dispose();
   });
 });

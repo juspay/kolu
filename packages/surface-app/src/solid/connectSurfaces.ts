@@ -25,7 +25,6 @@
 
 import type { Surface } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
   createLiveSignal,
   type HeartbeatTuning,
@@ -108,10 +107,8 @@ export function connectSurfaces<
   // just below: `clients` is assigned synchronously before any interval fires.
   let clients: SurfaceClients<E>;
   const transport = createLiveSignal(ws, {
-    probe: () =>
-      probeSurfaceLive(
-        (Object.values(clients)[0] as { rpc: unknown } | undefined)?.rpc,
-      ),
+    link: () =>
+      (Object.values(clients)[0] as { rpc: unknown } | undefined)?.rpc,
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     restartCloseCode:

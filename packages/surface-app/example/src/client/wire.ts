@@ -8,7 +8,6 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { createLiveSignal, surfaceClients } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { type contract, surfaces } from "../common/surface";
@@ -28,6 +27,6 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // lifecycle observes the same socket but doesn't double-watch it).
 const transport = createLiveSignal(ws, {
   // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string.
-  probe: () => probeSurfaceLive({ surface: (link as any).surface.surfaceApp }),
+  link: () => ({ surface: (link as any).surface.surfaceApp }),
 });
 export const clients = surfaceClients(link, surfaces, { live: transport.live });

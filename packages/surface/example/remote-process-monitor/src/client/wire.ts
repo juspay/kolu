@@ -7,7 +7,6 @@
  */
 
 import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { surfaceClient } from "@kolu/surface/solid";
 import { createLiveSignal } from "@kolu/surface-app/solid";
 import { WebSocket as PartySocket } from "partysocket";
@@ -45,7 +44,9 @@ const link = websocketLink<typeof monitorSurface.contract>(
 // forcing `ws.reconnect()` on a missed probe) in one call. So even the hand-built
 // seam gets the real watchdog, instead of a signal that can't see a half-open link.
 const transport = createLiveSignal(ws, {
-  probe: () => probeSurfaceLive(link),
+  // The watchdog hardcodes `probeSurfaceLive` over this link (a real `system.live`
+  // round-trip) — the caller supplies only WHICH link to probe.
+  link: () => link,
 });
 
 // Vite HMR re-evaluates this module on edits — without this dispose hook each
