@@ -76,6 +76,19 @@ browser.")
 - **"The test suite / the unit tests are the honest proof."** Tests prove the logic; they are
   **never** a substitute for a visual artifact when there is on-screen impact. They may *accompany*
   the artifact, never replace it. The user wants to **SEE** it in the actual app.
+- **"I rebuilt the artifact from the code's own output / a formatter / a mock — close enough."** A
+  *synthesized* artifact — formatter output pasted as if it were a recording, a hand-assembled table,
+  a screenshot of mocked data, a clip of a stub — is a **fabrication**: the gate defeated while
+  pretending to pass it, not evidence. The artifact must come from **really executing the change**
+  end-to-end against real data, and before you post it you must **read the real output and confirm
+  the feature actually works** — running it for real is also the cheapest place to catch "it doesn't
+  work," because a fabricated artifact looks correct by construction and hides the very bug evidence
+  exists to expose. A real run did exactly this: it posted *formatter output* as the `## Evidence`
+  for a CLI `status` command **without ever invoking the binary**; when the user ran it the table
+  was empty (a real resolution-race bug the fake artifact had concealed) — "It doesn't work LOL."
+  Author's own verdict afterward: *"it was formatter output, not a real recording. That was wrong of
+  me."* For a CLI/TUI this means an actual `vhs`/`asciinema` capture of the **real binary** against
+  live data (see the vhs section), never a reconstruction of what its output *would* look like.
 
 ### Image vs. video — the decision rule
 
