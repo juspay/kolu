@@ -427,16 +427,30 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     void loadInitial();
     useTips().showTipOnce(CONTEXTUAL_TIPS.historyPager);
 
+    let lastCols = term.cols;
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
       if (!term || !fit) return;
       fit.fit();
-      // Server-rendered ANSI is width-specific; refetch at the new width. The
-      // byte cursors are reflow-stable, so reopening at the tip is correct
+      // Server-rendered ANSI is width-specific, but ONLY the column count changes
+      // what we'd refetch — a height-only resize (or a drag that doesn't cross a
+      // column boundary) needs no new server render, so skip it. And debounce, so
+      // dragging the window edge coalesces into a SINGLE fetch at the settled
+      // width instead of queueing an RPC + headless render per observer tick (F4).
+      // The byte cursors are reflow-stable, so reopening at the tip is correct
       // (depth re-pages on scroll).
-      void loadInitial();
+      const next = term.cols;
+      if (next === lastCols) return;
+      lastCols = next;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = undefined;
+        if (term) void loadInitial();
+      }, 150);
     });
     ro.observe(host);
     onCleanup(() => {
+      if (resizeTimer) clearTimeout(resizeTimer);
       ro.disconnect();
       term?.dispose();
       term = null;

@@ -78,8 +78,9 @@ mirror is, with periodic checkpoints so any range renders without replaying from
 byte 0. The pager reads it back by an opaque, reflow-stable **byte cursor**
 (`history` / `searchHistory` / `historyText` / the `exportHistory` stream) at the
 reader's current width. Persistence is a breaking wire change — the contract is
-**`PTY_HOST_CONTRACT_VERSION` 4.0** (`spawn` drops `scrollback`, gains the
-required `history` policy). See
+**`PTY_HOST_CONTRACT_VERSION` 4.1** (4.0 dropped `scrollback` from `spawn` and
+added the required `history` policy; 4.1 added the `deleteTranscript` verb that
+reclaims a permanently-removed terminal's on-disk history). See
 `docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`.
 
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
@@ -93,9 +94,8 @@ re-subscribe then delivers a fresh snapshot.
 ```ts
 import { createPtyHost } from "kaval";
 
-const host = createPtyHost({ log });
-
-const host = createPtyHost({ log, transcriptDir }); // transcriptDir enables history
+// `transcriptDir` enables on-disk history; omit it to run without persistence.
+const host = createPtyHost({ log, transcriptDir });
 
 const { id, pid } = host.spawn({
   shell: "/bin/bash",
@@ -122,7 +122,15 @@ for await (const cwd of host.subscribeCwd(id, signal)) onCwd(cwd);
 host.write(id, "ls\n");
 host.resize(id, 120, 40);
 host.kill(id); // exitPromise(id) still resolves
+host.deleteTranscript(id); // reclaim the on-disk history of a permanently-removed PTY
 ```
+
+> **Search budget.** `searchHistory` replays the transcript and tests each
+> logical line with the user's pattern (optionally a JS `RegExp`). It is capped
+> by both a hit count and a wall-clock budget (a `truncated` page with a resume
+> cursor), so a slow regex over a large history can't pin the single-threaded
+> daemon. A single catastrophic-backtracking pattern on one very long line is the
+> residual a non-backtracking engine (RE2) would fully close — not yet a dep.
 
 ## Scope
 

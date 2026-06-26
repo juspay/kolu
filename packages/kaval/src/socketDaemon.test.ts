@@ -75,10 +75,11 @@ function spawnTsCli(file: string, args: string[]): ChildProcess {
 
 type Conn = UnixSocketConnection<typeof ptyHostSurface.contract>;
 
-// A per-suite XDG_STATE_HOME so every spawned daemon writes its transcript DBs
-// ($XDG_STATE_HOME/kaval/transcripts/<id>.db — kaval-tui defaults history ON)
-// into a throwaway dir, NOT the developer's / CI user's real state directory
-// (F10). Injected into every child's env; reaped after the whole file.
+// A per-suite XDG_STATE_HOME so any transcript DB a daemon writes
+// ($XDG_STATE_HOME/kaval/transcripts/<id>.db) lands in a throwaway dir, NOT the
+// developer's / CI user's real state directory (F10). kaval-tui's `create` keeps
+// history OFF, so this is now defensive — it still isolates any test that spawns
+// with history enabled. Injected into every child's env; reaped after the file.
 const STATE_HOME = mkdtempSync(join(tmpdir(), "kaval-e2e-state-"));
 const childEnv = { ...process.env, XDG_STATE_HOME: STATE_HOME };
 afterAll(() => rmSync(STATE_HOME, { recursive: true, force: true }));

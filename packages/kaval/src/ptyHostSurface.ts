@@ -160,17 +160,23 @@ const HistoryInputSchema = z.object({
    *  cursor is an opaque nonnegative byte offset — reject negative/fractional
    *  raw input at the boundary rather than serving a misleading empty page (F9). */
   beforeCursor: z.number().int().nonnegative().nullable(),
-  maxLines: z.number().int().positive(),
-  width: z.number().int().positive(),
+  // Bound the per-page work in the headless xterm render — a malformed client
+  // must not force a giant allocation with an absurd width or page size. Full
+  // history is the streaming export path, never one unbounded page (F6).
+  maxLines: z.number().int().positive().max(100_000),
+  width: z.number().int().positive().max(2000),
 });
 
 const SearchHistoryInputSchema = z.object({
   id: PtyIdSchema,
-  query: z.string(),
+  // Bounded — a length cap is the first line of defense against a pathological
+  // regex on the server-side scan (F5).
+  query: z.string().max(1000),
   beforeCursor: z.number().int().nonnegative().nullable(),
   regex: z.boolean(),
   caseSensitive: z.boolean(),
-  maxResults: z.number().int().positive(),
+  // Bounded at the boundary (the server also clamps to SEARCH_HARD_CAP) (F6).
+  maxResults: z.number().int().positive().max(10_000),
 });
 
 const SearchHistoryOutputSchema = z.object({

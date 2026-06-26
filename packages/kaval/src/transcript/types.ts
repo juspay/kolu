@@ -59,6 +59,20 @@ export const BLOCK_BYTES = 64 * 1024;
  *  bolting on a second one. Replay cost was flat at 2.9–6.0 ms across K=50…1000. */
 export const CHECKPOINT_BYTES = 64 * 1024;
 
+/** Hard ceiling on the gap between checkpoints. A checkpoint is normally
+ *  DEFERRED to the next clean line boundary (so cross-width reflow is byte-exact),
+ *  but a pathological span with NO clean boundary — megabytes emitted with no
+ *  newline and the cursor never at column 0 — would otherwise accumulate one
+ *  unbounded replay span: `history()` reads every DATA block since the last
+ *  checkpoint and `render.ts` `Buffer.concat`s them, recreating the memory spike
+ *  this design exists to avoid (and defeating retention, which can only evict to a
+ *  checkpoint). So past this many bytes-since-checkpoint we force a checkpoint at
+ *  the current (non-clean) position. The forced seed is captured mid-line, so
+ *  reflow to a DIFFERENT width may be imprecise across that one rare seam — a
+ *  bounded fidelity cost paid only in the pathological case, strictly better than
+ *  an unbounded span. Faithful export (same historical width) stays exact. */
+export const MAX_CHECKPOINT_GAP_BYTES = 16 * CHECKPOINT_BYTES;
+
 /** Default per-terminal retention cap (compressed payload bytes). Oldest
  *  records past this are DELETEd and an eviction watermark is raised; a
  *  sub-floor read returns `evicted`, never silent-empty. */

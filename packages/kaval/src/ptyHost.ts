@@ -32,14 +32,13 @@ import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
-import { Transcript } from "./transcript/index.ts";
+import { Transcript } from "./transcript/transcript.ts";
 import type {
   ExportSegment,
-  HistoryPolicy,
   HistoryResult,
-  MirrorView,
   SearchResult,
-} from "./transcript/index.ts";
+} from "./transcript/transcript.ts";
+import type { HistoryPolicy, MirrorView } from "./transcript/types.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -654,6 +653,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           dbPath,
           cols,
           rows,
+          // Surface a runtime write fault at the moment it happens, even if no
+          // reader ever opens history to trigger the faulted page (F7).
+          onFault: (err, lastGoodSeq) =>
+            log.error(
+              { id, err, lastGoodSeq },
+              "pty-host: transcript write faulted; history degraded to faulted",
+            ),
         });
       } catch (err) {
         // A transcript that can't be opened (disk/path/schema fault) must never

@@ -68,14 +68,18 @@ export {
 } from "./ptyHost.ts";
 // PR2 transcript types consumers (kolu-server's router/proxy) read back, plus
 // the default retention cap (a VALUE — the server composes the history policy).
+// Imported straight from the leaf's own modules (no re-export bridge): the
+// orchestrator surface lives in `transcript.ts`, the policy/cap in `types.ts`.
+export type {
+  ExportSegment,
+  HistoryResult,
+  SearchMatch,
+  SearchResult,
+} from "./transcript/transcript.ts";
 export {
   DEFAULT_RETENTION_BYTES,
-  type ExportSegment,
   type HistoryPolicy,
-  type HistoryResult,
-  type SearchMatch,
-  type SearchResult,
-} from "./transcript/index.ts";
+} from "./transcript/types.ts";
 // The pty-host wire contract — the surface and its version. `ptyHostSurface`
 // is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`
 // to type their client, which collapses to `unknown` under a type-only re-export.

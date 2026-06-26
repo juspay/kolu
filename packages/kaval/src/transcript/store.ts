@@ -77,6 +77,11 @@ CREATE INDEX IF NOT EXISTS ix_ts   ON record(tsMs);
 export class TranscriptStore {
   private readonly db: DatabaseSync;
   private readonly insertStmt;
+  // Running total of stored payload bytes — the retention cap's independent
+  // variable. Kept incrementally (append adds, evict subtracts) so the hot-path
+  // retention check is O(1) instead of a full `SUM(LENGTH(payload))` table scan
+  // on every probe (F3). Seeded once from the persisted rows at open.
+  private totalBytes: number;
 
   private constructor(db: DatabaseSync) {
     this.db = db;
@@ -84,6 +89,10 @@ export class TranscriptStore {
       `INSERT INTO record(seq,kind,firstByteSeq,byteLen,tsMs,cols,rows,payload)
        VALUES(?,?,?,?,?,?,?,?)`,
     );
+    const row = db
+      .prepare("SELECT COALESCE(SUM(LENGTH(payload)),0) AS b FROM record")
+      .get() as { b: number };
+    this.totalBytes = row.b;
   }
 
   /** Open (or create) the per-PTY DB at `path`, in WAL mode, and validate the
@@ -124,6 +133,7 @@ export class TranscriptStore {
       rec.rows,
       rec.payload ?? null,
     );
+    this.totalBytes += rec.payload?.length ?? 0;
   }
 
   /** Resume counters from the newest persisted record — `tipByteSeq` is the
@@ -256,12 +266,10 @@ export class TranscriptStore {
     return row.m ?? 0;
   }
 
-  /** Total stored payload bytes — the retention cap's independent variable. */
+  /** Total stored payload bytes — the retention cap's independent variable. O(1)
+   *  (the running counter), not a table scan (F3). */
   totalPayloadBytes(): number {
-    const row = this.db
-      .prepare("SELECT COALESCE(SUM(LENGTH(payload)),0) AS b FROM record")
-      .get() as { b: number };
-    return row.b;
+    return this.totalBytes;
   }
 
   /** Find the oldest checkpoint such that the payload bytes from it forward fit
@@ -270,31 +278,41 @@ export class TranscriptStore {
    *  Returns the checkpoint byteSeq to evict before, or `undefined` if no
    *  eviction is needed / possible. */
   evictionCheckpoint(retentionBytes: number): Seq | undefined {
-    const total = this.totalPayloadBytes();
+    const total = this.totalBytes;
     if (total <= retentionBytes) return undefined;
     // Walk checkpoints oldest→newest; the first whose "bytes from here forward"
-    // fits the cap is the new floor. Keep at least the newest checkpoint.
+    // fits the cap is the new floor. Compute "from here forward" as
+    // `total − bytes-strictly-before-c` so the per-candidate scan is the cheap
+    // PREFIX (`firstByteSeq < c`), which for the oldest checkpoints — the ones we
+    // actually evict to — touches only the few records being dropped, not a
+    // near-full-table `>=` scan per candidate (F3). Keeps the newest checkpoint.
     const ckpts = this.db
       .prepare(
         `SELECT firstByteSeq FROM record WHERE kind=? ORDER BY firstByteSeq ASC`,
       )
       .all(Kind.CKPT) as { firstByteSeq: Seq }[];
+    const beforeStmt = this.db.prepare(
+      "SELECT COALESCE(SUM(LENGTH(payload)),0) AS b FROM record WHERE firstByteSeq<?",
+    );
     for (const c of ckpts) {
-      const after = this.db
-        .prepare(
-          "SELECT COALESCE(SUM(LENGTH(payload)),0) AS b FROM record WHERE firstByteSeq>=?",
-        )
-        .get(c.firstByteSeq) as { b: number };
-      if (after.b <= retentionBytes) return c.firstByteSeq;
+      const before = beforeStmt.get(c.firstByteSeq) as { b: number };
+      if (total - before.b <= retentionBytes) return c.firstByteSeq;
     }
     return undefined;
   }
 
   /** DELETE every record strictly before `byteSeq` — retention's reclaim. The
    *  freed pages are reused by later inserts (auto-vacuum off; WAL checkpoints
-   *  keep the file bounded). */
+   *  keep the file bounded). Decrements the running byte counter by exactly what
+   *  was dropped so {@link totalPayloadBytes} stays accurate without a rescan. */
   evictBefore(byteSeq: Seq): void {
+    const dropped = this.db
+      .prepare(
+        "SELECT COALESCE(SUM(LENGTH(payload)),0) AS b FROM record WHERE firstByteSeq<?",
+      )
+      .get(byteSeq) as { b: number };
     this.db.prepare("DELETE FROM record WHERE firstByteSeq<?").run(byteSeq);
+    this.totalBytes -= dropped.b;
   }
 
   /** Project a stored row to the public {@link TranscriptRecord} shape (tests). */

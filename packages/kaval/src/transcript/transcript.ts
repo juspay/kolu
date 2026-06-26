@@ -29,6 +29,7 @@ import {
   BLOCK_BYTES,
   CHECKPOINT_BYTES,
   type HistoryPolicy,
+  MAX_CHECKPOINT_GAP_BYTES,
   type MirrorView,
   RecordKind,
   type Seq,
@@ -72,6 +73,18 @@ export interface SearchResult {
 
 const SEARCH_HARD_CAP = 1000;
 
+/** Wall-clock budget for one `searchHistory` request. A regex search runs
+ *  user-supplied patterns across the replayed transcript on the single-threaded
+ *  daemon; a slow-but-benign pattern over a large history (or a mildly
+ *  backtracking one spread across many lines) would otherwise block live output
+ *  for every terminal this host owns. When the budget is spent we stop at the
+ *  current span and return a `truncated` page with a resume cursor — the same
+ *  honest soft-cap shape `SEARCH_HARD_CAP` already uses, never a silent partial.
+ *  This bounds the realistic "regex over a huge transcript" hang; a single
+ *  catastrophic-backtracking pattern on one very long line is the residual that
+ *  only a non-backtracking engine (RE2) fully defeats — see the README. */
+const SEARCH_DEADLINE_MS = 2000;
+
 export class Transcript {
   private store: TranscriptStore | null = null;
   private seq = 0;
@@ -92,6 +105,11 @@ export class Transcript {
     cols: number,
     rows: number,
     private readonly now: () => number,
+    /** Fired once, when the FIRST runtime write fault is recorded, so the disk
+     *  failure logs at the moment it happens — not only if a reader later opens
+     *  history. The leaf stays `@kolu/logger`-free: the ptyHost injects a closure
+     *  that logs at `error` (F7). */
+    private readonly onFault?: (err: unknown, lastGoodSeq: number) => void,
   ) {
     this.cols = cols;
     this.rows = rows;
@@ -106,12 +124,15 @@ export class Transcript {
     cols: number;
     rows: number;
     now?: () => number;
+    /** Logged-at-error sink for the first runtime write fault (F7). */
+    onFault?: (err: unknown, lastGoodSeq: number) => void;
   }): Transcript {
     const t = new Transcript(
       args.policy,
       args.cols,
       args.rows,
       args.now ?? Date.now,
+      args.onFault,
     );
     if (args.policy.enabled) {
       const store = TranscriptStore.open(args.dbPath);
@@ -161,17 +182,26 @@ export class Transcript {
     this.byteSeq += bytes;
     this.bytesSinceCheckpoint += bytes;
     try {
+      // Checkpoint when we've buffered a cadence's worth of bytes AND either the
+      // grid is at a clean line boundary (the common path — keeps cross-width
+      // reflow byte-exact) OR we've blown past the hard ceiling with no clean
+      // boundary in sight (the pathological no-newline span — force one to keep
+      // the replay span bounded; see MAX_CHECKPOINT_GAP_BYTES) (F2).
       if (
-        mirror.atCleanBoundary() &&
-        this.bytesSinceCheckpoint >= CHECKPOINT_BYTES
+        this.bytesSinceCheckpoint >= CHECKPOINT_BYTES &&
+        (mirror.atCleanBoundary() ||
+          this.bytesSinceCheckpoint >= MAX_CHECKPOINT_GAP_BYTES)
       ) {
         this.flushPending();
         this.captureCheckpoint(mirror);
         this.bytesSinceCheckpoint = 0;
+        // Eviction floors are checkpoints, so it can only ever do work right
+        // after one is captured — run it HERE, not on every `onData`, so the
+        // retention scan stays off the per-chunk hot path (F3).
+        this.maybeEvict();
       } else if (this.pendingBytes >= BLOCK_BYTES) {
         this.flushPending();
       }
-      this.maybeEvict();
     } catch (err) {
       this.handleFault(err);
     }
@@ -258,6 +288,9 @@ export class Transcript {
       lastGoodSeq: this.seq,
       error: err instanceof Error ? err.message : String(err),
     };
+    // Log the actual I/O failure NOW (at error), so an operator sees the disk
+    // fault even if no one ever opens history/copy/export to surface it (F7).
+    this.onFault?.(err, this.fault.lastGoodSeq);
   }
 
   // ---- READ path ----------------------------------------------------------
@@ -365,6 +398,7 @@ export class Transcript {
     const oldest = this.store.oldestByteSeq();
     let truncated = false;
     let nextCursor: Seq | null = null;
+    const deadline = this.now() + SEARCH_DEADLINE_MS;
     while (cursor > oldest) {
       const seed = this.store.latestCheckpointBefore(cursor);
       const from = seed ? seed.firstByteSeq : 0;
@@ -378,6 +412,15 @@ export class Transcript {
       }
       cursor = from;
       if (!seed) break;
+      // Soft wall-clock cap at a SPAN boundary (like the hit cap below, never
+      // mid-span): a slow/backtracking regex over a large history yields a
+      // `truncated` page with `nextCursor = from` to resume from, rather than
+      // blocking the daemon's event loop indefinitely (F5).
+      if (this.now() >= deadline) {
+        truncated = true;
+        nextCursor = from;
+        return { hits, nextCursor, truncated };
+      }
       // Cap at a SPAN boundary, never mid-span: every hit in `[from, prevCursor)`
       // is now recorded, so resuming at `nextCursor = from` skips nothing (F8). A
       // mid-span cut + `nextCursor = from` would have re-opened the SAME span and

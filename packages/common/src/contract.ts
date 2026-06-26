@@ -127,8 +127,14 @@ export const TerminalHistoryInputSchema = z.object({
   // boundary — reject negative/fractional raw RPC input at the boundary rather
   // than serving a misleading empty/evicted page (F9).
   beforeCursor: z.number().int().nonnegative().nullable(),
-  maxLines: z.number().int().positive(),
-  width: z.number().int().positive(),
+  // Bound the per-page work in the server-side headless xterm: a malformed client
+  // must not request one enormous page or an absurd grid width and force a giant
+  // allocation/render. `width` covers any real display (a 4K monitor at a tiny
+  // font is well under 2000 cols); `maxLines` is the pager's overscan, far under
+  // the offscreen 100K scrollback. Full history goes through the streaming export
+  // path, never one unbounded page (F6).
+  maxLines: z.number().int().positive().max(100_000),
+  width: z.number().int().positive().max(2000),
 });
 
 /** A history page (or an honest non-content state — never silent-empty). `ansi`
@@ -150,14 +156,18 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
 
 export const TerminalSearchHistoryInputSchema = z.object({
   id: TerminalIdSchema,
-  query: z.string(),
+  // Bounded: a terminal search needle is short, and a length cap is the first
+  // line of defense against a pathological regex on the server scan (F5).
+  query: z.string().max(1000),
   beforeCursor: z.number().int().nonnegative().nullable(),
   /** Opt-in capabilities (xterm's ISearchOptions shape), not degradation knobs:
    *  the default (both false) reproduces the find bar exactly — literal,
    *  case-insensitive. */
   regex: z.boolean(),
   caseSensitive: z.boolean(),
-  maxResults: z.number().int().positive(),
+  // Bounded — the server also clamps to its own SEARCH_HARD_CAP, but reject an
+  // absurd page size at the wire boundary too (F6).
+  maxResults: z.number().int().positive().max(10_000),
 });
 
 export const TerminalSearchHistoryOutputSchema = z.object({
