@@ -400,8 +400,8 @@ const escapes = [
       derives, per terminal: the repo branch, the open PR and its checks, which
       AI agent is running and whether it's <span class="text-ink">working</span>{" "}
       or <span class="text-ink">waiting on you</span>, and the foreground
-      process — served as one surface that{" "}
-      <code class="mono text-ink">pulam-tui</code> reads. Zero kolu-server, no
+      process — served as one surface that the thin{" "}
+      <code class="mono text-ink">pulam-tui</code> CLI reads. Zero kolu-server, no
       browser; the runtime is just{" "}
       <code class="mono text-ink">node · git · gh</code>.
         </p>
@@ -416,22 +416,27 @@ const escapes = [
     </div>
     <div class="kv-term">
       <span class="cmd"
-        >nix run github:juspay/kolu#pulam<span class="cmt">       # awareness over the running kaval</span></span
+        >nix run github:juspay/kolu#pulam<span class="cmt">              # awareness over the running kaval</span></span
       >
-      <span class="cmd">nix run github:juspay/kolu#pulam-tui</span>
+      <span class="cmd"
+        >nix run github:juspay/kolu#pulam-tui -- status<span class="cmt"> # one-shot snapshot table</span></span
+      >
+      <span class="cmd"
+        >nix run github:juspay/kolu#pulam-tui -- watch<span class="cmt">  # follow awareness live</span></span
+      >
     </div>
     <pre
       class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
-    ><code>ID        BRANCH         PR        AGENT             FOREGROUND
-a3f10000  feat/dial-ssh  #1412 ✓   claude · working  node
-b7c20000  master         —         codex · waiting   codex
-c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
+    ><code>ID        REPO·BRANCH         PR        AGENT             FOREGROUND        IDLE
+a3f10000  kolu·feat/dial-ssh  #1412 ✓   claude · working  node              2s
+b7c20000  kolu·master         —         codex · waiting   codex             1m
+c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m</code></pre>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       Like <code class="mono text-ink">kaval-tui</code>, pulam-tui reaches{" "}
       <span class="text-ink">another machine</span> over ssh with{" "}
       <code class="mono text-ink">--host</code>: it Nix-provisions the pulam
-      daemon there, runs it against the remote kaval, and renders the same
-      dashboard — the read-only viewer is the only thing that runs locally. The
+      daemon there, runs it against the remote kaval, and streams the same
+      awareness — the thin client is the only thing that runs locally. The
       remote pulam <span class="text-ink">discovers</span> the running kaval — a
       standalone one, or a kolu-server (each namespaced by listen port) — so it
       lands on your remote kolu's terminals with <span class="text-ink">no
@@ -440,38 +445,31 @@ c9d40000  fix/fold       #1408 ✗   —                 nvim</code></pre>
     </p>
     <div class="kv-term">
       <span class="cmd"
-        >nix run github:juspay/kolu#pulam-tui -- --host nix@prod</span
+        >nix run github:juspay/kolu#pulam-tui -- status --host nix@prod</span
       >
       <span class="cmd"
-        >nix run github:juspay/kolu#pulam-tui -- --host nix@prod --json</span
+        >nix run github:juspay/kolu#pulam-tui -- watch --host nix@prod --json</span
       >
     </div>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
-      And <code class="mono text-ink">pulam-tui fleet</code> fans that across{" "}
-      <span class="text-ink">every machine at once</span>: repeat{" "}
-      <code class="mono text-ink">--host</code> (your local pulam is in by
-      default), and it mirrors each box's awareness into one{" "}
-      <span class="text-ink">live</span> board — rows updating in place as agents
-      change, every agent <span class="text-ink">awaiting you</span> floated to
-      the top across the fleet with a breathing alert strip, and a distinct
-      header for any box that's unreachable. A dashboard to leave open on a
-      second monitor: glance over and it tells you who's blocked on you, and
-      where.
+      Want <span class="text-ink">every machine at once</span> — a live
+      multi-host board that floats every agent <span class="text-ink">awaiting
+      you</span> to the top across the fleet? That's{" "}
+      <code class="mono text-ink">pulam-web</code>, the browser twin: one server
+      dials many remote pulam boxes over ssh and renders them as a single dark
+      agent dashboard. pulam-tui itself stays single-daemon and scriptable.
     </p>
-    <div class="kv-term">
-      <span class="cmd"
-        >nix run github:juspay/kolu#pulam-tui -- fleet --host nix@a --host nix@b</span
-      >
-    </div>
     <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
       Where <code class="mono text-ink">kaval-tui</code> shows what's{" "}
       <em>running</em> in each PTY, <code class="mono text-ink">pulam-tui</code>{" "}
-      shows what each terminal <em>is in</em> — a "what is every agent doing,
-      across every repo" dashboard you can <code class="mono text-ink">ssh</code>{" "}
-      into — a compact, truecolour table with a clock ticking in the header.{" "}
-      <code class="mono text-ink">--json</code> dumps the same surface for
-      scripts. It runs the <em>same</em> awareness sensors kolu uses
-      internally, now as a process of its own — the design lives in the{" "}
+      shows what each terminal <em>is in</em> — a compact{" "}
+      <code class="mono text-ink">status</code> table or a live{" "}
+      <code class="mono text-ink">watch</code> stream you can{" "}
+      <code class="mono text-ink">ssh</code> into.{" "}
+      <code class="mono text-ink">--json</code> dumps the same surface (NDJSON
+      under <code class="mono text-ink">watch</code>) for scripts. It runs the{" "}
+      <em>same</em> awareness sensors kolu uses internally, now read by a thin
+      Node client of its own — the design lives in the{" "}
       <a
         href="https://kolu.dev/atlas/pulam.html"
         class="text-amber hover:underline"
