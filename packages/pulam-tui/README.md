@@ -35,7 +35,7 @@ object per line (NDJSON), so `jq -c` streams it.
 
 ```sh
 # alert when any agent blocks on you
-pulam-tui watch --json | jq -rc 'select(.agent.kind=="awaiting_user") | "\(.id) needs you"'
+pulam-tui watch --json | jq -rc 'select(.agent.state=="awaiting_user") | "\(.id) needs you"'
 ```
 
 ## Short ids

@@ -7,14 +7,14 @@
  * by `mirrorRemoteSurface`).
  */
 
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
-  TERMINAL_WORKSPACE_CONTRACT_VERSION,
-  terminalWorkspaceSurface,
   type AwarenessValue,
+  TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type TerminalId,
+  terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
 import type { PulamClient } from "./connect.ts";
 
@@ -87,15 +87,39 @@ export interface WatchHandlers {
  *  the `awareness` collection (the rows) and the `activity` stream (the live
  *  dot): the activity frame updates a local live-set the upsert handler reads,
  *  so a printed line reflects whether that terminal was moving bytes at the time.
- *  Resolves when the mirror settles (every subscription ended = link closed). */
+ *  Resolves when the mirror settles (every subscription ended = link closed).
+ *
+ *  `log` is the diagnostic sink for NON-abort upstream failures (a dropped link,
+ *  a protocol error). Without it `mirrorRemoteSurface` would default to a no-op
+ *  and a real connection loss would look like a clean stop — so `watch` passes a
+ *  stderr sink and treats an un-aborted settle as a failure (see `cmdWatch`). */
 export async function watchAwareness(
   client: PulamClient,
   handlers: WatchHandlers,
   signal?: AbortSignal,
+  log?: (line: string) => void,
 ): Promise<void> {
   // The `activity` stream's current membership — the set of terminals moving
   // bytes right now. Updated on each frame; read (not re-emitted) by upserts.
+  //
+  // Seed it from the activity stream's CURRENT snapshot before the mirror opens,
+  // so the initial awareness rows already know which terminals are live. The
+  // mirror starts the awareness collection and the activity stream concurrently
+  // with no ordering guarantee, so the keys-snapshot upserts can otherwise race
+  // ahead of the activity stream's first frame and paint an already-active
+  // terminal as idle until some later awareness change happens to re-emit it.
+  // The mirror re-applies the same snapshot on its first activity frame (and
+  // every delta after), so this only fills the startup gap.
   const live = new Set<TerminalId>();
+  const seedAbort = new AbortController();
+  try {
+    const seed = await firstFrameOrUndefined(
+      await client.surface.activity.get({}, { signal: seedAbort.signal }),
+    );
+    for (const id of seed ?? []) live.add(id);
+  } finally {
+    seedAbort.abort();
+  }
   await mirrorRemoteSurface(
     terminalWorkspaceSurface,
     client,
@@ -116,6 +140,6 @@ export async function watchAwareness(
         },
       },
     },
-    { signal },
+    { signal, log },
   ).done;
 }

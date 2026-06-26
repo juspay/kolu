@@ -231,3 +231,42 @@ describe("watch — live over a real socket", () => {
     });
   });
 });
+
+// `watch` seeds the live set from the activity stream's CURRENT snapshot BEFORE
+// the mirror opens, so a terminal already moving bytes when watch starts shows
+// the live dot on its FIRST row — without waiting for some later awareness
+// change to re-emit it. This is its own describe (not the shared beforeEach
+// above) because the seed read happens inside `watchAwareness`, so the activity
+// frame and the awareness row must BOTH be staged before watch starts.
+describe("watch — initial row carries the live dot from the activity snapshot", () => {
+  it("marks an already-active terminal live on its very first upsert", async () => {
+    const tid = id("d1e50000-1111-4222-8333-444455556666");
+    // Stage BOTH before watch opens: the terminal exists in awareness AND is
+    // moving bytes. The keys-snapshot upsert and the activity snapshot now race
+    // inside the mirror — the seed is what makes the first row deterministic.
+    publishUpsert(tid, awareness({ cwd: "/code/kolu" }));
+    activity.set([tid]);
+
+    const abort = new AbortController();
+    const conn = await connectPulam(socketPath);
+    const upserts: Array<{ id: TerminalId; live: boolean }> = [];
+    const done = watchAwareness(
+      conn.client,
+      {
+        onUpsert: (id, _value, live) => upserts.push({ id, live }),
+        onRemove: () => {},
+      },
+      abort.signal,
+    );
+    try {
+      // The FIRST upsert for this terminal must already be live — no re-publish
+      // loop, because the seed populated the live set before the row was emitted.
+      await waitFor(() => upserts.some((e) => e.id === tid));
+      expect(upserts.find((e) => e.id === tid)?.live).toBe(true);
+    } finally {
+      abort.abort();
+      await done.catch(() => {});
+      conn.dispose();
+    }
+  });
+});

@@ -74,9 +74,9 @@ Flags mirror kaval-tui exactly: `--socket <path>` points at a local daemon (defa
   "$ pulam-tui status --json | jq -r '.[] | select(.agent.kind==\"claude-code\" and .agent.state==\"awaiting_user\") | .id'",
   "c9d40000-1111-4222-8333-444455556666",
   "",
-  "$ pulam-tui watch --json | jq -rc 'select(.agent.state==\"awaiting_user\") | \"\\(.terminalId) needs you\"'",
+  "$ pulam-tui watch --json | jq -rc 'select(.agent.state==\"awaiting_user\") | \"\\(.id) needs you\"'",
   "a3f10000-1111-4222-8333-444455556666 needs you",
-  '# {\"terminalId\":\"a3f10000-…\",\"active\":false,\"cwd\":\"/code/kolu\",\"git\":{\"repoName\":\"kolu\",\"branch\":\"feat/dial-ssh\"},\"agent\":{\"kind\":\"claude-code\",\"state\":\"awaiting_user\"},\"pr\":{…}}',
+  '# {\"id\":\"a3f10000-…\",\"live\":false,\"cwd\":\"/code/kolu\",\"git\":{\"repoName\":\"kolu\",\"branch\":\"feat/dial-ssh\"},\"agent\":{\"kind\":\"claude-code\",\"state\":\"awaiting_user\"},\"pr\":{…}}',
 ]} />
 
 **Reach a remote daemon.** `--host` dials and Nix-provisions one pulam over ssh — same two verbs, no kolu-server:

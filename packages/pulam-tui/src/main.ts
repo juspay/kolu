@@ -27,6 +27,12 @@
  * CLI's: pulam-tui is single-daemon, like kaval-tui.
  */
 
+import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
+import {
+  TERMINAL_WORKSPACE_CONTRACT_VERSION,
+  type TerminalId,
+} from "@kolu/terminal-workspace/surface";
+import { cli, command } from "cleye";
 import { type Connection, connectPulam } from "./connect.ts";
 import { connectPulamViaHost } from "./hostConnect.ts";
 import { assertCompatible, snapshotAwareness, watchAwareness } from "./read.ts";
@@ -40,12 +46,6 @@ import {
   resolveTerminalId,
   shortId,
 } from "./render.ts";
-import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
-import {
-  TERMINAL_WORKSPACE_CONTRACT_VERSION,
-  type TerminalId,
-} from "@kolu/terminal-workspace/surface";
-import { cli, command } from "cleye";
 
 // Declared on each subcommand — cleye binds flags only AFTER the subcommand (it
 // does not inherit a parent flag), so `--socket` goes after the command:
@@ -237,6 +237,33 @@ async function cmdWatch(
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => abort.abort());
   }
+  // A closed stdout — `pulam-tui watch | head -1`, the reader hanging up —
+  // surfaces as an stdout `error` (EPIPE). Without a handler that's an unhandled
+  // crash; treat it as the consumer hanging up and abort the mirror so we unwind
+  // and exit cleanly (the same "EPIPE is done, not an error" stance `writeOut`
+  // takes for `status`). The abort marks this a clean stop, not the link drop the
+  // un-aborted-settle check below treats as a failure.
+  process.stdout.on("error", () => abort.abort());
+
+  // Serialize the watch lines through the backpressure-aware `writeOut`: each
+  // line waits for the prior `drain`, so a slow consumer (piping into a paging
+  // `jq`) applies real backpressure instead of `write()`-returns-false being
+  // ignored. The mirror's sink callbacks are synchronous, so they chain onto
+  // `pending` and we flush it before returning. `writeOut` never rejects (it
+  // resolves on an stdout error), so the chain can't reject.
+  let pending: Promise<void> = Promise.resolve();
+  const emit = (line: string): void => {
+    pending = pending.then(() => writeOut(`${line}\n`));
+  };
+
+  // Diagnostic sink for NON-abort upstream failures (a dropped link, a protocol
+  // error). Surface each to stderr AND remember the first, so an un-aborted
+  // settle below can report what actually broke rather than a generic line.
+  let upstreamError: string | undefined;
+  const log = (line: string): void => {
+    upstreamError ??= line;
+    process.stderr.write(`pulam-tui: ${line}\n`);
+  };
 
   try {
     await watchAwareness(
@@ -244,23 +271,40 @@ async function cmdWatch(
       {
         onUpsert: (id, value, live) => {
           if (only !== undefined && id !== only) return;
-          const line = json
-            ? formatWatchJson(id, value, { live })
-            : formatWatchEvent(id, value, { now: Date.now(), live });
-          process.stdout.write(`${line}\n`);
+          emit(
+            json
+              ? formatWatchJson(id, value, { live })
+              : formatWatchEvent(id, value, { now: Date.now(), live }),
+          );
         },
         onRemove: (id) => {
           if (only !== undefined && id !== only) return;
-          const line = json
-            ? formatWatchRemovalJson(id)
-            : formatWatchRemoval(id, { now: Date.now() });
-          process.stdout.write(`${line}\n`);
+          emit(
+            json
+              ? formatWatchRemovalJson(id)
+              : formatWatchRemoval(id, { now: Date.now() }),
+          );
         },
       },
       abort.signal,
+      log,
     );
+    await pending;
   } finally {
     conn.dispose();
+  }
+
+  // The mirror settled though the user never asked to stop (no Ctrl+C, no EPIPE
+  // hang-up) — the pulam link dropped: the daemon exited, the socket closed, or a
+  // stream/protocol error ended every subscription. For a live monitor that is a
+  // failure, not a clean EOF, so surface it and exit non-zero rather than looking
+  // like a tidy stop. (Ctrl+C and a consumer hang-up both abort, so they skip
+  // this and exit 0.)
+  if (!abort.signal.aborted) {
+    fail(
+      upstreamError ??
+        "the pulam link closed — the daemon stopped or the connection dropped. Is `pulam` still running?",
+    );
   }
 }
 
