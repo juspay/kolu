@@ -48,7 +48,10 @@ import {
   TerminalIdSchema,
 } from "kolu-common/surface";
 import type {
+  HistoryExportSegment,
+  HistoryPage,
   PtySpawnOpts,
+  SearchHistoryResult,
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
@@ -739,6 +742,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     lc.stopAwareness();
   }
 
+  /** Reclaim a terminal's on-disk transcript on PERMANENT removal (kill / discard
+   *  / natural exit) — never on sleep, which keeps the DB for a later wake. A
+   *  failure is logged, never thrown: a stuck delete must not block teardown (the
+   *  worst case is the orphan this is trying to avoid, not a wedged terminal). */
+  private async deleteTranscript(id: TerminalId): Promise<void> {
+    try {
+      await ptyHostClient.surface.terminal.deleteTranscript({ id });
+    } catch (err) {
+      log
+        .child({ terminal: id })
+        .error({ err }, "pty-host deleteTranscript failed; DB may be orphaned");
+    }
+  }
+
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
    *  exit, drop the entry, save the session. */
   private handleExit(id: TerminalId, exitCode: number): void {
@@ -746,6 +763,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!entry) return;
     log.child({ terminal: id }).info({ exitCode }, "exited");
     this.teardownSensors(id);
+    // A natural exit (the shell ran `exit`) is permanent removal — reclaim the
+    // transcript. Fire-and-forget: handleExit is a sync tap callback.
+    void this.deleteTranscript(id);
     cleanupTerminalScratch(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
     unregisterTerminal(id);
@@ -774,6 +794,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     } catch (err) {
       tlog.error({ err }, "pty-host kill failed; unregistering anyway");
     }
+    // A kill is permanent (the symmetric mirror of sleep, which KEEPS the DB for
+    // a later wake): reclaim the on-disk transcript so a removed terminal leaves
+    // no orphan DB growing to the per-PTY retention cap.
+    await this.deleteTranscript(id);
     cleanupTerminalScratch(id);
     unregisterTerminal(id);
     emitTerminalsDirty();
@@ -876,6 +900,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   discardSleeping(id: TerminalId): boolean {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return false;
+    // Discarding a sleeping terminal is permanent — reclaim its transcript (the
+    // PTY is already gone, so the host deletes purely by id). Fire-and-forget:
+    // this stays sync to match its callers.
+    void this.deleteTranscript(id);
     cleanupTerminalScratch(id);
     unregisterTerminal(id);
     emitTerminalsDirty();
@@ -894,7 +922,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       log.error({ err }, "pty-host killAll failed; draining anyway");
     }
     const entries = drainTerminals();
-    for (const entry of entries) cleanupTerminalScratch(entry.info.id);
+    for (const entry of entries) {
+      // Permanent removal — reclaim each transcript alongside its scratch.
+      void this.deleteTranscript(entry.info.id);
+      cleanupTerminalScratch(entry.info.id);
+    }
     emitTerminalListChanged();
   }
 
@@ -936,6 +968,37 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       }
     })();
     return { snapshot, deltas };
+  }
+
+  // ── PR2: on-disk history reads — forwarded through the pty-host contract ────
+
+  async history(
+    id: TerminalId,
+    args: { beforeCursor: number | null; maxLines: number },
+  ): Promise<HistoryPage> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.terminal.history({ id, ...args });
+  }
+
+  async searchHistory(
+    id: TerminalId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchHistoryResult> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.terminal.searchHistory({ id, ...args });
+  }
+
+  async exportHistory(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): Promise<AsyncIterable<HistoryExportSegment>> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.exportHistory.get({ id }, { signal });
   }
 }
 

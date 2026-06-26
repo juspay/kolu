@@ -67,6 +67,22 @@ populates the same slot). It's bounded — strictly smaller than the live mirror
 it shadows, freed on the next data/resize or on teardown — so it adds a fraction
 to the mirror's existing per-terminal footprint, not a new unbounded retention.
 
+**Small mirror over an on-disk transcript.** The headless mirror is pinned to a
+**hot window** (`HOT_WINDOW` = 500 lines; the `serialize()` clamp means the
+attach snapshot can't exceed the mirror's depth, so the window *is* the depth),
+not a 10 K-line scrollback — a ~20× per-terminal heap cut that ends the
+linear-in-count growth that OOM'd the daemon. Deep scrollback leaves the heap for
+a per-PTY **transcript** (`src/transcript/`): typed `DATA` / `RESIZE` / `CKPT`
+records in `node:sqlite` (WAL), written from the same `proc.onData` callback the
+mirror is, with periodic checkpoints so any range renders without replaying from
+byte 0. The pager reads it back by an opaque, reflow-stable **byte cursor**
+(`history` / `searchHistory` / the `exportHistory` stream) at the
+reader's current width. Persistence is a breaking wire change — the contract is
+**`PTY_HOST_CONTRACT_VERSION` 4.1** (4.0 dropped `scrollback` from `spawn` and
+added the required `history` policy; 4.1 added the `deleteTranscript` verb that
+reclaims a permanently-removed terminal's on-disk history). See
+`docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`.
+
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
 browser tab on the chatty `data` stream — is **dropped** (its iterator ends)
@@ -78,21 +94,27 @@ re-subscribe then delivers a fresh snapshot.
 ```ts
 import { createPtyHost } from "kaval";
 
-const host = createPtyHost({ log });
+// `transcriptDir` enables on-disk history; omit it to run without persistence.
+const host = createPtyHost({ log, transcriptDir });
 
 const { id, pid } = host.spawn({
   shell: "/bin/bash",
   args: ["--rcfile", wrapperRcPath],
   env, // fully prepared by the caller
   cwd: "/home/me/project",
-  scrollback: 10_000,
+  // Per-terminal on-disk history policy (required — the daemon derives nothing).
+  // The mirror is pinned to the hot window in-kaval; deep history lives on disk.
+  history: { enabled: true, retentionBytes: 256 * 1024 * 1024 },
   onDispose: () => cleanupRcFiles(),
 });
 
-// Late-join client: snapshot first, then live deltas.
+// Late-join client: snapshot first (bounded to the hot window), then live deltas.
 const { snapshot, deltas } = host.attach(id, signal);
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);
+
+// Deep history, off the heap — a backward page rendered at the reader's width.
+const page = await host.history(id, { beforeCursor: null, maxLines: 80, width: 120 });
 
 // Metadata taps.
 for await (const cwd of host.subscribeCwd(id, signal)) onCwd(cwd);
@@ -100,7 +122,17 @@ for await (const cwd of host.subscribeCwd(id, signal)) onCwd(cwd);
 host.write(id, "ls\n");
 host.resize(id, 120, 40);
 host.kill(id); // exitPromise(id) still resolves
+host.deleteTranscript(id); // reclaim the on-disk history of a permanently-removed PTY
 ```
+
+> **Search budget.** `searchHistory` replays the transcript and tests each
+> logical line for a LITERAL substring (case-insensitive by default). It is
+> deliberately not a regex: a user pattern can catastrophically backtrack over a
+> long line and a span-boundary wall-clock budget can't interrupt one in-flight
+> match, so the single-threaded daemon could be wedged for every terminal it
+> owns. A literal scan is linear, so that defect is not expressible; the budget
+> (a `truncated` page with a resume cursor, plus a hit-count cap) then only has to
+> amortize total work over a deep history, never rescue a single line.
 
 ## Scope
 

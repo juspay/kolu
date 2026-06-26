@@ -24,6 +24,7 @@ export const DEFAULT_FONT_SIZE = 14;
  *  browser, not the server.
  *
  *  A distinct axis from the SERVER-side per-terminal headless-mirror depth,
- *  which is deliberately smaller and lives where the mirror lives — kaval's
- *  `DEFAULT_MIRROR_SCROLLBACK` (see `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
+ *  which is deliberately smaller and lives where the mirror lives — kaval pins
+ *  the mirror to its `HOT_WINDOW` (deep history moved off the heap to the on-disk
+ *  transcript; see `docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`). */
 export const DEFAULT_SCROLLBACK = 50_000;

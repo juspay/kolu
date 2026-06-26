@@ -13,7 +13,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,7 +22,7 @@ import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import type { ptyHostSurface } from "./ptyHostSurface.ts";
 
@@ -59,7 +59,7 @@ function spawnTs(
 ): ChildProcess {
   return spawn(process.execPath, ["--import", TSX_LOADER, file, ...args], {
     stdio: ["ignore", stdout, "ignore"],
-    env: process.env,
+    env: childEnv,
   });
 }
 
@@ -69,11 +69,20 @@ function spawnTs(
 function spawnTsCli(file: string, args: string[]): ChildProcess {
   return spawn(process.execPath, [TSX_CLI, file, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
-    env: process.env,
+    env: childEnv,
   });
 }
 
 type Conn = UnixSocketConnection<typeof ptyHostSurface.contract>;
+
+// A per-suite XDG_STATE_HOME so any transcript DB a daemon writes
+// ($XDG_STATE_HOME/kaval/transcripts/<id>.db) lands in a throwaway dir, NOT the
+// developer's / CI user's real state directory (F10). kaval-tui's `create` keeps
+// history OFF, so this is now defensive — it still isolates any test that spawns
+// with history enabled. Injected into every child's env; reaped after the file.
+const STATE_HOME = mkdtempSync(join(tmpdir(), "kaval-e2e-state-"));
+const childEnv = { ...process.env, XDG_STATE_HOME: STATE_HOME };
+afterAll(() => rmSync(STATE_HOME, { recursive: true, force: true }));
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -160,7 +169,7 @@ function runKavalTui(
     const child = track(
       spawn(process.execPath, ["--import", TSX_LOADER, KAVAL_TUI, ...args], {
         stdio: ["ignore", "pipe", "pipe"],
-        env: process.env,
+        env: childEnv,
       }),
     );
     let stdout = "";
@@ -303,6 +312,7 @@ describe("kaval daemon — process-boundary behaviour", () => {
       cwd: makeCwd(),
       env: { PATH: process.env.PATH ?? "", HOME: info.home },
       initFiles: [{ name: rcName, content: "# corpus init marker\n" }],
+      history: { enabled: false, retentionBytes: 0 },
     });
     // The file the client named landed on the daemon's disk.
     expect(existsSync(rcPath)).toBe(true);

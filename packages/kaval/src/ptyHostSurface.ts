@@ -70,8 +70,39 @@ import { z } from "zod";
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
- *  is recycled on adoption rather than feeding the server unparseable marks. */
-export const PTY_HOST_CONTRACT_VERSION = "3.3";
+ *  is recycled on adoption rather than feeding the server unparseable marks.
+ *  Bumped to 4.0 (BREAKING · major) by PR2's on-disk transcript: `spawn` drops
+ *  `scrollback` (the mirror is pinned to the hot window in-kaval, no longer a
+ *  wire depth dial) and gains a REQUIRED `history` policy (B0 — the daemon
+ *  derives nothing, a missing field is a loud crash); the new `history` /
+ *  `searchHistory` verbs and the `exportHistory` stream serve
+ *  deep history. Persistence can't be layered onto a pre-persistence daemon
+ *  (the verbs would 404, the required policy field would be missing), so this is
+ *  one forced recycle that kills every live terminal once — there is no lossless
+ *  path around it.
+ *  Bumped to 4.1 (additive · minor): the new `deleteTranscript` verb lets the
+ *  server reclaim a terminal's on-disk transcript when it is KILLED / DISCARDED
+ *  (not slept), so a removed terminal no longer leaves an orphan DB on disk.
+ *  Compatibility is `major == && reportedMinor >= expectedMinor`
+ *  (`isContractVersionCompatible`), so a survivor reporting an OLDER minor than
+ *  the server expects is INCOMPATIBLE: a 4.0 daemon outliving a 4.1 server is
+ *  RECYCLED (its live terminals killed once), exactly like every prior minor
+ *  bump — the additive verb buys forward compat for a 4.1 survivor against a
+ *  future 4.2 server, NOT lossless adoption of an older 4.0 survivor.
+ *  Bumped to 5.0 (BREAKING · major): the read verbs' wire SHAPES changed since
+ *  4.1, so a surviving 4.x daemon serves shapes the new server can't speak —
+ *  `history` dropped its reader `width` input and gained a `contentWidth` output
+ *  (history now renders faithfully at its HISTORICAL width, never reflowed) and
+ *  also gained `floorEvicted`; `searchHistory` dropped its `regex` input and
+ *  gained an `evicted` output; and the `historyText` verb was removed. A 4.x
+ *  survivor still REQUIRES `history.width` and omits `contentWidth`, so a new
+ *  server calling it fails input/output validation — the observed production
+ *  "Input validation failed … width" on `terminal.history`. This is BREAKING (the
+ *  old shape can't serve the new server), so the major bump RECYCLES any 4.x
+ *  survivor once rather than letting `isContractVersionCompatible` wave it through
+ *  as a same-version peer. (The 4.1→5.0 changes are unreleased PR2 work, collapsed
+ *  into one breaking bump.) */
+export const PTY_HOST_CONTRACT_VERSION = "5.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -111,7 +142,82 @@ const TerminalSpawnInputSchema = z.object({
   initFiles: z.array(InitFileSchema),
   cols: z.number().int().positive().optional(),
   rows: z.number().int().positive().optional(),
-  scrollback: z.number().int().positive().optional(),
+  /** Per-terminal on-disk history policy (PR2). REQUIRED — the daemon derives
+   *  nothing, so a missing field is a loud crash, not a silent default.
+   *  `enabled: false` keeps no transcript; `retentionBytes` caps the per-PTY
+   *  on-disk depth (oldest records past it are evicted to a checkpoint floor). */
+  history: z.object({
+    enabled: z.boolean(),
+    retentionBytes: z.number().int().nonnegative(),
+  }),
+});
+
+/** A backward history page (or an honest non-content state), keyed on the opaque
+ *  reflow-stable byte cursor. `ansi` writes into the pager's read-only xterm. */
+const HistoryResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    ansi: z.string(),
+    // Cursors are opaque byte positions at record boundaries — nonnegative
+    // integers, never fractional or negative (F9).
+    nextCursor: z.number().int().nonnegative(),
+    atFloor: z.boolean(),
+    // When atFloor: false = genuine byte-0 start; true = the eviction floor
+    // (older output trimmed, possibly raced in mid-read). Lets the pager tell
+    // "older trimmed" from "beginning of session" (F4).
+    floorEvicted: z.boolean(),
+    // The widest resize-epoch width in this page — history renders at its
+    // historical width (never reflowed); the display sizes to this and h-scrolls.
+    contentWidth: z.number().int().positive(),
+  }),
+  z.object({ kind: z.literal("unavailable") }),
+  z.object({ kind: z.literal("evicted") }),
+  z.object({
+    kind: z.literal("faulted"),
+    lastGoodSeq: z.number().int().nonnegative(),
+  }),
+]);
+
+const HistoryInputSchema = z.object({
+  id: PtyIdSchema,
+  /** The byteSeq at the top of the content the client holds; null = the tip. A
+   *  cursor is an opaque nonnegative byte offset — reject negative/fractional
+   *  raw input at the boundary rather than serving a misleading empty page (F9). */
+  beforeCursor: z.number().int().nonnegative().nullable(),
+  // Bound the per-page work in the headless xterm render — a malformed client
+  // must not force a giant allocation. `maxLines` is the pager's overscan; full
+  // history is the streaming export path, never one unbounded page (F6). No
+  // `width` — history renders at its historical width, never the reader's.
+  maxLines: z.number().int().positive().max(100_000),
+});
+
+const SearchHistoryInputSchema = z.object({
+  id: PtyIdSchema,
+  // Bounded — a short needle. History search is LITERAL substring only (no
+  // user regex), so the server-side scan is linear and cannot backtrack (F5).
+  query: z.string().max(1000),
+  beforeCursor: z.number().int().nonnegative().nullable(),
+  caseSensitive: z.boolean(),
+  // Bounded at the boundary (the server also clamps to SEARCH_HARD_CAP) (F6).
+  maxResults: z.number().int().positive().max(10_000),
+});
+
+const SearchHistoryOutputSchema = z.object({
+  hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
+  nextCursor: z.number().int().nonnegative().nullable(),
+  truncated: z.boolean(),
+  // Reached the eviction floor with the cursor at/below it (older content
+  // trimmed) — the search is not exhaustive (F3/F4).
+  evicted: z.boolean(),
+});
+
+/** One faithful per-resize-epoch export segment, rendered at its historical
+ *  width — the un-clipped PDF / archival source. */
+const ExportSegmentSchema = z.object({
+  // A grid is always positive (real terminal cols/rows) — assert it on the wire.
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+  ansi: z.string(),
 });
 
 const TerminalSpawnOutputSchema = z.object({
@@ -280,6 +386,13 @@ export const ptyHostSurface = defineSurface({
       inputSchema: z.object({}),
       outputSchema: InventoryEventSchema,
     },
+    /** Faithful per-resize-epoch export segments (PR2), oldest→newest — a finite
+     *  ordered stream so a deep transcript isn't one giant message. The client
+     *  resizes an offscreen themed xterm per segment and accumulates the HTML. */
+    exportHistory: {
+      inputSchema: TerminalIdInputSchema,
+      outputSchema: ExportSegmentSchema,
+    },
   },
   procedures: {
     terminal: {
@@ -319,6 +432,25 @@ export const ptyHostSurface = defineSurface({
           tailLines: z.number().int().optional(),
         }),
         output: z.object({ text: z.string() }),
+      },
+      /** PR2: one backward history page (request/response paging on the opaque
+       *  byte cursor — the pager is the past, not a live tail). */
+      history: {
+        input: HistoryInputSchema,
+        output: HistoryResultSchema,
+      },
+      /** PR2: search the on-disk transcript (replay-and-scan, cursor-paged). */
+      searchHistory: {
+        input: SearchHistoryInputSchema,
+        output: SearchHistoryOutputSchema,
+      },
+      /** PR2: permanently delete a terminal's on-disk transcript (the DB + its
+       *  WAL/SHM sidecars). The server calls this on a KILL / DISCARD — never on
+       *  sleep, which keeps the DB for a later wake — so a removed terminal
+       *  doesn't leave an orphan DB growing to the per-PTY retention cap. */
+      deleteTranscript: {
+        input: TerminalIdInputSchema,
+        output: z.object({ ok: z.boolean() }),
       },
     },
     system: {

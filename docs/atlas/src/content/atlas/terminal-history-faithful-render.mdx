@@ -1,0 +1,214 @@
+---
+title: Faithful History Render — Stop Reflowing Recorded Terminal Output
+description: The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow.
+parents: [kaval-memory-architecture, feature]
+status: implemented
+maturity: budding
+updated: 2026-06-26
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+
+<PrLink pr={1577} />
+
+export const Bad = () => (
+  <pre style="background:#1a1320;color:#d8c8e8;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">{`Germinating... thinking with xhigh effort and a very long tail to push…
+                            ↑ reader width = 90  (emit width was 120)
+\\r  →  returns to col 0 of the WRAPPED TAIL, not the logical line start
+Germinating... almost done          ← overwrites the WRONG physical row
+─────────────────────────────────────────────────────────────────────
+result the user sees (your screenshot):
+  Re Refocusing on the the2concrete5deliverable:αthetdraft PR …
+  or  reshrm  gentacode s  de-Pierre'd).  ← overlapping fragments`}</pre>
+);
+
+export const Good = () => (
+  <pre style="background:#101a14;color:#c8e8d4;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">{`render at the HISTORICAL width (120), emit FIXED ROWS (hard \\r\\n):
+  Germinating... almost doneth xhigh effort and a very long tail…   ✓ exact
+display: render at content width (120), then ZOOM-TO-FIT the modal (scale ≈0.75):
+  ┌──────────────── modal viewport (≈90 cols) ──────────────────────┐
+  │ Germinating... almost doneth xhigh effort and a very long tail…  │  ← all 120
+  └─────────────────────────────────────────────────────────────────┘    cols, scaled`}</pre>
+);
+
+## User-facing description
+
+Opening **⏱ History** on a terminal that ran an agent (Claude Code, or any TUI)
+shows garbled, overlapping text — words doubled, spaces replaced by stray
+characters, fragments stacked on the left edge. The deeper the history, the worse
+it reads. The same flaw flashes on **reconnect** and on **mobile**, where the
+inherited scrollback briefly scrambles before the live screen repaints.
+
+<Bad />
+
+The fix makes the pager show history **exactly as the terminal drew it** — every
+box, spinner frame, and indented block intact — by rendering at the width the
+content was actually emitted at and never re-wrapping it. When that width is
+wider than the modal, the whole view **zooms to fit** (scaled down uniformly, no
+horizontal scrollbar), so you always see the full width at a glance. Nothing is
+re-wrapped or squeezed out of shape — only scaled. (A very wide terminal renders
+smaller; a future minimum-zoom floor could fall back to scroll past that point.)
+
+<Good />
+
+No new buttons; the pager just stops corrupting TUI history. PDF export is
+already faithful and is unchanged. `kaval-tui attach` is already correct.
+
+## Architecture-level changes
+
+### Why reflow is the wrong model (the root cause, reproduced)
+
+A terminal's recorded output is a stream of bytes that includes **`\r` and
+cursor-positioning** — every TUI redraws in place. Those bytes are only
+meaningful at the **width they were emitted at**: a `\r` returns to column 0 of
+the current *physical* row, and which physical row that is depends on where lines
+wrapped. Replay the same bytes into a terminal of a **different** width and the
+wrap points move, so every in-place redraw lands on the wrong row — overlap,
+duplication, garbage. Reproduced against `@xterm/headless@6.0.0`:
+
+| Replay width | `Germinating…` line (104 chars) then `\r` + `almost done` |
+| --- | --- |
+| **120 (emit width)** | `Germinating... almost done` overwrites the line start ✓ |
+| **90 (foreign)** | the line wraps; `\r` hits the wrapped tail → `almost done` overwrites the **wrong row** ✗ |
+
+Plain text reflows fine; **cursor-addressed content cannot be reflowed** — and
+kolu terminals are overwhelmingly agent TUIs, so this is the *common* case. The
+only faithful rendering is at the **emit width**. PDF export already does exactly
+this (`renderFaithful` at the historical per-epoch width); the pager does not.
+
+### The model: history is fixed physical rows, never reflowed
+
+A terminal's scrollback **is** a grid of fixed-width rows. The lossy step is
+re-wrapping them. So:
+
+1. **Render each recorded physical row at its historical width** (the
+   per-resize-epoch width the faithful renderer already establishes), reconstructed
+   by replaying the DATA at *that* width so all the `\r`/cursor moves land
+   correctly — exactly the final screen the terminal showed.
+2. **Emit it width-locked** — a new fixed-row ANSI serializer writes each physical
+   row with its SGR followed by a hard `\r\n`. Because the wrap is now a real
+   newline (not a soft wrap the consumer re-derives), the bytes render *identically*
+   at any display width. A 120-col epoch and an 80-col epoch can sit in one display
+   buffer with no cross-contamination.
+3. **Solve width at the display layer** — the pager xterm is sized to the content's
+   width (the widest epoch loaded), then the whole grid is **zoomed to fit** the
+   modal with a CSS scale-down (no horizontal scrollbar). Width is a free choice
+   *only* at display time, never during recording or render.
+
+This converges the pager onto the same faithful path as export — one rendering
+model, two consumers (a bounded page vs. the whole stream).
+
+### Blast-radius map (every render-at-foreign-width site)
+
+| Site | Client | Reflows at foreign width? | Action |
+| --- | --- | --- | --- |
+| `HistoryPager` → `history()` → `renderReflow(readerWidth)` | web pager | **Yes — persistent** | **Fix:** faithful fixed-row render at historical width |
+| Attach snapshot `serialize({scrollback})` @ mirror width → client xterm @ fitted width | web · mobile | **Yes — scrollback persists, screen self-corrects** | **Fix:** resize-first (match `kaval-tui`); deep history lives in the now-faithful pager |
+| `exportHistory` → `renderFaithful` | PDF | No (historical width) | none — already correct |
+| `kaval-tui attach` (resize-before-attach) | TUI | No (matched) | none — the pattern to copy |
+| Live region (post-attach output) | all | No (PTY resized to client width) | none — new output is always matched |
+
+The mirror has **one** width (shared, last-resize-wins); that is unchanged. The
+multi-client width fight is pre-existing and out of scope.
+
+<Callout kind="note" title="Why the live terminal's scrollback is not the target">
+The live `Terminal.tsx` is one xterm that *must* wrap new output at the client's
+width, so its scrollback is xterm's own reflowing buffer — we don't fork that.
+PR2 already moved *deep* history off it into the pager (the live mirror keeps only
+`HOT_WINDOW` ≈ 500 lines). So the fix is: make the **pager** faithful (deep,
+persistent, read-on-purpose) and make attach **resize-first** (so the visible
+screen is correct on join); the shallow live scrollback re-wrap is bounded and
+the accurate record is one keypress away in the pager.
+</Callout>
+
+## Implementation details
+
+Build-ready for an implementing agent. One PR; the pieces are coupled (the
+serializer + the verb + the client display move together) and nothing ships
+half-faithful.
+
+### 1. Fixed-row ANSI serializer (`packages/kaval/src/transcript/render.ts`)
+
+Add `serializeFixedRows(term, fromRow)` — walk `buffer.active` from `fromRow` to
+the last non-blank row and, per physical row, emit the row's cells as SGR-runs
+(coalesce adjacent equal-attribute cells into one `\x1b[…m` run; reset at row end)
+followed by a literal `\r\n`. Reuse the cell→SGR mapping `@xterm/addon-serialize`
+already implements rather than hand-rolling color math — extract or vendor its
+per-cell attribute diff (fg/bg/bold/italic/underline/inverse/dim/strike), so the
+fixed-row output matches export's colors exactly. **Contract test:** a row stream
+serialized fixed-row, written into a width-W *and* a width-2W xterm, yields
+byte-identical `translateToString` per row (width-locked — the property the whole
+fix rests on).
+
+### 2. `history()` renders faithful, width-locked (`transcript.ts`)
+
+- Drop the `width` parameter's role as a *reflow* width. `history()` pages the
+  same checkpoint-to-checkpoint byte range, but renders the page through the
+  **faithful** segmentation (`faithfulSegments` per resize-epoch) and emits each
+  segment via `serializeFixedRows`, concatenated. The seed rows are dropped exactly
+  as today (`seedBoundaryRow`, including the deferred-wrap `+1` from the seam fix).
+- Add `contentWidth` to the `ok` arm of `HistoryResult` (+ the wire schema): the
+  max epoch width in the page, so the client sizes its xterm. `nextCursor` /
+  `floorEvicted` / `evicted` semantics are unchanged.
+- `renderReflow` loses its only caller and is **deleted** (the reflow model is the
+  defect — make it unspellable, not merely unused). `searchHistory` already joins
+  logical lines width-independently and does not display, so it keeps a plain
+  replay; only the *rendered* paths change.
+
+### 3. Pager displays at content width, zoomed to fit (`HistoryPager.tsx`)
+
+- Remove the `FitAddon` width coupling: the pager xterm's `cols` is set to the
+  page's `contentWidth` (grown as older, wider epochs load), not the modal width.
+- **Zoom to fit:** `proposeDimensions()` measures the viewport (the element the
+  xterm is opened on) at the full font size; `scale = min(1, viewportCols /
+  contentWidth)` and the `.xterm` element gets `transform: scale(s)` (origin
+  top-left). The xterm's row count is bumped to `rows / s` so the scaled grid
+  still fills the viewport height; `overflow: hidden` clips, so there is no
+  scrollbar in either axis (vertical paging is the existing backfill-on-scroll).
+  The transform is visual only — it never reflows the buffer or changes what
+  `proposeDimensions` measures (it reads the host's layout width, unaffected by a
+  transformed child). Only ever shrinks (≤ 1).
+- Drop the resize→refetch path (no width refetch needed — content width is
+  historical, not reader-derived); a resize only re-computes the zoom scale + row
+  count for the new viewport, never re-renders or re-fetches.
+- **Risk — search highlight offsets:** the in-view `SearchAddon` re-finds matches
+  in the rendered buffer; fixed rows preserve the buffer text, so this is
+  unaffected — pin it with a test that a hit highlights on the correct row after
+  the switch.
+
+### 4. Attach resize-first (`Terminal.tsx`, mobile shares this path)
+
+Reorder attach so the client **resizes the PTY to its fitted width before reading
+the snapshot** (the `kaval-tui` pattern at `attach.ts:243`): `fit()` → `resize({id,
+cols, rows})` → `attach` → write snapshot. The snapshot is then serialized at the
+client's width, so the visible screen is faithful on join. No change to the mirror
+or the live stream. **Risk — multi-client width thrash:** resize-first makes a
+joining client claim the shared width; this matches today's last-write-wins
+behavior (a join already resized on first fit), so it is not a new regression —
+note it, don't expand scope.
+
+### 5. Docs + tests
+
+- Update `kaval-memory-architecture.mdx` (the parent): the pager is **faithful at
+  historical width**, not reflow-to-current; the "reflow-to-current (pager) vs
+  faithful (export)" split collapses to "faithful everywhere; display chooses
+  width."
+- Tests (kaval): the fixed-row width-lock contract test (§1); a `history()` page of
+  a recorded **TUI stream** (`\r`-redraw + cursor moves) asserted byte-identical to
+  the live terminal's final screen at the historical width (the regression guard for
+  *this* bug — red on `renderReflow`, green on faithful); a multi-epoch page (resize
+  mid-history) rendering each epoch faithfully in one buffer.
+- Evidence: the pager showing a real Claude Code session's history intact, plus the
+  zoom-to-fit display (a wide session scaled to the modal), captured on a pu box.
+
+### Design-philosophy check
+
+- **Fail-fast / no fallback:** `renderReflow` is deleted, not left as a toggle — the
+  corrupting path becomes unspellable. No "reflow vs faithful" knob.
+- **Reuse the source of truth:** the pager adopts export's faithful renderer and
+  `@xterm/addon-serialize`'s cell→SGR mapping; attach adopts `kaval-tui`'s
+  resize-first. No parallel mechanism.
+- **Electricity / boundaries:** the fixed-row serializer is a leaf in the transcript
+  render module beside its faithful sibling — a bounded algorithm, not a new
+  package.

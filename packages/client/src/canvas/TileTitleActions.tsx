@@ -15,12 +15,14 @@ import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
+import { useHistoryPager } from "../terminal/useHistoryPager";
 import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalSearch } from "../terminal/useTerminalSearch";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useCommandPalette } from "../useCommandPalette";
 import {
+  HistoryIcon,
   MoonIcon,
   ScreenshotIcon,
   SearchIcon,
@@ -40,6 +42,7 @@ const TileTitleActions: Component<{
   const store = useTerminalStore();
   const crud = useTerminalCrud();
   const search = useTerminalSearch();
+  const historyPager = useHistoryPager();
   const commandPalette = useCommandPalette();
   const rightPanel = useRightPanel();
   const subPanel = useSubPanel();
@@ -148,6 +151,19 @@ const TileTitleActions: Component<{
             aria-label="Find in terminal"
           >
             <SearchIcon />
+          </button>
+        </Tip>
+        <Tip label="View terminal history">
+          <button
+            type="button"
+            data-testid="tile-history"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => onTile(e, () => historyPager.openFor(props.id))}
+            aria-label="View terminal history"
+          >
+            <HistoryIcon />
           </button>
         </Tip>
         <button

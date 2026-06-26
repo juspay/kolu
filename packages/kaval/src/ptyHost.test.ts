@@ -1,4 +1,7 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ANSWERED_DEVICE_QUERIES,
   isTerminalQueryResponse,
@@ -140,6 +143,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'hello mirror\\n'; sleep 0.5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -153,6 +157,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'live delta\\n'; sleep 0.5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -178,6 +183,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'snap content\\n'; sleep 0.5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -199,6 +205,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       // The child must outlive the synchronous resize+read below: its exit
       // tears the entry down (disposes the headless terminal), after which
       // getScreenText returns "" and the assertion would fail for the wrong
@@ -228,6 +235,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "exit 7"],
       env: shellEnv,
       cwd: "/tmp",
@@ -239,6 +247,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "exit 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -254,6 +263,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: [
         "-c",
         "printf '\\033]7;file://localhost/tmp/host-osc7\\033\\\\'; sleep 0.5",
@@ -270,6 +280,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033]633;E;git status\\033\\\\'; sleep 0.5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -285,6 +296,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033]633;E;codex\\033\\\\'; sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -299,6 +311,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033]2;my title\\033\\\\'; sleep 0.5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -306,27 +319,29 @@ describe("createPtyHost", () => {
     expect(await firstEvent(host.subscribeTitle(id))).toBe("my title");
   });
 
-  it("trims the headless mirror to its configured scrollback under heavy output", async () => {
-    // The per-terminal mirror is what accumulates in kaval's heap, so it must
-    // honour the (small) spawn scrollback: FIRSTLINE drops, LASTLINE stays, and
-    // the buffer is bounded — not the full 400+ lines. See kaval-heap-oom.mdx.
+  it("bounds the headless mirror to the hot window under heavy output", async () => {
+    // PR2: the mirror is pinned to HOT_WINDOW (deep history lives in the
+    // transcript, off the heap), so a flood beyond the window drops FIRSTLINE,
+    // keeps LASTLINE, and the buffer stays bounded — not the full 1000+ lines.
+    // See kaval-memory-architecture.mdx.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: [
         "-c",
-        "printf 'FIRSTLINE\\n'; for i in $(seq 1 400); do printf 'fill%s\\n' \"$i\"; done; printf 'LASTLINE\\n'; sleep 30",
+        "printf 'FIRSTLINE\\n'; for i in $(seq 1 1000); do printf 'fill%s\\n' \"$i\"; done; printf 'LASTLINE\\n'; sleep 30",
       ],
       env: shellEnv,
       cwd: "/tmp",
       rows: 24,
-      scrollback: 50,
     });
     await waitFor(() => host.getScreenText(id).includes("LASTLINE"));
     const text = host.getScreenText(id);
     expect(text).toContain("LASTLINE");
     expect(text).not.toContain("FIRSTLINE");
-    expect(text.split("\n").length).toBeLessThan(120);
+    // HOT_WINDOW (500) + viewport, with comfortable headroom — far below 1000.
+    expect(text.split("\n").length).toBeLessThan(700);
   });
 
   it("still serves the live jobs at a small mirror (metadata, scrape tail, cold-attach repaint)", async () => {
@@ -337,6 +352,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: [
         "-c",
         "printf '\\033]7;file://localhost/tmp/deep\\033\\\\'; for i in $(seq 1 400); do printf 'fill%s\\n' \"$i\"; done; printf 'TAILMARK\\n'; sleep 30",
@@ -344,7 +360,6 @@ describe("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
       rows: 24,
-      scrollback: 50,
     });
     // (a) metadata: OSC 7 cwd is parsed regardless of mirror depth.
     await waitFor(() => host.getCwd(id) === "/tmp/deep");
@@ -366,6 +381,7 @@ describe("createPtyHost", () => {
     // the model string appearing on screen proves the child received the reply.
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033[>0q'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -382,6 +398,7 @@ describe("createPtyHost", () => {
     // absent — proving no reply was written (and thus nothing echoed back).
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033[>1qSENTINEL_DONE'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -397,6 +414,7 @@ describe("createPtyHost", () => {
     // the tty echoes input.
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       env: shellEnv,
       cwd: "/tmp",
     });
@@ -415,6 +433,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -429,6 +448,7 @@ describe("createPtyHost", () => {
     host = createPtyHost({ log: silentLog });
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -449,6 +469,7 @@ describe("createPtyHost", () => {
     const inv = host.subscribeInventory()[Symbol.asyncIterator]();
     const { id, pid } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -472,6 +493,7 @@ describe("createPtyHost", () => {
     const inv = host.subscribeInventory()[Symbol.asyncIterator]();
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -488,6 +510,7 @@ describe("createPtyHost", () => {
     const b = host.subscribeInventory()[Symbol.asyncIterator]();
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "sleep 5"],
       env: shellEnv,
       cwd: "/tmp",
@@ -590,6 +613,7 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
     const host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf '\\033]11;?\\007'; printf 'OSC_SENTINEL'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -635,6 +659,7 @@ describe("attach() reconnect-storm defenses", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'abort marker\\n'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -660,6 +685,7 @@ describe("attach() reconnect-storm defenses", () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'idle marker\\n'; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -684,6 +710,7 @@ describe("attach() reconnect-storm defenses", () => {
     // worker can lose by printing both before the first poll observes either.
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       env: shellEnv,
       cwd: "/tmp",
     });
@@ -711,6 +738,7 @@ describe("attach() reconnect-storm defenses", () => {
     // publish, the path that exposes the missed invalidation.
     const { id } = host.spawn({
       shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
       args: ["-c", "printf 'WIDEMARK%083d\\n' 0; sleep 1"],
       env: shellEnv,
       cwd: "/tmp",
@@ -730,5 +758,91 @@ describe("attach() reconnect-storm defenses", () => {
 
     expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
     expect(second).not.toBe(first); // reflects the new 120-col layout
+  });
+});
+
+describe("on-disk transcript integration (PR2)", () => {
+  let host: PtyHost;
+  let dir: string;
+  afterEach(() => {
+    host?.dispose();
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("enabled history: a real PTY's output is paged back from disk", async () => {
+    dir = mkdtempSync(join(tmpdir(), "kaval-tx-host-"));
+    host = createPtyHost({ log: silentLog, transcriptDir: dir });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      history: { enabled: true, retentionBytes: 1 << 30 },
+      args: [
+        "-c",
+        "for i in $(seq 1 300); do printf 'HISTLINE-%s\\n' \"$i\"; done; printf 'DONEMARK\\n'; sleep 30",
+      ],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+    });
+    await waitFor(() => host.getScreenText(id).includes("DONEMARK"), 8000);
+
+    // The pager reads deep history from disk, INCLUDING lines that scrolled off
+    // the bounded hot mirror.
+    const page = await host.history(id, {
+      beforeCursor: null,
+      maxLines: 400,
+    });
+    expect(page.kind).toBe("ok");
+    if (page.kind === "ok") {
+      // Deep history reaches the oldest AND newest lines, including ones that
+      // scrolled off the bounded hot mirror.
+      expect(page.ansi).toContain("HISTLINE-300");
+      expect(page.ansi).toContain("HISTLINE-7");
+    }
+  });
+
+  it("disabled history: read verbs return the honest non-content state", async () => {
+    dir = mkdtempSync(join(tmpdir(), "kaval-tx-host-"));
+    host = createPtyHost({ log: silentLog, transcriptDir: dir });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      history: { enabled: false, retentionBytes: 0 },
+      args: ["-c", "printf 'X\\n'; sleep 30"],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+    });
+    const page = await host.history(id, {
+      beforeCursor: null,
+      maxLines: 50,
+    });
+    expect(page.kind).toBe("unavailable");
+  });
+
+  it("deleteTranscript removes the on-disk DB (no orphan after a kill)", async () => {
+    dir = mkdtempSync(join(tmpdir(), "kaval-tx-host-"));
+    host = createPtyHost({ log: silentLog, transcriptDir: dir });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      history: { enabled: true, retentionBytes: 1 << 30 },
+      args: ["-c", "printf 'PERSISTED\\n'; sleep 30"],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+    });
+    await waitFor(() => host.getScreenText(id).includes("PERSISTED"), 8000);
+
+    const dbPath = join(dir, `${id}.db`);
+    expect(existsSync(dbPath)).toBe(true);
+
+    // The permanent-removal path: deleteTranscript releases the open connection
+    // and unlinks the DB (+ its WAL/SHM sidecars), so a killed terminal leaves no
+    // orphan file growing to the retention cap.
+    host.deleteTranscript(id);
+    expect(existsSync(dbPath)).toBe(false);
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+
+    // Idempotent + safe on an unknown id (no live entry — the discardSleeping case).
+    expect(() => host.deleteTranscript(id)).not.toThrow();
   });
 });

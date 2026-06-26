@@ -48,6 +48,8 @@ export interface ActionContext {
   toggleShortcutsHelp: () => void;
   /** Flip the active terminal's find bar (`Cmd+F`). */
   toggleSearch: () => void;
+  /** Flip the active terminal's copy-mode history pager (`Mod+Shift+H`). */
+  toggleHistoryPager: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -226,6 +228,16 @@ const _ACTIONS = {
     // claims the chord only when focus is inside it (useShortcuts.ts).
     focusScopeMarker: TERMINAL_SEARCH_MARKER,
     handler: (ctx) => ctx.toggleSearch(),
+  },
+  viewHistory: {
+    label: "View terminal history",
+    // Mod+Shift+H — KeyH is unused across ACTIONS, and the Mod+Shift+<letter>
+    // family is the established app-chord convention (clears in-PTY bytes; not
+    // in PROHIBITED_KEYBINDS). Scoped to a terminal subtree so Firefox's own
+    // Ctrl+Shift+H (history) still works everywhere else.
+    keybind: { key: "H", code: "KeyH", mod: true, shift: true },
+    focusScopeMarker: TERMINAL_SEARCH_MARKER,
+    handler: (ctx) => ctx.toggleHistoryPager(),
   },
   zoomIn: {
     label: "Zoom in",

@@ -14,6 +14,7 @@ import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { screenshotTerminal } from "./screenshotTerminal";
 import { shortcutsHelp } from "./ShortcutsHelp";
+import { useHistoryPager } from "./terminal/useHistoryPager";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTerminalSearch } from "./terminal/useTerminalSearch";
@@ -29,6 +30,7 @@ export function useActionContext(): ActionContext {
   const posture = useViewPosture();
   const commandPalette = useCommandPalette();
   const terminalSearch = useTerminalSearch();
+  const historyPager = useHistoryPager();
   const { handleShuffleTheme } = useThemeManager();
   const dockTree = useDockOrder();
 
@@ -59,6 +61,7 @@ export function useActionContext(): ActionContext {
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,
+    toggleHistoryPager: historyPager.toggleActive,
     toggleSubPanel: crud.toggleSubPanel,
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(

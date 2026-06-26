@@ -1,0 +1,220 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Faithful History Render — Stop Reflowing Recorded Terminal Output · the kolu Atlas</title><meta name="description" content="The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/terminal-history-faithful-render.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Faithful History Render — Stop Reflowing Recorded Terminal Output · the kolu Atlas"><meta property="og:description" content="The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/terminal-history-faithful-render.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-26T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Faithful History Render — Stop Reflowing Recorded Terminal Output · the kolu Atlas"><meta name="twitter:description" content="The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Faithful History Render — Stop Reflowing Recorded Terminal Output</h1><div class="meta-row"><span>Features</span><span class="meta-sep">·</span><span>budding</span><span class="meta-sep">·</span><span>implemented</span><span class="meta-sep">·</span><time datetime="2026-06-26T00:00:00.000Z">JUN 26, 2026</time></div><p class="note-sub">The copy-mode pager (and the attach snapshot) corrupt TUI history by replaying recorded bytes at a foreign width. Render history as fixed physical rows at its historical width instead; never reflow.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#user-facing-description" data-astro-cid-rda6bqd5>User-facing description</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#architecture-level-changes" data-astro-cid-rda6bqd5>Architecture-level changes</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#why-reflow-is-the-wrong-model-the-root-cause-reproduced" data-astro-cid-rda6bqd5>Why reflow is the wrong model (the root cause, reproduced)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-model-history-is-fixed-physical-rows-never-reflowed" data-astro-cid-rda6bqd5>The model: history is fixed physical rows, never reflowed</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#blast-radius-map-every-render-at-foreign-width-site" data-astro-cid-rda6bqd5>Blast-radius map (every render-at-foreign-width site)</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#implementation-details" data-astro-cid-rda6bqd5>Implementation details</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#1-fixed-row-ansi-serializer-packageskavalsrctranscriptrenderts" data-astro-cid-rda6bqd5>1. Fixed-row ANSI serializer (packages/kaval/src/transcript/render.ts)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#2-history-renders-faithful-width-locked-transcriptts" data-astro-cid-rda6bqd5>2. history() renders faithful, width-locked (transcript.ts)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#3-pager-displays-at-content-width-zoomed-to-fit-historypagertsx" data-astro-cid-rda6bqd5>3. Pager displays at content width, zoomed to fit (HistoryPager.tsx)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#4-attach-resize-first-terminaltsx-mobile-shares-this-path" data-astro-cid-rda6bqd5>4. Attach resize-first (Terminal.tsx, mobile shares this path)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#5-docs--tests" data-astro-cid-rda6bqd5>5. Docs + tests</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#design-philosophy-check" data-astro-cid-rda6bqd5>Design-philosophy check</a></li></ul></li></ul></nav></header><div class="prose"><a href="https://github.com/juspay/kolu/pull/1577" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1577</a>
+
+
+<h2 id="user-facing-description">User-facing description</h2>
+<p>Opening <strong>⏱ History</strong> on a terminal that ran an agent (Claude Code, or any TUI)
+shows garbled, overlapping text — words doubled, spaces replaced by stray
+characters, fragments stacked on the left edge. The deeper the history, the worse
+it reads. The same flaw flashes on <strong>reconnect</strong> and on <strong>mobile</strong>, where the
+inherited scrollback briefly scrambles before the live screen repaints.</p>
+<pre style="background:#1a1320;color:#d8c8e8;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">Germinating... thinking with xhigh effort and a very long tail to push…
+                            ↑ reader width = 90  (emit width was 120)
+\r  →  returns to col 0 of the WRAPPED TAIL, not the logical line start
+Germinating... almost done          ← overwrites the WRONG physical row
+─────────────────────────────────────────────────────────────────────
+result the user sees (your screenshot):
+  Re Refocusing on the the2concrete5deliverable:αthetdraft PR …
+  or  reshrm  gentacode s  de-Pierre&#39;d).  ← overlapping fragments</pre>
+<p>The fix makes the pager show history <strong>exactly as the terminal drew it</strong> — every
+box, spinner frame, and indented block intact — by rendering at the width the
+content was actually emitted at and never re-wrapping it. When that width is
+wider than the modal, the whole view <strong>zooms to fit</strong> (scaled down uniformly, no
+horizontal scrollbar), so you always see the full width at a glance. Nothing is
+re-wrapped or squeezed out of shape — only scaled. (A very wide terminal renders
+smaller; a future minimum-zoom floor could fall back to scroll past that point.)</p>
+<pre style="background:#101a14;color:#c8e8d4;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">render at the HISTORICAL width (120), emit FIXED ROWS (hard \r\n):
+  Germinating... almost doneth xhigh effort and a very long tail…   ✓ exact
+display: render at content width (120), then ZOOM-TO-FIT the modal (scale ≈0.75):
+  ┌──────────────── modal viewport (≈90 cols) ──────────────────────┐
+  │ Germinating... almost doneth xhigh effort and a very long tail…  │  ← all 120
+  └─────────────────────────────────────────────────────────────────┘    cols, scaled</pre>
+<p>No new buttons; the pager just stops corrupting TUI history. PDF export is
+already faithful and is unchanged. <code>kaval-tui attach</code> is already correct.</p>
+<h2 id="architecture-level-changes">Architecture-level changes</h2>
+<h3 id="why-reflow-is-the-wrong-model-the-root-cause-reproduced">Why reflow is the wrong model (the root cause, reproduced)</h3>
+<p>A terminal’s recorded output is a stream of bytes that includes <strong><code>\r</code> and
+cursor-positioning</strong> — every TUI redraws in place. Those bytes are only
+meaningful at the <strong>width they were emitted at</strong>: a <code>\r</code> returns to column 0 of
+the current <em>physical</em> row, and which physical row that is depends on where lines
+wrapped. Replay the same bytes into a terminal of a <strong>different</strong> width and the
+wrap points move, so every in-place redraw lands on the wrong row — overlap,
+duplication, garbage. Reproduced against <code>@xterm/headless@6.0.0</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Replay width</th>
+<th><code>Germinating…</code> line (104 chars) then <code>\r</code> + <code>almost done</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>120 (emit width)</strong></td>
+<td><code>Germinating... almost done</code> overwrites the line start ✓</td>
+</tr>
+<tr>
+<td><strong>90 (foreign)</strong></td>
+<td>the line wraps; <code>\r</code> hits the wrapped tail → <code>almost done</code> overwrites the <strong>wrong row</strong> ✗</td>
+</tr>
+</tbody>
+</table>
+<p>Plain text reflows fine; <strong>cursor-addressed content cannot be reflowed</strong> — and
+kolu terminals are overwhelmingly agent TUIs, so this is the <em>common</em> case. The
+only faithful rendering is at the <strong>emit width</strong>. PDF export already does exactly
+this (<code>renderFaithful</code> at the historical per-epoch width); the pager does not.</p>
+<h3 id="the-model-history-is-fixed-physical-rows-never-reflowed">The model: history is fixed physical rows, never reflowed</h3>
+<p>A terminal’s scrollback <strong>is</strong> a grid of fixed-width rows. The lossy step is
+re-wrapping them. So:</p>
+<ol>
+<li><strong>Render each recorded physical row at its historical width</strong> (the
+per-resize-epoch width the faithful renderer already establishes), reconstructed
+by replaying the DATA at <em>that</em> width so all the <code>\r</code>/cursor moves land
+correctly — exactly the final screen the terminal showed.</li>
+<li><strong>Emit it width-locked</strong> — a new fixed-row ANSI serializer writes each physical
+row with its SGR followed by a hard <code>\r\n</code>. Because the wrap is now a real
+newline (not a soft wrap the consumer re-derives), the bytes render <em>identically</em>
+at any display width. A 120-col epoch and an 80-col epoch can sit in one display
+buffer with no cross-contamination.</li>
+<li><strong>Solve width at the display layer</strong> — the pager xterm is sized to the content’s
+width (the widest epoch loaded), then the whole grid is <strong>zoomed to fit</strong> the
+modal with a CSS scale-down (no horizontal scrollbar). Width is a free choice
+<em>only</em> at display time, never during recording or render.</li>
+</ol>
+<p>This converges the pager onto the same faithful path as export — one rendering
+model, two consumers (a bounded page vs. the whole stream).</p>
+<h3 id="blast-radius-map-every-render-at-foreign-width-site">Blast-radius map (every render-at-foreign-width site)</h3>
+<table>
+<thead>
+<tr>
+<th>Site</th>
+<th>Client</th>
+<th>Reflows at foreign width?</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HistoryPager</code> → <code>history()</code> → <code>renderReflow(readerWidth)</code></td>
+<td>web pager</td>
+<td><strong>Yes — persistent</strong></td>
+<td><strong>Fix:</strong> faithful fixed-row render at historical width</td>
+</tr>
+<tr>
+<td>Attach snapshot <code>serialize({scrollback})</code> @ mirror width → client xterm @ fitted width</td>
+<td>web · mobile</td>
+<td><strong>Yes — scrollback persists, screen self-corrects</strong></td>
+<td><strong>Fix:</strong> resize-first (match <code>kaval-tui</code>); deep history lives in the now-faithful pager</td>
+</tr>
+<tr>
+<td><code>exportHistory</code> → <code>renderFaithful</code></td>
+<td>PDF</td>
+<td>No (historical width)</td>
+<td>none — already correct</td>
+</tr>
+<tr>
+<td><code>kaval-tui attach</code> (resize-before-attach)</td>
+<td>TUI</td>
+<td>No (matched)</td>
+<td>none — the pattern to copy</td>
+</tr>
+<tr>
+<td>Live region (post-attach output)</td>
+<td>all</td>
+<td>No (PTY resized to client width)</td>
+<td>none — new output is always matched</td>
+</tr>
+</tbody>
+</table>
+<p>The mirror has <strong>one</strong> width (shared, last-resize-wins); that is unchanged. The
+multi-client width fight is pre-existing and out of scope.</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Why the live terminal&#39;s scrollback is not the target</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The live <code>Terminal.tsx</code> is one xterm that <em>must</em> wrap new output at the client’s
+width, so its scrollback is xterm’s own reflowing buffer — we don’t fork that.
+PR2 already moved <em>deep</em> history off it into the pager (the live mirror keeps only
+<code>HOT_WINDOW</code> ≈ 500 lines). So the fix is: make the <strong>pager</strong> faithful (deep,
+persistent, read-on-purpose) and make attach <strong>resize-first</strong> (so the visible
+screen is correct on join); the shallow live scrollback re-wrap is bounded and
+the accurate record is one keypress away in the pager.</p></div></aside>
+<h2 id="implementation-details">Implementation details</h2>
+<p>Build-ready for an implementing agent. One PR; the pieces are coupled (the
+serializer + the verb + the client display move together) and nothing ships
+half-faithful.</p>
+<h3 id="1-fixed-row-ansi-serializer-packageskavalsrctranscriptrenderts">1. Fixed-row ANSI serializer (<code>packages/kaval/src/transcript/render.ts</code>)</h3>
+<p>Add <code>serializeFixedRows(term, fromRow)</code> — walk <code>buffer.active</code> from <code>fromRow</code> to
+the last non-blank row and, per physical row, emit the row’s cells as SGR-runs
+(coalesce adjacent equal-attribute cells into one <code>\x1b[…m</code> run; reset at row end)
+followed by a literal <code>\r\n</code>. Reuse the cell→SGR mapping <code>@xterm/addon-serialize</code>
+already implements rather than hand-rolling color math — extract or vendor its
+per-cell attribute diff (fg/bg/bold/italic/underline/inverse/dim/strike), so the
+fixed-row output matches export’s colors exactly. <strong>Contract test:</strong> a row stream
+serialized fixed-row, written into a width-W <em>and</em> a width-2W xterm, yields
+byte-identical <code>translateToString</code> per row (width-locked — the property the whole
+fix rests on).</p>
+<h3 id="2-history-renders-faithful-width-locked-transcriptts">2. <code>history()</code> renders faithful, width-locked (<code>transcript.ts</code>)</h3>
+<ul>
+<li>Drop the <code>width</code> parameter’s role as a <em>reflow</em> width. <code>history()</code> pages the
+same checkpoint-to-checkpoint byte range, but renders the page through the
+<strong>faithful</strong> segmentation (<code>faithfulSegments</code> per resize-epoch) and emits each
+segment via <code>serializeFixedRows</code>, concatenated. The seed rows are dropped exactly
+as today (<code>seedBoundaryRow</code>, including the deferred-wrap <code>+1</code> from the seam fix).</li>
+<li>Add <code>contentWidth</code> to the <code>ok</code> arm of <code>HistoryResult</code> (+ the wire schema): the
+max epoch width in the page, so the client sizes its xterm. <code>nextCursor</code> /
+<code>floorEvicted</code> / <code>evicted</code> semantics are unchanged.</li>
+<li><code>renderReflow</code> loses its only caller and is <strong>deleted</strong> (the reflow model is the
+defect — make it unspellable, not merely unused). <code>searchHistory</code> already joins
+logical lines width-independently and does not display, so it keeps a plain
+replay; only the <em>rendered</em> paths change.</li>
+</ul>
+<h3 id="3-pager-displays-at-content-width-zoomed-to-fit-historypagertsx">3. Pager displays at content width, zoomed to fit (<code>HistoryPager.tsx</code>)</h3>
+<ul>
+<li>Remove the <code>FitAddon</code> width coupling: the pager xterm’s <code>cols</code> is set to the
+page’s <code>contentWidth</code> (grown as older, wider epochs load), not the modal width.</li>
+<li><strong>Zoom to fit:</strong> <code>proposeDimensions()</code> measures the viewport (the element the
+xterm is opened on) at the full font size; <code>scale = min(1, viewportCols / contentWidth)</code> and the <code>.xterm</code> element gets <code>transform: scale(s)</code> (origin
+top-left). The xterm’s row count is bumped to <code>rows / s</code> so the scaled grid
+still fills the viewport height; <code>overflow: hidden</code> clips, so there is no
+scrollbar in either axis (vertical paging is the existing backfill-on-scroll).
+The transform is visual only — it never reflows the buffer or changes what
+<code>proposeDimensions</code> measures (it reads the host’s layout width, unaffected by a
+transformed child). Only ever shrinks (≤ 1).</li>
+<li>Drop the resize→refetch path (no width refetch needed — content width is
+historical, not reader-derived); a resize only re-computes the zoom scale + row
+count for the new viewport, never re-renders or re-fetches.</li>
+<li><strong>Risk — search highlight offsets:</strong> the in-view <code>SearchAddon</code> re-finds matches
+in the rendered buffer; fixed rows preserve the buffer text, so this is
+unaffected — pin it with a test that a hit highlights on the correct row after
+the switch.</li>
+</ul>
+<h3 id="4-attach-resize-first-terminaltsx-mobile-shares-this-path">4. Attach resize-first (<code>Terminal.tsx</code>, mobile shares this path)</h3>
+<p>Reorder attach so the client <strong>resizes the PTY to its fitted width before reading
+the snapshot</strong> (the <code>kaval-tui</code> pattern at <code>attach.ts:243</code>): <code>fit()</code> → <code>resize({id, cols, rows})</code> → <code>attach</code> → write snapshot. The snapshot is then serialized at the
+client’s width, so the visible screen is faithful on join. No change to the mirror
+or the live stream. <strong>Risk — multi-client width thrash:</strong> resize-first makes a
+joining client claim the shared width; this matches today’s last-write-wins
+behavior (a join already resized on first fit), so it is not a new regression —
+note it, don’t expand scope.</p>
+<h3 id="5-docs--tests">5. Docs + tests</h3>
+<ul>
+<li>Update <code>kaval-memory-architecture.mdx</code> (the parent): the pager is <strong>faithful at
+historical width</strong>, not reflow-to-current; the “reflow-to-current (pager) vs
+faithful (export)” split collapses to “faithful everywhere; display chooses
+width.”</li>
+<li>Tests (kaval): the fixed-row width-lock contract test (§1); a <code>history()</code> page of
+a recorded <strong>TUI stream</strong> (<code>\r</code>-redraw + cursor moves) asserted byte-identical to
+the live terminal’s final screen at the historical width (the regression guard for
+<em>this</em> bug — red on <code>renderReflow</code>, green on faithful); a multi-epoch page (resize
+mid-history) rendering each epoch faithfully in one buffer.</li>
+<li>Evidence: the pager showing a real Claude Code session’s history intact, plus the
+zoom-to-fit display (a wide session scaled to the modal), captured on a pu box.</li>
+</ul>
+<h3 id="design-philosophy-check">Design-philosophy check</h3>
+<ul>
+<li><strong>Fail-fast / no fallback:</strong> <code>renderReflow</code> is deleted, not left as a toggle — the
+corrupting path becomes unspellable. No “reflow vs faithful” knob.</li>
+<li><strong>Reuse the source of truth:</strong> the pager adopts export’s faithful renderer and
+<code>@xterm/addon-serialize</code>’s cell→SGR mapping; attach adopts <code>kaval-tui</code>’s
+resize-first. No parallel mechanism.</li>
+<li><strong>Electricity / boundaries:</strong> the fixed-row serializer is a leaf in the transcript
+render module beside its faithful sibling — a bounded algorithm, not a new
+package.</li>
+</ul></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./kaval-memory-architecture.html" data-astro-cid-aziudkuj>Kaval Memory — Small Mirror over an On-Disk Transcript</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>

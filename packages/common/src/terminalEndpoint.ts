@@ -42,10 +42,16 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type { z } from "zod";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "@kolu/terminal-workspace/endpoint";
+import type {
+  TerminalExportSegmentSchema,
+  TerminalHistoryResultSchema,
+  TerminalSearchHistoryOutputSchema,
+} from "./contract.ts";
 import type {
   InitialTerminalMetadata,
   TerminalId,
@@ -152,6 +158,43 @@ export interface TerminalEndpoint {
     signal: AbortSignal | undefined,
   ): Promise<TerminalAttachment>;
 
+  /** PR2: one backward page of on-disk history, ending at `beforeCursor` (or the
+   *  tip when null), rendered FAITHFULLY at its historical width (the page reports
+   *  its own `contentWidth`). Returns an honest non-content state rather than
+   *  silent-empty. */
+  history(
+    id: TerminalId,
+    args: { beforeCursor: number | null; maxLines: number },
+  ): Promise<HistoryPage>;
+
+  /** PR2: search the on-disk transcript — replay-and-scan, cursor-paged. */
+  searchHistory(
+    id: TerminalId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchHistoryResult>;
+
+  /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). */
+  exportHistory(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): Promise<AsyncIterable<HistoryExportSegment>>;
+
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
 }
+
+/** A backward history page, the search result, and an export segment (PR2) —
+ *  inferred from the contract's zod schemas (one source of truth inside
+ *  kolu-common; contract.ts doesn't import this file, so there's no cycle). */
+export type HistoryPage = z.infer<typeof TerminalHistoryResultSchema>;
+
+export type SearchHistoryResult = z.infer<
+  typeof TerminalSearchHistoryOutputSchema
+>;
+
+export type HistoryExportSegment = z.infer<typeof TerminalExportSegmentSchema>;

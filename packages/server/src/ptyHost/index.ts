@@ -24,7 +24,7 @@ import {
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import {
-  DEFAULT_MIRROR_SCROLLBACK,
+  DEFAULT_RETENTION_BYTES,
   type PtyHostClient,
   type PtyHostIdentity,
   type PtyHostSpawnInput,
@@ -252,13 +252,11 @@ export function composeSpawnInput(
     cwd,
     env,
     initFiles: plan.initFiles,
-    // The per-terminal headless-mirror depth — kaval owns this number (the
-    // mirror lives there), so we send its `DEFAULT_MIRROR_SCROLLBACK`, the SAME
-    // value kaval-tui's spawn path falls back to. Deliberately smaller than the
-    // client's visible scrollback (kolu-common's `DEFAULT_SCROLLBACK`): the
-    // conflated 50K mirror × unbounded live terminals was the OOM. See
-    // `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`.
-    scrollback: DEFAULT_MIRROR_SCROLLBACK,
+    // PR2: per-terminal on-disk history policy (required on the wire — the
+    // daemon derives nothing). Default ON with the standard retention cap; deep
+    // history lives in the transcript, the mirror is pinned to the hot window
+    // in-kaval. See `docs/atlas/src/content/atlas/kaval-memory-architecture.mdx`.
+    history: { enabled: true, retentionBytes: DEFAULT_RETENTION_BYTES },
   };
 }
 

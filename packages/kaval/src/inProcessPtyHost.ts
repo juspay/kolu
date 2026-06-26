@@ -88,6 +88,9 @@ export interface InProcessPtyHostDeps {
    *  `kolu-server` runtime-path import; surfaced to clients on `system.info`
    *  so they can name init files and point `argv`/`env` at their paths. */
   rcDir: string;
+  /** Directory under which per-PTY transcript DBs live (PR2). Injected like
+   *  `rcDir`; absent disables on-disk history regardless of a spawn's policy. */
+  transcriptDir?: string;
 }
 
 /** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
@@ -99,7 +102,7 @@ export interface InProcessPtyHostDeps {
  *  one host per call. */
 export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, rcDir } = deps;
-  const host = createPtyHost({ log });
+  const host = createPtyHost({ log, transcriptDir: deps.transcriptDir });
   const startedAt = Date.now();
 
   // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
@@ -225,6 +228,16 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }
         },
       },
+      // PR2: faithful per-resize-epoch export segments, oldest→newest. A missing
+      // PTY surfaces as a hard error from host.exportHistory (requireEntry), NOT
+      // an empty stream — an empty stream is reserved for a live terminal with
+      // history disabled, so the export path can tell the two apart (F2).
+      exportHistory: {
+        source: async function* (input, _signal) {
+          for await (const seg of host.exportHistory(input.id as PtyId))
+            yield seg;
+        },
+      },
     },
     procedures: {
       terminal: {
@@ -255,9 +268,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               cwd: input.cwd,
               cols: input.cols,
               rows: input.rows,
-              // `createPtyHost` already applies the in-package default when a
-              // client omits this — pass it straight through, don't re-default.
-              scrollback: input.scrollback,
+              // PR2: required on the wire (B0) — passed straight through; the
+              // host keeps no transcript when `enabled: false` or no
+              // transcriptDir is configured.
+              history: input.history,
               onDispose: () => removeInitFiles(rcDir, written),
             });
           } catch (err) {
@@ -311,6 +325,33 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               input.tailLines,
             ),
           };
+        },
+        // PR2 read verbs — require a live PTY (the transcript connection is open
+        // on it); a cold restore re-spawns on the same id before its history is
+        // read. A disabled/absent transcript returns the honest non-content
+        // state from the host, not an error.
+        history: async ({ input }) => {
+          requirePty(input.id as PtyId);
+          return host.history(input.id, {
+            beforeCursor: input.beforeCursor,
+            maxLines: input.maxLines,
+          });
+        },
+        searchHistory: async ({ input }) => {
+          requirePty(input.id as PtyId);
+          return host.searchHistory(input.id, {
+            query: input.query,
+            beforeCursor: input.beforeCursor,
+            caseSensitive: input.caseSensitive,
+            maxResults: input.maxResults,
+          });
+        },
+        // NO requirePty: the server deletes a terminal's transcript on KILL /
+        // DISCARD, and discardSleeping has no live entry — deleting a gone
+        // terminal's DB is the whole point, so an absent PTY is not an error.
+        deleteTranscript: async ({ input }) => {
+          host.deleteTranscript(input.id as PtyId);
+          return { ok: true };
         },
       },
       system: {

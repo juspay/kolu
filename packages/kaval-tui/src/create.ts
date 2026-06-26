@@ -15,6 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_RETENTION_BYTES,
   DEFAULT_SPAWN_SHELL,
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,
@@ -144,6 +145,18 @@ function composeCreateInput(opts: {
     cwd: opts.cwd,
     env: opts.env,
     initFiles: [],
+    // PR2: the history policy is required on the wire, but kaval-tui keeps it
+    // OFF. The on-disk transcript exists to feed the kolu web client's copy-mode
+    // pager / PDF / search — kaval-tui has none of those consumers. The raw
+    // daemon also has no terminal lifecycle that could reclaim the DBs: unlike
+    // kolu-server (whose `local.ts` calls `deleteTranscript` on kill/exit/discard
+    // and KEEPS the DB only across a deliberate sleep), the raw daemon's PTY is
+    // simply alive-or-gone, with no orchestration layer to delete on exit. So
+    // enabling history here would write per-terminal DBs that nothing reads and
+    // nothing reclaims — an unbounded on-disk leak under $XDG_STATE_HOME/kaval.
+    // Off by construction closes that leak; a future kolu-adoption path that
+    // wants history would enable it with its own reclaim lifecycle.
+    history: { enabled: false, retentionBytes: DEFAULT_RETENTION_BYTES },
   };
 }
 

@@ -801,55 +801,67 @@ const Terminal: Component<{
           // (`@kolu/surface/client`) rather than `client.rawStream`'s structural
           // enrolment — and the `unenrolled-` name makes that a visible decision at
           // the call site, not a forgotten enrol.
-          consumeStream(
-            () =>
-              unenrolledStreamCall(
-                client.terminal.attach,
-                { id: props.terminalId },
-                {
-                  signal,
-                  onRetry: () => {
-                    terminal?.reset();
-                    scrollLock.reset();
-                    snapshotBoundary.armSnapshot();
+          //
+          // Resize-FIRST (the kaval-tui pattern): the snapshot serializes at the
+          // mirror's CURRENT width; if that differs from THIS client's fitted width
+          // the inherited scrollback re-wraps at a foreign width and a TUI's
+          // box/redraw scrambles. So claim our width and AWAIT the resize round-trip
+          // BEFORE the stream starts (below), so the snapshot is generated at our
+          // width. Hidden tiles stay 80×24 until the visibility effect fits them.
+          const startAttach = (): void =>
+            consumeStream(
+              () =>
+                unenrolledStreamCall(
+                  client.terminal.attach,
+                  { id: props.terminalId },
+                  {
+                    signal,
+                    onRetry: () => {
+                      terminal?.reset();
+                      scrollLock.reset();
+                      snapshotBoundary.armSnapshot();
+                    },
                   },
-                },
-              ),
-            (data) => {
-              if (terminal) {
-                // Every chunk AFTER the snapshot boundary is live output — light
-                // the terminal's live-activity dot (dock + title), even when
-                // scroll-locked (the bytes still arrived; the user just isn't at
-                // the bottom). The store debounces back to static after a quiet
-                // gap.
-                if (snapshotBoundary.isLiveDelta()) {
-                  activity.noteOutput(props.terminalId);
+                ),
+              (data) => {
+                if (terminal) {
+                  // Every chunk AFTER the snapshot boundary is live output — light
+                  // the terminal's live-activity dot (dock + title), even when
+                  // scroll-locked (the bytes still arrived; the user just isn't at
+                  // the bottom). The store debounces back to static after a quiet
+                  // gap.
+                  if (snapshotBoundary.isLiveDelta()) {
+                    activity.noteOutput(props.terminalId);
+                  }
+                  // Key the render-stall watchdog to xterm's PARSE, not stream
+                  // receipt: `term.write` returns immediately and parses the
+                  // chunk asynchronously (off a setTimeout), so noteData() run
+                  // here synchronously would arm a 250ms timer against data not
+                  // yet in the buffer. Passing noteData as xterm's write callback
+                  // arms it when the chunk has actually landed in the buffer and
+                  // a paint should follow — so paintIsBehind() reflects buffer
+                  // state, not in-flight data. A parked-rAF freeze on a real
+                  // write then gets a forced sync paint even if the user never
+                  // returns focus. scroll-lock buffers a chunk -> no paint -> the
+                  // callback isn't invoked; the buffered flush rejoins the bottom
+                  // via a user scroll / tab-visible / window-focus path, each of
+                  // which already forces a repaint via recover().
+                  scrollLock.writeData(terminal, data, () =>
+                    recovery.noteData(),
+                  );
                 }
-                // Key the render-stall watchdog to xterm's PARSE, not stream
-                // receipt: `term.write` returns immediately and parses the
-                // chunk asynchronously (off a setTimeout), so noteData() run
-                // here synchronously would arm a 250ms timer against data not
-                // yet in the buffer. Passing noteData as xterm's write callback
-                // arms it when the chunk has actually landed in the buffer and
-                // a paint should follow — so paintIsBehind() reflects buffer
-                // state, not in-flight data. A parked-rAF freeze on a real
-                // write then gets a forced sync paint even if the user never
-                // returns focus. scroll-lock buffers a chunk -> no paint -> the
-                // callback isn't invoked; the buffered flush rejoins the bottom
-                // via a user scroll / tab-visible / window-focus path, each of
-                // which already forces a repaint via recover().
-                scrollLock.writeData(terminal, data, () => recovery.noteData());
-              }
-            },
-            "Terminal attach",
-          );
+              },
+              "Terminal attach",
+            );
+          // Start the stream AFTER the awaited resize when visible, so the snapshot
+          // matches our width; immediately (at 80×24) when hidden. publishDimensions
+          // always resolves (it swallows a resize error), so the stream always starts.
+          if (props.visible) void publishDimensions().then(startAttach);
+          else startAttach();
 
-          // fit() above only fires onResize when the grid actually changes.
-          // If xterm's default 80×24 already matched the fit target, the listener
-          // didn't run — publish manually so the PTY matches. Hidden terminals
-          // stay at 80×24 until they become visible; the visibility effect below
-          // runs debouncedFit() and publishes then.
-          if (props.visible) void publishDimensions();
+          // (The PTY was already resized to our width by the awaited resize-first
+          // publish above, before the snapshot — so no post-attach manual publish
+          // is needed. Hidden terminals stay 80×24 until the visibility effect fits.)
 
           // Filter terminal query responses from onData before sending to PTY.
           // The server's headless xterm already answers these; duplicates arriving

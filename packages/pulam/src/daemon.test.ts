@@ -198,6 +198,7 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
     cwd: repo,
     env: { PATH: process.env.PATH ?? "", HOME: info.home },
     initFiles: [],
+    history: { enabled: false, retentionBytes: 0 },
   };
   const { id } = await ptyHost.client.surface.terminal.spawn(spawnInput);
   const terminalId = id as TerminalId;

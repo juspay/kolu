@@ -25,6 +25,9 @@ describe("buildCreateInput", () => {
       cwd: "/work",
       env: { SHELL: "/bin/zsh", FOO: "bar" },
       initFiles: [],
+      // History is OFF for kaval-tui: no transcript consumer + no reclaim
+      // lifecycle on the raw daemon, so enabling it would only leak DBs.
+      history: { enabled: false, retentionBytes: 256 * 1024 * 1024 },
     });
   });
 

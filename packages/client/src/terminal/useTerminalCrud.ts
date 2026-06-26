@@ -16,6 +16,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { client, preferences } from "../wire";
+import { useHistoryPager } from "./useHistoryPager";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -30,6 +31,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
   const subPanel = useSubPanel();
   const terminalSearch = useTerminalSearch();
+  const historyPager = useHistoryPager();
   const rightPanel = useRightPanel();
   const { showTipOnce } = useTips();
 
@@ -81,6 +83,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     subPanel.removePanel(id);
     rightPanel.removePanel(id);
     terminalSearch.removeTerminal(id);
+    historyPager.removeTerminal(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -277,6 +280,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     if (id === null) return;
     let text: string;
     try {
+      // Copy the visible buffer (the bounded screen scrape). Deep history lives
+      // in the pager (scroll + select + copy) and the un-clipped PDF export — it
+      // is deliberately not materialized as one clipboard string here.
       text = await client.terminal.screenText({ id });
     } catch (err) {
       console.error("Failed to read terminal text:", err);
@@ -311,9 +317,10 @@ export const useTerminalCrud = createSharedRoot(() => {
       await client.terminal.killAll();
       store.reset();
       // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
-      // the find-bar map wholesale here too — otherwise stale keys outlive the
-      // terminals they pointed at.
+      // the find-bar AND history-pager maps wholesale here too — otherwise stale
+      // keys outlive the terminals they pointed at (and a reused id reopens them).
       terminalSearch.reset();
+      historyPager.reset();
     } catch (err) {
       toast.error(`Failed to close all terminals: ${(err as Error).message}`);
     }
@@ -325,7 +332,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   function exportScrollbackPdf() {
     const id = store.activeId();
     if (id === null) return;
-    exportScrollbackAsPdf(id, store.getMetadata(id));
+    void exportScrollbackAsPdf(id, store.getMetadata(id)).catch((err: Error) =>
+      toast.error(`Failed to export PDF: ${err.message}`),
+    );
   }
 
   /** Export the active terminal's session as a standalone HTML page. */

@@ -31,6 +31,10 @@ export const CONTEXTUAL_TIPS = {
     id: "sleep-terminal",
     text: "Sleep (☾) pauses a terminal — its agent and PTY are released; Wake resumes the conversation right where it left off",
   },
+  historyPager: {
+    id: "history-pager",
+    text: `${formatKeybind(ACTIONS.viewHistory.keybind)} opens full terminal history — scroll back as far as it goes, search it, export it as PDF`,
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [

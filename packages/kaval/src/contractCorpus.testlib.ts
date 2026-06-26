@@ -41,6 +41,9 @@ export const CONTRACT_COVERAGE = {
     "terminal.list",
     "terminal.getScreenState",
     "terminal.getScreenText",
+    "terminal.history",
+    "terminal.searchHistory",
+    "terminal.deleteTranscript",
     "system.version",
     "system.heartbeat",
     "system.processMemory",
@@ -54,6 +57,7 @@ export const CONTRACT_COVERAGE = {
     "foreground",
     "exit",
     "inventory",
+    "exportHistory",
   ],
 } as const;
 
@@ -70,6 +74,7 @@ export function spawnInput(cwd: string): PtyHostSpawnInput {
     cwd,
     env,
     initFiles: [],
+    history: { enabled: false, retentionBytes: 0 },
   };
 }
 
@@ -298,6 +303,49 @@ export function runContractCorpus(opts: {
       expect(killed.ok).toBe(true);
       const exit = await exitP;
       expect(typeof exit.exitCode).toBe("number");
+    });
+
+    it("history verbs on a history-disabled spawn return the honest non-content states", {
+      timeout: 20000,
+    }, async () => {
+      // The corpus spawns with `history: { enabled: false }`, so every read verb
+      // must report its honest empty/unavailable state across BOTH links — never
+      // a thrown error or a silent blank that masks a disabled transcript.
+      const dir = opts.makeCwd();
+      const { id } = await client().surface.terminal.spawn(spawnInput(dir));
+
+      const page = await client().surface.terminal.history({
+        id,
+        beforeCursor: null,
+        maxLines: 50,
+        width: 80,
+      });
+      expect(page.kind).toBe("unavailable");
+
+      const search = await client().surface.terminal.searchHistory({
+        id,
+        query: "anything",
+        beforeCursor: null,
+        caseSensitive: false,
+        maxResults: 100,
+      });
+      expect(search.hits).toEqual([]);
+      expect(search.truncated).toBe(false);
+
+      // The export stream ends with no segments (history disabled).
+      const exp = await client().surface.exportHistory.get({ id });
+      const segs: unknown[] = [];
+      for await (const s of exp) segs.push(s);
+      expect(segs).toEqual([]);
+
+      // deleteTranscript force-unlinks the DB — `ok` even with history off (no DB
+      // exists), and idempotent across both links and a still-live PTY.
+      const del1 = await client().surface.terminal.deleteTranscript({ id });
+      expect(del1.ok).toBe(true);
+      const del2 = await client().surface.terminal.deleteTranscript({ id });
+      expect(del2.ok).toBe(true);
+
+      await client().surface.terminal.kill({ id });
     });
 
     it("streams: cwd (OSC 7) and commandRun (OSC 633) yield on raw drives", {

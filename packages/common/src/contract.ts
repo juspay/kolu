@@ -116,6 +116,89 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
+// ── PR2: on-disk terminal history (the copy-mode pager + un-clipped PDF) ──────
+
+/** One backward history page request. `beforeCursor` is the opaque reflow-stable
+ *  byte cursor at the top of what the client holds (null = the tip). No `width`:
+ *  history renders at its HISTORICAL width (never reflowed to the reader), and the
+ *  page reports its own `contentWidth` for the display to size to. */
+export const TerminalHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  // A cursor is an opaque nonnegative byte offset at a record/checkpoint
+  // boundary — reject negative/fractional raw RPC input at the boundary rather
+  // than serving a misleading empty/evicted page (F9).
+  beforeCursor: z.number().int().nonnegative().nullable(),
+  // Bound the per-page work in the server-side headless xterm: a malformed client
+  // must not request one enormous page. `maxLines` is the pager's overscan, far
+  // under the offscreen 100K scrollback; full history goes through the streaming
+  // export path, never one unbounded page (F6).
+  maxLines: z.number().int().positive().max(100_000),
+});
+
+/** A history page (or an honest non-content state — never silent-empty). `ansi`
+ *  writes into the pager's read-only xterm; `nextCursor` pages further up. */
+export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    ansi: z.string(),
+    nextCursor: z.number().int().nonnegative(),
+    atFloor: z.boolean(),
+    // When atFloor: false = genuine byte-0 start; true = the eviction floor
+    // (older output trimmed). Lets the pager show "older trimmed" vs "beginning
+    // of session" instead of conflating the two.
+    floorEvicted: z.boolean(),
+    // The widest resize-epoch width in this page. History renders at its
+    // historical width (never reflowed), so the pager sizes its xterm to this and
+    // scrolls horizontally when it exceeds the viewport.
+    contentWidth: z.number().int().positive(),
+  }),
+  z.object({ kind: z.literal("unavailable") }),
+  z.object({ kind: z.literal("evicted") }),
+  z.object({
+    kind: z.literal("faulted"),
+    lastGoodSeq: z.number().int().nonnegative(),
+  }),
+]);
+
+export const TerminalSearchHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  // Bounded: a terminal search needle is short. History search is LITERAL
+  // substring only — never a user-supplied regex — so a server-side scan over a
+  // 1MB line is linear and can never catastrophically backtrack the single
+  // daemon's event loop (the residual a non-backtracking engine would otherwise
+  // be needed to defeat is simply not expressible without regex).
+  query: z.string().max(1000),
+  beforeCursor: z.number().int().nonnegative().nullable(),
+  /** Case-sensitivity is an opt-in capability (the default `false` reproduces the
+   *  find bar exactly — literal, case-insensitive). */
+  caseSensitive: z.boolean(),
+  // Bounded — the server also clamps to its own SEARCH_HARD_CAP, but reject an
+  // absurd page size at the wire boundary too (F6).
+  maxResults: z.number().int().positive().max(10_000),
+});
+
+export const TerminalSearchHistoryOutputSchema = z.object({
+  hits: z.array(z.object({ cursor: z.number().int().nonnegative() })),
+  nextCursor: z.number().int().nonnegative().nullable(),
+  truncated: z.boolean(),
+  // The paged search reached the eviction floor with the cursor at/below it
+  // (older content trimmed under retention) — the search is not exhaustive, so
+  // the pager shows "older trimmed" rather than "no more matches".
+  evicted: z.boolean(),
+});
+
+/** One faithful per-resize-epoch export segment (the un-clipped PDF source). The
+ *  client resizes an offscreen themed xterm to `(cols, rows)`, writes `ansi`,
+ *  and accumulates `serializeAsHTML()`. */
+export const TerminalExportSegmentSchema = z.object({
+  // A grid is always positive — the historical cols/rows come from a real
+  // terminal. Assert the invariant on the wire so the client renders directly
+  // instead of defensively clamping (which would hide a server-side mismatch).
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+  ansi: z.string(),
+});
+
 export const ServerIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
@@ -195,6 +278,22 @@ export const contract = oc.router({
     exportTranscriptHtml: oc
       .input(ExportTranscriptHtmlInputSchema)
       .output(ExportTranscriptHtmlOutputSchema),
+    /** PR2: one backward history page from the on-disk transcript — unary
+     *  request/response paging on the opaque byte cursor (the pager is the past,
+     *  not a live tail), so it needs no `stream`-namespace re-subscribe. */
+    history: oc
+      .input(TerminalHistoryInputSchema)
+      .output(TerminalHistoryResultSchema),
+    /** PR2: search the on-disk transcript (replay-and-scan, cursor-paged). */
+    searchHistory: oc
+      .input(TerminalSearchHistoryInputSchema)
+      .output(TerminalSearchHistoryOutputSchema),
+    /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). A
+     *  finite ordered stream — consumed via the `stream` namespace, idempotent
+     *  restart on reconnect. */
+    exportHistory: oc
+      .input(TerminalAttachInputSchema)
+      .output(eventIterator(TerminalExportSegmentSchema)),
   },
   daemon: {
     /** Restart the local kaval daemon, preserving the session (B3.2). Captures

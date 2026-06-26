@@ -7,6 +7,24 @@
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+export const HistoryIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    {/* a clock with a counter-clockwise rewind arrow */}
+    <path d="M2.5 8a5.5 5.5 0 1 0 1.7-4" />
+    <path d="M2 2.5V5.5H5" />
+    <path d="M8 5v3l2 1.3" />
+  </svg>
+);
+
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
