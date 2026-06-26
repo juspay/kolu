@@ -59,12 +59,6 @@ export const BLOCK_BYTES = 64 * 1024;
  *  bolting on a second one. Replay cost was flat at 2.9–6.0 ms across K=50…1000. */
 export const CHECKPOINT_BYTES = 64 * 1024;
 
-/** Hard ceiling on the in-RAM accumulation buffer before a forced flush, so a
- *  full-screen TUI (alt-screen, no clean boundary for minutes) can't grow the
- *  pending block without bound. A forced cut is NOT a clean boundary, so it is
- *  never exposed as a cursor — only checkpoint byteSeqs are. */
-export const MAX_PENDING_BYTES = 1024 * 1024;
-
 /** Default per-terminal retention cap (compressed payload bytes). Oldest
  *  records past this are DELETEd and an eviction watermark is raised; a
  *  sub-floor read returns `evicted`, never silent-empty. */
