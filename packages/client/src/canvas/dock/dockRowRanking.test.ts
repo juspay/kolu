@@ -8,11 +8,13 @@ import {
   URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { isStale } from "../../terminal/staleness";
 import { paintBucket } from "../dockModel";
 import {
   DOCK_ROW_BUCKET_PRIORITY,
   type DockRowBucket,
   rankDockRows,
+  rowRecencyAt,
 } from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
@@ -132,19 +134,63 @@ describe("rankDockRows — parked bucket precedence", () => {
     expect(bucket(makeSleepingMeta(), false)).toBe("sleeping");
   });
 
-  it("keeps a sleeping terminal in sleeping even when STALE — decoupled from parked", () => {
-    // A long-slept tile must read 'asleep', never be parked-dropped; the dock's
-    // sleeping check runs before the parked check precisely for this.
-    expect(bucket(makeSleepingMeta(1), true)).toBe("sleeping");
+  it("parks a sleeping terminal once it is STALE — the activity window hides old dormant tiles", () => {
+    // A sleeping tile is still subject to the activity window: a fresh dormant
+    // tile keeps its ☾ bucket, but once its last activity falls outside the
+    // window it routes to `parked` like any other stale row, so the selector
+    // actually compresses yesterday's slept terminals out of the dock.
+    expect(bucket(makeSleepingMeta(1), false)).toBe("sleeping");
+    expect(bucket(makeSleepingMeta(1), true)).toBe("parked");
   });
 
-  it("never drops a sleeping row from the ranking", () => {
+  it("routes a stale sleeping row to parked so the dock drops it", () => {
     const rows = rankDockRows(
       ["t1"] as TerminalId[],
       () => makeSleepingMeta(1),
       () => true,
     );
-    expect(rows.map((r) => r.id)).toContain("t1");
+    expect(rows[0]?.bucket).toBe("parked");
+  });
+
+  // The window's recency for a sleeping tile is `sleptAt` (when you put it to
+  // sleep), NOT `lastActivityAt` (its last agent transition). The previous two
+  // tests stub `isStale` to a constant, so they never exercise WHICH timestamp
+  // the ranker keys on — these drive the real `isStale` to pin the seam.
+  const realStale = (now: number, thresholdMs: number) => (ts: number) =>
+    isStale(ts, now, thresholdMs);
+  const NOW = 1_700_000_000_000;
+  const WINDOW = 24 * 60 * 60 * 1000; // 24h
+
+  it("parks a plain shell slept long ago — keyed on sleptAt, not lastActivityAt:0", () => {
+    // An agent-less dormant tile carries `lastActivityAt === 0`, which `isStale`
+    // exempts. If the window keyed on it, this tile would NEVER park and old
+    // dormant shells would pile up. Keyed on `sleptAt` (2 days ago) it parks.
+    const meta = {
+      ...makeSleepingMeta(0),
+      sleptAt: NOW - 2 * WINDOW,
+    } as TerminalMetadata;
+    const rows = rankDockRows(
+      ["t1"] as TerminalId[],
+      () => meta,
+      realStale(NOW, WINDOW),
+    );
+    expect(rows[0]?.bucket).toBe("parked");
+  });
+
+  it("keeps a JUST-slept tile asleep even if its agent last moved days ago", () => {
+    // `lastActivityAt` (3 days ago) is OUTSIDE the window, but the tile was
+    // slept just now — keying on `sleptAt` keeps its ☾ instead of dropping it
+    // the instant you sleep it.
+    const meta = {
+      ...makeSleepingMeta(NOW - 3 * WINDOW),
+      sleptAt: NOW,
+    } as TerminalMetadata;
+    const rows = rankDockRows(
+      ["t1"] as TerminalId[],
+      () => meta,
+      realStale(NOW, WINDOW),
+    );
+    expect(rows[0]?.bucket).toBe("sleeping");
   });
 
   it("meta.agent is not mutated by ranking — render layer retains identity after park", () => {
@@ -244,5 +290,21 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
         URGENCY_RANK.idle,
       );
     }
+  });
+});
+
+describe("rowRecencyAt — the one recency the window and the row display share", () => {
+  // The dock keys the activity window AND the row's "Xs ago" cell on this same
+  // value, so the age a row shows is the age that decides whether it's hidden.
+  it("uses lastActivityAt for a live tile", () => {
+    expect(rowRecencyAt(makeMeta({ lastActivityAt: 4242 }))).toBe(4242);
+  });
+
+  it("uses sleptAt for a sleeping tile — NOT its stale agent lastActivityAt", () => {
+    const meta = {
+      ...makeSleepingMeta(123),
+      sleptAt: 999_000,
+    } as TerminalMetadata;
+    expect(rowRecencyAt(meta)).toBe(999_000);
   });
 });

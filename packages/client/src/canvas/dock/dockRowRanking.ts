@@ -40,9 +40,10 @@ import {
  *  subset of this union, not a literal coincidence. `parked` is its own bucket
  *  (not folded into idle) because it carries a different visual treatment (faded,
  *  tinier row) and routes through staleness, not the idle-bucket classifier.
- *  `sleeping` is likewise its own bucket — a DELIBERATE dormant state, decoupled
- *  from staleness: a freshly-slept tile must read "asleep", never "parked", and
- *  must NOT be dropped by the dock's parked filter. */
+ *  `sleeping` is its own bucket for the fresh-within-window case — a freshly-slept
+ *  tile reads "asleep" with its ☾ row. But staleness wins over it: once a slept
+ *  tile's last activity falls outside the window it routes to `parked` and is
+ *  dropped, so the activity-window selector compresses old dormant tiles too. */
 export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
@@ -62,15 +63,30 @@ export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   none: 5,
 };
 
+/** The row-overlay precedence shared by BOTH folds (order and paint): parked
+ *  wins over sleeping. Parked is checked FIRST because a sleeping tile is still
+ *  subject to the activity window — a *fresh* slept tile keeps its ☾ row, but
+ *  once its last activity falls outside the window it routes to `parked` (which
+ *  `dockTree` hides) like any other stale row, otherwise yesterday's dormant
+ *  terminals pile up in the dock and the window selector can't compress them.
+ *  Lifting the precedence here means it lives at ONE site: the order and paint
+ *  folds call this before diverging into their agent-state tails, so a future
+ *  reorder can't desync the two. */
+function dockOverlayBucket(
+  meta: TerminalMetadata,
+  parked: boolean,
+): "parked" | "sleeping" | undefined {
+  if (parked) return "parked";
+  if (sleepingArm(meta)) return "sleeping";
+  return undefined;
+}
+
 function classifyDockRow(
   meta: TerminalMetadata,
   parked: boolean,
 ): DockRowBucket {
-  // Sleeping is checked FIRST, before parked: a sleeping tile is a deliberate
-  // dormant state, never staleness, so it must keep its ☾ row and never fall
-  // into the parked-drop (which `dockTree` hides) however long it has slept.
-  if (sleepingArm(meta)) return "sleeping";
-  if (parked) return "parked";
+  const overlay = dockOverlayBucket(meta, parked);
+  if (overlay) return overlay;
   // The agent-state core IS the shared needs-you projection, so the dock ranks
   // a given state identically to pulam-tui / pulam-web (pinned by the
   // differential test). `awaiting_user` → need, the working states → work, and
@@ -99,8 +115,11 @@ function classifyDockRow(
  *  agent). Order (rank) and colour (paint) are thus decoupled: the row sorts by
  *  urgency but glows by paint. */
 function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
-  if (sleepingArm(meta)) return "sleeping";
-  if (parked) return "parked";
+  // The overlay also runs in the paint fold so the two folds stay aligned by
+  // construction — even though a parked pip never paints (`dockTree` drops the
+  // row before it can reach a pip).
+  const overlay = dockOverlayBucket(meta, parked);
+  if (overlay) return overlay;
   const agent = activeArm(meta)?.agent;
   // No live agent → no pip colour to share with the title; keep the order
   // bucket's plain-shell triage (`idle` if touched, else `none`).
@@ -124,13 +143,34 @@ export type RankedDockRow = {
   ts: number;
 };
 
+/** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
+ *  (`sleptAt`) for a sleeping tile, else its last agent transition
+ *  (`lastActivityAt`). A sleeping tile's recency is the deliberate, recent
+ *  sleep action, not its stale agent clock: `sleptAt` is always ≥
+ *  `lastActivityAt` (you sleep a terminal after its agent last moved), so
+ *  keying the activity window on `lastActivityAt` instead would (a) never park
+ *  a plain shell slept long ago — `isStale` exempts `lastActivityAt === 0`, so
+ *  an agent-less dormant tile would pile up forever — and (b) instantly drop a
+ *  JUST-slept tile whose agent last transitioned outside the window,
+ *  contradicting "a freshly-slept one still shows with its ☾".
+ *
+ *  This is the ONE source for that derivation: `rankDockRows` feeds it to the
+ *  window predicate AND the sort key, and the row's `RecencyCell` displays it,
+ *  so the "Xs ago" a row shows is the exact age the window acts on — a 4h
+ *  window never hides a row that reads "1h ago" or keeps one that reads "3d
+ *  ago". */
+export function rowRecencyAt(meta: TerminalMetadata): number {
+  return sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
+}
+
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === 0`. `isStale` is a pure-temporal predicate over
- *  `lastActivityAt` — identity for stale-but-still-awaiting agents lives
- *  at the render layer (`QuietRowBody` paints `AgentIndicator` when
- *  `meta.agent` is set), not in the bucket decision here. */
+ *  same `ts === 0`. `isStale` is a pure-temporal predicate over a recency
+ *  timestamp — `rowRecencyAt` (`lastActivityAt` for an active tile, `sleptAt`
+ *  for a sleeping one). Identity for stale-but-still-awaiting agents lives at
+ *  the render layer (`QuietRowBody` paints `AgentIndicator` when `meta.agent`
+ *  is set), not in the bucket decision here. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
@@ -140,10 +180,11 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const parked = isStale(meta.lastActivityAt);
+    const recencyAt = rowRecencyAt(meta);
+    const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
     const pip = paintDockRow(meta, parked);
-    rows.push({ id, bucket, pip, ts: meta.lastActivityAt });
+    rows.push({ id, bucket, pip, ts: recencyAt });
   }
   rows.sort((a, b) => {
     if (a.ts !== b.ts) return b.ts - a.ts;
