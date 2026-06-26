@@ -12,6 +12,5 @@ export {
   DEFAULT_RETENTION_BYTES,
   type HistoryPolicy,
   type MirrorView,
-  type Row,
   type Seq,
 } from "./types.ts";

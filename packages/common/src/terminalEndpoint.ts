@@ -192,10 +192,8 @@ export type HistoryPage =
   | {
       kind: "ok";
       ansi: string;
-      rowCount: number;
       nextCursor: number;
       atFloor: boolean;
-      firstRow: number;
     }
   | { kind: "unavailable" }
   | { kind: "evicted" }
@@ -204,7 +202,6 @@ export type HistoryPage =
 export interface SearchHistoryResult {
   hits: {
     cursor: number;
-    firstRow: number;
     text: string;
     matches: { start: number; end: number }[];
   }[];

@@ -19,12 +19,6 @@
  *  at a ground-state clean line boundary; opaque on the wire. */
 export type Seq = number;
 
-/** A stable, never-renumbered, width-independent line-ish coordinate — the
- *  cumulative count of `\n` bytes in the DATA stream at a record's start. Used
- *  for the approximate "line ~N" footer and the by-row index; reads key on
- *  {@link Seq}, never on Row (render-line numbers move under reflow). */
-export type Row = number;
-
 /** The three record kinds the transcript frames over raw output.
  *  - `DATA`   — a zstd-compressed run of coalesced decoded PTY output.
  *  - `RESIZE` — the out-of-band grid change, at its true stream position; what
@@ -46,7 +40,6 @@ export type RecordKind = (typeof RecordKind)[keyof typeof RecordKind];
 export interface TranscriptRecord {
   seq: number;
   kind: RecordKind;
-  firstRow: Row;
   firstByteSeq: Seq;
   tsMs: number;
   cols: number;

@@ -31,7 +31,6 @@ import {
   type HistoryPolicy,
   type MirrorView,
   RecordKind,
-  type Row,
   type Seq,
 } from "./types.ts";
 
@@ -42,10 +41,8 @@ export type HistoryResult =
   | {
       kind: "ok";
       ansi: string;
-      rowCount: number;
       nextCursor: Seq;
       atFloor: boolean;
-      firstRow: Row;
     }
   | { kind: "unavailable" }
   | { kind: "evicted" }
@@ -64,7 +61,6 @@ export interface ExportSegment {
  *  the match's span; `matches` are per-logical-line offsets for in-view paint. */
 export interface SearchMatch {
   cursor: Seq;
-  firstRow: Row;
   text: string;
   matches: { start: number; end: number }[];
 }
@@ -77,17 +73,10 @@ export interface SearchResult {
 
 const SEARCH_HARD_CAP = 1000;
 
-function countNewlines(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
-  return n;
-}
-
 export class Transcript {
   private store: TranscriptStore | null = null;
   private seq = 0;
   private byteSeq: Seq = 0;
-  private row: Row = 0;
   private cols: number;
   private rows: number;
 
@@ -95,7 +84,6 @@ export class Transcript {
   private pending: Buffer[] = [];
   private pendingBytes = 0;
   private pendingStartByteSeq: Seq = 0;
-  private pendingStartRow: Row = 0;
   private bytesSinceCheckpoint = 0;
 
   private fault: { lastGoodSeq: number; error: string } | null = null;
@@ -112,7 +100,7 @@ export class Transcript {
 
   /** Open (or resume) a transcript. `enabled: false` writes no DB; reads return
    *  `unavailable`. A reopen (cold restore / wake on the same id) continues the
-   *  seq/byteSeq/row counters from the persisted max — appended history. */
+   *  seq/byteSeq counters from the persisted max — appended history. */
   static open(args: {
     policy: HistoryPolicy;
     dbPath: string;
@@ -132,7 +120,6 @@ export class Transcript {
       t.store = store;
       t.seq = resume.maxSeq;
       t.byteSeq = resume.tipByteSeq;
-      t.row = resume.tipRow;
     }
     return t;
   }
@@ -148,12 +135,10 @@ export class Transcript {
     const bytes = Buffer.byteLength(data, "utf8");
     if (this.pending.length === 0) {
       this.pendingStartByteSeq = this.byteSeq;
-      this.pendingStartRow = this.row;
     }
     this.pending.push(Buffer.from(data, "utf8"));
     this.pendingBytes += bytes;
     this.byteSeq += bytes;
-    this.row += countNewlines(data);
     this.bytesSinceCheckpoint += bytes;
     try {
       if (
@@ -183,7 +168,6 @@ export class Transcript {
       this.store.append({
         seq: ++this.seq,
         kind: RecordKind.RESIZE,
-        firstRow: this.row,
         firstByteSeq: this.byteSeq,
         byteLen: 0,
         tsMs: this.now(),
@@ -203,7 +187,6 @@ export class Transcript {
     this.store.append({
       seq: ++this.seq,
       kind: RecordKind.DATA,
-      firstRow: this.pendingStartRow,
       firstByteSeq: this.pendingStartByteSeq,
       byteLen: this.pendingBytes,
       tsMs: this.now(),
@@ -221,7 +204,6 @@ export class Transcript {
     this.store.append({
       seq: ++this.seq,
       kind: RecordKind.CKPT,
-      firstRow: this.row,
       firstByteSeq: this.byteSeq,
       byteLen: 0,
       tsMs: this.now(),
@@ -274,7 +256,6 @@ export class Transcript {
     if (cursor <= oldest && oldest > 0) return { kind: "evicted" };
     const ansiParts: string[] = [];
     let rowCount = 0;
-    let firstRow = this.row;
     let atFloor = false;
     while (true) {
       const seed = this.store.latestCheckpointBefore(cursor);
@@ -290,14 +271,11 @@ export class Transcript {
       }
       if (rowCount >= args.maxLines) break;
     }
-    firstRow = Math.max(0, firstRow);
     return {
       kind: "ok",
       ansi: ansiParts.join(""),
-      rowCount,
       nextCursor: cursor,
       atFloor,
-      firstRow,
     };
   }
 
@@ -357,7 +335,7 @@ export class Transcript {
       for (let i = logical.length - 1; i >= 0; i--) {
         const m = test(logical[i]!);
         if (m.length > 0) {
-          hits.push({ cursor, firstRow: 0, text: logical[i]!, matches: m });
+          hits.push({ cursor, text: logical[i]!, matches: m });
           if (hits.length >= cap) {
             truncated = true;
             nextCursor = from;

@@ -20,20 +20,18 @@ import { DatabaseSync } from "node:sqlite";
 import {
   RecordKind as Kind,
   type RecordKind,
-  type Row,
   type Seq,
   TRANSCRIPT_FORMAT_VERSION,
   type TranscriptRecord,
 } from "./types.ts";
 
 /** The append-time fields for one record (the store assigns nothing; the
- *  orchestrator owns the monotonic `seq`/`firstByteSeq`/`firstRow` counters so
- *  they continue across a reopen — session restore appends with `seq` resuming
+ *  orchestrator owns the monotonic `seq`/`firstByteSeq` counters so they
+ *  continue across a reopen — session restore appends with `seq` resuming
  *  from the persisted max). */
 export interface AppendRecord {
   seq: number;
   kind: RecordKind;
-  firstRow: Row;
   firstByteSeq: Seq;
   /** Decoded byte length this record advances the stream by (DATA only; 0 for
    *  RESIZE/CKPT, which sit AT a byte position without consuming bytes). Lets
@@ -49,7 +47,6 @@ export interface AppendRecord {
 export interface ResumeState {
   maxSeq: number;
   tipByteSeq: Seq;
-  tipRow: Row;
 }
 
 /** A checkpoint row as the renderer consumes it. */
@@ -66,7 +63,6 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS record(
   seq          INTEGER PRIMARY KEY,
   kind         INTEGER NOT NULL,
-  firstRow     INTEGER NOT NULL,
   firstByteSeq INTEGER NOT NULL,
   byteLen      INTEGER NOT NULL,
   tsMs         INTEGER NOT NULL,
@@ -75,7 +71,6 @@ CREATE TABLE IF NOT EXISTS record(
   payload      BLOB
 );
 CREATE INDEX IF NOT EXISTS ix_byte ON record(firstByteSeq);
-CREATE INDEX IF NOT EXISTS ix_row  ON record(firstRow);
 CREATE INDEX IF NOT EXISTS ix_ts   ON record(tsMs);
 `;
 
@@ -86,8 +81,8 @@ export class TranscriptStore {
   private constructor(db: DatabaseSync) {
     this.db = db;
     this.insertStmt = db.prepare(
-      `INSERT INTO record(seq,kind,firstRow,firstByteSeq,byteLen,tsMs,cols,rows,payload)
-       VALUES(?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO record(seq,kind,firstByteSeq,byteLen,tsMs,cols,rows,payload)
+       VALUES(?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -122,7 +117,6 @@ export class TranscriptStore {
     this.insertStmt.run(
       rec.seq,
       rec.kind,
-      rec.firstRow,
       rec.firstByteSeq,
       rec.byteLen,
       rec.tsMs,
@@ -138,16 +132,15 @@ export class TranscriptStore {
   resumeState(): ResumeState {
     const row = this.db
       .prepare(
-        "SELECT seq, firstRow, firstByteSeq, byteLen FROM record ORDER BY seq DESC LIMIT 1",
+        "SELECT seq, firstByteSeq, byteLen FROM record ORDER BY seq DESC LIMIT 1",
       )
       .get() as
-      | { seq: number; firstRow: number; firstByteSeq: number; byteLen: number }
+      | { seq: number; firstByteSeq: number; byteLen: number }
       | undefined;
-    if (!row) return { maxSeq: 0, tipByteSeq: 0, tipRow: 0 };
+    if (!row) return { maxSeq: 0, tipByteSeq: 0 };
     return {
       maxSeq: row.seq,
       tipByteSeq: row.firstByteSeq + row.byteLen,
-      tipRow: row.firstRow,
     };
   }
 
@@ -265,7 +258,7 @@ export class TranscriptStore {
   allRecords(): TranscriptRecord[] {
     return this.db
       .prepare(
-        "SELECT seq,kind,firstRow,firstByteSeq,tsMs,cols,rows,payload FROM record ORDER BY seq",
+        "SELECT seq,kind,firstByteSeq,tsMs,cols,rows,payload FROM record ORDER BY seq",
       )
       .all() as unknown as TranscriptRecord[];
   }

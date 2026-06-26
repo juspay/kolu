@@ -134,10 +134,8 @@ export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     ansi: z.string(),
-    rowCount: z.number().int(),
     nextCursor: z.number(),
     atFloor: z.boolean(),
-    firstRow: z.number().int(),
   }),
   z.object({ kind: z.literal("unavailable") }),
   z.object({ kind: z.literal("evicted") }),
@@ -160,7 +158,6 @@ export const TerminalSearchHistoryOutputSchema = z.object({
   hits: z.array(
     z.object({
       cursor: z.number(),
-      firstRow: z.number().int(),
       text: z.string(),
       matches: z.array(
         z.object({ start: z.number().int(), end: z.number().int() }),
