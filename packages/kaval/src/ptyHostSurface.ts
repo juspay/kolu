@@ -88,8 +88,21 @@ import { z } from "zod";
  *  the server expects is INCOMPATIBLE: a 4.0 daemon outliving a 4.1 server is
  *  RECYCLED (its live terminals killed once), exactly like every prior minor
  *  bump — the additive verb buys forward compat for a 4.1 survivor against a
- *  future 4.2 server, NOT lossless adoption of an older 4.0 survivor. */
-export const PTY_HOST_CONTRACT_VERSION = "4.1";
+ *  future 4.2 server, NOT lossless adoption of an older 4.0 survivor.
+ *  Bumped to 5.0 (BREAKING · major): the read verbs' wire SHAPES changed since
+ *  4.1, so a surviving 4.x daemon serves shapes the new server can't speak —
+ *  `history` dropped its reader `width` input and gained a `contentWidth` output
+ *  (history now renders faithfully at its HISTORICAL width, never reflowed) and
+ *  also gained `floorEvicted`; `searchHistory` dropped its `regex` input and
+ *  gained an `evicted` output; and the `historyText` verb was removed. A 4.x
+ *  survivor still REQUIRES `history.width` and omits `contentWidth`, so a new
+ *  server calling it fails input/output validation — the observed production
+ *  "Input validation failed … width" on `terminal.history`. This is BREAKING (the
+ *  old shape can't serve the new server), so the major bump RECYCLES any 4.x
+ *  survivor once rather than letting `isContractVersionCompatible` wave it through
+ *  as a same-version peer. (The 4.1→5.0 changes are unreleased PR2 work, collapsed
+ *  into one breaking bump.) */
+export const PTY_HOST_CONTRACT_VERSION = "5.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
