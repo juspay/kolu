@@ -6,7 +6,6 @@ export type {
   HistoryResult,
   SearchMatch,
   SearchResult,
-  TranscriptStatus,
 } from "./transcript.ts";
 export { Transcript } from "./transcript.ts";
 export {

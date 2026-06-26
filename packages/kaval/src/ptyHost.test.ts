@@ -804,11 +804,6 @@ describe("on-disk transcript integration (PR2)", () => {
     const text = await host.historyText(id);
     expect(text).toContain("HISTLINE-1\n");
     expect(text).toContain("HISTLINE-300");
-
-    // status reports an enabled, unfaulted transcript.
-    const status = host.historyStatus(id);
-    expect(status?.enabled).toBe(true);
-    expect(status?.faulted).toBe(false);
   });
 
   it("disabled history: read verbs return the honest non-content state", async () => {

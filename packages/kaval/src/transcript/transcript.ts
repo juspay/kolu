@@ -75,14 +75,6 @@ export interface SearchResult {
   truncated: boolean;
 }
 
-export interface TranscriptStatus {
-  enabled: boolean;
-  faulted: boolean;
-  lastGoodSeq: number;
-  tipByteSeq: Seq;
-  oldestByteSeq: Seq;
-}
-
 const SEARCH_HARD_CAP = 1000;
 
 function countNewlines(s: string): number {
@@ -248,9 +240,9 @@ export class Transcript {
   private handleFault(err: unknown): void {
     if (this.fault) return;
     // Retain the cause (not swallowed) alongside the last-good seq. Surfaced via
-    // status() and the PTY keeps running — the one place survivability outranks
-    // fail-fast (caught-error-must-not-collapse-to-empty: we surface `faulted`,
-    // never present a truncated log as complete).
+    // history()'s `faulted` page and the PTY keeps running — the one place
+    // survivability outranks fail-fast (caught-error-must-not-collapse-to-empty:
+    // we surface `faulted`, never present a truncated log as complete).
     this.fault = {
       lastGoodSeq: this.seq,
       error: err instanceof Error ? err.message : String(err),
@@ -262,16 +254,6 @@ export class Transcript {
   /** The current stream tip — the pager opens its first page at this cursor. */
   tipByteSeq(): Seq {
     return this.byteSeq;
-  }
-
-  status(): TranscriptStatus {
-    return {
-      enabled: this.policy.enabled,
-      faulted: this.fault !== null,
-      lastGoodSeq: this.fault?.lastGoodSeq ?? this.seq,
-      tipByteSeq: this.byteSeq,
-      oldestByteSeq: this.store?.oldestByteSeq() ?? 0,
-    };
   }
 
   /** One backward page ending at `beforeCursor` (or the tip when null),

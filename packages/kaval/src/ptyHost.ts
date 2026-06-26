@@ -39,7 +39,6 @@ import type {
   HistoryResult,
   MirrorView,
   SearchResult,
-  TranscriptStatus,
 } from "./transcript/index.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
@@ -349,9 +348,6 @@ export interface PtyHost {
   /** Whole-transcript plain text (PR2) — the deep "copy all" source. Empty if
    *  gone or history disabled. */
   historyText(id: PtyId): Promise<string>;
-  /** The transcript's status (PR2: enabled / faulted / floor), or `undefined`
-   *  if the PTY is gone. */
-  historyStatus(id: PtyId): TranscriptStatus | undefined;
   /** Kill every PTY this host owns. */
   dispose(): void;
 }
@@ -916,10 +912,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (!entry?.transcript) return Promise.resolve("");
     return entry.transcript.readAllText();
   }
-  function historyStatus(id: PtyId): TranscriptStatus | undefined {
-    return entries.get(id)?.transcript?.status();
-  }
-
   function resize(id: PtyId, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
@@ -988,7 +980,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     exportHistory,
     searchHistory,
     historyText,
-    historyStatus,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();
       // Host shutdown — end every inventory subscription gracefully. The async
