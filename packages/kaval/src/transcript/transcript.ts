@@ -123,6 +123,27 @@ export class Transcript {
     return t;
   }
 
+  /** A transcript whose store could NOT be opened (disk/path/schema fault at
+   *  spawn). It keeps no store, drops every write, and serves reads as `faulted`
+   *  / throws on the bulk reads — so the failure surfaces honestly instead of
+   *  collapsing to the "history disabled" (`unavailable` / silent-empty) path the
+   *  PTY-host fallback would otherwise read it as (F3). `enabled` stays whatever
+   *  the policy carried, so `history()` reaches the fault check rather than
+   *  short-circuiting to `unavailable`. */
+  static failedOpen(
+    policy: HistoryPolicy,
+    cols: number,
+    rows: number,
+    err: unknown,
+  ): Transcript {
+    const t = new Transcript(policy, cols, rows, Date.now);
+    t.fault = {
+      lastGoodSeq: 0,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    return t;
+  }
+
   // ---- WRITE path ---------------------------------------------------------
 
   /** Append decoded PTY output. Called from `proc.onData`'s post-parse callback,
@@ -159,11 +180,20 @@ export class Transcript {
   /** Journal a grid change at its true stream position — the load-bearing
    *  RESIZE record (the seam spike's negative control). */
   appendResize(cols: number, rows: number): void {
-    this.cols = cols;
-    this.rows = rows;
-    if (!this.store || this.fault) return;
+    if (!this.store || this.fault) {
+      this.cols = cols;
+      this.rows = rows;
+      return;
+    }
     try {
+      // Flush the pending pre-resize output at the OLD width FIRST, so that DATA
+      // block records the cols actually in effect when those bytes were written
+      // — only THEN adopt the new grid. Setting `this.cols` before the flush
+      // mislabels the just-ended span with the post-resize width, which collapses
+      // faithful per-epoch export back onto the final width.
       this.flushPending();
+      this.cols = cols;
+      this.rows = rows;
       this.store.append({
         seq: ++this.seq,
         kind: RecordKind.RESIZE,
@@ -281,6 +311,11 @@ export class Transcript {
   /** Whole-transcript plain text, faithful per resize-epoch — the source both
    *  "Copy terminal text" and the pager's "Copy all history" read. */
   async readAllText(): Promise<string> {
+    // A fault must surface, not silently fall back to the clipped live buffer:
+    // throw so the caller's copy/PDF path toasts the failure (F3). A genuinely
+    // disabled transcript (no fault, no store) returns "" → the honest opt-out
+    // fallback.
+    if (this.fault) throw new Error(`transcript faulted: ${this.fault.error}`);
     if (!this.store) return "";
     this.flushPending();
     const lines: string[] = [];
@@ -295,6 +330,10 @@ export class Transcript {
   /** Stream faithful export segments oldest→newest (one per resize-epoch),
    *  each rendered at its historical width. */
   async *exportSegments(): AsyncIterable<ExportSegment> {
+    // Surface a fault (F3): throw so the PDF export toasts the failure rather
+    // than yielding nothing — which the client reads as "history disabled" and
+    // silently falls back to the clipped live buffer.
+    if (this.fault) throw new Error(`transcript faulted: ${this.fault.error}`);
     if (!this.store) return;
     this.flushPending();
     for await (const seg of this.faithfulSegments(0, this.byteSeq)) {
@@ -312,6 +351,9 @@ export class Transcript {
     caseSensitive: boolean;
     maxResults: number;
   }): Promise<SearchResult> {
+    // A fault surfaces (F3) rather than reading as "no matches" over a broken
+    // transcript; a disabled/store-less transcript still returns empty.
+    if (this.fault) throw new Error(`transcript faulted: ${this.fault.error}`);
     if (!this.store || !this.policy.enabled) {
       return { hits: [], nextCursor: null, truncated: false };
     }
@@ -349,9 +391,20 @@ export class Transcript {
 
   // ---- internals ----------------------------------------------------------
 
-  /** Assemble faithful render inputs per resize-epoch over `[from, to)`. Each
-   *  yielded segment seeds from the nearest checkpoint and carries its DATA +
-   *  RESIZE events in byte order; the renderer applies the resizes. */
+  /** Split `[from, to)` into faithful render inputs, ONE segment per resize-epoch
+   *  — the DATA between two RESIZE records, rendered at the cols actually in
+   *  effect for that span. A RESIZE is the segment BOUNDARY, not an event inside a
+   *  segment: each epoch is rendered (and serialized) FROZEN at its historical
+   *  width before the next resize, so a 200-col table is never re-wrapped to a
+   *  later narrow width (the export promise). The old shape pushed every DATA
+   *  block first and every RESIZE after, then replayed them in one terminal — so
+   *  resizes never landed at their recorded byte positions AND xterm's on-resize
+   *  reflow re-wrapped every earlier span to the FINAL width (F2). RESIZE
+   *  byteSeqs sit exactly at DATA-block boundaries (`appendResize` flushes
+   *  pending first), so partitioning DATA by `firstByteSeq < resize.firstByteSeq`
+   *  is exact. Only the first epoch carries the checkpoint seed (the VT primer for
+   *  content scrolled above the window); later epochs start clean at the
+   *  boundary. */
   private async *faithfulSegments(
     from: Seq,
     to: Seq,
@@ -359,32 +412,45 @@ export class Transcript {
     seed: CheckpointRow | undefined;
     cols: number;
     rows: number;
-    events: Array<
-      | { kind: "data"; payload: Uint8Array }
-      | { kind: "resize"; cols: number; rows: number }
-    >;
+    events: Array<{ kind: "data"; payload: Uint8Array }>;
   }> {
     if (!this.store || to <= from) return;
     const seed = this.store.latestCheckpointAtOrBefore(from === 0 ? 0 : from);
     const start = seed ? seed.firstByteSeq : 0;
-    const dataBlocks = this.store.dataInRange(start, to);
+    const dataRecs = this.store.dataRecordsInRange(start, to);
     const resizes = this.store.resizesInRange(start, to);
-    // Merge DATA + RESIZE in byte order. dataInRange is already ordered; we
-    // approximate interleaving by RESIZE byteSeq vs the cumulative data — for a
-    // faithful export the renderer applies resizes between data flushes.
-    const events: Array<
-      | { kind: "data"; payload: Uint8Array }
-      | { kind: "resize"; cols: number; rows: number }
-    > = [];
-    for (const b of dataBlocks) events.push({ kind: "data", payload: b });
-    for (const r of resizes)
-      events.push({ kind: "resize", cols: r.cols, rows: r.rows });
-    yield {
-      seed,
-      cols: seed?.cols ?? this.cols,
-      rows: seed?.rows ?? this.rows,
-      events,
-    };
+
+    // The width in effect at the start of the current epoch: the seed's cols, or
+    // the FIRST data record's cols (the width when that block flushed — before
+    // any later resize), not `this.cols` (the latest width).
+    let epochSeed = seed;
+    let cols = seed?.cols ?? dataRecs[0]?.cols ?? this.cols;
+    let rows = seed?.rows ?? dataRecs[0]?.rows ?? this.rows;
+    let di = 0;
+    for (const r of resizes) {
+      const events: Array<{ kind: "data"; payload: Uint8Array }> = [];
+      while (
+        di < dataRecs.length &&
+        dataRecs[di]!.firstByteSeq < r.firstByteSeq
+      ) {
+        events.push({ kind: "data", payload: dataRecs[di]!.payload });
+        di++;
+      }
+      if (events.length > 0 || epochSeed)
+        yield { seed: epochSeed, cols, rows, events };
+      // The seed only primes the first epoch; later epochs begin clean at the
+      // resize boundary, now at the resize's grid.
+      epochSeed = undefined;
+      cols = r.cols;
+      rows = r.rows;
+    }
+    const tail: Array<{ kind: "data"; payload: Uint8Array }> = [];
+    while (di < dataRecs.length) {
+      tail.push({ kind: "data", payload: dataRecs[di]!.payload });
+      di++;
+    }
+    if (tail.length > 0 || epochSeed)
+      yield { seed: epochSeed, cols, rows, events: tail };
   }
 
   close(): void {

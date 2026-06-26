@@ -242,6 +242,79 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     tx.close();
   }, 30_000);
 
+  it("faithful export freezes each resize-epoch at its historical width", async () => {
+    // Span 1 at 80 cols, then a real mid-stream resize to 100, then span 2. Each
+    // span's lines wrap (135 chars), so the wrap COLUMN differs by width — a
+    // sensitive probe that a span is rendered at its own historical cols and not
+    // re-wrapped to the final width (the F2 bug, where every span reflowed to the
+    // last width / resizes landed only at the end).
+    const dbPath = join(dir, "resize.db");
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes: 1 << 30 },
+      dbPath,
+      cols: 80,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+    });
+    const { term: mirror, view } = makeMirror(80, 24);
+    const span1: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const s = `A${String(i).padStart(3, "0")}|${"x".repeat(130)}\r\n`;
+      span1.push(s);
+      await write(mirror, s);
+      tx.appendData(s, view);
+    }
+    // Out-of-band grid change — journaled on the transcript AND applied to the
+    // live mirror, exactly as ptyHost.resize() does.
+    mirror.resize(100, 24);
+    tx.appendResize(100, 24);
+    const span2: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const s = `B${String(i).padStart(3, "0")}|${"x".repeat(130)}\r\n`;
+      span2.push(s);
+      await write(mirror, s);
+      tx.appendData(s, view);
+    }
+
+    const segs: { cols: number; rows: number; ansi: string }[] = [];
+    for await (const seg of tx.exportSegments()) segs.push(seg);
+
+    // One frozen segment per epoch: 80 then 100 (not a single collapsed segment).
+    expect(segs.length).toBeGreaterThanOrEqual(2);
+    expect(segs[0]!.cols).toBe(80);
+    expect(segs.at(-1)!.cols).toBe(100);
+
+    // Oracle: span 1 rendered FROZEN at 80 (no later resize). The exported
+    // segment, rewritten into a term at its own cols, must reproduce that exact
+    // physical-row wrapping — which it would NOT if span 1 had reflowed to 100.
+    const oracle1 = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: 100_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const s of span1) await write(oracle1, s);
+    const oracleRows1 = readPlain(oracle1);
+    const replay1 = new Terminal({
+      cols: segs[0]!.cols,
+      rows: segs[0]!.rows,
+      scrollback: 100_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    await write(replay1, segs[0]!.ansi);
+    expect(readPlain(replay1)).toEqual(oracleRows1);
+
+    // copy-all carries every line of both spans.
+    const text = await tx.readAllText();
+    for (let i = 0; i < 20; i++) {
+      expect(text).toContain(`A${String(i).padStart(3, "0")}|`);
+      expect(text).toContain(`B${String(i).padStart(3, "0")}|`);
+    }
+    tx.close();
+  }, 30_000);
+
   it("copy-all returns every line's text", async () => {
     const { tx } = await feed(120);
     const text = await tx.readAllText();

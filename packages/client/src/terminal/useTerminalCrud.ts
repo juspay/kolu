@@ -16,6 +16,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { client, preferences } from "../wire";
+import { useHistoryPager } from "./useHistoryPager";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -30,6 +31,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
   const subPanel = useSubPanel();
   const terminalSearch = useTerminalSearch();
+  const historyPager = useHistoryPager();
   const rightPanel = useRightPanel();
   const { showTipOnce } = useTips();
 
@@ -81,6 +83,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     subPanel.removePanel(id);
     rightPanel.removePanel(id);
     terminalSearch.removeTerminal(id);
+    historyPager.removeTerminal(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -315,9 +318,10 @@ export const useTerminalCrud = createSharedRoot(() => {
       await client.terminal.killAll();
       store.reset();
       // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
-      // the find-bar map wholesale here too — otherwise stale keys outlive the
-      // terminals they pointed at.
+      // the find-bar AND history-pager maps wholesale here too — otherwise stale
+      // keys outlive the terminals they pointed at (and a reused id reopens them).
       terminalSearch.reset();
+      historyPager.reset();
     } catch (err) {
       toast.error(`Failed to close all terminals: ${(err as Error).message}`);
     }

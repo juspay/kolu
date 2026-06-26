@@ -52,6 +52,7 @@ type Sentinel =
   | { kind: "evicted" }
   | { kind: "unavailable" }
   | { kind: "faulted" }
+  | { kind: "error" }
   | null;
 
 const SENTINEL_TEXT: Record<string, string> = {
@@ -61,6 +62,7 @@ const SENTINEL_TEXT: Record<string, string> = {
   unavailable: "History isn't being recorded for this terminal.",
   faulted:
     "⚠ History may be incomplete — disk error; showing up to the last good point.",
+  error: "⚠ Couldn't load history — see the error notification.",
 };
 
 /** The pager body — owns the xterm lifecycle and the backfill/search state.
@@ -86,39 +88,68 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   const [matchCount, setMatchCount] = createSignal(0);
   const [matchIndex, setMatchIndex] = createSignal(-1);
   let hits: { cursor: number }[] = [];
+  // The byte cursor of the span currently rendered for search navigation, or
+  // null when the body holds a non-search page (initial / backfilled). Lets
+  // stepping among matches that share one span advance the in-view SearchAddon
+  // instead of reloading the same page and re-highlighting the first hit (F9).
+  let loadedCursor: number | null = null;
 
   const cols = () => term?.cols ?? 80;
   const overscanRows = () => Math.max(40, (term?.rows ?? 24) * 4);
 
-  function renderAll(): number {
+  /** Resolve once xterm has parsed `data` into the buffer — its write is async,
+   *  so reading buffer length / scrolling / searching before the callback fires
+   *  races the render (F5). */
+  function writeAsync(t: XTerm, data: string): Promise<void> {
+    return new Promise((resolve) => t.write(data, () => resolve()));
+  }
+
+  /** Re-render every loaded page and resolve only after the writes have parsed,
+   *  returning the resulting buffer length. Callers AWAIT this before reading
+   *  buffer state, scrolling, or invoking search. */
+  async function renderAll(): Promise<number> {
     if (!term) return 0;
     term.reset();
-    for (const p of pages) term.write(p);
-    return term.buffer.active.length;
+    for (const p of pages) {
+      if (!term) return 0;
+      await writeAsync(term, p);
+    }
+    return term?.buffer.active.length ?? 0;
   }
 
   async function loadInitial() {
     if (!term) return;
     setSentinel({ kind: "loading" });
-    const res = await client.terminal.history({
-      id: props.id,
-      beforeCursor: null,
-      maxLines: overscanRows(),
-      width: cols(),
-    });
+    loadedCursor = null;
+    let res: Awaited<ReturnType<typeof client.terminal.history>>;
+    try {
+      res = await client.terminal.history({
+        id: props.id,
+        beforeCursor: null,
+        maxLines: overscanRows(),
+        width: cols(),
+      });
+    } catch (err) {
+      // Don't leave the loading sentinel up forever on an RPC failure (F6) — the
+      // loaders are invoked fire-and-forget from mount/scroll/resize, so an
+      // uncaught throw is an unhandled rejection with no user signal.
+      setSentinel({ kind: "error" });
+      toast.error(`Failed to load history: ${(err as Error).message}`);
+      return;
+    }
     if (res.kind !== "ok") {
       pages = [];
       atFloor = true;
       topCursor = null;
-      renderAll();
+      await renderAll();
       setSentinel({ kind: res.kind } as Sentinel);
       return;
     }
     pages = [res.ansi];
     topCursor = res.nextCursor;
     atFloor = res.atFloor;
-    renderAll();
-    term.scrollToBottom();
+    await renderAll();
+    term?.scrollToBottom();
     setSentinel(atFloor ? { kind: "start" } : null);
   }
 
@@ -138,41 +169,66 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
         setSentinel({ kind: res.kind } as Sentinel);
         return;
       }
+      if (!term) return;
       const before = term.buffer.active.length;
       const anchor = term.buffer.active.viewportY;
       pages = [res.ansi, ...pages];
-      const after = renderAll();
+      loadedCursor = null;
+      const after = await renderAll();
       // Hold the user's scroll anchor: the added rows pushed everything down.
-      term.scrollToLine(anchor + (after - before));
+      term?.scrollToLine(anchor + (after - before));
       topCursor = res.nextCursor;
       atFloor = res.atFloor;
       setSentinel(atFloor ? { kind: "start" } : null);
+    } catch (err) {
+      // Same fire-and-forget surface as loadInitial — surface the failure rather
+      // than reject unhandled (F6).
+      setSentinel({ kind: "error" });
+      toast.error(`Failed to load older history: ${(err as Error).message}`);
     } finally {
       loading = false;
     }
   }
 
-  /** Jump the pager to a search hit's span and highlight in-view occurrences. */
-  async function jumpToHit(i: number) {
+  /** Jump the pager to a search hit's span and highlight the in-view occurrence.
+   *  When the target hit shares the span already loaded, step the SearchAddon
+   *  in-view (forward/back by `dir`) instead of reloading the page — otherwise
+   *  every hit in one span re-renders the same page and re-highlights its first
+   *  occurrence while the counter advances (F9). */
+  async function jumpToHit(i: number, dir: 1 | -1 = 1) {
     if (!term || i < 0 || i >= hits.length) return;
     setMatchIndex(i);
-    const res = await client.terminal.history({
-      id: props.id,
-      beforeCursor: hits[i]!.cursor,
-      maxLines: overscanRows(),
-      width: cols(),
-    });
-    if (res.kind !== "ok") return;
-    pages = [res.ansi];
-    topCursor = res.nextCursor;
-    atFloor = res.atFloor;
-    renderAll();
-    term.scrollToBottom();
-    search?.findNext(query(), {
+    const cursor = hits[i]!.cursor;
+    const opts: ISearchOptions = {
       ...SEARCH_DECORATIONS,
       caseSensitive: caseSensitive(),
       regex: regex(),
-    });
+    };
+    if (cursor !== loadedCursor) {
+      let res: Awaited<ReturnType<typeof client.terminal.history>>;
+      try {
+        res = await client.terminal.history({
+          id: props.id,
+          beforeCursor: cursor,
+          maxLines: overscanRows(),
+          width: cols(),
+        });
+      } catch (err) {
+        setSentinel({ kind: "error" });
+        toast.error(`Failed to load history: ${(err as Error).message}`);
+        return;
+      }
+      if (res.kind !== "ok") return;
+      pages = [res.ansi];
+      topCursor = res.nextCursor;
+      atFloor = res.atFloor;
+      loadedCursor = cursor;
+      await renderAll();
+      if (!term) return;
+      term.scrollToBottom();
+    }
+    if (dir === -1) search?.findPrevious(query(), opts);
+    else search?.findNext(query(), opts);
   }
 
   async function runSearch() {
@@ -195,6 +251,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       });
       hits = res.hits;
       setMatchCount(hits.length);
+      loadedCursor = null;
       if (hits.length > 0) await jumpToHit(0);
       else setMatchIndex(-1);
     } catch (err) {
@@ -205,7 +262,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   function step(delta: 1 | -1) {
     if (hits.length === 0) return;
     const next = (matchIndex() + delta + hits.length) % hits.length;
-    void jumpToHit(next);
+    void jumpToHit(next, delta);
   }
 
   async function jumpTop() {
@@ -384,8 +441,13 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
             class="px-3 py-1 text-xs text-center shrink-0"
             classList={{
               "text-amber-400":
-                s().kind === "faulted" || s().kind === "evicted",
-              "text-fg-3": s().kind !== "faulted" && s().kind !== "evicted",
+                s().kind === "faulted" ||
+                s().kind === "evicted" ||
+                s().kind === "error",
+              "text-fg-3":
+                s().kind !== "faulted" &&
+                s().kind !== "evicted" &&
+                s().kind !== "error",
             }}
           >
             {SENTINEL_TEXT[s().kind]}

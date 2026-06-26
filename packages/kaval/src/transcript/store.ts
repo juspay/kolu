@@ -159,6 +159,29 @@ export class TranscriptStore {
     return rows.map((r) => r.payload);
   }
 
+  /** DATA records (positioned) whose content lies in `[fromByteSeq, toByteSeq)`,
+   *  oldest first — like {@link dataInRange} but carrying each block's
+   *  `firstByteSeq` and historical grid (`cols`/`rows`) so FAITHFUL export can
+   *  partition the blocks into resize-epochs and render each at the width then in
+   *  effect (the reflow-to-current pager needs only the payloads). */
+  dataRecordsInRange(
+    fromByteSeq: Seq,
+    toByteSeq: Seq,
+  ): { firstByteSeq: Seq; cols: number; rows: number; payload: Uint8Array }[] {
+    return this.db
+      .prepare(
+        `SELECT firstByteSeq, cols, rows, payload FROM record
+         WHERE kind=? AND firstByteSeq>=? AND firstByteSeq<? AND payload IS NOT NULL
+         ORDER BY firstByteSeq`,
+      )
+      .all(Kind.DATA, fromByteSeq, toByteSeq) as {
+      firstByteSeq: Seq;
+      cols: number;
+      rows: number;
+      payload: Uint8Array;
+    }[];
+  }
+
   /** RESIZE records in `(fromByteSeq, toByteSeq]`, oldest first — FAITHFUL mode
    *  (export/forensics) replays these at their true stream position; the
    *  reflow-to-current pager path ignores them. */

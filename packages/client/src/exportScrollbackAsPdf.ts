@@ -70,10 +70,29 @@ export async function exportScrollbackAsPdf(
 ): Promise<void> {
   const refs = getTerminalRefs(id);
   const theme = refs?.xterm.options.theme ?? {};
+  const bg = theme.background ?? "#ffffff";
+  const fg = theme.foreground ?? "#000000";
+  // Open the print window SYNCHRONOUSLY, in the click gesture, BEFORE the async
+  // history read (F4). Browsers block a popup opened after an await, so the old
+  // order (await the server render, then `window.open`) got blocked even for a
+  // legitimate click. Show a placeholder while the render runs; close the window
+  // on failure so a blocked/failed export never leaves a blank tab.
+  const win = window.open("", "_blank");
+  if (!win) {
+    toast.error("Popup blocked — allow popups to export as PDF");
+    return;
+  }
+  win.document.write(
+    `<!doctype html><html><head><meta charset="utf-8" /><title>kolu export…</title>` +
+      `<style>body{margin:0;padding:2rem;font-family:system-ui,sans-serif;color:${fg};background:${bg}}</style>` +
+      `</head><body>Preparing export…</body></html>`,
+  );
+
   let bodyHtml: string | null = null;
   try {
     bodyHtml = await renderHistoryHtml(id, theme);
   } catch (err) {
+    win.close();
     console.error("Failed to read terminal history for PDF:", err);
     toast.error(`Failed to read history: ${(err as Error).message}`);
     return;
@@ -82,6 +101,7 @@ export async function exportScrollbackAsPdf(
   // buffer exactly as before (the correct behavior for an opted-out terminal).
   if (bodyHtml === null) {
     if (!refs) {
+      win.close();
       toast.error("Terminal not ready");
       return;
     }
@@ -94,13 +114,6 @@ export async function exportScrollbackAsPdf(
     : meta
       ? terminalKey(meta).group
       : "Terminal";
-  const fg = theme.foreground ?? "#000000";
-  const bg = theme.background ?? "#ffffff";
-  const win = window.open("", "_blank");
-  if (!win) {
-    toast.error("Popup blocked — allow popups to export as PDF");
-    return;
-  }
   const doc = `<!doctype html>
 <html>
   <head>

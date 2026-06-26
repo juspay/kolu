@@ -90,6 +90,30 @@ export const HEADLESS_TERM_ID = "xterm-headless(kolu)";
 /** Opaque PTY identifier. */
 export type PtyId = string;
 
+/** Resolve the per-PTY transcript DB path, refusing any id that isn't a single
+ *  safe path segment. The id crosses the wire as an opaque string (the host
+ *  neither mints nor interprets it), so a client could otherwise hand `../…` and
+ *  steer the SQLite file outside `transcriptDir`. The id is a *map key* elsewhere
+ *  — only here does it become a filesystem name — so the check lives at exactly
+ *  the boundary that needs it, and it CRASHES (fail-fast) rather than silently
+ *  sanitizing: a traversal-shaped id is a contract violation, never valid state
+ *  to massage. (kolu mints UUIDs; this only fires on a malformed/hostile id.) */
+export function transcriptDbPath(transcriptDir: string, id: PtyId): string {
+  if (
+    id.length === 0 ||
+    id === "." ||
+    id === ".." ||
+    id.includes("/") ||
+    id.includes("\\") ||
+    id.includes("\0")
+  ) {
+    throw new Error(
+      `pty-host: refusing unsafe PTY id as a transcript filename: ${JSON.stringify(id)}`,
+    );
+  }
+  return join(transcriptDir, `${id}.db`);
+}
+
 /** Extract plain text from an xterm buffer within a line range.
  *
  *  `tailLines` is a convenience for "the last N rendered lines": it pins
@@ -591,20 +615,30 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // outranks deep history), so a failure logs and runs without one.
     let transcript: Transcript | undefined;
     if (spawnOpts.history.enabled && transcriptDir !== undefined) {
+      // Build the path OUTSIDE the degradation try: an unsafe id is a contract
+      // violation that must crash loudly (F1), never collapse into the
+      // "running without history" path a disk fault takes.
+      const dbPath = transcriptDbPath(transcriptDir, id);
       try {
         mkdirSync(transcriptDir, { recursive: true, mode: 0o700 });
         transcript = Transcript.open({
           policy: spawnOpts.history,
-          dbPath: join(transcriptDir, `${id}.db`),
+          dbPath,
           cols,
           rows,
         });
       } catch (err) {
+        // A transcript that can't be opened (disk/path/schema fault) must never
+        // block the PTY (survivability outranks deep history) — but it must NOT
+        // collapse to `undefined`, which reads as "history disabled" and would
+        // silently fall back to the clipped live buffer. Instead it becomes a
+        // FAULTED transcript: history()/copy/export surface the fault honestly
+        // rather than passing a broken transcript off as an opted-out one (F3).
         log.error(
           { id, err },
-          "pty-host: transcript open failed; running without history",
+          "pty-host: transcript open failed; serving history as faulted",
         );
-        transcript = undefined;
+        transcript = Transcript.failedOpen(spawnOpts.history, cols, rows, err);
       }
     }
 
