@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { Logger } from "@kolu/surface-daemon";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { spawnInput } from "./contractCorpus.testlib.ts";
+import { drainForOverflow, spawnInput } from "./contractCorpus.testlib.ts";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -182,25 +182,9 @@ describe("servePtyHostOverUnixSocket — `overflow` frame crosses the socket", (
     await new Promise((r) => setTimeout(r, 500));
 
     // Drain: a typed `overflow` frame must arrive over the socket — eventually,
-    // after the buffered deltas. Each pull is timeout-guarded so a regression
-    // (no overflow frame, just a silent end) fails loudly rather than hanging.
-    const pull = (): Promise<IteratorResult<{ kind: string }>> =>
-      Promise.race([
-        iter.next(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("overflow frame never arrived")),
-            8000,
-          ),
-        ),
-      ]);
-    const kinds: string[] = [];
-    for (let i = 0; i < 5000; i++) {
-      const r = await pull();
-      if (r.done) break;
-      kinds.push(r.value.kind);
-      if (r.value.kind === "overflow") break;
-    }
+    // after the buffered deltas. The bound is generous because the kernel socket
+    // buffer drains many laggard frames before the bounded queue trips the drop.
+    const kinds = await drainForOverflow(iter, 5000);
     expect(kinds).toContain("overflow");
 
     ac.abort();

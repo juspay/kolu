@@ -73,6 +73,35 @@ export function spawnInput(cwd: string): PtyHostSpawnInput {
   };
 }
 
+/** Pull frames off an already-open `terminalAttach` iterator until a typed
+ *  `overflow` frame arrives (or the stream ends, or `maxPulls` is reached),
+ *  returning the frame kinds seen so the caller can assert `toContain("overflow")`.
+ *  Each pull is timeout-guarded so a regression — a silent end with no `overflow`
+ *  frame, the exact ambiguity the R5 fix removed — fails loudly instead of
+ *  hanging. Shared by the in-process and real-socket overflow tests, which differ
+ *  only in how many laggard frames precede the drop (`maxPulls`). */
+export async function drainForOverflow(
+  iter: AsyncIterator<{ kind: string }>,
+  maxPulls: number,
+): Promise<string[]> {
+  const kinds: string[] = [];
+  for (let i = 0; i < maxPulls; i++) {
+    const r = await Promise.race([
+      iter.next(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("overflow frame never arrived")),
+          8000,
+        ),
+      ),
+    ]);
+    if (r.done) break;
+    kinds.push(r.value.kind);
+    if (r.value.kind === "overflow") break;
+  }
+  return kinds;
+}
+
 /** A client plus the teardown that releases whatever backs it (the socket
  *  connection, and — for the daemon — the daemon process). */
 export interface CorpusHost {

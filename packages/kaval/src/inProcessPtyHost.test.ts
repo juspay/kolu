@@ -14,7 +14,11 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
+import {
+  drainForOverflow,
+  runContractCorpus,
+  spawnInput,
+} from "./contractCorpus.testlib.ts";
 import {
   createInProcessPtyHost,
   type PtyHostClient,
@@ -212,25 +216,8 @@ describe("createInProcessPtyHost — identity-link-specific mechanism", () => {
 
     // Drain: the contract must surface a typed `overflow` frame. Before the fix
     // the stream simply ended here (no such frame) — the exact ambiguity the fix
-    // removes. Each pull is timeout-guarded so a regression fails loudly rather
-    // than hanging.
-    const pull = (): Promise<IteratorResult<{ kind: string }>> =>
-      Promise.race([
-        iter.next(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("overflow frame never arrived")),
-            8000,
-          ),
-        ),
-      ]);
-    const kinds: string[] = [];
-    for (let i = 0; i < 20; i++) {
-      const r = await pull();
-      if (r.done) break;
-      kinds.push(r.value.kind);
-      if (r.value.kind === "overflow") break;
-    }
+    // removes. A small bound suffices in-process (the held delta, then overflow).
+    const kinds = await drainForOverflow(iter, 20);
     expect(kinds).toContain("overflow");
 
     ac.abort();
