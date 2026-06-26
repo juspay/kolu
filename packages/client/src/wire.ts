@@ -98,7 +98,7 @@ const link = transport.link;
 // fold ships for a consumer whose control plane WANTS one answer: drishti folds
 // its admin + surface-app siblings with `surfaceClientsHealth` (its `MultiHostApp`
 // control-plane strip); `surfaceClient.health.test.ts` pins the fold itself.
-const clients = surfaceClients(link, surfaces, { live: transport.live });
+const clients = surfaceClients(transport, surfaces);
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
  *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,

@@ -30,16 +30,16 @@ export {
   type SurfaceHealth,
   type SurfaceHealthRegistry,
 } from "./health";
-// `createLiveSignal` is the SINGLE, unforgeable minter of a `LiveSignal` (the
-// transport-liveness brand `surfaceClient` requires over a websocket). It lives
-// here — not in `@kolu/surface-app` — so the brand symbol and its sole minter
-// share one module; `brandLiveSignal` is module-private and deliberately NOT
-// exported. `@kolu/surface-app`'s connect seams re-export `createLiveSignal`.
+// `createLiveSignal` is the SINGLE, unforgeable minter of a `LiveSignalHandle` (the
+// watchdog-backed transport-liveness unit `surfaceClient` requires over a websocket).
+// It lives here — not in `@kolu/surface-app` — so the brand set and its sole minter
+// share one module; the handle is branded at mint and there is no exported stamper.
+// `@kolu/surface-app`'s connect seams re-export `createLiveSignal`.
 export {
   type CreateLiveSignalOptions,
   createLiveSignal,
   type HeartbeatTuning,
-  isLiveSignal,
+  isLiveSignalHandle,
   type LiveSignal,
   type LiveSignalHandle,
   type SurfaceConnectionStatus,

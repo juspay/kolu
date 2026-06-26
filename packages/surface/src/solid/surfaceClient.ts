@@ -12,6 +12,8 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import {
   type Accessor,
   createEffect,
@@ -35,7 +37,7 @@ import type {
 } from "../define";
 import { resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/websocket";
-import { isLiveSignal, liveSignalGuardsLink } from "./liveSignal";
+import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -53,52 +55,52 @@ import { type UseCollectionResult, useCollection } from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
-/** Crash if `link` can silently half-open (a `websocketLink`) but the `{ live }`
- *  supplied is not a watchdog-backed {@link LiveSignal} **minted to guard this exact
- *  link**. A WebSocket can half-open silently (the socket stays `open` while no
- *  bytes flow), so its `health().live` is honest ONLY when a heartbeat actively
- *  probes it — and the only signal that PROVES a heartbeat backs THIS link is a
- *  `LiveSignal` `createLiveSignal` built over the same socket (which
- *  `connectSurface`/`connectSurfaces` wrap) THROUGH the watchdog it wires. So
- *  `!liveSignalGuardsLink(live, link)` rejects three things at once — a missing
- *  `{ live }`, a truthy-but-unbranded one (a bare `() => true` or an open/close-only
- *  `() => socketStatus() === "live"`, half-open-BLIND), AND a genuine brand that
- *  guards a *different* socket's link (the contrived "watch ws1, build over ws2"
- *  forge): the brand vouches only for the link it was built over. An in-process link
- *  (`directLink`/`stdioLink`) can't half-open, so it is never recorded in the
- *  half-open set and any `{ live }` (or none) is honest there. Fail-fast per the
- *  repo's "no silent fallback / crash loudly" philosophy: the half-open-blind
- *  transport leg is now UNSPELLABLE over a websocket, not merely discouraged (the
- *  #1564 lie, one seam upstream of the dot). */
-function requireTransportLive(
-  link: unknown,
-  live: Accessor<boolean> | undefined,
-): void {
-  if (!liveSignalGuardsLink(live, link) && isHalfOpenLink(link)) {
-    // A genuine brand pointed at a DIFFERENT link is the most surprising case —
-    // name it specifically so the fix ("build over THIS transport.link") is obvious.
-    const mismatched = isLiveSignal(live)
-      ? "The `{ live }` is a genuine `LiveSignal`, but it was minted over a " +
-        "DIFFERENT socket than this link — build the client over the SAME " +
-        "`transport.link` `createLiveSignal` returned, so the watchdog guards the " +
-        "link you actually call. "
-      : "";
+/** Resolve the transport argument `surfaceClient`/`surfaceClients` were handed into
+ *  the `{ link, live }` the bundle is built over — collapsing the pair at the API so
+ *  there is nothing to re-prove at runtime:
+ *
+ *   - A {@link LiveSignalHandle} (the only honest shape over a half-openable
+ *     websocket): read `.link` and `.live` straight off it. They were minted together
+ *     by `createLiveSignal` (which builds the link over the socket it watches and
+ *     wires the watchdog first), so the live↔link pairing holds BY CONSTRUCTION — the
+ *     "watch ws1, build over ws2" forge is unspellable because no caller supplies a
+ *     separate link.
+ *   - A bare half-openable `websocketLink`: CRASH. A WebSocket can half-open silently
+ *     (the socket stays `open` while no bytes flow), so its `health().live` is a LIE
+ *     unless a watchdog probes it — and the watchdog rides on the handle. Passing the
+ *     bare link drops the watchdog, so refuse it: pass the `LiveSignalHandle`
+ *     `createLiveSignal`/`connectSurface`/`connectSurfaces` returns instead.
+ *   - A bare in-process link (`directLink`/`stdioLink`): can't half-open, so it is
+ *     never recorded in the half-open set; its transport leg is constant-`true`,
+ *     honest by construction.
+ *
+ *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
+ *  half-open-blind transport leg is UNSPELLABLE over a websocket — there is no
+ *  `{ live }` knob to pass a blind accessor through (the #1564 lie, one seam
+ *  upstream of the dot). */
+function resolveTransport(transport: unknown): {
+  link: unknown;
+  live: Accessor<boolean>;
+} {
+  if (isLiveSignalHandle(transport)) {
+    return { link: transport.link, live: transport.live };
+  }
+  if (isHalfOpenLink(transport)) {
     throw new Error(
       "surfaceClient: a websocket link can silently half-open, so its transport " +
-        "liveness must be a watchdog-backed `LiveSignal` built over THIS link, not a " +
-        "bare `{ live }`. " +
-        mismatched +
+        "liveness must be a watchdog-backed `LiveSignalHandle`, not a bare link. " +
         "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
         "hand-built client, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
-        "build over its returned `transport.link`: it builds the link over `ws` " +
-        "itself (so the watchdog probes the socket it reconnects via a real " +
-        "`system.live` round-trip) AND brands the live signal in one call; the brand " +
-        "has no other minter. A bare " +
-        "`() => true` or an open/close-only `() => socketStatus() === 'live'` is " +
-        "half-open-blind — it would paint a green/ready dot over a dead " +
-        "backend↔remote link (#1564).",
+        "pass the WHOLE handle it returns: it builds the link over `ws` itself (so " +
+        "the watchdog probes the socket it reconnects via a real `system.live` " +
+        "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
+        "object; the handle has no other minter. A bare `() => true` or an " +
+        "open/close-only `() => socketStatus() === 'live'` is half-open-blind — it " +
+        "would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
   }
+  // In-process link (directLink/stdioLink): live by construction.
+  return { link: transport, live: () => true };
 }
 
 // ── Bound-primitive option shapes ──────────────────────────────────────
@@ -319,59 +321,80 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 
 // ── Builder ────────────────────────────────────────────────────────────
 
-/** Build the Solid client-side bundle for a surface over a **link** — any
- *  member of the link family (`websocketLink`, `stdioLink`, `directLink`),
- *  i.e. a `ContractRouterClient`. Walks the spec once and pre-binds each
- *  primitive to its oRPC procedure refs, producing `.use(policy)` hooks that
- *  drop the wire-identity args from the per-call signature.
+/** Build the Solid client-side bundle for a surface over a **transport** — either
+ *  a {@link LiveSignalHandle} (a half-openable `websocketLink` plus the watchdog
+ *  that makes its liveness honest, as ONE object) OR a bare in-process link
+ *  (`directLink`/`stdioLink`, which can't half-open). Walks the spec once and
+ *  pre-binds each primitive to its oRPC procedure refs, producing `.use(policy)`
+ *  hooks that drop the wire-identity args from the per-call signature.
  *
  *  ```ts
- *  // Direct/stdio link (can't half-open) — no `{ live }` needed:
+ *  // Direct/stdio link (can't half-open) — pass the bare link:
  *  const app = surfaceClient(surface, directLink(server));
  *
- *  // Websocket link (CAN half-open) — REQUIRES a watchdog-backed `{ live }`.
+ *  // Websocket link (CAN half-open) — pass the watchdog-backed handle WHOLE.
  *  // Reach for `connectSurface` (`@kolu/surface-app`), which wires it for you; or,
  *  // hand-built, use `createLiveSignal`, which BUILDS the link over `ws` (so the
- *  // watchdog probes the socket it reconnects) and returns it:
+ *  // watchdog probes the socket it reconnects) and returns the handle:
  *  const transport = createLiveSignal<typeof contract>(ws, {});
- *  const app = surfaceClient(surface, transport.link, { live: transport.live });
+ *  const app = surfaceClient(surface, transport);
  *  ```
  *
- *  This is the unification: the bundle no longer bakes in the WebSocket
- *  transport — it consumes whatever link it's handed, so the same hooks work
- *  over a socket, a subprocess, or an in-process direct link.
+ *  Collapsing link+live into ONE handle argument is what makes the pairing hold by
+ *  construction: there is no separate `{ live }` seam to pass a half-open-blind
+ *  accessor through, and no way to pair a live with a DIFFERENT, self-rolled link.
  *
- *  `Rpc` is inferred from the `link` argument and defaults to `unknown`, so
- *  pass a real link — the link constructor (`websocketLink<typeof contract>(ws)`)
- *  is what pins the contract type that flows through to `.rpc`. There's no
- *  separate transport option to forget; the link *is* the argument. */
+ *  This is the unification: the bundle no longer bakes in the WebSocket transport —
+ *  it consumes whatever transport it's handed, so the same hooks work over a socket,
+ *  a subprocess, or an in-process direct link. `Rpc` flows from the handle's contract
+ *  `C` (or the bare link's type) through to `.rpc`. */
+export function surfaceClient<
+  const S extends SurfaceSpec,
+  C extends AnyContractRouter,
+>(
+  surface: Surface<S>,
+  handle: LiveSignalHandle<C>,
+): SurfaceClient<S, ContractRouterClient<C, ClientRetryPluginContext>>;
 export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
   link: Rpc,
-  opts?: {
-    /** Transport liveness for `health().live` — the socket/heartbeat watchdog's
-     *  reactive answer. Omitted ONLY for a link that can't be silently half-open
-     *  (a `directLink`/`stdioLink`), where it is live by construction; for a
-     *  `websocketLink` it is REQUIRED and must be a watchdog-backed `LiveSignal`
-     *  (minted by `createLiveSignal` / `connectSurface` / `connectSurfaces`) —
-     *  omitting it OR passing a bare/open-close-only accessor crashes (see
-     *  `requireTransportLive`) rather than silently defaulting the transport leg
-     *  to a half-open-blind `true`. The seams thread the real signal in;
-     *  `health()` originates the per-subscription FACT either way. */
-    live?: Accessor<boolean>;
-  },
+): SurfaceClient<S, Rpc>;
+export function surfaceClient<const S extends SurfaceSpec>(
+  surface: Surface<S>,
+  transport: unknown,
+): SurfaceClient<S, unknown> {
+  // Collapse the transport to its `{ link, live }` — a `LiveSignalHandle` carries
+  // both (paired by construction); a bare half-openable link CRASHES here; a bare
+  // in-process link gets a constant-`true` leg (sound — it can't half-open).
+  const { link, live } = resolveTransport(transport);
+  return buildSurfaceClient(surface, link, live);
+}
+
+/** The internal builder shared by `surfaceClient` (one transport) and
+ *  `surfaceClients` (one combined transport sliced per sibling). It takes the
+ *  ALREADY-resolved `link` and `live` — `surfaceClient` resolves them from a
+ *  handle-or-bare-link via {@link resolveTransport}; `surfaceClients` reads them off
+ *  the combined handle once and threads the shared `live` into each scoped slice (the
+ *  slices are fresh non-half-open wrappers, so they need no brand check). The
+ *  half-open guard lives at the PUBLIC boundary, not here.
+ *
+ *  @internal Package-private: exported for the relative-import fold tests (which need
+ *  a stub link AND a custom `live` together), NOT in the `@kolu/surface/solid` barrel
+ *  — so no EXTERNAL consumer can supply a `live` paired with a separate link (the
+ *  whole point of collapsing the pair into a `LiveSignalHandle` at the public API). */
+export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
+  surface: Surface<S>,
+  link: Rpc,
+  live: Accessor<boolean>,
 ): SurfaceClient<S, Rpc> {
   const spec = surface.spec;
-  // FAIL FAST: a `websocketLink` can silently half-open, so its transport leg
-  // MUST be supplied — defaulting it to constant-`true` would paint a
-  // green/ready dot over a dead backend↔remote link (#1564), one seam upstream.
-  requireTransportLive(link, opts?.live);
   // The per-client subscription-health registry. Every `.use()` below enrols its
   // subscription, so `health()` folds a TOTAL picture (a partial registry behind
-  // a confident gate is worse than no gate — `./health`). The transport leg is
-  // the supplied `live` for a half-openable link, else a constant `true` (sound
-  // only because `requireTransportLive` already proved this link can't half-open).
-  const registry = createSurfaceHealthRegistry(opts?.live ?? (() => true));
+  // a confident gate is worse than no gate — `./health`). The transport leg is the
+  // resolved `live` — the watchdog-backed handle's `live` for a half-openable link,
+  // else a constant `true` (sound only because `resolveTransport` already proved
+  // this link can't half-open).
+  const registry = createSurfaceHealthRegistry(live);
 
   // Build-time standing subscriptions for `liveWhen` cells (the readiness legs)
   // and their disposers. Created EAGERLY below (not at `.use()` time) so the
@@ -713,15 +736,20 @@ export type SurfaceClients<
 };
 
 /** Build one `surfaceClient` per sibling surface over a single combined
- *  link (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
+ *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
  *
- *  The combined link is shaped `{ surface: { <key>: innerLink } }` — i.e.
- *  the same `{ surface: { <key>: ... } }` namespacing `composeSurfaceContracts`
- *  produces. Each per-key client is built over a SCOPED link
- *  `{ surface: link.surface[key] }`, so the bundle's internal walk
- *  (`(link as any).surface[<prim>]`) resolves at `link.surface[key].<prim>`
- *  — i.e. the wire path `/surface/<key>/<prim>/<verb>` that
- *  `implementSurfaces` serves.
+ *  Pass the WHOLE transport — a {@link LiveSignalHandle} for the half-openable
+ *  combined websocket (the watchdog-backed live and the combined link arrive as ONE
+ *  object), or a bare combined in-process link for a direct/stdio transport. The
+ *  combined link is shaped `{ surface: { <key>: innerLink } }` — i.e. the same
+ *  `{ surface: { <key>: ... } }` namespacing `composeSurfaceContracts` produces. Each
+ *  per-key client is built over a SCOPED link `{ surface: link.surface[key] }`, so the
+ *  bundle's internal walk (`(link as any).surface[<prim>]`) resolves at
+ *  `link.surface[key].<prim>` — i.e. the wire path `/surface/<key>/<prim>/<verb>`
+ *  that `implementSurfaces` serves. The siblings ride ONE combined socket, so they
+ *  share the handle's ONE watchdog-backed `live` — every sibling reports it, so
+ *  `surfaceClientsHealth`'s AND-reduce flips the merged fact `live: false` when that
+ *  socket dies.
  *
  *  Reaching a primitive through a returned client therefore goes through
  *  that client's `.rpc` (the scoped link), e.g. for a probe procedure under
@@ -735,35 +763,30 @@ export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   const E extends Record<string, Surface<any>>,
 >(
-  // biome-ignore lint/suspicious/noExplicitAny: combined link is a dynamic ContractRouterClient; scoping is walk-by-string.
-  link: any,
+  // biome-ignore lint/suspicious/noExplicitAny: a LiveSignalHandle over the combined websocket, or a dynamic combined ContractRouterClient; scoping is walk-by-string.
+  transport: any,
   entries: E,
-  /** Transport liveness for EVERY sibling's `health().live`. The siblings ride
-   *  ONE combined socket, so they share ONE `live` — and over a websocket it must
-   *  be a watchdog-backed `LiveSignal` (minted by `createLiveSignal` /
-   *  `connectSurfaces`), not a bare `() => socketStatus(ws)() === "live"`: a
-   *  half-open-blind accessor would read `live` forever over a dead combined
-   *  socket. Every sibling reports it, so `surfaceClientsHealth`'s AND-reduce
-   *  flips the merged fact `live: false` when that socket dies. Omit only for a
-   *  direct/stdio link that can't be half-open (then it stays constant `true`). */
-  opts?: { live?: Accessor<boolean> },
 ): SurfaceClients<E> {
-  // Same fail-fast as `surfaceClient`, BEFORE scoping: the combined `link` is the
-  // half-openable websocket (the per-sibling slices below are fresh wrappers that
-  // no longer carry the marker), so a missing `{ live }` over it is the
-  // green-over-dead-link lie for EVERY sibling. Crash here rather than let each
-  // scoped client silently default its transport leg to constant-`true`.
-  requireTransportLive(link, opts?.live);
+  // Collapse the combined transport ONCE, at the public boundary: a
+  // `LiveSignalHandle` yields the combined `link` and the shared watchdog-backed
+  // `live` (paired by construction); a bare half-openable combined link CRASHES
+  // (the green-over-dead-link lie for EVERY sibling); a bare in-process link gets a
+  // constant-`true` leg. The per-sibling slices below are fresh `{ surface }`
+  // wrappers that no longer carry the half-open marker, so each child is built via
+  // the internal `buildSurfaceClient` with the shared `live` — no per-slice brand
+  // check (the guard already ran here, on the combined transport).
+  const { link, live } = resolveTransport(transport);
   return Object.fromEntries(
     Object.entries(entries).map(([k, surface]) => [
       k,
-      surfaceClient(
+      buildSurfaceClient(
         surface,
         {
-          surface: link.surface[k],
+          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
+          surface: (link as any).surface[k],
           // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
         } as any,
-        opts,
+        live,
       ),
     ]),
   ) as SurfaceClients<E>;

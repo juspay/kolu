@@ -18,12 +18,10 @@ const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.ho
 export const ws = new PartySocket(wsUrl);
 
 // A websocket CAN silently half-open, so `surfaceClient` requires a watchdog-backed
-// `{ live }` — minted here by `createLiveSignal`, which also BUILDS the oRPC link
-// over `ws` (so the watchdog probes the socket it reconnects) and brands the signal.
-// Build the client over `transport.link`. `createLiveSignal` lives in
-// `@kolu/surface`, so this minimal example needs no `@kolu/surface-app` dependency.
+// `LiveSignalHandle` — minted here by `createLiveSignal`, which BUILDS the oRPC link
+// over `ws` (so the watchdog probes the socket it reconnects) and bundles it with the
+// branded `live`. Pass the WHOLE handle. `createLiveSignal` lives in `@kolu/surface`,
+// so this minimal example needs no `@kolu/surface-app` dependency.
 const transport = createLiveSignal<typeof surface.contract>(ws, {});
 
-export const app = surfaceClient(surface, transport.link, {
-  live: transport.live,
-});
+export const app = surfaceClient(surface, transport);

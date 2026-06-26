@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
-import { createLiveSignal, isLiveSignal } from "./liveSignal";
+import { createLiveSignal, isLiveSignalHandle } from "./liveSignal";
 import { surfaceClient } from "./surfaceClient";
 
 const surface = defineSurface({
@@ -70,19 +70,17 @@ function fakeSocket() {
 describe("createLiveSignal — the unforgeable, watchdog-backed live signal", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("mints a BRANDED LiveSignal a surfaceClient accepts over the link it BUILT", () => {
+  it("mints a BRANDED LiveSignalHandle a surfaceClient accepts WHOLE", () => {
     const f = fakeSocket();
     const transport = createLiveSignal<typeof surface.contract>(
       f.socket as never,
       {},
     );
-    expect(isLiveSignal(transport.live)).toBe(true);
-    // `createLiveSignal` built the oRPC link over `f.socket` itself and returned it;
-    // it is half-open-marked, so `surfaceClient` accepts it ONLY with the branded
-    // `live`. There is no caller-supplied link/probe to fabricate.
-    expect(() =>
-      surfaceClient(surface, transport.link, { live: transport.live }),
-    ).not.toThrow();
+    expect(isLiveSignalHandle(transport)).toBe(true);
+    // `createLiveSignal` built the oRPC link over `f.socket` itself and bundled it
+    // with the branded `live` on ONE handle, so `surfaceClient` accepts the WHOLE
+    // handle. There is no caller-supplied link/probe to fabricate.
+    expect(() => surfaceClient(surface, transport)).not.toThrow();
     transport.dispose();
   });
 
@@ -108,15 +106,21 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     transport.dispose();
   });
 
-  it("the brand is un-reflectable — a real LiveSignal exposes no brand symbol to copy (round-8 WeakSet)", () => {
+  it("the brand is un-reflectable — a real LiveSignalHandle exposes no brand symbol to copy (round-8 WeakSet)", () => {
     const f = fakeSocket();
     const transport = createLiveSignal(f.socket as never, {});
     // The round-7 symbol brand could be lifted off a genuine instance via
-    // `Object.getOwnPropertySymbols` and copied onto a blind accessor. With the
-    // WeakSet brand there is NO own symbol to find, and a forged copy is not a member.
-    expect(Object.getOwnPropertySymbols(transport.live)).toHaveLength(0);
-    const forged = Object.assign(() => true, {});
-    expect(isLiveSignal(forged)).toBe(false);
+    // `Object.getOwnPropertySymbols` and copied onto a look-alike. With the WeakSet
+    // brand on the HANDLE there is NO own symbol to find, and a hand-rolled
+    // `{ live, link, … }` look-alike is not a member.
+    expect(Object.getOwnPropertySymbols(transport)).toHaveLength(0);
+    const forged = {
+      live: () => true,
+      status: () => "live" as const,
+      link: {},
+      dispose: () => {},
+    };
+    expect(isLiveSignalHandle(forged)).toBe(false);
     transport.dispose();
   });
 });

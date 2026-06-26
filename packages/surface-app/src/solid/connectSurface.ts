@@ -88,11 +88,12 @@ export function connectSurface<const S extends SurfaceSpec>(
   // `createLiveSignal` builds the oRPC link over THIS socket, derives the reactive
   // transport `status`, wires the half-open watchdog (probing `system.live` over the
   // link it just built — anchored to the socket it reconnects), AND mints the BRANDED
-  // `live` the client requires — in one call. We build the client over `transport.link`
-  // so client and watchdog share ONE link over the ONE socket. Without that brand
-  // `surfaceClient` refuses a bare `{ live }` over this websocket: a surface whose
-  // socket is silently half-open (or retired `down`) but whose subs already yielded a
-  // first frame would otherwise read `ready` — the green-dot-over-a-dead-link lie.
+  // handle the client requires — in one call. We hand the WHOLE handle to
+  // `surfaceClient`, so client and watchdog share ONE link over the ONE socket by
+  // construction. Without that handle `surfaceClient` refuses a bare websocket link: a
+  // surface whose socket is silently half-open (or retired `down`) but whose subs
+  // already yielded a first frame would otherwise read `ready` — the green-dot-over-
+  // a-dead-link lie.
   const transport = createLiveSignal<SurfaceContractFor<S>>(ws, {
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
@@ -101,9 +102,10 @@ export function connectSurface<const S extends SurfaceSpec>(
     restartCloseCode:
       socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
-  const client = surfaceClient(surface, transport.link, {
-    live: transport.live,
-  });
+  // Pass the WHOLE handle — `surfaceClient` reads `.link` and `.live` off it, so the
+  // client and the watchdog's probe share ONE link by construction (no separate,
+  // fabricatable probe target, nothing to re-prove at runtime).
+  const client = surfaceClient(surface, transport);
   return {
     ws,
     echo,

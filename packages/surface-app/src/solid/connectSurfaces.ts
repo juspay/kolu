@@ -109,11 +109,11 @@ export function connectSurfaces<
   const { ws, echo } = createSurfaceSocket(socketOptions);
   // `createLiveSignal` builds the combined oRPC link over THIS socket, wires the
   // half-open watchdog (probing `system.live` over that link, sliced to the FIRST
-  // sibling — every sibling answers it), AND mints the BRANDED `live` the one socket
-  // feeds to every sibling's `health().live` (the leg `surfaceClientsHealth`
-  // AND-reduces, so a dead combined socket flips the merged fact not-live). We build
-  // the bundle over `transport.link` so clients and probe share ONE link — there is
-  // no separate, fabricatable probe target.
+  // sibling — every sibling answers it), AND mints the BRANDED handle whose one
+  // `live` the socket feeds to every sibling's `health().live` (the leg
+  // `surfaceClientsHealth` AND-reduces, so a dead combined socket flips the merged
+  // fact not-live). We hand the WHOLE handle to `surfaceClients` so clients and probe
+  // share ONE link — there is no separate, fabricatable probe target.
   const transport = createLiveSignal(ws, {
     siblingKey,
     ...hb,
@@ -121,9 +121,10 @@ export function connectSurfaces<
     restartCloseCode:
       socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
-  const clients = surfaceClients(transport.link, surfaces, {
-    live: transport.live,
-  });
+  // Hand the WHOLE handle to `surfaceClients` — it reads the combined `.link` and the
+  // shared watchdog-backed `.live` off it, scopes the link per sibling, and threads
+  // the one `live` into every sibling's `health().live` (paired by construction).
+  const clients = surfaceClients(transport, surfaces);
   return {
     ws,
     echo,

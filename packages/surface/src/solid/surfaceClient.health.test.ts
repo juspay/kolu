@@ -29,6 +29,7 @@ import { websocketLink } from "../links/websocket";
 import type { SurfaceHealth } from "./health";
 import { createLiveSignal } from "./liveSignal";
 import {
+  buildSurfaceClient,
   surfaceClient,
   surfaceClients,
   surfaceClientsHealth,
@@ -49,21 +50,16 @@ function fakeWs(): WebSocket {
   } as any;
 }
 
-/** Mint a REAL `LiveSignal` via `createLiveSignal` (the only minter) over a fake
- *  watchable socket — proving the brand round-trips end-to-end (no test-only stub
- *  brander; `brandLiveSignal` is module-private and un-importable now). Returns the
- *  `link` `createLiveSignal` built over that socket too: the brand is bound to it by
- *  identity, so a client accepted by `requireTransportLive` must be built over THIS
- *  link (real usage — `surfaceClient(surface, transport.link, { live })`). The 15s
- *  watchdog interval never fires within a sync test; dispose it to be tidy. */
-function brandedLive(): {
-  live: ReturnType<typeof createLiveSignal>["live"];
-  link: ReturnType<typeof createLiveSignal>["link"];
-  dispose: () => void;
-} {
+/** Mint a REAL `LiveSignalHandle` via `createLiveSignal` (the only minter) over a
+ *  fake watchable socket — proving the brand round-trips end-to-end (no test-only
+ *  stub brander; the handle is branded at mint and there is no importable stamper).
+ *  The handle bundles the `live` and the `link` `createLiveSignal` built over that
+ *  socket as ONE object, so a client accepts the WHOLE handle (real usage —
+ *  `surfaceClient(surface, transport)`). The 15s watchdog interval never fires within
+ *  a sync test; dispose it to be tidy. */
+function brandedHandle(): ReturnType<typeof createLiveSignal> {
   // biome-ignore lint/suspicious/noExplicitAny: fakeWs is a structural stand-in for a partysocket.
-  const t = createLiveSignal(fakeWs() as any, {});
-  return { live: t.live, link: t.link, dispose: t.dispose };
+  return createLiveSignal(fakeWs() as any, {});
 }
 
 const surface = defineSurface({
@@ -249,51 +245,21 @@ describe("surfaceClient health registry — totality", () => {
     ]);
   });
 
-  it("threads a transport `live` accessor into health().live", async () => {
+  it("folds a transport `live` accessor into health().live", async () => {
+    // The fold itself, exercised through the internal builder so a stub link and a
+    // toggling `live` can be driven together (the public `surfaceClient` collapses
+    // link+live into one `LiveSignalHandle` — the end-to-end fold over a real
+    // watchdog-backed handle is pinned in `createLiveSignal`/`transportLive` tests).
     const link = { surface: { conn: { get: once({ state: "x" }) } } };
     await createRoot(async (dispose) => {
       let alive = true;
-      const app = surfaceClient(
-        surface,
-        // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-        link as any,
-        { live: () => alive },
-      );
+      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
+      const app = buildSurfaceClient(surface, link as any, () => alive);
       app.cells.conn.use();
       await settle();
       expect(app.health().live).toBe(true);
       alive = false;
       expect(app.health().live).toBe(false);
-      dispose();
-    });
-  });
-
-  it("surfaceClients threads ONE transport `live` into every sibling (not a constant true)", async () => {
-    // The siblings ride ONE combined socket, so they share ONE liveness.
-    // `surfaceClients` threads its `{ live }` opt to each sibling client, so
-    // `surfaceClientsHealth`'s AND-reduce can flip the merged fact `live: false`
-    // when that socket dies — instead of the structurally-constant `true` the
-    // un-threaded path leaves (a dead combined socket invisible to every sibling).
-    const combined = {
-      surface: {
-        a: { conn: { get: once({ state: "x" }) } },
-        b: { conn: { get: once({ state: "x" }) } },
-      },
-    };
-    await createRoot(async (dispose) => {
-      let alive = true;
-      const clients = surfaceClients(
-        // biome-ignore lint/suspicious/noExplicitAny: stub combined link.
-        combined as any,
-        { a: surface, b: surface },
-        { live: () => alive },
-      );
-      clients.a.cells.conn.use();
-      clients.b.cells.conn.use();
-      await settle();
-      expect(surfaceClientsHealth(clients).live).toBe(true);
-      alive = false;
-      expect(surfaceClientsHealth(clients).live).toBe(false);
       dispose();
     });
   });
@@ -420,12 +386,10 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
     const link = { surface: { connection: { get: f.procedure } } };
     await createRoot(async (dispose) => {
       let transport = true;
-      const app = surfaceClient(
-        mirrored,
-        // biome-ignore lint/suspicious/noExplicitAny: stub link.
-        link as any,
-        { live: () => transport },
-      );
+      // Internal builder: drive a stub mirror cell (feed) AND a toggling transport
+      // leg together — the public `surfaceClient` collapses the pair into a handle.
+      // biome-ignore lint/suspicious/noExplicitAny: stub link.
+      const app = buildSurfaceClient(mirrored, link as any, () => transport);
       f.push({ state: "connected" });
       await settle();
       expect(app.health().live).toBe(true); // transport ∧ mirror both hold
@@ -508,85 +472,49 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
     expect(() => surfaceClient(surface, link)).toThrow(/connectSurface/);
   });
 
-  it("surfaceClient over a websocketLink with a BARE (unbranded) `{ live }` STILL throws — a half-open-blind signal is refused even though it's truthy", () => {
-    const link = websocketLink(fakeWs());
-    // `() => true` is the canonical half-open-blind signal: truthy forever, blind
-    // to a silently dead socket. Round 5.2 would have accepted it (it only checked
-    // presence); the brand refuses it.
-    expect(() => surfaceClient(surface, link, { live: () => true })).toThrow(
-      /watchdog-backed `LiveSignal`/,
-    );
-  });
-
-  it("surfaceClient over a BRANDED `LiveSignal`'s OWN link is accepted — the watchdog-backed brand is the cure", () => {
-    // The brand is minted ONLY by `createLiveSignal` (which wires the watchdog);
-    // there is no importable `brandLiveSignal` to forge one with. The client is built
-    // over the SAME link `createLiveSignal` returned — the only shape `requireTransportLive`
-    // accepts (the brand is bound to that link by identity).
-    const t = brandedLive();
-    expect(() =>
-      surfaceClient(surface, t.link, { live: t.live }),
-    ).not.toThrow();
+  it("surfaceClient over a BRANDED `LiveSignalHandle` is accepted — the watchdog-backed handle is the cure", () => {
+    // The handle is minted ONLY by `createLiveSignal` (which wires the watchdog);
+    // there is no importable stamper to forge one with. The client takes the WHOLE
+    // handle — `link` and `live` paired on one object, the only shape `resolveTransport`
+    // accepts over a half-openable link.
+    const t = brandedHandle();
+    expect(() => surfaceClient(surface, t)).not.toThrow();
     t.dispose();
   });
 
-  it("surfaceClient over a SEPARATE websocketLink with a brand minted on a DIFFERENT socket STILL throws — the brand vouches only for the link it guards", () => {
-    // The contrived "watch ws1, build the client over websocketLink(ws2)" forge: a
-    // genuine brand, but for a different socket's link. `requireTransportLive` checks
-    // brand→link IDENTITY (not just brandedness), so it's refused — the half-open
-    // watchdog must guard the very link the client calls.
+  it("the `watch ws1, build over ws2` forge is UNSPELLABLE — there is no API to pass a `live` paired with a separate link", () => {
+    // The old forge handed a genuine brand alongside a self-rolled `websocketLink(ws2)`.
+    // Collapsing link+live into ONE handle removes the seam: a caller has only the
+    // handle (whose link the watchdog probes) or a bare link (no live at all). A bare
+    // second websocketLink is still refused — pass the handle.
     const otherLink = websocketLink(fakeWs());
-    const t = brandedLive();
-    expect(() => surfaceClient(surface, otherLink, { live: t.live })).toThrow(
-      /minted over a DIFFERENT socket/,
+    // biome-ignore lint/suspicious/noExplicitAny: bare websocket link, no handle.
+    expect(() => surfaceClient(surface, otherLink as any)).toThrow(
+      /websocket link can silently half-open/,
     );
-    t.dispose();
   });
 
-  it("surfaceClients (the multi-surface bundle) refuses a bare or unbranded `{ live }`, accepts a branded one", () => {
+  it("surfaceClients (the multi-surface bundle) refuses a bare combined link, accepts a branded handle", () => {
     const link = websocketLink(fakeWs());
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
       surfaceClients(link as any, { a: surface, b: surface }),
     ).toThrow(/websocket link can silently half-open/);
-    // Unbranded `{ live }` over the combined socket is the green-over-dead lie for
-    // EVERY sibling — refused.
-    expect(() =>
-      surfaceClients(
-        // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
-        link as any,
-        { a: surface, b: surface },
-        { live: () => true },
-      ),
-    ).toThrow(/watchdog-backed `LiveSignal`/);
-    // Accepted over the brand's OWN link (built by `createLiveSignal`), the real
-    // multi-surface shape: `surfaceClients(transport.link, surfaces, { live })`.
-    const t = brandedLive();
-    expect(() =>
-      surfaceClients(
-        // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
-        t.link as any,
-        { a: surface, b: surface },
-        { live: t.live },
-      ),
-    ).not.toThrow();
+    // Accepted as the WHOLE handle (built by `createLiveSignal`), the real
+    // multi-surface shape: `surfaceClients(transport, surfaces)`.
+    const t = brandedHandle();
+    expect(() => surfaceClients(t, { a: surface, b: surface })).not.toThrow();
     t.dispose();
   });
 
-  it("a direct/in-process link (not half-openable) is accepted with NO `{ live }` — and with a plain accessor too — constant-true is honest there", () => {
+  it("a direct/in-process link (not half-openable) is accepted bare — constant-true is honest there", () => {
     // A plain stub link stands in for `directLink`/`stdioLink`: it was never
-    // recorded in the half-open set, so the brand is NOT required — an in-process
-    // transport can't silently half-open, so any `{ live }` (or none) is honest.
+    // recorded in the half-open set, so no handle is required — an in-process
+    // transport can't silently half-open, so its constant-`true` leg is honest.
     const direct = { surface: { conn: { get: once({ state: "ok" }) } } };
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: stub direct link.
       surfaceClient(surface, direct as any),
-    ).not.toThrow();
-    // A plain (unbranded) accessor is fine over a direct link — the brand gates
-    // only half-openable links.
-    expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: stub direct link.
-      surfaceClient(surface, direct as any, { live: () => true }),
     ).not.toThrow();
   });
 });

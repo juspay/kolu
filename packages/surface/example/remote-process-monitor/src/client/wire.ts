@@ -28,17 +28,17 @@ export const ws = new PartySocket(wsUrl, undefined, {
 
 // Transport liveness for `app.health().live`. A real app reaches for the turnkey
 // `connectSurface` (`@kolu/surface-app`), which wires all of this for free; this
-// example hand-builds `surfaceClient` over `createLiveSignal`'s link to show the raw
-// seam — but NOT off a bare open/close signal. A websocket can silently HALF-OPEN
+// example hand-builds `surfaceClient` over `createLiveSignal`'s handle to show the
+// raw seam — but NOT off a bare open/close signal. A websocket can silently HALF-OPEN
 // (the socket stays `open` while no bytes flow), so an open/close-only `live` reads
 // `true` forever over a dead link (the #1564 green-over-a-dead-link lie);
-// `surfaceClient` REFUSES such a signal. The only `{ live }` it accepts over a
-// websocket is a watchdog-backed `LiveSignal`, and `createLiveSignal` is the one
+// `surfaceClient` REFUSES a bare websocket link. The only shape it accepts over a
+// websocket is a watchdog-backed `LiveSignalHandle`, and `createLiveSignal` is the one
 // minter — it BUILDS the oRPC link over `ws` (so the watchdog probes the socket it
 // reconnects), wires the half-open heartbeat (probing `system.live`, forcing
-// `ws.reconnect()` on a missed probe), and brands the signal, in one call.
+// `ws.reconnect()` on a missed probe), and bundles it with the branded live, in one
+// call.
 const transport = createLiveSignal<typeof monitorSurface.contract>(ws, {});
-const link = transport.link;
 
 // Vite HMR re-evaluates this module on edits — without this dispose hook each
 // reload leaks a PartySocket and its watchdog (and the parent server logs a fresh
@@ -50,6 +50,4 @@ if (import.meta.hot) {
   });
 }
 
-export const app = surfaceClient(monitorSurface, link, {
-  live: transport.live,
-});
+export const app = surfaceClient(monitorSurface, transport);

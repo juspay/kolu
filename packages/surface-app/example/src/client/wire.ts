@@ -16,15 +16,13 @@ export const ws = new PartySocket(wsUrl);
 
 // `createLiveSignal` builds the combined oRPC link over `ws` AND wires the half-open
 // watchdog (probing `system.live` on the `surfaceApp` sibling's slice of that link —
-// anchored to the socket it reconnects) AND brands the `{ live }` the clients require.
-// Build the bundle over `transport.link`: one combined link over the `{ surface: {
-// surfaceApp, demo } }` contract, split into per-key clients (each resolving at
-// `/surface/<key>/<prim>/<verb>`). This seam OWNS the watchdog over the admin socket,
-// so `App.tsx` passes `heartbeat={false}` to `<SurfaceAppProvider>` (its lifecycle
-// observes the same socket but doesn't double-watch it).
+// anchored to the socket it reconnects) AND bundles it with the branded `live` the
+// clients require. Pass the WHOLE handle to `surfaceClients`: one combined link over
+// the `{ surface: { surfaceApp, demo } }` contract, split into per-key clients (each
+// resolving at `/surface/<key>/<prim>/<verb>`). This seam OWNS the watchdog over the
+// admin socket, so `App.tsx` passes `heartbeat={false}` to `<SurfaceAppProvider>` (its
+// lifecycle observes the same socket but doesn't double-watch it).
 const transport = createLiveSignal<typeof contract>(ws, {
   siblingKey: "surfaceApp",
 });
-export const clients = surfaceClients(transport.link, surfaces, {
-  live: transport.live,
-});
+export const clients = surfaceClients(transport, surfaces);
