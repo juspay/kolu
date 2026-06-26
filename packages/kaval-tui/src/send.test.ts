@@ -1,5 +1,11 @@
+import { NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { describe, expect, it } from "vitest";
-import { encodeKey, formatSend, planSend } from "./send.ts";
+import {
+  ACCEPTED_KEY_NAMES,
+  encodeKey,
+  formatSend,
+  planSend,
+} from "./send.ts";
 
 const START = "\x1b[200~";
 const END = "\x1b[201~";
@@ -44,6 +50,33 @@ describe("encodeKey — named keys and modifier chords", () => {
     expect(encodeKey("C-1")).toBeUndefined(); // digit has no control byte
     expect(encodeKey("")).toBeUndefined();
     expect(encodeKey("C-")).toBeUndefined(); // no char after the chord prefix
+  });
+});
+
+describe("ACCEPTED_KEY_NAMES — the help vocabulary stays in lockstep with the table", () => {
+  // Split the human string into individual tokens: comma-separated, with the
+  // arrow cluster joined by slashes (`Up/Down/Left/Right`).
+  const tokens = ACCEPTED_KEY_NAMES.split(",")
+    .flatMap((s) => s.split("/"))
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  it("every advertised name resolves via encodeKey", () => {
+    for (const name of tokens) {
+      expect(encodeKey(name), `advertised key "${name}" must encode`).not.toBe(
+        undefined,
+      );
+    }
+  });
+
+  it("reaches every byte in NAMED_KEY_BYTES (a new key can't drift the help)", () => {
+    const advertised = new Set(tokens.map((t) => encodeKey(t)));
+    for (const [name, bytes] of Object.entries(NAMED_KEY_BYTES)) {
+      expect(
+        advertised.has(bytes),
+        `key "${name}" (${JSON.stringify(bytes)}) is in NAMED_KEY_BYTES but not reachable from ACCEPTED_KEY_NAMES — add it`,
+      ).toBe(true);
+    }
   });
 });
 

@@ -30,6 +30,16 @@ import {
 } from "@kolu/terminal-protocol";
 import { shortId } from "./render.ts";
 
+/** The named keys `send` accepts, as one human string for the command help, the
+ *  `--key` flag help, and the unknown-key error — so the vocabulary is written
+ *  ONCE, not hand-copied across three doc strings (the drift class `keyInput.ts`
+ *  was created to kill). Slashes group the arrow cluster; `send.test.ts` guards
+ *  that every token here resolves via `encodeKey` and that every byte in
+ *  `NAMED_KEY_BYTES` is reachable from it, so adding a key to the table without
+ *  listing it here fails CI — the same protection pulam's `WAIT_STATES` enjoys. */
+export const ACCEPTED_KEY_NAMES =
+  "Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space, Shift-Tab";
+
 /** A named key (`Escape`, `Up`, `Enter`, case-insensitive) or a modifier chord
  *  (`C-c`, `M-b`) → its raw bytes; `undefined` when unrecognized. The named-key
  *  table and the `C-` control fold come from `@kolu/terminal-protocol`, so this

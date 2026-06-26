@@ -52,7 +52,12 @@ import {
 import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
-import { encodeKey, formatSend, planSend } from "./send.ts";
+import {
+  ACCEPTED_KEY_NAMES,
+  encodeKey,
+  formatSend,
+  planSend,
+} from "./send.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
@@ -159,7 +164,9 @@ const argv = cli({
       parameters: ["<id>", "[text...]"],
       help: {
         description:
-          "Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text (and any `--key`s) you pass — no implicit Enter. To submit a prompt, send Enter as its own step: `kaval-tui send <id> --key Enter`. Multiline or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words or stdin; `--key` sends named/control keys (Enter, Escape, C-c, Up…) after it. <id> is the short id from `list` or any unique prefix.",
+          "Write input to a terminal — e.g. a prompt to a Claude Code / Codex / opencode agent running in it. Sends EXACTLY the text (and any `--key`s) you pass — no implicit Enter. To submit a prompt, send Enter as its own step: `kaval-tui send <id> --key Enter`. Multiline or piped-stdin text is sent as one bracketed paste so it lands as a block, not line-by-line. Text comes from the positional words or stdin; `--key` sends named/control keys (" +
+          ACCEPTED_KEY_NAMES +
+          "; chords: C-c, M-b) after it. <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...endpointFlags,
@@ -180,7 +187,9 @@ const argv = cli({
         key: {
           type: [String],
           description:
-            "a named/control key to send after the text — repeatable, in order. Pass `--key Enter` to submit. Names: Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space; chords: C-c, M-b.",
+            "a named/control key to send after the text — repeatable, in order. Pass `--key Enter` to submit. Names: " +
+            ACCEPTED_KEY_NAMES +
+            "; chords: C-c, M-b.",
         },
         json: {
           type: Boolean,
@@ -404,7 +413,7 @@ async function cmdSend(
     const bytes = encodeKey(name);
     if (bytes === undefined) {
       fail(
-        `unknown --key ${JSON.stringify(name)} — use a name (Enter, Escape, Tab, Up/Down/Left/Right, Home, End, Backspace, Space) or a chord (C-c, M-b).`,
+        `unknown --key ${JSON.stringify(name)} — use a name (${ACCEPTED_KEY_NAMES}) or a chord (C-c, M-b).`,
       );
     }
     keyData += bytes;
