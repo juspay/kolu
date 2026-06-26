@@ -197,7 +197,7 @@ The dashboard you actually want — *every agent across the fleet, sorted by wha
 
 ### R-pulamweb-4 — the live git drill-in (file tree)
 
-<Phase id="R-pulamweb-4" name="git drill-in — live changed-file tree" status="todo" needs={["R-pulamweb-3", "R-compose-2"]} blocks={["R9"]} links={[{ label: "renderer non-issue #1534", href: "https://github.com/juspay/kolu/issues/1534" }]} />
+<Phase id="R-pulamweb-4" name="git drill-in — live changed-file tree" status="todo" needs={["R-pulamweb-3", "R8"]} blocks={["R9"]} links={[{ label: "renderer non-issue #1534", href: "https://github.com/juspay/kolu/issues/1534" }]} />
 
 The git-status phase, in two parts: the per-agent **dirty/clean cell** (the `✎5` / `✓` mark + ahead/behind), and — clicking an agent — a **drill-in to its live changed-file tree** (the file tree like kolu's Code tab, not just `git status` text). Both consume the same git-status data, and it is the leg **R-compose-2** reuses (which is why it sits on that edge). It is a **plain render/consume feature** — the Pierre renderer everyone feared is *not* a blocker (risk note below).
 
