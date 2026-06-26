@@ -25,6 +25,7 @@ import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   controlByte,
+  metaByte,
   NAMED_KEY_BYTES,
 } from "@kolu/terminal-protocol";
 import { shortId } from "./render.ts";
@@ -43,7 +44,7 @@ export function encodeKey(name: string): string | undefined {
   const ctrl = /^c-(.)$/i.exec(name)?.[1];
   if (ctrl !== undefined) return controlByte(ctrl);
   const meta = /^m-(.)$/i.exec(name)?.[1];
-  if (meta !== undefined) return `\x1b${meta}`;
+  if (meta !== undefined) return metaByte(meta);
   return undefined;
 }
 

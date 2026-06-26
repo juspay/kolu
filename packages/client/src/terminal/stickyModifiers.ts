@@ -16,7 +16,7 @@
  *  fold is applied at two input sites (the key bar's own `sendInput` and the
  *  terminal's `onData`), so the armed flag can't live inside either. */
 
-import { controlByte } from "@kolu/terminal-protocol";
+import { controlByte, metaByte } from "@kolu/terminal-protocol";
 import { createSignal } from "solid-js";
 
 const [ctrlArmed, setCtrlArmed] = createSignal(false);
@@ -60,6 +60,6 @@ export function applyStickyModifiers(data: string): string {
   // terminal-protocol table (Ctrl+r === Ctrl+R === 0x12); a char with no control
   // byte (a digit, say) is left as-is. Alt/Meta prefixes ESC.
   if (ctrl) out = controlByte(data) ?? out;
-  if (alt) out = `\x1b${out}`;
+  if (alt) out = metaByte(out);
   return out;
 }

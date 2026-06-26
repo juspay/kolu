@@ -51,3 +51,11 @@ export function controlByte(char: string): string | undefined {
   if (code >= 0x40 && code <= 0x5f) return String.fromCharCode(code & 0x1f);
   return undefined;
 }
+
+/** Fold a char under Meta/Alt — `b` → `\x1bb`. Meta is encoded as an ESC prefix
+ *  (the classic 8th-bit-set alternative), the third sibling key-encoding rule
+ *  beside the named-key table and {@link controlByte}, so every producer of
+ *  key-press bytes shares this one home. */
+export function metaByte(char: string): string {
+  return `\x1b${char}`;
+}
