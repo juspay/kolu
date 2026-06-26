@@ -75,7 +75,14 @@ export function resolveTerminalId(
  *  compares against the *bucket*, never the raw `AgentInfo['state']` literals,
  *  so the one fold in `@kolu/terminal-workspace/agentProjection` stays the
  *  single source of truth (see `.claude/rules/dock-fleet-mirror.md`). */
-export const WAIT_STATES = ["working", "awaiting", "waiting"] as const;
+export const WAIT_STATES = [
+  "working",
+  "awaiting",
+  "waiting",
+] as const satisfies readonly Exclude<
+  ReturnType<typeof agentBucket>,
+  "other"
+>[];
 
 export type WaitState = (typeof WAIT_STATES)[number];
 
