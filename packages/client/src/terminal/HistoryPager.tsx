@@ -427,7 +427,7 @@ export default function HistoryPager() {
         // withKeyboardDismiss wraps the open-change handler (blur soft keyboard
         // on close); `close()` is the 0-arg button callback that routes through it.
         const onOpenChange = withKeyboardDismiss((open: boolean) => {
-          if (!open) pager.closeFor(id);
+          if (!open) pager.setOpen(id, false);
         });
         const close = () => onOpenChange(false);
         return (
