@@ -59,30 +59,30 @@ import { makeAwarenessSink } from "./hooks.ts";
 /** How pulam exposes the awareness surface. `socket` binds a unix socket (the
  *  default, the local case); `stdio` serves over stdin/stdout — what an ssh
  *  dial speaks to (the P2 transport, built now and independently testable). */
-export type ArivuServe =
+export type PulamServe =
   | { kind: "socket"; socketPath?: string }
   | { kind: "stdio" };
 
-export interface ArivuDaemonOptions {
+export interface PulamDaemonOptions {
   /** The kaval socket to dial. Default: the running kaval, **discovered** — a
    *  standalone `kaval` or a kolu-server (which namespaces its daemon by listen
    *  port). Set explicitly (`--kaval`) only to override discovery or to pick one
    *  when several daemons are up. */
   kavalSocket?: string;
-  serve: ArivuServe;
+  serve: PulamServe;
   log: Logger;
   /** External stop signal (tests; a supervisor tearing it down without a real
    *  OS signal). Aborting it ends the daemon. */
   signal?: AbortSignal;
   /** Fired once the surface is being served — the readiness point a test awaits
    *  before dialing. */
-  onReady?: (info: ArivuReady) => void;
+  onReady?: (info: PulamReady) => void;
   /** How often to poll kaval's `terminal.list` to pick up new / departed
    *  terminals. Default 1000ms. */
   pollIntervalMs?: number;
 }
 
-export type ArivuReady =
+export type PulamReady =
   | { kind: "socket"; socketPath: string }
   | { kind: "stdio" };
 
@@ -113,7 +113,7 @@ export function resolveKavalSocket(explicit: string | undefined): string {
 
 /** Run the pulam daemon to completion. Resolves when the serve link ends
  *  (stdio) or a stop signal fires (socket). */
-export async function runArivuDaemon(opts: ArivuDaemonOptions): Promise<void> {
+export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   const { log, signal } = opts;
   const kavalSocket = resolveKavalSocket(opts.kavalSocket);
 

@@ -32,7 +32,7 @@ import {
 } from "kaval";
 import pino from "pino";
 import { afterEach, expect, it } from "vitest";
-import { runArivuDaemon } from "./daemon.ts";
+import { runPulamDaemon } from "./daemon.ts";
 
 type AwarenessClient = UnixSocketConnection<
   typeof terminalWorkspaceSurface.contract
@@ -210,7 +210,7 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   const abort = new AbortController();
   const pulamSocket = join(tmp("pulam-it-pulam-"), "awareness.sock");
   const ready = new Promise<void>((resolve) => {
-    void runArivuDaemon({
+    void runPulamDaemon({
       kavalSocket,
       serve: { kind: "socket", socketPath: pulamSocket },
       log: pulamLog,

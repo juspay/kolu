@@ -48,8 +48,8 @@ import {
 } from "@kolu/terminal-workspace/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type ArivuBrowserContract, arivuSurface } from "../shared/contract.ts";
-import { type ArivuContract, buildReServe } from "./reserve.ts";
+import { type PulamBrowserContract, pulamSurface } from "../shared/contract.ts";
+import { type PulamContract, buildReServe } from "./reserve.ts";
 
 // Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
 // so a bare "A"/"B" would fail validation at the agent's collection boundary).
@@ -57,13 +57,13 @@ const TERM_A = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const TERM_B = "22222222-2222-4222-8222-222222222222" as TerminalId;
 
 /** A `directLink` to a re-serve router, typed over the BROWSER contract
- *  (`arivuSurface` = base + connection). The documented fragment→client cast (the
+ *  (`pulamSurface` = base + connection). The documented fragment→client cast (the
  *  `implementSurface` router's `Lazy<Router>` shape isn't accepted by
  *  `directLink`'s input type; the runtime is a valid router) lives here, once,
  *  rather than at every call site. */
 function browserLink(router: unknown) {
   // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — runtime shape is valid.
-  return directLink<ArivuBrowserContract>(router as any);
+  return directLink<PulamBrowserContract>(router as any);
 }
 
 /** Stand up a REAL `terminalWorkspaceSurface` agent over `directLink`. The
@@ -158,7 +158,7 @@ function standUpAgent(
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: matches the repo's documented fragment→client cast — the implementSurface router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
-  const client = directLink<ArivuContract>(router as any);
+  const client = directLink<PulamContract>(router as any);
   return { cache, ctx, client };
 }
 
@@ -228,7 +228,7 @@ describe("buildReServe — the mirror's connection health reaches the browser", 
     let connNow: () => ConnectionInfo | undefined = () => undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const conn = app.cells.connection.use({});
       connNow = () => conn.value();
     });
@@ -326,7 +326,7 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -568,7 +568,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let bLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -655,7 +655,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let keys: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keys = () => awareness.keys();
     });
@@ -672,7 +672,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     let snapshot: readonly TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -737,7 +737,7 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const awareness = app.collections.awareness.use({});
       keysNow = () => awareness.keys();
     });
@@ -827,7 +827,7 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     let aLive: boolean | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       const liveSet = createMemo(() => new Set(live() ?? []));
       createEffect(() => {
@@ -864,7 +864,7 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     let freshLive: TerminalId[] | undefined;
     createRoot((dispose) => {
       disposers.push(dispose);
-      const app = surfaceClient(arivuSurface, browserClient);
+      const app = surfaceClient(pulamSurface, browserClient);
       const live = app.streams.activity.use(() => ({}));
       createEffect(() => {
         freshLive = live();

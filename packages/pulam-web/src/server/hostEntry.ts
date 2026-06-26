@@ -4,7 +4,7 @@
  *
  * Three steps, in order:
  *
- *   1. `getHostSession<ArivuContract>({ host, binary: "pulam", … })` — the
+ *   1. `getHostSession<PulamContract>({ host, binary: "pulam", … })` — the
  *      pooled, ref-counted ssh subprocess that provisions + dials the pulam
  *      daemon over `pulam --stdio` and owns the HARD volatility (reconnect,
  *      backoff, watchdog). `resolveDrvPath` is the boot-resolved thunk from
@@ -35,22 +35,22 @@ import {
   pumpRemoteSurface,
 } from "@kolu/surface-nix-host";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
-import { type ArivuContract, buildReServe } from "./reserve.ts";
+import { type PulamContract, buildReServe } from "./reserve.ts";
 
-export type { ArivuContract };
+export type { PulamContract };
 
 /** The oRPC ws handler over the re-serve router. `RPCHandler<T extends Context>`
  *  where `Context = Record<PropertyKey, any>` (oRPC's default); the router cast
  *  to `any` infers exactly this `T`, so the registry stores the broad shape and
  *  the `?host=` dispatcher calls `.upgrade(ws)` without a per-call context. */
 // biome-ignore lint/suspicious/noExplicitAny: oRPC's RPCHandler Context default is Record<PropertyKey, any>; the `as any` router infers this T.
-export type ArivuHandler = RPCHandler<Record<PropertyKey, any>>;
+export type PulamHandler = RPCHandler<Record<PropertyKey, any>>;
 
 /** One host's registry entry: the session (lifecycle) and the oRPC handler the
  *  upgrade dispatcher hands the browser socket to. */
 export interface HostEntry {
-  session: HostSession<ArivuContract>;
-  handler: ArivuHandler;
+  session: HostSession<PulamContract>;
+  handler: PulamHandler;
 }
 
 export interface BuildEntryDeps {
@@ -91,7 +91,7 @@ export function makeBuildEntry(
     //    running kaval — the one site that knows the args ARE `--kaval <socket>`,
     //    mirroring pulam-tui's `hostConnect.ts`.
     const kavalSocket = deps.kavalSockets?.get(host);
-    const session = getHostSession<ArivuContract>({
+    const session = getHostSession<PulamContract>({
       host,
       binary: "pulam",
       // `HostSessionOptions.resolveDrvPath` is a ZERO-arg thunk (the host is

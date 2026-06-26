@@ -46,7 +46,7 @@ import {
   readKavalSockets,
 } from "./config.ts";
 import {
-  type ArivuContract,
+  type PulamContract,
   type HostEntry,
   makeBuildEntry,
 } from "./hostEntry.ts";
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   // an unreachable boot host surfaces as a per-host `failed` state, never a
   // throw that takes the port down.
   const buildEntry = makeBuildEntry({ resolveDrvPath, kavalSockets, log });
-  const registry = buildHostRegistry<ArivuContract, HostEntry["handler"]>({
+  const registry = buildHostRegistry<PulamContract, HostEntry["handler"]>({
     initialHosts,
     buildEntry,
     log,
