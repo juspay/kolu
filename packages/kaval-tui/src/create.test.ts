@@ -25,6 +25,7 @@ describe("buildCreateInput", () => {
       cwd: "/work",
       env: { SHELL: "/bin/zsh", FOO: "bar" },
       initFiles: [],
+      history: { enabled: true, retentionBytes: 256 * 1024 * 1024 },
     });
   });
 
