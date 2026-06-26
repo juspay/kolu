@@ -158,6 +158,28 @@ function seedBoundaryRow(term: InstanceType<typeof Terminal>): number {
   return b.baseY + b.cursorY;
 }
 
+/** The shared throwaway-terminal lifecycle both render modes run inside: behind
+ *  the semaphore, spin a `makeTerm(initialCols)`, run the mode-specific `body`
+ *  (which seeds + replays and returns how many rows the seed occupies), then cut
+ *  the common tail — DATA-replayed rows with the seed dropped, plus their ANSI —
+ *  and dispose. Only the replay strategy varies between modes. */
+function withThrowaway(
+  initialCols: number,
+  body: (t: Throwaway) => Promise<number>,
+): Promise<RenderedSegment> {
+  return renderSemaphore.run(async () => {
+    const t = makeTerm(initialCols);
+    try {
+      const seedRows = await body(t);
+      const rows = readRows(t.term).slice(seedRows);
+      const ansi = serializeTail(t, seedRows);
+      return { rows, ansi };
+    } finally {
+      t.term.dispose();
+    }
+  });
+}
+
 /** REFLOW-to-current render of `(seed, toBlocks]` at `width`. `seed` is the
  *  checkpoint seed (or `null` for the implicit byte-0 seed = a fresh terminal).
  *  Returns the DATA-replayed rows with the seed dropped, plus their ANSI. */
@@ -166,27 +188,19 @@ export function renderReflow(
   width: number,
   dataBlocks: Uint8Array[],
 ): Promise<RenderedSegment> {
-  return renderSemaphore.run(async () => {
-    const t = makeTerm(seed ? seed.cols : width);
-    try {
-      let seedRows = 0;
-      if (seed) {
-        await write(t.term, zstdDecompressSync(seed.payload));
-        t.term.resize(width, DEFAULT_GRID_ROWS);
-        // Rows the restored+resized seed occupies BEFORE any DATA — dropped from
-        // the return. Checkpoints sit at clean boundaries (cursor col 0, top not
-        // wrapped), so the seed's last line is complete and the first DATA byte
-        // starts a fresh line: seed and DATA rows never merge.
-        seedRows = seedBoundaryRow(t.term);
-      }
-      await write(t.term, inflate(dataBlocks));
-      const allRows = readRows(t.term);
-      const rows = allRows.slice(seedRows);
-      const ansi = serializeTail(t, seedRows);
-      return { rows, ansi };
-    } finally {
-      t.term.dispose();
+  return withThrowaway(seed ? seed.cols : width, async (t) => {
+    let seedRows = 0;
+    if (seed) {
+      await write(t.term, zstdDecompressSync(seed.payload));
+      t.term.resize(width, DEFAULT_GRID_ROWS);
+      // Rows the restored+resized seed occupies BEFORE any DATA — dropped from
+      // the return. Checkpoints sit at clean boundaries (cursor col 0, top not
+      // wrapped), so the seed's last line is complete and the first DATA byte
+      // starts a fresh line: seed and DATA rows never merge.
+      seedRows = seedBoundaryRow(t.term);
     }
+    await write(t.term, inflate(dataBlocks));
+    return seedRows;
   });
 }
 
@@ -203,35 +217,27 @@ export function renderFaithful(
     | { kind: "resize"; cols: number; rows: number }
   >,
 ): Promise<RenderedSegment> {
-  return renderSemaphore.run(async () => {
-    const t = makeTerm(seed ? seed.cols : initialWidth);
-    try {
-      let seedRows = 0;
-      if (seed) {
-        await write(t.term, zstdDecompressSync(seed.payload));
-        seedRows = seedBoundaryRow(t.term);
-      }
-      let pending: Uint8Array[] = [];
-      const flush = async () => {
-        if (pending.length) {
-          await write(t.term, inflate(pending));
-          pending = [];
-        }
-      };
-      for (const ev of events) {
-        if (ev.kind === "data") pending.push(ev.payload);
-        else {
-          await flush();
-          t.term.resize(ev.cols, ev.rows);
-        }
-      }
-      await flush();
-      const allRows = readRows(t.term);
-      const rows = allRows.slice(seedRows);
-      const ansi = serializeTail(t, seedRows);
-      return { rows, ansi };
-    } finally {
-      t.term.dispose();
+  return withThrowaway(seed ? seed.cols : initialWidth, async (t) => {
+    let seedRows = 0;
+    if (seed) {
+      await write(t.term, zstdDecompressSync(seed.payload));
+      seedRows = seedBoundaryRow(t.term);
     }
+    let pending: Uint8Array[] = [];
+    const flush = async () => {
+      if (pending.length) {
+        await write(t.term, inflate(pending));
+        pending = [];
+      }
+    };
+    for (const ev of events) {
+      if (ev.kind === "data") pending.push(ev.payload);
+      else {
+        await flush();
+        t.term.resize(ev.cols, ev.rows);
+      }
+    }
+    await flush();
+    return seedRows;
   });
 }
