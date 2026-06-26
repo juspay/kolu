@@ -146,10 +146,11 @@ export type RankedDockRow = {
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === 0`. `isStale` is a pure-temporal predicate over
- *  `lastActivityAt` — identity for stale-but-still-awaiting agents lives
- *  at the render layer (`QuietRowBody` paints `AgentIndicator` when
- *  `meta.agent` is set), not in the bucket decision here. */
+ *  same `ts === 0`. `isStale` is a pure-temporal predicate over a recency
+ *  timestamp — `lastActivityAt` for an active tile, `sleptAt` for a
+ *  sleeping one (see the loop). Identity for stale-but-still-awaiting
+ *  agents lives at the render layer (`QuietRowBody` paints `AgentIndicator`
+ *  when `meta.agent` is set), not in the bucket decision here. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
@@ -159,10 +160,21 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const parked = isStale(meta.lastActivityAt);
+    // A sleeping tile's recency is WHEN YOU PUT IT TO SLEEP (`sleptAt`) — a
+    // deliberate, recent action — not its last agent transition. `sleptAt` is
+    // always ≥ `lastActivityAt` (you sleep a terminal after its agent last
+    // moved), so keying the window on `lastActivityAt` instead would (a) never
+    // park a plain shell slept long ago — `isStale` exempts `lastActivityAt
+    // === 0`, so an agent-less dormant tile would pile up forever — and (b)
+    // instantly drop a JUST-slept tile whose agent last transitioned outside
+    // the window, contradicting "a freshly-slept one still shows with its ☾".
+    // The same recency feeds the sort key so a fresh-slept tile ranks by when
+    // it slept, not its stale agent timestamp.
+    const recencyAt = sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
+    const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
     const pip = paintDockRow(meta, parked);
-    rows.push({ id, bucket, pip, ts: meta.lastActivityAt });
+    rows.push({ id, bucket, pip, ts: recencyAt });
   }
   rows.sort((a, b) => {
     if (a.ts !== b.ts) return b.ts - a.ts;

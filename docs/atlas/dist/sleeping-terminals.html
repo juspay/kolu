@@ -194,10 +194,14 @@ through a <em>parallel</em> check that the switcher/minimap/mobile classifiers n
 so make the <strong>one canonical bucket classifier</strong> branch on the discriminant, and
 verify presence on each surface (omission is a runtime fact). Mobile must render a
 dormant body, not attempt a live PTY attach. <strong>The dock’s activity-window hide is
-the one place staleness wins over the ☾</strong> (<a href="https://github.com/juspay/kolu/pull/1593" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1593</a>): a long-slept tile
-whose last activity falls <em>outside</em> the window routes to <code>parked</code> and drops, so the
-window compresses yesterday’s dormant terminals too instead of letting them pile up
-— <code>parked</code> is checked <em>before</em> <code>sleeping</code> in the dock’s classifier. (“Show all”
+the one place staleness wins over the ☾</strong> (<a href="https://github.com/juspay/kolu/pull/1593" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1593</a>): a tile slept
+longer ago than the window — keyed on its <code>sleptAt</code> (the deliberate sleep moment),
+<em>not</em> its last agent transition — routes to <code>parked</code> and drops, so the window
+compresses yesterday’s dormant terminals too instead of letting them pile up.
+Keying on <code>sleptAt</code> is load-bearing: a plain shell carries <code>lastActivityAt === 0</code>
+(which <code>isStale</code> exempts), so an agent-less dormant tile would otherwise <em>never</em>
+park; and a just-slept tile whose agent went quiet days ago still keeps its ☾.
+<code>parked</code> is checked <em>before</em> <code>sleeping</code> in the dock’s classifier. (“Show all”
 re-reveals them, and the “N hidden by … window” footer counts them.)</li>
 <li><strong>A sleeping tile can be the active tile.</strong> Click/select focuses it; input routing
 narrows to <code>active</code>, so it is never an input target — a type fact, not a runtime

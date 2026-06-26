@@ -8,6 +8,7 @@ import {
   URGENCY_RANK,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
+import { isStale } from "../../terminal/staleness";
 import { paintBucket } from "../dockModel";
 import {
   DOCK_ROW_BUCKET_PRIORITY,
@@ -148,6 +149,47 @@ describe("rankDockRows — parked bucket precedence", () => {
       () => true,
     );
     expect(rows[0]?.bucket).toBe("parked");
+  });
+
+  // The window's recency for a sleeping tile is `sleptAt` (when you put it to
+  // sleep), NOT `lastActivityAt` (its last agent transition). The previous two
+  // tests stub `isStale` to a constant, so they never exercise WHICH timestamp
+  // the ranker keys on — these drive the real `isStale` to pin the seam.
+  const realStale = (now: number, thresholdMs: number) => (ts: number) =>
+    isStale(ts, now, thresholdMs);
+  const NOW = 1_700_000_000_000;
+  const WINDOW = 24 * 60 * 60 * 1000; // 24h
+
+  it("parks a plain shell slept long ago — keyed on sleptAt, not lastActivityAt:0", () => {
+    // An agent-less dormant tile carries `lastActivityAt === 0`, which `isStale`
+    // exempts. If the window keyed on it, this tile would NEVER park and old
+    // dormant shells would pile up. Keyed on `sleptAt` (2 days ago) it parks.
+    const meta = {
+      ...makeSleepingMeta(0),
+      sleptAt: NOW - 2 * WINDOW,
+    } as TerminalMetadata;
+    const rows = rankDockRows(
+      ["t1"] as TerminalId[],
+      () => meta,
+      realStale(NOW, WINDOW),
+    );
+    expect(rows[0]?.bucket).toBe("parked");
+  });
+
+  it("keeps a JUST-slept tile asleep even if its agent last moved days ago", () => {
+    // `lastActivityAt` (3 days ago) is OUTSIDE the window, but the tile was
+    // slept just now — keying on `sleptAt` keeps its ☾ instead of dropping it
+    // the instant you sleep it.
+    const meta = {
+      ...makeSleepingMeta(NOW - 3 * WINDOW),
+      sleptAt: NOW,
+    } as TerminalMetadata;
+    const rows = rankDockRows(
+      ["t1"] as TerminalId[],
+      () => meta,
+      realStale(NOW, WINDOW),
+    );
+    expect(rows[0]?.bucket).toBe("sleeping");
   });
 
   it("meta.agent is not mutated by ranking — render layer retains identity after park", () => {
