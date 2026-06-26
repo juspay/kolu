@@ -174,8 +174,13 @@ const warnStale = () =>
     "surface: heartbeat probe timed out — forcing reconnect (half-open socket)",
   );
 
+// `error` level, not `warn`: a synchronous throw from the probe is an unexpected
+// exception that leaves the watchdog permanently INERT (a half-open socket then goes
+// undetected — the exact failure this whole primitive exists to prevent), not a
+// degraded-but-recoverable blip like a timed-out probe (`warnStale`, which recovers
+// by reconnecting).
 const warnProbeThrew = (error: unknown) =>
-  console.warn(
+  console.error(
     "surface: heartbeat probe threw synchronously — no round-trip was made; " +
       "the probe is likely miswired (heartbeat is inert until fixed)",
     error,
