@@ -8,13 +8,13 @@
  *   - disabled → unavailable; copy-all whole-text read.
  */
 
-import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Transcript } from "./transcript.ts";
 import { TranscriptStore } from "./store.ts";
+import { Transcript } from "./transcript.ts";
 import type { MirrorView } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -86,11 +86,11 @@ function buildStream(n: number): { chunks: string[]; resizeAfterLine: number } {
   const resizeAfterLine = Math.floor(n / 2);
   for (let i = 0; i < n; i++) {
     const len = i % 5 === 0 ? 130 : 20 + (i % 40); // some wrap at 80
-    const body = `L${String(i).padStart(5, "0")}|` + "x".repeat(len);
+    const body = `L${String(i).padStart(5, "0")}|${"x".repeat(len)}`;
     // split each line across 1-2 chunks (escape-safe; plain text here)
     const mid = Math.floor(body.length / 2);
     chunks.push(body.slice(0, mid));
-    chunks.push(body.slice(mid) + "\r\n");
+    chunks.push(`${body.slice(mid)}\r\n`);
   }
   return { chunks, resizeAfterLine };
 }
@@ -115,11 +115,9 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     });
     const { term: mirror, view } = makeMirror(80, 24);
     const { chunks } = buildStream(n);
-    let line = 0;
     for (const c of chunks) {
       await write(mirror, c);
       tx.appendData(c, view);
-      if (c.endsWith("\r\n")) line++;
     }
     return { tx, dbPath };
   }

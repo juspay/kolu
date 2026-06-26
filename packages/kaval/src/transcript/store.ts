@@ -18,8 +18,8 @@
 
 import { DatabaseSync } from "node:sqlite";
 import {
-  type RecordKind,
   RecordKind as Kind,
+  type RecordKind,
   type Row,
   type Seq,
   TRANSCRIPT_FORMAT_VERSION,
@@ -196,7 +196,7 @@ export class TranscriptStore {
          WHERE kind=? AND firstByteSeq<? ORDER BY firstByteSeq DESC LIMIT 1`,
       )
       .get(Kind.CKPT, byteSeq) as CheckpointRow | undefined;
-    return row && row.payload ? row : undefined;
+    return row?.payload ? row : undefined;
   }
 
   /** The newest checkpoint at or before `byteSeq` — the snapshot-frame's
@@ -208,7 +208,7 @@ export class TranscriptStore {
          WHERE kind=? AND firstByteSeq<=? ORDER BY firstByteSeq DESC LIMIT 1`,
       )
       .get(Kind.CKPT, byteSeq) as CheckpointRow | undefined;
-    return row && row.payload ? row : undefined;
+    return row?.payload ? row : undefined;
   }
 
   /** The oldest retained byteSeq (the eviction floor). A read whose cursor

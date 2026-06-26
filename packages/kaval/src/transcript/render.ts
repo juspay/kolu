@@ -146,7 +146,7 @@ function serializeTail(t: Throwaway, seedRows: number): string {
   // strip the live viewport's blank tail AND any trailing cursor-positioning
   // escape, then re-terminate, so pages concatenate with neither a merged line
   // nor a spurious gap.
-  return ansi.replace(/(?:\x1b\[[0-9;]*[Hf]|[ \t\r\n])+$/, "") + "\r\n";
+  return `${ansi.replace(/(?:\x1b\[[0-9;]*[Hf]|[ \t\r\n])+$/, "")}\r\n`;
 }
 
 /** The exact seed/DATA boundary row: after restoring `serialize({scrollback:0})`

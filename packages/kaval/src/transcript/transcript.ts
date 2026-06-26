@@ -19,19 +19,19 @@
  */
 
 import { zstdCompressSync } from "node:zlib";
+import { renderFaithful, renderReflow } from "./render.ts";
 import {
   type CheckpointRow,
   type ResumeState,
   TranscriptStore,
 } from "./store.ts";
-import { renderFaithful, renderReflow } from "./render.ts";
 import {
   BLOCK_BYTES,
   CHECKPOINT_BYTES,
   type HistoryPolicy,
   type MirrorView,
-  type Row,
   RecordKind,
+  type Row,
   type Seq,
 } from "./types.ts";
 
@@ -106,7 +106,7 @@ export class Transcript {
   private pendingStartRow: Row = 0;
   private bytesSinceCheckpoint = 0;
 
-  private fault: { lastGoodSeq: number } | null = null;
+  private fault: { lastGoodSeq: number; error: string } | null = null;
 
   private constructor(
     private readonly policy: HistoryPolicy,
@@ -247,10 +247,14 @@ export class Transcript {
 
   private handleFault(err: unknown): void {
     if (this.fault) return;
-    this.fault = { lastGoodSeq: this.seq };
-    // Surfaced via status(); the PTY keeps running. The one place survivability
-    // outranks fail-fast (caught-error-must-not-collapse-to-empty: we surface
-    // `faulted`, never present a truncated log as complete).
+    // Retain the cause (not swallowed) alongside the last-good seq. Surfaced via
+    // status() and the PTY keeps running — the one place survivability outranks
+    // fail-fast (caught-error-must-not-collapse-to-empty: we surface `faulted`,
+    // never present a truncated log as complete).
+    this.fault = {
+      lastGoodSeq: this.seq,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 
   // ---- READ path ----------------------------------------------------------
