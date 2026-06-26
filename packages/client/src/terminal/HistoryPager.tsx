@@ -125,30 +125,58 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     contentCols = Math.max(contentCols, w);
   }
 
-  /** Zoom-to-fit: render at `contentCols`, then shrink the rendered grid with a
-   *  CSS transform so its full width fits the viewport (never reflow, never
-   *  horizontal-scroll), and give it enough rows that the scaled grid still fills
-   *  the viewport height. `proposeDimensions` measures the viewport (the element
-   *  the xterm is opened on) at the FULL font size, so its `cols` is how many fit
-   *  unscaled; `scale = cols / contentCols`, clamped to ≤ 1 (a history narrower
-   *  than the viewport stays full size). The transform is visual only — it does
-   *  not reflow the buffer or change what `proposeDimensions` measures (it reads
-   *  the host's layout width, unaffected by a transformed child). */
+  // The full-size (base) cell metrics + font, captured ONCE while the font is
+  // still at its default — the fixed reference the zoom math scales from. Reading
+  // them live would feed the just-shrunk font back into the next fit.
+  let baseFontSize = 0;
+  let baseCellW = 0;
+  let baseCellH = 0;
+  /** xterm's CSS px per cell at the CURRENT font (the metric FitAddon reads). */
+  function cellDims(): { w: number; h: number } | null {
+    const c = (
+      term as unknown as {
+        _core?: {
+          _renderService?: {
+            dimensions?: { css?: { cell?: { width: number; height: number } } };
+          };
+        };
+      }
+    )?._core?._renderService?.dimensions?.css?.cell;
+    return c?.width ? { w: c.width, h: c.height } : null;
+  }
+
+  /** Zoom-to-fit by FONT SIZE — NOT a CSS transform. A transform on the `.xterm`
+   *  pollutes xterm's own cell measurement, so the next fit reads a bogus cell
+   *  size and the scale spirals (observed: a grid that already fits getting
+   *  shrunk to 0.52). Shrinking the font instead is a real re-render: crisp, and
+   *  the measurement stays honest. Render at `contentCols`, shrink the font so
+   *  `contentCols` fills the viewport width, and bump the row count so the smaller
+   *  rows still fill the height. Measured against the FIXED base cell metrics + the
+   *  host's own layout size, so the shrunk font never feeds back. Only ever
+   *  shrinks (≤ base) — a history narrower than the viewport stays full size. */
   function applyFit(): void {
-    if (!term || !fit) return;
-    const proposed = fit.proposeDimensions();
-    if (!proposed?.cols || !proposed.rows) return;
-    const scale =
-      contentCols <= proposed.cols ? 1 : proposed.cols / contentCols;
-    // Rows to fill the viewport height once scaled (each row is `scale` shorter).
-    const rows = scale < 1 ? Math.floor(proposed.rows / scale) : proposed.rows;
+    if (!term || !host) return;
+    if (!baseCellW) {
+      // Capture the base metrics on the first fit, while the font is still base.
+      const d = cellDims();
+      if (!d) return; // not rendered yet — a later fit captures + applies
+      baseFontSize = term.options.fontSize ?? 15;
+      baseCellW = d.w;
+      baseCellH = d.h;
+    }
+    const availW = Math.max(40, host.clientWidth - 16); // host carries px-2
+    const availH = Math.max(40, host.clientHeight);
+    const fitCols = Math.max(2, Math.floor(availW / baseCellW));
+    const fitRows = Math.max(1, Math.floor(availH / baseCellH));
+    const scale = contentCols <= fitCols ? 1 : fitCols / contentCols;
+    const rows = scale < 1 ? Math.floor(fitRows / scale) : fitRows;
     if (term.cols !== contentCols || term.rows !== rows)
       term.resize(contentCols, rows);
-    const el = host.querySelector(".xterm") as HTMLElement | null;
-    if (el) {
-      el.style.transformOrigin = "top left";
-      el.style.transform = scale < 1 ? `scale(${scale})` : "";
-    }
+    const fontSize =
+      scale < 1
+        ? Math.max(5, Math.round(baseFontSize * scale * 10) / 10)
+        : baseFontSize;
+    if (term.options.fontSize !== fontSize) term.options.fontSize = fontSize;
   }
 
   /** Resolve once xterm has parsed `data` into the buffer — its write is async,
