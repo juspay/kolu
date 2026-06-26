@@ -29,7 +29,12 @@ import {
 } from "@kolu/terminal-workspace/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type Connection, connectPulam } from "./connect.ts";
-import { assertCompatible, snapshotAwareness, watchAwareness } from "./read.ts";
+import {
+  assertCompatible,
+  settledSnapshot,
+  snapshotAwareness,
+  watchAwareness,
+} from "./read.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
 
@@ -266,6 +271,60 @@ describe("watch — initial row carries the live dot from the activity snapshot"
     } finally {
       abort.abort();
       await done.catch(() => {});
+      conn.dispose();
+    }
+  });
+});
+
+// `status` over `--host` provisions a FRESH ephemeral pulam, which publishes an
+// unresolved SEED for each terminal and fills it in a beat later as its sensors
+// run. settledSnapshot must wait for that resolution rather than grabbing the
+// blank seed (the "every row is dashes" bug), while still capping the wait so a
+// genuinely-empty terminal can't hang it.
+describe("settledSnapshot — waits for the daemon's sensors to resolve", () => {
+  it("returns the RESOLVED value, not the seed published first", async () => {
+    const tid = id("e1f60000-1111-4222-8333-444455556666");
+    publishUpsert(tid, awareness({})); // the unresolved seed a fresh daemon emits
+    const conn = await connectPulam(socketPath);
+    const snap = settledSnapshot(conn.client, { maxMs: 2000, graceMs: 80 });
+    // The sensors resolve a beat later — here the foreground lands (a schema-valid
+    // field a bare-shell sensor sets), as over a real `--host`.
+    setTimeout(
+      () =>
+        publishUpsert(
+          tid,
+          awareness({
+            foreground: {
+              name: "node",
+              title: null,
+            } as AwarenessValue["foreground"],
+          }),
+        ),
+      120,
+    );
+    try {
+      const rows = await snap;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.[1].foreground?.name).toBe("node"); // resolved, NOT the blank seed
+    } finally {
+      conn.dispose();
+    }
+  });
+
+  it("falls through at maxMs for a terminal that stays seed-shaped (no hang)", async () => {
+    const tid = id("f2a70000-1111-4222-8333-444455556666");
+    publishUpsert(tid, awareness({})); // never resolves — a bare shell, no repo
+    const conn = await connectPulam(socketPath);
+    const t0 = Date.now();
+    try {
+      const rows = await settledSnapshot(conn.client, {
+        maxMs: 300,
+        graceMs: 80,
+      });
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(250); // waited ~maxMs, then returned
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.[1].git).toBeNull(); // the seed, surfaced rather than hung on
+    } finally {
       conn.dispose();
     }
   });

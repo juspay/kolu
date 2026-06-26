@@ -35,7 +35,12 @@ import {
 import { cli, command } from "cleye";
 import { type Connection, connectPulam } from "./connect.ts";
 import { connectPulamViaHost } from "./hostConnect.ts";
-import { assertCompatible, snapshotAwareness, watchAwareness } from "./read.ts";
+import {
+  assertCompatible,
+  settledSnapshot,
+  snapshotAwareness,
+  watchAwareness,
+} from "./read.ts";
 import {
   formatAwarenessJson,
   formatStatus,
@@ -198,12 +203,15 @@ function connect(flags: {
 }
 
 async function cmdStatus(conn: Connection, json: boolean): Promise<void> {
-  // Read the awareness collection ONCE, then release the link — a snapshot needs
-  // no live connection (and a remote daemon's forwarded stderr can't reach us
-  // once the link is gone).
-  let entries: Awaited<ReturnType<typeof snapshotAwareness>>;
+  // Read the awareness collection, waiting for the daemon's sensors to resolve,
+  // then release the link — a snapshot needs no live connection afterward (and a
+  // remote daemon's forwarded stderr can't reach us once the link is gone). The
+  // settle wait matters for `--host`, which provisions a FRESH ephemeral pulam:
+  // a plain first-frame read would catch each terminal's unresolved seed and
+  // render every row blank (see settledSnapshot).
+  let entries: Awaited<ReturnType<typeof settledSnapshot>>;
   try {
-    entries = await snapshotAwareness(conn.client);
+    entries = await settledSnapshot(conn.client);
   } finally {
     conn.dispose();
   }
