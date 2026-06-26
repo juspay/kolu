@@ -224,15 +224,16 @@ export function formatWatchRemoval(
 
 /** `watch --json` — one JSON object per line (newline-delimited / NDJSON, so
  *  `jq -c` streams it): the full raw awareness value plus the live flag and the
- *  full terminal id. A removal emits `{ terminalId, removed: true }`. */
+ *  full terminal id. The `id` key matches `status --json`, so one script reads
+ *  both streams. A removal emits `{ id, removed: true }`. */
 export function formatWatchJson(
   id: TerminalId,
   v: AwarenessValue,
   opts: { live: boolean },
 ): string {
-  return JSON.stringify({ terminalId: id, active: opts.live, ...v });
+  return JSON.stringify({ id, live: opts.live, ...v });
 }
 
 export function formatWatchRemovalJson(id: TerminalId): string {
-  return JSON.stringify({ terminalId: id, removed: true });
+  return JSON.stringify({ id, removed: true });
 }

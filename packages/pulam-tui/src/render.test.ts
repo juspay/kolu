@@ -179,7 +179,7 @@ describe("formatWatchEvent", () => {
 });
 
 describe("formatWatchJson / removal", () => {
-  it("is one-line NDJSON carrying terminalId, active, and the raw value", () => {
+  it("is one-line NDJSON carrying id, live, and the raw value", () => {
     const line = formatWatchJson(
       id("a3f1aaaa-1111-2222"),
       val({ git: gitVal("kolu", "main") }),
@@ -187,8 +187,8 @@ describe("formatWatchJson / removal", () => {
     );
     expect(line).not.toContain("\n");
     const parsed = JSON.parse(line);
-    expect(parsed.terminalId).toBe("a3f1aaaa-1111-2222");
-    expect(parsed.active).toBe(true);
+    expect(parsed.id).toBe("a3f1aaaa-1111-2222");
+    expect(parsed.live).toBe(true);
     expect(parsed.git.repoName).toBe("kolu");
   });
 
@@ -197,7 +197,7 @@ describe("formatWatchJson / removal", () => {
       "(gone)",
     );
     expect(JSON.parse(formatWatchRemovalJson(id("a3f1aaaa-1111")))).toEqual({
-      terminalId: "a3f1aaaa-1111",
+      id: "a3f1aaaa-1111",
       removed: true,
     });
   });
