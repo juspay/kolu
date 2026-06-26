@@ -98,14 +98,13 @@ function agentValue(agent: AwarenessValue["agent"]): string {
   return `${agentShortName(agent.kind)} · ${agentStatusLabel(agent.state)}`;
 }
 
-/** The single discriminator for a PR's check status — `none` when the PR isn't
- *  resolved, else the resolved checks with `null` (no checks configured) folded
- *  to `pending`. The exhaustive switch forces a decision on a new checks state. */
+/** The check status of an already-resolved PR — the resolved checks with `null`
+ *  (no checks configured) folded to `pending`. The caller has already narrowed
+ *  to the `ok` arm; the exhaustive switch forces a decision on a new checks
+ *  state. */
 function prChecks(
-  pr: AwarenessValue["pr"],
-): "pass" | "fail" | "pending" | "none" {
-  if (pr.kind !== "ok") return "none";
-  const checks = pr.value.checks;
+  checks: Extract<AwarenessValue["pr"], { kind: "ok" }>["value"]["checks"],
+): "pass" | "fail" | "pending" {
   switch (checks) {
     case "pass":
       return "pass";
@@ -127,7 +126,7 @@ function prValueText(pr: AwarenessValue["pr"]): string {
   switch (pr.kind) {
     case "ok": {
       const { number, state } = pr.value;
-      const checks = prChecks(pr);
+      const checks = prChecks(pr.value.checks);
       const glyph = checks === "pass" ? "✓" : checks === "fail" ? "✗" : "·";
       return `#${number} ${state} ${glyph}`;
     }
