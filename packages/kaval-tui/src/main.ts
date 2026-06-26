@@ -640,13 +640,20 @@ async function main(): Promise<void> {
       await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
     else if (argv.command === "snapshot")
       await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
-    else if (argv.command === "send")
+    else if (argv.command === "send") {
+      // The tristate lives in two Boolean flags, so the both-set combination is
+      // expressible but illegal — crash loud rather than silently pick one.
+      if (argv.flags.paste && argv.flags.noPaste)
+        fail(
+          "--paste and --no-paste are mutually exclusive — pass at most one (omit both for auto).",
+        );
       await cmdSend(conn, await resolveOne(conn, argv._.id), argv._.text, {
         json: argv.flags.json,
         // Tristate: `--paste` forces on, `--no-paste` off, neither = auto.
         paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
         key: argv.flags.key,
       });
+    }
     else if (argv.command === "attach")
       await cmdAttach(
         conn,
