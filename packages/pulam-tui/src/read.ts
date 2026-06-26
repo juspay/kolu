@@ -8,7 +8,10 @@
  */
 
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import {
+  firstFrameOrThrow,
+  firstFrameOrUndefined,
+} from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AwarenessValue,
@@ -55,9 +58,15 @@ export async function snapshotAwareness(
 ): Promise<Array<[TerminalId, AwarenessValue]>> {
   const abort = new AbortController();
   try {
-    const keys =
-      (await firstFrameOrUndefined(await client.surface.awareness.keys({}))) ??
-      [];
+    // The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
+    // is a defined empty array, not an empty stream), so an empty stream means
+    // the link/protocol failed — surface it, don't collapse to "no terminals"
+    // (which `resolveOne` would then misreport as `no terminal matching <id>`).
+    // Mirrors the `version`-cell strict read in `assertCompatible` above.
+    const keys = await firstFrameOrThrow(
+      await client.surface.awareness.keys({}),
+      "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
+    );
     const pairs = await Promise.all(
       keys.map(async (key): Promise<[TerminalId, AwarenessValue] | null> => {
         const value = await firstFrameOrUndefined(
@@ -113,10 +122,13 @@ export async function settledSnapshot(
   const graceMs = opts.graceMs ?? 1500;
   // The key set the daemon first reports — the terminals we wait to resolve.
   // (A terminal appearing later still lands in `acc` and renders; one that
-  // leaves just stops blocking the gate.)
-  const expected =
-    (await firstFrameOrUndefined(await client.surface.awareness.keys({}))) ??
-    [];
+  // leaves just stops blocking the gate.) An empty stream (vs a defined empty
+  // array) is a link/protocol failure, not an empty fleet — fail loud rather
+  // than render a blank table as success (caught-error-must-not-collapse-to-empty).
+  const expected = await firstFrameOrThrow(
+    await client.surface.awareness.keys({}),
+    "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
+  );
 
   const acc = new Map<TerminalId, AwarenessValue>();
   const abort = new AbortController();
