@@ -621,23 +621,23 @@ import { surfaceClient } from "@kolu/surface/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-// A socket link MUST thread a watchdog-backed `{ live }` — minted by
-// `createLiveSignal` (`@kolu/surface/solid`), which BUILDS the oRPC link over `ws`
-// itself (so the watchdog probes the very socket it reconnects, via a real
-// `system.live` round-trip) AND brands the signal — then returns the link to build
-// the client over. The brand has no other minter (`brandLiveSignal` is
-// module-private + the brand is an un-reflectable WeakSet), there is no
-// caller-supplied probe target to fabricate, and there is no `heartbeat: false` to
-// disable the watchdog. The brand is also BOUND to this returned link by identity,
-// so building the client over a self-rolled `websocketLink(otherWs)` is REFUSED — the
-// brand vouches only for the link the watchdog probes. A bare `() => status() ===
-// "live"` is half-open-blind and is REFUSED; defaulting it to a constant `true` would too.
+// A socket link MUST be a watchdog-backed handle — minted by `createLiveSignal`
+// (`@kolu/surface/solid`), which BUILDS the oRPC link over `ws` itself (so the
+// watchdog probes the very socket it reconnects, via a real `system.live`
+// round-trip) AND brands the signal, returning ONE handle that pairs `link` and
+// `live`. Pass that whole handle to `surfaceClient` — there is no separate
+// `{ live }` seam to thread a blind accessor through. The brand has no other minter
+// (`brandLiveSignal` is module-private + the brand is an un-reflectable WeakSet),
+// there is no caller-supplied probe target to fabricate, and there is no
+// `heartbeat: false` to disable the watchdog. The brand is also BOUND to the
+// handle's link by identity, so building over a self-rolled `websocketLink(otherWs)`
+// is REFUSED — the brand vouches only for the link the watchdog probes. A bare
+// `() => status() === "live"` is half-open-blind and is REFUSED; a constant `true`
+// over a socket would too.
 const transport = createLiveSignal<typeof surface.contract>(ws, {});
-export const app = surfaceClient(surface, transport.link, {
-  live: transport.live,
-});
+export const app = surfaceClient(surface, transport);
 // …or build the whole socket + client + watchdog in one call via `connectSurface`
-// (`@kolu/surface-app`), which mints and threads the `{ live }` for you.
+// (`@kolu/surface-app`), which mints and threads the handle for you.
 
 // In components:
 const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
@@ -697,12 +697,12 @@ const { router, ctx } = implementSurfaces(surfaces, { channel }, {
 });
 ctx.kolu.cells.X.set(...)         // ctx is keyed per surface
 
-// client — reuse `surfaces`; one link split into a per-key client bundle,
-// each scoped to its surface.<key>.* slice. A SOCKET link must thread a
-// watchdog-backed `{ live }` as the 3rd arg (minted by `createLiveSignal`) —
-// or build via `connectSurfaces`, which mints and threads it for you. A bare or
-// unbranded `{ live }` over a socket link throws (it can silently half-open).
-const clients = surfaceClients(link, surfaces, { live });
+// client — reuse `surfaces`; one transport split into a per-key client bundle,
+// each scoped to its surface.<key>.* slice. A SOCKET transport must be a
+// watchdog-backed handle (minted by `createLiveSignal`) passed as the FIRST arg —
+// or build via `connectSurfaces`, which mints and passes it for you. A bare or
+// unbranded socket link throws (it can silently half-open).
+const clients = surfaceClients(transport, surfaces);
 clients.kolu.cells.X.use(...)     // e.g. re-export `app = clients.kolu`, `surfaceApp = clients.surfaceApp`
 ```
 
@@ -996,19 +996,20 @@ getRuntimeSocketPath({ app, file, override? }): string
 ### Solid client (`@kolu/surface/solid`)
 
 ```ts
-surfaceClients(link, { <key>: Surface }, { live? }): { <key>: SurfaceClient }
-  // split one combined link into a per-key client bundle; each client is scoped to
+surfaceClients(transport, { <key>: Surface }): { <key>: SurfaceClient }
+  // split one combined transport into a per-key client bundle; each client is scoped to
   // its `{ surface: link.surface[key] }` slice, so its primitives resolve at surface.<key>.*
-  // `{ live }` is the shared transport leg for every sibling — over a socket it must be a
-  // watchdog-backed LiveSignal (a bare/unbranded `{ live }` throws; `connectSurfaces` mints it)
+  // `transport` carries the shared transport leg for every sibling — over a socket it must be
+  // a watchdog-backed LiveSignal handle (a bare/unbranded socket link throws; `connectSurfaces`
+  // mints it). Its paired `live` feeds every sibling's `health().live`.
 
-surfaceClient<S, Rpc>(surface, link, { live? }): SurfaceClient<S, Rpc>
-  // `link` is a link-family member (`websocketLink`/`stdioLink`/`directLink`); `{ live }`
-  // is the transport-liveness accessor for `health().live`. A `websocketLink` (which can
-  // silently half-open) needs a watchdog-backed LiveSignal — minted ONLY by `createLiveSignal`
-  // (`@kolu/surface/solid`; `brandLiveSignal` is module-private) / `connectSurface` / `connectSurfaces`. A missing OR bare
-  // `{ live }` (a half-open-blind `() => true`) THROWS; the brand is unspellable without the
-  // watchdog. An in-process direct/stdio link can't half-open, so any `{ live }` (or none) is fine.
+surfaceClient<S, Rpc>(surface, transport): SurfaceClient<S, Rpc>
+  // `transport` is EITHER a watchdog-backed `LiveSignalHandle` (its `link` + paired `live`,
+  // minted by `createLiveSignal` / `connectSurface` / `connectSurfaces`) OR a bare in-process
+  // link (`stdioLink`/`directLink`). A bare `websocketLink` (which can silently half-open) THROWS —
+  // there is no `{ live }` seam to thread a blind accessor through, and the brand is unspellable
+  // without the watchdog (`brandLiveSignal` is module-private). An in-process direct/stdio link
+  // can't half-open, so it is passed bare (its transport leg is constant-`true`, honest).
   // client.cells.<K>.use(policy)                  ← drops source/mutate
   // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream
   // client.collections.<K>.{upsert, delete}       ← lifecycle-free mutations

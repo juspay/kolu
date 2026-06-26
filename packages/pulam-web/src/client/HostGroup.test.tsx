@@ -73,6 +73,7 @@ function mountHostGroup(): {
   heal: () => void;
   blipKeys: (message: string) => void;
   healKeys: () => void;
+  lastCounts: () => { need: number; work: number } | undefined;
 } {
   const [conn, setConn] = createSignal<ConnectionInfo>(DEFAULT_CONNECTION);
   const [keys, setKeys] = createSignal<TerminalId[]>([]);
@@ -131,6 +132,11 @@ function mountHostGroup(): {
       ],
     }),
   };
+  // Capture the last fleet-wide tally HostGroup reports up — the strip's input.
+  // F1: it must DROP to zero whenever the body stops painting rows (a sub error on
+  // a still-live link), not keep tallying stale agents beside a visible error.
+  let counts: { need: number; work: number } | undefined;
+  const lastCounts = (): { need: number; work: number } | undefined => counts;
   const container = document.createElement("div");
   document.body.appendChild(container);
   const dispose = render(
@@ -139,7 +145,9 @@ function mountHostGroup(): {
         host="prod"
         filters={DEFAULT_FLEET_FILTERS}
         now={() => 0}
-        reportCounts={() => {}}
+        reportCounts={(_host, c) => {
+          counts = c;
+        }}
       />
     ),
     container,
@@ -164,6 +172,7 @@ function mountHostGroup(): {
     heal,
     blipKeys,
     healKeys,
+    lastCounts,
   };
 }
 
@@ -253,9 +262,10 @@ describe("HostGroup — the empty-vs-error render gate (#1564 regression guard)"
 
   it("the body gate DRINKS from health().live: a dead transport closes it even with a `connected` mirror", async () => {
     // 🔴1: `connectSurface` threads the socket's liveness into `health().live`,
-    // and pulam-web's gate now reads THAT (its `connected()` is `app.health().live
-    // && connInfo.state === "connected"`), not a second read of the transport
-    // `status`. The harness drives `health().live` and `status` separately, so
+    // and pulam-web's gate now reads THAT (its `hostBodyReady` is `app.health().live
+    // && no sub erroring` — the mirror's `connected` state folds into `live` by
+    // construction), not a second read of the transport `status`. The harness drives
+    // `health().live` and `status` separately, so
     // this proves WHICH the gate reads: hold the transport `status` LIVE and the
     // mirror cell `connected` (the OLD gate, off `effectiveHealth(status,…)`,
     // would paint the body), then flip the FACT's `live` false. The body must
@@ -278,6 +288,37 @@ describe("HostGroup — the empty-vs-error render gate (#1564 regression guard)"
     // Recovers when the fact reports the transport live again.
     setLive(true);
     await waitForText(container, "no terminals");
+  });
+
+  it("a live SUB ERROR drops the terminal count AND the reported tally, not just the rows (F1)", async () => {
+    // F1 (codex): the body gate (`hostBodyReady`) hides rows when any sub errors,
+    // but the header "N terminals" count and the fleet-wide `reportCounts` tally
+    // used to ride only `health().live` — so on a sub error over a STILL-LIVE link
+    // the body showed the error card while the count + strip kept tallying stale
+    // agents beside it. All three now share ONE `bodyReady` memo, so they drop
+    // together. Hold the keys non-empty so the count would otherwise show.
+    const { container, setConn, setKeys, blip, heal, lastCounts } =
+      mountHostGroup();
+    setConn({
+      state: "connected",
+      lastError: null,
+      failureCause: null,
+      progressLines: [],
+    });
+    setKeys(["t1", "t2"] as TerminalId[]);
+    // Connected + keys present → the header count shows and the tally is reported.
+    await waitForText(container, "2 terminals");
+    await vi.waitFor(() => expect(lastCounts()).toEqual({ need: 0, work: 0 }));
+    // A live sub 500s on a still-up link. The error card wins — and the count must
+    // NOT linger beside it (the F1 lie), nor the tally keep counting.
+    blip("Internal server error");
+    await waitForText(container, "Internal server error");
+    expect(text(container)).not.toContain("2 terminals");
+    expect(lastCounts()).toEqual({ need: 0, work: 0 });
+    // Heals on recovery: the count returns once the sub re-delivers.
+    heal();
+    await waitForText(container, "2 terminals");
+    expect(text(container)).not.toContain("Internal server error");
   });
 
   it("a failing awareness KEYS stream surfaces an error, not a silent empty fleet — and clears on recovery", async () => {

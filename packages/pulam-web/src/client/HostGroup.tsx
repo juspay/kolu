@@ -208,16 +208,19 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // the strip, and the dot each read it and `effectiveHealth` allocates fresh,
   // so memoize for one run + one stable identity per change (like `entries`).
   const health = createMemo(() => effectiveHealth(status(), connInfo()));
-  // "Is this host's LINK up?" — the predicate the terminal count and the
-  // fleet-wide tally read. It is now JUST `app.health().live`: the round-5
-  // "complete the fact" change folds the mirror's `connected` state INTO the
-  // fact's `live` leg by construction (the `connection` cell's `liveWhen`), so the
-  // old hand-AND of `connInfo().state === "connected"` is GONE — the fact already
-  // carries it. A reconnecting/half-open transport OR a non-`connected` mirror
-  // both flip `live` false. `effectiveHealth` still resolves the two axes for
-  // PRESENTATION (the dot + ConnectionView — reload vs Reconnect, finer than the
-  // boolean), but no consumer re-ANDs the mirror state anymore.
-  const connected = createMemo(() => app.health().live);
+  // "Should the host body paint real rows?" — the SAME predicate the body
+  // `<SurfaceGate ready>` gates on (`hostBodyReady`), read here so the terminal
+  // count and the fleet-wide tally can't disagree with what the body shows. It is
+  // the fact's `live` leg — which folds the mirror's `connected` state IN by
+  // construction (the `connection` cell's `liveWhen`), so the old hand-AND of
+  // `connInfo().state === "connected"` is GONE — AND no subscription erroring. So
+  // when the body swaps rows for the error fallback (a live sub 500s on a still-up
+  // link), the count and the strip drop WITH it rather than tallying stale agents
+  // beside a visible error. A reconnecting/half-open transport OR a non-`connected`
+  // mirror flips `live` false the same way. `effectiveHealth` still resolves the
+  // two axes for PRESENTATION (the dot + ConnectionView — reload vs Reconnect,
+  // finer than the boolean), but no consumer re-ANDs the mirror state anymore.
+  const bodyReady = createMemo(() => hostBodyReady(app.health()));
   // The live byte-moving set. VALUE-BEARING (full set each frame) → the
   // replace-each-frame `.streams.use()` consumer. `() => ({})` spans the whole
   // host (the stream takes no input), so we subscribe once.
@@ -247,14 +250,15 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // category is toggled off — and clears on unmount so a closed host stops
   // contributing.
   //
-  // Gated on the SAME `effectiveHealth` the body is: when the host is not
-  // effectively connected, report zero. Off-`connected` we hide the rows as
-  // disconnected, but the awareness store keeps its LAST values — during a
-  // browser↔backend transport loss it can't receive a reset frame — so counting
-  // `entries()` would let the global alert strip keep tallying stale agents from a
-  // host the user is told is down. Zeroing here keeps the strip honest with the rows.
+  // Gated on the SAME `hostBodyReady` the body is (via `bodyReady`): when the body
+  // isn't painting real rows — a down/half-open link OR a live subscription error —
+  // report zero. In those states we hide the rows, but the awareness store keeps its
+  // LAST values (a transport loss can't deliver a reset frame; an erroring sub keeps
+  // its last good), so counting `entries()` would let the global alert strip keep
+  // tallying stale agents from a host the user is shown as down/erroring. Zeroing
+  // here keeps the strip honest with the rows.
   createEffect(() => {
-    if (!connected()) {
+    if (!bodyReady()) {
       props.reportCounts(props.host, { need: 0, work: 0 });
       return;
     }
@@ -288,12 +292,13 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
       <header class="flex items-center gap-2 border-b border-[#1b2026] bg-[#141922] px-3 py-2">
         <span style={`color:${HOST_COLOR}`}>▌</span>
         <span class="font-semibold text-[#aeb7c7]">{props.host}</span>
-        {/* The terminal count rides the SAME `effectiveHealth` gate as the body
-            and the fleet-wide counts: when the host isn't effectively connected
-            the rows are hidden and the awareness key set is stale (no reset frame
-            crosses a dead transport), so showing "N terminals" beside a "down"
-            dot would lie. Drop it until the host is genuinely connected. */}
-        <Show when={connected()}>
+        {/* The terminal count rides the SAME `hostBodyReady` gate as the body and
+            the fleet-wide counts (`bodyReady`): when the body isn't painting rows —
+            a down/half-open link OR a live subscription error — the awareness key
+            set is stale (no reset frame crosses a dead transport; an erroring sub
+            keeps its last keys), so showing "N terminals" beside a "down" dot or an
+            error card would lie. Drop it until the body is genuinely showing rows. */}
+        <Show when={bodyReady()}>
           <span class="text-[12px] text-[#5b6678]">
             · {awareness.keys().length} terminals
           </span>
@@ -303,7 +308,8 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
       {/* The ONE gate over the host body is the framework's `<SurfaceGate>` — this
           fleet board is a real consumer of the shared primitive, not a hand-rolled
           parallel fold. pulam-web supplies the HARD-GATE policy via `ready`: show
-          the body ONLY when `connected()` — whose TRANSPORT leg is the framework
+          the body ONLY when `hostBodyReady` holds (the same predicate `bodyReady`
+          memoizes for the count + strip) — whose TRANSPORT leg is the framework
           fact `h.live` (`connectSurface`'s threaded socket liveness) and whose
           MIRROR leg is the `connection` cell — AND no subscription is erroring. So
           the gate genuinely DRINKS from `health().live`: a half-open/reconnecting
