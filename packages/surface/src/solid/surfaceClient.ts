@@ -370,6 +370,187 @@ export function surfaceClient<const S extends SurfaceSpec>(
   return buildSurfaceClient(surface, link, live);
 }
 
+/** Open the eager `liveWhen` readiness leg for a mirror-shaped cell — the
+ *  self-contained detached-root concern. In a `createRoot` (`buildSurfaceClient`
+ *  itself runs outside any owner) it opens the cell's server subscription NOW and
+ *  (a) `enroll`s its pending/error so the cell's own stream-health is TOTAL in `subs`
+ *  even with zero `.use()`, and (b) `enrollReadiness`es the predicate over its live
+ *  value so `health().live` AND-folds the mirror state BY CONSTRUCTION. This is the
+ *  client-side symmetry to `pumpRemoteSurface` auto-wiring the server WRITE: composing
+ *  the cell entails the fold, so the green-over-dead-mirror lie has no
+ *  `.use()`-conditional escape (a dot-only viewer that never mounts the cell still
+ *  reads the complete fact). Returns the standing result (shared by a read-only
+ *  `.use()`) and the root disposer (run by `client.dispose()`). */
+function openReadinessLeg<S extends SurfaceSpec>(
+  key: string,
+  cellSpec: CellSpec<unknown, unknown>,
+  source: StreamingProcedure<undefined, unknown>,
+  registry: ReturnType<typeof createSurfaceHealthRegistry>,
+  surface: Surface<S>,
+): { standing: ReadOnlyUseCellResult<unknown>; dispose: () => void } {
+  const liveWhen = cellSpec.liveWhen as (value: unknown) => boolean;
+  let standing!: ReadOnlyUseCellResult<unknown>;
+  const dispose = createRoot((disposeRoot) => {
+    const s = useCell(
+      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+      (surface.descriptors.cells as any)[key],
+      { source, authority: "server" },
+    );
+    registry.enroll(key, { pending: s.pending, error: s.error });
+    registry.enrollReadiness(key, () =>
+      liveWhen(s.value() ?? cellSpec.default),
+    );
+    standing = s as ReadOnlyUseCellResult<unknown>;
+    return disposeRoot;
+  });
+  return { standing, dispose };
+}
+
+/** Bind ONE cell to its `BoundCell` — the per-cell concern, lifted out of the
+ *  cells loop so each step (verb resolution, read-only detection, the readiness leg,
+ *  ordinary `.use()` enrolment) reads as one named thing instead of one fused body.
+ *  Returns the bound cell plus, for a `liveWhen` cell, the standing-root disposer the
+ *  caller threads into `client.dispose()`. */
+function bindCell<S extends SurfaceSpec>(
+  key: string,
+  cellSpec: CellSpec<unknown, unknown>,
+  link: unknown,
+  registry: ReturnType<typeof createSurfaceHealthRegistry>,
+  surface: Surface<S>,
+): { cell: BoundCell<unknown, unknown>; disposeRoot?: () => void } {
+  // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
+  const ns = (link as any).surface[key];
+  const source: StreamingProcedure<undefined, unknown> = ns.get;
+  // Bind the cell's CLIENT mutation verb — the one the bound `.use()` mutate path
+  // actually calls. Only `set`/`patch` qualify; `test__set` is the e2e reset
+  // procedure, never a consumer mutation, so a `["get", "test__set"]` cell (e.g.
+  // `activityFeed` / `session`) stays read-only on the client.
+  //
+  // Resolve the EXPOSED verb through `resolveCellVerbs` — the SAME helper the
+  // contract derivation (`cellContractEntries`) and the server handler walk call —
+  // rather than re-spelling the patch/no-patch default here. This keeps the binding
+  // aligned with `CellIsMutable` even for the legal `patchSchema` + explicit-`set`
+  // cell — whose client patch shape the bound type (`CellHasPatchVerb`) collapses to
+  // the full value `T`, so a `.patch` posts a full value to this `ns.set`, never a
+  // partial the endpoint would reject. It also leaves `mutate` undefined for a
+  // get-only cell so the read-only `.use()` type (no `set`/`patch`) keeps callers off
+  // a mutate path the wire can't service.
+  const verbs = resolveCellVerbs(cellSpec);
+  const mutateVerb = verbs.includes("patch")
+    ? "patch"
+    : verbs.includes("set")
+      ? "set"
+      : undefined;
+  const mutate = mutateVerb ? ns[mutateVerb] : undefined;
+  // Spec-declared `patch` doubles as the default `applyPatch` for authority-`local`
+  // cells, so server and client merge with the same function without the consumer
+  // importing it twice.
+  //
+  // Inject it ONLY when the exposed client mutation verb is `patch` — i.e. when the
+  // bound type carries the partial `P` (`BoundCell<T, P>`) and the local-authority
+  // `.patch(P)` / coalesce path actually feeds a `P` to this merge. For the legal
+  // `patchSchema` + explicit-`set` cell the bound type collapses to `BoundCell<T, T>`:
+  // `.set(T)` / `.patch(T)` carry the full value, so `applyLocal` must full-replace,
+  // NOT route through `cellSpec.patch` (which expects a partial `P`, not a `T`).
+  // Skipping the inject here leaves `applyPatch` undefined, so `useCell`'s no-helper
+  // branch treats `P` as `T` and replaces wholesale — sound against the full-value
+  // `set` endpoint.
+  const specPatch = mutateVerb === "patch" ? cellSpec.patch : undefined;
+  // A get-only cell has NO client mutation verb. Make it read-only at RUNTIME, not
+  // only at the TS surface: branch to a server-authority `useCell` and return ONLY
+  // `{ value, pending, error, sub }` — no `set`/`patch` to call an absent `ns.<verb>`,
+  // and no local store at all. A forced `authority: "local"` (a JS / `any` caller the
+  // type can't stop) FAILS FAST in the `.use()` below, BEFORE `useCellLocal` would
+  // seed a local store and let a `.set`/`.patch` mutate it ahead of discovering there
+  // is no mutate handler. Fail-fast per the design philosophy: a read-only contract
+  // that silently half-mutates a local store is the "graceful degradation" defect,
+  // not a feature.
+  const readOnly = mutateVerb === undefined;
+  // A READINESS-GATE cell (`liveWhen`): open its eager standing subscription/readiness
+  // leg now (the self-contained detached-root concern). A read-only `.use()` SHARES
+  // this `standing` — no second `.get` stream, no duplicate member in `subs`.
+  const leg = cellSpec.liveWhen
+    ? openReadinessLeg(key, cellSpec, source, registry, surface)
+    : undefined;
+  const standing = leg?.standing;
+  const cell: BoundCell<unknown, unknown> = {
+    use: (boundOpts) => {
+      // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
+      const opts: any = boundOpts ?? {};
+      // A read-only `liveWhen` cell SHARES its eager standing subscription. Forward
+      // `onError` as a reactive observer of the shared (self-clearing) error, so the
+      // read-only `.use({onError})` contract still fires.
+      const shared = readOnly ? standing : undefined;
+      if (shared) {
+        if (opts.onError) {
+          const cb = opts.onError as (err: Error) => void;
+          createEffect(() => {
+            const e = shared.error();
+            if (e) cb(e);
+          });
+        }
+        return {
+          value: shared.value,
+          pending: shared.pending,
+          error: shared.error,
+          sub: shared.sub,
+          // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
+        } as any;
+      }
+      if (readOnly) {
+        if (opts.authority === "local") {
+          throw new Error(
+            "surfaceClient: cell has no wire mutation verb (get-only) — " +
+              '`authority: "local"` is rejected; there is no mutate handler ' +
+              "to flush a local write to, so this cell is read-only.",
+          );
+        }
+        const cell = useCell(
+          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+          (surface.descriptors.cells as any)[key],
+          // Thread the caller's `onError` (the only `ReadOnlyBoundCellOptions` field)
+          // into the server-authority subscription so a get-only cell's stream failure
+          // reaches callback-based error handling, not just the `error()` signal —
+          // `useCellServer` forwards it to `createSubscription`.
+          { source, authority: "server", onError: opts.onError },
+        );
+        // Enrol the cell's self-clearing error()/pending() into health() — rides this
+        // `.use()`'s consumer owner, so it drops when the component unmounts.
+        registry.enroll(key, { pending: cell.pending, error: cell.error });
+        // Return ONLY the read-only projection — `set`/`patch` are absent at runtime,
+        // matching `ReadOnlyUseCellResult`. The cast bridges the walk-by-string
+        // `BoundCell` map; the typed `BoundCellsFor` already narrows a get-only cell
+        // to `ReadOnlyBoundCell`.
+        return {
+          value: cell.value,
+          pending: cell.pending,
+          error: cell.error,
+          sub: cell.sub,
+          // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
+        } as any;
+      }
+      // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
+      const merged: any = { ...opts, source, mutate };
+      if (
+        specPatch &&
+        merged.authority === "local" &&
+        merged.applyPatch === undefined &&
+        merged.mergeIntoStore === undefined
+      ) {
+        merged.applyPatch = specPatch;
+      }
+      const cell = useCell(
+        // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+        (surface.descriptors.cells as any)[key],
+        merged,
+      );
+      registry.enroll(key, { pending: cell.pending, error: cell.error });
+      return cell;
+    },
+  };
+  return { cell, disposeRoot: leg?.dispose };
+}
+
 /** The internal builder shared by `surfaceClient` (one transport) and
  *  `surfaceClients` (one combined transport sliced per sibling). It takes the
  *  ALREADY-resolved `link` and `live` — `surfaceClient` resolves them from a
@@ -396,169 +577,24 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // this link can't half-open).
   const registry = createSurfaceHealthRegistry(live);
 
-  // Build-time standing subscriptions for `liveWhen` cells (the readiness legs)
-  // and their disposers. Created EAGERLY below (not at `.use()` time) so the
-  // mirror-liveness leg folds into `health().live` by construction — independent
-  // of whether any component ever mounts the cell. `dispose()` runs these roots.
+  // Build-time standing-root disposers for `liveWhen` cells (the readiness legs
+  // `bindCell` → `openReadinessLeg` open EAGERLY, not at `.use()` time, so the
+  // mirror-liveness leg folds into `health().live` by construction — independent of
+  // whether any component ever mounts the cell). `dispose()` runs these roots.
   const standingRoots: Array<() => void> = [];
-  const standingCells: Record<string, ReadOnlyUseCellResult<unknown>> = {};
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
-    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
-    const ns = (link as any).surface[key];
-    const source: StreamingProcedure<undefined, unknown> = ns.get;
-    // Bind the cell's CLIENT mutation verb — the one the bound `.use()` mutate
-    // path actually calls. Only `set`/`patch` qualify; `test__set` is the e2e
-    // reset procedure, never a consumer mutation, so a `["get", "test__set"]`
-    // cell (e.g. `activityFeed` / `session`) stays read-only on the client.
-    //
-    // Resolve the EXPOSED verb through `resolveCellVerbs` — the SAME helper the
-    // contract derivation (`cellContractEntries`) and the server handler walk
-    // call — rather than re-spelling the patch/no-patch default here. This keeps
-    // the binding aligned with `CellIsMutable` even for the legal `patchSchema`
-    // + explicit-`set` cell — whose client patch shape the bound type
-    // (`CellHasPatchVerb`) collapses to the full value `T`, so a `.patch` posts a
-    // full value to this `ns.set`, never a partial the endpoint would reject. It
-    // also leaves `mutate` undefined for a get-only cell so the read-only
-    // `.use()` type (no `set`/`patch`) keeps callers off a mutate path the wire
-    // can't service.
-    const verbs = resolveCellVerbs(cellSpec);
-    const mutateVerb = verbs.includes("patch")
-      ? "patch"
-      : verbs.includes("set")
-        ? "set"
-        : undefined;
-    const mutate = mutateVerb ? ns[mutateVerb] : undefined;
-    // Spec-declared `patch` doubles as the default `applyPatch` for
-    // authority-`local` cells, so server and client merge with the same
-    // function without the consumer importing it twice.
-    //
-    // Inject it ONLY when the exposed client mutation verb is `patch` — i.e.
-    // when the bound type carries the partial `P` (`BoundCell<T, P>`) and the
-    // local-authority `.patch(P)` / coalesce path actually feeds a `P` to this
-    // merge. For the legal `patchSchema` + explicit-`set` cell the bound type
-    // collapses to `BoundCell<T, T>`: `.set(T)` / `.patch(T)` carry the full
-    // value, so `applyLocal` must full-replace, NOT route through `cellSpec.patch`
-    // (which expects a partial `P`, not a `T`). Skipping the inject here leaves
-    // `applyPatch` undefined, so `useCell`'s no-helper branch treats `P` as `T`
-    // and replaces wholesale — sound against the full-value `set` endpoint.
-    const specPatch = mutateVerb === "patch" ? cellSpec.patch : undefined;
-    // A get-only cell has NO client mutation verb. Make it read-only at RUNTIME,
-    // not only at the TS surface: branch to a server-authority `useCell` and
-    // return ONLY `{ value, pending, error, sub }` — no `set`/`patch` to call an
-    // absent `ns.<verb>`, and no local store at all. A forced `authority: "local"`
-    // (a JS / `any` caller the type can't stop) FAILS FAST here, BEFORE
-    // `useCellLocal` would seed a local store and let a `.set`/`.patch` mutate it
-    // ahead of discovering there is no mutate handler. Fail-fast per the design
-    // philosophy: a read-only contract that silently half-mutates a local store
-    // is the "graceful degradation" defect, not a feature.
-    const readOnly = mutateVerb === undefined;
-    // A READINESS-GATE cell (`liveWhen`): open its server subscription NOW, in a
-    // detached `createRoot` (surfaceClient itself runs outside any owner), and
-    // (a) `enroll` its pending/error so the cell's own stream-health is TOTAL in
-    // `subs` even with zero `.use()`, and (b) `enrollReadiness` the predicate over
-    // its live value so `health().live` AND-folds the mirror state BY
-    // CONSTRUCTION. This is the client-side symmetry to `pumpRemoteSurface`
-    // auto-wiring the server WRITE: composing the cell entails the fold, so the
-    // green-over-dead-mirror lie has no `.use()`-conditional escape (a dot-only
-    // viewer that never mounts the cell still reads the complete fact).
-    if (cellSpec.liveWhen) {
-      const liveWhen = cellSpec.liveWhen as (value: unknown) => boolean;
-      createRoot((disposeRoot) => {
-        const standing = useCell(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-          (surface.descriptors.cells as any)[key],
-          { source, authority: "server" },
-        );
-        registry.enroll(key, {
-          pending: standing.pending,
-          error: standing.error,
-        });
-        registry.enrollReadiness(key, () =>
-          liveWhen(standing.value() ?? cellSpec.default),
-        );
-        standingCells[key] = standing as ReadOnlyUseCellResult<unknown>;
-        standingRoots.push(disposeRoot);
-      });
-    }
-    cells[key] = {
-      use: (boundOpts) => {
-        // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
-        const opts: any = boundOpts ?? {};
-        // A read-only `liveWhen` cell SHARES its eager standing subscription —
-        // no second `.get` stream, no duplicate member in `subs`. Forward
-        // `onError` as a reactive observer of the shared (self-clearing) error,
-        // so the read-only `.use({onError})` contract still fires.
-        const standing = readOnly ? standingCells[key] : undefined;
-        if (standing) {
-          if (opts.onError) {
-            const cb = opts.onError as (err: Error) => void;
-            createEffect(() => {
-              const e = standing.error();
-              if (e) cb(e);
-            });
-          }
-          return {
-            value: standing.value,
-            pending: standing.pending,
-            error: standing.error,
-            sub: standing.sub,
-            // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
-          } as any;
-        }
-        if (readOnly) {
-          if (opts.authority === "local") {
-            throw new Error(
-              "surfaceClient: cell has no wire mutation verb (get-only) — " +
-                '`authority: "local"` is rejected; there is no mutate handler ' +
-                "to flush a local write to, so this cell is read-only.",
-            );
-          }
-          const cell = useCell(
-            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-            (surface.descriptors.cells as any)[key],
-            // Thread the caller's `onError` (the only `ReadOnlyBoundCellOptions`
-            // field) into the server-authority subscription so a get-only cell's
-            // stream failure reaches callback-based error handling, not just the
-            // `error()` signal — `useCellServer` forwards it to `createSubscription`.
-            { source, authority: "server", onError: opts.onError },
-          );
-          // Enrol the cell's self-clearing error()/pending() into health() — rides
-          // this `.use()`'s consumer owner, so it drops when the component unmounts.
-          registry.enroll(key, { pending: cell.pending, error: cell.error });
-          // Return ONLY the read-only projection — `set`/`patch` are absent at
-          // runtime, matching `ReadOnlyUseCellResult`. The cast bridges the
-          // walk-by-string `BoundCell` map; the typed `BoundCellsFor` already
-          // narrows a get-only cell to `ReadOnlyBoundCell`.
-          return {
-            value: cell.value,
-            pending: cell.pending,
-            error: cell.error,
-            sub: cell.sub,
-            // biome-ignore lint/suspicious/noExplicitAny: read-only projection over the BoundCell<unknown> map type
-          } as any;
-        }
-        // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
-        const merged: any = { ...opts, source, mutate };
-        if (
-          specPatch &&
-          merged.authority === "local" &&
-          merged.applyPatch === undefined &&
-          merged.mergeIntoStore === undefined
-        ) {
-          merged.applyPatch = specPatch;
-        }
-        const cell = useCell(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-          (surface.descriptors.cells as any)[key],
-          merged,
-        );
-        registry.enroll(key, { pending: cell.pending, error: cell.error });
-        return cell;
-      },
-    };
+    const { cell, disposeRoot } = bindCell(
+      key,
+      cellSpec,
+      link,
+      registry,
+      surface,
+    );
+    cells[key] = cell;
+    if (disposeRoot) standingRoots.push(disposeRoot);
   }
 
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
