@@ -202,6 +202,26 @@ export class TranscriptStore {
     }[];
   }
 
+  /** CHECKPOINT rows whose seed sits in `[fromByteSeq, toByteSeq)`, oldest first
+   *  — FAITHFUL export splits a long resize-free epoch at these same-width seams
+   *  so one giant epoch is never inflated into a single in-memory segment. Each
+   *  carries its historical grid so the caller can guard against re-seeding
+   *  across a width change. */
+  checkpointsInRange(fromByteSeq: Seq, toByteSeq: Seq): CheckpointRow[] {
+    return this.db
+      .prepare(
+        `SELECT firstByteSeq, cols, rows, payload FROM record
+         WHERE kind=? AND firstByteSeq>=? AND firstByteSeq<? AND payload IS NOT NULL
+         ORDER BY firstByteSeq`,
+      )
+      .all(Kind.CKPT, fromByteSeq, toByteSeq) as {
+      firstByteSeq: Seq;
+      cols: number;
+      rows: number;
+      payload: Uint8Array;
+    }[];
+  }
+
   /** The newest checkpoint STRICTLY before `byteSeq` (so a backward page always
    *  makes progress to an earlier seed), or `undefined` when none — the caller
    *  then falls back to the implicit byte-0 seed (a fresh terminal). */

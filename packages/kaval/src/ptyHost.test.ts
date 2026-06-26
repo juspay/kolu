@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -824,5 +824,33 @@ describe("on-disk transcript integration (PR2)", () => {
     });
     expect(page.kind).toBe("unavailable");
     expect(await host.historyText(id)).toBe("");
+  });
+
+  it("deleteTranscript removes the on-disk DB (no orphan after a kill)", async () => {
+    dir = mkdtempSync(join(tmpdir(), "kaval-tx-host-"));
+    host = createPtyHost({ log: silentLog, transcriptDir: dir });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      history: { enabled: true, retentionBytes: 1 << 30 },
+      args: ["-c", "printf 'PERSISTED\\n'; sleep 30"],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 24,
+    });
+    await waitFor(() => host.getScreenText(id).includes("PERSISTED"), 8000);
+
+    const dbPath = join(dir, `${id}.db`);
+    expect(existsSync(dbPath)).toBe(true);
+
+    // The permanent-removal path: deleteTranscript releases the open connection
+    // and unlinks the DB (+ its WAL/SHM sidecars), so a killed terminal leaves no
+    // orphan file growing to the retention cap.
+    host.deleteTranscript(id);
+    expect(existsSync(dbPath)).toBe(false);
+    expect(existsSync(`${dbPath}-wal`)).toBe(false);
+    expect(existsSync(`${dbPath}-shm`)).toBe(false);
+
+    // Idempotent + safe on an unknown id (no live entry — the discardSleeping case).
+    expect(() => host.deleteTranscript(id)).not.toThrow();
   });
 });

@@ -352,6 +352,13 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           requirePty(input.id as PtyId);
           return { text: await host.historyText(input.id) };
         },
+        // NO requirePty: the server deletes a terminal's transcript on KILL /
+        // DISCARD, and discardSleeping has no live entry — deleting a gone
+        // terminal's DB is the whole point, so an absent PTY is not an error.
+        deleteTranscript: async ({ input }) => {
+          host.deleteTranscript(input.id as PtyId);
+          return { ok: true };
+        },
       },
       system: {
         version: async () => ({

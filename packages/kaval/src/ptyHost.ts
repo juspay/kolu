@@ -26,7 +26,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { shouldForwardHeadlessReply } from "@kolu/terminal-protocol";
 import type { Logger } from "@kolu/surface-daemon";
@@ -372,6 +372,11 @@ export interface PtyHost {
   /** Whole-transcript plain text (PR2) — the deep "copy all" source. Empty if
    *  gone or history disabled. */
   historyText(id: PtyId): Promise<string>;
+  /** Permanently delete a PTY's on-disk transcript (DB + WAL/SHM), releasing any
+   *  still-open connection first (PR2). Called on a KILL / DISCARD — never on
+   *  sleep — so a removed terminal leaves no orphan DB. A no-op when history is
+   *  off; CRASHES on a traversal-shaped id (the same fail-fast as spawn). */
+  deleteTranscript(id: PtyId): void;
   /** Kill every PTY this host owns. */
   dispose(): void;
 }
@@ -976,6 +981,22 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     if (!entry.transcript) return Promise.resolve("");
     return entry.transcript.readAllText();
   }
+  function deleteTranscript(id: PtyId): void {
+    // No transcripts are kept without a configured dir — nothing to delete.
+    if (transcriptDir === undefined) return;
+    // Release a still-open connection BEFORE unlinking so the DB isn't deleted
+    // out from under a live handle (a kill races teardown). `close()` is
+    // idempotent, so the later teardown close is a harmless no-op. NOT
+    // `requireEntry`: deleting a SLEEPING/already-gone terminal's DB is the whole
+    // point (discardSleeping has no live entry), so an absent entry is fine.
+    entries.get(id)?.transcript?.close();
+    // `transcriptDbPath` CRASHES on a traversal-shaped id — the same fail-fast
+    // guard spawn uses, so a hostile id can't steer the unlink outside the dir.
+    const dbPath = transcriptDbPath(transcriptDir, id);
+    for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+      rmSync(p, { force: true });
+    }
+  }
   function resize(id: PtyId, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
@@ -1044,6 +1065,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     exportHistory,
     searchHistory,
     historyText,
+    deleteTranscript,
     dispose: () => {
       for (const entry of [...entries.values()]) entry.proc.kill();
       // Host shutdown — end every inventory subscription gracefully. The async

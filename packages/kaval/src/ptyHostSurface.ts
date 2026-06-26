@@ -79,8 +79,13 @@ import { z } from "zod";
  *  deep history. Persistence can't be layered onto a pre-persistence daemon
  *  (the verbs would 404, the required policy field would be missing), so this is
  *  one forced recycle that kills every live terminal once — there is no lossless
- *  path around it. */
-export const PTY_HOST_CONTRACT_VERSION = "4.0";
+ *  path around it.
+ *  Bumped to 4.1 (additive · minor): the new `deleteTranscript` verb lets the
+ *  server reclaim a terminal's on-disk transcript when it is KILLED / DISCARDED
+ *  (not slept), so a removed terminal no longer leaves an orphan DB on disk. A
+ *  4.0 survivor lacking the verb just can't be told to delete — additive, so it
+ *  is adopted, not recycled. */
+export const PTY_HOST_CONTRACT_VERSION = "4.1";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -410,6 +415,14 @@ export const ptyHostSurface = defineSurface({
       historyText: {
         input: TerminalIdInputSchema,
         output: z.object({ text: z.string() }),
+      },
+      /** PR2: permanently delete a terminal's on-disk transcript (the DB + its
+       *  WAL/SHM sidecars). The server calls this on a KILL / DISCARD — never on
+       *  sleep, which keeps the DB for a later wake — so a removed terminal
+       *  doesn't leave an orphan DB growing to the per-PTY retention cap. */
+      deleteTranscript: {
+        input: TerminalIdInputSchema,
+        output: z.object({ ok: z.boolean() }),
       },
     },
     system: {

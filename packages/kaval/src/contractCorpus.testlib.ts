@@ -44,6 +44,7 @@ export const CONTRACT_COVERAGE = {
     "terminal.history",
     "terminal.searchHistory",
     "terminal.historyText",
+    "terminal.deleteTranscript",
     "system.version",
     "system.heartbeat",
     "system.processMemory",
@@ -341,6 +342,13 @@ export function runContractCorpus(opts: {
       const segs: unknown[] = [];
       for await (const s of exp) segs.push(s);
       expect(segs).toEqual([]);
+
+      // deleteTranscript force-unlinks the DB — `ok` even with history off (no DB
+      // exists), and idempotent across both links and a still-live PTY.
+      const del1 = await client().surface.terminal.deleteTranscript({ id });
+      expect(del1.ok).toBe(true);
+      const del2 = await client().surface.terminal.deleteTranscript({ id });
+      expect(del2.ok).toBe(true);
 
       await client().surface.terminal.kill({ id });
     });

@@ -315,6 +315,61 @@ describe("Transcript — lossless round-trip + cross-width paging", () => {
     tx.close();
   }, 30_000);
 
+  it("splits a long resize-free epoch at checkpoint seams, still matching the oracle", async () => {
+    // ~2400 lines × ~90 B ≈ 200 KB > 2× CHECKPOINT_BYTES with NO resize: one
+    // epoch, so the OLD shape would inflate the whole 200 KB into a single export
+    // segment (the F1 OOM shape). It must instead split at the same-width
+    // checkpoint seams — multiple bounded segments whose concatenated render still
+    // equals a single-shot oracle.
+    const N = 2400;
+    const dbPath = join(dir, "epoch.db");
+    const tx = Transcript.open({
+      policy: { enabled: true, retentionBytes: 1 << 30 },
+      dbPath,
+      cols: 80,
+      rows: 24,
+      now: () => 1_700_000_000_000,
+    });
+    const { term: mirror, view } = makeMirror(80, 24);
+    // A constant-width stream (NO resize) — feed buildStream's chunks but never
+    // call appendResize, so the whole run is one resize-epoch.
+    const { chunks } = buildStream(N);
+    for (const c of chunks) {
+      await write(mirror, c);
+      tx.appendData(c, view);
+    }
+
+    const segs: { cols: number; rows: number; ansi: string }[] = [];
+    for await (const seg of tx.exportSegments()) segs.push(seg);
+
+    // Bounded: the single epoch is split into several segments, all at 80 cols.
+    expect(segs.length).toBeGreaterThanOrEqual(2);
+    for (const s of segs) expect(s.cols).toBe(80);
+
+    // Concatenating every segment's ANSI reproduces a single-shot oracle at 80.
+    const oracle = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: 200_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const c of buildStream(N).chunks) await write(oracle, c);
+    const oracleSig = readPlain(oracle).filter((l) => /^L\d{5}\|/.test(l));
+
+    const replay = new Terminal({
+      cols: 80,
+      rows: 24,
+      scrollback: 200_000,
+      allowProposedApi: true,
+      reflowCursorLine: true,
+    });
+    for (const s of segs) await write(replay, s.ansi);
+    const gotSig = readPlain(replay).filter((l) => /^L\d{5}\|/.test(l));
+    expect(gotSig).toEqual(oracleSig);
+    tx.close();
+  }, 30_000);
+
   it("copy-all returns every line's text", async () => {
     const { tx } = await feed(120);
     const text = await tx.readAllText();

@@ -394,20 +394,30 @@ export class Transcript {
 
   // ---- internals ----------------------------------------------------------
 
-  /** Split `[from, to)` into faithful render inputs, ONE segment per resize-epoch
-   *  — the DATA between two RESIZE records, rendered at the cols actually in
-   *  effect for that span. A RESIZE is the segment BOUNDARY, not an event inside a
-   *  segment: each epoch is rendered (and serialized) FROZEN at its historical
-   *  width before the next resize, so a 200-col table is never re-wrapped to a
-   *  later narrow width (the export promise). The old shape pushed every DATA
-   *  block first and every RESIZE after, then replayed them in one terminal — so
-   *  resizes never landed at their recorded byte positions AND xterm's on-resize
-   *  reflow re-wrapped every earlier span to the FINAL width (F2). RESIZE
-   *  byteSeqs sit exactly at DATA-block boundaries (`appendResize` flushes
-   *  pending first), so partitioning DATA by `firstByteSeq < resize.firstByteSeq`
-   *  is exact. Only the first epoch carries the checkpoint seed (the VT primer for
-   *  content scrolled above the window); later epochs start clean at the
-   *  boundary. */
+  /** Split `[from, to)` into faithful render inputs, rendered at the cols
+   *  actually in effect for each span. A RESIZE is a segment BOUNDARY, not an
+   *  event inside a segment: each epoch is rendered (and serialized) FROZEN at its
+   *  historical width before the next resize, so a 200-col table is never
+   *  re-wrapped to a later narrow width (the export promise). The old shape pushed
+   *  every DATA block first and every RESIZE after, then replayed them in one
+   *  terminal — so resizes never landed at their recorded byte positions AND
+   *  xterm's on-resize reflow re-wrapped every earlier span to the FINAL width.
+   *  RESIZE byteSeqs sit exactly at DATA-block boundaries (`appendResize` flushes
+   *  pending first), so partitioning DATA by `firstByteSeq < boundary` is exact.
+   *
+   *  A long resize-free epoch is ALSO split — at the same-width CHECKPOINT seams
+   *  inside it — so the export never inflates one multi-hundred-MB epoch into a
+   *  single in-memory segment (and the client never writes one giant offscreen
+   *  buffer). Each sub-segment is seeded by the checkpoint at its start (a VT
+   *  primer for content scrolled above the window, whose rows the renderer drops);
+   *  checkpoints sit at clean line boundaries, so concatenating the sub-segments'
+   *  ANSI reproduces the whole-epoch render — the same property the backward pager
+   *  relies on. A checkpoint is used as a seam ONLY when its grid matches the
+   *  current epoch width (it always does mid-epoch, since width is constant within
+   *  an epoch); a width mismatch — only possible if a checkpoint byteSeq coincides
+   *  with a resize — is skipped so a seed is never restored at the wrong width.
+   *  The first epoch additionally carries the priming seed at `from`; later epochs
+   *  start clean at the resize boundary. */
   private async *faithfulSegments(
     from: Seq,
     to: Seq,
@@ -422,38 +432,65 @@ export class Transcript {
     const start = seed ? seed.firstByteSeq : 0;
     const dataRecs = this.store.dataRecordsInRange(start, to);
     const resizes = this.store.resizesInRange(start, to);
+    // Checkpoints AFTER the priming seed are same-width seams to split each epoch.
+    const ckpts = this.store.checkpointsInRange(start + 1, to);
 
-    // The width in effect at the start of the current epoch: the seed's cols, or
-    // the FIRST data record's cols (the width when that block flushed — before
-    // any later resize), not `this.cols` (the latest width).
-    let epochSeed = seed;
+    // Merge the two boundary streams (resize → width change + clean restart;
+    // checkpoint → re-seed at the same width), oldest first. A checkpoint sorts
+    // before a resize at the same byteSeq so it carries the pre-resize width.
+    type Boundary =
+      | { at: Seq; kind: "resize"; cols: number; rows: number }
+      | { at: Seq; kind: "ckpt"; seed: CheckpointRow };
+    const boundaries: Boundary[] = [
+      ...resizes.map(
+        (r): Boundary => ({
+          at: r.firstByteSeq,
+          kind: "resize",
+          cols: r.cols,
+          rows: r.rows,
+        }),
+      ),
+      ...ckpts.map(
+        (c): Boundary => ({ at: c.firstByteSeq, kind: "ckpt", seed: c }),
+      ),
+    ].sort((a, b) => a.at - b.at || (a.kind === "ckpt" ? -1 : 1));
+
+    // The width in effect at the start of the current segment: the seed's cols, or
+    // the FIRST data record's cols (the width when that block flushed — before any
+    // later resize), not `this.cols` (the latest width).
+    let segSeed = seed;
     let cols = seed?.cols ?? dataRecs[0]?.cols ?? this.cols;
     let rows = seed?.rows ?? dataRecs[0]?.rows ?? this.rows;
     let di = 0;
-    for (const r of resizes) {
+    const drain = (
+      until: Seq,
+    ): Array<{ kind: "data"; payload: Uint8Array }> => {
       const events: Array<{ kind: "data"; payload: Uint8Array }> = [];
-      while (
-        di < dataRecs.length &&
-        dataRecs[di]!.firstByteSeq < r.firstByteSeq
-      ) {
+      while (di < dataRecs.length && dataRecs[di]!.firstByteSeq < until) {
         events.push({ kind: "data", payload: dataRecs[di]!.payload });
         di++;
       }
-      if (events.length > 0 || epochSeed)
-        yield { seed: epochSeed, cols, rows, events };
-      // The seed only primes the first epoch; later epochs begin clean at the
-      // resize boundary, now at the resize's grid.
-      epochSeed = undefined;
-      cols = r.cols;
-      rows = r.rows;
+      return events;
+    };
+    for (const b of boundaries) {
+      const events = drain(b.at);
+      if (events.length > 0 || segSeed)
+        yield { seed: segSeed, cols, rows, events };
+      if (b.kind === "resize") {
+        // A later epoch begins clean at the resize boundary, on the new grid.
+        segSeed = undefined;
+        cols = b.cols;
+        rows = b.rows;
+      } else if (b.seed.cols === cols) {
+        // Same-width seam mid-epoch: re-seed from the checkpoint, width unchanged.
+        segSeed = b.seed;
+      }
+      // else: a width-mismatched checkpoint (coincident with a resize) — never
+      // restore a seed at the wrong width; keep accumulating with the prior seed.
     }
-    const tail: Array<{ kind: "data"; payload: Uint8Array }> = [];
-    while (di < dataRecs.length) {
-      tail.push({ kind: "data", payload: dataRecs[di]!.payload });
-      di++;
-    }
-    if (tail.length > 0 || epochSeed)
-      yield { seed: epochSeed, cols, rows, events: tail };
+    const tail = drain(to);
+    if (tail.length > 0 || segSeed)
+      yield { seed: segSeed, cols, rows, events: tail };
   }
 
   close(): void {
