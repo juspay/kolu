@@ -26,10 +26,10 @@ result the user sees (your screenshot):
 export const Good = () => (
   <pre style="background:#101a14;color:#c8e8d4;padding:1rem;border-radius:8px;line-height:1.35;font-size:12px;overflow:auto">{`render at the HISTORICAL width (120), emit FIXED ROWS (hard \\r\\n):
   Germinating... almost doneth xhigh effort and a very long tail…   ✓ exact
-display: pager xterm sized to the content (120); scroll → horizontally
-  ┌──────────────── modal viewport (≈90 cols) ───────────┊── scroll ──┐
-  │ Germinating... almost doneth xhigh effort and a very │ long tail… │
-  └──────────────────────────────────────────────────────┊───────────┘`}</pre>
+display: render at content width (120), then ZOOM-TO-FIT the modal (scale ≈0.75):
+  ┌──────────────── modal viewport (≈90 cols) ──────────────────────┐
+  │ Germinating... almost doneth xhigh effort and a very long tail…  │  ← all 120
+  └─────────────────────────────────────────────────────────────────┘    cols, scaled`}</pre>
 );
 
 ## User-facing description
@@ -45,9 +45,10 @@ inherited scrollback briefly scrambles before the live screen repaints.
 The fix makes the pager show history **exactly as the terminal drew it** — every
 box, spinner frame, and indented block intact — by rendering at the width the
 content was actually emitted at and never re-wrapping it. When that width is
-wider than the modal, you **scroll horizontally** (like `less -S` or tmux
-copy-mode), the same way you'd scroll a wide file. Nothing is squeezed or
-re-flowed.
+wider than the modal, the whole view **zooms to fit** (scaled down uniformly, no
+horizontal scrollbar), so you always see the full width at a glance. Nothing is
+re-wrapped or squeezed out of shape — only scaled. (A very wide terminal renders
+smaller; a future minimum-zoom floor could fall back to scroll past that point.)
 
 <Good />
 
@@ -91,9 +92,9 @@ re-wrapping them. So:
    at any display width. A 120-col epoch and an 80-col epoch can sit in one display
    buffer with no cross-contamination.
 3. **Solve width at the display layer** — the pager xterm is sized to the content's
-   width (the widest epoch loaded); the modal scrolls horizontally past its
-   viewport. Width is a free choice *only* at display time, never during recording
-   or render.
+   width (the widest epoch loaded), then the whole grid is **zoomed to fit** the
+   modal with a CSS scale-down (no horizontal scrollbar). Width is a free choice
+   *only* at display time, never during recording or render.
 
 This converges the pager onto the same faithful path as export — one rendering
 model, two consumers (a bounded page vs. the whole stream).
@@ -155,16 +156,22 @@ fix rests on).
   logical lines width-independently and does not display, so it keeps a plain
   replay; only the *rendered* paths change.
 
-### 3. Pager displays at content width with horizontal scroll (`HistoryPager.tsx`)
+### 3. Pager displays at content width, zoomed to fit (`HistoryPager.tsx`)
 
 - Remove the `FitAddon` width coupling: the pager xterm's `cols` is set to the
   page's `contentWidth` (grown as older, wider epochs load), not the modal width.
-  Keep rows fitted to the modal height.
-- Wrap the xterm host in an `overflow-x: auto` container so the modal scrolls
-  horizontally; keep the existing vertical backfill-on-scroll. The byte cursors are
-  reflow-stable, so re-paging is unaffected.
+- **Zoom to fit:** `proposeDimensions()` measures the viewport (the element the
+  xterm is opened on) at the full font size; `scale = min(1, viewportCols /
+  contentWidth)` and the `.xterm` element gets `transform: scale(s)` (origin
+  top-left). The xterm's row count is bumped to `rows / s` so the scaled grid
+  still fills the viewport height; `overflow: hidden` clips, so there is no
+  scrollbar in either axis (vertical paging is the existing backfill-on-scroll).
+  The transform is visual only — it never reflows the buffer or changes what
+  `proposeDimensions` measures (it reads the host's layout width, unaffected by a
+  transformed child). Only ever shrinks (≤ 1).
 - Drop the resize→refetch path (no width refetch needed — content width is
-  historical, not reader-derived); a height change still just re-fits rows.
+  historical, not reader-derived); a resize only re-computes the zoom scale + row
+  count for the new viewport, never re-renders or re-fetches.
 - **Risk — search highlight offsets:** the in-view `SearchAddon` re-finds matches
   in the rendered buffer; fixed rows preserve the buffer text, so this is
   unaffected — pin it with a test that a hit highlights on the correct row after
@@ -193,7 +200,7 @@ note it, don't expand scope.
   *this* bug — red on `renderReflow`, green on faithful); a multi-epoch page (resize
   mid-history) rendering each epoch faithfully in one buffer.
 - Evidence: the pager showing a real Claude Code session's history intact, plus the
-  horizontal-scroll interaction, captured on a pu box.
+  zoom-to-fit display (a wide session scaled to the modal), captured on a pu box.
 
 ### Design-philosophy check
 

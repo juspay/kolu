@@ -115,14 +115,40 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
 
   const overscanRows = () => Math.max(40, (term?.rows ?? 24) * 4);
   // The pager renders history at its HISTORICAL width (never reflowed to the
-  // modal), so the xterm is sized to the content, not the viewport. `contentCols`
-  // grows monotonically as wider epochs page in (`res.contentWidth`); the modal
-  // scrolls horizontally past it. Fixed-row content is width-locked, so widening
-  // the xterm never re-wraps a row.
+  // modal); the xterm is sized to the content and the whole grid is SCALED DOWN
+  // (zoom-to-fit) so the full width fits the viewport — no horizontal scroll.
+  // `contentCols` grows monotonically as wider epochs page in (`res.contentWidth`).
+  // Fixed-row content is width-locked, so widening the xterm never re-wraps a row.
   let contentCols = 80;
   /** Adopt a page's content width — grow the xterm if this epoch is wider. */
   function adoptWidth(w: number): void {
     contentCols = Math.max(contentCols, w);
+  }
+
+  /** Zoom-to-fit: render at `contentCols`, then shrink the rendered grid with a
+   *  CSS transform so its full width fits the viewport (never reflow, never
+   *  horizontal-scroll), and give it enough rows that the scaled grid still fills
+   *  the viewport height. `proposeDimensions` measures the viewport (the element
+   *  the xterm is opened on) at the FULL font size, so its `cols` is how many fit
+   *  unscaled; `scale = cols / contentCols`, clamped to ≤ 1 (a history narrower
+   *  than the viewport stays full size). The transform is visual only — it does
+   *  not reflow the buffer or change what `proposeDimensions` measures (it reads
+   *  the host's layout width, unaffected by a transformed child). */
+  function applyFit(): void {
+    if (!term || !fit) return;
+    const proposed = fit.proposeDimensions();
+    if (!proposed?.cols || !proposed.rows) return;
+    const scale =
+      contentCols <= proposed.cols ? 1 : proposed.cols / contentCols;
+    // Rows to fill the viewport height once scaled (each row is `scale` shorter).
+    const rows = scale < 1 ? Math.floor(proposed.rows / scale) : proposed.rows;
+    if (term.cols !== contentCols || term.rows !== rows)
+      term.resize(contentCols, rows);
+    const el = host.querySelector(".xterm") as HTMLElement | null;
+    if (el) {
+      el.style.transformOrigin = "top left";
+      el.style.transform = scale < 1 ? `scale(${scale})` : "";
+    }
   }
 
   /** Resolve once xterm has parsed `data` into the buffer — its write is async,
@@ -137,10 +163,10 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
    *  buffer state, scrolling, or invoking search. */
   async function renderAll(): Promise<number> {
     if (!term) return 0;
-    // Size the xterm to the content BEFORE writing, so a fixed-row line wider than
-    // the modal is rendered at full width (the modal h-scrolls) rather than
-    // soft-wrapped. Widening never re-wraps fixed rows, so re-rendering is safe.
-    if (term.cols !== contentCols) term.resize(contentCols, term.rows);
+    // Size to the content + recompute the zoom-to-fit scale BEFORE writing, so a
+    // fixed-row line wider than the viewport is rendered at full width and scaled
+    // down (never soft-wrapped). Widening never re-wraps fixed rows.
+    applyFit();
     term.reset();
     for (const p of pages) {
       if (!term) return 0;
@@ -436,16 +462,13 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
       // History renders at its HISTORICAL width (never the reader's), so a resize
-      // NEVER refetches — only the visible ROW count changes (the modal grew/shrank
-      // in height). Keep the xterm at `contentCols` and just re-fit rows; the
-      // already-loaded pages stay in scrollback. Debounce so a drag coalesces.
+      // NEVER refetches — it only recomputes the zoom-to-fit scale + row count for
+      // the new viewport size (the xterm stays at `contentCols`; loaded pages stay
+      // in scrollback, unre-wrapped). Debounce so a drag coalesces.
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         resizeTimer = undefined;
-        if (!term || !fit) return;
-        const dims = fit.proposeDimensions();
-        if (dims?.rows && dims.rows !== term.rows)
-          term.resize(contentCols, dims.rows);
+        applyFit();
       }, 100);
     });
     ro.observe(host);
@@ -584,12 +607,11 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
       </Show>
 
       {/* Read-only xterm body (DOM renderer). History renders at its HISTORICAL
-          width (never reflowed), so the xterm is sized to the content and this
-          wrapper scrolls HORIZONTALLY when it's wider than the modal; the xterm
-          owns vertical scroll (its scrollback). */}
-      <div class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden px-2">
-        <div ref={host} class="h-full w-max" />
-      </div>
+          width (never reflowed); the grid is SCALED DOWN to fit this viewport
+          (zoom-to-fit, no horizontal scroll). overflow-hidden clips the unscaled
+          overflow before the transform shrinks it to fit; the xterm owns vertical
+          scroll (its scrollback). */}
+      <div ref={host} class="flex-1 min-h-0 overflow-hidden px-2" />
 
       {/* Footer — jump to live */}
       <div class="flex items-center justify-end px-3 py-1.5 border-t border-edge shrink-0">
