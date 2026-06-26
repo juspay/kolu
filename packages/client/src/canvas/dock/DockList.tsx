@@ -27,7 +27,7 @@ import {
   DOCK_ROW_BRANCH_COL,
   DOCK_ROW_GRID,
 } from "../../ui/chromeSpacing";
-import type { DockRowBucket } from "./dockRowRanking";
+import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import RecencyCell from "./RecencyCell";
@@ -207,7 +207,7 @@ function DockListRow(props: {
            *  dock, shared via RecencyCell. Live signal rides the leading
            *  StatePip's ring. */}
           <RecencyCell
-            lastActivityAt={c().meta.lastActivityAt}
+            recencyAt={rowRecencyAt(c().meta)}
             textSize="text-[0.65rem]"
           />
           {/* Second line — flex row spanning the branch column → end.

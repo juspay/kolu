@@ -143,14 +143,34 @@ export type RankedDockRow = {
   ts: number;
 };
 
+/** The recency timestamp the dock keys a row on — WHEN YOU PUT IT TO SLEEP
+ *  (`sleptAt`) for a sleeping tile, else its last agent transition
+ *  (`lastActivityAt`). A sleeping tile's recency is the deliberate, recent
+ *  sleep action, not its stale agent clock: `sleptAt` is always ≥
+ *  `lastActivityAt` (you sleep a terminal after its agent last moved), so
+ *  keying the activity window on `lastActivityAt` instead would (a) never park
+ *  a plain shell slept long ago — `isStale` exempts `lastActivityAt === 0`, so
+ *  an agent-less dormant tile would pile up forever — and (b) instantly drop a
+ *  JUST-slept tile whose agent last transitioned outside the window,
+ *  contradicting "a freshly-slept one still shows with its ☾".
+ *
+ *  This is the ONE source for that derivation: `rankDockRows` feeds it to the
+ *  window predicate AND the sort key, and the row's `RecencyCell` displays it,
+ *  so the "Xs ago" a row shows is the exact age the window acts on — a 4h
+ *  window never hides a row that reads "1h ago" or keeps one that reads "3d
+ *  ago". */
+export function rowRecencyAt(meta: TerminalMetadata): number {
+  return sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
+}
+
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
  *  same `ts === 0`. `isStale` is a pure-temporal predicate over a recency
- *  timestamp — `lastActivityAt` for an active tile, `sleptAt` for a
- *  sleeping one (see the loop). Identity for stale-but-still-awaiting
- *  agents lives at the render layer (`QuietRowBody` paints `AgentIndicator`
- *  when `meta.agent` is set), not in the bucket decision here. */
+ *  timestamp — `rowRecencyAt` (`lastActivityAt` for an active tile, `sleptAt`
+ *  for a sleeping one). Identity for stale-but-still-awaiting agents lives at
+ *  the render layer (`QuietRowBody` paints `AgentIndicator` when `meta.agent`
+ *  is set), not in the bucket decision here. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
@@ -160,17 +180,7 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    // A sleeping tile's recency is WHEN YOU PUT IT TO SLEEP (`sleptAt`) — a
-    // deliberate, recent action — not its last agent transition. `sleptAt` is
-    // always ≥ `lastActivityAt` (you sleep a terminal after its agent last
-    // moved), so keying the window on `lastActivityAt` instead would (a) never
-    // park a plain shell slept long ago — `isStale` exempts `lastActivityAt
-    // === 0`, so an agent-less dormant tile would pile up forever — and (b)
-    // instantly drop a JUST-slept tile whose agent last transitioned outside
-    // the window, contradicting "a freshly-slept one still shows with its ☾".
-    // The same recency feeds the sort key so a fresh-slept tile ranks by when
-    // it slept, not its stale agent timestamp.
-    const recencyAt = sleepingArm(meta)?.sleptAt ?? meta.lastActivityAt;
+    const recencyAt = rowRecencyAt(meta);
     const parked = isStale(recencyAt);
     const bucket = classifyDockRow(meta, parked);
     const pip = paintDockRow(meta, parked);

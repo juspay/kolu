@@ -14,6 +14,7 @@ import {
   DOCK_ROW_BUCKET_PRIORITY,
   type DockRowBucket,
   rankDockRows,
+  rowRecencyAt,
 } from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
@@ -289,5 +290,21 @@ describe("dock ⇄ agentProjection urgency parity (the cross-consumer differenti
         URGENCY_RANK.idle,
       );
     }
+  });
+});
+
+describe("rowRecencyAt — the one recency the window and the row display share", () => {
+  // The dock keys the activity window AND the row's "Xs ago" cell on this same
+  // value, so the age a row shows is the age that decides whether it's hidden.
+  it("uses lastActivityAt for a live tile", () => {
+    expect(rowRecencyAt(makeMeta({ lastActivityAt: 4242 }))).toBe(4242);
+  });
+
+  it("uses sleptAt for a sleeping tile — NOT its stale agent lastActivityAt", () => {
+    const meta = {
+      ...makeSleepingMeta(123),
+      sleptAt: 999_000,
+    } as TerminalMetadata;
+    expect(rowRecencyAt(meta)).toBe(999_000);
   });
 });
