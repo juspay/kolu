@@ -19,7 +19,7 @@ import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
 import { escapeHtml } from "@kolu/html-escape";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
-import { streamCall } from "@kolu/surface/solid";
+import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
@@ -57,7 +57,9 @@ async function streamHistoryHtml(
     new Promise((r) => term.write(data, r));
   let wrote = false;
   try {
-    const segs = await streamCall(client.terminal.exportHistory, { id });
+    const segs = await unenrolledStreamCall(client.terminal.exportHistory, {
+      id,
+    });
     for await (const seg of segs) {
       term.reset();
       // cols/rows are contract-guaranteed positive — render directly.
