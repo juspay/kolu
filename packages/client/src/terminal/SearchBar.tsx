@@ -19,16 +19,20 @@ import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";
 
+/** The find-match highlight palette, the single source of truth shared by the
+ *  live find bar and the history pager so a theme tweak can't drift the two. */
+export const SEARCH_DECORATIONS: ISearchOptions["decorations"] = {
+  matchBackground: "#FFD33D44",
+  matchBorder: "#FFD33D88",
+  matchOverviewRuler: "#FFD33D",
+  activeMatchBackground: "#FFD33DAA",
+  activeMatchBorder: "#FFD33D",
+  activeMatchColorOverviewRuler: "#FFD33DFF",
+};
+
 const SEARCH_OPTIONS: ISearchOptions = {
   incremental: true,
-  decorations: {
-    matchBackground: "#FFD33D44",
-    matchBorder: "#FFD33D88",
-    matchOverviewRuler: "#FFD33D",
-    activeMatchBackground: "#FFD33DAA",
-    activeMatchBorder: "#FFD33D",
-    activeMatchColorOverviewRuler: "#FFD33DFF",
-  },
+  decorations: SEARCH_DECORATIONS,
 };
 
 /** Small icon button used for prev/next/close actions. */

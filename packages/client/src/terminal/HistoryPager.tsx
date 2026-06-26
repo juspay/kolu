@@ -27,22 +27,13 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
 import { client } from "../wire";
+import { readDeepTerminalText } from "./readDeepTerminalText";
+import { SEARCH_DECORATIONS } from "./SearchBar";
 import { getTerminalRefs } from "./terminalRefs";
 import { useHistoryPager } from "./useHistoryPager";
 import { useTerminalStore } from "./useTerminalStore";
 
 /** Match-decoration colours, identical to the live find bar (SearchBar.tsx). */
-const SEARCH_DECORATIONS: ISearchOptions = {
-  decorations: {
-    matchBackground: "#FFD33D44",
-    matchBorder: "#FFD33D88",
-    matchOverviewRuler: "#FFD33D",
-    activeMatchBackground: "#FFD33DAA",
-    activeMatchBorder: "#FFD33D",
-    activeMatchColorOverviewRuler: "#FFD33DFF",
-  },
-};
-
 /** Rows above the loaded top within which a scroll-up triggers a backfill. */
 const BACKFILL_THRESHOLD = 6;
 
@@ -64,6 +55,11 @@ const SENTINEL_TEXT: Record<string, string> = {
     "⚠ History unavailable — a disk error interrupted recording for this terminal.",
   error: "⚠ Couldn't load history — see the error notification.",
 };
+
+/** Sentinel kinds that read as a warning (amber) rather than neutral chrome —
+ *  the single predicate the footer's colour classList tests, so a new warning
+ *  kind can't silently drift the two mirrored arms. */
+const WARN_SENTINELS = new Set(["faulted", "evicted", "error"]);
 
 /** The pager body — owns the xterm lifecycle and the backfill/search state.
  *  Re-created (keyed) per open terminal, so its state never leaks across tiles. */
@@ -242,7 +238,7 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
     setMatchIndex(i);
     const cursor = hits[i]!.cursor;
     const opts: ISearchOptions = {
-      ...SEARCH_DECORATIONS,
+      decorations: SEARCH_DECORATIONS,
       caseSensitive: caseSensitive(),
       regex: regex(),
     };
@@ -381,13 +377,9 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
   function copyAll() {
     void (async () => {
       try {
-        // Read the full on-disk transcript; an empty result means history is
-        // disabled for this terminal, so fall back to the live screen buffer —
-        // never overwrite the clipboard with empty text (F6), mirroring the main
-        // Copy-terminal-text path.
-        let text = await client.terminal.historyText({ id: props.id });
-        if (text === "")
-          text = await client.terminal.screenText({ id: props.id });
+        // The shared deep-read owns the history-disabled fallback; never
+        // overwrite the clipboard with empty text (F6).
+        const text = await readDeepTerminalText(props.id);
         await navigator.clipboard.writeText(text);
         toast.success("Copied full history to clipboard");
       } catch (err) {
@@ -587,14 +579,8 @@ function PagerBody(props: { id: TerminalId; onClose: () => void }) {
           <div
             class="px-3 py-1 text-xs text-center shrink-0"
             classList={{
-              "text-amber-400":
-                s().kind === "faulted" ||
-                s().kind === "evicted" ||
-                s().kind === "error",
-              "text-fg-3":
-                s().kind !== "faulted" &&
-                s().kind !== "evicted" &&
-                s().kind !== "error",
+              "text-amber-400": WARN_SENTINELS.has(s().kind),
+              "text-fg-3": !WARN_SENTINELS.has(s().kind),
             }}
           >
             {SENTINEL_TEXT[s().kind]}

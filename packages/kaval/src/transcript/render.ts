@@ -204,18 +204,18 @@ export function renderReflow(
   });
 }
 
-/** FAITHFUL render of `(seed, toByte]` for export/forensics: restore at the
- *  historical width and replay DATA + RESIZE at their true positions (no
- *  reflow-to-current), so each inter-RESIZE span renders at the cols actually in
- *  effect then. `events` is the byte-ordered run of DATA blocks and RESIZE
- *  records the orchestrator assembles. */
+/** FAITHFUL render of one resize-epoch span for export/forensics: restore at the
+ *  historical width (`seed.cols`, or `initialWidth` for the implicit byte-0 seed)
+ *  and replay its DATA — NO reflow-to-current — so the span renders at the cols
+ *  actually in effect then (a 200-col table is never re-wrapped to a narrow
+ *  width). Resizes are NOT replayed here: the orchestrator (`faithfulSegments`)
+ *  already partitions the stream at every RESIZE boundary and hands each span its
+ *  own `seed.cols`, so a span is pure DATA at a single width — renderReflow minus
+ *  the resize-to-reader-width step. */
 export function renderFaithful(
   seed: CheckpointRow | undefined,
   initialWidth: number,
-  events: Array<
-    | { kind: "data"; payload: Uint8Array }
-    | { kind: "resize"; cols: number; rows: number }
-  >,
+  dataBlocks: Uint8Array[],
 ): Promise<RenderedSegment> {
   return withThrowaway(seed ? seed.cols : initialWidth, async (t) => {
     let seedRows = 0;
@@ -223,21 +223,7 @@ export function renderFaithful(
       await write(t.term, zstdDecompressSync(seed.payload));
       seedRows = seedBoundaryRow(t.term);
     }
-    let pending: Uint8Array[] = [];
-    const flush = async () => {
-      if (pending.length) {
-        await write(t.term, inflate(pending));
-        pending = [];
-      }
-    };
-    for (const ev of events) {
-      if (ev.kind === "data") pending.push(ev.payload);
-      else {
-        await flush();
-        t.term.resize(ev.cols, ev.rows);
-      }
-    }
-    await flush();
+    await write(t.term, inflate(dataBlocks));
     return seedRows;
   });
 }

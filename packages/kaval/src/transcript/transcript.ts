@@ -173,11 +173,14 @@ export class Transcript {
     if (!this.store || this.fault) return;
     this.cols = mirror.cols;
     this.rows = mirror.rows;
-    const bytes = Buffer.byteLength(data, "utf8");
+    // One UTF-8 transcode per chunk on this (hottest) path: the buffer IS the
+    // byte count, so don't also `Buffer.byteLength` the same string.
+    const buf = Buffer.from(data, "utf8");
+    const bytes = buf.length;
     if (this.pending.length === 0) {
       this.pendingStartByteSeq = this.byteSeq;
     }
-    this.pending.push(Buffer.from(data, "utf8"));
+    this.pending.push(buf);
     this.pendingBytes += bytes;
     this.byteSeq += bytes;
     this.bytesSinceCheckpoint += bytes;
@@ -354,7 +357,7 @@ export class Transcript {
     const lines: string[] = [];
     for await (const seg of this.faithfulSegments(0, this.byteSeq)) {
       // Re-render each segment to plain rows via the same machinery.
-      const rendered = await renderFaithful(seg.seed, seg.cols, seg.events);
+      const rendered = await renderFaithful(seg.seed, seg.cols, seg.blocks);
       for (const r of rendered.rows) lines.push(r.text);
     }
     return lines.join("\n");
@@ -370,7 +373,7 @@ export class Transcript {
     if (!this.store) return;
     this.flushPending();
     for await (const seg of this.faithfulSegments(0, this.byteSeq)) {
-      const rendered = await renderFaithful(seg.seed, seg.cols, seg.events);
+      const rendered = await renderFaithful(seg.seed, seg.cols, seg.blocks);
       yield { cols: seg.cols, rows: seg.rows, ansi: rendered.ansi };
     }
   }
@@ -468,7 +471,7 @@ export class Transcript {
     seed: CheckpointRow | undefined;
     cols: number;
     rows: number;
-    events: Array<{ kind: "data"; payload: Uint8Array }>;
+    blocks: Uint8Array[];
   }> {
     if (!this.store || to <= from) return;
     const seed = this.store.latestCheckpointAtOrBefore(from === 0 ? 0 : from);
@@ -505,20 +508,18 @@ export class Transcript {
     let cols = seed?.cols ?? dataRecs[0]?.cols ?? this.cols;
     let rows = seed?.rows ?? dataRecs[0]?.rows ?? this.rows;
     let di = 0;
-    const drain = (
-      until: Seq,
-    ): Array<{ kind: "data"; payload: Uint8Array }> => {
-      const events: Array<{ kind: "data"; payload: Uint8Array }> = [];
+    const drain = (until: Seq): Uint8Array[] => {
+      const blocks: Uint8Array[] = [];
       while (di < dataRecs.length && dataRecs[di]!.firstByteSeq < until) {
-        events.push({ kind: "data", payload: dataRecs[di]!.payload });
+        blocks.push(dataRecs[di]!.payload);
         di++;
       }
-      return events;
+      return blocks;
     };
     for (const b of boundaries) {
-      const events = drain(b.at);
-      if (events.length > 0 || segSeed)
-        yield { seed: segSeed, cols, rows, events };
+      const blocks = drain(b.at);
+      if (blocks.length > 0 || segSeed)
+        yield { seed: segSeed, cols, rows, blocks };
       if (b.kind === "resize") {
         // A later epoch begins clean at the resize boundary, on the new grid.
         segSeed = undefined;
@@ -533,7 +534,7 @@ export class Transcript {
     }
     const tail = drain(to);
     if (tail.length > 0 || segSeed)
-      yield { seed: segSeed, cols, rows, events: tail };
+      yield { seed: segSeed, cols, rows, blocks: tail };
   }
 
   close(): void {
