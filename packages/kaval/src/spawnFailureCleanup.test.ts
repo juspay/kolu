@@ -53,6 +53,7 @@ describe("spawn handler — init-file rollback on host.spawn failure", () => {
           { name: "bashrc-fail", content: "export X=1" },
           { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },
         ],
+        history: { enabled: false, retentionBytes: 0 },
       }),
     ).rejects.toThrow(/forced spawn failure/);
     expect(existsSync(join(rcDir, "bashrc-fail"))).toBe(false);

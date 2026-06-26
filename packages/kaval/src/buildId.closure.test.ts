@@ -123,19 +123,25 @@ describe("kaval daemon closure (the staleKey's hashed set)", () => {
       )}. If one carries wire/behaviour shape it must live inside one of the hashed roots (kaval / terminal-protocol / surface-daemon); if it is a stable leaf dep, add it to ALLOWED_EXTERNAL.`,
     ).toEqual([]);
 
-    // (b) The reached set == what nix hashes (each root's src/*.ts minus tests
+    // (b) The reached set == what nix hashes (each root's src/**.ts minus tests
     // and shared test-only helpers). This mirrors default.nix's kavalSrc
-    // fileFilter so the hashed set can never silently drift from the closure
-    // this test asserts.
-    const nonTest = (dir: string): string[] =>
-      readdirSync(dir)
-        .filter(
-          (f) =>
-            f.endsWith(".ts") &&
-            !f.endsWith(".test.ts") &&
-            !f.endsWith(".testlib.ts"),
+    // `fileFilter` — which RECURSES into subdirectories (e.g. kaval's
+    // `src/transcript/`) — so the hashed set can never silently drift from the
+    // closure this test asserts. (Walk subdirs too, matching `fileFilter`.)
+    const nonTest = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = resolve(dir, entry.name);
+        if (entry.isDirectory()) out.push(...nonTest(full));
+        else if (
+          entry.name.endsWith(".ts") &&
+          !entry.name.endsWith(".test.ts") &&
+          !entry.name.endsWith(".testlib.ts")
         )
-        .map((f) => resolve(dir, f));
+          out.push(full);
+      }
+      return out;
+    };
     const hashed = [
       ...nonTest(SRC),
       ...nonTest(PROTOCOL_SRC),

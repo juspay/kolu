@@ -303,6 +303,7 @@ describe("kaval daemon — process-boundary behaviour", () => {
       cwd: makeCwd(),
       env: { PATH: process.env.PATH ?? "", HOME: info.home },
       initFiles: [{ name: rcName, content: "# corpus init marker\n" }],
+      history: { enabled: false, retentionBytes: 0 },
     });
     // The file the client named landed on the daemon's disk.
     expect(existsSync(rcPath)).toBe(true);
