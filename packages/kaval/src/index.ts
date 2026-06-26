@@ -66,14 +66,16 @@ export {
   type PtySpawnResult,
   SCRAPE_TAIL_LINES,
 } from "./ptyHost.ts";
-// PR2 transcript types consumers (kolu-server's router/proxy) read back.
-export type {
-  ExportSegment,
-  HistoryPolicy,
-  HistoryResult,
-  SearchMatch,
-  SearchResult,
-  TranscriptStatus,
+// PR2 transcript types consumers (kolu-server's router/proxy) read back, plus
+// the default retention cap (a VALUE — the server composes the history policy).
+export {
+  DEFAULT_RETENTION_BYTES,
+  type ExportSegment,
+  type HistoryPolicy,
+  type HistoryResult,
+  type SearchMatch,
+  type SearchResult,
+  type TranscriptStatus,
 } from "./transcript/index.ts";
 // The pty-host wire contract — the surface and its version. `ptyHostSurface`
 // is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`

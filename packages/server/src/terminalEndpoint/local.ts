@@ -48,7 +48,10 @@ import {
   TerminalIdSchema,
 } from "kolu-common/surface";
 import type {
+  HistoryExportSegment,
+  HistoryPage,
   PtySpawnOpts,
+  SearchHistoryResult,
   TerminalAttachment,
   TerminalEndpoint,
   TerminalHandle,
@@ -936,6 +939,44 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       }
     })();
     return { snapshot, deltas };
+  }
+
+  // ── PR2: on-disk history reads — forwarded through the pty-host contract ────
+
+  async history(
+    id: TerminalId,
+    args: { beforeCursor: number | null; maxLines: number; width: number },
+  ): Promise<HistoryPage> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.terminal.history({ id, ...args });
+  }
+
+  async searchHistory(
+    id: TerminalId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      regex: boolean;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchHistoryResult> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.terminal.searchHistory({ id, ...args });
+  }
+
+  async historyText(id: TerminalId): Promise<string> {
+    await getActiveTerminal(id)?.handle.ready;
+    const { text } = await ptyHostClient.surface.terminal.historyText({ id });
+    return text;
+  }
+
+  async exportHistory(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): Promise<AsyncIterable<HistoryExportSegment>> {
+    await getActiveTerminal(id)?.handle.ready;
+    return ptyHostClient.surface.exportHistory.get({ id }, { signal });
   }
 }
 

@@ -116,6 +116,70 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
+// ── PR2: on-disk terminal history (the copy-mode pager + un-clipped PDF) ──────
+
+/** One backward history page request. `beforeCursor` is the opaque reflow-stable
+ *  byte cursor at the top of what the client holds (null = the tip); `width` is a
+ *  render-time parameter (line numbers never go on the wire). */
+export const TerminalHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  beforeCursor: z.number().nullable(),
+  maxLines: z.number().int().positive(),
+  width: z.number().int().positive(),
+});
+
+/** A history page (or an honest non-content state — never silent-empty). `ansi`
+ *  writes into the pager's read-only xterm; `nextCursor` pages further up. */
+export const TerminalHistoryResultSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    ansi: z.string(),
+    rowCount: z.number().int(),
+    nextCursor: z.number(),
+    atFloor: z.boolean(),
+    firstRow: z.number().int(),
+  }),
+  z.object({ kind: z.literal("unavailable") }),
+  z.object({ kind: z.literal("evicted") }),
+  z.object({ kind: z.literal("faulted"), lastGoodSeq: z.number().int() }),
+]);
+
+export const TerminalSearchHistoryInputSchema = z.object({
+  id: TerminalIdSchema,
+  query: z.string(),
+  beforeCursor: z.number().nullable(),
+  /** Opt-in capabilities (xterm's ISearchOptions shape), not degradation knobs:
+   *  the default (both false) reproduces the find bar exactly — literal,
+   *  case-insensitive. */
+  regex: z.boolean(),
+  caseSensitive: z.boolean(),
+  maxResults: z.number().int().positive(),
+});
+
+export const TerminalSearchHistoryOutputSchema = z.object({
+  hits: z.array(
+    z.object({
+      cursor: z.number(),
+      firstRow: z.number().int(),
+      text: z.string(),
+      matches: z.array(
+        z.object({ start: z.number().int(), end: z.number().int() }),
+      ),
+    }),
+  ),
+  nextCursor: z.number().nullable(),
+  truncated: z.boolean(),
+});
+
+/** One faithful per-resize-epoch export segment (the un-clipped PDF source). The
+ *  client resizes an offscreen themed xterm to `(cols, rows)`, writes `ansi`,
+ *  and accumulates `serializeAsHTML()`. */
+export const TerminalExportSegmentSchema = z.object({
+  cols: z.number().int(),
+  rows: z.number().int(),
+  ansi: z.string(),
+});
+
 export const ServerIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
@@ -195,6 +259,25 @@ export const contract = oc.router({
     exportTranscriptHtml: oc
       .input(ExportTranscriptHtmlInputSchema)
       .output(ExportTranscriptHtmlOutputSchema),
+    /** PR2: one backward history page from the on-disk transcript — unary
+     *  request/response paging on the opaque byte cursor (the pager is the past,
+     *  not a live tail), so it needs no `stream`-namespace re-subscribe. */
+    history: oc
+      .input(TerminalHistoryInputSchema)
+      .output(TerminalHistoryResultSchema),
+    /** PR2: search the on-disk transcript (replay-and-scan, cursor-paged). */
+    searchHistory: oc
+      .input(TerminalSearchHistoryInputSchema)
+      .output(TerminalSearchHistoryOutputSchema),
+    /** PR2: whole-transcript plain text — the deep "copy all" source that
+     *  "Copy terminal text" and the pager's "Copy all history" both read. */
+    historyText: oc.input(TerminalAttachInputSchema).output(z.string()),
+    /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). A
+     *  finite ordered stream — consumed via the `stream` namespace, idempotent
+     *  restart on reconnect. */
+    exportHistory: oc
+      .input(TerminalAttachInputSchema)
+      .output(eventIterator(TerminalExportSegmentSchema)),
   },
   daemon: {
     /** Restart the local kaval daemon, preserving the session (B3.2). Captures

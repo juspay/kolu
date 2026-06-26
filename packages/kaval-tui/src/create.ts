@@ -15,6 +15,7 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_RETENTION_BYTES,
   DEFAULT_SPAWN_SHELL,
   type PtyHostSpawnInput,
   type PtyHostSpawnResult,
@@ -144,6 +145,9 @@ function composeCreateInput(opts: {
     cwd: opts.cwd,
     env: opts.env,
     initFiles: [],
+    // PR2: required on the wire. kaval-tui keeps history on with the standard
+    // retention cap — the same default the kolu server composes.
+    history: { enabled: true, retentionBytes: DEFAULT_RETENTION_BYTES },
   };
 }
 

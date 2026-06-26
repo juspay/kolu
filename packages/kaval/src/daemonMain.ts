@@ -11,6 +11,7 @@
  * fully-specified spawns it is handed.
  */
 
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 import { type DaemonExit, daemonMain, type Logger } from "@kolu/surface-daemon";
@@ -42,10 +43,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   const dir = dirname(socketPath);
   const gatePath = join(dir, "kaval.pid");
   const rcDir = join(dir, "rc");
+  // Transcripts are PERSISTENT state (they outlive a reboot and feed
+  // session-restore), so they live under $XDG_STATE_HOME, NOT beside the
+  // ephemeral runtime socket. One DB per PTY at `<transcriptDir>/<id>.db`.
+  const stateHome =
+    process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+  const transcriptDir = join(stateHome, "kaval", "transcripts");
 
   const { servedRouter, terminalCount } = createInProcessPtyHost({
     log,
     rcDir,
+    transcriptDir,
   });
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the

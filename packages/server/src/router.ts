@@ -326,6 +326,41 @@ export const appRouter = t.router({
         return { html, filename };
       },
     ),
+
+    // ── PR2: on-disk history (the copy-mode pager + un-clipped PDF) ──────────
+    history: t.terminal.history.handler(async ({ input }) => {
+      requireActiveTerminal(input.id);
+      return localTerminalEndpoint.history(input.id, {
+        beforeCursor: input.beforeCursor,
+        maxLines: input.maxLines,
+        width: input.width,
+      });
+    }),
+
+    searchHistory: t.terminal.searchHistory.handler(async ({ input }) => {
+      requireActiveTerminal(input.id);
+      return localTerminalEndpoint.searchHistory(input.id, {
+        query: input.query,
+        beforeCursor: input.beforeCursor,
+        regex: input.regex,
+        caseSensitive: input.caseSensitive,
+        maxResults: input.maxResults,
+      });
+    }),
+
+    historyText: t.terminal.historyText.handler(async ({ input }) => {
+      requireActiveTerminal(input.id);
+      return localTerminalEndpoint.historyText(input.id);
+    }),
+
+    exportHistory: t.terminal.exportHistory.handler(async function* ({
+      input,
+      signal,
+    }) {
+      requireActiveTerminal(input.id);
+      const segs = await localTerminalEndpoint.exportHistory(input.id, signal);
+      for await (const seg of segs) yield seg;
+    }),
   },
   daemon: {
     restart: t.daemon.restart.handler(async () => {

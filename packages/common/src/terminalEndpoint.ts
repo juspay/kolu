@@ -152,6 +152,68 @@ export interface TerminalEndpoint {
     signal: AbortSignal | undefined,
   ): Promise<TerminalAttachment>;
 
+  /** PR2: one backward page of on-disk history, ending at `beforeCursor` (or the
+   *  tip when null), rendered at `width`. Returns an honest non-content state
+   *  rather than silent-empty. */
+  history(
+    id: TerminalId,
+    args: { beforeCursor: number | null; maxLines: number; width: number },
+  ): Promise<HistoryPage>;
+
+  /** PR2: search the on-disk transcript — replay-and-scan, cursor-paged. */
+  searchHistory(
+    id: TerminalId,
+    args: {
+      query: string;
+      beforeCursor: number | null;
+      regex: boolean;
+      caseSensitive: boolean;
+      maxResults: number;
+    },
+  ): Promise<SearchHistoryResult>;
+
+  /** PR2: whole-transcript plain text — the deep "copy all" source. */
+  historyText(id: TerminalId): Promise<string>;
+
+  /** PR2: faithful per-resize-epoch export segments (the un-clipped PDF). */
+  exportHistory(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): Promise<AsyncIterable<HistoryExportSegment>>;
+
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
+}
+
+/** A backward history page, or an honest non-content state (PR2). Mirrors the
+ *  contract's `TerminalHistoryResultSchema`; defined here so this low-level
+ *  interface stays independent of the contract/kaval layers. */
+export type HistoryPage =
+  | {
+      kind: "ok";
+      ansi: string;
+      rowCount: number;
+      nextCursor: number;
+      atFloor: boolean;
+      firstRow: number;
+    }
+  | { kind: "unavailable" }
+  | { kind: "evicted" }
+  | { kind: "faulted"; lastGoodSeq: number };
+
+export interface SearchHistoryResult {
+  hits: {
+    cursor: number;
+    firstRow: number;
+    text: string;
+    matches: { start: number; end: number }[];
+  }[];
+  nextCursor: number | null;
+  truncated: boolean;
+}
+
+export interface HistoryExportSegment {
+  cols: number;
+  rows: number;
+  ansi: string;
 }
