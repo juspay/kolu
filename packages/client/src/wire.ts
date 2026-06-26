@@ -20,7 +20,6 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClients } from "@kolu/surface/solid";
 import { createSurfaceSocket } from "@kolu/surface-app/connect";
 import { createLiveSignal } from "@kolu/surface-app/solid";
@@ -62,29 +61,27 @@ export { ws };
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
-// The single combined oRPC link over the one transport. The contract is the
-// combined one (`{ surface: { kolu, surfaceApp }, server, terminal, git }`) — the
-// raw oRPC procedures (`terminal`, `git`, `server`) live at its root; the two
-// sibling surfaces live under `surface.<key>`.
-const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
-
-// The transport-liveness leg for `health().live` AND the half-open watchdog,
-// minted together by `createLiveSignal` over this one socket — the same brand
-// `connectSurface`/`connectSurfaces` thread, so kolu folds the socket's liveness
-// into its health FACT exactly like pulam-web/drishti. `surfaceClients` REFUSES a
-// bare `{ live }` over a websocket: only this watchdog-backed `LiveSignal` is
-// accepted, so kolu can't silently default the leg to a half-open-blind `true`.
-// The watchdog probes the framework-reserved `system.live` round-trip (on the
-// `kolu` sibling's scoped slice) and forces `ws.reconnect()` on a missed probe,
-// which flips `live` off `"live"`. This is why `rpc.ts`'s `createServerLifecycle`
-// runs with `heartbeat: false` — the watchdog lives HERE, beside the transport it
+// The transport-liveness leg for `health().live` AND the half-open watchdog AND
+// the single combined oRPC link — all minted together by `createLiveSignal` over
+// this one socket. It BUILDS the link (over the very `ws` it watches and
+// reconnects), so the watchdog probes the framework-reserved `system.live` on the
+// `kolu` sibling's slice of THAT link — the probe channel is provably the
+// reconnected channel, with no separate, fabricatable probe target. The brand is
+// the same `connectSurface`/`connectSurfaces` thread, so kolu folds the socket's
+// liveness into its health FACT exactly like pulam-web/drishti; `surfaceClients`
+// REFUSES a bare `{ live }` over a websocket, so kolu can't silently default the
+// leg to a half-open-blind `true`. A missed probe forces `ws.reconnect()`, which
+// flips `live` off `"live"`. This is why `rpc.ts`'s `createServerLifecycle` runs
+// with `heartbeat: false` — the watchdog lives HERE, beside the transport it
 // guards, not duplicated in the UI-lifecycle layer.
-const transport = createLiveSignal(ws, {
-  // The watchdog probes the framework-reserved `system.live` on the `kolu` sibling's
-  // scoped slice (`createLiveSignal` hardcodes `probeSurfaceLive` over this link).
-  // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string (TS2590); `system.live` resolves on it.
-  link: () => ({ surface: (link as any).surface.kolu }),
-});
+const transport = createLiveSignal<typeof contract>(ws, { siblingKey: "kolu" });
+
+// The single combined oRPC link createLiveSignal built (`{ surface: { kolu,
+// surfaceApp }, server, terminal, git }`) — the raw oRPC procedures (`terminal`,
+// `git`, `server`) live at its root; the two sibling surfaces live under
+// `surface.<key>`. Typed off `typeof contract` (the generic), so `client` below is
+// fully typed.
+const link = transport.link;
 
 // kolu serves TWO sibling surfaces over one transport (kolu#1197). Build one
 // client per sibling over the single combined link, each scoped to its key's

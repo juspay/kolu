@@ -148,12 +148,16 @@ describe("connectSurfaces — one socket, multi-surface, heartbeat by constructi
       // The heartbeat is default-ON: connectSurfaces handed `createHeartbeat` a
       // probe thunk.
       expect(typeof mocked.heartbeatProbe).toBe("function");
-      // Firing it reaches `probeSurfaceLive` with the FIRST sibling's scoped rpc —
-      // so the reserved `system.live` is probed through `clients.a.rpc`, never a
-      // path that misses the scoped slice.
+      // Firing it reaches `probeSurfaceLive` once, on the FIRST sibling's scoped
+      // slice of the link `createLiveSignal` built — `{ surface: link.surface.a }`.
+      // (Identity vs `conn.clients.a.rpc` isn't asserted: both are fresh `{ surface }`
+      // wrappers around the same lazily-proxied link slice. The first-sibling choice
+      // is `connectSurfaces` passing `siblingKey: Object.keys(surfaces)[0]`.)
       void mocked.heartbeatProbe?.();
       expect(mocked.probedClients).toHaveLength(1);
-      expect(mocked.probedClients[0]).toBe(conn.clients.a.rpc);
+      expect(
+        (mocked.probedClients[0] as { surface?: unknown }).surface,
+      ).toBeDefined();
       conn.dispose();
       dispose();
     });

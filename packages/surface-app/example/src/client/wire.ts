@@ -7,7 +7,6 @@
  * probe (passed to <SurfaceAppProvider> in App.tsx).
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
 import { createLiveSignal, surfaceClients } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { type contract, surfaces } from "../common/surface";
@@ -15,18 +14,17 @@ import { type contract, surfaces } from "../common/surface";
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
 export const ws = new PartySocket(wsUrl);
 
-// One combined link over the `{ surface: { surfaceApp, demo } }` contract, split
-// into per-key clients. Each client's `.rpc` is the SCOPED link slice
-// (`{ surface: link.surface[key] }`), so a primitive reached through it resolves
-// at `/surface/<key>/<prim>/<verb>` — the wire path `implementSurfaces` serves.
-const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
-// A websocket CAN silently half-open, so `surfaceClients` requires a watchdog-backed
-// `{ live }` — minted by `createLiveSignal` (the one minter: it wires the half-open
-// heartbeat AND brands the signal). This seam OWNS the watchdog over the admin
-// socket, so `App.tsx` passes `heartbeat={false}` to `<SurfaceAppProvider>` (its
-// lifecycle observes the same socket but doesn't double-watch it).
-const transport = createLiveSignal(ws, {
-  // biome-ignore lint/suspicious/noExplicitAny: the combined link's per-sibling slice is walk-by-string.
-  link: () => ({ surface: (link as any).surface.surfaceApp }),
+// `createLiveSignal` builds the combined oRPC link over `ws` AND wires the half-open
+// watchdog (probing `system.live` on the `surfaceApp` sibling's slice of that link —
+// anchored to the socket it reconnects) AND brands the `{ live }` the clients require.
+// Build the bundle over `transport.link`: one combined link over the `{ surface: {
+// surfaceApp, demo } }` contract, split into per-key clients (each resolving at
+// `/surface/<key>/<prim>/<verb>`). This seam OWNS the watchdog over the admin socket,
+// so `App.tsx` passes `heartbeat={false}` to `<SurfaceAppProvider>` (its lifecycle
+// observes the same socket but doesn't double-watch it).
+const transport = createLiveSignal<typeof contract>(ws, {
+  siblingKey: "surfaceApp",
 });
-export const clients = surfaceClients(link, surfaces, { live: transport.live });
+export const clients = surfaceClients(transport.link, surfaces, {
+  live: transport.live,
+});

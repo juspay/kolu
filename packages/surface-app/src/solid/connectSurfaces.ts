@@ -24,7 +24,6 @@
  */
 
 import type { Surface } from "@kolu/surface/define";
-import { websocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
   type HeartbeatTuning,
@@ -94,27 +93,23 @@ export function connectSurfaces<
 >(opts: ConnectSurfacesOptions<E>): SurfacesConnection<E> {
   const { surfaces, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
-  // biome-ignore lint/suspicious/noExplicitAny: the combined link's `.rpc` is too complex to represent generically (TS2590); the scoped per-sibling specs carry call-site safety.
-  const link = websocketLink(ws as unknown as WebSocket) as any;
-  // `createLiveSignal` wires the half-open watchdog AND mints the BRANDED `live`
-  // the one socket feeds to every sibling's `health().live` — the leg
-  // `surfaceClientsHealth` AND-reduces, so a dead combined socket flips the merged
-  // fact not-live. `surfaceClients` refuses a bare `{ live }` over this websocket;
-  // only the brand minted here (through the watchdog) is accepted. The watchdog's
-  // base probe is the framework-reserved `system.live` round-trip on the FIRST
-  // sibling's scoped rpc — every surface answers it, so no per-app probe. The probe
-  // thunk is lazy (it fires on the heartbeat interval), so it reads `clients` built
-  // just below: `clients` is assigned synchronously before any interval fires.
-  let clients: SurfaceClients<E>;
+  // `createLiveSignal` builds the combined oRPC link over THIS socket, wires the
+  // half-open watchdog (probing `system.live` over that link, sliced to the FIRST
+  // sibling — every sibling answers it), AND mints the BRANDED `live` the one socket
+  // feeds to every sibling's `health().live` (the leg `surfaceClientsHealth`
+  // AND-reduces, so a dead combined socket flips the merged fact not-live). We build
+  // the bundle over `transport.link` so clients and probe share ONE link — there is
+  // no separate, fabricatable probe target. A valid call carries ≥1 sibling.
   const transport = createLiveSignal(ws, {
-    link: () =>
-      (Object.values(clients)[0] as { rpc: unknown } | undefined)?.rpc,
+    siblingKey: Object.keys(surfaces)[0] as string,
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     restartCloseCode:
       socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
-  clients = surfaceClients(link, surfaces, { live: transport.live });
+  const clients = surfaceClients(transport.link, surfaces, {
+    live: transport.live,
+  });
   return {
     ws,
     echo,

@@ -27,7 +27,6 @@ import type {
   SurfaceContractFor,
   SurfaceSpec,
 } from "@kolu/surface/define";
-import { websocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
   type HeartbeatTuning,
@@ -86,20 +85,15 @@ export function connectSurface<const S extends SurfaceSpec>(
 ): SurfaceConnection<S> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
   const { ws, echo } = createSurfaceSocket(socketOptions);
-  const link = websocketLink<SurfaceContractFor<S>>(ws as unknown as WebSocket);
-  // `createLiveSignal` derives the reactive transport `status` (from the socket's
-  // open/close) AND wires the half-open watchdog AND mints the BRANDED `live` the
-  // client requires — in one call. Without that brand `surfaceClient` refuses a
-  // bare `{ live }` over this websocket: a surface whose socket is silently
-  // half-open (or retired `down`) but whose subs already yielded a first frame
-  // would otherwise read `ready` — the exact green-dot-over-a-dead-link lie this
-  // change exists to end, one seam up. The watchdog's base probe is the
-  // framework-reserved `system.live` round-trip (every surface answers it, so no
-  // per-app probe); `live` is `true` only while the socket is `live`, so a
-  // `down`/`reconnecting` transport (incl. after the watchdog forces a reconnect)
-  // makes `gateStatus` return `connecting` rather than a confident `ready`.
-  const transport = createLiveSignal(ws, {
-    link: () => link,
+  // `createLiveSignal` builds the oRPC link over THIS socket, derives the reactive
+  // transport `status`, wires the half-open watchdog (probing `system.live` over the
+  // link it just built — anchored to the socket it reconnects), AND mints the BRANDED
+  // `live` the client requires — in one call. We build the client over `transport.link`
+  // so client and watchdog share ONE link over the ONE socket. Without that brand
+  // `surfaceClient` refuses a bare `{ live }` over this websocket: a surface whose
+  // socket is silently half-open (or retired `down`) but whose subs already yielded a
+  // first frame would otherwise read `ready` — the green-dot-over-a-dead-link lie.
+  const transport = createLiveSignal<SurfaceContractFor<S>>(ws, {
     ...hb,
     retireOnStaleClose: socketOptions.retireOnStaleClose,
     // The stale-restart code is a surface-app protocol constant, defaulted HERE
@@ -107,7 +101,9 @@ export function connectSurface<const S extends SurfaceSpec>(
     restartCloseCode:
       socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
   });
-  const client = surfaceClient(surface, link, { live: transport.live });
+  const client = surfaceClient(surface, transport.link, {
+    live: transport.live,
+  });
   return {
     ws,
     echo,

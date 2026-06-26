@@ -77,11 +77,11 @@ function requireTransportLive(
       "surfaceClient: a websocket link can silently half-open, so its transport " +
         "liveness must be a watchdog-backed `LiveSignal`, not a bare `{ live }`. " +
         "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
-        "hand-built `surfaceClient + websocketLink`, mint the signal with " +
-        "`createLiveSignal(ws, { link })` from `@kolu/surface/solid` (it wires " +
-        "the half-open heartbeat — probing a real `system.live` round-trip over your " +
-        "link — AND brands the live signal in one call; the brand has no other " +
-        "minter). A bare " +
+        "hand-built client, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
+        "build over its returned `transport.link`: it builds the link over `ws` " +
+        "itself (so the watchdog probes the socket it reconnects via a real " +
+        "`system.live` round-trip) AND brands the live signal in one call; the brand " +
+        "has no other minter. A bare " +
         "`() => true` or an open/close-only `() => socketStatus() === 'live'` is " +
         "half-open-blind — it would paint a green/ready dot over a dead " +
         "backend↔remote link (#1564).",
@@ -318,11 +318,11 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
  *  const app = surfaceClient(surface, directLink(server));
  *
  *  // Websocket link (CAN half-open) — REQUIRES a watchdog-backed `{ live }`.
- *  // Reach for `connectSurface` (`@kolu/surface-app`), which wires it for you;
- *  // or, hand-built, mint it with `createLiveSignal` (NEVER a bare `() => true`):
- *  const link = websocketLink<typeof contract>(ws);
- *  const { live } = createLiveSignal(ws, { link: () => link });
- *  const app = surfaceClient(surface, link, { live });
+ *  // Reach for `connectSurface` (`@kolu/surface-app`), which wires it for you; or,
+ *  // hand-built, use `createLiveSignal`, which BUILDS the link over `ws` (so the
+ *  // watchdog probes the socket it reconnects) and returns it:
+ *  const transport = createLiveSignal<typeof contract>(ws, {});
+ *  const app = surfaceClient(surface, transport.link, { live: transport.live });
  *  ```
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket

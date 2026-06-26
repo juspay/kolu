@@ -51,12 +51,12 @@ export function isHalfOpenLink(link: unknown): boolean {
  *
  *  ```ts
  *  const client = websocketLink<typeof contract>(ws);
- *  // …or, for Solid hooks. A websocket CAN half-open, so `surfaceClient`
- *  // REQUIRES a watchdog-backed `{ live }` here (a bare client throws): reach
- *  // for `connectSurface`, or mint it with `createLiveSignal` (see below).
- *  const link = websocketLink<typeof contract>(ws);
- *  const { live } = createLiveSignal(ws, { link: () => link });
- *  const app = surfaceClient(surface, link, { live });
+ *  // …or, for Solid hooks. A websocket CAN half-open, so `surfaceClient` REQUIRES
+ *  // a watchdog-backed `{ live }` (a bare client throws): reach for
+ *  // `connectSurface`, or use `createLiveSignal`, which BUILDS the link over `ws`
+ *  // itself (so the watchdog probes the socket it reconnects) and returns it:
+ *  const transport = createLiveSignal<typeof contract>(ws, {});
+ *  const app = surfaceClient(surface, transport.link, { live: transport.live });
  *  ```
  *
  *  The websocket is passed through unchanged — partysocket and other

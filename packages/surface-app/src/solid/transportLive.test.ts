@@ -214,19 +214,14 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
   it("builds with createLiveSignal's branded live and folds the socket's liveness into the merged fact", () => {
     const t = fakeWs();
     createRoot((dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string, as in wire.ts.
-      const link = websocketLink(t.ws as never) as any;
-      // The wire.ts pattern: `createLiveSignal` mints the branded live. The
-      // always-on watchdog's 15s probe never fires within this synchronous test,
+      // The wire.ts pattern: `createLiveSignal` BUILDS the combined link over the
+      // socket and mints the branded live; the bundle is built over `transport.link`.
+      // The always-on watchdog's 15s probe never fires within this synchronous test,
       // and `transport.dispose()` clears the interval, so the live FOLD is exercised
       // cleanly (the half-open chain itself is pinned in `createLiveSignal.test.ts`).
-      const transport = createLiveSignal(t.ws as never, {
-        link: () => ({
-          surface: { system: { live: () => Promise.resolve({}) } },
-        }),
-      });
+      const transport = createLiveSignal(t.ws as never, { siblingKey: "a" });
       const clients = surfaceClients(
-        link,
+        transport.link,
         { a: surface, b: surface },
         { live: transport.live },
       );

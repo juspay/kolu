@@ -16,7 +16,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
-import { websocketLink } from "../links/websocket";
 import { createLiveSignal, isLiveSignal } from "./liveSignal";
 import { surfaceClient } from "./surfaceClient";
 
@@ -68,48 +67,42 @@ function fakeSocket() {
   };
 }
 
-/** A probe TARGET thunk. `createLiveSignal` hardcodes `probeSurfaceLive` over the
- *  link it returns (no caller-supplied `probe`), so the test drives liveness via
- *  this fake link's `system.live` behaviour. */
-function liveLink(systemLive: () => Promise<unknown>): () => unknown {
-  return () => ({ surface: { system: { live: systemLive } } });
-}
-
 describe("createLiveSignal — the unforgeable, watchdog-backed live signal", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("mints a BRANDED LiveSignal a surfaceClient accepts over a websocketLink", () => {
+  it("mints a BRANDED LiveSignal a surfaceClient accepts over the link it BUILT", () => {
     const f = fakeSocket();
-    const transport = createLiveSignal(f.socket as never, {
-      link: liveLink(() => Promise.resolve({})),
-    });
+    const transport = createLiveSignal<typeof surface.contract>(
+      f.socket as never,
+      {},
+    );
     expect(isLiveSignal(transport.live)).toBe(true);
-    // The real guard: a websocketLink is half-open-marked, so surfaceClient demands
-    // the brand. createLiveSignal's output satisfies it end-to-end (no stub brand —
-    // `brandLiveSignal` is module-private and cannot be imported to forge one).
-    const link = websocketLink<typeof surface.contract>(f.socket as never);
+    // `createLiveSignal` built the oRPC link over `f.socket` itself and returned it;
+    // it is half-open-marked, so `surfaceClient` accepts it ONLY with the branded
+    // `live`. There is no caller-supplied link/probe to fabricate.
     expect(() =>
-      surfaceClient(surface, link, { live: transport.live }),
+      surfaceClient(surface, transport.link, { live: transport.live }),
     ).not.toThrow();
     transport.dispose();
   });
 
-  it("a probe TIMEOUT drives the FULL half-open chain — proving the brand implies a real watchdog (no manual close)", async () => {
+  it("a probe TIMEOUT over the OWNED socket drives the full half-open chain — the watchdog probes the socket it reconnects (no manual close)", async () => {
     vi.useFakeTimers();
     const f = fakeSocket();
+    // No caller `link`: createLiveSignal builds the oRPC link over `f.socket` and
+    // probes `system.live` over THAT link. `f.socket` never answers (its `send` is a
+    // no-op) — the silently half-open case partysocket fires neither close nor error.
     const transport = createLiveSignal(f.socket as never, {
-      // `system.live` never answers = a silently half-open socket (the round-trip
-      // never completes), the exact case partysocket fires neither close nor error.
-      link: liveLink(() => new Promise<never>(() => {})),
       intervalMs: 1000,
       timeoutMs: 500,
     });
     f.open();
     expect(transport.live()).toBe(true);
-    // Advance past one interval (the watchdog probes) plus the timeout (it declares
-    // the socket half-open and runs `ws.reconnect()`, which closes it). NOTHING is
-    // fired by hand — the close comes from the watchdog's own recovery action. A
-    // `LiveSignal` that did NOT have a watchdog could never flip here.
+    // Advance past one interval (the watchdog probes the owned socket) plus the
+    // timeout (no answer → half-open → `status` forced `reconnecting` + `reconnect()`).
+    // NOTHING is fired by hand. A brand whose probe ran off an in-memory literal —
+    // round-8's `link: () => ({ surface: { system: { live: () => resolve() } } })` —
+    // could never flip here, because it never touches the socket.
     await vi.advanceTimersByTimeAsync(1600);
     expect(transport.live()).toBe(false);
     transport.dispose();
@@ -117,9 +110,7 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
 
   it("the brand is un-reflectable — a real LiveSignal exposes no brand symbol to copy (round-8 WeakSet)", () => {
     const f = fakeSocket();
-    const transport = createLiveSignal(f.socket as never, {
-      link: liveLink(() => Promise.resolve({})),
-    });
+    const transport = createLiveSignal(f.socket as never, {});
     // The round-7 symbol brand could be lifted off a genuine instance via
     // `Object.getOwnPropertySymbols` and copied onto a blind accessor. With the
     // WeakSet brand there is NO own symbol to find, and a forged copy is not a member.

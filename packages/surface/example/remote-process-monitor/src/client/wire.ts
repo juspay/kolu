@@ -6,7 +6,6 @@
  * in-process store).
  */
 
-import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClient } from "@kolu/surface/solid";
 import { createLiveSignal } from "@kolu/surface-app/solid";
 import { WebSocket as PartySocket } from "partysocket";
@@ -27,27 +26,19 @@ export const ws = new PartySocket(wsUrl, undefined, {
   maxReconnectionDelay: 15_000,
 });
 
-const link = websocketLink<typeof monitorSurface.contract>(
-  ws as unknown as WebSocket,
-);
-
 // Transport liveness for `app.health().live`. A real app reaches for the turnkey
 // `connectSurface` (`@kolu/surface-app`), which wires all of this for free; this
-// example hand-builds `surfaceClient + websocketLink` to show the raw seam, so it
-// mints the `{ live }` itself — but NOT off a bare open/close signal. A websocket
-// can silently HALF-OPEN (the socket stays `open` while no bytes flow), so an
-// open/close-only `live` reads `true` forever over a dead link (the #1564
-// green-over-a-dead-link lie); `surfaceClient` REFUSES such a signal. The only
-// `{ live }` it accepts over a websocket is a watchdog-backed `LiveSignal`, and
-// `createLiveSignal` is the one minter — it derives the liveness accessor AND wires
-// the half-open heartbeat (probing the framework-reserved `system.live` round-trip,
-// forcing `ws.reconnect()` on a missed probe) in one call. So even the hand-built
-// seam gets the real watchdog, instead of a signal that can't see a half-open link.
-const transport = createLiveSignal(ws, {
-  // The watchdog hardcodes `probeSurfaceLive` over this link (a real `system.live`
-  // round-trip) — the caller supplies only WHICH link to probe.
-  link: () => link,
-});
+// example hand-builds `surfaceClient` over `createLiveSignal`'s link to show the raw
+// seam — but NOT off a bare open/close signal. A websocket can silently HALF-OPEN
+// (the socket stays `open` while no bytes flow), so an open/close-only `live` reads
+// `true` forever over a dead link (the #1564 green-over-a-dead-link lie);
+// `surfaceClient` REFUSES such a signal. The only `{ live }` it accepts over a
+// websocket is a watchdog-backed `LiveSignal`, and `createLiveSignal` is the one
+// minter — it BUILDS the oRPC link over `ws` (so the watchdog probes the socket it
+// reconnects), wires the half-open heartbeat (probing `system.live`, forcing
+// `ws.reconnect()` on a missed probe), and brands the signal, in one call.
+const transport = createLiveSignal<typeof monitorSurface.contract>(ws, {});
+const link = transport.link;
 
 // Vite HMR re-evaluates this module on edits — without this dispose hook each
 // reload leaks a PartySocket and its watchdog (and the parent server logs a fresh

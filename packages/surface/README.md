@@ -621,19 +621,19 @@ import { surfaceClient } from "@kolu/surface/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-const link = websocketLink(ws);
 // A socket link MUST thread a watchdog-backed `{ live }` — minted by
-// `createLiveSignal` (`@kolu/surface/solid`), which wires the half-open heartbeat
-// (probing a real `system.live` round-trip over the `link` you pass) AND brands the
-// signal. The brand has no other minter (`brandLiveSignal` is module-private + the
-// brand is an un-reflectable WeakSet), and there is no arbitrary `probe` thunk to
-// blind the watchdog. A bare `() => status() === "live"` is half-open-blind and is
+// `createLiveSignal` (`@kolu/surface/solid`), which BUILDS the oRPC link over `ws`
+// itself (so the watchdog probes the very socket it reconnects, via a real
+// `system.live` round-trip) AND brands the signal — then returns the link to build
+// the client over. The brand has no other minter (`brandLiveSignal` is
+// module-private + the brand is an un-reflectable WeakSet), there is no
+// caller-supplied probe target to fabricate, and there is no `heartbeat: false` to
+// disable the watchdog. A bare `() => status() === "live"` is half-open-blind and is
 // REFUSED; defaulting it to a constant `true` would too.
-const { live } = createLiveSignal(ws, { link: () => link });
-export const app = surfaceClient<
-  typeof surface.spec,
-  ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
->(surface, link, { live });
+const transport = createLiveSignal<typeof surface.contract>(ws, {});
+export const app = surfaceClient(surface, transport.link, {
+  live: transport.live,
+});
 // …or build the whole socket + client + watchdog in one call via `connectSurface`
 // (`@kolu/surface-app`), which mints and threads the `{ live }` for you.
 
