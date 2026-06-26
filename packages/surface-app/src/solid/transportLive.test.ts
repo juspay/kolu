@@ -19,7 +19,12 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
-import { surfaceClient } from "@kolu/surface/solid";
+import { websocketLink } from "@kolu/surface/links/websocket";
+import {
+  surfaceClient,
+  surfaceClients,
+  surfaceClientsHealth,
+} from "@kolu/surface/solid";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -190,5 +195,47 @@ describe("connectSurface threads the real socket liveness into health().live", (
       conn.dispose();
       dispose();
     });
+  });
+});
+
+describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST thread the transport live leg", () => {
+  // kolu's main app (packages/client/src/wire.ts) builds `surfaceClients(link,
+  // surfaces, { live })` over ONE `websocketLink`, exactly like `connectSurface`
+  // does for a single surface. It used to omit `{ live }`, leaving the transport
+  // leg a silent constant `true` — a half-open kolu socket would have read
+  // `health().live === true`. The surfaceClient guard now CRASHES that omission
+  // (a half-openable link with no `{ live }`), which once broke production at
+  // module-load. This pins the FIXED pattern: a real websocketLink + the socket's
+  // own `createSocketStatus` threaded as `{ live }` builds cleanly AND folds the
+  // transport into the merged fact — drop the thread and the build throws.
+  it("builds without crashing and folds the socket's liveness into the merged fact", () => {
+    const t = fakeWs();
+    createRoot((dispose) => {
+      const status = createSocketStatus(t.ws as never);
+      const clients = surfaceClients(
+        // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string, as in wire.ts.
+        websocketLink(t.ws as never) as any,
+        { a: surface, b: surface },
+        { live: () => status() === "live" },
+      );
+      // Before the first open: connecting → not live → merged fact not-live.
+      expect(surfaceClientsHealth(clients).live).toBe(false);
+      t.fire("open");
+      expect(surfaceClientsHealth(clients).live).toBe(true);
+      // A drop (the half-open watchdog forces a reconnect → close) → not live.
+      t.fire("close", 1006);
+      expect(surfaceClientsHealth(clients).live).toBe(false);
+      for (const c of Object.values(clients))
+        (c as { dispose: () => void }).dispose();
+      dispose();
+    });
+  });
+
+  it("CRASHES if the live leg is omitted — the silent constant-true transport is unbuildable over a socket", () => {
+    const t = fakeWs();
+    expect(() =>
+      // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string.
+      surfaceClients(websocketLink(t.ws as never) as any, { a: surface }),
+    ).toThrow(/websocket link can silently half-open/);
   });
 });

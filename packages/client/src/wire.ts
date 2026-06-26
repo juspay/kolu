@@ -23,6 +23,7 @@
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClients } from "@kolu/surface/solid";
 import { createSurfaceSocket } from "@kolu/surface-app/connect";
+import { createSocketStatus } from "@kolu/surface-app/solid";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -49,6 +50,17 @@ const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 // `rememberServerProcessId`. No `restartCloseCode` self-retire here — kolu's
 // lifecycle (`rpc.ts`) owns this socket and retires it through `onStaleRestart`.
 const { ws, echo } = createSurfaceSocket({ url: wsBaseUrl });
+
+// The transport-liveness leg for `health().live`, derived from this one socket's
+// own open/close — the SAME `createSocketStatus` `connectSurface` threads, so kolu
+// folds the socket's liveness into its health FACT exactly like pulam-web/drishti
+// instead of letting the leg silently default to a constant `true`. The half-open
+// watchdog that makes this honest lives in `rpc.ts`'s `createServerLifecycle` over
+// this very `ws` (default-on, probing `system.live` and forcing `ws.reconnect()` on
+// a missed probe): a silently half-open socket gets reconnected, which flips this
+// status off `"live"` → `health().live` false. So a dead/half-open link can't read
+// `live`, even though kolu reads failures per-cell rather than gating a global dot.
+const transportStatus = createSocketStatus(ws);
 
 /** Stash the latest observed server `processId` for the next reconnect's `pid`
  *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
@@ -82,7 +94,9 @@ const link = websocketLink<typeof contract>(ws as unknown as WebSocket);
 // fold ships for a consumer whose control plane WANTS one answer: drishti folds
 // its admin + surface-app siblings with `surfaceClientsHealth` (its `MultiHostApp`
 // control-plane strip); `surfaceClient.health.test.ts` pins the fold itself.
-const clients = surfaceClients(link, surfaces);
+const clients = surfaceClients(link, surfaces, {
+  live: () => transportStatus() === "live",
+});
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
  *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,
