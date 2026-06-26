@@ -1,6 +1,27 @@
-import { BYTES_PER_MB as MB } from "kolu-common/surface";
+import { BYTES_PER_MB as MB, surfaces } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { processMemoryMbEqual } from "./surface.ts";
+
+describe("surfaces map — three siblings (R8)", () => {
+  it("serves exactly the kolu / surfaceApp / terminalWorkspace siblings", () => {
+    expect(Object.keys(surfaces).sort()).toEqual([
+      "kolu",
+      "surfaceApp",
+      "terminalWorkspace",
+    ]);
+  });
+
+  it("terminalWorkspace exposes version + awareness + activity + fs/git + watcher streams", () => {
+    const spec = surfaces.terminalWorkspace.spec;
+    expect(spec.cells?.version).toBeDefined();
+    expect(spec.collections?.awareness).toBeDefined();
+    expect(spec.streams?.activity).toBeDefined();
+    expect(spec.streams?.subscribeRepoChange).toBeDefined();
+    expect(spec.streams?.subscribeFileChange).toBeDefined();
+    expect(spec.procedures?.fs).toBeDefined();
+    expect(spec.procedures?.git).toBeDefined();
+  });
+});
 
 describe("processMemoryMbEqual", () => {
   it("treats sub-MB wobble as equal (so the cell doesn't re-publish)", () => {

@@ -1,180 +1,184 @@
 /**
- * Metadata state mutators — `createMetadata` / `updateServerMetadata` /
- * `updateServerLiveMetadata` / `updateClientMetadata`. Three write
- * verbs, narrowed by the field group their mutator is allowed to
- * touch.
+ * Awareness + metadata write seam (Design-S) — the publishers and the two
+ * narrowed awareness mutators, plus the client-field mutator and the lifecycle
+ * publish.
+ *
+ * Design-S splits a terminal's record in two: the eight AWARENESS fields live in
+ * the process-singleton `../awarenessStore.ts` (the sink is the sole live
+ * writer), and the AUTHORED record (location + client fields + discriminant)
+ * stays on the registry's `entry.meta`. The WIRE `TerminalMetadata` the client
+ * reads is RECOMPOSED at publish time via `composeTerminalMetadata` — so this
+ * module owns both "how an awareness write becomes visible" and "how a lifecycle
+ * flip becomes visible".
  *
  * The mutator-type narrowing is a bidirectional compile-time fence:
- * each helper can only write the fields it owns, so a provider cannot
- * accidentally write `canvasLayout`, an RPC handler cannot accidentally
- * write `git`, and a live-field write cannot accidentally re-trigger
- * the `terminals:dirty` autosave firehose.
+ *   - `updateServerMetadata` — persisted awareness (cwd, git, lastAgentCommand,
+ *     agentSession, lastActivityAt). Mutator typed `AwarenessPersistedFields`.
+ *     Fires `terminals:dirty`.
+ *   - `updateServerLiveMetadata` — live awareness (pr, agent, foreground).
+ *     Mutator typed `AwarenessLiveFields`. Does NOT fire `terminals:dirty` —
+ *     that's the point: the agent stream publishes at ~150 ms during streaming,
+ *     and most of those publishes touch only live state.
+ *   - `updateClientMetadata` — client-persisted authored fields (themeName,
+ *     parentId, canvasLayout, subPanel, rightPanel, intent). Mutator typed
+ *     `TerminalClientMetadata`. Fires `terminals:dirty` (every client field is
+ *     persisted).
  *
- *   - `updateServerMetadata` — server-persisted fields (cwd, git,
- *     lastAgentCommand, lastActivityAt). Mutator typed to
- *     `ServerPersistedTerminalFields`. Fires `terminals:dirty`.
- *   - `updateServerLiveMetadata` — live-only fields (pr, agent,
- *     foreground). Mutator typed to `LiveTerminalFields`. Does NOT fire
- *     `terminals:dirty` — that's the point: the agent stream watcher
- *     publishes at ~150ms during streaming, and most of those publishes
- *     touch only live state.
- *   - `updateClientMetadata` — client-persisted fields (themeName,
- *     parentId, canvasLayout, subPanel, rightPanel, intent). Every
- *     client field is persisted, so this fires `terminals:dirty`.
- *
- * Used by both `LocalTerminalEndpoint`'s internal providers and by
- * `terminals.ts`'s client-facing metadata setters. Lives next to the
- * endpoint implementation because the publish path is intrinsic to "how
- * a terminal's metadata becomes visible".
+ * Both awareness mutators now key on the terminal ID (the sink closes over the
+ * id); the awareness store is the registry their writes land in.
  */
 
-import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import { prValue } from "anyforge/schemas";
 import {
-  type ActiveTerminal,
-  activeArm,
-  type HostLocation,
-  type LiveTerminalFields,
+  type AwarenessLiveFields,
+  type AwarenessPersistedFields,
+  type AwarenessValue,
+  composeTerminalMetadata,
   prUnavailableReason,
-  type ServerPersistedTerminalFields,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
+import {
+  awarenessFor,
+  mutateAwarenessLive,
+  mutateAwarenessPersisted,
+  removeAwareness,
+  setAwareness,
+} from "../awarenessStore.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import type {
-  ActiveTerminalProcess,
-  TerminalProcess,
-} from "../terminal-registry.ts";
+import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
+import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
-/** Create initial metadata state for a new terminal. `lastActivityAt: 0`
- *  means "no agent transition observed yet" — the only event that lifts
- *  the recency clock. Idle terminals tie at 0 and fall back to canvas
- *  position.
- *
- *  `location` is required, not defaulted: the **owning endpoint** declares
- *  where the terminal lives (the local endpoint passes `LOCAL_LOCATION`; a
- *  remote endpoint passes `{ kind: "remote", hostId }`). Threading it as an
- *  explicit argument — rather than hardcoding `{ kind: "local" }` here — keeps
- *  the endpoint the sole authority on its own terminals' host and makes a
- *  dropped location a compile error at every spawn site. */
-export function createMetadata(
-  cwd: string,
-  location: HostLocation,
-): ActiveTerminal {
-  // The generic awareness seed is owned by @kolu/terminal-workspace (beside the
-  // schema it produces); kolu layers only its own `location` on top. One seed,
-  // shared with `pulam` — see `seedAwarenessValue`. `state: "active"` is the
-  // discriminant the awareness seed deliberately doesn't carry (the awareness
-  // wire stays flat) — this is the single seam every live terminal is born
-  // through, so stamping it once here makes spawn/adopt/orphan active by
-  // construction.
-  return { ...seedAwarenessValue(cwd), location, state: "active" };
+/** Push an awareness snapshot onto the `terminalWorkspace` surface's `awareness`
+ *  collection. Shallow-clones so the collection stores an independent snapshot
+ *  rather than aliasing the live (sink-mutated) store object. */
+function publishAwareness(terminalId: string, aw: AwarenessValue): void {
+  workspaceSurfaceCtx.collections.awareness.upsert(terminalId, { ...aw });
 }
 
-/** Log + emit the current metadata snapshot to the surface collection.
- *  Distinct from `publishSnapshotAndDirty`: this one does NOT fire
- *  `terminals:dirty`, so live-only writes (agent stream sub-info, pr
- *  poll results, foreground process churn) don't schedule autosaves
- *  whose persisted bytes would be byte-identical to the previous
- *  snapshot. */
-function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
-  const m = entry.meta;
-  // The live overlay (pr/agent/foreground) exists only on the active arm; a
-  // sleeping terminal publishes its persisted base alone. Narrow once so the
-  // debug line reads the live fields safely and reports `sleeping` for the rest.
-  const live = activeArm(m);
-  const pr = live ? prValue(live.pr) : null;
-  const prUnavailable = live ? prUnavailableReason(live.pr) : undefined;
+/** Recompose + push the WIRE `TerminalMetadata` for `terminalId` onto the `kolu`
+ *  surface's `terminalMetadata` collection — the SOLE producer of the wire shape.
+ *  Reads the authored record off the registry and the awareness off the store;
+ *  a no-op if either is absent (a publish racing teardown). The collection
+ *  `upsert` is a no-op that only fans out to subscribers (the registry + store
+ *  ARE the source of truth), so this call is the only way a change reaches the
+ *  client. */
+function publishWire(
+  terminalId: string,
+  entry = getTerminal(terminalId),
+): void {
+  const aw = awarenessFor(terminalId);
+  if (!entry || !aw) return;
+  // The live overlay (pr/agent/foreground) is meaningful only on an active arm;
+  // a sleeping terminal's store live half is frozen-stale, so the debug line
+  // reports `sleeping` for its `prStatus` and reads identity off the store.
+  const active = entry.meta.state === "active";
+  const pr = prValue(aw.pr);
+  const prUnavailable = prUnavailableReason(aw.pr);
   log.debug(
     {
       terminal: terminalId,
-      cwd: m.cwd,
-      repo: m.git?.repoName,
-      branch: m.git?.branch,
+      cwd: aw.cwd,
+      repo: aw.git?.repoName,
+      branch: aw.git?.branch,
       pr: pr?.number ?? null,
       checks: pr?.checks ?? null,
-      prStatus: live ? live.pr.kind : "sleeping",
+      prStatus: active ? aw.pr.kind : "sleeping",
       ...(prUnavailable && { prUnavailable }),
-      ...(live?.agent && { agent: `${live.agent.kind}:${live.agent.state}` }),
-      ...(live?.foreground && { foreground: live.foreground.name }),
+      ...(aw.agent && { agent: `${aw.agent.kind}:${aw.agent.state}` }),
+      ...(aw.foreground && { foreground: aw.foreground.name }),
     },
     "metadata publish",
   );
-  surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
+  surfaceCtx.collections.terminalMetadata.upsert(
+    terminalId,
+    composeTerminalMetadata(entry.meta, aw),
+  );
 }
 
-function publishSnapshotAndDirty(
-  entry: TerminalProcess,
+/** Seed a terminal's awareness into the store AND publish it. Called by the
+ *  endpoint on spawn / adopt / orphan / wake / cold-restore, BEFORE the matching
+ *  `registerTerminal` (store↔registry lockstep). Does NOT publish the wire — the
+ *  caller's `publishTerminalState` (after register) does, once the authored
+ *  record is in the registry. */
+export function installAwareness(
   terminalId: string,
+  value: AwarenessValue,
 ): void {
-  publishSnapshot(entry, terminalId);
+  setAwareness(terminalId, value);
+  publishAwareness(terminalId, value);
+}
+
+/** Drop a terminal's awareness from the store AND the `awareness` collection.
+ *  Called by the endpoint AFTER `unregisterTerminal` on exit / kill / discard /
+ *  killAll. */
+export function dropAwareness(terminalId: string): void {
+  if (removeAwareness(terminalId)) {
+    workspaceSurfaceCtx.collections.awareness.remove(terminalId);
+  }
+}
+
+/** Atomically mutate PERSISTED awareness (`cwd`, `git`, `lastAgentCommand`,
+ *  `agentSession`, `lastActivityAt`) and publish. The mutator is narrowed to
+ *  `AwarenessPersistedFields` — half the bidirectional fence: a sensor cannot
+ *  write a live field (pr/agent/foreground) through this path, so the
+ *  `terminals:dirty` firehose can't grow back. A no-op if `id` has no awareness
+ *  entry (a late write after removal). Fires `terminals:dirty`. */
+export function updateServerMetadata(
+  terminalId: string,
+  mutate: (meta: AwarenessPersistedFields) => void,
+): void {
+  const aw = mutateAwarenessPersisted(terminalId, mutate);
+  if (!aw) return;
+  publishAwareness(terminalId, aw);
+  publishWire(terminalId);
   terminalsDirtyChannel.publish({});
 }
 
-/** Publish a terminal's current metadata snapshot AND arm the session autosave —
- *  for a lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the
- *  registry entry rather than mutating one field in place, so it can't ride the
- *  field mutators above. Accepts the union: a freshly-flipped sleeping entry
- *  publishes its persisted base; `publishSnapshot` narrows the live overlay away
- *  by `state`.
- *
- *  THE SOLE PUSH CHANNEL: `terminalMetadata`'s collection `upsert` is a no-op
- *  that only pushes to subscribers — the registry IS the store — so this call is
- *  the ONLY way a lifecycle flip reaches the client; `terminals:dirty` alone
- *  never re-reads the registry. Every authored active↔sleeping flip and fresh
- *  spawn MUST call this (sleep, wake/spawn, and the failed-wake restore all do).
- *  `adoptTerminal` deliberately omits it — the saved session already pinned the
- *  client (see its comment). */
-export function publishTerminalState(
-  entry: TerminalProcess,
-  terminalId: string,
-): void {
-  publishSnapshotAndDirty(entry, terminalId);
-}
-
-/** Atomically mutate server-persisted metadata (`cwd`, `git`,
- *  `lastAgentCommand`, `lastActivityAt`) and publish. The mutator is
- *  narrowed to `ServerPersistedTerminalFields` — bidirectional fence: a
- *  provider cannot write client-owned fields (themeName, parentId, …)
- *  AND cannot write live-only fields (pr, agent, foreground) through
- *  this function. The latter half is the structural guarantee that the
- *  `terminals:dirty` firehose can't grow back: every live-field write
- *  must go through `updateServerLiveMetadata`. Fires `terminals:dirty`. */
-export function updateServerMetadata(
-  entry: ActiveTerminalProcess,
-  terminalId: string,
-  mutate: (meta: ServerPersistedTerminalFields) => void,
-): void {
-  mutate(entry.meta);
-  publishSnapshotAndDirty(entry, terminalId);
-}
-
-/** Atomically mutate live-only server metadata (`pr`, `agent`,
- *  `foreground`) and publish — without firing `terminals:dirty`. The
- *  mutator type is `LiveTerminalFields`, a compile-time fence: writing
- *  any persisted field through this function is a type error.
- *  Together with the matching narrowing on `updateServerMetadata`,
- *  this is the structural guarantee that the firehose can't grow back. */
+/** Atomically mutate LIVE awareness (`pr`, `agent`, `foreground`) and publish —
+ *  WITHOUT firing `terminals:dirty` (the firehose fence). The mutator is narrowed
+ *  to `AwarenessLiveFields`: writing a persisted field through this path is a type
+ *  error. A no-op if `id` has no awareness entry. */
 export function updateServerLiveMetadata(
-  entry: ActiveTerminalProcess,
   terminalId: string,
-  mutate: (meta: LiveTerminalFields) => void,
+  mutate: (meta: AwarenessLiveFields) => void,
 ): void {
-  mutate(entry.meta);
-  publishSnapshot(entry, terminalId);
+  const aw = mutateAwarenessLive(terminalId, mutate);
+  if (!aw) return;
+  publishAwareness(terminalId, aw);
+  publishWire(terminalId);
 }
 
-/** Atomically mutate client-owned metadata (`themeName`, `parentId`,
- *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) and publish. The
- *  mutator is narrowed to `TerminalClientMetadata` so RPC handlers
- *  cannot accidentally overwrite provider-owned state. Every client
- *  field is persisted, so this always fires `terminals:dirty`. */
+/** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,
+ *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) on `entry.meta` and
+ *  publish. The mutator is narrowed to `TerminalClientMetadata` so RPC handlers
+ *  cannot overwrite provider-owned state. Every client field is persisted, so
+ *  this fires `terminals:dirty`. */
 export function updateClientMetadata(
   entry: TerminalProcess,
   terminalId: string,
   mutate: (meta: TerminalClientMetadata) => void,
 ): void {
   mutate(entry.meta);
-  publishSnapshotAndDirty(entry, terminalId);
+  publishWire(terminalId, entry);
+  terminalsDirtyChannel.publish({});
+}
+
+/** Publish a terminal's recomposed wire snapshot AND arm the session autosave —
+ *  for a lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the
+ *  registry entry rather than mutating a field in place. The caller seeds the
+ *  store (`installAwareness`) before registering the entry, so `publishWire`
+ *  recomposes from both halves.
+ *
+ *  THE SOLE PUSH CHANNEL for a lifecycle flip: `terminalMetadata`'s `upsert` only
+ *  fans out to subscribers (the registry IS the store), and `terminals:dirty`
+ *  alone never re-reads the registry. Every authored active↔sleeping flip and
+ *  fresh spawn MUST call this. */
+export function publishTerminalState(
+  entry: TerminalProcess,
+  terminalId: string,
+): void {
+  publishWire(terminalId, entry);
+  terminalsDirtyChannel.publish({});
 }

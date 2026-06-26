@@ -16,6 +16,7 @@
  */
 
 import {
+  composeTerminalMetadata,
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
   type SavedTerminal,
@@ -23,6 +24,8 @@ import {
   type TerminalId,
   type TerminalInfo,
 } from "kolu-common/surface";
+import { awarenessFor } from "./awarenessStore.ts";
+import { log } from "./log.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
 // converge with `localTerminalEndpoint` already initialized by the time
@@ -59,25 +62,44 @@ export {
 
 /** Build a session snapshot from current terminal state.
  *
- *  Each live registry entry (an `ActiveTerminal`) is projected onto
- *  `SavedActiveTerminalSchema` — the schema IS the single source of truth for
- *  the persisted-vs-live partition, so the live overlay (pr/agent/foreground) is
- *  stripped structurally and a future live field can never silently ride to disk.
- *  A hand-named destructure would have to be kept in sync with the live partition
- *  by convention (TS does not excess-check object spreads, so a drifted strip
- *  would type-clean); deriving the strip from the schema makes
- *  "a persisted record carrying a live field" unrepresentable here. A new
- *  *persisted* field, being part of the schema, flows through untouched.
- *  Order is `Map` insertion order — terminals appear in the sequence they were
- *  created. */
+ *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the
+ *  AWARENESS store value through `composeTerminalMetadata` — the ONE producer of
+ *  a terminal's shape — then keyed with `id` and re-validated against
+ *  `SavedTerminalSchema`. Routing the save through the same compose seam as the
+ *  wire means the live-half strip (and the sleeping `pr`-from-authored rule) lives
+ *  in exactly one place, so disk and wire can never diverge. A new *persisted*
+ *  field flows through untouched; a live field can never ride to disk. The save
+ *  uses `flatMap` + a guard rather than `?? {}`: a live registry entry with no
+ *  awareness (a lockstep violation) is logged and SKIPPED — fail-fast, never
+ *  persist a record missing every sensor field. Order is `Map` insertion order —
+ *  terminals appear in the sequence they were created. */
 export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()].map(
-    ([id, entry]): SavedTerminal =>
-      // The registry now holds the `Terminal` union, so project each entry
-      // through the SAVED discriminated union: an active entry strips its live
-      // overlay onto the active arm, a sleeping entry carries its persisted base
-      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
-      SavedTerminalSchema.parse({ ...entry.meta, id }),
+  const snappedTerminals = [...terminalEntries()].flatMap(
+    ([id, entry]): SavedTerminal[] => {
+      // Design-S: a saved record is the JOIN of the two halves — the AUTHORED
+      // `entry.meta` (location + client chrome + discriminant) and the AWARENESS
+      // store value. Spread order matches `composeTerminalMetadata`: awareness
+      // FIRST, authored LAST (a sleeping record's frozen `pr` wins; the saved
+      // discriminated union strips the live half — agent/foreground — structurally,
+      // so a future live field can never silently ride to disk).
+      const aw = awarenessFor(id);
+      if (!aw) {
+        // Lockstep violated — a live registry entry with no awareness. Fail-fast:
+        // log and SKIP (never `?? {}`, which would persist a record missing every
+        // sensor field). The store↔registry invariant makes this unreachable.
+        log.error(
+          { terminal: id },
+          "snapshot: awareness missing for live terminal — skipping",
+        );
+        return [];
+      }
+      return [
+        SavedTerminalSchema.parse({
+          ...composeTerminalMetadata(entry.meta, aw),
+          id,
+        }),
+      ];
+    },
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

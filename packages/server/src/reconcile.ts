@@ -15,7 +15,7 @@
  *   - **adoptOrphans** — live daemon PTYs with NO saved record (F1): a create
  *     that never reached the 500ms-debounced autosave before the restart (the
  *     common redeploy window), or a leftover from a crashed prior server. These
- *     are ADOPTED too — seeded from the live daemon snapshot (`orphanMeta`) — NOT
+ *     are ADOPTED too — seeded from the live daemon snapshot (`orphanAwareness`) — NOT
  *     reaped: killing a live shell merely because the debounced session lagged
  *     behind the daemon would violate the headline "terminals survive a kolu
  *     update" guarantee. They never carry a saved id, so re-adopting (rather than
@@ -50,7 +50,7 @@ export interface ReconcileResult {
   /** Saved terminals whose PTY is still alive, each paired with its live PTY. */
   adopt: AdoptPair[];
   /** Live daemon PTYs with no saved record — adopt from the live snapshot
-   *  (`orphanMeta`), never reap. See the module doc (F1). */
+   *  (`orphanAwareness`), never reap. See the module doc (F1). */
   adoptOrphans: PtyHostListEntry[];
   /** Live daemon PTYs whose id matches a SLEEPING saved record — a sleep that
    *  persisted the dormant record but crashed before the PTY kill completed, so

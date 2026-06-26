@@ -37,9 +37,13 @@ import {
   confStore,
   type ImplementSurfaceDeps,
   implementSurfaces,
+  inMemoryStore,
+  pollOnEvent,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
+import { DEFAULT_VERSION } from "@kolu/terminal-workspace/surface";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -48,10 +52,12 @@ import type {
   Preferences,
   ProcessMemory,
   SavedSession,
+  TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
+  composeTerminalMetadata,
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
@@ -68,8 +74,10 @@ import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
+import { awarenessFor, awarenessReadAll } from "./awarenessStore.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
+import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
   getTerminal,
   listTerminals,
@@ -87,6 +95,12 @@ import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
 const localEndpoint = localTerminalEndpoint;
+
+// The fs/git procedures + watcher streams for the `terminalWorkspace` sibling
+// surface, backed by the SAME `createTerminalWorkspaceEndpoint` impl kolu's own
+// value-bearing streams read off `localEndpoint.fs/git` (R6). Reuses the source
+// of truth rather than a parallel wrapper.
+const fsGit = fsGitSurfaceDeps(localEndpoint, log);
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -231,23 +245,29 @@ const koluDeps: Omit<
 
   collections: {
     terminalMetadata: {
+      // Design-S: the wire value is RECOMPOSED from the two halves — the AUTHORED
+      // `entry.meta` (registry) and the AWARENESS store value — via
+      // `composeTerminalMetadata`. A terminal with one half but not the other (a
+      // publish racing teardown) is skipped.
       readAll: () => {
         const map = new Map<string, TerminalMetadata>();
         for (const info of listTerminals()) {
           const term = getTerminal(info.id);
-          if (term) map.set(info.id, term.meta);
+          const aw = awarenessFor(info.id);
+          if (term && aw)
+            map.set(info.id, composeTerminalMetadata(term.meta, aw));
         }
         return map;
       },
       readOne: (key) => {
         const term = getTerminal(key as string);
-        return term ? term.meta : undefined;
+        const aw = awarenessFor(key as string);
+        return term && aw ? composeTerminalMetadata(term.meta, aw) : undefined;
       },
       // Server-internal collection: clients can't write. The `upsert`/
       // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
-      // publish without re-mutating the registry (the registry is the
-      // store; `terminalEndpoint/metadata.ts` mutates entry.meta in place before
-      // calling ctx.upsert).
+      // publish without re-deriving here (the registry + awareness store are the
+      // store; `terminalEndpoint/metadata.ts` composes before calling ctx.upsert).
       upsert: () => {},
       remove: () => {},
     },
@@ -425,6 +445,48 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
       kolu: koluDeps,
+
+      // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
+      // The GENERIC awareness surface (R8): the `version` handshake cell, the
+      // `awareness` collection backed by kolu-server's process-singleton awareness
+      // store (Design-S), the live `activity` flow, and the fs/git procedures +
+      // watcher streams (`fsGit`, off the same in-process endpoint kolu's own
+      // streams read). `implementSurfaces` throws on a missing primitive, so EVERY
+      // one the surface declares is provided here. Per-key deps are typed against
+      // `terminalWorkspaceSurface.spec`, so this needs no cast.
+      terminalWorkspace: {
+        cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
+        collections: {
+          // Read-through to the awareness store; writes go through the sink's
+          // `installAwareness`/`updateServer*Metadata` (which call
+          // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
+          // `upsert`/`remove` are no-ops (the store is the authority).
+          awareness: {
+            readAll: () => awarenessReadAll(),
+            readOne: (key) => awarenessFor(key as string),
+            upsert: () => {},
+            remove: () => {},
+          },
+        },
+        streams: {
+          // QUIET activity for now: kolu-server has no raw byte tap (R9 makes it
+          // live), so it truthfully yields the empty live set once — not a lie, the
+          // honest "nothing known to be moving". The fs/git watcher streams ride
+          // alongside off `fsGit`.
+          activity: {
+            source: (_input, signal) =>
+              pollOnEvent<TerminalId[]>({
+                read: async () => [],
+                isEqual: () => true,
+                install: () => () => {},
+                signal,
+                onReadError: () => {},
+              }),
+          },
+          ...fsGit.streams,
+        },
+        procedures: fsGit.procedures,
+      },
     },
   );
 
@@ -433,3 +495,6 @@ export const surfaceRouter = surfaceRouterFragment;
 // surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
 // driven by the runtime-fired cell `.connect`, not by domain code.
 setSurfaceCtx(surfaceCtxBuilt.kolu);
+// The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
+// `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
+setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);

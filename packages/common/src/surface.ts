@@ -38,9 +38,11 @@ import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
   AwarenessLiveFieldsSchema,
   AwarenessPersistedFieldsSchema,
+  type AwarenessValue,
   PrResultSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import {
@@ -75,6 +77,9 @@ export {
 export type {
   AgentInfo,
   AgentKind,
+  AwarenessLiveFields,
+  AwarenessPersistedFields,
+  AwarenessValue,
   ClaudeCodeInfo,
   CodexInfo,
   Foreground,
@@ -306,15 +311,6 @@ export const PersistedTerminalFieldsSchema =
   );
 
 /**
- * Server write fence — the mutator passed to `updateServerMetadata` is
- * narrowed to this shape, so providers cannot accidentally write
- * client-owned fields like themeName. Server-persisted base + transient
- * live state (both server-written).
- */
-export const TerminalServerMetadataSchema =
-  ServerPersistedTerminalFieldsSchema.merge(LiveTerminalFieldsSchema);
-
-/**
  * Client write fence — the mutator passed to `updateClientMetadata` is
  * narrowed to this shape, so RPC handlers cannot accidentally overwrite
  * provider-owned state. Exactly the client-persisted base.
@@ -357,6 +353,59 @@ const SleepingDiscriminantSchema = z.object({
    *  a terminal slept before this field, or with no PR context, carries none. */
   pr: PrResultSchema.optional(),
 });
+
+// ── The AUTHORED family — what stays on `entry.meta` after Design-S ───────
+//
+// Design-S BISECTS the fused terminal record. The eight awareness fields (cwd ·
+// git · lastAgentCommand · agentSession · lastActivityAt · pr · agent ·
+// foreground) move to a process-singleton store (`server/src/awarenessStore.ts`),
+// written by the sensor sink alone. What REMAINS on the registry's `entry.meta`
+// is the AUTHORED record: the kolu-owned `location`, the client/UI fields, and
+// the active|sleeping discriminant.
+//
+// The authored TYPE names NO awareness field, so `entry.meta.cwd = x` is a
+// COMPILE ERROR — "two writers of awareness" is made unrepresentable. This is
+// deliberately NOT built on `AwarenessPersistedFields` (unlike
+// `ServerPersistedTerminalFieldsSchema`, the WIRE half above): the authored
+// record is the COMPLEMENT of awareness, not an extension of it. The wire
+// `TerminalMetadata` is recomposed from the two halves at serve time via
+// `composeTerminalMetadata` (below), byte-identical to today's shape.
+
+const KoluAuthoredServerFieldsSchema = z.object({
+  location: HostLocationSchema,
+});
+
+const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
+  ClientPersistedTerminalFieldsSchema,
+);
+
+/** The authored ACTIVE arm — `location` + client fields + `state: "active"`. No
+ *  awareness field, and — load-bearing for `composeTerminalMetadata` — NO `pr`:
+ *  the live PR rides the awareness store, never the authored record. */
+export const AuthoredActiveSchema = KoluAuthoredFieldsSchema.merge(
+  ActiveDiscriminantSchema,
+);
+
+/** The authored SLEEPING arm — `location` + client fields + `sleptAt` + the
+ *  FROZEN `pr` snapshot (the dormant tile's last-known PR, captured at sleep via
+ *  `SleepingDiscriminantSchema`). The frozen `pr` is the one live-half value that
+ *  rides the authored record, because the awareness store's live half goes stale
+ *  the moment the PTY is released — so the wire's sleeping arm reads it from here,
+ *  not the store (`composeTerminalMetadata` lets it win the spread). */
+export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
+  SleepingDiscriminantSchema,
+);
+
+/** The authored terminal as a sum — `entry.meta`'s static type. Discriminated on
+ *  `state`, naming no awareness field. */
+export const AuthoredTerminalSchema = z.discriminatedUnion("state", [
+  AuthoredActiveSchema,
+  AuthoredSleepingSchema,
+]);
+
+export type AuthoredActiveTerminal = z.infer<typeof AuthoredActiveSchema>;
+export type AuthoredSleepingTerminal = z.infer<typeof AuthoredSleepingSchema>;
+export type AuthoredTerminal = z.infer<typeof AuthoredTerminalSchema>;
 
 /** The active arm's persisted core — `persisted base + state: "active"`, the one
  *  composition both the live and saved active arms build on. The live arm adds
@@ -557,9 +606,6 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     of one. `z.infer<typeof Schema>` here keeps the wiring local.
 
 export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
-export type TerminalServerMetadata = z.infer<
-  typeof TerminalServerMetadataSchema
->;
 export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
@@ -844,7 +890,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 
 // ── The surfaces ──────────────────────────────────────────────────────
 //
-// kolu now serves TWO sibling surfaces over one transport (kolu#1197):
+// kolu now serves THREE sibling surfaces over one transport (kolu#1197, R8):
 //
 //   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
 //     session, terminalList; terminalMetadata; the git/fs streams; the
@@ -853,11 +899,16 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
 //     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
 //     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
+//   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
+//     (awareness collection + version cell + activity flow + fs/git procedures &
+//     watcher streams), served under the `terminalWorkspace` key so a viewer reads
+//     the same surface `pulam` serves. Its `awareness` collection is backed by
+//     kolu-server's process-singleton awareness store (Design-S).
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
-// `surfaceClients` multiplex them, each namespaced by its key. surface-app is
-// already a complete surface; we serve it as a sibling rather than splicing its
-// halves into kolu's own surface.
+// `surfaceClients` multiplex them, each namespaced by its key. Each is already a
+// complete surface; we serve them as siblings rather than splicing their halves
+// into one surface.
 
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
@@ -983,6 +1034,14 @@ export const koluSurface = defineSurface({
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
+  // The generic `@kolu/terminal-workspace` surface, served as a third sibling
+  // (R8): the `awareness` collection (backed by kolu-server's process-singleton
+  // awareness store), the `version` handshake cell, the live `activity` flow, and
+  // the Code tab's fs/git procedures + watcher streams. `composeSurfaceContracts`
+  // / `surfaceClients` / `implementSurfaces` pick it up from this one map, so it
+  // is served at `surface.terminalWorkspace.*` automatically. Its value schema is
+  // the GENERIC `AwarenessValue` — no `location`, no kolu UI fields.
+  terminalWorkspace: terminalWorkspaceSurface,
 } as const;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
@@ -1038,6 +1097,47 @@ export function sleepingArm(
   m: TerminalMetadata | null | undefined,
 ): SleepingTerminal | undefined {
   return m?.state === "sleeping" ? m : undefined;
+}
+
+/** Build a fresh AUTHORED active record for a newly-spawned terminal — just the
+ *  kolu-owned `location` + the active discriminant. The awareness half is seeded
+ *  SEPARATELY into the awareness store via `seedAwarenessValue(cwd)`; this names
+ *  none of it. The single seam every live terminal's authored record is born
+ *  through (spawn / orphan adoption), so a future authored field has one seed. */
+export function createAuthoredActive(
+  location: HostLocation,
+): AuthoredActiveTerminal {
+  return { location, state: "active" };
+}
+
+/** Recompose the WIRE `TerminalMetadata` from its two halves at serve time — the
+ *  ONLY producer of the wire shape. The authored record (`entry.meta`) carries
+ *  location + client fields + the discriminant; the awareness value carries the
+ *  eight sensor fields. Their join is byte-identical to the pre-Design-S fused
+ *  record, so `packages/client` is untouched.
+ *
+ *  Spread order is LOAD-BEARING: awareness FIRST, authored LAST. The authored
+ *  record names no awareness field, so it never clobbers awareness. The active
+ *  path takes the full awareness value as-is: TS verifies the spread IS an
+ *  `ActiveTerminal` structurally, with no parse on the per-tick hot path.
+ *
+ *  The sleeping path takes ONLY the PERSISTED half of awareness — the live half
+ *  (`pr`/`agent`/`foreground`) is dropped at the source via
+ *  `AwarenessPersistedFieldsSchema.parse`. So the authored frozen `pr` is the
+ *  SOLE source of a sleeping arm's `pr`: a record with a frozen pr shows it, and
+ *  a legacy record without one stays pr-absent rather than leaking the store's
+ *  stale live `pr: pending`. A future live field can never reach the sleeping
+ *  wire regardless of `SleepingTerminalSchema`'s key set. */
+export function composeTerminalMetadata(
+  authored: AuthoredTerminal,
+  awareness: AwarenessValue,
+): TerminalMetadata {
+  return authored.state === "active"
+    ? { ...awareness, ...authored }
+    : SleepingTerminalSchema.parse({
+        ...AwarenessPersistedFieldsSchema.parse(awareness),
+        ...authored,
+      });
 }
 
 /** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,

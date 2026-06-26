@@ -11,12 +11,13 @@
 
 import { ORPCError } from "@orpc/server";
 import type {
-  ActiveTerminal,
-  SleepingTerminal,
+  AuthoredActiveTerminal,
+  AuthoredSleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
+import { awarenessFor } from "./awarenessStore.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
@@ -27,7 +28,7 @@ import type { TerminalHandle } from "kolu-common/terminalEndpoint";
  *  `killTerminal` is the sole termination path). */
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
-  meta: ActiveTerminal;
+  meta: AuthoredActiveTerminal;
   handle: TerminalHandle;
 }
 
@@ -42,7 +43,7 @@ export interface ActiveTerminalProcess {
  *  truthiness narrows a `TerminalProcess` to the active arm in one idiom. */
 export interface SleepingTerminalProcess {
   info: TerminalInfo;
-  meta: SleepingTerminal;
+  meta: AuthoredSleepingTerminal;
   handle?: never;
 }
 
@@ -110,17 +111,17 @@ export const activeTerminalCount = (): number => {
   return n;
 };
 
-/** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.meta.agent` — the agent detectors inside
- *  `LocalTerminalEndpoint` (driven by `claudeCodeAdapter` from
- *  `kolu-claude-code`) set it on session match and clear it on
- *  teardown. Exported for diagnostics. */
+/** Number of ACTIVE terminals currently hosting a Claude Code session. The
+ *  `agent` field moved to the awareness store (Design-S), so this reads it via
+ *  `awarenessFor(id)` rather than off `entry.meta`; the `state === "active"` gate
+ *  stays, since a sleeping terminal's store entry keeps its frozen-stale live half
+ *  (sleep does not reset it). Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
-  for (const entry of terminals.values()) {
+  for (const [id, entry] of terminals) {
     if (
       entry.meta.state === "active" &&
-      entry.meta.agent?.kind === "claude-code"
+      awarenessFor(id)?.agent?.kind === "claude-code"
     )
       n++;
   }

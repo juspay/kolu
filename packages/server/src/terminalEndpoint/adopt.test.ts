@@ -1,10 +1,12 @@
+import { AwarenessPersistedFieldsSchema } from "@kolu/terminal-workspace/schema";
 import type { PtyHostListEntry } from "kaval";
 import {
+  AuthoredActiveSchema,
   type SavedActiveTerminal,
   SavedActiveTerminalSchema,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { adoptedMeta, orphanMeta } from "./local.ts";
+import { adoptedAuthored, adoptedAwareness, orphanAwareness } from "./local.ts";
 
 /** A live `terminal.list` entry for the sentinel id. The daemon snapshot is the
  *  authority for `cwd`/`foreground` during adoption (F2), so the builder lets a
@@ -29,10 +31,9 @@ const sentinel: SavedActiveTerminal = {
   id: "term-sentinel",
   state: "active",
   cwd: "/sentinel/cwd",
-  // Deliberately the REMOTE variant: `adoptedMeta` seeds `createMetadata(_,
-  // LOCAL_LOCATION)` then spreads the persisted record over it, so a distinct
-  // host proves the saved `location` wins the round-trip rather than
-  // coincidentally matching the `{ kind: "local" }` seed.
+  // Deliberately the REMOTE variant: `adoptedAuthored` parses `location` straight
+  // off the saved record, so a distinct host proves the saved `location` rides
+  // the round-trip rather than coincidentally matching a `{ kind: "local" }` seed.
   location: { kind: "remote", hostId: "sentinel-host" },
   git: {
     repoRoot: "/sentinel/repo",
@@ -71,26 +72,34 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     );
   });
 
-  it("adoptedMeta carries every persisted field through verbatim", () => {
+  it("adoptedAwareness carries every persisted AWARENESS field verbatim", () => {
     // Use a live entry whose cwd MATCHES the saved record so this test isolates
     // the whole-record carry-through; the live-cwd-wins case is asserted below.
-    const meta = adoptedMeta(sentinel, liveEntry({ cwd: sentinel.cwd }));
-    for (const key of Object.keys(SavedActiveTerminalSchema.shape)) {
-      if (key === "id") continue; // `id` is the registry key, not a `meta` field
-      expect(meta[key as keyof typeof meta]).toEqual(
+    const aw = adoptedAwareness(sentinel, liveEntry({ cwd: sentinel.cwd }));
+    for (const key of Object.keys(AwarenessPersistedFieldsSchema.shape)) {
+      expect(aw[key as keyof typeof aw]).toEqual(
         sentinel[key as keyof SavedActiveTerminal],
       );
     }
   });
 
-  it("seeds the live fields at their defaults (the providers re-derive them)", () => {
-    const meta = adoptedMeta(sentinel, liveEntry());
-    // The live fields are NOT persisted: adoption seeds `createMetadata`'s
-    // defaults, and the provider DAG re-derives them against the surviving taps
-    // (the freshness guarantee — never a stale carried-over value).
-    expect(meta.pr).toEqual({ kind: "pending" });
-    expect(meta.agent).toBeNull();
-    expect(meta.foreground).toBeNull();
+  it("adoptedAuthored carries location + client chrome + the active discriminant", () => {
+    const authored = adoptedAuthored(sentinel);
+    for (const key of Object.keys(AuthoredActiveSchema.shape)) {
+      expect(authored[key as keyof typeof authored]).toEqual(
+        sentinel[key as keyof SavedActiveTerminal],
+      );
+    }
+  });
+
+  it("seeds the live awareness fields at their defaults (the providers re-derive them)", () => {
+    const aw = adoptedAwareness(sentinel, liveEntry());
+    // The live fields are NOT persisted: adoption seeds the awareness defaults,
+    // and the provider DAG re-derives them against the surviving taps (the
+    // freshness guarantee — never a stale carried-over value).
+    expect(aw.pr).toEqual({ kind: "pending" });
+    expect(aw.agent).toBeNull();
+    expect(aw.foreground).toBeNull();
   });
 
   it("the LIVE daemon cwd wins over the stale SAVED cwd (F2)", () => {
@@ -98,34 +107,37 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     // autosave). kaval's cwd tap does NOT replay a snapshot, so the saved cwd
     // would otherwise stick and be re-persisted over the live truth. The live
     // `list` entry's cwd is the authority.
-    const meta = adoptedMeta(sentinel, liveEntry({ cwd: "/moved/since/save" }));
-    expect(meta.cwd).toBe("/moved/since/save");
-    expect(meta.cwd).not.toBe(sentinel.cwd);
+    const aw = adoptedAwareness(
+      sentinel,
+      liveEntry({ cwd: "/moved/since/save" }),
+    );
+    expect(aw.cwd).toBe("/moved/since/save");
+    expect(aw.cwd).not.toBe(sentinel.cwd);
   });
 
   it("seeds foreground from the live snapshot's foregroundProcess (F2)", () => {
-    const meta = adoptedMeta(
+    const aw = adoptedAwareness(
       sentinel,
       liveEntry({ foregroundProcess: "vim", title: "vim file.ts" }),
     );
-    expect(meta.foreground).toEqual({ name: "vim", title: "vim file.ts" });
+    expect(aw.foreground).toEqual({ name: "vim", title: "vim file.ts" });
   });
 });
 
-describe("orphanMeta — adopting a live PTY with no saved record (F1)", () => {
+describe("orphanAwareness — adopting a live PTY with no saved record (F1)", () => {
   it("seeds entirely from the live daemon snapshot", () => {
-    const meta = orphanMeta(
+    const aw = orphanAwareness(
       liveEntry({ cwd: "/orphan/cwd", foregroundProcess: "claude" }),
     );
-    expect(meta.cwd).toBe("/orphan/cwd");
-    expect(meta.foreground).toEqual({ name: "claude", title: null });
+    expect(aw.cwd).toBe("/orphan/cwd");
+    expect(aw.foreground).toEqual({ name: "claude", title: null });
     // Live fields the providers re-derive start at their defaults.
-    expect(meta.pr).toEqual({ kind: "pending" });
-    expect(meta.agent).toBeNull();
-    expect(meta.lastActivityAt).toBe(0);
+    expect(aw.pr).toEqual({ kind: "pending" });
+    expect(aw.agent).toBeNull();
+    expect(aw.lastActivityAt).toBe(0);
   });
 
   it("null foreground when the daemon reports no foreground process", () => {
-    expect(orphanMeta(liveEntry()).foreground).toBeNull();
+    expect(orphanAwareness(liveEntry()).foreground).toBeNull();
   });
 });

@@ -26,6 +26,7 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
+import { awarenessFor } from "./awarenessStore.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
@@ -260,17 +261,20 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        const term = requireActiveTerminal(input.id);
-        const agent = term.meta.agent;
+        requireActiveTerminal(input.id);
+        // The agent + cwd + git + pr fields moved to the awareness store
+        // (Design-S); read them off it rather than `entry.meta` (now authored).
+        const aw = awarenessFor(input.id);
+        const agent = aw?.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = term.meta.cwd;
-        const repoName = term.meta.git?.repoName ?? null;
-        const prInfo = prValue(term.meta.pr);
+        const cwd = aw?.cwd ?? "";
+        const repoName = aw?.git?.repoName ?? null;
+        const prInfo = prValue(aw?.pr ?? { kind: "pending" });
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;
