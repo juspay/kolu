@@ -4,7 +4,7 @@ import {
   isTerminalQueryResponse,
   SILENT_DEVICE_QUERIES,
 } from "@kolu/terminal-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPtyHost,
   getScreenText,
@@ -17,6 +17,8 @@ import { nextFrame } from "./streamFrame.testlib.ts";
 const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
+const { SerializeAddon } =
+  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
 /** Write data to a terminal and wait for it to be processed. */
 function writeAndFlush(
@@ -608,5 +610,125 @@ describe("device-query contract — suppressed ⇄ answered pairing", () => {
     expect(raw).toContain("OSC_SENTINEL");
     expect(raw).not.toContain("rgb:");
     host.dispose();
+  });
+});
+
+// PR1 of the kaval-memory plan (docs/atlas/.../kaval-memory-architecture.mdx):
+// a reconnect storm — a WebSocket disconnect that aborts every in-flight attach
+// and re-issues it — must not serialize the mirror N times. These guard the two
+// defenses without bounding the snapshot (that's PR2, and would change what a
+// reload restores): an already-aborted attach does ZERO work, and a burst of
+// attaches within one publish-epoch shares a single serialize.
+describe("attach() reconnect-storm defenses", () => {
+  let host: PtyHost;
+
+  // These tests count serialize() calls, so they settle on output via
+  // getScreenText (a plain buffer read) rather than getScreenState (which now
+  // shares the snapshot memo) — otherwise the settle poll would pre-populate
+  // the memo and skew the count. The aborted test below deliberately differs.
+  afterEach(() => {
+    vi.restoreAllMocks();
+    host?.dispose();
+  });
+
+  it("does zero serialize work for an already-aborted attach", async () => {
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf 'abort marker\\n'; sleep 1"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // Settle real on-screen content, so a *non*-aborted attach would be non-empty.
+    await waitFor(() => host.getScreenState(id).includes("abort marker"));
+
+    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    const ac = new AbortController();
+    ac.abort();
+    const { snapshot, deltas } = host.attach(id, ac.signal);
+
+    // No serialize ran, and the snapshot is empty despite a populated screen —
+    // the cancellable short-circuit, not a serialized "abort marker" screen.
+    expect(serializeSpy).not.toHaveBeenCalled();
+    expect(snapshot).toBe("");
+    // The delta stream is already ended (subscribe returns empty when aborted).
+    const first = await deltas[Symbol.asyncIterator]().next();
+    expect(first.done).toBe(true);
+  });
+
+  it("coalesces a burst of attaches within one publish-epoch into one serialize", async () => {
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf 'idle marker\\n'; sleep 1"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await waitFor(() => host.getScreenText(id).includes("idle marker"));
+
+    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    // A synchronous burst — no task boundary between calls, so no publish can
+    // interleave: all 25 attaches fall in one publish-epoch.
+    const snaps = Array.from({ length: 25 }, () => host.attach(id).snapshot);
+
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
+    for (const s of snaps) expect(s).toContain("idle marker");
+  });
+
+  it("re-serializes after new output ends the epoch (cache cleared on publish)", async () => {
+    host = createPtyHost({ log: silentLog });
+    // A long-lived shell reading commands from its stdin: each output chunk is
+    // triggered by an explicit host.write(), NOT a timed printf. So the second
+    // chunk lands strictly after the epoch-1 attaches — the "first arrived,
+    // second not yet" boundary is test-controlled, never a race a slow CI
+    // worker can lose by printing both before the first poll observes either.
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    host.write(id, "echo first\n");
+    await waitFor(() => host.getScreenText(id).includes("first"));
+
+    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    host.attach(id);
+    host.attach(id);
+    expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
+
+    // A second output chunk publishes and must invalidate the cache — driven by
+    // an explicit write, so it falls strictly after the epoch-1 attaches above.
+    host.write(id, "echo second\n");
+    await waitFor(() => host.getScreenText(id).includes("second"));
+    const { snapshot } = host.attach(id);
+    expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
+    expect(snapshot).toContain("second");
+  });
+
+  it("re-serializes after a resize reflows the mirror (cache cleared on resize)", async () => {
+    host = createPtyHost({ log: silentLog });
+    // A 91-col marker line wraps at the default 80 cols and unwraps at 120, so
+    // the resize reflows the serialized layout — and does so with NO data
+    // publish, the path that exposes the missed invalidation.
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "printf 'WIDEMARK%083d\\n' 0; sleep 1"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await waitFor(() => host.getScreenText(id).includes("WIDEMARK"));
+
+    const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
+    // First attach in this epoch serializes and memoizes the 80-col snapshot.
+    const first = host.attach(id).snapshot;
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
+
+    // resize() reflows the mirror with no output to clear the memo — without
+    // invalidation the next same-epoch attach hands back the stale 80-col snap.
+    serializeSpy.mockClear();
+    host.resize(id, 120, 24);
+    const second = host.attach(id).snapshot;
+
+    expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
+    expect(second).not.toBe(first); // reflects the new 120-col layout
   });
 });
