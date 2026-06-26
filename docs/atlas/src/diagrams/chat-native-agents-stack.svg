@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 612" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="kolu in one picture, drawn as three bands with two different relationships rather than a rigid dependency tower. On top, XS — the chat app: an independent app that already runs without kolu and owns chat, presence, identity and login, and who-may-write. It integrates kolu through one seam: observe (read) plus act (write). In the middle, kolu — the terminal/file foundation: kaval owns each live terminal and serializes writes, pulam watches every terminal as read-only awareness, and @kolu/surface is the typed wire over any transport. kolu runs headlessly on any machine and is model-agnostic across claude, codex, and opencode. At the bottom, any machine kolu runs on: your laptop, a server, or a remote sandbox — an Incus cluster owned by another team, naturally supported because a remote host is just another place to dial the surface. The top relationship is integration; the bottom relationship is execution; chat, presence, and login live in XS.">
+  <defs>
+    <marker id="st-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <style>
+      .st-title  { fill:#0f172a; font-size:16px; font-weight:700; }
+      .st-sub    { fill:#64748b; font-size:11.5px; }
+      .st-mono   { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+
+      .amber-box { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
+      .amber-t   { fill:#92400E; font-size:15px; font-weight:700; }
+      .amber-s   { fill:#7a4f00; font-size:11.5px; }
+      .amber-badge { fill:#B45309; font-size:10px; font-weight:700; letter-spacing:0.09em; }
+
+      .blue-box  { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
+      .blue-leaf { fill:#F7F9FF; stroke:#9DB0EE; stroke-width:1.5; }
+      .blue-t    { fill:#0D32B2; font-size:15px; font-weight:700; }
+      .blue-s    { fill:#4A5072; font-size:11.5px; }
+      .leaf-t    { fill:#0A0F25; font-size:13px; font-weight:700; }
+      .leaf-s    { fill:#4A5072; font-size:10.5px; }
+      .blue-badge { fill:#0D32B2; font-size:10px; font-weight:700; letter-spacing:0.09em; }
+
+      .green-box { fill:#E6F4EA; stroke:#15803D; stroke-width:2; }
+      .green-t   { fill:#14532D; font-size:15px; font-weight:700; }
+      .green-s   { fill:#166534; font-size:11.5px; }
+      .green-badge { fill:#15803D; font-size:10px; font-weight:700; letter-spacing:0.09em; }
+
+      .edge      { stroke:#475569; stroke-width:2.25; fill:none; }
+      .elabel    { fill:#475569; font-size:11px; font-style:italic; }
+      .foot      { fill:#475569; font-size:11px; font-style:italic; }
+    </style>
+  </defs>
+
+  <text class="st-title" x="40" y="34">kolu in one picture &#8212; the foundation a chat app integrates</text>
+  <text class="st-sub" x="40" y="55">XS integrates kolu &#183; kolu runs headlessly on any machine &#8212; local or a remote sandbox</text>
+
+  <!-- TOP: XS (the app) -->
+  <rect class="amber-box" x="110" y="84" width="540" height="112" rx="11"/>
+  <text class="amber-t" x="380" y="112" text-anchor="middle">XS &#8212; the chat app</text>
+  <text class="amber-s" x="380" y="133" text-anchor="middle">an independent app &#8212; it already runs without kolu</text>
+  <text class="amber-s st-mono" x="380" y="162" text-anchor="middle" font-size="11px">chat &#183; presence &#183; identity &amp; login &#183; who-may-write</text>
+  <text class="amber-badge" x="632" y="105" text-anchor="end">THE APP</text>
+
+  <!-- arrow XS -> kolu (integration) -->
+  <path class="edge" d="M380 196 L380 236" marker-end="url(#st-arrow)"/>
+  <text class="elabel" x="392" y="221" text-anchor="start">integrates one seam: observe (read) + act (write)</text>
+
+  <!-- MIDDLE: kolu (the foundation) -->
+  <rect class="blue-box" x="80" y="236" width="600" height="192" rx="12"/>
+  <text class="blue-t" x="380" y="263" text-anchor="middle">kolu &#8212; the terminal / file foundation</text>
+  <text class="blue-s" x="380" y="283" text-anchor="middle">runs headlessly on any machine &#183; watches the terminals &#183; model-agnostic (claude &#183; codex &#183; opencode)</text>
+  <text class="blue-badge" x="662" y="257" text-anchor="end">THE FOUNDATION</text>
+
+  <rect class="blue-leaf" x="98" y="300" width="186" height="106" rx="7"/>
+  <text class="leaf-t" x="191" y="324" text-anchor="middle">kaval</text>
+  <text class="leaf-s" x="191" y="344" text-anchor="middle">owns each live terminal</text>
+  <text class="leaf-s" x="191" y="361" text-anchor="middle">spawn &#183; write &#183; kill &#183; resize</text>
+  <text class="leaf-s" x="191" y="382" text-anchor="middle">serializes writes &#183; last wins</text>
+
+  <rect class="blue-leaf" x="294" y="300" width="186" height="106" rx="7"/>
+  <text class="leaf-t" x="387" y="324" text-anchor="middle">pulam</text>
+  <text class="leaf-s" x="387" y="344" text-anchor="middle">watches every terminal</text>
+  <text class="leaf-s" x="387" y="361" text-anchor="middle">read-only awareness:</text>
+  <text class="leaf-s" x="387" y="378" text-anchor="middle">a &#8220;who needs me&#8221; board</text>
+
+  <rect class="blue-leaf" x="490" y="300" width="172" height="106" rx="7"/>
+  <text class="leaf-t" x="576" y="324" text-anchor="middle">@kolu/surface</text>
+  <text class="leaf-s" x="576" y="344" text-anchor="middle">the typed wire</text>
+  <text class="leaf-s" x="576" y="361" text-anchor="middle">over any transport:</text>
+  <text class="leaf-s st-mono" x="576" y="378" text-anchor="middle" font-size="10px">socket &#183; ssh &#183; Incus</text>
+
+  <!-- arrow kolu -> machine (execution) -->
+  <path class="edge" d="M380 428 L380 470" marker-end="url(#st-arrow)"/>
+  <text class="elabel" x="392" y="454" text-anchor="start">runs headlessly on &#183; dials a remote host over an authenticated link</text>
+
+  <!-- BOTTOM: any machine -->
+  <rect class="green-box" x="150" y="470" width="460" height="86" rx="11"/>
+  <text class="green-t" x="380" y="498" text-anchor="middle">any machine kolu runs on</text>
+  <text class="green-s" x="380" y="518" text-anchor="middle">your laptop &#183; a server &#183; a remote sandbox host</text>
+  <text class="green-s" x="380" y="536" text-anchor="middle">Incus cluster (another team) &#8212; naturally supported</text>
+  <text class="green-badge" x="596" y="491" text-anchor="end">RUNS ON</text>
+
+  <!-- footer -->
+  <text class="foot" x="380" y="586" text-anchor="middle">XS integrates kolu; kolu runs headlessly on any machine &#8212; local or a remote sandbox. Chat, presence, and login live in XS.</text>
+</svg>
