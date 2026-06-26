@@ -4,7 +4,7 @@ description: Repeat the kaval decoupling one level up. The awareness sensors (gi
 parents: [kaval-sessions, feature]
 status: accepted
 maturity: budding
-updated: 2026-06-23
+updated: 2026-06-26
 ---
 
 import D2 from "../../components/D2.astro";
@@ -62,20 +62,14 @@ So the old asymmetry — *local mutates kolu's record; remote serves → mirrors
 
 > **`mirrorRemoteSurface` has graduated** (<PrLink pr={1497} />). It is now the one public mirror in `@kolu/surface` — the spec-driven dual of `implementSurface` that drives a served surface's **streaming** primitives (cells/collections/streams) into caller-supplied sinks — mirroring *procedures* to a **total** dual is [remote-terminals](remote-terminals.html) R7; `mirrorRemoteCollection` is demoted to its private per-key engine ("you don't sell half a house"). The trigger was pulam growing a real **`activity` stream** (the green dot) — the second stream-bearing consumer the graduation waited for. It does not by itself dissolve kolu's server-side fold — remote-terminals **R8** does, by composing the surface into kolu's own; until then the fold consumes `mirrorRemoteSurface`. As a `@kolu/surface` API change it rode `surface.md`'s drishti merge-gate.
 
-## The standalone tool — `pulam` + `pulam-tui`
+## The standalone tools — `pulam` + its two clients
 
-Like kaval, the daemon is a deliverable in its own right, shipped and proven *before* kolu touches it. Where `kaval-tui` shows what's *running* in each PTY, `pulam-tui` shows what each terminal *is in* — a "what is every agent doing, across every repo" dashboard with **zero kolu-server**, dialable over ssh against a prod box.
+Like kaval, the daemon is a deliverable in its own right, shipped and proven *before* kolu touches it. Where `kaval-tui` shows what's *running* in each PTY, the pulam clients show what each terminal *is in* — the awareness slice, with **zero kolu-server**, dialable over ssh against a prod box. Two clients read it, split by richness, the kaval picture one layer up:
 
-<Terminal title="pulam-tui · ssh nix@prod" lines={[
-  "$ pulam-tui --host prod",
-  "ID     BRANCH         DIRTY  PR        AGENT             FOREGROUND",
-  "a3f1   feat/dial-ssh  ●      #1412 ✓   claude · working  node",
-  "b7c2   master         ·      —         codex · waiting   codex",
-  "c9d4   fix/fold       ●      #1408 ✗   —                 nvim",
-  "# derived intelligence over the raw PTY — a future TUI-kolu consumes the same daemon",
-]} />
+- **[pulam-tui](pulam-tui.html)** — the *raw* client, [kaval-tui](pty-daemon-tui.html)'s sibling: a thin Node CLI (`status` / `watch`) against **one** daemon over a socket or ssh. It is deliberately **not** a full TUI — see [its note](pulam-tui.html).
+- **[pulam-web](pulam-web.html)** — the *rich* client: the browser fleet dashboard that fans out over N hosts, "what is every agent doing, across every repo, across every machine." This is where the multi-host glance view lives.
 
-It ships self-contained: the sensors (`@kolu/terminal-workspace/sensors.ts`) import nothing from kolu but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. Define the contract once and the consumers fall out of one schema — the daemon serves it, the TUI reads it, and remotely kolu mirrors and reads it.
+It ships self-contained: the sensors (`@kolu/terminal-workspace/sensors.ts`) import nothing from kolu but a logger, and the host runtime deps are just `node · git · gh` (SQLite via Node's built-in `node:sqlite` — no native addon), so the bin travels cleanly over ssh. Define the contract once and the consumers fall out of one schema — the daemon serves it, the clients read it, and remotely kolu mirrors and reads it.
 
 ## The R4 tree — shipped end-to-end
 
@@ -94,6 +88,10 @@ arivu (அறிவு, *the faculty of knowing*) was named for **awareness**. R
 | **R4.5** <Pill variant="ok">feature</Pill> | the **fleet dashboard** — see below. | <PrLink pr={1470} /> · <PrLink pr={1479} /> · <PrLink pr={1486} /> · <PrLink pr={1497} /> |
 
 ## R4.5 — the fleet board
+
+<Callout kind="note" title="Superseded for the TUI — the fleet board now lives in the browser">
+What R4.5 shipped — the multi-host fleet board as an OpenTUI/Bun dashboard *inside `pulam-tui`* — has been **walked back**: the rich fleet glance is now **[pulam-web](pulam-web.html)**'s, and `pulam-tui` reverts to a thin `status` / `watch` client ([its note](pulam-tui.html)). The record below is shipped history; read it for how the awareness mirror was first proven, not for the current shape of `pulam-tui`.
+</Callout>
 
 The user's framing made literal — *"what is every agent doing, across every repo, across every machine"* — as a **dashboard you leave open on a second monitor**: glance over from the game and a colour you can read across the room tells you whether any agent is **blocked on you**, and where. It stays a TUI, runs zero kolu-server, and shipped as four steps:
 
@@ -190,34 +188,14 @@ When nothing needs you the board sits **calm** — cyan working spinners, dim id
 
 **Host is stamped at the dial site**, never by the daemon — the awareness-layer echo of kolu's kolu-side `location` stamp (`AwarenessValue` deliberately carries no `hostId`). The render reads the aggregate keyed by `(host, terminalId)`, so two boxes' identical terminal ids stay distinct.
 
-## Why this stays a TUI, and what is electricity vs. a leaf
+## The fleet board moved to the browser — and pulam-tui slimmed down
 
-The fleet board is the awareness analog of **drishti**. Per [electricity](electricity.html), `@kolu/surface` proved it was real electricity by graduating to a second consumer (drishti's fleet process-monitor). pulam's fleet is the exact same shape one layer up — a dashboard that mirrors N remote pulam daemons into one host-keyed view, proving pulam's **own** surface is itself a receptacle a different app plugs into. The clincher: the fan-out + aggregation needed **no contract change** to exist (R4.5.3 mirrored the same `awareness` collection across N hosts). That invariance under a brand-new multi-host consumer *is* the electricity proof. (R4.5.4's `activity` stream came later, as an additive *feature*, not a tax the multi-host consumer levied.)
+R4.5 shipped the fleet board *as an OpenTUI dashboard inside `pulam-tui`* — a Bun binary, a Zig renderer via `Bun.dlopen`, bun2nix packaging. That was the right call **while the TUI was the only rich fleet view**. It no longer is: **[pulam-web](pulam-web.html)** is the browser fleet dashboard, and it is the better home for the multi-host glance. So the OpenTUI/Bun half is walked back — `pulam-tui` reverts to a [kaval-tui](pty-daemon-tui.html)-style raw client (`status` / `watch`, one daemon over a socket or ssh), and the multi-host fleet lives in pulam-web. The full strip-back — what leaves the package and why — is **[pulam-tui](pulam-tui.html)**'s own note.
 
-Two boundary calls keep it honest:
+The **electricity** call survives the move intact — it lands cleaner, in fact:
 
-- **The renderer is electricity — but it already exists as OpenTUI.** A domain-agnostic Solid→terminal capability, so R4.5 *consumes* OpenTUI per *prefer-libraries* rather than minting a `@kolu/solid-tui`.
-- **The aggregation join is a leaf reducer, not electricity.** It hides a bounded host-keyed merge, not a hard volatility (transport + provision + reconnect already belong to `@kolu/surface-nix-host`; the per-primitive mirror to `@kolu/surface`). So no `@kolu/fleet-mirror` — that is exactly the "tidy generic helper" trap electricity warns against.
-
-<Callout kind="good" title="The fleet glance view stays a TUI — but the web twin earns its keep elsewhere (R4.8)">
-For the *fleet glance view*, the TUI wins: a read-only aggregator has nothing to fold and nothing to persist, so a browser shell's stale-tab/reconnect story would be pure ceremony. The TUI ships fast, is dev-loop-native, and proved the aggregation core cheaply — that judgement stands *for the glance view*. What it missed: kolu's own browser consumes this **same** surface over `websocketLink` + `surfaceClient`, and *that* leg needs a standalone proof. So **[pulam-web](#r48) (R4.8)** is not a prettier dashboard — it is the electricity proof of kolu's *consumption shape*, the one thing the TUI's `stdioLink` can't exercise. A team-wide browser monitor is the real product that falls out; it stays pulam's own consumer, zero kolu-server, never composed into kolu — a **different product** from kolu's own-canvas consume ([remote-terminals](remote-terminals.html) R8–R9).
-</Callout>
-
-## Why Bun, contained to the viewer
-
-OpenTUI is the production-grade TUI framework (it powers OpenCode and terminal.shop) and ships a **Solid reconciler** (`@opentui/solid`), so the dashboard is authored in the same fine-grained-reactive model kolu already lives in. The catch — and the reason the runtime swap came first — is that OpenTUI's renderer is a native **Zig** core loaded via `Bun.dlopen`: it needs Bun.
-
-So the split is narrow and deliberate: **`pulam-tui` alone** becomes a Bun binary; everything else, including the `pulam` **daemon**, stays Node. The daemon is the half that travels over ssh and leans on `node:sqlite`, so it must stay Node (and stays cross-arch). The viewer is never provisioned over ssh, so the Bun runtime + per-arch Zig lib live only in the local closure. The packaging is reused, not new ground — it is drishti's bun2nix recipe wholesale.
-
-<Callout kind="warn" title="OpenTUI + Solid build gotchas (learned the hard way in R4.5.2)">
-
-- **OpenTUI repaints only the CHANGED CELL.** Verify "is it live?" with **raw-PTY capture** (frame N+1 ≠ frame N), never `snapshot | grep` or a glance — both read a live UI as frozen.
-- **Bundle `solid-js`; do NOT mark it `external`.** `@opentui/solid`'s plugin redirects solid-js to its reactive client build only when solid is loaded *during the build*. Marking it external ships the non-reactive *server* build and every live value silently freezes at runtime (invisible in dev, where the `bunfig.toml` preload redirects at load time). Use `external: ["@opentui/core"]` only.
-- **Pre-bundle; don't run from source.** `build.ts` (`Bun.build` + `@opentui/solid/bun-plugin`) applies `babel-preset-solid` at build time; clean its `outdir` first (Bun.build leaves orphan chunks). The smoke that catches the freeze is running the **built `dist/bin.js`** and confirming a repaint.
-- **SolidJS-canonical only** — a live value is `createSignal` + `onMount(setInterval)` + `onCleanup(clearInterval)`, read in JSX. No fps caps, `requestRender`, or `process.stderr` monkeypatching.
-- **Forwarded daemon stderr** over `--host` is quieted **at the daemon** (`warn` over `--stdio`) so it can't corrupt the alt-screen; the held-open fleet dials route their logs through `@kolu/surface-nix-host`'s `onLog` sink.
-
-</Callout>
+- pulam's fleet was the awareness analog of [drishti](electricity.html): a second consumer proving pulam's **own** surface is a receptacle (the fan-out needed **no contract change** — that invariance *is* the proof). [pulam-web](pulam-web.html) is now that second consumer, and the *better* one, so the proof stands without the TUI having to be rich to carry it.
+- The renderer is electricity, but a domain-agnostic Solid→surface capability the *browser* already owns — so the TUI no longer mints or even consumes a terminal renderer. The aggregation join stays a leaf reducer (a bounded host-keyed merge, not a hard volatility — transport + provision + reconnect belong to `@kolu/surface-nix-host`), now living in pulam-web. No `@kolu/fleet-mirror`, the "tidy generic helper" trap electricity warns against.
 
 <a id="r46"></a>
 
@@ -253,6 +231,7 @@ R4.8 grew its own UI and a layered plan, so it moved to a dedicated note: **[pul
 
 ## History
 
+- **pulam-tui slimmed to a thin client; the fleet board is the browser's** (2026-06-26) — now that [pulam-web](pulam-web.html) carries the rich multi-host fleet dashboard (R-pulamweb-3, <PrLink pr={1535} />), `pulam-tui` no longer needs to be a full-blown TUI. It reverts to a [kaval-tui](pty-daemon-tui.html)-style raw client — `status` / `watch` against **one** daemon over a socket or ssh — shedding **Bun + OpenTUI**, bun2nix, and the multi-host `fleet` board (all of which leave for pulam-web). The R4.5 fleet board and the "Why this stays a TUI" / "Why Bun" sections are superseded for the client; the strip-back has its own note, **[pulam-tui](pulam-tui.html)**. The electricity proof is unaffected — pulam-web is the second consumer that carries it.
 - **pulam-web split into its own note** (2026-06-22) — R4.8 grew its own UI + a layered plan, so it moved to **[pulam-web](pulam-web.html)**. Grounded against `/home/srid/code/drishti` (**Node + Vite** chosen to match kolu's stack — the surface leg is identical `@kolu/surface` code, so the runtime was free; Bun was only drishti's bundler; autoprovision via `getHostSession` + `provisionAgent`) and `pulam-tui` (the `startFleet` / `FleetSink` / `RepoWatchSet` core is renderer-agnostic). Layered as **Step 0** (drishti graduates the reactive `.streams.use()` consumer via `processesSnapshot`) · **R4.8a** the whole framework rendering only a terminal list · **R4.8b** the user-facing features.
 - **R4.8 plan grounded against R4.7's shipped code** (2026-06-22) — verified R4.7 consumed the real `{seq}` stream (not the value-bearing awareness `git` field), so its charter is met — *but* via `pulam-tui`'s **raw `mirrorRemoteSurface` iteration**, not kolu's `surfaceClient` + `reconcile` (the path #1510 stuck on, which R4.7 never touches). R4.8 sharpened so that gap can't recur: a trap callout (don't port the raw loop), an explicit **value-bearing-vs-raw-`{seq}` design fork** (lead: the server-side value-bearing wrap `koluSurface` already proves at `server/src/surface.ts:271-277`), a definition-of-done demanding the `surfaceClient`+reconcile consumer **plus** live-over-ws evidence, and a verified file map. The earlier R4.7 plan named the *feature* ("live git status") without pinning the *mechanism* it existed to prove — a planning defect now corrected.
 - **R4.7 live `git status` shipped** (2026-06-22, <PrLink pr={1519} />) — the fleet board's first consumer of the surface's fs/git `{seq}` watcher arm: each row gains a live working-tree cell (changed count + branch ahead/behind) and a ↑/↓-selectable drill-in to the full `git status`, all driven by `subscribeRepoChange` re-querying `git.getStatus`. `getStatus`'s local mode grew the branch tracking header + working-tree counts (off the same `git status`) and dropped the always-null `base`, a breaking reshape that bumps the workspace contract `0.3 → 1.0`; a `RepoWatchSet` owns the per-repo subscribe→requery lifecycle. Proven over a real link in `pulam/daemon.test.ts` (a working-tree change pulses → the re-query reflects it) — the graduation gate for kolu's remote Code-tab live updates ([remote-terminals](remote-terminals.html) R8b). The lens debate split extend-`getStatus` (hickey) vs ahead/behind-on-the-awareness-sensor (lowy); extending won because routing it through awareness would skip the very loop R4.7 exists to prove.

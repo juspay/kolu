@@ -9,9 +9,9 @@ every PTY kaval owns, and serves the
 `awareness` collection + `version` cell + live `activity` stream, plus (added in
 R6) the Code tab's `fs.*` / `git.*` read procedures and their
 `subscribeRepoChange` / `subscribeFileChange` change-pulse watcher streams.
-[`pulam-tui`](../pulam-tui) consumes the awareness/activity side **and** the
-fs/git `git.getStatus` + `subscribeRepoChange` arm — its live `git status` view
-(R4.7); a remote kolu-server mirrors the same surface in R8.
+[`pulam-tui`](../pulam-tui) — the thin `status`/`watch` CLI — consumes the
+awareness/activity side; [`pulam-web`](../pulam-web) and a remote kolu-server
+mirror the fs/git `git.getStatus` + `subscribeRepoChange` arm (R8).
 
 Where kaval owns the PTYs, pulam derives _meaning_ over them — and adds **zero**
 awareness/git/gh logic to kaval, dialing it as a plain `ptyHostSurface` client
@@ -56,7 +56,8 @@ process is exactly what this daemon retires.
 ```sh
 nix run github:juspay/kolu#kaval                  # the PTY daemon
 nix run github:juspay/kolu#pulam                  # awareness over it
-nix run github:juspay/kolu#pulam-tui              # the dashboard
+nix run github:juspay/kolu#pulam-tui -- status    # snapshot the awareness
+nix run github:juspay/kolu#pulam-tui -- watch     # follow it live
 ```
 
 The runtime is just `node · git · gh` — no kolu-server, no browser. For _remote_

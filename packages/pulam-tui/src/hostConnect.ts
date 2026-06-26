@@ -1,9 +1,9 @@
 /**
- * `pulam-tui --host <ssh>` — reach an `pulam` daemon on a remote machine over
- * ssh, provisioning it with Nix, and hand back a `Connection` of the SAME shape
- * the local unix-socket path returns. Every `cmd*()` (list/watch) is written
- * against `Connection`, so the transport is the only thing that changes — the
- * commands are byte-for-byte unchanged over ssh.
+ * `pulam-tui status|watch --host <ssh>` — reach an `pulam` daemon on a remote
+ * machine over ssh, provisioning it with Nix, and hand back a `Connection` of
+ * the SAME shape the local unix-socket path returns. `status` and `watch` are
+ * written against `Connection`, so the transport is the only thing that changes
+ * — the commands are byte-for-byte unchanged over ssh.
  *
  * The reach + provision + supervise + one-shot-dial composition is
  * `@kolu/surface-nix-host`'s `dialAgentOnce`: it resolves the daemon's `.drv`
@@ -25,27 +25,17 @@
  * the documented exception, not the norm.
  *
  * This is the ONLY place pulam-tui imports `@kolu/surface-nix-host` — it must
- * never leak into the pulam daemon closure (the staleKey allow-list).
- *
- * NOTE: this branch ADDS public API to the drishti-shared `@kolu/surface*`
- * packages — `@kolu/surface-nix-host` gains `dialAgentOnce` + its types + an
- * optional `extraArgs`/`remoteProgressLines`, and `@kolu/surface` gains the
- * `./first-frame` helper — so per `packages/AGENTS.md` / `.claude/rules/surface.md`
- * it REQUIRES a corresponding drishti PR that updates drishti for the new surface
- * API and passes full CI, linked from the kolu PR before merge. (Earlier text
- * here claimed "no drishti mirror PR needed" — true only while the dep was
- * consumed read-only and unchanged.) Mechanically the mirror is an npins `kolu`
- * pin bump in drishti once this lands on `juspay/kolu` master, kept green by CI:
- * drishti's source imports NONE of the new symbols (zero `.ts` change), and the
- * only build-config delta is hydrating the new zero-dep leaf `@kolu/shell-quote`
- * that `surface-nix-host` now imports. See the kolu PR body's merge-gate bullet.
+ * never leak into the pulam daemon closure (the staleKey allow-list). It
+ * consumes `@kolu/surface*` read-only (`dialAgentOnce` + `firstFrameOrThrow`),
+ * adding no public API to those drishti-shared packages, so it needs no drishti
+ * mirror PR (`.claude/rules/surface.md`).
  */
 import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";
 
-type ArivuContract = typeof terminalWorkspaceSurface.contract;
+type PulamContract = typeof terminalWorkspaceSurface.contract;
 
 /** The per-system `{ system → pulam daemon .drv }` map env var, baked by the
  *  `pulam-tui` Nix wrapper (`mkAgentTuiWrapper` in default.nix). Named ONCE as a
@@ -59,17 +49,17 @@ const PULAM_AGENT_DRVS_ENV = "PULAM_AGENT_DRVS_JSON";
  *  points the remote pulam at a specific kaval (`pulam --stdio --kaval <path>`);
  *  omit it and the remote pulam **discovers** the running kaval — a standalone
  *  one or a home-manager kolu-server (namespaced by listen port). */
-export function connectArivuViaHost(
+export function connectPulamViaHost(
   host: string,
   kavalSocket?: string,
   onLog?: (line: string) => void,
 ): Promise<Connection> {
-  return dialAgentOnce<ArivuContract>({
+  return dialAgentOnce<PulamContract>({
     host,
-    // Where the dial's lifecycle / forwarded-daemon-stderr lines go. The bare
-    // `--host` dashboard omits it (its lines reach process.stderr, harmless: it
-    // snapshots then disposes BEFORE the alt-screen opens). The live `fleet`
-    // board passes a sink so a held-open session can't bleed onto the screen.
+    // Where the dial's lifecycle / forwarded-daemon-stderr lines go. The CLI
+    // omits it, so the lines reach process.stderr — harmless: `status`/`watch`
+    // print their data to stdout and own no alt-screen, so a forwarded stderr
+    // line can't corrupt the output.
     onLog,
     // `${agentPath}/bin/pulam`, run as `pulam --stdio`. The drv map is keyed to
     // the pulam DAEMON drv (sensors + git/gh), not the pulam-tui viewer.

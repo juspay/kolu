@@ -1,5 +1,5 @@
 /**
- * Dial an `pulam` daemon over its unix socket and hand back a contract-typed
+ * Dial a `pulam` daemon over its unix socket and hand back a contract-typed
  * client for the awareness surface. The transport is `unixSocketLink` — the
  * local-IPC member of `@kolu/surface`'s link family, the same one kaval-tui
  * uses for the pty-host. The `--host <ssh>` path swaps only the link
@@ -15,21 +15,22 @@ import {
 } from "@kolu/surface/links/unix-socket";
 
 /** The contract-typed awareness client — identical whatever link backs it. */
-export type ArivuClient = UnixSocketConnection<
+export type PulamClient = UnixSocketConnection<
   typeof terminalWorkspaceSurface.contract
 >["client"];
 
 /** A live pulam connection: the client plus a `dispose` that tears the
- *  transport down. */
+ *  transport down. Disposing closes the link, which settles any live
+ *  `mirrorRemoteSurface` (`watch`'s `.done`). */
 export interface Connection {
-  client: ArivuClient;
+  client: PulamClient;
   dispose: () => void;
 }
 
 /** Connect to the pulam daemon at `socketPath`. Rejects with the raw socket
  *  error (`ECONNREFUSED` for a dead/absent daemon, `ENOENT` for a missing
  *  path) so the caller can print an honest, actionable message. */
-export function connectArivu(socketPath: string): Promise<Connection> {
+export function connectPulam(socketPath: string): Promise<Connection> {
   return unixSocketLink<typeof terminalWorkspaceSurface.contract>({
     socketPath,
   });

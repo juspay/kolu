@@ -1,0 +1,153 @@
+---
+title: pulam-tui — the thin CLI client for the pulam daemon
+description: Now that pulam-web carries the rich fleet dashboard, pulam-tui no longer needs to be a full-blown TUI. It sheds Bun + OpenTUI and reverts to a kaval-tui-style raw client — status / status --json / watch <id> / watch <id> --json against one pulam daemon over a unix socket or ssh. The CLI face of pulam; the multi-host fleet board moves wholesale to the browser.
+parents: [pulam, feature]
+status: proposed
+maturity: seedling
+updated: 2026-06-26
+---
+
+import D2 from "../../components/D2.astro";
+import Terminal from "../../components/Terminal.astro";
+import Callout from "../../components/Callout.astro";
+import Pill from "../../components/Pill.astro";
+import PrLink from "../../components/PrLink.astro";
+
+**`pulam-tui` is the raw client of the [pulam](pulam.html) daemon — kaval-tui's sibling, one layer up.** Where [kaval-tui](pty-daemon-tui.html) is the thin shell client of the kaval *PTY* daemon (`list` / `attach` / `kill` over a socket, no browser), `pulam-tui` is the thin shell client of the pulam *awareness* daemon: `status` / `watch` over the same socket-or-ssh transport. The rich, leave-it-on-a-second-monitor fleet view is **[pulam-web](pulam-web.html)**'s job now — so `pulam-tui` sheds the **Bun + OpenTUI** machinery it grew for that view and reverts to what kaval-tui has always been: a scriptable, single-daemon CLI face.
+
+<Callout kind="note" title="What changed — the fleet board moved to the browser">
+`pulam-tui` *was* a full OpenTUI dashboard (a Bun binary, a per-arch Zig renderer via `Bun.dlopen`, a live multi-host `fleet` board). That was the right call **while the TUI was the only rich fleet view** — but [pulam-web](pulam-web.html) (shipped through R-pulamweb-3) is now the browser fleet dashboard, and it is the better home for "what is every agent doing, across every host." So the TUI's expensive half is redundant. This note strips `pulam-tui` back to a raw single-daemon client; the multi-host `fleet` board, the OpenTUI render, and the Bun runtime all leave. (It is **OpenTUI** — the lib that *powers* opencode — plus **Bun** that go; `pulam-tui` never depended on opencode itself.)
+</Callout>
+
+## User-facing description
+
+Two verbs against one daemon — **`status`** (a one-shot snapshot) and **`watch`** (a live follow) — each with a `--json` twin for scripting, and `watch` optionally narrowed to a single terminal id. No alt-screen, no full-screen UI: `pulam-tui` prints to your terminal and exits, or streams line-by-line, exactly the way kaval-tui's `list` / `snapshot` do.
+
+The surface mapping — each command is a thin read over the `terminalWorkspaceSurface` the daemon serves:
+
+| Subcommand | Surface read | Behaviour |
+| --- | --- | --- |
+| `pulam-tui status` | `awareness` collection (one-shot) | Print one row per terminal — `repo·branch · PR · agent · foreground · idle` — then exit. The awareness snapshot as a plain text table. (No working-tree *dirty* count: that needs `git.getStatus`, which the single-daemon snapshot deliberately doesn't call — it's pulam-web's drill-in.) |
+| `pulam-tui status --json` | `awareness` collection (one-shot) | Emit the flat `[{ id, ...AwarenessValue }]` array and exit. The machine-readable face. |
+| `pulam-tui watch` | `awareness` collection + `activity` stream (subscribe) | Follow **every terminal** on the daemon: print a line each time any terminal's awareness changes (agent state, branch, foreground), with a trailing `●` when it's moving bytes right now, until `Ctrl+C`. |
+| `pulam-tui watch --json` | same | One JSON object per line (newline-delimited) per update, across all terminals — the streaming scriptable feed. |
+| `pulam-tui watch <id>` | same, filtered to one id | The same live follow, narrowed to a single terminal. `--json` likewise. |
+
+Flags mirror kaval-tui exactly: `--socket <path>` points at a local daemon (default `$XDG_RUNTIME_DIR/pulam/awareness.sock`); `--host <ssh>` dials and Nix-provisions a single remote pulam over ssh. The two are mutually exclusive, and there is **no multi-host mode** — one invocation, one daemon. (Watching the whole *fleet* across hosts is what you open [pulam-web](pulam-web.html) for.)
+
+### Workflows
+
+**Glance — what is every terminal in, right now.** `status` prints the snapshot and exits:
+
+<Terminal title="pulam-tui · unixSocketLink → /run/user/1000/pulam/awareness.sock" lines={[
+  "$ pulam-tui status",
+  "",
+  "ID        REPO·BRANCH         PR            AGENT             FOREGROUND  IDLE",
+  "a3f10000  kolu·feat/dial-ssh  #1412 open ✓  claude · working  node          4s",
+  "b7c20000  drishti·master      —             codex · waiting   codex         1s",
+  "c9d40000  kolu·fix/fold       #1408 open ✗  —                 nvim         12m",
+]} />
+
+**Follow the whole daemon live.** `watch` (no id) streams every terminal's changes as they land — leave it running in a spare pane. Each line is `HH:MM:SS  id  repo·branch  agent · state`, with a trailing `●` when that terminal is moving bytes right now:
+
+<Terminal title="pulam-tui · watch" lines={[
+  "$ pulam-tui watch",
+  "14:02:11  a3f10000  kolu·feat/dial-ssh  claude · working  ●",
+  "14:02:19  b7c20000  drishti·master      codex · waiting",
+  "14:02:30  a3f10000  kolu·feat/dial-ssh  claude · awaiting",
+  "14:05:48  c9d40000  (gone)",
+  "^C",
+]} />
+
+**Follow one terminal.** Narrow to an id (the short id from `status`, or a unique prefix) when you only care about one agent:
+
+<Terminal title="pulam-tui · watch a3f10000" lines={[
+  "$ pulam-tui watch a3f10000",
+  "14:02:11  a3f10000  kolu·feat/dial-ssh  claude · working  ●",
+  "14:02:30  a3f10000  kolu·feat/dial-ssh  claude · awaiting",
+  "^C",
+]} />
+
+**Script it.** `--json` turns either verb into a feed — pipe `status --json` through `jq`, or alert off a `watch --json` line (NDJSON, one object per line):
+
+<Terminal title="pulam-tui · scripted" lines={[
+  "$ pulam-tui status --json | jq -r '.[] | select(.agent.kind==\"claude-code\" and .agent.state==\"awaiting_user\") | .id'",
+  "c9d40000-1111-4222-8333-444455556666",
+  "",
+  "$ pulam-tui watch --json | jq -rc 'select(.agent.state==\"awaiting_user\") | \"\\(.terminalId) needs you\"'",
+  "a3f10000-1111-4222-8333-444455556666 needs you",
+  '# {\"terminalId\":\"a3f10000-…\",\"active\":false,\"cwd\":\"/code/kolu\",\"git\":{\"repoName\":\"kolu\",\"branch\":\"feat/dial-ssh\"},\"agent\":{\"kind\":\"claude-code\",\"state\":\"awaiting_user\"},\"pr\":{…}}',
+]} />
+
+**Reach a remote daemon.** `--host` dials and Nix-provisions one pulam over ssh — same two verbs, no kolu-server:
+
+<Terminal title="pulam-tui · status --host prod" lines={[
+  "$ pulam-tui status --host prod",
+  "",
+  "ID        REPO·BRANCH        PR            AGENT             FOREGROUND  IDLE",
+  "d4e20000  infra·deploy       —             —                 ansible       8s",
+  "f1a80000  kolu·fix/heap-oom  #1427 open ✓  claude · working  node          2s",
+]} />
+
+## Architecture-level changes
+
+The whole point is the **raw-vs-rich split**, the same one kaval-tui draws against its daemon: the daemon is durable and serves the full typed surface; the `-tui` client is the bare, scriptable face, and the *browser* is the rich one. `pulam-tui` reading awareness is the exact analog of kaval-tui reading PTYs.
+
+<D2
+  caption="One daemon, two clients, split by richness — the kaval picture, one layer up. pulam serves the whole terminalWorkspaceSurface; pulam-web (browser) is the rich client that fans out over N hosts and renders the fleet dashboard; pulam-tui is the raw client — one daemon, status + watch, scriptable. pulam-tui no longer needs Bun or OpenTUI: it is a plain Node/tsx CLI over @kolu/surface's link family, dialing one --socket or one --host."
+  code={`direction: down
+classes: {
+  cli: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
+  web: { style.fill: "#e7eefb"; style.stroke: "#c3d4f3"; style.font-color: "#2563eb" }
+  tool: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
+  pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
+}
+tui: "pulam-tui (raw client)\\nNode · tsx · status + watch · ONE daemon" { class: cli }
+web: "pulam-web (rich client)\\nbrowser · fans out N hosts · the fleet board" { class: web }
+pulam: "pulam (daemon)\\nruns the sensors · serves terminalWorkspaceSurface" { class: tool }
+kaval: "kaval\\ndurable PTY · taps" { class: pty }
+tui -> pulam: "dials · awareness + activity (--socket | --host)"
+web -> pulam: "mirrors over ws (rich fleet)"
+pulam -> kaval: "taps"
+`}
+/>
+
+**`pulam-tui` reverts to a leaf — and loses no electricity proof by doing so.** The original note justified the OpenTUI fleet board as the awareness analog of [drishti](electricity.html): a second consumer that proves pulam's *own* surface is a receptacle other apps plug into. That proof now stands on **pulam-web** — a second consumer, and the *better* one, reading the same surface the same way kolu's browser will. With the electricity carried elsewhere, the TUI no longer has to be rich to earn its keep; it can be the bare scriptable client and nothing is lost. The renderer that the old note called "electricity, but already OpenTUI" is simply not needed in the TUI anymore — the rich render lives in the browser, where it belongs.
+
+What leaves the package, and why it was only ever there for the fleet board:
+
+- **The Bun runtime → back to Node (`tsx`).** OpenTUI's renderer is a native Zig core loaded via `Bun.dlopen`, so the dashboard needed Bun. With no dashboard, Node is enough — matching kaval-tui's `tsx src/main.ts` and the pulam daemon's own runtime.
+- **OpenTUI (`@opentui/core`, `@opentui/solid`) + the per-arch Zig lib.** The whole SolidJS-into-terminal render layer (`render.ts`, the live clock, the breathing alert strip) goes; `status` prints a table and exits.
+- **bun2nix and its scaffolding.** `bun.lock` / the autogenerated `bun.nix` / the per-arch Zig closure / the pnpm-workspace exclusion that kept the Bun manifest out of pnpm's glob — all of it existed to package the Bun viewer. It is replaced by the same plain Node packaging kaval-tui uses.
+- **The multi-host `fleet` subcommand.** The N-host fan-out, the `(host, terminalId)` aggregate, the `FleetSink` / `startFleet` / multi-host `RepoWatchSet`, the `--by` / `--no-local` / `--ssh-config` flags — the entire aggregation surface moves to [pulam-web](pulam-web.html), which already owns it. `pulam-tui` dials one daemon.
+
+What stays — the thin-client spine, shared with kaval-tui:
+
+- **The single-daemon dial.** `--socket` for a local daemon and `--host` for one remote pulam over ssh, both through `@kolu/surface-nix-host`'s `dialAgentOnce` — the *same* one-shot primitive kaval-tui's `--host` rides. `pulam-tui` and kaval-tui stay thin wrappers over one shared dial.
+- **The awareness read + `--json`.** The one-shot `awareness`-collection dump (today's `--json`) is already exactly what `status` needs; it keeps that path and grows the human table beside it.
+
+## Implementation details
+
+A subtractive change, mostly: delete the viewer, keep the dial, rename the snapshot. The decisions, to be echoed as code comments at their sites (the kaval-tui convention):
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| **Runtime** | `tsx`, not Bun | The daemon already runs Node; with OpenTUI gone there is nothing left that needs Bun's `dlopen`. One runtime across daemon + CLI, and a smaller closure (no per-arch Zig). |
+| **Render** | plain line output, no alt-screen | A raw status client owns zero pixels — it prints rows and exits, or streams lines. The rich, full-screen render is [pulam-web](pulam-web.html)'s. This mirrors kaval-tui's raw-passthrough render-fidelity decision. |
+| **Scope** | one daemon, no fleet | `--socket` *or* one `--host`; the multi-host aggregation is pulam-web's. Keeping a degraded text-mode fleet in the TUI would duplicate pulam-web for no gain — the glance view is the browser's. |
+| **Commands** | `status` (snapshot) / `watch` (live), each with `--json`; `watch` takes an optional `<id>` | `status` is the awareness snapshot (kaval-tui's `list`/`snapshot` analog); `watch` is the streaming verb pulam adds over kaval-tui's one-shot-only model — bare `watch` follows every terminal on the daemon, `watch <id>` narrows to one. The natural CLI expression of the awareness/activity stream. |
+
+The steps:
+
+1. **Strip the viewer.** Remove `@opentui/*`, the `render.ts` OpenTUI tree, the live clock, and the `fleet` subcommand from `packages/pulam-tui`. Drop the Bun manifest (`bun.lock` / `bun.nix` / the Zig closure) and the pnpm-workspace exclusion; repoint `package.json`'s `start` to `tsx src/bin.ts`.
+2. **Keep the dial, rename the snapshot.** The existing single-endpoint awareness consume (today rendered by the OpenTUI list, dumped by `--json`) becomes `status` / `status --json` over `--socket` | `--host` (`dialAgentOnce`). No surface change — `status` is a one-shot read of the `awareness` collection the daemon already serves.
+3. **Add `watch`.** Subscribe to the `awareness` collection plus the `activity` stream and print each update — a line in default mode, one JSON object per line under `--json` — until `Ctrl+C`. Bare `watch` follows every terminal; an optional `<id>` filters to one. A pure consumer; no contract bump.
+4. **Repackage like kaval-tui.** The Nix derivation drops `bun2nix` for the plain Node packaging `packages/kaval-tui` uses; `nix run …#pulam-tui` and the dev recipe follow kaval-tui's wholesale.
+
+<Callout kind="warn" title="Consequence — pulam-tui leaves the three-surface paint mirror">
+The `dock-fleet-mirror` instruction pins a three-surface agent-state contract — kolu's Dock, `pulam-tui`, and `pulam-web` all painting from the shared `@kolu/terminal-workspace/agentProjection` fold. Dropping the TUI's fleet render takes `pulam-tui` out of that set: the contract becomes **Dock + pulam-web** (the two surfaces that still render sorted, colour-coded agent state). The `status` table can still read awareness, but it is an unsorted snapshot — the needs-you-first sort, the paint classes, and the breathing alert are pulam-web's. Update the `dock-fleet-mirror` rule to a two-surface contract as part of this change.
+</Callout>
+
+## History
+
+- **Proposed** (2026-06-26) — with [pulam-web](pulam-web.html) shipped as the browser fleet dashboard (R-pulamweb-3, <PrLink pr={1535} />), the OpenTUI/Bun fleet board in `pulam-tui` is redundant. This note reverts `pulam-tui` to a [kaval-tui](pty-daemon-tui.html)-style raw client — `status` and `watch` (all terminals, or one by id) over one daemon, Node/`tsx` instead of Bun, no OpenTUI, no multi-host fleet. Split out of [pulam](pulam.html)'s R4.5 (the fleet board) and its "Why this stays a TUI" / "Why Bun" sections, which this supersedes; the daemon note keeps the daemon story and points here for the client.
