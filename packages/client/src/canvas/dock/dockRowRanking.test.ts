@@ -132,19 +132,22 @@ describe("rankDockRows — parked bucket precedence", () => {
     expect(bucket(makeSleepingMeta(), false)).toBe("sleeping");
   });
 
-  it("keeps a sleeping terminal in sleeping even when STALE — decoupled from parked", () => {
-    // A long-slept tile must read 'asleep', never be parked-dropped; the dock's
-    // sleeping check runs before the parked check precisely for this.
-    expect(bucket(makeSleepingMeta(1), true)).toBe("sleeping");
+  it("parks a sleeping terminal once it is STALE — the activity window hides old dormant tiles", () => {
+    // A sleeping tile is still subject to the activity window: a fresh dormant
+    // tile keeps its ☾ bucket, but once its last activity falls outside the
+    // window it routes to `parked` like any other stale row, so the selector
+    // actually compresses yesterday's slept terminals out of the dock.
+    expect(bucket(makeSleepingMeta(1), false)).toBe("sleeping");
+    expect(bucket(makeSleepingMeta(1), true)).toBe("parked");
   });
 
-  it("never drops a sleeping row from the ranking", () => {
+  it("routes a stale sleeping row to parked so the dock drops it", () => {
     const rows = rankDockRows(
       ["t1"] as TerminalId[],
       () => makeSleepingMeta(1),
       () => true,
     );
-    expect(rows.map((r) => r.id)).toContain("t1");
+    expect(rows[0]?.bucket).toBe("parked");
   });
 
   it("meta.agent is not mutated by ranking — render layer retains identity after park", () => {

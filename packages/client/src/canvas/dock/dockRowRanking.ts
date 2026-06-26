@@ -40,9 +40,10 @@ import {
  *  subset of this union, not a literal coincidence. `parked` is its own bucket
  *  (not folded into idle) because it carries a different visual treatment (faded,
  *  tinier row) and routes through staleness, not the idle-bucket classifier.
- *  `sleeping` is likewise its own bucket — a DELIBERATE dormant state, decoupled
- *  from staleness: a freshly-slept tile must read "asleep", never "parked", and
- *  must NOT be dropped by the dock's parked filter. */
+ *  `sleeping` is its own bucket for the fresh-within-window case — a freshly-slept
+ *  tile reads "asleep" with its ☾ row. But staleness wins over it: once a slept
+ *  tile's last activity falls outside the window it routes to `parked` and is
+ *  dropped, so the activity-window selector compresses old dormant tiles too. */
 export type DockRowBucket = AgentPaintClass | "idle" | "sleeping" | "parked";
 
 /** Tiebreak ordering for rows with equal `ts` (typically never-touched
@@ -66,11 +67,13 @@ function classifyDockRow(
   meta: TerminalMetadata,
   parked: boolean,
 ): DockRowBucket {
-  // Sleeping is checked FIRST, before parked: a sleeping tile is a deliberate
-  // dormant state, never staleness, so it must keep its ☾ row and never fall
-  // into the parked-drop (which `dockTree` hides) however long it has slept.
-  if (sleepingArm(meta)) return "sleeping";
+  // Parked is checked FIRST, before sleeping: a sleeping tile is still subject
+  // to the activity window. A *fresh* slept tile keeps its ☾ row, but once its
+  // last activity falls outside the window it routes to `parked` (which
+  // `dockTree` hides) like any other stale row — otherwise yesterday's dormant
+  // terminals pile up in the dock and the window selector can't compress them.
   if (parked) return "parked";
+  if (sleepingArm(meta)) return "sleeping";
   // The agent-state core IS the shared needs-you projection, so the dock ranks
   // a given state identically to pulam-tui / pulam-web (pinned by the
   // differential test). `awaiting_user` → need, the working states → work, and
@@ -99,8 +102,11 @@ function classifyDockRow(
  *  agent). Order (rank) and colour (paint) are thus decoupled: the row sorts by
  *  urgency but glows by paint. */
 function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
-  if (sleepingArm(meta)) return "sleeping";
+  // Same parked-before-sleeping precedence as `classifyDockRow` — a parked row
+  // is dropped by `dockTree` so its pip never paints, but keeping the order
+  // identical means the two folds can't read as disagreeing.
   if (parked) return "parked";
+  if (sleepingArm(meta)) return "sleeping";
   const agent = activeArm(meta)?.agent;
   // No live agent → no pip colour to share with the title; keep the order
   // bucket's plain-shell triage (`idle` if touched, else `none`).
