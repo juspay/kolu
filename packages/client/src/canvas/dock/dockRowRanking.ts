@@ -63,17 +63,30 @@ export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   none: 5,
 };
 
+/** The row-overlay precedence shared by BOTH folds (order and paint): parked
+ *  wins over sleeping. Parked is checked FIRST because a sleeping tile is still
+ *  subject to the activity window — a *fresh* slept tile keeps its ☾ row, but
+ *  once its last activity falls outside the window it routes to `parked` (which
+ *  `dockTree` hides) like any other stale row, otherwise yesterday's dormant
+ *  terminals pile up in the dock and the window selector can't compress them.
+ *  Lifting the precedence here means it lives at ONE site: the order and paint
+ *  folds call this before diverging into their agent-state tails, so a future
+ *  reorder can't desync the two. */
+function dockOverlayBucket(
+  meta: TerminalMetadata,
+  parked: boolean,
+): "parked" | "sleeping" | undefined {
+  if (parked) return "parked";
+  if (sleepingArm(meta)) return "sleeping";
+  return undefined;
+}
+
 function classifyDockRow(
   meta: TerminalMetadata,
   parked: boolean,
 ): DockRowBucket {
-  // Parked is checked FIRST, before sleeping: a sleeping tile is still subject
-  // to the activity window. A *fresh* slept tile keeps its ☾ row, but once its
-  // last activity falls outside the window it routes to `parked` (which
-  // `dockTree` hides) like any other stale row — otherwise yesterday's dormant
-  // terminals pile up in the dock and the window selector can't compress them.
-  if (parked) return "parked";
-  if (sleepingArm(meta)) return "sleeping";
+  const overlay = dockOverlayBucket(meta, parked);
+  if (overlay) return overlay;
   // The agent-state core IS the shared needs-you projection, so the dock ranks
   // a given state identically to pulam-tui / pulam-web (pinned by the
   // differential test). `awaiting_user` → need, the working states → work, and
@@ -102,11 +115,11 @@ function classifyDockRow(
  *  agent). Order (rank) and colour (paint) are thus decoupled: the row sorts by
  *  urgency but glows by paint. */
 function paintDockRow(meta: TerminalMetadata, parked: boolean): DockRowBucket {
-  // Same parked-before-sleeping precedence as `classifyDockRow` — a parked row
-  // is dropped by `dockTree` so its pip never paints, but keeping the order
-  // identical means the two folds can't read as disagreeing.
-  if (parked) return "parked";
-  if (sleepingArm(meta)) return "sleeping";
+  // The overlay also runs in the paint fold so the two folds stay aligned by
+  // construction — even though a parked pip never paints (`dockTree` drops the
+  // row before it can reach a pip).
+  const overlay = dockOverlayBucket(meta, parked);
+  if (overlay) return overlay;
   const agent = activeArm(meta)?.agent;
   // No live agent → no pip colour to share with the title; keep the order
   // bucket's plain-shell triage (`idle` if touched, else `none`).
