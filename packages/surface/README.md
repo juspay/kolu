@@ -443,7 +443,7 @@ The bare `unenrolledStreamCall` lives at `@kolu/surface/client`, NOT on the `@ko
 
 For a multi-surface app (`surfaceClients`), `surfaceClientsHealth(clients)` folds every sibling client's health into one fact (prefixing each sub's name with its surface key, AND-reducing `live`) that a single `<SurfaceGate health={() => surfaceClientsHealth(clients)}>` gates on — drishti folds its admin + surface-app siblings this way for a control-plane health strip.
 
-Don't hand-wire that fold for a socket-backed app: reach for **`connectSurfaces({ surfaces, heartbeat?, ...SurfaceSocketOptions })`** (`@kolu/surface-app/solid`) — one seam that opens one socket + one `createSocketStatus` + `surfaceClients` + ONE default-on heartbeat probing the first sibling's reserved `system.live`, and returns `{ ws, echo, clients, status, health: () => surfaceClientsHealth(clients), dispose }`. Because the half-open **watchdog is intrinsic to the seam**, `health().live` reflects a silent half-open (laptop sleep, wifi roam) however the socket was built. The hand-built path — `createSurfaceSocket` + `websocketLink` + `surfaceClient`/`surfaceClients` with no heartbeat — is the loud, documented **escape hatch** only (a direct/stdio link, or a minimal example); a socket-backed client should use `connectSurface` / `connectSurfaces` so the watchdog can't be forgotten.
+Don't hand-wire that fold for a socket-backed app: reach for **`connectSurfaces({ surfaces, heartbeat?, ...SurfaceSocketOptions })`** (`@kolu/surface-app/solid`) — one seam that opens one socket + one `createSocketStatus` + `surfaceClients` + ONE default-on heartbeat probing the first sibling's reserved `system.live`, and returns `{ ws, echo, clients, status, health: () => surfaceClientsHealth(clients), dispose }`. Because the half-open **watchdog is intrinsic to the seam**, `health().live` reflects a silent half-open (laptop sleep, wifi roam) however the socket was built. The constant-`true` transport-leg default is no longer something a socket consumer can fall into silently: **`websocketLink` marks its clients half-openable, and `surfaceClient`/`surfaceClients` THROW when handed one with no `{ live }`** — so the default survives only for an in-process `direct`/`stdio` link that *can't* half-open. Over a socket you either build through `connectSurface` / `connectSurfaces` (the watchdog can't be forgotten) or thread a real `{ live }` yourself (the example's raw seam); there is no silent no-heartbeat hand-built path left to forget.
 
 ## How Kolu uses this framework
 
@@ -624,7 +624,10 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 export const app = surfaceClient<
   typeof surface.spec,
   ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
->(surface, { websocket });
+>(surface, websocketLink(ws), { live: () => status() === "live" });
+// the 2nd arg is a LINK (`websocketLink(ws)`); a socket link also threads the
+// transport `{ live }` (a bare socket link with no `{ live }` throws) — or build
+// the whole socket + client + watchdog via `connectSurface` (`@kolu/surface-app`).
 
 // In components:
 const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
@@ -685,7 +688,10 @@ const { router, ctx } = implementSurfaces(surfaces, { channel }, {
 ctx.kolu.cells.X.set(...)         // ctx is keyed per surface
 
 // client — reuse `surfaces`; one link split into a per-key client bundle,
-// each scoped to its surface.<key>.* slice
+// each scoped to its surface.<key>.* slice. A SOCKET link must thread the
+// transport `{ live }` as the 3rd arg (`surfaceClients(link, surfaces, { live })`)
+// — or build via `connectSurfaces`, which threads it for you; a bare socket link
+// with no `{ live }` throws (it can silently half-open).
 const clients = surfaceClients(link, surfaces);
 clients.kolu.cells.X.use(...)     // e.g. re-export `app = clients.kolu`, `surfaceApp = clients.surfaceApp`
 ```
@@ -980,11 +986,17 @@ getRuntimeSocketPath({ app, file, override? }): string
 ### Solid client (`@kolu/surface/solid`)
 
 ```ts
-surfaceClients(link, { <key>: Surface }): { <key>: SurfaceClient }
+surfaceClients(link, { <key>: Surface }, { live? }): { <key>: SurfaceClient }
   // split one combined link into a per-key client bundle; each client is scoped to
   // its `{ surface: link.surface[key] }` slice, so its primitives resolve at surface.<key>.*
+  // `{ live }` is the shared transport leg for every sibling — REQUIRED for a socket
+  // link (a bare `websocketLink` with no `{ live }` throws; `connectSurfaces` threads it)
 
-surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClient<S, Rpc>
+surfaceClient<S, Rpc>(surface, link, { live? }): SurfaceClient<S, Rpc>
+  // `link` is a link-family member (`websocketLink`/`stdioLink`/`directLink`); `{ live }`
+  // is the transport-liveness accessor for `health().live`. A `websocketLink` (which can
+  // silently half-open) with NO `{ live }` THROWS — build via `connectSurface` or pass a
+  // real `{ live }`; the constant-`true` default is for in-process direct/stdio links only.
   // client.cells.<K>.use(policy)                  ← drops source/mutate
   // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream
   // client.collections.<K>.{upsert, delete}       ← lifecycle-free mutations

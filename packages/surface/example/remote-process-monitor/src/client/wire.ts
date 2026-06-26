@@ -40,8 +40,10 @@ if (import.meta.hot) {
 // turnkey `connectSurface` (`@kolu/surface-app`), which derives this from the
 // socket AND runs a half-open heartbeat for free; this example hand-builds
 // `surfaceClient + websocketLink` to show the raw seam, so it must thread its
-// own `{ live }` — without it `health().live` is a constant `true` and a dead
-// socket reads as live. Flip a signal off the socket's own open/close.
+// own `{ live }` — without it `surfaceClient` THROWS (a websocket link can
+// silently half-open, so the constant-`true` transport leg it would otherwise
+// default to is refused — the #1564 green-over-a-dead-link lie). Flip a signal
+// off the socket's own open/close.
 const [isLive, setIsLive] = createSignal(false);
 ws.addEventListener("open", () => setIsLive(true));
 ws.addEventListener("close", () => setIsLive(false));

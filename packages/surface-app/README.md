@@ -279,6 +279,9 @@ void registerOrRetireServiceWorker(); // register the notify worker; retire if i
 // `.rpc` is the scoped link `{ surface: link.surface[key] }`, so the key is
 // consumed by the scope and does NOT reappear in the call path: the probe is
 // `clients.surfaceApp.rpc.surface.identity.info` — NOT `…surface.surfaceApp.identity.info`.
+// (Raw for the keying; a socket bundle threads the transport `{ live }` as the 3rd
+// arg — or just uses `connectSurfaces`, which does. A bare socket link with no
+// `{ live }` throws, since it can silently half-open.)
 const clients = surfaceClients(link, {
   app: appSurface,
   surfaceApp: surfaceAppSurface,
