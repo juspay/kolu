@@ -47,14 +47,17 @@ export function wireRetryPlugins(): ClientRetryPlugin<ClientRetryPluginContext>[
 // `surface-nix-host`'s `hostSession.startLiveness`). Recording the brand HERE —
 // the one chokepoint EVERY wire link crosses (`websocketLink`, `stdioLink`, and
 // so `unixSocketLink`, which wraps `stdioLink`) — means a NEW wire link inherits
-// the guard BY CONSTRUCTION and can't forget to brand itself; the in-process
-// `directLink`, the ONLY link that bypasses `wireClient` (`createRouterClient`,
-// no transport), is therefore the only link left unbranded, which is exactly the
-// one whose constant-`true` transport leg is honest. `surfaceClient` /
-// `surfaceClients` consult {@link isHalfOpenLink} to FAIL FAST when handed such a
-// bare wire link instead of a watchdog-backed `LiveSignalHandle`, rather than
-// silently defaulting the transport leg to constant-`true` — the
-// green/ready-dot-over-a-dead-link lie (#1564), one seam upstream of the dot.
+// the guard BY CONSTRUCTION and can't forget to brand itself. The in-process
+// `directLink` (`createRouterClient`, no transport) bypasses `wireClient`, so it is
+// unbranded and its constant-`true` leg is honest. (A hand-rolled foreign oRPC
+// client over a websocket — one that skips `websocketLink` — is also unbranded and
+// would reach the constant-`true` fallback; that is the documented by-exclusion
+// RESIDUAL in `surfaceClient`'s `resolveTransport`, discouraged by routing every
+// client through the blessed factories.) `surfaceClient` / `surfaceClients` consult
+// {@link isHalfOpenLink} to FAIL FAST when handed a bare branded wire link instead
+// of a watchdog-backed `LiveSignalHandle`, rather than silently defaulting the
+// transport leg to constant-`true` — the green/ready-dot-over-a-dead-link lie
+// (#1564), one seam upstream of the dot.
 // A WeakSet keyed on the opaque oRPC proxy (by identity, never mutating it,
 // GC-safe).
 const HALF_OPEN_LINKS = new WeakSet<object>();

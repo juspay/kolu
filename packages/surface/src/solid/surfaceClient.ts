@@ -73,14 +73,26 @@ import { useStream } from "./useStream";
  *     refuse it: pass the `LiveSignalHandle` `createLiveSignal`/`connectSurface`/
  *     `connectSurfaces` returns instead. (The brand is applied at `wireClient` — the
  *     one seam every wire link crosses — so a future wire link is refused too.)
- *   - A bare in-process link (`directLink` ONLY — `createRouterClient`, no transport):
- *     can't half-open, so it is never branded by `wireClient`; its transport leg is
- *     constant-`true`, honest by construction.
+ *   - Any link NOT branded by `wireClient`: constant-`true`. The honest member is the
+ *     in-process `directLink` (`createRouterClient`, no transport, can't half-open) —
+ *     honest by construction. This branch is reached BY EXCLUSION, though, so it also
+ *     covers any other unbranded value: a test stub link, or — discouraged — a
+ *     hand-rolled foreign oRPC client over a websocket (one that bypasses
+ *     `websocketLink` and so skips the `wireClient` brand). That last spelling is a
+ *     deliberate, documented RESIDUAL (#1580): every blessed link factory
+ *     (`websocketLink`/`stdioLink`/`unixSocketLink`) brands via the one `wireClient`
+ *     chokepoint, so no realistic consumer reaches this with a half-openable link;
+ *     closing it structurally (a positive in-process-only brand + throw on anything
+ *     else) would refuse the legitimate stub-link health-fold tests consumers build
+ *     over `surfaceClient` — whose only other build path, `buildSurfaceClient`, is
+ *     deliberately package-private — so it stays a by-exclusion fallback the chokepoint
+ *     plus the "build through `websocketLink`" convention discourage.
  *
- *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
- *  half-open-blind transport leg is UNSPELLABLE over EVERY wire link — there is no
- *  `{ live }` knob to pass a blind accessor through (the #1564 lie, one seam
- *  upstream of the dot). */
+ *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: a
+ *  half-open-blind transport leg is unspellable over every wire link built through the
+ *  blessed factories (all of which brand via `wireClient`) — there is no `{ live }`
+ *  knob to pass a blind accessor through (the #1564 lie, one seam upstream of the
+ *  dot). */
 function resolveTransport(transport: unknown): {
   link: unknown;
   live: Accessor<boolean>;
@@ -106,9 +118,12 @@ function resolveTransport(transport: unknown): {
         "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
   }
-  // Unbranded by `wireClient` — the in-process `directLink` (no wire transport, a
-  // microtask `createRouterClient` handler call), the ONE link that genuinely can't
-  // half-open. Its transport leg is constant-`true`, honest by construction.
+  // Unbranded by `wireClient`: the honest member is the in-process `directLink` (no
+  // wire transport, a microtask `createRouterClient` handler call), whose constant-
+  // `true` leg is honest by construction. Reached BY EXCLUSION, so it also covers any
+  // other unbranded value (a test stub link, or — discouraged — a hand-rolled foreign
+  // oRPC client); see the docstring's residual note. The blessed wire factories all
+  // brand via `wireClient`, so no realistic half-openable link reaches here.
   return { link: transport, live: () => true };
 }
 
