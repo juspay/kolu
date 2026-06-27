@@ -24,6 +24,7 @@ import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
   type CellSpec,
+  type CollectionDeltasMsg,
   type CollectionSpec,
   composeSurfaceContracts,
   DEFAULT_COLLECTION_VERBS,
@@ -196,11 +197,25 @@ export interface CollectionHandlerDeps<K, T> {
   perKeyBus: (key: K) => Channel<T>;
   /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove). */
   keysBus: Channel<K[]>;
+  /** Bus for the coalesced batched delta stream — one `{upserts, removes}` per
+   *  producer tick. Present only when the collection exposes the `deltas` verb
+   *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
+  deltasBus?: Channel<CollectionDeltaFrame<K, T>>;
+}
+
+/** A coalesced batch of a collection's mutations within one producer tick —
+ *  the bus payload behind the `deltas` stream's `delta` frames. */
+export interface CollectionDeltaFrame<K, T> {
+  upserts: [K, T][];
+  removes: K[];
 }
 
 export interface CollectionHandlers<K, T> {
   keys: (opts: { signal?: AbortSignal }) => AsyncGenerator<K[]>;
   get: (opts: { input: { key: K }; signal?: AbortSignal }) => AsyncGenerator<T>;
+  deltas?: (opts: {
+    signal?: AbortSignal;
+  }) => AsyncGenerator<CollectionDeltasMsg<K, T>>;
   upsert: (opts: { input: { key: K; value: T } }) => void;
   delete: (opts: { input: { key: K } }) => void;
   test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
@@ -212,7 +227,7 @@ export function collectionHandlers<Name extends string, K, T>(
 ): CollectionHandlers<K, T> {
   const readOne = deps.readOne ?? ((k: K) => deps.readAll().get(k));
 
-  return {
+  const handlers: CollectionHandlers<K, T> = {
     keys: async function* ({ signal }) {
       yield Array.from(deps.readAll().keys());
       for await (const v of deps.keysBus.subscribe(signal)) yield v;
@@ -242,6 +257,25 @@ export function collectionHandlers<Name extends string, K, T>(
       for (const { key, value } of input) deps.upsert(key, value);
     },
   };
+
+  // The batched `deltas` stream, wired only when the collection opts in (the
+  // `deltasBus` is present). Snapshot-then-deltas — the same retry-resume
+  // invariant the `keys`/`get` streams rely on: a (re)subscribe replays the
+  // full set, then each producer tick's coalesced `{upserts, removes}` follows.
+  const deltasBus = deps.deltasBus;
+  if (deltasBus) {
+    handlers.deltas = async function* ({ signal }) {
+      yield {
+        kind: "snapshot",
+        entries: Array.from(deps.readAll().entries()),
+      };
+      for await (const frame of deltasBus.subscribe(signal)) {
+        yield { kind: "delta", upserts: frame.upserts, removes: frame.removes };
+      }
+    };
+  }
+
+  return handlers;
 }
 
 // ── Stream handlers ────────────────────────────────────────────────────
@@ -1206,17 +1240,59 @@ function walkSurface<const S extends SurfaceSpec>(
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(`${key}:${String(k)}`);
 
+    // The batched `deltas` stream is OPT-IN: its bus and per-tick coalescing
+    // exist only when the collection lists the `deltas` verb. A non-opted
+    // collection pays nothing here — the per-key `keys`/`get` path is untouched.
+    const collVerbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
+    const hasDeltas = collVerbs.includes("deltas");
+    const deltasBus = hasDeltas
+      ? deps.channel<CollectionDeltaFrame<unknown, unknown>>(`${key}:deltas`)
+      : undefined;
+    // Coalesce a producer tick's mutations into ONE frame: a Map keyed by the
+    // entity key keeps last-op-wins in program order (an upsert then a remove of
+    // the same key in one tick resolves to a remove), and a single
+    // `queueMicrotask` flush runs after the synchronous upsert/remove loop the
+    // producer drives — so N keyed mutations publish one `{upserts, removes}`
+    // instead of N per-key frames.
+    const pending = new Map<unknown, { value: unknown } | "remove">();
+    let flushScheduled = false;
+    const scheduleFlush = () => {
+      if (flushScheduled || deltasBus === undefined) return;
+      flushScheduled = true;
+      queueMicrotask(() => {
+        flushScheduled = false;
+        if (pending.size === 0) return;
+        const upserts: [unknown, unknown][] = [];
+        const removes: unknown[] = [];
+        for (const [k, op] of pending) {
+          if (op === "remove") removes.push(k);
+          else upserts.push([k, op.value]);
+        }
+        pending.clear();
+        deltasBus.publish({ upserts, removes });
+      });
+    };
+
     // Surface-owned publish: every upsert/remove broadcasts the new key set
     // (and, on upsert, the new per-key value) through the framework's
-    // channels. Consumers' upsert/remove stay persistence-only.
+    // channels. Consumers' upsert/remove stay persistence-only. The per-key
+    // `keys`/`get` publishes are UNCHANGED; the deltas coalescing is additive.
     const wrappedUpsert = (k: unknown, v: unknown) => {
       collDeps.upsert(k, v);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
       perKeyBus(k).publish(v);
+      if (hasDeltas) {
+        pending.set(k, { value: v });
+        scheduleFlush();
+      }
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (hasDeltas) {
+        pending.set(k, "remove");
+        scheduleFlush();
+      }
     };
 
     collectionsCtx[key] = {
@@ -1240,10 +1316,11 @@ function walkSurface<const S extends SurfaceSpec>(
         remove: wrappedRemove,
         perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,
         keysBus: keysBus as Channel<unknown[]>,
+        deltasBus,
       },
     );
 
-    const verbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
+    const verbs = collVerbs;
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string

@@ -20,6 +20,7 @@
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { STREAM_RETRY, type StreamingProcedure } from "../client";
+import type { CollectionDeltasMsg } from "../define";
 import type { Collection } from "../index";
 import {
   createSubscription,
@@ -85,6 +86,90 @@ export function useCollection<Name extends string, K, T, I>(
 
   function byKey(key: K): Subscription<T> | undefined {
     return perKey().find((p) => p.key === key)?.sub;
+  }
+
+  return { keys, byKey };
+}
+
+// ── Batched `deltas` delivery (the whole-collection fast path) ──────────────
+//
+// The per-key `useCollection` above opens one stream PER key — right for a
+// narrowed subset ("watch these few keys"), but for a whole collection that
+// ticks every key every frame it costs N wire frames + N async-iterators per
+// tick. `useCollectionDeltas` consumes the collection's SINGLE coalesced
+// `deltas` stream instead: one frame per tick, folded into a reconcile-backed
+// store so per-key reads stay fine-grained (only the keys that changed
+// re-notify). It exposes the SAME `{ keys, byKey }` surface as `useCollection`,
+// so the bound `.use()` can pick either delivery with no call-site change.
+
+/** The folded collection: values keyed by `String(key)` (a reconcile-backed
+ *  object, for fine-grained per-key reactivity) plus the real-typed key list in
+ *  arrival order (so `keys()` returns `K[]`, not stringified keys). */
+interface DeltasFold<K, T> {
+  byKey: Record<string, T>;
+  order: K[];
+}
+
+/** Fold one `deltas` frame into the accumulated collection. A `snapshot`
+ *  replaces the whole set; a `delta` applies upserts then removes onto a copy.
+ *  Returns a new object each call — `createSubscription`'s `reconcile` makes the
+ *  store update granular, so a new accumulator does not mean a coarse re-render. */
+export function foldCollectionDeltas<K, T>(
+  acc: DeltasFold<K, T>,
+  msg: CollectionDeltasMsg<K, T>,
+): DeltasFold<K, T> {
+  if (msg.kind === "snapshot") {
+    const byKey: Record<string, T> = {};
+    const order: K[] = [];
+    for (const [k, v] of msg.entries) {
+      byKey[String(k)] = v;
+      order.push(k);
+    }
+    return { byKey, order };
+  }
+  const byKey: Record<string, T> = { ...acc.byKey };
+  for (const [k, v] of msg.upserts) byKey[String(k)] = v;
+  for (const k of msg.removes) delete byKey[String(k)];
+  const removedStr = new Set(msg.removes.map(String));
+  const existingStr = new Set(acc.order.map(String));
+  const order = acc.order.filter((k) => !removedStr.has(String(k)));
+  for (const [k] of msg.upserts) {
+    if (!existingStr.has(String(k))) order.push(k);
+  }
+  return { byKey, order };
+}
+
+export function useCollectionDeltas<Name extends string, K, T>(
+  _coll: Collection<Name, K, T>,
+  options: {
+    /** The collection's `deltas` stream factory (snapshot-then-deltas). */
+    source: () => Promise<AsyncIterable<CollectionDeltasMsg<K, T>>>;
+    onError?: SubscriptionOptions<unknown>["onError"];
+    /** Enrol the single batched subscription into the client health registry. */
+    enroll?: (sub: Subscription<DeltasFold<K, T>>) => void;
+  },
+): UseCollectionResult<K, T> {
+  const sub = createSubscription<CollectionDeltasMsg<K, T>, DeltasFold<K, T>>(
+    options.source,
+    {
+      initial: { byKey: {}, order: [] },
+      reduce: foldCollectionDeltas,
+      onError: options.onError,
+    },
+  );
+  options.enroll?.(sub);
+
+  const keys = createMemo<K[]>(() => sub()?.order ?? []);
+
+  function byKey(key: K): Subscription<T> | undefined {
+    // A per-key accessor over the shared store — reading `byKey[String(key)]`
+    // in a tracking scope tracks only that leaf (reconcile keeps it granular).
+    // `error`/`pending` are the single stream's, shared across keys.
+    const read = (() =>
+      (sub() as DeltasFold<K, T> | undefined)?.byKey[
+        String(key)
+      ]) as Subscription<T>;
+    return Object.assign(read, { error: sub.error, pending: sub.pending });
   }
 
   return { keys, byKey };

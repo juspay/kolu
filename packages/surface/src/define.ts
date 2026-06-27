@@ -48,8 +48,27 @@ import {
 export type CellVerb = "get" | "set" | "patch" | "test__set";
 
 /** Subset of collection verbs the surface exposes. Default
- *  `["keys", "get", "upsert", "delete"]`. `test__set` is opt-in. */
-export type CollectionVerb = "keys" | "get" | "upsert" | "delete" | "test__set";
+ *  `["keys", "get", "upsert", "delete"]`. `test__set` is opt-in. `deltas` is
+ *  opt-in too: a SINGLE batched snapshot-then-delta stream for the whole
+ *  collection, the bulk-friendly counterpart to the per-key `keys`+`get` pair.
+ *  A producer that mutates N keys in a tick publishes ONE coalesced frame
+ *  instead of N per-key frames, so a whole-collection consumer pays per-tick
+ *  decode/reconcile once, not once per key. Per-key `get` stays for the
+ *  "watch one specific key" / subset case. */
+export type CollectionVerb =
+  | "keys"
+  | "get"
+  | "upsert"
+  | "delete"
+  | "deltas"
+  | "test__set";
+
+/** One frame of a collection's batched `deltas` stream: the full keyed set on
+ *  (re)subscribe, then one coalesced `{upserts, removes}` per producer tick.
+ *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}. */
+export type CollectionDeltasMsg<K, T> =
+  | { kind: "snapshot"; entries: [K, T][] }
+  | { kind: "delta"; upserts: [K, T][]; removes: K[] };
 
 export interface CellSpec<T = unknown, P = T> {
   schema: ZodType<T>;
@@ -209,6 +228,24 @@ function cellContractEntries<T, P>(
   return entries;
 }
 
+/** The wire schema for a collection's batched `deltas` stream — a single home
+ *  both the runtime contract (`collectionContractEntries`) and the type oracle
+ *  (`buildCollection`) build from, so the two derivations can't drift. */
+function collectionDeltasSchema<K, T>(
+  keySchema: ZodType<K>,
+  schema: ZodType<T>,
+) {
+  const entry = z.tuple([keySchema, schema]);
+  return z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("snapshot"), entries: z.array(entry) }),
+    z.object({
+      kind: z.literal("delta"),
+      upserts: z.array(entry),
+      removes: z.array(keySchema),
+    }),
+  ]);
+}
+
 function collectionContractEntries<K, T>(
   spec: CollectionSpec<K, T>,
 ): Record<string, unknown> {
@@ -221,6 +258,10 @@ function collectionContractEntries<K, T>(
       entries.keys = oc.output(eventIterator(z.array(spec.keySchema)));
     } else if (v === "get") {
       entries.get = oc.input(keyShape).output(eventIterator(spec.schema));
+    } else if (v === "deltas") {
+      entries.deltas = oc.output(
+        eventIterator(collectionDeltasSchema(spec.keySchema, spec.schema)),
+      );
     } else if (v === "upsert") {
       entries.upsert = oc.input(upsertShape).output(z.void());
     } else if (v === "delete") {
@@ -576,6 +617,9 @@ function buildCollection<K, T>(opts: {
   return {
     keys: oc.output(eventIterator(z.array(opts.keySchema))),
     get: oc.input(keyShape).output(eventIterator(opts.schema)),
+    deltas: oc.output(
+      eventIterator(collectionDeltasSchema(opts.keySchema, opts.schema)),
+    ),
     upsert: oc
       .input(z.object({ key: opts.keySchema, value: opts.schema }))
       .output(z.void()),

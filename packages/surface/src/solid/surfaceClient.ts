@@ -51,7 +51,11 @@ import {
   type SurfaceHealth,
 } from "./health";
 import { type UseCellResult, useCell } from "./useCell";
-import { type UseCollectionResult, useCollection } from "./useCollection";
+import {
+  type UseCollectionResult,
+  useCollection,
+  useCollectionDeltas,
+} from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
@@ -641,6 +645,26 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
+        // Whole-collection AND the collection opts into batched delivery (its
+        // contract exposes `deltas`) → ONE coalesced stream folded into a
+        // per-key store, instead of a keys stream + one value stream per key.
+        // A NARROWED subscription (explicit `opts.keys` — the "watch this
+        // subset" case) or a collection without the `deltas` verb takes the
+        // unchanged per-key path below.
+        // biome-ignore lint/suspicious/noExplicitAny: walk-by-string capability probe
+        if (!opts?.keys && (ns as any).deltas) {
+          const view = useCollectionDeltas(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+            (surface.descriptors.collections as any)[key],
+            {
+              // biome-ignore lint/suspicious/noExplicitAny: walk-by-string stream ref
+              source: () => unenrolledStreamCall((ns as any).deltas, undefined),
+              onError,
+              enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+            },
+          );
+          return { ...view, upsert, delete: del };
+        }
         // Default keys: subscribe to the server's keys stream and lift
         // it to a SolidJS accessor. The `.use()` runs inside a Solid
         // owner so the subscription disposes with the component.
