@@ -263,18 +263,27 @@ export const appRouter = t.router({
       async ({ input }) => {
         requireActiveTerminal(input.id);
         // The agent + cwd + git + pr fields moved to the awareness store
-        // (Design-S); read them off it rather than `entry.meta` (now authored).
+        // (Design-S); read them off it rather than `entry.meta` (now authored). An
+        // active terminal provably HAS an awareness entry (store↔registry
+        // lockstep), so an absent one is unreachable-by-invariant — surface it
+        // (fail-fast) rather than degrade cwd/pr to empty/pending defaults that
+        // would mask the bug.
         const aw = awarenessFor(input.id);
-        const agent = aw?.agent;
+        if (!aw) {
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: `Terminal ${input.id} is active but has no awareness entry (store↔registry lockstep violated)`,
+          });
+        }
+        const agent = aw.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = aw?.cwd ?? "";
-        const repoName = aw?.git?.repoName ?? null;
-        const prInfo = prValue(aw?.pr ?? { kind: "pending" });
+        const cwd = aw.cwd;
+        const repoName = aw.git?.repoName ?? null;
+        const prInfo = prValue(aw.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;
