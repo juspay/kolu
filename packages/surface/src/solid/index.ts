@@ -25,8 +25,15 @@ export {
 // Disconnected overlay" signal from the transport's instantaneous `down` status
 // through this, so a sub-second forced reconnect never flashes the alarm.
 export { gracedDown } from "./gracedDown";
+// `createSurfaceHealthRegistry` is deliberately NOT re-exported: it takes an
+// UNBRANDED `live: Accessor<boolean>` and folds it straight into `health().live`,
+// so exposing it would let a consumer mint `createSurfaceHealthRegistry(() => true)`
+// and paint a green/ready dot over a dead transport (the #1564 lie, reachable with
+// no socket and no watchdog) — exactly why its twin `buildSurfaceClient` (also a
+// raw-`live` seam) is package-private. The honest producers `surfaceClient` /
+// `surfaceClients`, which derive `live` from a branded `LiveSignalHandle`, are the
+// only public way to a health fact with a transport leg (pinned in `barrel.test.ts`).
 export {
-  createSurfaceHealthRegistry,
   type GateStatus,
   gateStatus,
   type HealthSource,
