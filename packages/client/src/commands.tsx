@@ -118,6 +118,7 @@ function worktreeAgentOptions(
  *  provide for the keyboard dispatcher. */
 export interface CommandDeps extends ActionContext {
   handleCopyTerminalText: () => void;
+  handleCopyTerminalId: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportScrollbackAsPdf: () => void;
   handleExportSessionAsHtml: () => void;
@@ -280,6 +281,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   name: "Copy terminal text",
                   section: "active-terminal" as const,
                   onSelect: () => deps.handleCopyTerminalText(),
+                },
+                {
+                  kind: "action" as const,
+                  name: "Copy terminal ID",
+                  section: "active-terminal" as const,
+                  onSelect: () => deps.handleCopyTerminalId(),
                 },
                 {
                   kind: "action" as const,
