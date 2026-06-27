@@ -248,25 +248,33 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // tool (`readOnlyHint`) can be auto-approved or surfaced separately from a
   // mutating one (`destructiveHint`). Without these the `mutates` flag the API
   // and docs promise never reaches the host.
+  //
+  // The `mutates → annotations` projection lives HERE, once, so the two tool
+  // sources (procedure-derived + bespoke) can't drift on the mapping or on the
+  // undefined edge case. Each source normalizes its own `mutates` to a concrete
+  // boolean BEFORE calling: procedure tools already carry one (`expose.ts`'s
+  // `?? true`), bespoke tools apply the same conservative `?? true` at the call.
+  const toolAnnotations = (mutates: boolean) => ({
+    readOnlyHint: !mutates,
+    destructiveHint: mutates,
+  });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       ...resolved.tools.map((t) => ({
         name: t.name,
         inputSchema: t.inputSchema,
-        annotations: { readOnlyHint: !t.mutates, destructiveHint: t.mutates },
+        annotations: toolAnnotations(t.mutates),
       })),
       ...[...bespokeTools].map(([name, { tool, schema }]) => ({
         name,
         description: tool.description,
         inputSchema: schema,
-        annotations: {
-          // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
-          // is treated as MUTATING, so an unannotated tool is never advertised as
-          // auto-approvable read-only. A genuinely read-only tool opts in with an
-          // explicit `mutates: false`.
-          readOnlyHint: tool.mutates === false,
-          destructiveHint: tool.mutates !== false,
-        },
+        // Conservative default (see `BespokeTool.mutates`): an absent `mutates`
+        // is treated as MUTATING, so an unannotated tool is never advertised as
+        // auto-approvable read-only. A genuinely read-only tool opts in with an
+        // explicit `mutates: false`. Mirrors `expose.ts`'s `?? true` for
+        // procedure tools, so both sources default the same way.
+        annotations: toolAnnotations(tool.mutates ?? true),
       })),
     ],
   }));
