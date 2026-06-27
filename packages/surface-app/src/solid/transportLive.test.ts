@@ -216,6 +216,6 @@ describe("kolu's wire pattern: a multi-surface bundle over a websocket link MUST
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: the combined link is walk-by-string.
       surfaceClients(websocketLink(t.ws as never) as any, { a: surface }),
-    ).toThrow(/websocket link can silently half-open/);
+    ).toThrow(/can silently half-open/);
   });
 });

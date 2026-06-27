@@ -15,7 +15,7 @@
 import type { DaemonStatus } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { isWarming } from "./useDaemonStatus";
+import { daemonTransportLive, liveWarming } from "./useDaemonStatus";
 import { client } from "../wire";
 
 // True from the click until the restart RPC settles — closes the visible click
@@ -27,20 +27,25 @@ const [restarting, setRestarting] = createSignal(false);
 /** The one "a restart is underway, disable the button" predicate, read by every
  *  affordance that triggers `restartDaemon`. In flight while the local click is
  *  being serviced (the module `restarting` signal) OR while the daemon surface is
- *  mid-transition ({@link isWarming} — `restarting`/`connecting`) — the latter arm
- *  catches a restart another client kicked off, which the local signal can't see.
- *  Both the kaval dialog and the DegradedCanvas disable on this, so the two
- *  buttons can't disagree on what counts as in flight.
+ *  mid-transition ({@link liveWarming} — `restarting`/`connecting`, FLOORED on
+ *  transport liveness) — the latter arm catches a restart another client kicked
+ *  off, which the local signal can't see. Both the kaval dialog and the
+ *  DegradedCanvas disable on this, so the two buttons can't disagree on what
+ *  counts as in flight.
  *
- *  The `isWarming(status?.state)` arm is exactly `daemonWarming()`'s body (both
- *  project from the shared `isWarming`); the extra leading `restarting()` arm is
- *  the local-click signal the daemon surface can't yet see (it closes the click
- *  window before the state flips). So `restartInFlight` is the stronger gate —
- *  `daemonWarming()` plus the local click — and the three consumers that read
- *  the weaker `daemonWarming()` (App.tsx, useTerminalCrud, commands) are the
- *  ones without their own click signal to fold in. */
+ *  The `liveWarming(status?.state, daemonTransportLive())` arm is exactly
+ *  `daemonWarming()`'s body (both project from the shared `liveWarming`, so both
+ *  inherit the SAME transport-liveness floor: over a dead/half-open link the
+ *  warming claim reads false, and the button can't stick disabled beside the grey
+ *  "unknown" dot the dot/canvas already paint). The extra leading `restarting()`
+ *  arm is the local-click signal the daemon surface can't yet see — transport-
+ *  independent (it closes the click window before the state flips). So
+ *  `restartInFlight` is again exactly `daemonWarming()` plus the local click — the
+ *  stronger gate — and the three consumers that read the weaker `daemonWarming()`
+ *  (App.tsx, useTerminalCrud, commands) are the ones without their own click
+ *  signal to fold in. */
 export function restartInFlight(status: DaemonStatus | undefined): boolean {
-  return restarting() || isWarming(status?.state);
+  return restarting() || liveWarming(status?.state, daemonTransportLive());
 }
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from

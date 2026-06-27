@@ -122,9 +122,12 @@ function dockWidth(mode: DockMode): number {
 // hint and the chord that fires it share one key, so users learn the
 // mapping by holding-then-pressing without re-mapping a separate
 // discovery modifier in their head. The signal + four window listeners
-// live inside a `createSharedRoot` so they participate in the same
-// reactive-owner lifecycle as the other module-scope singletons (no
-// orphan listeners running outside an owner, tearable down in tests).
+// live inside a `createSharedRoot`, so they are attached ONCE (not
+// per-mount) and are APP-LIFETIME: the dock is always-mounted core
+// chrome, the mod-hint is always wanted, and the shared root's disposer
+// is discarded by design — so these listeners are never removed (no
+// `onCleanup`, which would never run here), exactly like the clock and
+// stale-ticker intervals. The browser reclaims them on page teardown.
 const useModHeld = createSharedRoot(() => {
   const [modHeld, setModHeld] = createSignal(false);
   if (typeof window !== "undefined") {

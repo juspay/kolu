@@ -20,7 +20,7 @@
  *  one element holds each. */
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
-import type { DaemonState, KoluBuildInfo } from "kolu-common/surface";
+import type { KoluBuildInfo } from "kolu-common/surface";
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { getClockNow } from "../time/clock";
 import KavalInfoDialog from "../kaval/KavalInfoDialog";
@@ -30,10 +30,11 @@ import {
 } from "../kaval/KavalUpdateBadge";
 import {
   DAEMON_STATE_PRESENTATION,
+  daemonTransportLive,
   formatUptime,
+  kavalDot,
   localDaemonStatus,
-  toneDot,
-  wsDot,
+  serverDot,
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
@@ -45,14 +46,6 @@ import {
   kavalMemoryDisplay,
   serverRssBytes,
 } from "./useMemoryUsage";
-
-/** The daemon's honest state → the `kaval` tone, via the shared presentation
- *  table (so the rail and the dialog can't drift); undefined (status still
- *  loading) is grey, not red — we don't claim "dead" before the first yield. */
-function kavalDot(state: DaemonState | undefined): string {
-  if (!state) return "bg-fg-3/50";
-  return toneDot[DAEMON_STATE_PRESENTATION[state].tone];
-}
 
 /** The thin vertical rule between two columns. */
 const Divider: Component = () => (
@@ -123,6 +116,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   const pwa = useSurfaceApp<KoluBuildInfo>();
   const clockNow = getClockNow();
   const daemon = localDaemonStatus;
+  // The watchdog-backed liveness of the ws delivering daemonStatus. The kaval dot
+  // AND its uptime floor on this: a dead/half-open link can't refresh the retained
+  // daemon state, so the column reads "unknown" rather than a stale definite
+  // "running" + a uptime climbing off the local clock (the #1568 green-dot class).
+  const daemonLive = daemonTransportLive;
   const [kavalDialogOpen, setKavalDialogOpen] = createSignal(false);
   const stale = clientStale;
 
@@ -139,7 +137,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <Tip label="Server connection">
           <span
             data-ws-status={props.status}
-            class={`inline-block h-[7px] w-[7px] rounded-full ${wsDot(props.status)}`}
+            // Floored on the watchdog-backed `daemonLive()` (the kolu ws's
+            // `health().live`), so a silent half-open the watchdog already caught
+            // can't paint a definite green "connected" while the open/close-only
+            // lifecycle still reads `open`. Same fact the kaval dot floors on.
+            class={`inline-block h-[7px] w-[7px] rounded-full ${serverDot(props.status, daemonLive())}`}
           />
         </Tip>
         <Show when={pwa.server()?.version}>
@@ -199,30 +201,43 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
       >
         <span class="text-[9px] uppercase tracking-wide text-fg-3">kaval</span>
         <span
-          data-daemon-state={daemon()?.state ?? "unknown"}
-          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state)}`}
+          // Dot floored on transport liveness (`kavalDot(state, live)`): a non-ok
+          // state can only refine WITHIN a live link, never paint a definite bg-ok
+          // "running" over a dead/half-open channel that left the state stale.
+          data-daemon-state={
+            daemonLive() ? (daemon()?.state ?? "unknown") : "unknown"
+          }
+          class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(daemon()?.state, daemonLive())}`}
         />
-        {/* Connected → live uptime; any other known state → its label (e.g.
-            "not running", "restarting…"); unknown (pre-first-yield) → nothing. */}
-        <Show when={daemon()?.state}>
-          {(state) => (
-            <Show
-              when={state() === "connected"}
-              fallback={
-                <span class="text-[10px] text-fg-3">
-                  {DAEMON_STATE_PRESENTATION[state()].label}
-                </span>
-              }
-            >
-              <Show when={daemon()?.startedAt}>
-                {(t) => (
-                  <span class="tabular-nums text-[10px] text-fg-3">
-                    {formatUptime(clockNow() - t())}
+        {/* Live link: connected → live uptime; any other known state → its label
+            ("not running", "restarting…"); unknown (pre-first-yield) → nothing.
+            Dead/half-open link: the retained state is stale and the channel that
+            would refresh it is gone, so show a neutral "—" — never a definite label
+            or a uptime that climbs off the local clock while contact is lost. */}
+        <Show
+          when={daemonLive()}
+          fallback={<span class="text-[10px] text-fg-3/60">—</span>}
+        >
+          <Show when={daemon()?.state}>
+            {(state) => (
+              <Show
+                when={state() === "connected"}
+                fallback={
+                  <span class="text-[10px] text-fg-3">
+                    {DAEMON_STATE_PRESENTATION[state()].label}
                   </span>
-                )}
+                }
+              >
+                <Show when={daemon()?.startedAt}>
+                  {(t) => (
+                    <span class="tabular-nums text-[10px] text-fg-3">
+                      {formatUptime(clockNow() - t())}
+                    </span>
+                  )}
+                </Show>
               </Show>
-            </Show>
-          )}
+            )}
+          </Show>
         </Show>
         <KavalMemReadout />
         {/* B3.4: the running daemon is a build behind what the server would spawn.
