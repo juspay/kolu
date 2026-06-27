@@ -1,12 +1,14 @@
 /**
- * `composeTerminalMetadata` — the ONE producer of the wire `TerminalMetadata`
- * from the AUTHORED record + the AWARENESS store value (Design-S, R8).
+ * `composeTerminalMetadata` (in `./surface.ts`) — the ONE join of a terminal's
+ * two halves, the AUTHORED record + its AWARENESS value, into the unified
+ * `TerminalMetadata`. Applied at the client read and at disk persist, never
+ * served (Design-S, R8).
  *
  * These pin the load-bearing sleeping-arm invariant: a sleeping terminal's `pr`
  * is sourced EXCLUSIVELY from the authored (frozen) record, never from the
- * store's live half — so a legacy sleeping record predating the frozen-pr field
- * stays pr-absent instead of leaking the store's `pr: pending`, and the live
- * half (`agent`/`foreground`) never reaches the sleeping wire.
+ * awareness value's live half — so a legacy sleeping record predating the
+ * frozen-pr field stays pr-absent instead of leaking a stale `pr: pending`, and
+ * the live half (`agent`/`foreground`) never reaches the sleeping wire.
  */
 
 import type { AwarenessValue } from "@kolu/terminal-workspace";
