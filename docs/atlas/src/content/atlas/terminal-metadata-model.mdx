@@ -11,7 +11,7 @@ import Svg from "../../components/Svg.astro";
 import Callout from "../../components/Callout.astro";
 import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
-**Each producer owns the type for what it makes:** kaval owns **`KavalMeta`** (the live PTY — I/O · exit · the raw taps pulam reads), pulam owns **`PulamMeta`** (the 8-field `AwarenessValue` — cwd · git · agent · pr · foreground · lastActivityAt · lastAgentCommand · agentSession), kolu owns **`KoluMeta`** (its durable UI — **`location`** · themeName · parentId · canvasLayout · subPanel · rightPanel · intent). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
+**Each producer owns the type for what it makes:** kaval owns **`KavalMeta`** (the live PTY **handle** — write·resize·kill · I/O · exit; its raw taps cwd·title·command·foreground are *pulam's* input, not kolu's), pulam owns **`PulamMeta`** (the 8-field `AwarenessValue` — cwd · git · agent · pr · foreground · lastActivityAt · lastAgentCommand · agentSession), kolu owns **`KoluMeta`** (its durable UI — **`location`** · themeName · parentId · canvasLayout · subPanel · rightPanel · intent). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
 
 <Svg svg={diagram} caption="kaval owns KavalMeta (the PTY, in the daemon), pulam's sensors watch it and own PulamMeta (live, ephemeral), kolu owns KoluMeta (persisted, incl. location = which host) and imports the other two to compose Terminal. LIVE = KoluMeta + KavalMeta + PulamMeta, projected by (location, id) — never stored. SLEEP releases the PTY (no PulamMeta) → kolu freezes the last PulamMeta into a snapshot it now owns & persists — the one materialised copy, and your restore/sleep display." />
 
@@ -36,7 +36,8 @@ import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 ## The types (PR1)
 
 ```ts
-// kaval  →  export type KavalMeta   // the live PTY: write·resize·kill · exit · output bytes · raw taps (cwd·title·command·foreground) pulam observes
+// kaval  →  export type KavalMeta   // the PTY HANDLE kolu drives: write·resize·kill · I/O · exit.
+//                                    // its raw taps (cwd·title·command·foreground) are pulam's INPUT, not kolu's — kolu reads those off PulamMeta.
 
 // pulam  →  export type PulamMeta = {   // = AwarenessValue · a LIVE-ONLY collection, keyed by TerminalId, NEVER persisted
 //             cwd; git: GitInfo | null; agent: AgentInfo | null; pr; foreground: Foreground | null;
