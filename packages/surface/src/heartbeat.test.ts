@@ -289,7 +289,47 @@ describe("createHeartbeat (lifted primitive)", () => {
     expect(probe).toHaveBeenCalledTimes(1);
     hb.wake(); // simulate a window-focus / page-resume wake event
     expect(probe).toHaveBeenCalledTimes(2); // abandoned probe 1, fresh probe 2 NOW
-    expect(onStale).not.toHaveBeenCalled(); // wake never itself declares stale
+    expect(onStale).not.toHaveBeenCalled(); // a single wake does not declare stale
+    hb.dispose();
+  });
+
+  it("a flood of wake() faster than timeoutMs still fires onStale once the void budget is spent — wake can't silence the watchdog", async () => {
+    // A never-settling (dead half-open) probe whose timeout a storm of wakes keeps
+    // clearing must NOT be deferred forever: `wake()` is a void in disguise, so it
+    // honours the same void budget the suspension-void path does. The clocks run in
+    // LOCKSTEP here (gap 0 — not a suspension), so it is the budget alone, not a
+    // void verdict, that converts the flood into a stale verdict. mono is injected
+    // so the budget clock advances under synchronous `wake()` calls (no fake-timer
+    // tick passes between them).
+    let monoMs = 0;
+    const onStale = vi.fn();
+    const probe = vi.fn(() => new Promise<never>(() => {})); // never answers
+    const hb = createHeartbeat({
+      isLive: () => true,
+      onStale,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+      deps: { now: () => monoMs, mono: () => monoMs },
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick → probe 1 in flight (launch mono 0)
+    expect(probe).toHaveBeenCalledTimes(1);
+    const voidBudgetMs = (1000 + 500) * 3; // VOID_BUDGET_FACTOR = 3 → 4500ms
+    // Wake every 100ms of running time, faster than the 500ms timeout, so the probe
+    // timeout never fires on its own — only the budget can end the flood.
+    for (
+      let elapsed = 100;
+      elapsed <= voidBudgetMs + 200 && onStale.mock.calls.length === 0;
+      elapsed += 100
+    ) {
+      monoMs = elapsed;
+      hb.wake();
+    }
+    expect(onStale).toHaveBeenCalledTimes(1); // fired despite the wake flood…
+    // …and within the void budget's worth of running time (bounded deferral), not
+    // forever — with a bounded (not unbounded) number of re-probes.
+    expect(monoMs).toBeLessThanOrEqual(voidBudgetMs + 200);
+    expect(probe.mock.calls.length).toBeLessThanOrEqual(voidBudgetMs / 100 + 2);
     hb.dispose();
   });
 

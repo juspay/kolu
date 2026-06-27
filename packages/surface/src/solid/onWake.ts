@@ -12,9 +12,12 @@
  *     page's frozen timer tasks resume, so it re-probes ahead of the overdue
  *     probe-timeout the freeze left armed (the freeze is OS-awake, so the
  *     wall/monotonic gap the void watches is ~0 — `resume` is what catches it).
- * All three only ever PROBE (the heartbeat's `wake()` can only cause an extra
- * probe, never a stale verdict), so firing several — even redundantly on a resume
- * that trips more than one — is harmless.
+ * All three only ever ask the heartbeat to re-PROBE, so firing several — even
+ * redundantly on a resume that trips more than one — is harmless: a wake over a
+ * healthy link just re-probes it. (The one case a wake settles `onStale` is the
+ * watchdog's own backstop — a never-settling probe that a storm of wakes has kept
+ * re-arming past the void budget; see `createHeartbeat`'s `wake`. That is the
+ * watchdog firing as designed, not this seam forcing a verdict.)
  *
  * Crucially, visibility is wired only to PROBE, never to VOID. A merely-hidden
  * tab is still RUNNING, so its probe timeout is REAL — voiding on `hidden` would

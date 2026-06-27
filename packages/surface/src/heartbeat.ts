@@ -178,8 +178,12 @@ function assertSaneMs(label: string, value: number, max: number): void {
  *  `wake()` is the browser leg's fast path: a wake event (window focus / page
  *  resume) means the runtime may have just resumed, so the in-flight probe's window
  *  can't be trusted — abandon it (without `onStale`) and re-probe NOW, rather than
- *  waiting for its overdue timeout to fire and void. Benign by construction: a wake
- *  with no real suspension only re-probes a healthy link.
+ *  waiting for its overdue timeout to fire and void. A wake with no real suspension
+ *  only re-probes a healthy link. But a wake re-probe IS a void in disguise, so it
+ *  honours the same `VOID_BUDGET_FACTOR` ceiling: a storm of wakes faster than
+ *  `timeoutMs` can't keep clearing the deadline to defer `onStale` forever — once
+ *  the budget of running time is spent on a never-settling probe, the next wake
+ *  fires stale.
  *
  *  Returns `dispose()` to stop the interval AND any in-flight probe timeout (so a
  *  probe outstanding at teardown can't fire a late `onStale`), plus `wake()`. */
@@ -333,11 +337,27 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   // browser leg) signals the runtime may have just resumed. The in-flight probe's
   // window can't be trusted (it may straddle the gap), so abandon it WITHOUT
   // `onStale` and probe fresh immediately — recovery in ~ms instead of waiting for
-  // the overdue timeout to fire and void, or for the next interval. Benign by
-  // construction: `wake()` can only ever cause an EXTRA probe, never a stale verdict.
+  // the overdue timeout to fire and void, or for the next interval.
+  //
+  // A wake re-probe IS a void in disguise — it abandons the in-flight probe's
+  // window without a verdict, exactly like the suspension-void in the timeout. So
+  // it must honour the SAME void-budget ceiling, or a flood of wake events faster
+  // than `timeoutMs` would keep clearing the probe deadline and defer `onStale`
+  // forever — the "voided forever ⇒ silent" the budget exists to make unspellable.
+  // (`onWake` wires focus / visibility / resume to this; a half-open socket must
+  // not be kept off `onStale` by a storm of them.) Once the running time since the
+  // last definitive settle exceeds the budget, a wake that finds a never-settling
+  // probe fires stale instead of re-probing — bounding the deferral while a healthy
+  // link, whose probes settle and keep resetting the budget, still only re-probes.
   function wake(): void {
     if (disposed) return;
-    if (inFlight) abandon();
+    if (inFlight) {
+      if (mono() - lastSettledMono > voidBudgetMs) {
+        settled(true, generation);
+        return;
+      }
+      abandon();
+    }
     tick();
   }
   const handle = setInterval(tick, intervalMs);
