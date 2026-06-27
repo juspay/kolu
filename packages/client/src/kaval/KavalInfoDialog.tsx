@@ -59,6 +59,10 @@ const KavalInfoDialog: Component<{
       expectedKaval()?.staleKey,
       props.status?.identity?.staleKey,
       props.status?.state,
+      // Floored on transport liveness, same as the rail badge: the dialog already
+      // greys its dot + hides uptime over a dead link, so the "newer kaval available
+      // — Restart" banner below them must not fire off the stale `connected` either.
+      daemonTransportLive(),
     );
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="md">

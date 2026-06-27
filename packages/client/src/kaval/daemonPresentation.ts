@@ -117,10 +117,12 @@ export const wsTone: Record<WsStatus, DaemonTone> = {
   closed: "down",
 };
 
-/** A WebSocket status → its status-dot class, via {@link wsTone} + {@link
- *  toneDot}. The lower-level lifecycle-only tone; the `srv`/mobile connection dots
- *  paint through {@link serverDot}, which floors its green on the watchdog fact. */
-export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
+/** A WebSocket status → its status-dot class, via {@link wsTone} + {@link toneDot}.
+ *  MODULE-PRIVATE: it is half-open-BLIND (open→green with no liveness input), so the
+ *  ONLY public connection-dot path is {@link serverDot}, which floors its green on
+ *  the watchdog fact. Un-exported so the unfloored open→green can't be re-minted at a
+ *  future call site (the same seam-closing as `createSurfaceHealthRegistry`). */
+const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
 /** The `srv`/mobile **server-connection** dot's tone, FLOORED on the watchdog-backed
  *  transport `live` — the connection-dot sibling of {@link kavalDot}, and the

@@ -36,13 +36,15 @@ export const kavalUpdatePending = (): boolean => {
   // Floored on transport liveness like the kaval dot beside it: over a dead/half-open
   // link the retained daemon identity is stale, so the "a newer build is available;
   // click to restart" nudge can't honestly fire — the grey "unknown" dot must not sit
-  // next to an amber "connected and behind" chip whose restart would fail loudly.
-  if (!daemonTransportLive()) return false;
+  // next to an amber "connected and behind" chip whose restart would fail loudly. The
+  // floor rides INSIDE `kavalStale` (a required `live` leg), so the dialog's own banner
+  // (KavalInfoDialog) can't re-derive the verdict without it.
   const status = localDaemonStatus();
   return kavalStale(
     expectedKaval()?.staleKey,
     status?.identity?.staleKey,
     status?.state,
+    daemonTransportLive(),
   );
 };
 

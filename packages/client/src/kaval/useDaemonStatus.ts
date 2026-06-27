@@ -8,7 +8,7 @@
  * terminals" (B2, the empty-canvas-lie fix).
  *
  * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
- * `kavalDot`, `toneDot`, `wsDot`, `formatUptime`, …) lives in the
+ * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
  * side-effect-free `./daemonPresentation`, re-exported here so existing call
  * sites are unchanged. This module owns only the wire-coupled bits: the live
  * subscription and the accessors over it.
@@ -40,7 +40,6 @@ export {
   liveWarming,
   serverDot,
   toneDot,
-  wsDot,
   wsTone,
 } from "./daemonPresentation";
 

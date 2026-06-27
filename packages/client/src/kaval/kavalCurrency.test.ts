@@ -21,6 +21,14 @@ describe("kavalStale — the read-site currency nudge", () => {
       why: "connected + two non-empty ids that differ → build behind (nudge)",
     },
     {
+      expected: "newhash",
+      reported: "oldhash",
+      state: "connected" as DaemonState,
+      live: false,
+      result: false,
+      why: "connected + differing ids BUT the link is not live (half-open) → silent — the transport-liveness floor; a dead channel can't assert the daemon is connected-and-behind",
+    },
+    {
       expected: "samehash",
       reported: "samehash",
       state: "connected" as DaemonState,
@@ -97,7 +105,9 @@ describe("kavalStale — the read-site currency nudge", () => {
       result: false,
       why: "no state yet (status still loading) → silent",
     },
-  ])("$why", ({ expected, reported, state, result }) => {
-    expect(kavalStale(expected, reported, state)).toBe(result);
+  ])("$why", ({ expected, reported, state, result, live = true }) => {
+    // Existing rows default `live: true` (they predate the floor); the floor row
+    // sets `live: false` to pin that a not-live link silences the nudge.
+    expect(kavalStale(expected, reported, state, live)).toBe(result);
   });
 });
