@@ -212,8 +212,7 @@ describe("createHeartbeat (lifted primitive)", () => {
       probe,
       intervalMs: 1000,
       timeoutMs: 500,
-      now: () => wall,
-      mono: () => monoT,
+      deps: { now: () => wall, mono: () => monoT },
     });
     await vi.advanceTimersByTimeAsync(1000); // tick → probe 1 in flight (launch 0,0)
     expect(probe).toHaveBeenCalledTimes(1);
@@ -242,8 +241,8 @@ describe("createHeartbeat (lifted primitive)", () => {
       probe: () => new Promise<never>(() => {}), // never answers — a truly dead link
       intervalMs: 1000,
       timeoutMs: 500,
-      now: () => t,
-      mono: () => t, // lockstep: a genuinely silent link, not a frozen page
+      // lockstep: a genuinely silent link, not a frozen page (gap stays 0)
+      deps: { now: () => t, mono: () => t },
     });
     await vi.advanceTimersByTimeAsync(1000); // tick → probe armed (launch t=0)
     t += 500; // real running time elapses, on BOTH clocks
@@ -262,8 +261,7 @@ describe("createHeartbeat (lifted primitive)", () => {
       probe: () => new Promise<never>(() => {}),
       intervalMs: 1000,
       timeoutMs: 500,
-      now: () => wall,
-      mono: () => monoT,
+      deps: { now: () => wall, mono: () => monoT },
     });
     await vi.advanceTimersByTimeAsync(1000); // tick → probe armed (launch 0,0)
     // The monotonic clock shows MORE running time has elapsed since the last settle

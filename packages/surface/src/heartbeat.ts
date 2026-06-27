@@ -130,13 +130,16 @@ export interface HeartbeatOptions {
   /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
    *  from an async rejection). Optional. */
   onProbeError?: (error: unknown) => void;
-  /** Wall clock (default `Date.now`) and monotonic clock (default
-   *  `performance.now`), injectable ONLY so a test can model "the wall clock
-   *  advanced while the event loop was frozen" — which fake timers alone cannot
-   *  express, since advancing a fake timer also advances both clocks together, so
-   *  their gap stays 0. Production passes neither and gets the real globals. */
-  now?: () => number;
-  mono?: () => number;
+  /** The wall + monotonic clock pair the suspension check reads, gathered into ONE
+   *  both-or-neither container (matching the repo's `deps` test-seam convention —
+   *  renderRecovery / scrollLock) so the illegal half-injected state (a fake wall
+   *  clock + the real `performance.now`, whose gap always reads as suspended) is
+   *  unspellable. Injectable ONLY so a test can model "the wall clock advanced
+   *  while the event loop was frozen" — which fake timers alone cannot express,
+   *  since advancing a fake timer also advances both clocks together, so their gap
+   *  stays 0. Production passes nothing and gets the real `Date.now` /
+   *  `performance.now` globals. */
+  deps?: { now: () => number; mono: () => number };
 }
 
 /** Crash unless `value` is a positive, finite millisecond count within `max` — the
@@ -192,8 +195,8 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   // value past the sane max AND a non-positive / non-finite one.
   assertSaneMs("intervalMs", intervalMs, MAX_HEARTBEAT_INTERVAL_MS);
   assertSaneMs("timeoutMs", timeoutMs, MAX_HEARTBEAT_TIMEOUT_MS);
-  const now = opts.now ?? Date.now;
-  const mono = opts.mono ?? monotonicNow;
+  const now = opts.deps?.now ?? Date.now;
+  const mono = opts.deps?.mono ?? monotonicNow;
   // The void-budget ceiling in monotonic (running-time) ms — see VOID_BUDGET_FACTOR.
   const voidBudgetMs = (intervalMs + timeoutMs) * VOID_BUDGET_FACTOR;
   let inFlight = false;
