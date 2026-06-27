@@ -1,68 +1,67 @@
-<svg viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<svg viewBox="0 0 820 540" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
   <defs>
-    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+    <marker id="v" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5a3ff0"/></marker>
     <marker id="s" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
   </defs>
 
-  <!-- id key -->
-  <text x="410" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#334155">terminal-id  —  the join key</text>
-  <path d="M130,40 L130,58 M410,40 L410,58 M690,40 L690,58 M130,40 L690,40" fill="none" stroke="#cbd5e1" stroke-width="1.3"/>
+  <text x="410" y="26" text-anchor="middle" font-size="14.5" font-weight="700" fill="#334155">each producer owns its type · kolu composes them into <tspan fill="#3a2bb8">Terminal</tspan></text>
 
-  <!-- producer labels -->
-  <text x="130" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#475569">kaval</text>
-  <text x="410" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b06d12">pulam · sensors</text>
-  <text x="690" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5a3ff0">kolu</text>
+  <!-- kaval / Pty -->
+  <text x="135" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">kaval</text>
+  <rect x="45" y="70" width="180" height="116" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
+  <text x="135" y="100" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">Pty</text>
+  <text x="135" y="120" text-anchor="middle" font-size="11.5" fill="#64748b">the live process</text>
+  <line x1="62" y1="132" x2="208" y2="132" stroke="#dbe2ea"/>
+  <text x="135" y="153" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">in the daemon</text>
+  <text x="135" y="170" text-anchor="middle" font-size="10.5" fill="#64748b">survives a kolu restart</text>
 
-  <!-- kaval PTY -->
-  <rect x="55" y="86" width="150" height="118" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
-  <text x="130" y="116" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">PTY</text>
-  <text x="130" y="136" text-anchor="middle" font-size="11.5" fill="#64748b">the running process</text>
-  <line x1="72" y1="150" x2="188" y2="150" stroke="#dbe2ea"/>
-  <text x="130" y="170" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">in the daemon</text>
-  <text x="130" y="187" text-anchor="middle" font-size="10.5" fill="#64748b">survives a kolu restart</text>
+  <!-- pulam / Sensed -->
+  <text x="402" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#b06d12">pulam · sensors</text>
+  <rect x="300" y="70" width="205" height="116" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="316" y="97" font-size="16" font-weight="700" fill="#8a5a12">Sensed</text>
+  <text x="316" y="117" font-size="12" fill="#7a4f10">cwd · git</text>
+  <text x="316" y="135" font-size="12" fill="#7a4f10">agent · pr · foreground</text>
+  <line x1="314" y1="146" x2="489" y2="146" stroke="#f0d9b0"/>
+  <text x="402" y="170" text-anchor="middle" font-size="11" fill="#b07d2a" font-weight="700">live · ephemeral (re-derives)</text>
 
-  <!-- OBSERVED -->
-  <rect x="300" y="86" width="220" height="118" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
-  <text x="318" y="113" font-size="15" font-weight="700" fill="#8a5a12">OBSERVED</text>
-  <text x="318" y="133" font-size="12" fill="#7a4f10">cwd · git</text>
-  <text x="318" y="151" font-size="12" fill="#7a4f10">agent · pr · foreground</text>
-  <line x1="316" y1="162" x2="504" y2="162" stroke="#f0d9b0"/>
-  <text x="410" y="187" text-anchor="middle" font-size="11.5" fill="#b07d2a" font-weight="700">EPHEMERAL — never persisted</text>
+  <!-- kolu / Owned -->
+  <text x="687" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#5a3ff0">kolu</text>
+  <rect x="600" y="70" width="175" height="116" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="616" y="97" font-size="16" font-weight="700" fill="#3a2bb8">Owned</text>
+  <text x="616" y="117" font-size="12" fill="#352a7a">theme · layout</text>
+  <text x="616" y="135" font-size="12" fill="#352a7a">panels · intent</text>
+  <line x1="614" y1="146" x2="759" y2="146" stroke="#d4cbff"/>
+  <text x="687" y="170" text-anchor="middle" font-size="11" fill="#6b5fd0" font-weight="700">PERSISTED — kolu's file</text>
 
-  <!-- AUTHORED -->
-  <rect x="600" y="86" width="165" height="118" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
-  <text x="618" y="113" font-size="15" font-weight="700" fill="#3a2bb8">AUTHORED</text>
-  <text x="618" y="133" font-size="12" fill="#352a7a">theme · layout</text>
-  <text x="618" y="151" font-size="12" fill="#352a7a">intent · panels</text>
-  <line x1="616" y1="162" x2="749" y2="162" stroke="#d4cbff"/>
-  <text x="682" y="187" text-anchor="middle" font-size="11.5" fill="#6b5fd0" font-weight="700">PERSISTED — kolu's file</text>
+  <!-- watch -->
+  <line x1="225" y1="128" x2="298" y2="128" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
+  <text x="261" y="120" text-anchor="middle" font-size="10.5" fill="#64748b" font-style="italic">watches</text>
 
-  <!-- watch arrow -->
-  <line x1="205" y1="140" x2="298" y2="140" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
-  <text x="251" y="132" text-anchor="middle" font-size="10.5" fill="#64748b" font-style="italic">watches</text>
+  <!-- compose arrows into Terminal -->
+  <line x1="135" y1="186" x2="320" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <line x1="402" y1="186" x2="410" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <line x1="687" y1="186" x2="500" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <text x="566" y="250" font-size="11" fill="#8678d6" font-style="italic">kolu imports Pty + Sensed</text>
+  <text x="566" y="265" font-size="11" fill="#8678d6" font-style="italic">— the arrow points out.</text>
 
-  <!-- join -->
-  <line x1="410" y1="204" x2="510" y2="258" stroke="#15803d" stroke-width="1.6" marker-end="url(#g)"/>
-  <line x1="682" y1="204" x2="572" y2="258" stroke="#15803d" stroke-width="1.6" marker-end="url(#g)"/>
-  <circle cx="541" cy="270" r="20" fill="#ffffff" stroke="#15803d" stroke-width="1.8"/>
-  <text x="541" y="277" text-anchor="middle" font-size="18" font-weight="700" fill="#15803d">⋈</text>
-  <text x="575" y="274" font-size="11.5" fill="#15803d" font-weight="600">join by id</text>
+  <!-- Terminal -->
+  <rect x="245" y="330" width="330" height="118" rx="11" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.8"/>
+  <text x="410" y="356" text-anchor="middle" font-size="15" font-weight="700" fill="#3a2bb8">Terminal  (kolu composes)</text>
+  <line x1="262" y1="368" x2="558" y2="368" stroke="#d4cbff"/>
+  <text x="266" y="392" font-size="12.5" fill="#15803d" font-weight="700">LIVE</text>
+  <text x="330" y="392" font-size="12.5" fill="#334155">owned + pty + sensed</text>
+  <text x="566" y="392" font-size="10.5" fill="#94a3b8" text-anchor="end">live · by id</text>
+  <text x="266" y="416" font-size="12.5" fill="#9a3a3a" font-weight="700">SLEEP</text>
+  <text x="330" y="416" font-size="12.5" fill="#334155">owned + snapshot</text>
+  <text x="566" y="416" font-size="10.5" fill="#94a3b8" text-anchor="end">frozen sensed</text>
+  <text x="410" y="437" text-anchor="middle" font-size="10.5" fill="#7c71c0" font-style="italic">never a stored record — live is projected; sleep is the one frozen copy</text>
 
-  <!-- LIVE view -->
-  <line x1="541" y1="290" x2="541" y2="318" stroke="#15803d" stroke-width="1.8" marker-end="url(#g)"/>
-  <rect x="423" y="330" width="236" height="64" rx="10" fill="#e6f4ea" stroke="#15803d" stroke-width="1.6" stroke-dasharray="6 4"/>
-  <text x="541" y="357" text-anchor="middle" font-size="14" font-weight="700" fill="#15803d">LIVE — the join</text>
-  <text x="541" y="377" text-anchor="middle" font-size="11" fill="#3f8f5f" font-style="italic">derived · never stored</text>
-
-  <!-- left annotation: persist=author -->
-  <rect x="55" y="232" width="300" height="86" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
-  <text x="72" y="256" font-size="13" font-weight="700" fill="#334155">persist = author</text>
-  <text x="72" y="277" font-size="11.5" fill="#475569">OBSERVED never hits disk.</text>
-  <text x="72" y="294" font-size="11.5" fill="#475569">to keep one, kolu AUTHORS a</text>
-  <text x="72" y="311" font-size="11.5" fill="#475569">snapshot of it (now persisted).</text>
-
-  <!-- SLEEP strip -->
-  <rect x="55" y="424" width="710" height="62" rx="10" fill="#fdf6f6" stroke="#e8cccc"/>
-  <text x="74" y="450" font-size="13" font-weight="700" fill="#9a3a3a">SLEEP</text>
-  <text x="74" y="470" font-size="12" fill="#7a4a4a">release the PTY  →  no OBSERVED  →  freeze the join  →  <tspan font-weight="700">snapshot</tspan>  (now AUTHORED · persisted).  the one time the join is materialised.</text>
+  <!-- persist = author -->
+  <rect x="600" y="330" width="175" height="118" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="617" y="354" font-size="12.5" font-weight="700" fill="#334155">persist = author</text>
+  <text x="617" y="375" font-size="11" fill="#475569">only Owned hits disk.</text>
+  <text x="617" y="392" font-size="11" fill="#475569">the snapshot IS owned</text>
+  <text x="617" y="407" font-size="11" fill="#475569">(a frozen Sensed) — so</text>
+  <text x="617" y="422" font-size="11" fill="#475569">restore shows cwd/git/</text>
+  <text x="617" y="437" font-size="11" fill="#475569">agent from it.</text>
 </svg>
