@@ -20,6 +20,11 @@ export {
   type Subscription,
   type SubscriptionOptions,
 } from "./createSubscription";
+// The grace-windowed boolean view — delays a predicate's rising edge, instant on
+// the fall. `@kolu/surface-app`'s `SurfaceAppProvider` derives its "show the
+// Disconnected overlay" signal from the transport's instantaneous `down` status
+// through this, so a sub-second forced reconnect never flashes the alarm.
+export { gracedDown } from "./gracedDown";
 export {
   createSurfaceHealthRegistry,
   type GateStatus,

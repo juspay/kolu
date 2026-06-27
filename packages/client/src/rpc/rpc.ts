@@ -32,8 +32,7 @@ export type { ServerLifecycleEvent };
 // The probe is surface-app's identity surface, served as a sibling under the
 // `surfaceApp` key — wire path `surface.surfaceApp.identity.info` (returns
 // `{ processId }`) — composed, not hand-written.
-const { lifecycle, serverProcessId, status, presentingDown } =
-  createServerLifecycle({
+const { lifecycle, serverProcessId, status } = createServerLifecycle({
     ws,
     // surface-app is served as a sibling under the `surfaceApp` key; its client
     // (`surfaceApp.rpc`) is the SCOPED link `{ surface: link.surface.surfaceApp }`,
@@ -91,12 +90,12 @@ const { lifecycle, serverProcessId, status, presentingDown } =
 // `status` is the surface-app `ConnectionStatus` projection of the same
 // lifecycle — handed to `<SurfaceAppProvider status=...>` so the provider reads
 // THIS source instead of attaching a second listener/probe pair (one lifecycle,
-// no double `surfaceApp.info` probe per reconnect, no observer disagreement).
-// `presentingDown` is that same status's `down`, grace-windowed so a sub-second
-// forced reconnect (the wire-side half-open watchdog recovering) doesn't flash the
-// full-screen overlay — handed to `<SurfaceAppProvider presentingDown=...>` beside
-// `status`, which stays instantaneous for the header dot.
-export { lifecycle, presentingDown, serverProcessId, status };
+// no double `surfaceApp.info` probe per reconnect, no observer disagreement). The
+// provider derives the grace-windowed overlay predicate (`presentingDown`) from
+// THIS `status` itself, so a sub-second forced reconnect (the wire-side half-open
+// watchdog recovering) doesn't flash the full-screen overlay — nothing to thread
+// from here; `status` stays instantaneous for the header dot.
+export { lifecycle, serverProcessId, status };
 
 /** Transport status for the header dot — read from the lifecycle ALONE. A
  *  `restarted` event carries its own `transport`: a reconnect-restart (socket
