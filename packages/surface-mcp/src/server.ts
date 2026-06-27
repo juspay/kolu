@@ -17,10 +17,7 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  */
 
-import {
-  firstFrameOrThrow,
-  firstFrameOrUndefined,
-} from "@kolu/surface/first-frame";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -549,19 +546,19 @@ interface Snapshot {
  *
  *  The empty-open POLICY depends on the kind's snapshot guarantee:
  *
- *    - **cell / collection / collection-item** are SNAPSHOT-FIRST (`@kolu/surface/
- *      server` opens each with a current-value frame), so an empty open is a
- *      dead/dropped bridge link, NOT an empty value — it `firstFrameOrThrow`s,
- *      never collapses to `null` (the green-dot lie in MCP form;
- *      caught-error-must-not-collapse-to-empty).
- *    - **stream** has no snapshot guarantee (its contract permits zero frames), so
- *      an empty open reads as a benign JSON `null`.
- *    - **event** has no snapshot by contract (`EventHandlerDeps` may yield zero
- *      frames, and a late subscriber misses past occurrences). Awaiting its first
- *      frame would block `resources/read` forever or until the next occurrence, so
- *      an event reads as an immediate explicit `null` — its live value is the
- *      `notifications/resources/updated` stream, delivered via `resources/subscribe`,
- *      not a readable snapshot. */
+ *    - **cell / collection / collection-item / stream** are SNAPSHOT-FIRST
+ *      (`@kolu/surface/server` opens a cell/collection with a current-value frame,
+ *      and `StreamHandlerDeps` REQUIRES "first yield is a fresh full snapshot"), so
+ *      an empty open is a dead/dropped bridge link, NOT an empty value — it
+ *      `firstFrameOrThrow`s, never collapses to `null` (the green-dot lie in MCP
+ *      form; caught-error-must-not-collapse-to-empty).
+ *    - **event** is the ONE kind with no snapshot by contract (`EventHandlerDeps`
+ *      explicitly carries no snapshot obligation — it may yield zero frames, and a
+ *      late subscriber misses past occurrences — which is what distinguishes Event
+ *      from Stream). Awaiting its first frame would block `resources/read` forever or
+ *      until the next occurrence, so an event reads as an immediate explicit `null`
+ *      — its live value is the `notifications/resources/updated` stream, delivered
+ *      via `resources/subscribe`, not a readable snapshot. */
 async function readSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
@@ -572,24 +569,16 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   if (call === undefined) return undefined;
   if (call.kind === "event") return { value: null, mimeType: call.mimeType };
   const source = await call.proc(call.input);
-  // A `stream` primitive may legitimately yield ZERO frames (its contract permits
-  // an empty stream — there is no snapshot guarantee), so a missing frame reads as
-  // a benign JSON `null` (never `undefined`).
-  if (call.kind === "stream") {
-    const value =
-      source === undefined || source === null
-        ? null
-        : ((await firstFrameOrUndefined(source as AsyncIterable<unknown>)) ??
-          null);
-    return { value, mimeType: call.mimeType };
-  }
-  // `cell` / `collection` / `collection-item` are SNAPSHOT-FIRST by the surface
-  // contract: `@kolu/surface/server` opens each with a current-value frame. So an
-  // empty open is NOT an empty value — it is a dead/dropped bridge link, and
-  // collapsing it to JSON `null` would hand an MCP agent `surface://cells/<x> =>
-  // null` as if it were real (the green-dot lie in MCP form, the snapshot-then-delta
-  // class). Fail loudly per caught-error-must-not-collapse-to-empty: a nullish source
-  // (the proc returned nothing) and an empty stream (no snapshot frame) both throw.
+  // cell / collection / collection-item / STREAM are ALL snapshot-first by the
+  // surface contract: `@kolu/surface/server` opens a cell/collection with a
+  // current-value frame, and `StreamHandlerDeps` REQUIRES "first yield is a fresh
+  // full snapshot" — only `Event` carries no snapshot obligation (handled above as
+  // an immediate `null`). So an empty open for any of these is NOT an empty value —
+  // it is a dead/dropped bridge link, and collapsing it to JSON `null` would hand an
+  // MCP agent `surface://<kind>/<x> => null` as if it were real (the green-dot lie in
+  // MCP form, the snapshot-then-delta class). Fail loudly per
+  // caught-error-must-not-collapse-to-empty: a nullish source (the proc returned
+  // nothing) and an empty stream (no snapshot frame) both throw.
   if (source === undefined || source === null) {
     throw new Error(
       `surface-mcp: ${uri} (${call.kind}) resolved no streaming source — the ` +
@@ -600,8 +589,8 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
   const value = await firstFrameOrThrow(
     source as AsyncIterable<unknown>,
     `surface-mcp: ${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
-      `contract opens a cell/collection with a current-value snapshot, so an empty ` +
-      `stream means the bridge link dropped, not that the value is null.`,
+      `contract opens a cell/collection/stream with a current-value snapshot, so an ` +
+      `empty open means the bridge link dropped, not that the value is null.`,
   );
   return { value, mimeType: call.mimeType };
 }

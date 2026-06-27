@@ -244,6 +244,45 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     );
   });
 
+  it("a STREAM that opens EMPTY also throws — streams are snapshot-first too (StreamHandlerDeps), not empty-to-null", async () => {
+    // The reloc-D correction: `StreamHandlerDeps` REQUIRES "first yield is a fresh
+    // full snapshot", so a Stream is snapshot-guaranteed exactly like a cell — only
+    // an Event has no snapshot obligation. An empty stream open is therefore the
+    // SAME dead-link failure, and must throw, not collapse to JSON null.
+    const surface = defineSurface({
+      streams: { ticks: { inputSchema: z.void(), outputSchema: z.number() } },
+    });
+    const droppedBridge = {
+      surface: {
+        ticks: {
+          get: async function* () {
+            return;
+          },
+        },
+      },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      // biome-ignore lint/suspicious/noExplicitAny: stub client modelling a dropped bridge link.
+      client: () => droppedBridge as any,
+      expose: { ticks: "resource" },
+      serverInfo: { name: "empty-stream-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: streamUri("ticks") })).rejects.toThrow(
+      /no snapshot frame|link\/protocol failure/,
+    );
+  });
+
   it("reads a stream resource snapshot (void-input source)", async () => {
     const over = buildSurface();
     const { mcp, served } = await connect(over);
