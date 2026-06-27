@@ -43,7 +43,6 @@ import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
-  getTerminal,
   mutateAwarenessLive,
   mutateAwarenessPersisted,
   type TerminalProcess,
@@ -83,15 +82,13 @@ function publishAwareness(terminalId: string, aw: AwarenessValue): void {
  *  collection — the SOLE channel an authored change (a spawn, an active↔sleeping
  *  flip, a client field write) reaches the client. Shallow-clones `entry.meta` so
  *  the collection stores an independent snapshot rather than aliasing the live
- *  (in-place-mutated) registry object. A no-op if the entry is absent (a publish
- *  racing teardown). The collection `upsert` only fans out to subscribers (the
- *  registry IS the store), so this call is the only way an authored change reaches
- *  the client — where it is JOINED with awareness, never re-fused here. */
-function publishAuthored(
-  terminalId: string,
-  entry = getTerminal(terminalId),
-): void {
-  if (!entry) return;
+ *  (in-place-mutated) registry object. `entry` is REQUIRED — both callers
+ *  (`updateClientMetadata`, `publishTerminalState`) already hold it — so "publish"
+ *  is not complected with "defensively tolerate a missing entry". The collection
+ *  `upsert` only fans out to subscribers (the registry IS the store), so this call
+ *  is the only way an authored change reaches the client — where it is JOINED with
+ *  awareness, never re-fused here. */
+function publishAuthored(terminalId: string, entry: TerminalProcess): void {
   surfaceCtx.collections.authored.upsert(terminalId, { ...entry.meta });
 }
 
