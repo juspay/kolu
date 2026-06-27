@@ -4,6 +4,8 @@ import {
   DAEMON_STATE_PRESENTATION,
   DAEMON_UNKNOWN_DOT,
   kavalDot,
+  liveDownState,
+  liveWarming,
   toneDot,
 } from "./daemonPresentation";
 
@@ -38,5 +40,36 @@ describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1
     // 'down' (red): the two failures must not collapse into one verdict.
     expect(DAEMON_UNKNOWN_DOT).not.toBe(toneDot.down);
     expect(kavalDot("dead", true)).not.toBe(DAEMON_UNKNOWN_DOT);
+  });
+});
+
+describe("liveWarming / liveDownState — daemon-state claims FLOORED on transport liveness", () => {
+  // The round-3 relocation: the canvas + the ⌘T lockout (refuseIfWarming) + the
+  // command gate all read "is the daemon warming/down" through these source folds, so
+  // flooring HERE floors every consumer at once — a stale "restarting…"/"dead" can't
+  // reach the canvas ("Restarting kaval…") or the lockout ("Daemon is starting") over
+  // a dead/half-open link.
+
+  it("liveWarming is true ONLY over a live link", () => {
+    expect(liveWarming("restarting", true)).toBe(true);
+    expect(liveWarming("connecting", true)).toBe(true);
+    // Dead link: a retained warming state is stale → not warming.
+    expect(liveWarming("restarting", false)).toBe(false);
+    expect(liveWarming("connecting", false)).toBe(false);
+    // A non-warming or unknown state is not warming regardless.
+    expect(liveWarming("connected", true)).toBe(false);
+    expect(liveWarming(undefined, true)).toBe(false);
+  });
+
+  it("liveDownState is the down sub-state ONLY over a live link, else undefined (unknown ≠ down)", () => {
+    expect(liveDownState("dead", true)).toBe("dead");
+    expect(liveDownState("degraded", true)).toBe("degraded");
+    // Dead link: a retained down state is stale → unknown, NOT a definite "down"
+    // (so DegradedCanvas never paints over a link we can't see through).
+    expect(liveDownState("dead", false)).toBeUndefined();
+    expect(liveDownState("degraded", false)).toBeUndefined();
+    // A non-down or unknown state is not down regardless.
+    expect(liveDownState("connected", true)).toBeUndefined();
+    expect(liveDownState(undefined, true)).toBeUndefined();
   });
 });

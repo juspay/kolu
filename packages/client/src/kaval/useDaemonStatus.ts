@@ -19,7 +19,11 @@ import { createEffect, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { app } from "../wire";
-import { DAEMON_STATE_PRESENTATION, isWarming } from "./daemonPresentation";
+import {
+  DAEMON_STATE_PRESENTATION,
+  liveDownState,
+  liveWarming,
+} from "./daemonPresentation";
 import { announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
@@ -32,6 +36,8 @@ export {
   formatUptime,
   isWarming,
   kavalDot,
+  liveDownState,
+  liveWarming,
   toneDot,
   wsDot,
   wsTone,
@@ -80,15 +86,13 @@ export function daemonStatusPending(): boolean {
  *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
  *  is named in one place rather than re-derived by an inline ternary. */
 export function downState(): "dead" | "degraded" | undefined {
-  const state = localDaemonStatus()?.state;
-  if (!state) return undefined;
-  // The down-sub-union is whichever states the presentation table marks `down`.
-  // Today that is exactly `dead`/`degraded`; the cast holds because no non-down
-  // state is flagged `down`, and keeping the narrow return type means a future
-  // `down` state must be added to this union deliberately, not silently widened.
-  return DAEMON_STATE_PRESENTATION[state].down
-    ? (state as "dead" | "degraded")
-    : undefined;
+  // FLOORED on transport liveness via `liveDownState`: when the ws delivering
+  // daemonStatus is dead/half-open the retained state is stale, so "down" reads
+  // `undefined` ("unknown") rather than painting DegradedCanvas off a value the dead
+  // channel can't confirm — the post-grace transport overlay owns the disconnect.
+  // The down-sub-union is whichever states the presentation table marks `down`
+  // (today exactly `dead`/`degraded`); a future `down` state joins it deliberately.
+  return liveDownState(localDaemonStatus()?.state, daemonTransportLive());
 }
 
 /** True while the local daemon is transiently coming up (its state {@link
@@ -106,7 +110,12 @@ export function downState(): "dead" | "degraded" | undefined {
  *  kill (or a momentarily-`current` old connection). Terminal creation must wait
  *  for `connected`. */
 export function daemonWarming(): boolean {
-  return isWarming(localDaemonStatus()?.state);
+  // FLOORED on transport liveness via `liveWarming`: a "the daemon is coming up"
+  // claim only holds over a live link. When the link is dead/half-open this reads
+  // false (not "warming"), so the canvas won't paint "Restarting kaval…" and
+  // `refuseIfWarming` won't lock ⌘T with a misleading "Daemon is starting" off a
+  // stale state — every consumer inherits the floor from this one source.
+  return liveWarming(localDaemonStatus()?.state, daemonTransportLive());
 }
 
 /** The warming-canvas message for the current daemon state — the verbier,

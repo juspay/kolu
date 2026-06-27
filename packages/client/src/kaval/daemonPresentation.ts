@@ -131,3 +131,35 @@ export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 export function isWarming(state: DaemonState | undefined): boolean {
   return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
 }
+
+/** {@link isWarming}, FLOORED on transport liveness — the same floor `kavalDot`
+ *  applies to the dot. A daemon-state claim ("the daemon is coming up") only holds
+ *  over a LIVE link: when `live` is false (transport dead / silently half-open) the
+ *  retained state is stale, so a known "warming" state may only REFINE the verdict
+ *  WITHIN a live link, never assert "restarting…/connecting…" over a dead channel.
+ *  Every consumer of "is the daemon warming" — the App canvas, the ⌘T
+ *  terminal-creation lockout (`refuseIfWarming`), the command-palette gate — reads
+ *  this through `daemonWarming()`, so the floor is applied ONCE here. */
+export function liveWarming(
+  state: DaemonState | undefined,
+  live: boolean,
+): boolean {
+  return live && isWarming(state);
+}
+
+/** The daemon's down sub-state ("dead"/"degraded"), FLOORED on transport
+ *  liveness — the down twin of {@link liveWarming}. "The daemon is down" is a claim
+ *  the dead channel can't confirm, so when `live` is false this reads `undefined`
+ *  ("unknown"), never a stale "dead"/"degraded" that would paint DegradedCanvas over
+ *  a link we can't see through. The post-grace transport overlay owns the disconnect
+ *  messaging instead; a known down-state may only refine the canvas WITHIN a live
+ *  link. (Unknown ≠ down — same distinction `DAEMON_UNKNOWN_DOT` draws for the dot.) */
+export function liveDownState(
+  state: DaemonState | undefined,
+  live: boolean,
+): "dead" | "degraded" | undefined {
+  if (!live || !state) return undefined;
+  return DAEMON_STATE_PRESENTATION[state].down
+    ? (state as "dead" | "degraded")
+    : undefined;
+}

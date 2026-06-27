@@ -39,6 +39,13 @@ export interface CanvasFacts {
   warmingLabel: string;
   daemonState: DaemonState | undefined;
   terminalCount: number;
+  /** The watchdog-backed liveness of the ws delivering daemonStatus. The `down`
+   *  and `warming` facts arrive ALREADY floored on this at their source accessors
+   *  (`downState`/`daemonWarming` → `liveDownState`/`liveWarming`); this fact floors
+   *  the remaining daemon-derived claim — `empty` ("no terminals"), which the dead
+   *  channel also can't confirm — so a dead/half-open link makes NO unconfirmable
+   *  canvas claim (the #1568 SHAPE A class the rail dot already floors). */
+  transportLive: boolean;
 }
 
 /** The pure precedence partition — total over {@link CanvasFacts}, exclusive,
@@ -52,6 +59,9 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
   // from flashing the normal empty workspace before the degraded surface takes
   // over (#1034).
   if (facts.isLoading || facts.daemonPending) return { kind: "connecting" };
+  // `down` and `warming` arrive ALREADY floored on transport liveness (their source
+  // accessors `downState`/`daemonWarming` return undefined/false when the link is
+  // dead), so a stale daemon state never reaches these arms over a dead channel.
   if (facts.down) return { kind: "down", state: facts.down };
   if (facts.warming)
     return {
@@ -59,6 +69,12 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       label: facts.warmingLabel,
       daemonState: facts.daemonState,
     };
-  if (facts.terminalCount === 0) return { kind: "empty" };
-  return { kind: "workspace" };
+  // "No terminals" is the remaining daemon-derived claim, and it too is
+  // unconfirmable over a dead link — so gate `empty` on transport liveness. When the
+  // link is not live, show the last-good workspace if any terminals are on screen,
+  // else the neutral connecting surface — never a stale "no terminals" with active
+  // Restore / new-terminal affordances. The post-grace TransportOverlay owns the
+  // disconnect messaging.
+  if (facts.transportLive && facts.terminalCount === 0) return { kind: "empty" };
+  return facts.terminalCount > 0 ? { kind: "workspace" } : { kind: "connecting" };
 }
