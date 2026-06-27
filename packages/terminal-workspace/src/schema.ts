@@ -184,23 +184,27 @@ export const AwarenessValueSchema = AwarenessPersistedFieldsSchema.merge(
 );
 export type AwarenessValue = z.infer<typeof AwarenessValueSchema>;
 
+/** The live half of a fresh / reset awareness value — PR pending, no agent, no
+ *  foreground: the "not yet resolved" defaults the sensors fill in. The ONE home
+ *  for the live-default set, so a fresh spawn (via {@link seedAwarenessValue}), a
+ *  wake, and an adoption all reset the live half through this and can't drift. A
+ *  fresh object each call — the value is mutated in place by the sensor sink, so
+ *  callers must not share one. */
+export function seedAwarenessLive(): AwarenessLiveFields {
+  return { pr: { kind: "pending" }, agent: null, foreground: null };
+}
+
 /** The initial awareness value for a freshly-spawned terminal: its spawn-time
- *  cwd, everything else at its "not yet resolved" seed (git absent, PR pending,
- *  no agent, no foreground, recency at 0). The sensors fill it in from now.
+ *  cwd, everything else at its "not yet resolved" seed (git absent, recency at 0,
+ *  and the live half from {@link seedAwarenessLive}). The sensors fill it in from
+ *  now.
  *
  *  Owned HERE, beside the schema that defines its shape, so every consumer
  *  shares one seed: `pulam`'s daemon seeds a watched terminal with it, and
  *  kolu's `createMetadata` spreads it under the kolu-only `location`. A new
  *  awareness field then has exactly one seed value to set. */
 export function seedAwarenessValue(cwd: string): AwarenessValue {
-  return {
-    cwd,
-    git: null,
-    lastActivityAt: 0,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-  };
+  return { cwd, git: null, lastActivityAt: 0, ...seedAwarenessLive() };
 }
 
 // ── Schema-derived sub-types ──────────────────────────────────────────

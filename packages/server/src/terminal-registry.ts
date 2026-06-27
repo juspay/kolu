@@ -108,6 +108,20 @@ export function listTerminals(): TerminalInfo[] {
   return [...terminals.values()].map((entry) => entry.info);
 }
 
+/** Project the registry into a `Map<id, V>` for a surface collection's `readAll`
+ *  — one loop over the entries in canonical insertion order, with `pick` choosing
+ *  the half. The `authored` and `terminalWorkspace.awareness` collections both
+ *  read off the SAME registry entry (Design-S: the two halves share one backing),
+ *  so this keeps the projection loop in one place instead of copied per
+ *  collection. */
+export function registryMap<V>(
+  pick: (entry: TerminalProcess) => V,
+): Map<string, V> {
+  const map = new Map<string, V>();
+  for (const [id, entry] of terminals) map.set(id, pick(entry));
+  return map;
+}
+
 /** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
  *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
  *  so heap diagnostics that correlate a column with live-terminal memory must use

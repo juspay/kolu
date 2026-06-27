@@ -29,6 +29,7 @@ import {
   type AwarenessSignals,
   type AwarenessSink,
   type CommandRunSample,
+  seedAwarenessLive,
   seedAwarenessValue,
   startAwareness,
 } from "@kolu/terminal-workspace";
@@ -97,6 +98,18 @@ function emitTerminalsDirty(): void {
  *  collection instead. */
 function emitTerminalListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
+}
+
+/** Birth a terminal's two halves together — register the entry (whose required
+ *  `awareness` field carries the value) and fan that awareness out to the
+ *  `awareness` collection. The SEED counterpart to `finalizeRemoval`'s teardown:
+ *  "the entry exists" and "its awareness is published" become one step, so an R9
+ *  install/publish change touches one place. Each caller keeps its own POSTAMBLE
+ *  (publishTerminalState, markReady + sensors, the list-changed emit) at the call
+ *  site, exactly as `finalizeRemoval`'s callers keep their preamble. */
+function registerAndInstall(id: TerminalId, entry: TerminalProcess): void {
+  registerTerminal(id, entry);
+  installAwareness(id, entry.awareness);
 }
 
 // ── Local fs/git surfaces (local fs is on this machine) ─────────────────
@@ -322,8 +335,7 @@ export function adoptedAwareness(
   return {
     ...AwarenessPersistedFieldsSchema.parse(record),
     cwd: liveEntry.cwd,
-    pr: { kind: "pending" },
-    agent: null,
+    ...seedAwarenessLive(),
     foreground: liveForeground(liveEntry),
   };
 }
@@ -424,18 +436,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const prior = getTerminal(id);
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     // Both halves are born in ONE entry — awareness is a required field, so the
-    // single `registerTerminal` makes "the terminal exists" and "its awareness
-    // exists" inseparable (no install-before-register ordering to remember).
+    // entry IS its awareness; `registerAndInstall` registers it and fans the
+    // awareness snapshot out in one step (the seed counterpart to
+    // `finalizeRemoval`).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
       meta,
       awareness,
       handle: proxy,
     };
-    registerTerminal(id, entry);
-    // Fan the awareness snapshot out to the `awareness` collection now that the
-    // entry is registered (the value already rides `entry.awareness`).
-    installAwareness(id, awareness);
+    registerAndInstall(id, entry);
     // A lifecycle flip must PUBLISH, mirroring the sleep path — see
     // `publishTerminalState` for why `terminals:dirty` alone can't reach the
     // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
@@ -474,9 +484,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       awareness,
       handle: proxy,
     };
-    registerTerminal(id, entry);
-    // Fan the awareness snapshot out to the collection now that the entry exists.
-    installAwareness(id, awareness);
+    registerAndInstall(id, entry);
     // The PTY already exists on the survivor — release the handle's queued /
     // awaited verbs at the live pid with no spawn RPC (the sole structural
     // difference from `spawnAndWire`).
@@ -620,14 +628,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     if (getTerminal(id) !== entry) return;
     if (prior?.meta.state === "sleeping") {
-      // Restoring a sleeping record: re-register `prior` WHOLE — its awareness
-      // rides as a field on the entry, so the dormant value comes back with it
-      // (the tile recomposes cwd/branch off the persisted half; the live half is
-      // dead data while sleeping). Re-publish the awareness snapshot so the
-      // collection subscribers see the restored dormant value (the wake had fanned
-      // out the active one). Do NOT drop it.
-      registerTerminal(id, prior);
-      installAwareness(id, prior.awareness);
+      // Restoring a sleeping record: re-register `prior` WHOLE via
+      // `registerAndInstall` — its awareness rides as a field on the entry, so the
+      // dormant value comes back with it (the tile recomposes cwd/branch off the
+      // persisted half; the live half is dead data while sleeping) and is re-fanned
+      // to the collection so subscribers see the restored dormant value (the wake
+      // had fanned out the active one). Do NOT drop it.
+      registerAndInstall(id, prior);
       publishTerminalState(prior, id);
       emitTerminalListChanged();
       return;
@@ -776,9 +783,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  (`terminalExit` publish, `cleanupTerminalScratch`, the kill RPC, the identity
    *  gate) stays at the call site; only this identical tail is encapsulated.
    *
-   *  Teardown only — the SEED side (install-before-register) is genuinely
-   *  interleaved with sensor wiring and resists a single seam, so the asymmetry is
-   *  intentional, not an oversight. */
+   *  The SEED counterpart is `registerAndInstall` (register the entry + fan its
+   *  awareness out), so birth and removal read as symmetric receptacles. */
   private finalizeRemoval(id: TerminalId): void {
     unregisterTerminal(id);
     dropAwareness(id);
@@ -910,12 +916,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // sensors), keep the PERSISTED half. This woken awareness rides the active entry
     // built in `registerActiveAndSpawn`, which fans it out so the client's join sees
     // fresh awareness once the active authored arm publishes.
-    const wokenAwareness: AwarenessValue = {
-      ...aw,
-      pr: { kind: "pending" },
-      agent: null,
-      foreground: null,
-    };
+    const wokenAwareness: AwarenessValue = { ...aw, ...seedAwarenessLive() };
     // Flip the AUTHORED record to active — drops `sleptAt` + the frozen `pr`.
     const meta = AuthoredActiveSchema.parse({ ...entry.meta, state: "active" });
     log
@@ -1065,16 +1066,13 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   // sleeping entry's `awareness` field (no separate store), then fans out.
   const awareness: AwarenessValue = {
     ...AwarenessPersistedFieldsSchema.parse(parsed),
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
+    ...seedAwarenessLive(),
   };
-  registerTerminal(id, {
+  registerAndInstall(id, {
     info: { id, pid: 0 },
     meta: AuthoredSleepingSchema.parse(parsed),
     awareness,
   });
-  installAwareness(id, awareness);
   emitTerminalListChanged();
   return true;
 }

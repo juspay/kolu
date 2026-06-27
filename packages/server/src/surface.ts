@@ -48,8 +48,6 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
-  AuthoredTerminal,
-  AwarenessValue,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
@@ -80,6 +78,7 @@ import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
   getTerminal,
   listTerminals,
+  registryMap,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -250,14 +249,7 @@ const koluDeps: Omit<
       // `terminalWorkspace.awareness` collection below, and the client joins the
       // two at read time (`useTerminalMetadata`). There is no server-side
       // re-fusion: the wire never carries a single fused record.
-      readAll: () => {
-        const map = new Map<string, AuthoredTerminal>();
-        for (const info of listTerminals()) {
-          const term = getTerminal(info.id);
-          if (term) map.set(info.id, term.meta);
-        }
-        return map;
-      },
+      readAll: () => registryMap((t) => t.meta),
       readOne: (key) => getTerminal(key as string)?.meta,
       // Server-internal collection: clients can't write. The registry IS the
       // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
@@ -459,14 +451,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
           // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
           // `upsert`/`remove` are no-ops (the registry is the authority).
           awareness: {
-            readAll: () => {
-              const map = new Map<string, AwarenessValue>();
-              for (const info of listTerminals()) {
-                const term = getTerminal(info.id);
-                if (term) map.set(info.id, term.awareness);
-              }
-              return map;
-            },
+            readAll: () => registryMap((t) => t.awareness),
             readOne: (key) => getTerminal(key as string)?.awareness,
             upsert: () => {},
             remove: () => {},
