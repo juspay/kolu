@@ -69,12 +69,12 @@ export function resolveCanvasMode(facts: CanvasFacts): CanvasMode {
       label: facts.warmingLabel,
       daemonState: facts.daemonState,
     };
-  // "No terminals" is the remaining daemon-derived claim, and it too is
-  // unconfirmable over a dead link — so gate `empty` on transport liveness. When the
-  // link is not live, show the last-good workspace if any terminals are on screen,
-  // else the neutral connecting surface — never a stale "no terminals" with active
-  // Restore / new-terminal affordances. The post-grace TransportOverlay owns the
-  // disconnect messaging.
-  if (facts.transportLive && facts.terminalCount === 0) return { kind: "empty" };
-  return facts.terminalCount > 0 ? { kind: "workspace" } : { kind: "connecting" };
+  // Terminals on screen → show them. Otherwise "no terminals" is the remaining
+  // daemon-derived claim, and it too is unconfirmable over a dead link: show `empty`
+  // only when the link is LIVE (it can confirm the set really is empty), else the
+  // neutral connecting surface — never a stale "no terminals" with active Restore /
+  // new-terminal affordances. The post-grace TransportOverlay owns the disconnect
+  // messaging.
+  if (facts.terminalCount > 0) return { kind: "workspace" };
+  return facts.transportLive ? { kind: "empty" } : { kind: "connecting" };
 }

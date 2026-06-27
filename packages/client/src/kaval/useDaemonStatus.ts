@@ -15,8 +15,9 @@
  */
 
 import type { DaemonStatus } from "kolu-common/surface";
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
 import { app } from "../wire";
 import {
@@ -34,17 +35,29 @@ export {
   DAEMON_UNKNOWN_DOT,
   type DaemonTone,
   formatUptime,
-  isWarming,
   kavalDot,
   liveDownState,
   liveWarming,
   serverDot,
-  toneDot,
-  wsTone,
 } from "./daemonPresentation";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
+
+// ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
+// accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled
+// sub, allocating a fresh `SubHealth[]` — on each read, and reading `.live` tracks
+// every sub's `pending()`/`error()`. The ~dozen status-paint sites that floor on
+// this fact would otherwise each re-fold per render AND re-render on every enrolled
+// subscription's churn (a terminal create re-subscribing, a gitStatus blip), not
+// just on a real liveness flip. Folding once behind a `===`-diffed memo collapses
+// both: consumers track only the boolean and re-paint only when `live` actually
+// changes. The `createSharedRoot` idiom is the same app-lifetime singleton
+// `getClockNow` / the stale-ticker use (solidjs.md "memos for multi-consumer
+// derivations").
+const sharedDaemonTransportLive = createSharedRoot(() =>
+  createMemo(() => app.health().live),
+);
 
 /** The watchdog-backed liveness of the ws transport that delivers `daemonStatus`
  *  — `app.health().live` (kolu serves its own surface with no mirror/`liveWhen`
@@ -53,9 +66,10 @@ export const LOCAL_HOST = "local";
  *  {@link kavalDot}): when the link is dead or silently half-open, the retained
  *  daemon state is STALE — the channel that would refresh it is gone — so the
  *  column must read "unknown", never a definite "running" + an uptime climbing off
- *  the local clock. A reactive accessor; read it inside a tracking scope. */
+ *  the local clock. A reactive accessor (a shared memo); read it inside a tracking
+ *  scope. */
 export function daemonTransportLive(): boolean {
-  return app.health().live;
+  return sharedDaemonTransportLive()();
 }
 
 const sub = app.collections.daemonStatus.use({
@@ -95,9 +109,10 @@ export function downState(): "dead" | "degraded" | undefined {
   return liveDownState(localDaemonStatus()?.state, daemonTransportLive());
 }
 
-/** True while the local daemon is transiently coming up (its state {@link
- *  isWarming}). Before the first status yield the state is unknown (not warming);
- *  `daemonStatusPending()` owns that pre-first-value gate.
+/** True while the local daemon is transiently coming up (its state warming, via
+ *  `liveWarming` — floored on transport liveness). Before the first status yield the
+ *  state is unknown (not warming); `daemonStatusPending()` owns that pre-first-value
+ *  gate.
  *
  *  Two consumers share this gate, covering both the visible and the invisible
  *  create paths: the App.tsx canvas reads it to suppress the empty-state welcome

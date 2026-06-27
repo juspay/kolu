@@ -109,9 +109,10 @@ export function formatUptime(ms: number): string {
 
 /** A WebSocket transport status → its coarse tone — `connecting` is transient
  *  (warming, pulses), `open` is healthy, `closed` is down. The one place the
- *  WS-status→tone mapping lives, so the `srv` liveness dot (desktop rail) and the
- *  mobile connection dot read ONE receptacle instead of two byte-identical maps. */
-export const wsTone: Record<WsStatus, DaemonTone> = {
+ *  WS-status→tone mapping lives. MODULE-PRIVATE: it feeds only the (also private)
+ *  {@link wsDot}; the `srv`/mobile dots paint through {@link serverDot}, so the
+ *  unfloored lifecycle-only tone has no external spelling. */
+const wsTone: Record<WsStatus, DaemonTone> = {
   connecting: "warming",
   open: "ok",
   closed: "down",
@@ -144,11 +145,12 @@ export function serverDot(status: WsStatus, live: boolean): string {
 
 /** Is a daemon state in the transient "warming" bucket — `connecting` (boot) or
  *  `restarting` (a supervised restart in flight)? Derived from the presentation
- *  table so the warming set is named ONCE: both the module-singleton gate
- *  (`daemonWarming`) and the param-taking restart-button predicate
- *  (`restartInFlight` in `useDaemonRestart`) project from it, so they can't drift
- *  on what counts as "coming up", and a future warming state is covered for free. */
-export function isWarming(state: DaemonState | undefined): boolean {
+ *  table so the warming set is named ONCE. MODULE-PRIVATE: the transport-liveness-
+ *  floored {@link liveWarming} wraps it, and is what every consumer reads (the
+ *  canvas via `daemonWarming`, the ⌘T lockout, the restart-button predicate), so the
+ *  unfloored predicate has no external spelling; a future warming state is covered
+ *  for free. */
+function isWarming(state: DaemonState | undefined): boolean {
   return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
 }
 

@@ -162,6 +162,26 @@ export function toolName(ns: string, verb: string): string {
   return `${ns}_${verb}`;
 }
 
+/** Reject an input-bearing stream/event exposed as a STATIC resource — the one gate
+ *  both the stream and event arms take. A `surface://<kind>s/<key>` URI carries no
+ *  input, so the adapter reads/subscribes via `.get(undefined)`; a spec whose
+ *  `inputSchema` *requires* an argument (e.g. `z.object({ id })`) can't be a single
+ *  static resource. Fail at BOOT rather than register one whose every read/subscribe
+ *  fails validation. (An input-bearing one belongs behind a projection that fixes the
+ *  input, or a future resource-template encoding.) */
+function assertExposableAsResource(
+  kind: "stream" | "event",
+  key: string,
+  inputSchema: ZodType,
+): void {
+  if (!inputSchema.safeParse(undefined).success) {
+    throw new Error(
+      `surface-mcp: ${kind} "${key}" requires an input, so it can't be exposed as a static resource ` +
+        `(surface://${kind}s/${key} carries no input). Project it to a no-input ${kind}, or expose a fixed-input view.`,
+    );
+  }
+}
+
 // ── Resolver ─────────────────────────────────────────────────────────────
 
 /** Walk a spec + expose map, producing the concrete lists to register. Every
@@ -256,22 +276,13 @@ export function resolveExpose<S extends SurfaceSpec>(
         keySchema: collSpec.keySchema,
       });
     } else if (key in streams) {
-      // A stream is a static resource only if its input accepts being called
-      // with no argument — `surface://streams/<key>` carries no input, so the
-      // adapter reads/subscribes it via `.get(undefined)`. A stream whose
-      // `inputSchema` *requires* an argument (e.g. `z.object({ id })`) can't
-      // be a single static resource; reject it at boot rather than register a
-      // resource that fails validation on every read/subscribe. (An
-      // input-bearing stream belongs behind a projection that fixes the
-      // input, or a future resource-template encoding.)
-      const streamSpec = streams[key] as { inputSchema: ZodType };
-      const accepts = streamSpec.inputSchema.safeParse(undefined).success;
-      if (!accepts) {
-        throw new Error(
-          `surface-mcp: stream "${key}" requires an input, so it can't be exposed as a static resource ` +
-            `(surface://streams/${key} carries no input). Project it to a no-input stream, or expose a fixed-input view.`,
-        );
-      }
+      // A stream is a static resource only if its input accepts no argument (the
+      // adapter reads/subscribes via `.get(undefined)`) — see the shared gate.
+      assertExposableAsResource(
+        "stream",
+        key,
+        (streams[key] as { inputSchema: ZodType }).inputSchema,
+      );
       resources.push({
         uri: streamUri(key),
         kind: "stream",
@@ -280,24 +291,15 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
       });
     } else if (key in events) {
-      // An event is a static resource only if its input accepts being called
-      // with no argument — `surface://events/<key>` carries no input, so the
-      // adapter subscribes it via `.get(undefined)` (an event's live value is
-      // the `notifications/resources/updated` stream, not a readable snapshot;
-      // `readSnapshot` returns an immediate `null`). An event whose `inputSchema`
-      // *requires* an argument (e.g. `z.object({ id })`) can't be a single static
-      // resource; reject it at boot — the same gate the streams take — rather than
-      // list a resource whose subscribe path fails validation on every open. (An
-      // input-bearing event belongs behind a projection that fixes the input, or
-      // a future resource-template encoding.)
-      const eventSpec = events[key] as { inputSchema: ZodType };
-      const accepts = eventSpec.inputSchema.safeParse(undefined).success;
-      if (!accepts) {
-        throw new Error(
-          `surface-mcp: event "${key}" requires an input, so it can't be exposed as a static resource ` +
-            `(surface://events/${key} carries no input). Project it to a no-input event, or expose a fixed-input view.`,
-        );
-      }
+      // An event takes the SAME no-input gate as a stream — its live value is the
+      // `notifications/resources/updated` stream, not a readable snapshot
+      // (`readSnapshot` returns an immediate `null`), but its subscribe path still
+      // calls `.get(undefined)`.
+      assertExposableAsResource(
+        "event",
+        key,
+        (events[key] as { inputSchema: ZodType }).inputSchema,
+      );
       resources.push({
         uri: eventUri(key),
         kind: "event",
