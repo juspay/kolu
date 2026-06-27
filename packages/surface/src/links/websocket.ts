@@ -25,11 +25,9 @@ import { wireClient, wireRetryPlugins } from "./_wire";
 // heartbeat `connectSurface`/`connectSurfaces` wire in). It is NOT special in
 // this: every WIRE link can half-open (a wedged stdio peer, a partitioned ssh
 // pipe), so the half-open brand lives at `wireClient` (`./_wire`) — the one
-// chokepoint every wire link crosses — and `isHalfOpenLink` is re-exported here
-// for the `@kolu/surface/links/websocket` subpath's back-compat. Only the
+// chokepoint every wire link crosses, and `isHalfOpenLink`'s single home. Only the
 // in-process `directLink` (which bypasses `wireClient`, no transport) stays
 // unbranded, so it is the only link whose constant-`true` transport leg is honest.
-export { isHalfOpenLink } from "./_wire";
 
 /** Connect a typed oRPC client over a WebSocket transport, with
  *  `ClientRetryPlugin` installed. The contract type parameter pins the
