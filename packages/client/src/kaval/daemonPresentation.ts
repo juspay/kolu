@@ -157,9 +157,13 @@ export function isWarming(state: DaemonState | undefined): boolean {
  *  over a LIVE link: when `live` is false (transport dead / silently half-open) the
  *  retained state is stale, so a known "warming" state may only REFINE the verdict
  *  WITHIN a live link, never assert "restarting…/connecting…" over a dead channel.
- *  Every consumer of "is the daemon warming" — the App canvas, the ⌘T
- *  terminal-creation lockout (`refuseIfWarming`), the command-palette gate — reads
- *  this through `daemonWarming()`, so the floor is applied ONCE here. */
+ *  Every consumer of "is the daemon warming" reads the floor through THIS one
+ *  function — most via `daemonWarming()` (the App canvas, the ⌘T terminal-creation
+ *  lockout `refuseIfWarming`, the command-palette gate), and `restartInFlight`
+ *  (the Restart-kaval button gate) by calling `liveWarming` directly with the same
+ *  `(state, daemonTransportLive())` pair, so its warming arm stays exactly
+ *  `daemonWarming()`'s body. The floor is therefore applied ONCE here, and no
+ *  consumer can read an unfloored warming verdict. */
 export function liveWarming(
   state: DaemonState | undefined,
   live: boolean,
