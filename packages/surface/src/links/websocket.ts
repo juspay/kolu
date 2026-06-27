@@ -19,33 +19,17 @@ import { RPCLink } from "@orpc/client/websocket";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { wireClient, wireRetryPlugins } from "./_wire";
 
-// Every client `websocketLink` builds, by identity. A WebSocket transport can
-// silently HALF-OPEN — the socket stays `open` at the OS level while no bytes
-// flow either way — so a client over it has NO honest transport-liveness of its
-// own; that signal must be supplied by a watchdog (the heartbeat
-// `connectSurface`/`connectSurfaces` wire in). A WeakSet (keyed on the opaque
-// oRPC proxy by identity, never mutating it, GC-safe) lets `surfaceClient` /
-// `surfaceClients` FAIL FAST when handed such a bare link instead of a
-// watchdog-backed `LiveSignalHandle`, rather than silently defaulting the
-// transport leg to constant-`true` — the
-// green/ready-dot-over-a-dead-link lie (#1564), one seam upstream. The
-// in-process links (`directLink`/`stdioLink`) are NOT recorded: they cannot
-// half-open, so their constant-`true` transport leg is honest by construction.
-const HALF_OPEN_LINKS = new WeakSet<object>();
-
-/** True if `link` was built by {@link websocketLink} — a transport that can
- *  silently half-open, so its `health().live` is a LIE unless a liveness
- *  watchdog supplies the real transport signal. `surfaceClient`/`surfaceClients`
- *  consult this to crash loudly when such a bare link arrives instead of a
- *  watchdog-backed `LiveSignalHandle`, rather than defaulting the transport leg
- *  to constant-`true`. */
-export function isHalfOpenLink(link: unknown): boolean {
-  return (
-    (typeof link === "object" || typeof link === "function") &&
-    link !== null &&
-    HALF_OPEN_LINKS.has(link as object)
-  );
-}
+// A websocket can silently HALF-OPEN — the socket stays `open` at the OS level
+// while no bytes flow either way — so a client over it has NO honest
+// transport-liveness of its own; that signal must be supplied by a watchdog (the
+// heartbeat `connectSurface`/`connectSurfaces` wire in). It is NOT special in
+// this: every WIRE link can half-open (a wedged stdio peer, a partitioned ssh
+// pipe), so the half-open brand lives at `wireClient` (`./_wire`) — the one
+// chokepoint every wire link crosses — and `isHalfOpenLink` is re-exported here
+// for the `@kolu/surface/links/websocket` subpath's back-compat. Only the
+// in-process `directLink` (which bypasses `wireClient`, no transport) stays
+// unbranded, so it is the only link whose constant-`true` transport leg is honest.
+export { isHalfOpenLink } from "./_wire";
 
 /** Connect a typed oRPC client over a WebSocket transport, with
  *  `ClientRetryPlugin` installed. The contract type parameter pins the
@@ -73,10 +57,8 @@ export function websocketLink<C extends AnyContractRouter>(
     websocket,
     plugins: wireRetryPlugins(),
   });
-  const client = wireClient<C>(link);
-  // Record this client as half-openable so `surfaceClient`/`surfaceClients`
-  // refuse it unless wrapped in a watchdog-backed `LiveSignalHandle` (see
-  // `HALF_OPEN_LINKS` above).
-  HALF_OPEN_LINKS.add(client as object);
-  return client;
+  // `wireClient` brands the result half-openable (see `./_wire`), so
+  // `surfaceClient`/`surfaceClients` refuse this bare client unless it is wrapped
+  // in a watchdog-backed `LiveSignalHandle`.
+  return wireClient<C>(link);
 }

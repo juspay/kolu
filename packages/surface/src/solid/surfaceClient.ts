@@ -36,7 +36,7 @@ import type {
   SurfaceSpec,
 } from "../define";
 import { resolveCellVerbs } from "../define";
-import { isHalfOpenLink } from "../links/websocket";
+import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
@@ -65,17 +65,20 @@ import { useStream } from "./useStream";
  *     wires the watchdog first), so the live↔link pairing holds BY CONSTRUCTION — the
  *     "watch ws1, build over ws2" forge is unspellable because no caller supplies a
  *     separate link.
- *   - A bare half-openable `websocketLink`: CRASH. A WebSocket can half-open silently
- *     (the socket stays `open` while no bytes flow), so its `health().live` is a LIE
- *     unless a watchdog probes it — and the watchdog rides on the handle. Passing the
- *     bare link drops the watchdog, so refuse it: pass the `LiveSignalHandle`
- *     `createLiveSignal`/`connectSurface`/`connectSurfaces` returns instead.
- *   - A bare in-process link (`directLink`/`stdioLink`): can't half-open, so it is
- *     never recorded in the half-open set; its transport leg is constant-`true`,
- *     honest by construction.
+ *   - A bare half-openable WIRE link (`websocketLink`, `stdioLink`, `unixSocketLink`):
+ *     CRASH. Any wire transport can half-open silently (a websocket socket stays
+ *     `open` with no bytes flowing; a stdio/ssh pipe wedges or partitions with no
+ *     FIN), so its `health().live` is a LIE unless a watchdog probes it — and the
+ *     watchdog rides on the handle. Passing the bare link drops the watchdog, so
+ *     refuse it: pass the `LiveSignalHandle` `createLiveSignal`/`connectSurface`/
+ *     `connectSurfaces` returns instead. (The brand is applied at `wireClient` — the
+ *     one seam every wire link crosses — so a future wire link is refused too.)
+ *   - A bare in-process link (`directLink` ONLY — `createRouterClient`, no transport):
+ *     can't half-open, so it is never branded by `wireClient`; its transport leg is
+ *     constant-`true`, honest by construction.
  *
  *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
- *  half-open-blind transport leg is UNSPELLABLE over a websocket — there is no
+ *  half-open-blind transport leg is UNSPELLABLE over EVERY wire link — there is no
  *  `{ live }` knob to pass a blind accessor through (the #1564 lie, one seam
  *  upstream of the dot). */
 function resolveTransport(transport: unknown): {
@@ -87,19 +90,25 @@ function resolveTransport(transport: unknown): {
   }
   if (isHalfOpenLink(transport)) {
     throw new Error(
-      "surfaceClient: a websocket link can silently half-open, so its transport " +
+      "surfaceClient: this link crosses a wire transport that can silently " +
+        "half-open (a websocket socket stays `open` with no bytes flowing; a stdio " +
+        "or unix-socket pipe wedges or partitions with no FIN), so its transport " +
         "liveness must be a watchdog-backed `LiveSignalHandle`, not a bare link. " +
-        "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
-        "hand-built client, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
+        "For a WEBSOCKET, build the client through `connectSurface`/`connectSurfaces` " +
+        "— or, hand-built, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
         "pass the WHOLE handle it returns: it builds the link over `ws` itself (so " +
         "the watchdog probes the socket it reconnects via a real `system.live` " +
         "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
-        "object; the handle has no other minter. A bare `() => true` or an " +
-        "open/close-only `() => socketStatus() === 'live'` is half-open-blind — it " +
-        "would paint a green/ready dot over a dead backend↔remote link (#1564).",
+        "object; the handle has no other minter. For a STDIO/UNIX-SOCKET link, wire a " +
+        "`createHeartbeat` + `probeSurfaceLive` watchdog over `system.live` as " +
+        "`surface-nix-host`'s `hostSession.startLiveness` does. A bare `() => true` " +
+        "or an open/close-only `() => socketStatus() === 'live'` is half-open-blind " +
+        "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
   }
-  // In-process link (directLink/stdioLink): live by construction.
+  // Unbranded by `wireClient` — the in-process `directLink` (no wire transport, a
+  // microtask `createRouterClient` handler call), the ONE link that genuinely can't
+  // half-open. Its transport leg is constant-`true`, honest by construction.
   return { link: transport, live: () => true };
 }
 
