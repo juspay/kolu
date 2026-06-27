@@ -11,9 +11,9 @@ import Svg from "../../components/Svg.astro";
 import Callout from "../../components/Callout.astro";
 import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
-**Each producer owns the type for what it makes:** kaval owns **`KavalMeta`** (the live process), pulam owns **`PulamMeta`** (the live readings — cwd · git · agent · pr · foreground), kolu owns **`KoluMeta`** (its durable UI). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
+**Each producer owns the type for what it makes:** kaval owns **`KavalMeta`** (the live PTY — I/O · exit · the raw taps pulam reads), pulam owns **`PulamMeta`** (the 8-field `AwarenessValue` — cwd · git · agent · pr · foreground · lastActivityAt · lastAgentCommand · agentSession), kolu owns **`KoluMeta`** (its durable UI — **`location`** · themeName · parentId · canvasLayout · subPanel · rightPanel · intent). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
 
-<Svg svg={diagram} caption="kaval owns KavalMeta (the PTY, in the daemon), pulam's sensors watch it and own PulamMeta (live, ephemeral), kolu owns KoluMeta (persisted) and imports the other two to compose Terminal. LIVE = KoluMeta + KavalMeta + PulamMeta, projected by id — never stored. SLEEP releases the PTY (no PulamMeta) → kolu freezes the last PulamMeta into a snapshot it now owns & persists — the one materialised copy, and your restore/sleep display." />
+<Svg svg={diagram} caption="kaval owns KavalMeta (the PTY, in the daemon), pulam's sensors watch it and own PulamMeta (live, ephemeral), kolu owns KoluMeta (persisted, incl. location = which host) and imports the other two to compose Terminal. LIVE = KoluMeta + KavalMeta + PulamMeta, projected by (location, id) — never stored. SLEEP releases the PTY (no PulamMeta) → kolu freezes the last PulamMeta into a snapshot it now owns & persists — the one materialised copy, and your restore/sleep display." />
 
 ## Live vs Sleeping
 
@@ -36,15 +36,21 @@ import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 ## The types (PR1)
 
 ```ts
-// kaval   →   export type KavalMeta = …                                  // the live PTY / process handle
-// pulam   →   export type PulamMeta = { cwd; git; agent; pr; foreground; … }   // a LIVE-ONLY collection, keyed by id, NEVER persisted
+// kaval  →  export type KavalMeta   // the live PTY: write·resize·kill · exit · output bytes · raw taps (cwd·title·command·foreground) pulam observes
+
+// pulam  →  export type PulamMeta = {   // = AwarenessValue · a LIVE-ONLY collection, keyed by TerminalId, NEVER persisted
+//             cwd; git: GitInfo | null; agent: AgentInfo | null; pr; foreground: Foreground | null;
+//             lastAgentCommand?; agentSession?; lastActivityAt }
 
 // kolu:
-type KoluMeta = { theme; layout; panels; intent; restoreSeeds }           // kolu's own · PERSISTED (incl. the snapshot)
+type KoluMeta = {                        // kolu's own · PERSISTED
+  location;                              //   { kind:"local" } | { kind:"remote", hostId }   — which host
+  themeName?; parentId?; canvasLayout?; subPanel?; rightPanel?; intent?
+}
 
 type Terminal =
-  | { state: "live";     id: TerminalId; kolu: KoluMeta; kaval: KavalMeta; pulam: PulamMeta }   // kaval + pulam projected live, by id
-  | { state: "sleeping"; id: TerminalId; kolu: KoluMeta; snapshot: PulamMeta }                  // frozen PulamMeta, now kolu-owned & persisted
+  | { state: "live";     id: TerminalId; kolu: KoluMeta; kaval: KavalMeta; pulam: PulamMeta }   // kaval + pulam projected live
+  | { state: "sleeping"; id: TerminalId; kolu: KoluMeta; sleptAt; snapshot: PulamMeta }         // frozen PulamMeta + sleptAt · kolu-owned & persisted
 ```
 
 ```text
@@ -52,6 +58,18 @@ illegal states become unrepresentable ✓
   · KavalMeta/PulamMeta live only on the LIVE arm   → a sleeping terminal can't hold live state
   · snapshot lives only on SLEEPING                  → a live terminal can't carry a frozen copy
   · pr (in PulamMeta) has ONE writer (the sensor)    → frozen into snapshot at sleep, never re-authored
+```
+
+## Identity
+
+```text
+key  =  ( KoluMeta.location , TerminalId )
+
+  TerminalId   a uuid · the ONE id kaval (PtyId), pulam (PulamMeta key) and kolu all share
+  location     which host: { kind:"local" } | { kind:"remote", hostId }  ← lives in KoluMeta, not PulamMeta
+
+kaval & pulam key by TerminalId · kolu qualifies with location (only matters at R9, remote).
+PR1 also brands  PtyId = TerminalId  — kaval's id IS the terminal id.
 ```
 
 ## Plan — three phases
