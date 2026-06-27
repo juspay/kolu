@@ -126,7 +126,16 @@ export function updateServerMetadata(
   mutate: (meta: AwarenessPersistedFields) => void,
 ): void {
   const aw = mutateAwarenessPersisted(terminalId, mutate);
-  if (!aw) return;
+  if (!aw) {
+    // Sensors are torn down BEFORE the entry is removed, so this "never" fires;
+    // log it so a write that DOES outlive its terminal (a sensor-teardown bug)
+    // is observable rather than silently dropped.
+    log.debug(
+      { terminal: terminalId },
+      "persisted awareness write after removal",
+    );
+    return;
+  }
   publishAwareness(terminalId, aw);
   terminalsDirtyChannel.publish({});
 }
@@ -140,7 +149,12 @@ export function updateServerLiveMetadata(
   mutate: (meta: AwarenessLiveFields) => void,
 ): void {
   const aw = mutateAwarenessLive(terminalId, mutate);
-  if (!aw) return;
+  if (!aw) {
+    // See `updateServerMetadata`: a live write that outlives its terminal means a
+    // sensor wasn't torn down — surface it at debug rather than drop it silently.
+    log.debug({ terminal: terminalId }, "live awareness write after removal");
+    return;
+  }
   publishAwareness(terminalId, aw);
 }
 
@@ -161,9 +175,9 @@ export function updateClientMetadata(
 
 /** Publish a terminal's AUTHORED record AND arm the session autosave — for a
  *  lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the registry
- *  entry rather than mutating a field in place. The caller seeds the store
- *  (`installAwareness`) before registering the entry, so the matching awareness is
- *  already on its collection by the time the client joins this authored push.
+ *  entry rather than mutating a field in place. The caller has already registered
+ *  the entry and fanned its awareness out (`registerAndInstall`), so the matching
+ *  awareness is on its collection by the time the client joins this authored push.
  *
  *  THE SOLE PUSH CHANNEL for a lifecycle flip: the `authored` collection's `upsert`
  *  only fans out to subscribers (the registry IS the store), and `terminals:dirty`
