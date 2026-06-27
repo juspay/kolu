@@ -1,60 +1,68 @@
-<svg viewBox="0 0 760 480" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<svg viewBox="0 0 820 520" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
   <defs>
-    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
-    <marker id="arv" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+    <marker id="s" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
   </defs>
 
-  <text x="380" y="30" text-anchor="middle" font-size="15" font-weight="600" fill="#334155">one terminal-id  →  two independent sets of facts about it</text>
+  <!-- id key -->
+  <text x="410" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="#334155">terminal-id  —  the join key</text>
+  <path d="M130,40 L130,58 M410,40 L410,58 M690,40 L690,58 M130,40 L690,40" fill="none" stroke="#cbd5e1" stroke-width="1.3"/>
 
-  <!-- writers -->
-  <text x="198" y="62" text-anchor="middle" font-size="12.5" fill="#5a3ff0" font-weight="600">kolu app  ▾</text>
-  <text x="562" y="62" text-anchor="middle" font-size="12.5" fill="#b06d12" font-weight="600">sensors  ▾</text>
+  <!-- producer labels -->
+  <text x="130" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#475569">kaval</text>
+  <text x="410" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#b06d12">pulam · sensors</text>
+  <text x="690" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5a3ff0">kolu</text>
 
-  <!-- AUTHORED -->
-  <rect x="48" y="72" width="300" height="168" rx="11" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
-  <text x="68" y="100" font-size="16" font-weight="700" fill="#3a2bb8">AUTHORED</text>
-  <text x="68" y="120" font-size="11.5" fill="#6b5fd0">kolu writes · durable · one writer</text>
-  <line x1="68" y1="130" x2="328" y2="130" stroke="#d4cbff"/>
-  <text x="68" y="152" font-size="13" fill="#352a7a">id · restore-cwd</text>
-  <text x="68" y="174" font-size="13" fill="#352a7a">theme · layout · sub-panels</text>
-  <text x="68" y="196" font-size="13" fill="#352a7a">sleeping-state</text>
-  <text x="68" y="218" font-size="13" fill="#352a7a">frozen-pr snapshot</text>
+  <!-- kaval PTY -->
+  <rect x="55" y="86" width="150" height="118" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
+  <text x="130" y="116" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">PTY</text>
+  <text x="130" y="136" text-anchor="middle" font-size="11.5" fill="#64748b">the running process</text>
+  <line x1="72" y1="150" x2="188" y2="150" stroke="#dbe2ea"/>
+  <text x="130" y="170" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">in the daemon</text>
+  <text x="130" y="187" text-anchor="middle" font-size="10.5" fill="#64748b">survives a kolu restart</text>
 
   <!-- OBSERVED -->
-  <rect x="412" y="72" width="300" height="168" rx="11" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
-  <text x="432" y="100" font-size="16" font-weight="700" fill="#8a5a12">OBSERVED</text>
-  <text x="628" y="100" font-size="12" fill="#b58a4a" font-style="italic">awareness</text>
-  <text x="432" y="120" font-size="11.5" fill="#b07d2a">sensors write · ephemeral · one writer</text>
-  <line x1="432" y1="130" x2="692" y2="130" stroke="#f0d9b0"/>
-  <text x="432" y="152" font-size="13" fill="#7a4f10">cwd · git</text>
-  <text x="432" y="174" font-size="13" fill="#7a4f10">agent · pr · foreground</text>
-  <text x="432" y="196" font-size="13" fill="#7a4f10">lastActivity · lastCommand</text>
-  <text x="432" y="218" font-size="13" fill="#7a4f10">agentSession</text>
+  <rect x="300" y="86" width="220" height="118" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="318" y="113" font-size="15" font-weight="700" fill="#8a5a12">OBSERVED</text>
+  <text x="318" y="133" font-size="12" fill="#7a4f10">cwd · git</text>
+  <text x="318" y="151" font-size="12" fill="#7a4f10">agent · pr · foreground</text>
+  <line x1="316" y1="162" x2="504" y2="162" stroke="#f0d9b0"/>
+  <text x="410" y="187" text-anchor="middle" font-size="11.5" fill="#b07d2a" font-weight="700">EPHEMERAL — never persisted</text>
 
-  <!-- writer arrows -->
-  <line x1="198" y1="66" x2="198" y2="72" stroke="#5a3ff0" stroke-width="1.6" marker-end="url(#ar)"/>
-  <line x1="562" y1="66" x2="562" y2="72" stroke="#d98a1f" stroke-width="1.6" marker-end="url(#ar)"/>
+  <!-- AUTHORED -->
+  <rect x="600" y="86" width="165" height="118" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="618" y="113" font-size="15" font-weight="700" fill="#3a2bb8">AUTHORED</text>
+  <text x="618" y="133" font-size="12" fill="#352a7a">theme · layout</text>
+  <text x="618" y="151" font-size="12" fill="#352a7a">intent · panels</text>
+  <line x1="616" y1="162" x2="749" y2="162" stroke="#d4cbff"/>
+  <text x="682" y="187" text-anchor="middle" font-size="11.5" fill="#6b5fd0" font-weight="700">PERSISTED — kolu's file</text>
 
-  <!-- keyed by id -->
-  <text x="380" y="170" text-anchor="middle" font-size="11.5" fill="#94a3b8">— same id —</text>
+  <!-- watch arrow -->
+  <line x1="205" y1="140" x2="298" y2="140" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
+  <text x="251" y="132" text-anchor="middle" font-size="10.5" fill="#64748b" font-style="italic">watches</text>
 
   <!-- join -->
-  <line x1="198" y1="240" x2="356" y2="300" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
-  <line x1="562" y1="240" x2="404" y2="300" stroke="#64748b" stroke-width="1.5" marker-end="url(#ar)"/>
-  <circle cx="380" cy="312" r="22" fill="#ffffff" stroke="#15803d" stroke-width="1.8"/>
-  <text x="380" y="319" text-anchor="middle" font-size="20" font-weight="700" fill="#15803d">⋈</text>
-  <text x="416" y="316" font-size="12" fill="#15803d" font-weight="600">join by id</text>
+  <line x1="410" y1="204" x2="510" y2="258" stroke="#15803d" stroke-width="1.6" marker-end="url(#g)"/>
+  <line x1="682" y1="204" x2="572" y2="258" stroke="#15803d" stroke-width="1.6" marker-end="url(#g)"/>
+  <circle cx="541" cy="270" r="20" fill="#ffffff" stroke="#15803d" stroke-width="1.8"/>
+  <text x="541" y="277" text-anchor="middle" font-size="18" font-weight="700" fill="#15803d">⋈</text>
+  <text x="575" y="274" font-size="11.5" fill="#15803d" font-weight="600">join by id</text>
 
-  <!-- view (derived) -->
-  <line x1="380" y1="334" x2="380" y2="372" stroke="#15803d" stroke-width="1.8" marker-end="url(#arv)"/>
-  <rect x="262" y="384" width="236" height="74" rx="11" fill="#e6f4ea" stroke="#15803d" stroke-width="1.6" stroke-dasharray="6 4"/>
-  <text x="380" y="412" text-anchor="middle" font-size="15" font-weight="700" fill="#15803d">the VIEW</text>
-  <text x="380" y="432" text-anchor="middle" font-size="12" fill="#15803d">Dock · Code tab read this</text>
-  <text x="380" y="449" text-anchor="middle" font-size="11" fill="#3f8f5f" font-style="italic">derived — never stored</text>
+  <!-- LIVE view -->
+  <line x1="541" y1="290" x2="541" y2="318" stroke="#15803d" stroke-width="1.8" marker-end="url(#g)"/>
+  <rect x="423" y="330" width="236" height="64" rx="10" fill="#e6f4ea" stroke="#15803d" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="541" y="357" text-anchor="middle" font-size="14" font-weight="700" fill="#15803d">LIVE — the join</text>
+  <text x="541" y="377" text-anchor="middle" font-size="11" fill="#3f8f5f" font-style="italic">derived · never stored</text>
 
-  <!-- punchline -->
-  <text x="528" y="404" font-size="12.5" fill="#475569">there is no</text>
-  <text x="528" y="421" font-size="12.5" fill="#475569" font-weight="600">"metadata record" —</text>
-  <text x="528" y="438" font-size="12.5" fill="#475569">it's the join, made</text>
-  <text x="528" y="455" font-size="12.5" fill="#475569">at the reader.</text>
+  <!-- left annotation: persist=author -->
+  <rect x="55" y="232" width="300" height="86" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="72" y="256" font-size="13" font-weight="700" fill="#334155">persist = author</text>
+  <text x="72" y="277" font-size="11.5" fill="#475569">OBSERVED never hits disk.</text>
+  <text x="72" y="294" font-size="11.5" fill="#475569">to keep one, kolu AUTHORS a</text>
+  <text x="72" y="311" font-size="11.5" fill="#475569">snapshot of it (now persisted).</text>
+
+  <!-- SLEEP strip -->
+  <rect x="55" y="424" width="710" height="62" rx="10" fill="#fdf6f6" stroke="#e8cccc"/>
+  <text x="74" y="450" font-size="13" font-weight="700" fill="#9a3a3a">SLEEP</text>
+  <text x="74" y="470" font-size="12" fill="#7a4a4a">release the PTY  →  no OBSERVED  →  freeze the join  →  <tspan font-weight="700">snapshot</tspan>  (now AUTHORED · persisted).  the one time the join is materialised.</text>
 </svg>

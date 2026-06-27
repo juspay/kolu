@@ -1,9 +1,9 @@
 ---
 title: The Terminal Metadata Model — authored ⋈ observed
-description: One picture of how a terminal's facts are modelled — two collections (kolu authors one, the sensors observe the other), joined by id. The "metadata record" is the join, not a thing. Plus the first principle we kept missing.
+description: One picture of a terminal's facts — fundamentally a kaval PTY, with observed (sensors, ephemeral) and authored (kolu, persisted) layered on its id. The "metadata record" is the join, kept virtual except frozen once at sleep. Carries the type sort-out (PR1) and the phase plan.
 parents: [remote-terminals, reference]
 status: proposed
-maturity: seedling
+maturity: budding
 updated: 2026-06-26
 ---
 
@@ -11,50 +11,54 @@ import Svg from "../../components/Svg.astro";
 import Callout from "../../components/Callout.astro";
 import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
-<Svg svg={diagram} caption="A terminal's facts split by WHO PRODUCES them: kolu authors the durable ones; the sensors observe the ephemeral ones. Same id, two collections, one writer each. The 'TerminalMetadata record' the Dock and Code tab render is the JOIN of the two — derived at the reader, never a stored thing." />
+**Fundamentally a terminal is a kaval PTY.** `observed` (sensors watch the PTY) and `authored` (kolu's durable UI) are two layers on its **id** — one writer each. The "`TerminalMetadata` record" the Dock and Code tab render is their **join**, derived at the reader.
 
-## Where each half is backed
+<Svg svg={diagram} caption="Three producers over one id: kaval owns the live PTY; pulam's sensors observe it (ephemeral); kolu authors the durable UI (persisted). LIVE = the join, kept virtual. SLEEP releases the PTY → there is no observed → kolu freezes the join into a snapshot (now an authored, persisted value) — the one moment the join is materialised." />
 
-```text
-OBSERVED  is backed by one of:
-
-   local terminal    →   in-process sensor store          ← today
-   remote terminal   →   the host's mirrored awareness     ← R9
-
-the join never changes.  "kolu dials a remote" = swap the backing, nothing else.
-```
-
-## The one trap (twice)
+## Live vs Sleeping
 
 ```text
-✗  MATERIALISE the join  →  store/serve a fused "metadata record"
-       old kolu      :  two writers share one record   → the green-dot lies (#1564)
-       PR #1594      :  re-fuse it server-side, every ~150ms tick  (composeTerminalMetadata)
-
-✓  KEEP the join virtual  →  two collections, joined only at the reader
-       one writer each · disk holds the two halves · remote is a backing-swap
+  LIVE   (PTY exists)                 SLEEPING   (PTY released)
+  ────────────────────                ────────────────────────
+  authored ⋈ observed[id]             authored + snapshot
+  observed re-derives live            no PTY · no observed
+  disk: authored + restore-seeds      disk: authored + snapshot
 ```
 
-## First principle
+<Callout kind="note" title="First principle">
+**A terminal has no metadata — it is a join, kept *virtual*.** Materialise it exactly once: at **sleep**. Every other materialisation is the bug — co-owning one record (two writers → the green-dot lies, #1564) or re-fusing it server-side (PR #1594's `composeTerminalMetadata`, every tick).
 
-<Callout kind="note" title="A terminal has no metadata. It is a join.">
-**`authored ⋈ observed`, keyed by id. Store the two halves; never the join.**
+**persist = author.** `observed` never hits disk; to keep an observed fact, kolu *authors a snapshot* of it (a restore-seed, or the whole sleep snapshot). So everything on disk is authored; the PTY survives in the daemon (kolu re-attaches); `observed` re-derives.
 
-The "`TerminalMetadata` record" is a *derived view*, not a stored entity. Every defect in this area is the same move — **materialising the join**: the original sin was *co-owning* one record (two writers → the status lies); the repeat is *re-fusing* it server-side to keep the old shape. Keep it virtual and the rest falls out:
-
-- **disk** = the two halves — authored fields + a *sampled snapshot* of observed (restore-seeds); observed re-derives live on restart (it's ephemeral).
-- **wire** = the two collections; the reader joins them fine-grained.
-- **local vs remote** = only *where `observed` is backed* (store vs mirror).
-- even the odd cases fall out: *frozen-pr-on-sleep* = "author a snapshot of `observed` at sleep" — the same move as restore-seeds.
-
-The framework already has the shapes: `observed` and `authored` are each a `Collection` (an `Incremental`); the view is a join of two `Collection`s — see [surface live data](surface-live-data.html). There is nothing to invent.
+`observed` and `authored` are each a `Collection` (an `Incremental`); the live view is a join of two — see [surface live data](surface-live-data.html). Nothing to invent.
 </Callout>
 
-## The plan, briefly
+## The types (PR1)
 
-The roadmap's [remote-terminals R8](remote-terminals.html#r8) is exactly this: kolu serves `observed` as the shared `terminalWorkspaceSurface.awareness` collection and reads it through one seam, so `R9` is a backing-swap. **PR #1594 ships the producer side correctly** (one store, one writer, the authored/observed type-split) **but materialises the join again** — `composeTerminalMetadata` re-fuses the two halves into the legacy record on the wire *and* on disk, so kolu's own browser still reads the fused record and never reads the collection it now serves. The perfection-bar redo is the virtual join, in two phases:
+```ts
+type Authored = { theme; layout; panels; intent; restoreSeeds }  // kolu, always, PERSISTED
+type Observed = { cwd; git; agent; pr; foreground; … }           // sensors, LIVE-ONLY collection, keyed by id, NEVER persisted
+type Snapshot = Authored & Frozen<Observed>                      // freeze(authored ⋈ observed) at sleep
 
-1. **consumption** — kolu's browser reads `authored` + the `awareness` collection and joins them client-side (in the one `getMetadata` accessor); slim the wire to `authored`; delete the server re-fusion + the per-tick double-publish.
-2. **disk** — persist the two halves (authored + restore-seeds), not the fused record; the last `composeTerminalMetadata` goes away.
+type Terminal =
+  | { state: "live";     id: TerminalId; authored: Authored }                 // observed[id] joins live · no snapshot field
+  | { state: "sleeping"; id: TerminalId; authored: Authored; snapshot: Snapshot } // no live observed
+```
 
-Done-criterion that a shim can't satisfy: **kolu's browser reads the served `awareness` collection; the wire carries `authored` only; no server-side recompose.**
+```text
+illegal states become unrepresentable ✓
+  · observed is not a field of Terminal      → a sleeping terminal can't hold live observed
+  · snapshot lives only on  sleeping         → a live terminal can't carry a frozen snapshot
+  · frozen pr lives in snapshot, not authored → pr has ONE writer (the sink, live); frozen at sleep
+```
+
+## Plan — three phases
+
+```text
+PR1  types        Terminal = Live | Sleeping · Observed = a live-only collection · refactor the code onto them
+P2   redo R8      serve observed as the awareness collection · kolu joins at the reader · slim the wire ·
+                  delete composeTerminalMetadata (server) · disk = authored only
+R9   remote       swap where observed is backed (local store → mirrored remote collection) — nothing else
+```
+
+Done-criterion a shim can't satisfy: **kolu's own browser reads the served `observed` collection · the wire carries `authored` only · no server-side recompose.**
