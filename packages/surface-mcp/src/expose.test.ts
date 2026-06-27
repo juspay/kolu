@@ -56,9 +56,12 @@ describe("resolveExpose", () => {
     ]);
   });
 
-  it("default-deny: only listed procedures become tools, with mutates flagged", () => {
+  it("default-deny: only listed procedures become tools; mutates defaults conservatively", () => {
     const r = resolveExpose(buildSpec(), {
       "counter.bump": { tool: { mutates: true } },
+      // The bare `"tool"` shorthand carries no flag, so it defaults to MUTATING
+      // (conservative): an unannotated procedure is never advertised as a harmless
+      // read. A genuinely read-only one would use `{ tool: { mutates: false } }`.
       "counter.add": "tool",
       // admin.nuke deliberately omitted.
     });
@@ -71,7 +74,7 @@ describe("resolveExpose", () => {
     expect(tools).toEqual(
       expect.arrayContaining([
         { name: "counter_bump", mutates: true, hasInput: false },
-        { name: "counter_add", mutates: false, hasInput: true },
+        { name: "counter_add", mutates: true, hasInput: true },
       ]),
     );
     expect(tools.map((t) => t.name)).not.toContain("admin_nuke");

@@ -21,8 +21,15 @@ import type { ZodType } from "zod";
 
 /** A hand-authored MCP tool. `input` (optional) validates and shapes the
  *  args; `handler` runs against the live surface `client`, with the call's
- *  `AbortSignal` for cancellation. `mutates` flags it for host authz;
- *  `description` is the tool's `tools/list` blurb. */
+ *  `AbortSignal` for cancellation; `description` is the tool's `tools/list` blurb.
+ *
+ *  `mutates` flags the tool for host authz (`readOnlyHint`/`destructiveHint`).
+ *  It is OPTIONAL but defaults CONSERVATIVELY: an absent `mutates` is treated as
+ *  MUTATING (`destructiveHint: true`), because `readOnlyHint: true` can let an MCP
+ *  host auto-execute a tool unconfirmed — so an unannotated tool must fail SAFE
+ *  (assume it writes), never silently advertise as a harmless read. Declare
+ *  `mutates: false` ONLY for a genuinely read-only tool (a conscious, reviewable
+ *  opt-in into the auto-approvable hint). */
 export interface BespokeTool<I = unknown, O = unknown> {
   input?: ZodType<I>;
   mutates?: boolean;

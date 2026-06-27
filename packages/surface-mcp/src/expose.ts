@@ -52,8 +52,12 @@ type CollectionName<S extends SurfaceSpec> =
     ? keyof S["collections"] & string
     : never;
 
-/** How a procedure is exposed: a plain tool, or a tool flagged as mutating
- *  (the authz bit the host can surface as a write capability). */
+/** How a procedure is exposed as an MCP tool. `mutates` is the authz bit the
+ *  host surfaces as a write capability (`readOnlyHint`/`destructiveHint`) and
+ *  defaults CONSERVATIVELY: both the bare `"tool"` shorthand and `{ tool: {} }`
+ *  (no explicit flag) are treated as MUTATING, so an unannotated procedure is
+ *  never advertised as auto-approvable read-only. Mark a genuinely read-only
+ *  procedure with `{ tool: { mutates: false } }`. */
 export type ToolExposure = "tool" | { tool: { mutates?: boolean } };
 
 /** The default-deny allowlist. Keys are constrained to the spec's own
@@ -199,8 +203,15 @@ export function resolveExpose<S extends SurfaceSpec>(
           `surface-mcp: procedure "${key}" is exposed as "resource"; procedures map to tools`,
         );
       }
+      // Conservative default: an exposure that does NOT explicitly say
+      // `mutates: false` is treated as MUTATING. `readOnlyHint: true` can let an
+      // MCP host auto-execute a tool unconfirmed, so an absent `mutates` must fail
+      // SAFE (assume it writes), never silently advertise an unannotated tool as a
+      // harmless read — the inverted-default defect. The bare `"tool"` shorthand
+      // (no object to carry a flag) is likewise mutating; mark a genuinely
+      // read-only procedure with `{ tool: { mutates: false } }`.
       const mutates =
-        typeof exposure === "object" ? (exposure.tool.mutates ?? false) : false;
+        typeof exposure === "object" ? (exposure.tool.mutates ?? true) : true;
       const built = inputSchema(procSpec.input);
       tools.push({
         name: toolName(ns, verb),
