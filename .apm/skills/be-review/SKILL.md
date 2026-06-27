@@ -202,6 +202,13 @@ the workflow's notification arrives or it has provably errored.
 First settle whether there is anything to push: `git log --oneline $START..HEAD`
 (`$START` was captured in Preflight). Then:
 
+- **Run `just fmt` before any push, whenever new commits exist.** The four
+  reviewers edit and commit code but **none guarantees formatting** — a hand-edit
+  by lens/codex/police can leave the tree unformatted, and `ci::fmt` then reds in
+  §5 and burns a whole CI cycle on a re-run (it has). So once the steps finish and
+  new commits exist, run `just fmt` and, if it changed anything, commit the
+  reformat (`style: just fmt`, staging only what it touched) so the formatted tree
+  rides this push — don't leave formatting for the §5 CI loop to surface.
 - **New commits exist** and **a PR exists for this branch**
   (`gh pr view --json number -q .number`) → **`git push`**. **Only after the push
   succeeds** do you post the deferred comments — the lens and codex bodies from

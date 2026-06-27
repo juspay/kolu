@@ -110,9 +110,15 @@ green before capturing.
    - **macOS (`aarch64-darwin`) CI host — pick by availability, in this order:
      `nix-infra@rasam.tail12b27.ts.net`, then `sincereintent`.** Both are Apple-Silicon darwin builders;
      `nix-infra@rasam.tail12b27.ts.net` is the primary and `sincereintent` the fallback. Before pinning the
-     darwin lane, probe them **in that order** — `tailscale status` (skip a host
-     shown `offline` / `last seen Nh ago`) plus a quick `ssh -o ConnectTimeout=8
-     <user>@<host> true` — and pin the **first that answers** in `mcp__odu__run
+     darwin lane, probe them **in that order** — and **the `ssh -o ConnectTimeout=8
+     <user>@<host> true` probe is the sole authority on reachability.** `tailscale
+     status` is only a hint for *ordering* the probes, **never** a reason to skip a
+     host: its `offline` / `last seen Nh ago` marker goes stale and routinely lies
+     about a host whose `ssh` answers fine (this cost a wrong pick — `rasam` showed
+     `offline` in tailscale yet `ssh` succeeded, and the primary was skipped for the
+     fallback). So **always run the `ssh` probe even on a host tailscale calls
+     `offline`**, and treat a host as down **only when its `ssh` probe itself
+     fails**. Pin the **first whose `ssh` answers** in `mcp__odu__run
      hosts=["aarch64-darwin=<user>@<host>", …]`, noting in the report which host
      served the lane. An unreachable host is an infra fault, never a lane to park
      or call green: if `nix-infra@rasam.tail12b27.ts.net` is down, fall through to `sincereintent` and run the
