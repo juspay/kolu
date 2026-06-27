@@ -108,17 +108,23 @@ const KavalInfoDialog: Component<{
             {(s) => (
               <div class="space-y-1.5">
                 <div class="flex items-center gap-2">
-                  {/* Dot + uptime floored on transport liveness, same as the rail
-                      (kavalDot): a dead/half-open link can't refresh the daemon
-                      state, so the dot reads grey "unknown" and the uptime is
-                      withheld rather than shown stale off a value the channel can
-                      no longer confirm. */}
+                  {/* Dot, label, and uptime ALL floored on transport liveness,
+                      same as the rail (kavalDot + the rail's `<Show when={daemonLive()}>`):
+                      a dead/half-open link can't refresh the daemon state, so the
+                      dot reads grey "unknown", the definite label is withheld for a
+                      neutral "—", and the uptime is hidden rather than shown stale
+                      off a value the channel can no longer confirm. */}
                   <span
                     class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(s().state, daemonTransportLive())}`}
                   />
-                  <span class="text-fg">
-                    {DAEMON_STATE_PRESENTATION[s().state].label}
-                  </span>
+                  <Show
+                    when={daemonTransportLive()}
+                    fallback={<span class="text-fg-3/60">—</span>}
+                  >
+                    <span class="text-fg">
+                      {DAEMON_STATE_PRESENTATION[s().state].label}
+                    </span>
+                  </Show>
                   <Show when={daemonTransportLive() && s().startedAt}>
                     {(t) => (
                       <span class="text-fg-3 tabular-nums">
