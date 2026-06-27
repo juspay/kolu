@@ -1,6 +1,6 @@
 ---
 title: pulam-tui — the thin CLI client for the pulam daemon
-description: Now that pulam-web carries the rich fleet dashboard, pulam-tui no longer needs to be a full-blown TUI. It sheds Bun + OpenTUI and reverts to a kaval-tui-style raw client — status / status --json / watch <id> / watch <id> --json against one pulam daemon over a unix socket or ssh. The CLI face of pulam; the multi-host fleet board moves wholesale to the browser.
+description: Now that pulam-web carries the rich fleet dashboard, pulam-tui no longer needs to be a full-blown TUI. It sheds Bun + OpenTUI and reverts to a kaval-tui-style raw client — status / status --json / watch <id> / watch <id> --json / wait <id> --until <state> against one pulam daemon over a unix socket or ssh. The CLI face of pulam; the multi-host fleet board moves wholesale to the browser.
 parents: [pulam, feature]
 status: implemented
 maturity: budding
@@ -21,7 +21,9 @@ import PrLink from "../../components/PrLink.astro";
 
 ## User-facing description
 
-Two verbs against one daemon — **`status`** (a one-shot snapshot) and **`watch`** (a live follow) — each with a `--json` twin for scripting, and `watch` optionally narrowed to a single terminal id. No alt-screen, no full-screen UI: `pulam-tui` prints to your terminal and exits, or streams line-by-line, exactly the way kaval-tui's `list` / `snapshot` do.
+Three verbs against one daemon — **`status`** (a one-shot snapshot), **`watch`** (a live follow), and **`wait`** (block until a terminal's agent reaches a state, then exit) — each scriptable with `--json`, and `watch` optionally narrowed to a single terminal id. No alt-screen, no full-screen UI: `pulam-tui` prints to your terminal and exits, or streams line-by-line, exactly the way kaval-tui's `list` / `snapshot` do. `wait` is the awareness analog of a blocking read: it's the **done-signal** an agent uses to drive another agent — prompt a Claude Code / Codex / opencode in a kaval terminal, then `wait --until awaiting,waiting` for its turn to end before reading the reply.
+
+`wait` matches the agent's state **the instant it connects** (it replays the current value), so a robust driver waits in **two phases** — `--until working` to confirm the prompt was picked up, *then* `--until awaiting,waiting` for the turn to end — rather than a lone post-`send` wait that the *previous* turn's stale `waiting`/`awaiting` would satisfy immediately. It fails loud on a `--timeout <ms>` (exit 2) and on the terminal **exiting** before the state lands (exit 3 — the agent you were driving died), so a stuck or dead agent can't hang the loop.
 
 The surface mapping — each command is a thin read over the `terminalWorkspaceSurface` the daemon serves:
 
@@ -32,6 +34,7 @@ The surface mapping — each command is a thin read over the `terminalWorkspaceS
 | `pulam-tui watch` | `awareness` collection + `activity` stream (subscribe) | Follow **every terminal** on the daemon: print a line each time any terminal's awareness changes (agent state, branch, foreground), with a trailing `●` when it's moving bytes right now, until `Ctrl+C`. |
 | `pulam-tui watch --json` | same | One JSON object per line (newline-delimited) per update, across all terminals — the streaming scriptable feed. |
 | `pulam-tui watch <id>` | same, filtered to one id | The same live follow, narrowed to a single terminal. `--json` likewise. |
+| `pulam-tui wait <id> --until <state>` | `awareness` collection (subscribe, one terminal) | Block until that terminal's agent enters a target bucket — `working` / `awaiting` / `waiting` (the shared `agentBucket` fold; `awaiting,waiting` = its turn ended), then exit. The done-signal for scripting an agent that drives another agent. `--timeout <ms>` caps it (fails loud, exit 2); `--json` emits `{ id, agent }`. |
 
 Flags mirror kaval-tui exactly: `--socket <path>` points at a local daemon (default `$XDG_RUNTIME_DIR/pulam/awareness.sock`); `--host <ssh>` dials and Nix-provisions a single remote pulam over ssh. The two are mutually exclusive, and there is **no multi-host mode** — one invocation, one daemon. (Watching the whole *fleet* across hosts is what you open [pulam-web](pulam-web.html) for.)
 
@@ -94,7 +97,7 @@ Flags mirror kaval-tui exactly: `--socket <path>` points at a local daemon (defa
 The whole point is the **raw-vs-rich split**, the same one kaval-tui draws against its daemon: the daemon is durable and serves the full typed surface; the `-tui` client is the bare, scriptable face, and the *browser* is the rich one. `pulam-tui` reading awareness is the exact analog of kaval-tui reading PTYs.
 
 <D2
-  caption="One daemon, two clients, split by richness — the kaval picture, one layer up. pulam serves the whole terminalWorkspaceSurface; pulam-web (browser) is the rich client that fans out over N hosts and renders the fleet dashboard; pulam-tui is the raw client — one daemon, status + watch, scriptable. pulam-tui no longer needs Bun or OpenTUI: it is a plain Node/tsx CLI over @kolu/surface's link family, dialing one --socket or one --host."
+  caption="One daemon, two clients, split by richness — the kaval picture, one layer up. pulam serves the whole terminalWorkspaceSurface; pulam-web (browser) is the rich client that fans out over N hosts and renders the fleet dashboard; pulam-tui is the raw client — one daemon, status + watch + wait, scriptable. pulam-tui no longer needs Bun or OpenTUI: it is a plain Node/tsx CLI over @kolu/surface's link family, dialing one --socket or one --host."
   code={`direction: down
 classes: {
   cli: { style.fill: "#eef0f2"; style.stroke: "#d9dde2"; style.font-color: "#475569" }
@@ -102,7 +105,7 @@ classes: {
   tool: { style.fill: "#fbf1dc"; style.stroke: "#ecd9ab"; style.font-color: "#b45309" }
   pty: { style.fill: "#e6f4ea"; style.stroke: "#bce3c8"; style.font-color: "#15803d" }
 }
-tui: "pulam-tui (raw client)\\nNode · tsx · status + watch · ONE daemon" { class: cli }
+tui: "pulam-tui (raw client)\\nNode · tsx · status + watch + wait · ONE daemon" { class: cli }
 web: "pulam-web (rich client)\\nbrowser · fans out N hosts · the fleet board" { class: web }
 pulam: "pulam (daemon)\\nruns the sensors · serves terminalWorkspaceSurface" { class: tool }
 kaval: "kaval\\ndurable PTY · taps" { class: pty }
@@ -135,7 +138,7 @@ A subtractive change, mostly: delete the viewer, keep the dial, rename the snaps
 | **Runtime** | `tsx`, not Bun | The daemon already runs Node; with OpenTUI gone there is nothing left that needs Bun's `dlopen`. One runtime across daemon + CLI, and a smaller closure (no per-arch Zig). |
 | **Render** | plain line output, no alt-screen | A raw status client owns zero pixels — it prints rows and exits, or streams lines. The rich, full-screen render is [pulam-web](pulam-web.html)'s. This mirrors kaval-tui's raw-passthrough render-fidelity decision. |
 | **Scope** | one daemon, no fleet | `--socket` *or* one `--host`; the multi-host aggregation is pulam-web's. Keeping a degraded text-mode fleet in the TUI would duplicate pulam-web for no gain — the glance view is the browser's. |
-| **Commands** | `status` (snapshot) / `watch` (live), each with `--json`; `watch` takes an optional `<id>` | `status` is the awareness snapshot (kaval-tui's `list`/`snapshot` analog); `watch` is the streaming verb pulam adds over kaval-tui's one-shot-only model — bare `watch` follows every terminal on the daemon, `watch <id>` narrows to one. The natural CLI expression of the awareness/activity stream. |
+| **Commands** | `status` (snapshot) / `watch` (live) / `wait` (block until a state), each with `--json`; `watch` takes an optional `<id>`, `wait` a required `<id>` + `--until` | `status` is the awareness snapshot (kaval-tui's `list`/`snapshot` analog); `watch` is the streaming verb pulam adds over kaval-tui's one-shot-only model — bare `watch` follows every terminal, `watch <id>` narrows to one. `wait` rides the same awareness subscription but exits on the first frame whose agent enters a `--until` bucket (the shared `agentBucket` fold) — the done-signal for agent-drives-agent scripting (`send` a prompt, `wait` for the turn to end, `snapshot` the reply). The natural CLI expression of the awareness/activity stream. |
 
 The steps:
 

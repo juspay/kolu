@@ -9,7 +9,7 @@ every PTY kaval owns, and serves the
 `awareness` collection + `version` cell + live `activity` stream, plus (added in
 R6) the Code tab's `fs.*` / `git.*` read procedures and their
 `subscribeRepoChange` / `subscribeFileChange` change-pulse watcher streams.
-[`pulam-tui`](../pulam-tui) — the thin `status`/`watch` CLI — consumes the
+[`pulam-tui`](../pulam-tui) — the thin `status`/`watch`/`wait` CLI — consumes the
 awareness/activity side; [`pulam-web`](../pulam-web) and a remote kolu-server
 mirror the fs/git `git.getStatus` + `subscribeRepoChange` arm (R8).
 
@@ -58,6 +58,7 @@ nix run github:juspay/kolu#kaval                  # the PTY daemon
 nix run github:juspay/kolu#pulam                  # awareness over it
 nix run github:juspay/kolu#pulam-tui -- status    # snapshot the awareness
 nix run github:juspay/kolu#pulam-tui -- watch     # follow it live
+nix run github:juspay/kolu#pulam-tui -- wait "$id" --until awaiting,waiting  # block until an agent's turn ends
 ```
 
 The runtime is just `node · git · gh` — no kolu-server, no browser. For _remote_
