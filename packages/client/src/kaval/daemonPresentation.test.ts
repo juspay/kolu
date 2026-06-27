@@ -24,7 +24,9 @@ describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1
     // stale, but the dot painted bg-ok off it — a definite 'running' the dead channel
     // can't confirm. Floored: grey (unknown), for EVERY state — a known state can
     // only REFINE the tone WITHIN a live link, never claim a verdict over a dead one.
-    for (const state of Object.keys(DAEMON_STATE_PRESENTATION) as DaemonState[]) {
+    for (const state of Object.keys(
+      DAEMON_STATE_PRESENTATION,
+    ) as DaemonState[]) {
       expect(kavalDot(state, false)).toBe(DAEMON_UNKNOWN_DOT);
     }
     // Specifically: a connected daemon over a dead link is NOT painted 'running'.

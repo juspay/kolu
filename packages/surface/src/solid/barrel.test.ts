@@ -23,7 +23,9 @@ import * as solidBarrel from "./index";
 
 describe("@kolu/surface/solid barrel — the raw-live health minter is package-private", () => {
   it("does NOT re-export createSurfaceHealthRegistry (the unbranded-live seam)", () => {
-    expect(Object.keys(solidBarrel)).not.toContain("createSurfaceHealthRegistry");
+    expect(Object.keys(solidBarrel)).not.toContain(
+      "createSurfaceHealthRegistry",
+    );
     expect(
       (solidBarrel as Record<string, unknown>).createSurfaceHealthRegistry,
     ).toBeUndefined();

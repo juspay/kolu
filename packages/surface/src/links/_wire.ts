@@ -87,9 +87,8 @@ export function isHalfOpenLink(link: unknown): boolean {
 export function wireClient<C extends AnyContractRouter>(
   link: ClientLink<ClientRetryPluginContext>,
 ): ContractRouterClient<C, ClientRetryPluginContext> {
-  const client = createORPCClient<
-    ContractRouterClient<C, ClientRetryPluginContext>
-  >(link);
+  const client =
+    createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(link);
   // Brand at the chokepoint: a wire transport can silently half-open, so
   // `surfaceClient` must refuse this bare client unless it is wrapped in a
   // watchdog-backed `LiveSignalHandle`.
