@@ -358,8 +358,9 @@ const SleepingDiscriminantSchema = z.object({
 //
 // Design-S BISECTS the fused terminal record. The eight awareness fields (cwd ·
 // git · lastAgentCommand · agentSession · lastActivityAt · pr · agent ·
-// foreground) move to a process-singleton store (`server/src/awarenessStore.ts`),
-// written by the sensor sink alone. What REMAINS on the registry's `entry.meta`
+// foreground) move to the registry entry's own `awareness` field
+// (`server/src/terminal-registry.ts`), written by the sensor sink alone. What
+// REMAINS on the registry's `entry.meta`
 // is the AUTHORED record: the kolu-owned `location`, the client/UI fields, and
 // the active|sleeping discriminant.
 //
@@ -1043,7 +1044,7 @@ export const koluSurface = defineSurface({
   },
 });
 
-/** The two siblings, keyed — the single browser-safe source of which surfaces
+/** The three siblings, keyed — the single browser-safe source of which surfaces
  *  exist under which keys. `composeSurfaceContracts(surfaces)` (contract),
  *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
  *  (server) all read this one map, so the keys can't drift across the three. */
@@ -1051,9 +1052,10 @@ export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
   // The generic `@kolu/terminal-workspace` surface, served as a third sibling
-  // (R8): the `awareness` collection (backed by kolu-server's process-singleton
-  // awareness store), the `version` handshake cell, the live `activity` flow, and
-  // the Code tab's fs/git procedures + watcher streams. `composeSurfaceContracts`
+  // (R8): the `awareness` collection (projected off each registry entry's
+  // `awareness` field — the sensor sink is the sole writer), the `version`
+  // handshake cell, the live `activity` flow, and the Code tab's fs/git
+  // procedures + watcher streams. `composeSurfaceContracts`
   // / `surfaceClients` / `implementSurfaces` pick it up from this one map, so it
   // is served at `surface.terminalWorkspace.*` automatically. Its value schema is
   // the GENERIC `AwarenessValue` — no `location`, no kolu UI fields.

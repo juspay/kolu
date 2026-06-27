@@ -75,14 +75,14 @@ export { ws };
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
 // The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
-// surfaceApp }, server, terminal, git }`) — the raw oRPC procedures (`terminal`,
-// `git`, `server`) live at its root (kolu's ROOT-level multiplexed procedures, the
-// reason kolu needs the combined link back from the seam); the two sibling surfaces
-// live under `surface.<key>`. Typed off `typeof contract`, so `client` below is
-// fully typed.
+// surfaceApp, terminalWorkspace }, server, terminal, git }`) — the raw oRPC
+// procedures (`terminal`, `git`, `server`) live at its root (kolu's ROOT-level
+// multiplexed procedures, the reason kolu needs the combined link back from the
+// seam); the three sibling surfaces live under `surface.<key>`. Typed off
+// `typeof contract`, so `client` below is fully typed.
 const link = conn.link;
 
-// kolu serves TWO sibling surfaces over one transport (kolu#1197); `connectSurfaces`
+// kolu serves THREE sibling surfaces over one transport (kolu#1197); `connectSurfaces`
 // scopes each per-key client to its slice (`{ surface: link.surface[key] }`) so its
 // primitives resolve at the wire path `/surface/<key>/<prim>/<verb>` that
 // `implementSurfaces` serves.

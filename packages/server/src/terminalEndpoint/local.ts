@@ -70,6 +70,7 @@ import {
   listTerminals,
   registerTerminal,
   type SleepingTerminalProcess,
+  terminalNotFound,
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
@@ -265,12 +266,17 @@ function makeAwarenessSink(id: TerminalId): AwarenessSink {
     // promoter passes its detector's `tailLines` so only the screen bottom is
     // read — not the full (up to 50k-line) scrollback — each poll. The handle is
     // read off the live active entry (the sensor set runs only while active).
-    readScreenText: (tailLines) =>
-      getActiveTerminal(id)!.handle.getScreenText(
-        undefined,
-        undefined,
-        tailLines,
-      ),
+    readScreenText: (tailLines) => {
+      // Look the entry up explicitly rather than `getActiveTerminal(id)!`: a poll
+      // tick can race teardown/sleep, and a non-null assertion would throw a bare
+      // TypeError the sensor's `isNotFoundError` gate misreads as an UNEXPECTED
+      // scrape failure (logged at error). Throw the structured `terminalNotFound`
+      // (an `ORPCError("NOT_FOUND")`) so the race stays classified as the benign
+      // teardown it is — the same fail-loud stance as `getScreenState`.
+      const entry = getActiveTerminal(id);
+      if (!entry) throw terminalNotFound(id);
+      return entry.handle.getScreenText(undefined, undefined, tailLines);
+    },
   };
 }
 
