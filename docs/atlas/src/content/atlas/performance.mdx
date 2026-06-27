@@ -323,7 +323,7 @@ cluster, and the one most likely to matter on a real phone (where it is, so far,
 `createHeartbeat()` runs `system.live` / `identity.info()` every 15s while the
 socket is OPEN. Two distinct costs hid behind one finding:
 
-- **Spurious reconnect on resume — FIXED.** A laptop sleep / tab freeze /
+- **Spurious reconnect on resume — FIXED <PrLink pr={1598} />.** A laptop sleep / tab freeze /
   app-switch paused the event loop; the probe's 10s timeout fired *overdue* on
   resume and forced a reconnect over a still-healthy socket (the brief
   "Disconnected" flash — a regression from the default-on watchdog
