@@ -2,14 +2,19 @@
  * `onWake` — wire the browser "the runtime may have just resumed" signals to a
  * `wake` callback (the heartbeat's fast resume re-probe), and return a detacher.
  *
- * Two signals, because no single one covers every resume:
+ * Three signals, because no single one covers every resume:
  *   - `window`'s `focus` fires on app-switch return (alt-tab / Cmd-Tab), which
  *     keeps `document.visibilityState === "visible"` and fires NO
  *     `visibilitychange` (the same fact `renderRecovery.ts` is built on);
- *   - `document`'s `visibilitychange` → visible covers a real tab switch.
- * Both only ever PROBE (the heartbeat's `wake()` can only cause an extra probe,
- * never a stale verdict), so firing both — even redundantly on a resume that
- * trips both — is harmless.
+ *   - `document`'s `visibilitychange` → visible covers a real tab switch;
+ *   - `document`'s Page-Lifecycle `resume` fires when a FROZEN tab unfreezes
+ *     (background discard, `chrome://discards` "Freeze") — and fires BEFORE the
+ *     page's frozen timer tasks resume, so it re-probes ahead of the overdue
+ *     probe-timeout the freeze left armed (the freeze is OS-awake, so the
+ *     wall/monotonic gap the void watches is ~0 — `resume` is what catches it).
+ * All three only ever PROBE (the heartbeat's `wake()` can only cause an extra
+ * probe, never a stale verdict), so firing several — even redundantly on a resume
+ * that trips more than one — is harmless.
  *
  * Crucially, visibility is wired only to PROBE, never to VOID. A merely-hidden
  * tab is still RUNNING, so its probe timeout is REAL — voiding on `hidden` would
@@ -30,10 +35,15 @@ export function onWake(wake: () => void): () => void {
   const onVisible = () => {
     if (document.visibilityState === "visible") wake();
   };
+  const onResume = () => wake();
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisible);
+  // `resume` is a Page-Lifecycle event not yet in `DocumentEventMap`, so it lands
+  // on `addEventListener`'s string overload — typed but not in the named union.
+  document.addEventListener("resume", onResume);
   return () => {
     window.removeEventListener("focus", onFocus);
     document.removeEventListener("visibilitychange", onVisible);
+    document.removeEventListener("resume", onResume);
   };
 }
