@@ -34,7 +34,7 @@ import {
   formatUptime,
   kavalDot,
   localDaemonStatus,
-  wsDot,
+  serverDot,
 } from "../kaval/useDaemonStatus";
 import type { WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
@@ -137,7 +137,11 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <Tip label="Server connection">
           <span
             data-ws-status={props.status}
-            class={`inline-block h-[7px] w-[7px] rounded-full ${wsDot(props.status)}`}
+            // Floored on the watchdog-backed `daemonLive()` (the kolu ws's
+            // `health().live`), so a silent half-open the watchdog already caught
+            // can't paint a definite green "connected" while the open/close-only
+            // lifecycle still reads `open`. Same fact the kaval dot floors on.
+            class={`inline-block h-[7px] w-[7px] rounded-full ${serverDot(props.status, daemonLive())}`}
           />
         </Tip>
         <Show when={pwa.server()?.version}>

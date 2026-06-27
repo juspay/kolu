@@ -6,6 +6,7 @@ import {
   kavalDot,
   liveDownState,
   liveWarming,
+  serverDot,
   toneDot,
 } from "./daemonPresentation";
 
@@ -40,6 +41,28 @@ describe("kavalDot — the kaval dot's tone is FLOORED on transport liveness (#1
     // 'down' (red): the two failures must not collapse into one verdict.
     expect(DAEMON_UNKNOWN_DOT).not.toBe(toneDot.down);
     expect(kavalDot("dead", true)).not.toBe(DAEMON_UNKNOWN_DOT);
+  });
+});
+
+describe("serverDot — the server-connection dot's green FLOORED on the watchdog fact", () => {
+  // The round-4 sibling of kavalDot: the srv/mobile connection dot read the
+  // half-open-blind open/close lifecycle (wsDot), so a silent half-open the watchdog
+  // already caught (live=false) still read status="open" → green. serverDot floors it.
+
+  it("paints green (ok) only when LIVE; a half-open (open but not-live) reads reconnecting, never green", () => {
+    expect(serverDot("open", true)).toBe(toneDot.ok); // genuinely connected
+    // The half-open: lifecycle still "open" but the watchdog flipped live false →
+    // NOT a definite green; show the reconnecting (warming) tone instead.
+    expect(serverDot("open", false)).toBe(toneDot.warming);
+    expect(serverDot("open", false)).not.toBe(toneDot.ok);
+  });
+
+  it("a genuine closed/connecting keeps its own honest tone — the floor only withholds the open→green claim", () => {
+    // A real close IS known-down (red), not floored to "unknown"; the floor targets
+    // only the lifecycle's optimistic open→green over a watchdog-detected half-open.
+    expect(serverDot("closed", false)).toBe(toneDot.down);
+    expect(serverDot("connecting", false)).toBe(toneDot.warming);
+    expect(serverDot("connecting", true)).toBe(toneDot.warming);
   });
 });
 

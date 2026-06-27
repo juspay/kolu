@@ -118,9 +118,27 @@ export const wsTone: Record<WsStatus, DaemonTone> = {
 };
 
 /** A WebSocket status → its status-dot class, via {@link wsTone} + {@link
- *  toneDot}. Both the desktop rail's `srv` dot and the mobile chrome dot resolve
- *  through this single helper, so a connection-tone change is made once. */
+ *  toneDot}. The lower-level lifecycle-only tone; the `srv`/mobile connection dots
+ *  paint through {@link serverDot}, which floors its green on the watchdog fact. */
 export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
+
+/** The `srv`/mobile **server-connection** dot's tone, FLOORED on the watchdog-backed
+ *  transport `live` — the connection-dot sibling of {@link kavalDot}, and the
+ *  canonical #1568 "paint the connection dot from the FACT, not a narrower signal."
+ *
+ *  `status` is the open/close-only oRPC lifecycle (`WsStatus`), which is half-open
+ *  BLIND: a silently dead socket fires no `close`, so the lifecycle reads `open`
+ *  while the half-open watchdog (the SAME socket's `health().live`) has already
+ *  flipped `live` false at its probe timeout — it forces the reconnect the lifecycle
+ *  only sees AFTERWARD. So a bare `wsDot` would paint a definite green "connected"
+ *  over a link the fact already knows is dead. When the lifecycle says `open` but the
+ *  fact says not-`live`, paint the reconnecting (warming) tone instead — never green
+ *  over a half-open the watchdog caught. A genuine `closed`/`connecting` keeps its own
+ *  honest down/warming tone (the floor only withholds the `open`→green claim). */
+export function serverDot(status: WsStatus, live: boolean): string {
+  if (status === "open" && !live) return toneDot.warming;
+  return wsDot(status);
+}
 
 /** Is a daemon state in the transient "warming" bucket — `connecting` (boot) or
  *  `restarting` (a supervised restart in flight)? Derived from the presentation

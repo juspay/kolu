@@ -38,6 +38,7 @@ export {
   kavalDot,
   liveDownState,
   liveWarming,
+  serverDot,
   toneDot,
   wsDot,
   wsTone,

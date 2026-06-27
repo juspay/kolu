@@ -346,14 +346,18 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 // ── Builder ────────────────────────────────────────────────────────────
 
 /** Build the Solid client-side bundle for a surface over a **transport** — either
- *  a {@link LiveSignalHandle} (a half-openable `websocketLink` plus the watchdog
- *  that makes its liveness honest, as ONE object) OR a bare in-process link
- *  (`directLink`/`stdioLink`, which can't half-open). Walks the spec once and
- *  pre-binds each primitive to its oRPC procedure refs, producing `.use(policy)`
- *  hooks that drop the wire-identity args from the per-call signature.
+ *  a {@link LiveSignalHandle} (a half-openable wire link — `websocketLink`,
+ *  `stdioLink`, `unixSocketLink` — plus the watchdog that makes its liveness honest,
+ *  as ONE object) OR a bare in-process `directLink` (`createRouterClient`, no
+ *  transport, the ONE link that can't half-open). A bare `stdioLink`/`unixSocketLink`
+ *  is a wire link that CAN half-open and is REFUSED bare (it throws — pass the handle,
+ *  or hand-wire a watchdog as `surface-nix-host`'s `hostSession.startLiveness` does).
+ *  Walks the spec once and pre-binds each primitive to its oRPC procedure refs,
+ *  producing `.use(policy)` hooks that drop the wire-identity args from the per-call
+ *  signature.
  *
  *  ```ts
- *  // Direct/stdio link (can't half-open) — pass the bare link:
+ *  // In-process directLink (no transport, can't half-open) — pass the bare link:
  *  const app = surfaceClient(surface, directLink(server));
  *
  *  // Websocket link (CAN half-open) — pass the watchdog-backed handle WHOLE.
