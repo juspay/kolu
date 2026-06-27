@@ -71,12 +71,15 @@
       pulamAgentDrvsJson = pulamAgentDrvsJson;
 
       # The module proper is platform-agnostic; the flake closes over it to
-      # default `tuiPackage` to this flake's matching `kaval-tui` build, so the
-      # CLI ships automatically with the server (override or set null to opt out).
+      # default `tuiPackage` / `pulamTuiPackage` to this flake's matching
+      # `kaval-tui` / `pulam-tui` builds, so both CLIs ship automatically with
+      # the server (override or set null to opt out of either).
       homeManagerModules.default = { pkgs, lib, ... }: {
         imports = [ ./nix/home/module.nix ];
         config.services.kolu.tuiPackage =
           lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.kaval-tui;
+        config.services.kolu.pulamTuiPackage =
+          lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.pulam-tui;
       };
       packages = eachSystem (pkgs:
         let
