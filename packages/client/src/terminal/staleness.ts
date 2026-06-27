@@ -15,7 +15,7 @@
  *  one signal so every consumer (dock buckets, minimap fade, badge gate)
  *  agrees on what "stale" means. */
 
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { getClockNow } from "../time/clock";
 import { compactDelta } from "../time/duration";
@@ -50,11 +50,12 @@ export function isStale(
  *
  *  Shares the `createSharedRoot` singleton idiom with `useDockOrder` so
  *  the reactive owner is the app, not whichever component called us
- *  first; the `onCleanup` for the interval lives inside that owner. */
+ *  first. App-lifetime by that contract: the ticker runs for the whole
+ *  session with no teardown (the shared root's disposer is discarded),
+ *  so we do NOT register an `onCleanup` that would never run. */
 const getNowTicker = createSharedRoot<Accessor<number>>(() => {
   const [now, setNow] = createSignal(Date.now());
-  const id = setInterval(() => setNow(Date.now()), TICK_MS);
-  onCleanup(() => clearInterval(id));
+  setInterval(() => setNow(Date.now()), TICK_MS);
   return now;
 });
 
