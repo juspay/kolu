@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type ConnectionStatus,
   type ControlPlane,
+  DISCONNECT_OVERLAY_GRACE_MS,
   type SurfaceAppModel,
   SurfaceAppProvider,
   useSurfaceApp,
@@ -246,5 +247,62 @@ describe("SurfaceAppProvider — updateReady", () => {
 
       dispose();
     });
+  });
+});
+
+describe("SurfaceAppProvider — presentingDown (the #1598 disconnect-overlay grace, WIRED)", () => {
+  it("holds the overlay back for a sub-second blip, raises it for a sustained outage", async () => {
+    // The #1598 producer (`gracedDown`) is unit-tested in isolation, but the MODEL
+    // wiring it — `presentingDown = gracedDown(() => status() === "down", GRACE)`,
+    // read by kolu's `TransportOverlay` — was pinned by NO test, so reverting the
+    // model derivation to raw `status` (or the overlay to read `status()` instead of
+    // `presentingDown()`) would silently re-introduce the sub-second "Disconnected"
+    // flash on every forced reconnect (half-open watchdog recovering, Wi-Fi roam).
+    // This drives the model boundary so that revert turns RED — the producer-consumed
+    // invariant: a test must fail when the WIRING is removed, not only the producer.
+    vi.useFakeTimers();
+    try {
+      await createRoot(async (dispose) => {
+        const [status, setStatus] = createSignal<ConnectionStatus>("live");
+        const model = mountModel({
+          serverCommit: "c",
+          clientCommit: "c",
+          status,
+          dispose,
+        });
+        // Flush the provider's initial effect run (deferred to the end of
+        // createRoot's batch); thereafter a top-level `setStatus` re-runs the
+        // gracedDown effect synchronously, so the timer arms before the fake clock
+        // advances (mirrors `gracedDown.test.ts`).
+        await Promise.resolve();
+        expect(model.presentingDown()).toBe(false);
+
+        // Down, then recover WITHIN the grace window: the overlay must never flash.
+        // Flush the gracedDown effect (arm/clear its timer) before advancing the
+        // fake clock — each `setStatus` schedules the effect on the microtask queue.
+        setStatus("down");
+        await Promise.resolve();
+        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 100);
+        expect(model.presentingDown()).toBe(false); // still inside the grace
+        setStatus("live");
+        await Promise.resolve();
+        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+        expect(model.presentingDown()).toBe(false); // recovered → never flashed
+
+        // A sustained outage past the grace window DOES surface the overlay.
+        setStatus("down");
+        await Promise.resolve();
+        vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS + 50);
+        expect(model.presentingDown()).toBe(true);
+
+        // status() itself stays INSTANT (gates the header dot / heartbeat), distinct
+        // from the graced overlay signal.
+        expect(model.status()).toBe("down");
+
+        dispose();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
