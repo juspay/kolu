@@ -100,7 +100,7 @@ const link = conn.link;
 const clients = conn.clients;
 
 /** kolu's OWN surface client — `app.cells.preferences.use(...)`,
- *  `app.collections.terminalMetadata.use(...)`, `app.streams.gitStatus.use(...)`,
+ *  `app.collections.authored.use(...)`, `app.streams.gitStatus.use(...)`,
  *  etc. Every existing `app.*` call site reaches kolu's own primitives. */
 export const app = clients.kolu;
 
@@ -110,6 +110,14 @@ export const app = clients.kolu;
  *  the `surfaceApp` key is consumed by the scope, so it does NOT reappear in the
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
+
+/** The GENERIC `@kolu/terminal-workspace` surface client — kolu reads the
+ *  per-terminal `awareness` collection here
+ *  (`workspace.collections.awareness.use(...)`) and joins each value with the
+ *  matching `kolu.authored` record in `useTerminalMetadata`. This is the SAME
+ *  surface `pulam` serves, so R9 (remote awareness) becomes a pure backing-swap
+ *  behind this one collection — no second client read path to migrate. */
+export const workspace = clients.terminalWorkspace;
 
 /** Convenience alias — the FULL combined link. `client.terminal.create(...)`,
  *  `client.git.worktreeCreate(...)`, `client.server.info(...)` reach the raw oRPC

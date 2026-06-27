@@ -75,7 +75,7 @@ async function settle(): Promise<void> {
 
 beforeEach(async () => {
   // surface.ts is not imported here; supply no-op ctxes so the publish paths
-  // (the `kolu` terminalMetadata collection + the `terminalWorkspace` awareness
+  // (the `kolu` authored collection + the `terminalWorkspace` awareness
   // collection) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
   setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());

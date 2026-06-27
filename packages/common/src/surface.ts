@@ -367,9 +367,10 @@ const SleepingDiscriminantSchema = z.object({
 // COMPILE ERROR — "two writers of awareness" is made unrepresentable. This is
 // deliberately NOT built on `AwarenessPersistedFields` (unlike
 // `ServerPersistedTerminalFieldsSchema`, the WIRE half above): the authored
-// record is the COMPLEMENT of awareness, not an extension of it. The wire
-// `TerminalMetadata` is recomposed from the two halves at serve time via
-// `composeTerminalMetadata` (below), byte-identical to today's shape.
+// record is the COMPLEMENT of awareness, not an extension of it. The unified
+// `TerminalMetadata` is recomposed from the two halves at the CLIENT read (and
+// at disk persist) via `composeTerminalMetadata` (below) — never served as a
+// fused record, so the bisection reaches the consumer.
 
 const KoluAuthoredServerFieldsSchema = z.object({
   location: HostLocationSchema,
@@ -430,9 +431,11 @@ export const SleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
 
 /**
  * The terminal as a sum — `Terminal = active | sleeping`, discriminated on
- * `state`. The `terminalMetadata` collection's value (the wire shape). Presence
- * reads the union; liveness narrows to the `active` arm. Code that only needs
- * one half should import the sub-schema so the dependency is explicit.
+ * `state`. The shape the CLIENT reconstructs by joining the AUTHORED record
+ * (`kolu.authored`) with the AWARENESS value (`terminalWorkspace.awareness`) via
+ * `composeTerminalMetadata` — it is never a server-served collection of its own.
+ * Presence reads the union; liveness narrows to the `active` arm. Code that only
+ * needs one half should import the sub-schema so the dependency is explicit.
  */
 export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   ActiveTerminalSchema,
@@ -460,7 +463,8 @@ export const InitialTerminalMetadataSchema = z.object({
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
 /** Wire shape for the `terminalList` cell. Identity only — metadata
- *  flows through the `terminalMetadata` collection. */
+ *  flows through the `authored` collection joined with `awareness` at the
+ *  client. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
@@ -893,8 +897,11 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 // kolu now serves THREE sibling surfaces over one transport (kolu#1197, R8):
 //
 //   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
-//     session, terminalList; terminalMetadata; the git/fs streams; the
-//     terminalExit event). Served under the `kolu` key.
+//     session, terminalList; the per-terminal `authored` record; the git/fs
+//     streams; the terminalExit event). Served under the `kolu` key. The eight
+//     AWARENESS fields are NOT here — they ride `terminalWorkspace.awareness`,
+//     and the client JOINS the two halves at read time (no fused record on the
+//     wire).
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
 //     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
 //     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
@@ -903,7 +910,10 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     (awareness collection + version cell + activity flow + fs/git procedures &
 //     watcher streams), served under the `terminalWorkspace` key so a viewer reads
 //     the same surface `pulam` serves. Its `awareness` collection is backed by
-//     kolu-server's process-singleton awareness store (Design-S).
+//     kolu-server's process-singleton awareness store (Design-S). kolu's OWN
+//     client reads this collection too, joining each value with the matching
+//     `kolu.authored` record — so R9 (remote awareness) is a pure backing-swap
+//     behind this one collection, with no second read path to migrate.
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
 // `surfaceClients` multiplex them, each namespaced by its key. Each is already a
@@ -973,13 +983,19 @@ export const koluSurface = defineSurface({
     },
   },
   collections: {
-    /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
-     *  is independently observable; mutations come from server-side
-     *  providers writing through the publisher channel — clients don't
-     *  call `upsert` on this collection directly. */
-    terminalMetadata: {
+    /** Per-terminal AUTHORED record — the kolu-owned half of a terminal:
+     *  `location` + client/UI chrome + the active|sleeping discriminant. The
+     *  eight AWARENESS fields (cwd · git · pr · agent · foreground ·
+     *  lastAgentCommand · lastActivityAt · agentSession) ride the GENERIC
+     *  `terminalWorkspace.awareness` collection, NOT here — the client JOINS the
+     *  two halves at read time via `composeTerminalMetadata`
+     *  (`useTerminalMetadata`), so there is no server-side re-fusion and no fused
+     *  record on the wire. Each terminal is independently observable; mutations
+     *  come from server-side providers writing through the publisher channel —
+     *  clients don't call `upsert` on this collection directly. */
+    authored: {
       keySchema: TerminalIdSchema,
-      schema: TerminalMetadataSchema,
+      schema: AuthoredTerminalSchema,
       // Only the streaming reads are exposed; writes are server-internal.
       verbs: ["keys", "get"],
     },
@@ -1055,8 +1071,11 @@ export type Surface = SurfaceTypes<typeof koluSurface.spec>;
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
 export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
-export type TerminalMetadata =
-  Surface["collections"]["terminalMetadata"]["Value"];
+/** The unified terminal record — NOT a served collection value (the wire
+ *  carries the `authored` + `awareness` halves separately). This is the shape
+ *  `composeTerminalMetadata` reconstructs at the client read and at disk
+ *  persist, and the type the ~20 `getMetadata` consumers see. */
+export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 
@@ -1110,16 +1129,21 @@ export function createAuthoredActive(
   return { location, state: "active" };
 }
 
-/** Recompose the WIRE `TerminalMetadata` from its two halves at serve time — the
- *  ONLY producer of the wire shape. The authored record (`entry.meta`) carries
- *  location + client fields + the discriminant; the awareness value carries the
- *  eight sensor fields. Their join is byte-identical to the pre-Design-S fused
- *  record, so `packages/client` is untouched.
+/** Join the two halves of a terminal into the unified `TerminalMetadata` — the
+ *  ONE join function, applied at exactly two sites: the CLIENT reader
+ *  (`useTerminalMetadata`, ephemeral, recomputed per render) and DISK persist
+ *  (`snapshotSession`, a save-time snapshot). It is NEVER served as a collection
+ *  of its own: the wire carries the two halves separately (`kolu.authored` +
+ *  `terminalWorkspace.awareness`) and the join lives at the reader, so there is
+ *  no server-side re-fusion. The authored record (`entry.meta`) carries location
+ *  + client fields + the discriminant; the awareness value carries the eight
+ *  sensor fields. Reusing one join at both the read and the persist site is what
+ *  keeps disk and the client read from ever diverging.
  *
  *  Spread order is LOAD-BEARING: awareness FIRST, authored LAST. The authored
  *  record names no awareness field, so it never clobbers awareness. The active
  *  path takes the full awareness value as-is: TS verifies the spread IS an
- *  `ActiveTerminal` structurally, with no parse on the per-tick hot path.
+ *  `ActiveTerminal` structurally, with no parse on the per-render hot path.
  *
  *  The sleeping path takes ONLY the PERSISTED half of awareness — the live half
  *  (`pr`/`agent`/`foreground`) is dropped at the source via

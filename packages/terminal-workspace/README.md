@@ -76,8 +76,10 @@ git/fs, the per-agent packages for agent state).
 `TerminalEndpoint`, the reads re-exposed on `koluSurface`'s value-bearing streams)
 AND — since **R8** — serves `terminalWorkspaceSurface` itself, in-process: the
 sensors write one awareness store (the single writer) that backs its `awareness`
-collection, which `kolu-server` composes back into the `terminalMetadata` it serves
-the browser. `pulam` serves the same surface remotely. The **awareness** half of
+collection; `kolu-server` serves each terminal's **authored** record on its own
+`koluSurface.authored` collection, and the browser **joins the two halves at read
+time** (`composeTerminalMetadata`) — there is no server-side re-fusion. `pulam`
+serves the same surface remotely. The **awareness** half of
 "one surface, both homes" is closed in R8; the Code tab's value-bearing fs/git
 streams move onto this surface's procedure+pulse in R9.
 

@@ -48,16 +48,15 @@ import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
+  AuthoredTerminal,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
   SavedSession,
   TerminalId,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
-  composeTerminalMetadata,
   type koluSurface,
   surfaces,
 } from "kolu-common/surface";
@@ -244,30 +243,26 @@ const koluDeps: Omit<
   },
 
   collections: {
-    terminalMetadata: {
-      // Design-S: the wire value is RECOMPOSED from the two halves — the AUTHORED
-      // `entry.meta` (registry) and the AWARENESS store value — via
-      // `composeTerminalMetadata`. A terminal with one half but not the other (a
-      // publish racing teardown) is skipped.
+    authored: {
+      // Design-S: kolu serves the AUTHORED half (location + client chrome + the
+      // active|sleeping discriminant) straight off the registry — NO awareness,
+      // NO compose. The AWARENESS half rides the sibling
+      // `terminalWorkspace.awareness` collection below, and the client joins the
+      // two at read time (`useTerminalMetadata`). There is no server-side
+      // re-fusion: the wire never carries a single fused record.
       readAll: () => {
-        const map = new Map<string, TerminalMetadata>();
+        const map = new Map<string, AuthoredTerminal>();
         for (const info of listTerminals()) {
           const term = getTerminal(info.id);
-          const aw = awarenessFor(info.id);
-          if (term && aw)
-            map.set(info.id, composeTerminalMetadata(term.meta, aw));
+          if (term) map.set(info.id, term.meta);
         }
         return map;
       },
-      readOne: (key) => {
-        const term = getTerminal(key as string);
-        const aw = awarenessFor(key as string);
-        return term && aw ? composeTerminalMetadata(term.meta, aw) : undefined;
-      },
-      // Server-internal collection: clients can't write. The `upsert`/
-      // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
-      // publish without re-deriving here (the registry + awareness store are the
-      // store; `terminalEndpoint/metadata.ts` composes before calling ctx.upsert).
+      readOne: (key) => getTerminal(key as string)?.meta,
+      // Server-internal collection: clients can't write. The registry IS the
+      // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
+      // `terminalEndpoint/metadata.ts` calls `surfaceCtx.collections.authored
+      // .upsert` on every authored flip (spawn / sleep / wake / client field).
       upsert: () => {},
       remove: () => {},
     },
@@ -277,7 +272,7 @@ const koluDeps: Omit<
       readOne: (key) => readDaemonStatus(key as string),
       // Server-internal: `publishDaemonStatus` writes the store before calling
       // `surfaceCtx.collections.daemonStatus.upsert`, so these are no-ops (the
-      // store is the authority, mirroring `terminalMetadata`).
+      // store is the authority, mirroring `authored`).
       upsert: () => {},
       remove: () => {},
     },

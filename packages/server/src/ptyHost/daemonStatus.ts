@@ -5,8 +5,8 @@
  * `publishDaemonStatus`, which records it here and publishes it on the
  * `daemonStatus` surface collection so the rail's KAVAL column and the
  * DegradedCanvas can subscribe. The store is the source of truth the surface
- * collection's `readAll`/`readOne` read from (mirroring how `terminalMetadata`
- * reads the terminal registry).
+ * collection's `readAll`/`readOne` read from (mirroring how the `authored`
+ * collection reads the terminal registry).
  */
 
 import type { DaemonStatus } from "kolu-common/surface";

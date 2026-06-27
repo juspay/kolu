@@ -63,12 +63,14 @@ export {
 /** Build a session snapshot from current terminal state.
  *
  *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the
- *  AWARENESS store value through `composeTerminalMetadata` — the ONE producer of
- *  a terminal's shape — then keyed with `id` and re-validated against
- *  `SavedTerminalSchema`. Routing the save through the same compose seam as the
- *  wire means the live-half strip (and the sleeping `pr`-from-authored rule) lives
- *  in exactly one place, so disk and wire can never diverge. A new *persisted*
- *  field flows through untouched; a live field can never ride to disk. The save
+ *  AWARENESS store value through `composeTerminalMetadata` — the SAME join the
+ *  client applies at read time — then keyed with `id` and re-validated against
+ *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
+ *  persist is one of the join's two sites (the ephemeral client read is the
+ *  other), so reusing the one join at both means the live-half strip (and the
+ *  sleeping `pr`-from-authored rule) lives in exactly one place — disk and the
+ *  client read can never diverge. A new *persisted* field flows through
+ *  untouched; a live field can never ride to disk. The save
  *  uses `flatMap` + a guard rather than `?? {}`: a live registry entry with no
  *  awareness (a lockstep violation) is logged and SKIPPED — fail-fast, never
  *  persist a record missing every sensor field. Order is `Map` insertion order —

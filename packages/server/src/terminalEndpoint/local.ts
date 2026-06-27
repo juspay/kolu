@@ -371,10 +371,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
     // Design-S: seed the AWARENESS half (cwd + sensor defaults) into the store
-    // BEFORE registering the authored entry (store↔registry lockstep —
-    // `registerActiveAndSpawn`'s publish recomposes from both). `lastActivityAt`
-    // is the one awareness field a caller seeds: session restore threads the saved
-    // recency through so it survives restart.
+    // BEFORE registering the authored entry (store↔registry lockstep — so the
+    // CLIENT can join both halves once `registerActiveAndSpawn` publishes the
+    // authored one). `lastActivityAt` is the one awareness field a caller seeds:
+    // session restore threads the saved recency through so it survives restart.
     const aw = seedAwarenessValue(cwd);
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       aw.lastActivityAt = opts.initialMetadata.lastActivityAt;
@@ -817,9 +817,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // reads it — the store's live half goes stale once the PTY is released).
     //
     // The persisted AWARENESS (cwd / git / lastAgentCommand / agentSession / …)
-    // STAYS in the store — `beginSleep` does NOT `dropAwareness`, so the dormant
-    // wire still recomposes cwd / branch off it, and wake reads `lastAgentCommand`
-    // back from there. Sensors went down FIRST so no in-flight tap re-publishes.
+    // STAYS in the store — `beginSleep` does NOT `dropAwareness`, so the client's
+    // join still recomposes the dormant tile's cwd / branch off it, and wake reads
+    // `lastAgentCommand` back from there. Sensors went down FIRST so no in-flight
+    // tap re-publishes.
     const aw = awarenessFor(id);
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
@@ -879,7 +880,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const resumeCommand = resumeFormFor(aw ?? {});
     // Reset the LIVE half (pr/agent/foreground re-derived by the re-spawned PTY's
     // sensors), keep the PERSISTED half. Re-seed the store via `installAwareness`
-    // so `registerActiveAndSpawn`'s publish recomposes the active wire.
+    // so the client's join sees fresh awareness once `registerActiveAndSpawn`
+    // publishes the active authored arm.
     installAwareness(id, {
       ...(aw ?? seedAwarenessValue("")),
       pr: { kind: "pending" },
@@ -1033,9 +1035,9 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   if (getTerminal(id)) return false;
   const parsed = recordParsed.data;
   // Seed the awareness store from the saved persisted half (cwd / git / …), live
-  // half reset — the dormant tile recomposes cwd / branch off the store, and the
-  // frozen `pr` rides the AUTHORED sleeping record below. Lockstep: install BEFORE
-  // register.
+  // half reset — the client's join recomposes the dormant tile's cwd / branch off
+  // it, and the frozen `pr` rides the AUTHORED sleeping record below. Lockstep:
+  // install BEFORE register.
   installAwareness(id, {
     ...AwarenessPersistedFieldsSchema.parse(parsed),
     pr: { kind: "pending" },

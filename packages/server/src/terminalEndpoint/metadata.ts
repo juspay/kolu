@@ -6,10 +6,12 @@
  * Design-S splits a terminal's record in two: the eight AWARENESS fields live in
  * the process-singleton `../awarenessStore.ts` (the sink is the sole live
  * writer), and the AUTHORED record (location + client fields + discriminant)
- * stays on the registry's `entry.meta`. The WIRE `TerminalMetadata` the client
- * reads is RECOMPOSED at publish time via `composeTerminalMetadata` — so this
- * module owns both "how an awareness write becomes visible" and "how a lifecycle
- * flip becomes visible".
+ * stays on the registry's `entry.meta`. This module publishes each half on its
+ * OWN collection — awareness onto `terminalWorkspace.awareness`, the authored
+ * record onto `kolu.authored` — and the CLIENT joins them at read time
+ * (`useTerminalMetadata` → `composeTerminalMetadata`). There is NO server-side
+ * re-fusion here: this module owns "how an awareness write becomes visible" and
+ * "how an authored / lifecycle flip becomes visible" as two separate publishes.
  *
  * The mutator-type narrowing is a bidirectional compile-time fence:
  *   - `updateServerMetadata` — persisted awareness (cwd, git, lastAgentCommand,
@@ -33,12 +35,10 @@ import {
   type AwarenessLiveFields,
   type AwarenessPersistedFields,
   type AwarenessValue,
-  composeTerminalMetadata,
   prUnavailableReason,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
 import {
-  awarenessFor,
   mutateAwarenessLive,
   mutateAwarenessPersisted,
   removeAwareness,
@@ -51,29 +51,14 @@ import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
 /** Push an awareness snapshot onto the `terminalWorkspace` surface's `awareness`
- *  collection. Shallow-clones so the collection stores an independent snapshot
- *  rather than aliasing the live (sink-mutated) store object. */
+ *  collection — the SOLE channel an awareness change reaches the client (kolu's
+ *  own client reads this collection and joins each value with the matching
+ *  `authored` record). Shallow-clones so the collection stores an independent
+ *  snapshot rather than aliasing the live (sink-mutated) store object. The debug
+ *  line is the awareness half of the old fused "metadata publish" log — `prStatus`
+ *  is the store's raw `pr.kind` (frozen-stale on a slept terminal, which the
+ *  client's join drops in favour of the authored frozen `pr`). */
 function publishAwareness(terminalId: string, aw: AwarenessValue): void {
-  workspaceSurfaceCtx.collections.awareness.upsert(terminalId, { ...aw });
-}
-
-/** Recompose + push the WIRE `TerminalMetadata` for `terminalId` onto the `kolu`
- *  surface's `terminalMetadata` collection — the SOLE producer of the wire shape.
- *  Reads the authored record off the registry and the awareness off the store;
- *  a no-op if either is absent (a publish racing teardown). The collection
- *  `upsert` is a no-op that only fans out to subscribers (the registry + store
- *  ARE the source of truth), so this call is the only way a change reaches the
- *  client. */
-function publishWire(
-  terminalId: string,
-  entry = getTerminal(terminalId),
-): void {
-  const aw = awarenessFor(terminalId);
-  if (!entry || !aw) return;
-  // The live overlay (pr/agent/foreground) is meaningful only on an active arm;
-  // a sleeping terminal's store live half is frozen-stale, so the debug line
-  // reports `sleeping` for its `prStatus` and reads identity off the store.
-  const active = entry.meta.state === "active";
   const pr = prValue(aw.pr);
   const prUnavailable = prUnavailableReason(aw.pr);
   log.debug(
@@ -84,24 +69,38 @@ function publishWire(
       branch: aw.git?.branch,
       pr: pr?.number ?? null,
       checks: pr?.checks ?? null,
-      prStatus: active ? aw.pr.kind : "sleeping",
+      prStatus: aw.pr.kind,
       ...(prUnavailable && { prUnavailable }),
       ...(aw.agent && { agent: `${aw.agent.kind}:${aw.agent.state}` }),
       ...(aw.foreground && { foreground: aw.foreground.name }),
     },
-    "metadata publish",
+    "awareness publish",
   );
-  surfaceCtx.collections.terminalMetadata.upsert(
-    terminalId,
-    composeTerminalMetadata(entry.meta, aw),
-  );
+  workspaceSurfaceCtx.collections.awareness.upsert(terminalId, { ...aw });
+}
+
+/** Push a terminal's AUTHORED record onto the `kolu` surface's `authored`
+ *  collection — the SOLE channel an authored change (a spawn, an active↔sleeping
+ *  flip, a client field write) reaches the client. Shallow-clones `entry.meta` so
+ *  the collection stores an independent snapshot rather than aliasing the live
+ *  (in-place-mutated) registry object. A no-op if the entry is absent (a publish
+ *  racing teardown). The collection `upsert` only fans out to subscribers (the
+ *  registry IS the store), so this call is the only way an authored change reaches
+ *  the client — where it is JOINED with awareness, never re-fused here. */
+function publishAuthored(
+  terminalId: string,
+  entry = getTerminal(terminalId),
+): void {
+  if (!entry) return;
+  surfaceCtx.collections.authored.upsert(terminalId, { ...entry.meta });
 }
 
 /** Seed a terminal's awareness into the store AND publish it. Called by the
  *  endpoint on spawn / adopt / orphan / wake / cold-restore, BEFORE the matching
- *  `registerTerminal` (store↔registry lockstep). Does NOT publish the wire — the
- *  caller's `publishTerminalState` (after register) does, once the authored
- *  record is in the registry. */
+ *  `registerTerminal` (store↔registry lockstep). Does NOT publish the authored
+ *  record — the caller's `publishTerminalState` (after register) does, once the
+ *  authored record is in the registry; the awareness half is already on its
+ *  collection by then, so the client's join has both. */
 export function installAwareness(
   terminalId: string,
   value: AwarenessValue,
@@ -132,7 +131,6 @@ export function updateServerMetadata(
   const aw = mutateAwarenessPersisted(terminalId, mutate);
   if (!aw) return;
   publishAwareness(terminalId, aw);
-  publishWire(terminalId);
   terminalsDirtyChannel.publish({});
 }
 
@@ -147,7 +145,6 @@ export function updateServerLiveMetadata(
   const aw = mutateAwarenessLive(terminalId, mutate);
   if (!aw) return;
   publishAwareness(terminalId, aw);
-  publishWire(terminalId);
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,
@@ -161,24 +158,24 @@ export function updateClientMetadata(
   mutate: (meta: TerminalClientMetadata) => void,
 ): void {
   mutate(entry.meta);
-  publishWire(terminalId, entry);
+  publishAuthored(terminalId, entry);
   terminalsDirtyChannel.publish({});
 }
 
-/** Publish a terminal's recomposed wire snapshot AND arm the session autosave —
- *  for a lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the
- *  registry entry rather than mutating a field in place. The caller seeds the
- *  store (`installAwareness`) before registering the entry, so `publishWire`
- *  recomposes from both halves.
+/** Publish a terminal's AUTHORED record AND arm the session autosave — for a
+ *  lifecycle STATE FLIP (active↔sleeping, fresh spawn) that REPLACES the registry
+ *  entry rather than mutating a field in place. The caller seeds the store
+ *  (`installAwareness`) before registering the entry, so the matching awareness is
+ *  already on its collection by the time the client joins this authored push.
  *
- *  THE SOLE PUSH CHANNEL for a lifecycle flip: `terminalMetadata`'s `upsert` only
- *  fans out to subscribers (the registry IS the store), and `terminals:dirty`
+ *  THE SOLE PUSH CHANNEL for a lifecycle flip: the `authored` collection's `upsert`
+ *  only fans out to subscribers (the registry IS the store), and `terminals:dirty`
  *  alone never re-reads the registry. Every authored active↔sleeping flip and
  *  fresh spawn MUST call this. */
 export function publishTerminalState(
   entry: TerminalProcess,
   terminalId: string,
 ): void {
-  publishWire(terminalId, entry);
+  publishAuthored(terminalId, entry);
   terminalsDirtyChannel.publish({});
 }

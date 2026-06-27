@@ -21,8 +21,8 @@ import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
- *  effect builds these by gating on the `terminalMetadata` collection
- *  having yielded for every entry, so `m` is always defined. */
+ *  effect builds these by gating on BOTH metadata halves (`authored` +
+ *  `awareness`) having joined for every entry, so `m` is always defined. */
 type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
 
 export function useSessionRestore(deps: {
@@ -64,10 +64,10 @@ export function useSessionRestore(deps: {
       setSavedSession(fromServer);
       return;
     }
-    // Wait for the `terminalMetadata` collection to yield a value for
-    // every terminal — hydration reads `parentId` and `subPanel` off it
-    // (since #806 the list snapshot no longer carries `meta`). The reads
-    // are reactive, so the effect re-runs as values arrive.
+    // Wait for both metadata halves to join (via `store.getMetadata`) for
+    // every terminal — hydration reads `parentId` and `subPanel` off the
+    // joined record (since #806 the list snapshot no longer carries `meta`).
+    // The reads are reactive, so the effect re-runs as values arrive.
     const entries: HydrationEntry[] = [];
     for (const t of existing) {
       const m = store.getMetadata(t.id);

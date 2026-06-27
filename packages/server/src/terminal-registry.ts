@@ -22,7 +22,7 @@ import { awarenessFor } from "./awarenessStore.ts";
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
  *  the active arm, mutated in place by the owning endpoint's providers and
- *  published via the `terminalMetadata` collection from
+ *  published via the `authored` collection from
  *  `terminalEndpoint/metadata.ts`; `handle` is the abstract control surface
  *  (write / resize / screen state — NO `dispose()`, the endpoint's
  *  `killTerminal` is the sole termination path). */
@@ -37,7 +37,7 @@ export interface ActiveTerminalProcess {
  *  sleeping arm (persisted base + `sleptAt`), so there is no `handle` — the live
  *  resource is **absent by type**, which is the plan's safety invariant: a
  *  sleeping terminal can sit in the one registry (and thus ride the `terminalList`
- *  cell + the `terminalMetadata` collection with nothing extra), yet the compiler
+ *  cell + the `authored` collection with nothing extra), yet the compiler
  *  refuses any code that reaches for its PTY handle without first narrowing.
  *  `handle?: never` keeps the field accessible on the union so `entry.handle`
  *  truthiness narrows a `TerminalProcess` to the active arm in one idiom. */

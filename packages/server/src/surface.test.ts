@@ -21,6 +21,18 @@ describe("surfaces map — three siblings (R8)", () => {
     expect(spec.procedures?.fs).toBeDefined();
     expect(spec.procedures?.git).toBeDefined();
   });
+
+  it("kolu serves the `authored` half only — the fused `terminalMetadata` is gone (no re-fusion)", () => {
+    const spec = surfaces.kolu.spec;
+    // Design-S: kolu serves the AUTHORED half; the client joins it with
+    // `terminalWorkspace.awareness` at read time. The fused `terminalMetadata`
+    // collection is REMOVED, so a server-side recompose is unspellable — there is
+    // no `surfaceCtx.collections.terminalMetadata` to push a fused record onto.
+    expect(spec.collections?.authored).toBeDefined();
+    expect(
+      (spec.collections as Record<string, unknown>)?.terminalMetadata,
+    ).toBeUndefined();
+  });
 });
 
 describe("processMemoryMbEqual", () => {

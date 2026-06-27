@@ -24,10 +24,10 @@
 
 import { resumeFormFor } from "anyagent/cli";
 import {
+  type AuthoredTerminal,
   type AwarenessValue,
   LOCAL_LOCATION,
   SavedTerminalSchema,
-  type TerminalMetadata,
 } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { awarenessFor, removeAwareness } from "../awarenessStore.ts";
@@ -58,12 +58,12 @@ import { installAwareness } from "./metadata.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
-/** A surface ctx that RECORDS every `terminalMetadata.upsert` into `sink` (id +
- *  state), so a test can assert the recomposed snapshot was actually PUSHED to the
- *  collection — not merely that a `terminals:dirty` trigger fired. Built off the
- *  no-op ctx, overriding only the collections proxy. */
+/** A surface ctx that RECORDS every `authored.upsert` into `sink` (id + state),
+ *  so a test can assert the AUTHORED record was actually PUSHED to the collection
+ *  on a lifecycle flip — not merely that a `terminals:dirty` trigger fired. Built
+ *  off the no-op ctx, overriding only the collections proxy. */
 function recordingSurfaceCtx(
-  sink: Array<{ id: string; state: TerminalMetadata["state"] }>,
+  sink: Array<{ id: string; state: AuthoredTerminal["state"] }>,
 ): ReturnType<typeof noopSurfaceCtxForTest> {
   const base = noopSurfaceCtxForTest();
   return {
@@ -73,12 +73,13 @@ function recordingSurfaceCtx(
         const inner = (base.collections as Record<string, unknown>)[
           name as string
         ];
-        return name === "terminalMetadata"
+        return name === "authored"
           ? {
               ...(inner as object),
-              // Production upserts the recomposed WIRE record; type `value` as a
-              // `TerminalMetadata` so the signature matches what it receives.
-              upsert: (id: string, value: TerminalMetadata) =>
+              // Production upserts the AUTHORED record on a lifecycle flip; type
+              // `value` as an `AuthoredTerminal` so the signature matches what it
+              // receives (the live overlay lives on the awareness collection).
+              upsert: (id: string, value: AuthoredTerminal) =>
                 sink.push({ id, state: value.state }),
             }
           : inner;
@@ -331,7 +332,7 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
     lastAgentCommand: "claude --model sonnet",
   });
 
-  let upserts: Array<{ id: string; state: TerminalMetadata["state"] }>;
+  let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
 
   beforeEach(() => {
     // Replace the suite-wide no-op `kolu` ctx with a recording one (the
