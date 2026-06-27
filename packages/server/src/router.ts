@@ -31,7 +31,6 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
-  awarenessFor,
   getTerminal,
   requireActiveTerminal,
   terminalNotFound,
@@ -261,19 +260,12 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        requireActiveTerminal(input.id);
-        // The agent + cwd + git + pr fields moved to the awareness store
-        // (Design-S); read them off it rather than `entry.meta` (now authored). An
-        // active terminal provably HAS an awareness entry (store↔registry
-        // lockstep), so an absent one is unreachable-by-invariant — surface it
-        // (fail-fast) rather than degrade cwd/pr to empty/pending defaults that
-        // would mask the bug.
-        const aw = awarenessFor(input.id);
-        if (!aw) {
-          throw new ORPCError("INTERNAL_SERVER_ERROR", {
-            message: `Terminal ${input.id} is active but has no awareness entry (store↔registry lockstep violated)`,
-          });
-        }
+        // `requireActiveTerminal` proves the terminal exists AND narrows it to the
+        // active arm; awareness is a REQUIRED field on that entry (Design-S), so the
+        // agent + cwd + git + pr fields are read straight off `entry.awareness` —
+        // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
+        // lockstep bug.
+        const { awareness: aw } = requireActiveTerminal(input.id);
         const agent = aw.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {

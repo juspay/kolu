@@ -64,7 +64,6 @@ import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
   type ActiveTerminalProcess,
-  awarenessFor,
   drainTerminals,
   getActiveTerminal,
   getTerminal,
@@ -890,21 +889,23 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // Read the persisted awareness back off the SLEEPING entry (it was never
-    // dropped on sleep). Render the resume FORM from the OBSERVED `lastAgentCommand`
-    // via `resumeAgentCommand`. With the persisted `agentSession` ref it resumes the
-    // EXACT conversation that was running on this terminal (juspay/kolu#1495);
-    // without it, the most-recent marker (claude `-c`, codex `resume --last`,
-    // opencode `--continue`). Null for a never-observed / non-resumable agent
-    // (e.g. a `nix run …#agent` wrapper) — it wakes to a bare shell (juspay/kolu#1492).
-    const aw = awarenessFor(id);
-    const resumeCommand = resumeFormFor(aw ?? {});
+    // Read the persisted awareness straight off the SLEEPING entry (it is present —
+    // checked above — and awareness is a REQUIRED field, so no optional lookup and
+    // no `?? {}` / `?? seedAwarenessValue("")` fallback). Render the resume FORM from
+    // the OBSERVED `lastAgentCommand` via `resumeAgentCommand`. With the persisted
+    // `agentSession` ref it resumes the EXACT conversation that was running on this
+    // terminal (juspay/kolu#1495); without it, the most-recent marker (claude `-c`,
+    // codex `resume --last`, opencode `--continue`). Null for a never-observed /
+    // non-resumable agent (e.g. a `nix run …#agent` wrapper) — it wakes to a bare
+    // shell (juspay/kolu#1492).
+    const aw = entry.awareness;
+    const resumeCommand = resumeFormFor(aw);
     // Reset the LIVE half (pr/agent/foreground re-derived by the re-spawned PTY's
     // sensors), keep the PERSISTED half. This woken awareness rides the active entry
     // built in `registerActiveAndSpawn`, which fans it out so the client's join sees
     // fresh awareness once the active authored arm publishes.
     const wokenAwareness: AwarenessValue = {
-      ...(aw ?? seedAwarenessValue("")),
+      ...aw,
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
@@ -915,7 +916,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
     return this.registerActiveAndSpawn(id, meta, wokenAwareness, {
-      cwd: aw?.cwd,
+      cwd: aw.cwd,
       parentId: meta.parentId,
       resumeCommand: resumeCommand ?? undefined,
     });
