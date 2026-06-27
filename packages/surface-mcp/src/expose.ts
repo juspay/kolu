@@ -280,6 +280,24 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
       });
     } else if (key in events) {
+      // An event is a static resource only if its input accepts being called
+      // with no argument — `surface://events/<key>` carries no input, so the
+      // adapter subscribes it via `.get(undefined)` (an event's live value is
+      // the `notifications/resources/updated` stream, not a readable snapshot;
+      // `readSnapshot` returns an immediate `null`). An event whose `inputSchema`
+      // *requires* an argument (e.g. `z.object({ id })`) can't be a single static
+      // resource; reject it at boot — the same gate the streams take — rather than
+      // list a resource whose subscribe path fails validation on every open. (An
+      // input-bearing event belongs behind a projection that fixes the input, or
+      // a future resource-template encoding.)
+      const eventSpec = events[key] as { inputSchema: ZodType };
+      const accepts = eventSpec.inputSchema.safeParse(undefined).success;
+      if (!accepts) {
+        throw new Error(
+          `surface-mcp: event "${key}" requires an input, so it can't be exposed as a static resource ` +
+            `(surface://events/${key} carries no input). Project it to a no-input event, or expose a fixed-input view.`,
+        );
+      }
       resources.push({
         uri: eventUri(key),
         kind: "event",

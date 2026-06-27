@@ -141,6 +141,30 @@ describe("resolveExpose", () => {
     );
   });
 
+  it("an input-bearing event can't be exposed as a static resource (F1)", () => {
+    const spec = defineSurface({
+      events: {
+        // Requires an `{ id }` — its subscribe path would call `.get(undefined)`
+        // and fail validation, so this exposure is rejected at boot (the same
+        // gate streams take).
+        terminalExit: {
+          inputSchema: z.object({ id: z.string() }),
+          outputSchema: z.number(),
+        },
+        // A void-input event is fine.
+        exited: { inputSchema: z.void(), outputSchema: z.number() },
+      },
+    }).spec;
+
+    expect(() => resolveExpose(spec, { terminalExit: "resource" })).toThrow(
+      /requires an input/,
+    );
+    // The void-input event still resolves.
+    expect(resolveExpose(spec, { exited: "resource" }).resources).toHaveLength(
+      1,
+    );
+  });
+
   it("carries the collection key schema on the item template (F9)", () => {
     const spec = defineSurface({
       collections: {

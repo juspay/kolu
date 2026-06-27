@@ -13,7 +13,10 @@
 
 import type { KavalMemory } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { localDaemonStatus } from "../kaval/useDaemonStatus";
+import {
+  daemonTransportLive,
+  localDaemonStatus,
+} from "../kaval/useDaemonStatus";
 import { getClockNow } from "../time/clock";
 import { app } from "../wire";
 import { readJsHeapUsedBytes } from "./memory";
@@ -38,13 +41,20 @@ function kavalMemory(): KavalMemory {
 
 /** The kaval daemon's memory projected for DISPLAY — the single source of truth
  *  for "what do we show for kaval memory", shared by the rail and the Diagnostic
- *  dialog so neither re-derives (and drifts on) the same two concerns:
+ *  dialog so neither re-derives (and drifts on) the same THREE concerns:
  *
- *   1. **The connected-NOW gate.** `daemonStatus` flips the instant the daemon
+ *   1. **The transport-liveness floor.** `daemonStatus` arrives over the kolu ws;
+ *      when that link is dead or silently half-open (`daemonTransportLive()` false)
+ *      the retained status is STALE — the channel that would refresh it is gone — so
+ *      a "connected" state can't be trusted and its kaval RSS is frozen. The kaval
+ *      dot and uptime already floor on this; gating here makes the rail's
+ *      `KavalMemReadout` and the Diagnostic dialog inherit the SAME floor, so a
+ *      greyed "unknown" dot can't sit beside a stale MB figure (the #1568 class).
+ *   2. **The connected-NOW gate.** `daemonStatus` flips the instant the daemon
  *      leaves `connected`, but the `processMemory` cell's kaval figure only
  *      clears on the next 5 s sampler tick — so a raw read would show a stale MB
  *      for a daemon that's already gone. Gating on the live state hides it at once.
- *   2. **The three-way unwrap.** `ok` → the byte figure; `error` (a believed-
+ *   3. **The three-way unwrap.** `ok` → the byte figure; `error` (a believed-
  *      connected daemon whose poll failed) → a distinct marker so it never reads
  *      as "no daemon"; `absent` / not-connected → nothing.
  *
@@ -54,6 +64,7 @@ export function kavalMemoryDisplay():
   | { kind: "ok"; rssBytes: number }
   | { kind: "error" }
   | null {
+  if (!daemonTransportLive()) return null;
   if (localDaemonStatus()?.state !== "connected") return null;
   const m = kavalMemory();
   if (m.status === "ok") return { kind: "ok", rssBytes: m.rssBytes };

@@ -75,7 +75,7 @@ So how does an author say "map *this* one," concretely? Three ways, ordered by *
    // (a host could auto-run a read-only-hinted tool unconfirmed); mark a read-only tool `mutates: false`.
    type Expose<S extends SurfaceSpec> =
      & { [K in ProcedureName<S>]?: "tool" | { tool: { mutates?: boolean } } }
-     & { [K in CellName<S> | StreamName<S> | EventName<S>]?: "resource" | "tool" };
+     & { [K in CellName<S> | CollectionName<S> | StreamName<S> | EventName<S>]?: "resource" };
    ```
 3. **Co-located wrapper tags** — for teams who want the tag *next* to the primitive, surface-mcp can ship `mcpTool()` / `mcpResource()` / `readOnly()` helpers used at definition time; they attach a symbol-keyed annotation the adapter reads, so the MCP vocabulary still lives in the *sibling* package, never in core surface.
 
