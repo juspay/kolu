@@ -138,7 +138,7 @@ reactivity cluster.
 |---|---|---|---|---|---|
 | 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id order is unchanged, so `terminalIds()` stops *notifying* downstream on non-display metadata writes (`displayInfos` still re-runs correctly for `git`/`cwd`/`parentId` changes via its own field-level subscription). Clears the rest of the reactivity cluster. |
 | 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
-| 3 | Visibility-gate the WebSocket heartbeat | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Stop the 15s `identity.info()` probe while the tab is hidden (the `dispose()` API already exists). |
+| 3 | Heartbeat: reconnect-on-resume **fixed**; hidden-tab battery open | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Reconnect-on-resume shipped** — a measured wall-vs-monotonic clock gap voids a probe a sleep/freeze interrupted, and a focus / tab-visible event re-probes at once. Hidden-tab radio still wakes ≈240×/h; but *gating the probe on `hidden` blinds the watchdog* (a hidden tab still runs), so a battery fix must **lengthen** the hidden interval, not stop it. |
 | 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
 | 5 | Lazy-load the Code tab — measured, deferred | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | A/B build: the Code-tab tree is **171 kB gzip / 23%** of the eager chunk. But `activeTab` **defaults to `code`**, so lazy-loading defers it async past first paint rather than skipping it for most desktop sessions — a faster-first-paint-vs-cold-flash trade, TTI untraced. Deferred. ([investigation](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/bundle-codetab-lazyload.md)) |
 | 6 | One-shot Nix `pnpmDeps` hash check | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
@@ -319,15 +319,28 @@ Timers and listeners that run regardless of visibility — the clearest *new*
 cluster, and the one most likely to matter on a real phone (where it is, so far,
 **unmeasured**).
 
-<Finding sev="medium" title="Visibility-gate the WebSocket heartbeat">
-`createHeartbeat()` runs `identity.info()` every 15s while the socket is OPEN
-with no `visibilityState` check, and `dispose()` is never called
-(`surface-app/connect.ts:227-301`). On mobile that forces the radio idle→active
-≈240×/hour while backgrounded, and a timeout can trigger a full reconnect
-handshake. **Fix:** stop the interval when `document.visibilityState === 'hidden'`
-(optionally extend to 30–60s when backgrounded) via the existing `dispose()`.
-**Measure:** packet-capture probes/hour backgrounded on a real phone — target
-under 5, vs ~240 today.
+<Finding sev="medium" title="Heartbeat probe: reconnect-on-resume fixed; hidden-tab battery still open">
+`createHeartbeat()` runs `system.live` / `identity.info()` every 15s while the
+socket is OPEN. Two distinct costs hid behind one finding:
+
+- **Spurious reconnect on resume — FIXED <PrLink pr={1598} />.** A laptop sleep / tab freeze /
+  app-switch paused the event loop; the probe's 10s timeout fired *overdue* on
+  resume and forced a reconnect over a still-healthy socket (the brief
+  "Disconnected" flash — a regression from the default-on watchdog
+  <PrLink pr={1545} />). The watchdog now compares elapsed WALL time against
+  elapsed MONOTONIC time across each probe and **voids-and-re-probes** a window a
+  suspension crossed — the browser-leg analog of the ssh leg's wall-clock-gap wake
+  watcher <PrLink pr={1078} /> — and a window-focus / tab-visible **wake** event
+  re-probes immediately; the full-screen overlay is grace-windowed too, so a
+  sub-second reconnect never flashes.
+- **Hidden-tab radio wake — still open.** The probe still runs ≈240×/hour while
+  backgrounded, forcing the mobile radio idle→active. The tempting fix — stop the
+  interval while `document.visibilityState === 'hidden'` — is a **coverage
+  regression**: a hidden tab is still *running*, so its probe timeout is real, and
+  gating it blinds the watchdog to a genuine half-open during a long background. A
+  battery fix must keep watching — **lengthen** the hidden-tab interval (30–60s),
+  not stop it. **Measure:** packet-capture probes/hour backgrounded on a real
+  phone — target under ~10, vs ~240 today.
 </Finding>
 
 - **Every-minute staleness ticker fires globally** regardless of visibility (`terminal/staleness.ts:26-57`) — gate the `setInterval` on `visibilitychange` (reuse the `refitOnTabVisible` pattern). <Pill variant="lo">low</Pill>

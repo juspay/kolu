@@ -62,11 +62,11 @@ reactivity cluster.</p>
 </tr>
 <tr>
 <td>3</td>
-<td>Visibility-gate the WebSocket heartbeat</td>
+<td>Heartbeat: reconnect-on-resume <strong>fixed</strong>; hidden-tab battery open</td>
 <td>Mobile</td>
 <td><span class="pill" style="color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab" data-astro-cid-4xidn2cs>med</span></td>
 <td><span class="pill" style="color:#8a5a00;background:#fbf1dc;border:1px solid #ecd9ab" data-astro-cid-4xidn2cs>med</span></td>
-<td>Stop the 15s <code>identity.info()</code> probe while the tab is hidden (the <code>dispose()</code> API already exists).</td>
+<td><strong>Reconnect-on-resume shipped</strong> — a measured wall-vs-monotonic clock gap voids a probe a sleep/freeze interrupted, and a focus / tab-visible event re-probes at once. Hidden-tab radio still wakes ≈240×/h; but <em>gating the probe on <code>hidden</code> blinds the watchdog</em> (a hidden tab still runs), so a battery fix must <strong>lengthen</strong> the hidden interval, not stop it.</td>
 </tr>
 <tr>
 <td>4</td>
@@ -250,14 +250,27 @@ not the leak fix.</p></div></article>
 <p>Timers and listeners that run regardless of visibility — the clearest <em>new</em>
 cluster, and the one most likely to matter on a real phone (where it is, so far,
 <strong>unmeasured</strong>).</p>
-<article class="finding finding-medium" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Visibility-gate the WebSocket heartbeat</h3><div class="finding-body" data-astro-cid-adrh2cs3><p><code>createHeartbeat()</code> runs <code>identity.info()</code> every 15s while the socket is OPEN
-with no <code>visibilityState</code> check, and <code>dispose()</code> is never called
-(<code>surface-app/connect.ts:227-301</code>). On mobile that forces the radio idle→active
-≈240×/hour while backgrounded, and a timeout can trigger a full reconnect
-handshake. <strong>Fix:</strong> stop the interval when <code>document.visibilityState === &#39;hidden&#39;</code>
-(optionally extend to 30–60s when backgrounded) via the existing <code>dispose()</code>.
-<strong>Measure:</strong> packet-capture probes/hour backgrounded on a real phone — target
-under 5, vs ~240 today.</p></div></article>
+<article class="finding finding-medium" data-astro-cid-adrh2cs3><h3 class="finding-head" data-astro-cid-adrh2cs3><span class="sev sev-medium" data-astro-cid-adrh2cs3>Medium</span> Heartbeat probe: reconnect-on-resume fixed; hidden-tab battery still open</h3><div class="finding-body" data-astro-cid-adrh2cs3><p><code>createHeartbeat()</code> runs <code>system.live</code> / <code>identity.info()</code> every 15s while the
+socket is OPEN. Two distinct costs hid behind one finding:</p><ul>
+<li><strong>Spurious reconnect on resume — FIXED <a href="https://github.com/juspay/kolu/pull/1598" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1598</a>.</strong> A laptop sleep / tab freeze /
+app-switch paused the event loop; the probe’s 10s timeout fired <em>overdue</em> on
+resume and forced a reconnect over a still-healthy socket (the brief
+“Disconnected” flash — a regression from the default-on watchdog
+<a href="https://github.com/juspay/kolu/pull/1545" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1545</a>). The watchdog now compares elapsed WALL time against
+elapsed MONOTONIC time across each probe and <strong>voids-and-re-probes</strong> a window a
+suspension crossed — the browser-leg analog of the ssh leg’s wall-clock-gap wake
+watcher <a href="https://github.com/juspay/kolu/pull/1078" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1078</a> — and a window-focus / tab-visible <strong>wake</strong> event
+re-probes immediately; the full-screen overlay is grace-windowed too, so a
+sub-second reconnect never flashes.</li>
+<li><strong>Hidden-tab radio wake — still open.</strong> The probe still runs ≈240×/hour while
+backgrounded, forcing the mobile radio idle→active. The tempting fix — stop the
+interval while <code>document.visibilityState === &#39;hidden&#39;</code> — is a <strong>coverage
+regression</strong>: a hidden tab is still <em>running</em>, so its probe timeout is real, and
+gating it blinds the watchdog to a genuine half-open during a long background. A
+battery fix must keep watching — <strong>lengthen</strong> the hidden-tab interval (30–60s),
+not stop it. <strong>Measure:</strong> packet-capture probes/hour backgrounded on a real
+phone — target under ~10, vs ~240 today.</li>
+</ul></div></article>
 <ul>
 <li><strong>Every-minute staleness ticker fires globally</strong> regardless of visibility (<code>terminal/staleness.ts:26-57</code>) — gate the <code>setInterval</code> on <code>visibilitychange</code> (reuse the <code>refitOnTabVisible</code> pattern). <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>
 <li><strong>N per-terminal <code>visibilitychange</code> listeners</strong> for re-fit (<code>refitOnTabVisible.ts</code>) — collapse to one shared App-root listener fanning out to a Set of <code>debouncedFit</code> callbacks. <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>low</span></li>

@@ -25,7 +25,9 @@ import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defineSurface } from "../define";
+import { stdioLink } from "../links/stdio";
 import { websocketLink } from "../links/websocket";
+import { createLoopbackPair } from "../loopback";
 import type { SurfaceHealth } from "./health";
 import { createLiveSignal } from "./liveSignal";
 import {
@@ -452,7 +454,7 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
   });
 });
 
-describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal` — the half-open-blind leg is UNSPELLABLE", () => {
+describe("every half-openable WIRE link (websocket / stdio / unix-socket) demands a watchdog-backed `LiveSignal` — the half-open-blind leg is UNSPELLABLE", () => {
   // The round-5-found relocation, one seam upstream of the dot: `surfaceClient`'s
   // transport leg used to SILENTLY default to constant-`true` when `{ live }` was
   // omitted; round 5.2 made omitting it crash. But a TRUTHY-but-half-open-blind
@@ -462,11 +464,18 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
   // the brand only `createLiveSignal` mints (THROUGH the half-open watchdog it
   // wires). So a bare `() => true` is refused exactly like a missing one — the lie
   // can't be spelled, not merely not-rendered.
+  //
+  // And it is refused for EVERY wire link, not just websocket: the half-open brand
+  // is applied at `wireClient` — the one chokepoint every wire link crosses — so a
+  // bare `stdioLink` / `unixSocketLink` (a pipe that wedges or an ssh tunnel that
+  // partitions half-opens exactly like a websocket; `surface-nix-host`'s
+  // `hostSession.startLiveness` hand-wires a watchdog over stdio for that reason)
+  // is refused too, and a FUTURE wire link inherits the guard by construction.
 
   it("surfaceClient over a bare websocketLink throws, naming connectSurface / the cure", () => {
     const link = websocketLink(fakeWs());
     expect(() => surfaceClient(surface, link)).toThrow(
-      /websocket link can silently half-open/,
+      /can silently half-open/,
     );
     // The message points at the cure (the turnkey seams / `createLiveSignal`).
     expect(() => surfaceClient(surface, link)).toThrow(/connectSurface/);
@@ -490,7 +499,7 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
     const otherLink = websocketLink(fakeWs());
     // biome-ignore lint/suspicious/noExplicitAny: bare websocket link, no handle.
     expect(() => surfaceClient(surface, otherLink as any)).toThrow(
-      /websocket link can silently half-open/,
+      /can silently half-open/,
     );
   });
 
@@ -499,7 +508,7 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
     expect(() =>
       // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
       surfaceClients(link as any, { a: surface, b: surface }),
-    ).toThrow(/websocket link can silently half-open/);
+    ).toThrow(/can silently half-open/);
     // Accepted as the WHOLE handle (built by `createLiveSignal`), the real
     // multi-surface shape: `surfaceClients(transport, surfaces)`.
     const t = brandedHandle();
@@ -507,13 +516,38 @@ describe("a half-openable (websocket) link demands a watchdog-backed `LiveSignal
     t.dispose();
   });
 
-  it("a direct/in-process link (not half-openable) is accepted bare — constant-true is honest there", () => {
-    // A plain stub link stands in for `directLink`/`stdioLink`: it was never
-    // recorded in the half-open set, so no handle is required — an in-process
-    // transport can't silently half-open, so its constant-`true` leg is honest.
+  it("a REAL wire link — stdioLink (hence unixSocketLink) — is REFUSED bare, the green-dot lie #1568 closed for websocket relocated one transport over", () => {
+    // The class, not the websocket PoC: a stdio/ssh pipe wedges or partitions
+    // with no FIN exactly as a websocket half-opens (`closed` never flips, the
+    // stream iterator hangs on the last frame, `health().live` would read true
+    // forever). The brand rides `wireClient`, so a bare stdioLink demands a
+    // watchdog-backed handle just like a websocket — `surface-nix-host` proves
+    // this is real by hand-wiring `hostSession.startLiveness` over its own
+    // stdioLink. `unixSocketLink` wraps `stdioLink`, so it inherits the guard.
+    const pair = createLoopbackPair();
+    const stdio = stdioLink({
+      read: pair.client.read,
+      write: pair.client.write,
+    });
+    expect(() =>
+      // biome-ignore lint/suspicious/noExplicitAny: bare wire link, no handle.
+      surfaceClient(surface, stdio as any),
+    ).toThrow(/can silently half-open/);
+    // `surfaceClient` throws at `resolveTransport` before any RPC, so the link
+    // never wrote a frame; end the loopback write half cleanly (no EPIPE) so the
+    // read side sees EOF and the link's stream listeners settle.
+    pair.client.write.end();
+  });
+
+  it("a direct/in-process link (no wire — directLink) is accepted bare — constant-true is honest there", () => {
+    // `directLink` is the ONE link with no transport (a microtask handler call via
+    // `createRouterClient`), so it bypasses `wireClient` and is never branded
+    // half-openable — its constant-`true` transport leg is honest by construction.
+    // A plain in-process stub stands in for it here (the same unbranded path); a
+    // real wire link, by contrast, throws (above).
     const direct = { surface: { conn: { get: once({ state: "ok" }) } } };
     expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: stub direct link.
+      // biome-ignore lint/suspicious/noExplicitAny: stub direct/in-process link.
       surfaceClient(surface, direct as any),
     ).not.toThrow();
   });

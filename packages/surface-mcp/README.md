@@ -49,7 +49,7 @@ await serveSurfaceAsMcp({
 Nothing is exposed until you name it. Keys are checked against the surface spec at boot.
 
 - a **cell / collection / stream / event** key → `"resource"` (readable + subscribable).
-- a **procedure** key `"<ns>.<verb>"` → `"tool"` or `{ tool: { mutates?: boolean } }`. The tool is named `<ns>_<verb>` on the wire (`.` is illegal in an MCP tool name).
+- a **procedure** key `"<ns>.<verb>"` → `"tool"` or `{ tool: { mutates?: boolean } }`. The tool is named `<ns>_<verb>` on the wire (`.` is illegal in an MCP tool name). `mutates` is optional but **defaults conservatively**: absent ⇒ `true` (advertised destructive / not auto-approvable), because a `readOnlyHint: true` can let an MCP host auto-run a tool unconfirmed — so an unannotated tool must fail safe. Mark a genuinely read-only tool with explicit `mutates: false`.
 
 Resource URIs: `surface://cells/<k>`, `surface://collections/<k>` (+ template `surface://collections/<k>/{id}`), `surface://streams/<k>`, `surface://events/<k>`.
 

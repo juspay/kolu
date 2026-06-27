@@ -5,7 +5,9 @@
  * or open a different terminal underneath the dim.
  *
  * Two independent signals drive it, both from surface-app's headless model:
- * - `status()` is `"down"` — the WebSocket dropped; show "Reconnecting…".
+ * - `presentingDown()` — the WebSocket has been `down` longer than the grace
+ *   window (a sub-second forced reconnect is held back, not flashed); show
+ *   "Reconnecting…".
  * - `updateReady()` — a fresh client build is ready; show the reload prompt.
  *   The skew-OR-restart rule (`"restarted"` status OR `stale()`) lives in
  *   surface-app's model beside the `reload()` it gates, so this consumer just
@@ -24,7 +26,12 @@ const chrome = surface();
 
 const TransportOverlay: Component = () => {
   const pwa = useSurfaceApp();
-  const disconnected = () => pwa.status() === "down";
+  // The GRACE-WINDOWED predicate, never raw `status()`: a forced reconnect (the
+  // half-open watchdog recovering, a Wi-Fi roam) closes and reopens the socket in
+  // well under a second, and `presentingDown` holds this full-screen overlay back
+  // until `down` has persisted — so that blink never flashes the alarm, while a
+  // genuine sustained outage still surfaces. (`status()` stays for the header dot.)
+  const disconnected = () => pwa.presentingDown();
 
   return (
     <Show when={disconnected() || pwa.updateReady()}>

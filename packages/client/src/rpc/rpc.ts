@@ -90,7 +90,11 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
 // `status` is the surface-app `ConnectionStatus` projection of the same
 // lifecycle — handed to `<SurfaceAppProvider status=...>` so the provider reads
 // THIS source instead of attaching a second listener/probe pair (one lifecycle,
-// no double `surfaceApp.info` probe per reconnect, no observer disagreement).
+// no double `surfaceApp.info` probe per reconnect, no observer disagreement). The
+// provider derives the grace-windowed overlay predicate (`presentingDown`) from
+// THIS `status` itself, so a sub-second forced reconnect (the wire-side half-open
+// watchdog recovering) doesn't flash the full-screen overlay — nothing to thread
+// from here; `status` stays instantaneous for the header dot.
 export { lifecycle, serverProcessId, status };
 
 /** Transport status for the header dot — read from the lifecycle ALONE. A
