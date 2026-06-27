@@ -910,8 +910,9 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
 //     (awareness collection + version cell + activity flow + fs/git procedures &
 //     watcher streams), served under the `terminalWorkspace` key so a viewer reads
-//     the same surface `pulam` serves. Its `awareness` collection is backed by
-//     kolu-server's process-singleton awareness store (Design-S). kolu's OWN
+//     the same surface `pulam` serves. Its `awareness` collection is projected
+//     off each registry entry's `awareness` field (Design-S; the sensor sink is
+//     the sole writer, see `server/src/terminal-registry.ts`). kolu's OWN
 //     client reads this collection too, joining each value with the matching
 //     `kolu.authored` record — so R9 (remote awareness) is a pure backing-swap
 //     behind this one collection, with no second read path to migrate.
