@@ -179,11 +179,13 @@ function assertSaneMs(label: string, value: number, max: number): void {
  *  resume) means the runtime may have just resumed, so the in-flight probe's window
  *  can't be trusted — abandon it (without `onStale`) and re-probe NOW, rather than
  *  waiting for its overdue timeout to fire and void. A wake with no real suspension
- *  only re-probes a healthy link. But a wake re-probe IS a void in disguise, so it
- *  honours the same `VOID_BUDGET_FACTOR` ceiling: a storm of wakes faster than
- *  `timeoutMs` can't keep clearing the deadline to defer `onStale` forever — once
- *  the budget of running time is spent on a never-settling probe, the next wake
- *  fires stale.
+ *  only re-probes a healthy link — including the FIRST wake after a long OS-awake
+ *  tab freeze (where the monotonic clock advanced through the freeze): it re-probes
+ *  a fresh window rather than reconnecting. But a sustained STORM of wakes faster
+ *  than `timeoutMs` IS a void in disguise, so it honours a `VOID_BUDGET_FACTOR`
+ *  ceiling of running time anchored at the first wake-abandon: once that budget is
+ *  spent on a never-settling probe, the next wake fires stale — bounding the
+ *  deferral without letting freeze time alone force a spurious reconnect.
  *
  *  Returns `dispose()` to stop the interval AND any in-flight probe timeout (so a
  *  probe outstanding at teardown can't fire a late `onStale`), plus `wake()`. */
@@ -218,10 +220,24 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   let launchWall = 0;
   let launchMono = 0;
   // Monotonic time of the last DEFINITIVE settle (an alive answer OR a fired stale).
-  // The void-budget ceiling reads it; a void is NOT a settlement, so it is left
+  // The suspension-void ceiling reads it; a void is NOT a settlement, so it is left
   // untouched while voiding, and the running time since it climbs until the budget
   // is spent and a void converts to a stale verdict.
   let lastSettledMono = mono();
+  // Monotonic time of the FIRST wake-driven abandon since the last definitive settle
+  // — the start of a possible wake STORM. `wake()` budgets running time from HERE,
+  // not from `lastSettledMono`. Why the distinct anchor: the suspension-void path
+  // only spends the budget while the monotonic clock is FROZEN (a genuine
+  // suspension), so `lastSettledMono` there counts only running-time flapping. But a
+  // wake fires for an OS-AWAKE tab freeze (Page-Lifecycle `resume`), where the
+  // monotonic clock ADVANCED through the freeze (the wall/mono gap is ~0, so the
+  // void never sees it — see `onWake`). Measured from `lastSettledMono`, that freeze
+  // time would read as spent budget and force a spurious stale on the FIRST resume
+  // wake. Anchored at the first wake-abandon instead, a lone resume always re-probes
+  // a fresh window, and only a SUSTAINED storm (later wakes past the budget of
+  // running time) converts to stale. `undefined` ⇒ no wake-abandon outstanding;
+  // reset there by every definitive settle.
+  let wakeStormStartMono: number | undefined;
   // The CURRENT probe's timeout, at function scope so `dispose()` can clear it —
   // otherwise a probe in flight at teardown would still run `onStale()` later.
   let probeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -239,8 +255,11 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       clearTimeout(probeTimer);
       probeTimer = undefined;
     }
-    // A definitive verdict (alive OR stale) resets the void-budget clock.
+    // A definitive verdict (alive OR stale) resets both budget clocks: the
+    // suspension-void ceiling, and the wake-storm anchor (the storm is over — the
+    // next wake-abandon starts a fresh window).
     lastSettledMono = mono();
+    wakeStormStartMono = undefined;
     if (stale) {
       try {
         opts.onStale();
@@ -340,19 +359,33 @@ export function createHeartbeat(opts: HeartbeatOptions): {
   // the overdue timeout to fire and void, or for the next interval.
   //
   // A wake re-probe IS a void in disguise — it abandons the in-flight probe's
-  // window without a verdict, exactly like the suspension-void in the timeout. So
-  // it must honour the SAME void-budget ceiling, or a flood of wake events faster
-  // than `timeoutMs` would keep clearing the probe deadline and defer `onStale`
-  // forever — the "voided forever ⇒ silent" the budget exists to make unspellable.
-  // (`onWake` wires focus / visibility / resume to this; a half-open socket must
-  // not be kept off `onStale` by a storm of them.) Once the running time since the
-  // last definitive settle exceeds the budget, a wake that finds a never-settling
-  // probe fires stale instead of re-probing — bounding the deferral while a healthy
-  // link, whose probes settle and keep resetting the budget, still only re-probes.
+  // window without a verdict, exactly like the suspension-void in the timeout. So a
+  // flood of wake events faster than `timeoutMs` must not keep clearing the probe
+  // deadline and defer `onStale` forever — the "voided forever ⇒ silent" the budget
+  // exists to make unspellable. (`onWake` wires focus / visibility / resume here; a
+  // half-open socket must not be kept off `onStale` by a storm of them.) So the wake
+  // path carries its OWN running-time budget, anchored at the FIRST wake-abandon
+  // since the last settle (`wakeStormStartMono`).
+  //
+  // Why a distinct anchor instead of `lastSettledMono` (the suspension-void's): a
+  // wake fires for an OS-AWAKE tab freeze, where the monotonic clock ADVANCED
+  // through the freeze, so `mono() - lastSettledMono` would include freeze time and
+  // force a spurious stale on the FIRST resume wake — the exact reconnect this fast
+  // path exists to avoid. Anchored at the first wake-abandon, a lone resume (even a
+  // single resume that trips focus + visibility + resume at once — those land at the
+  // same mono, well inside the budget) always abandons and re-probes a FRESH window;
+  // the new probe then gets its full `timeoutMs` to settle (healthy ⇒ no reconnect)
+  // or time out (dead ⇒ `onStale` via the normal path). Only a SUSTAINED storm —
+  // later wakes that keep re-arming a never-settling probe past the budget of
+  // RUNNING time since the storm began — converts to a stale verdict here.
   function wake(): void {
     if (disposed) return;
     if (inFlight) {
-      if (mono() - lastSettledMono > voidBudgetMs) {
+      if (wakeStormStartMono === undefined) {
+        // First wake-abandon since the last settle: always re-probe a fresh window.
+        wakeStormStartMono = mono();
+      } else if (mono() - wakeStormStartMono > voidBudgetMs) {
+        // A storm has re-armed a never-settling probe past the budget — fire stale.
         settled(true, generation);
         return;
       }

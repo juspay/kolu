@@ -296,9 +296,9 @@ describe("createHeartbeat (lifted primitive)", () => {
   it("a flood of wake() faster than timeoutMs still fires onStale once the void budget is spent — wake can't silence the watchdog", async () => {
     // A never-settling (dead half-open) probe whose timeout a storm of wakes keeps
     // clearing must NOT be deferred forever: `wake()` is a void in disguise, so it
-    // honours the same void budget the suspension-void path does. The clocks run in
-    // LOCKSTEP here (gap 0 — not a suspension), so it is the budget alone, not a
-    // void verdict, that converts the flood into a stale verdict. mono is injected
+    // honours a running-time budget anchored at the FIRST wake-abandon. The clocks
+    // run in LOCKSTEP here (gap 0 — not a suspension), so it is the budget alone, not
+    // a void verdict, that converts the flood into a stale verdict. mono is injected
     // so the budget clock advances under synchronous `wake()` calls (no fake-timer
     // tick passes between them).
     let monoMs = 0;
@@ -315,21 +315,65 @@ describe("createHeartbeat (lifted primitive)", () => {
     await vi.advanceTimersByTimeAsync(1000); // tick → probe 1 in flight (launch mono 0)
     expect(probe).toHaveBeenCalledTimes(1);
     const voidBudgetMs = (1000 + 500) * 3; // VOID_BUDGET_FACTOR = 3 → 4500ms
+    const firstWakeMono = 100; // the storm budget anchors at the FIRST wake-abandon
     // Wake every 100ms of running time, faster than the 500ms timeout, so the probe
     // timeout never fires on its own — only the budget can end the flood.
     for (
-      let elapsed = 100;
-      elapsed <= voidBudgetMs + 200 && onStale.mock.calls.length === 0;
+      let elapsed = firstWakeMono;
+      elapsed <= firstWakeMono + voidBudgetMs + 600 &&
+      onStale.mock.calls.length === 0;
       elapsed += 100
     ) {
       monoMs = elapsed;
       hb.wake();
     }
     expect(onStale).toHaveBeenCalledTimes(1); // fired despite the wake flood…
-    // …and within the void budget's worth of running time (bounded deferral), not
-    // forever — with a bounded (not unbounded) number of re-probes.
-    expect(monoMs).toBeLessThanOrEqual(voidBudgetMs + 200);
-    expect(probe.mock.calls.length).toBeLessThanOrEqual(voidBudgetMs / 100 + 2);
+    // …and within the void budget's worth of running time SINCE THE FIRST WAKE
+    // (bounded deferral, not forever) — with a bounded number of re-probes.
+    expect(monoMs).toBeLessThanOrEqual(firstWakeMono + voidBudgetMs + 200);
+    expect(probe.mock.calls.length).toBeLessThanOrEqual(voidBudgetMs / 100 + 3);
+    hb.dispose();
+  });
+
+  it("a SINGLE wake after a long OS-awake tab freeze re-probes a fresh window, never forces stale", async () => {
+    // F4 regression: a backgrounded tab the browser FROZE (Page-Lifecycle `freeze`,
+    // `chrome://discards`) is OS-AWAKE — the monotonic clock advances THROUGH the
+    // freeze (unlike a genuine suspension, where it pauses), so a long freeze pushes
+    // `mono()` well past the void budget. The `resume` event fires a SINGLE wake.
+    // That wake must abandon the interrupted probe and re-probe a FRESH window — NOT
+    // force `onStale()` just because freeze time crossed the budget (anchoring the
+    // wake budget at `lastSettledMono` did exactly that). Only the sustained storm
+    // above ever fires stale from the wake path.
+    let monoMs = 0;
+    const onStale = vi.fn();
+    let answerProbe2: (() => void) | undefined;
+    const probe = vi.fn(() =>
+      probe.mock.calls.length === 1
+        ? new Promise<never>(() => {}) // probe 1: interrupted by the freeze, never settles
+        : new Promise<void>((res) => {
+            answerProbe2 = res; // probe 2: the fresh post-resume probe, answerable
+          }),
+    );
+    const hb = createHeartbeat({
+      isLive: () => true,
+      onStale,
+      probe,
+      intervalMs: 1000,
+      timeoutMs: 500,
+      deps: { now: () => monoMs, mono: () => monoMs },
+    });
+    await vi.advanceTimersByTimeAsync(1000); // tick → probe 1 in flight (launch 0,0)
+    expect(probe).toHaveBeenCalledTimes(1);
+    // A long OS-awake freeze: BOTH clocks advance together (gap ~0, so the suspension
+    // void never sees it), and mono crosses the void budget ((1000+500)*3 = 4500ms).
+    monoMs = 60_000;
+    hb.wake(); // a single `resume`-driven wake
+    expect(probe).toHaveBeenCalledTimes(2); // abandoned probe 1, fresh probe 2 NOW
+    expect(onStale).not.toHaveBeenCalled(); // NOT forced stale by freeze time
+    // The fresh probe answers ⇒ a healthy link — still never stale.
+    answerProbe2?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onStale).not.toHaveBeenCalled();
     hb.dispose();
   });
 
