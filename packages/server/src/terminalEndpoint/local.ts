@@ -617,10 +617,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     }
     // A fresh spawn that failed: the registry entry goes, so the store entry must
     // too (store↔registry lockstep).
-    unregisterTerminal(id);
-    dropAwareness(id);
-    emitTerminalsDirty();
-    emitTerminalListChanged();
+    this.finalizeRemoval(id);
   }
 
   /** Recover from "the PTY exists on the daemon but sensor wiring failed":
@@ -754,6 +751,25 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     lc.stopAwareness();
   }
 
+  /** Fully remove a terminal from existence — the two-store teardown tail as one
+   *  receptacle: drop the registry entry AND its awareness store value (the IFF
+   *  lockstep), then fire the dirty/list notifications. handleExit / killTerminal /
+   *  discardSleeping / a failed fresh `spawnPty` all converge here, so an R9
+   *  awareness-backing change (or any change to the notification set) touches ONE
+   *  place instead of four call sites. Each site's differing PREAMBLE
+   *  (`terminalExit` publish, `cleanupTerminalScratch`, the kill RPC, the identity
+   *  gate) stays at the call site; only this identical tail is encapsulated.
+   *
+   *  Teardown only — the SEED side (install-before-register) is genuinely
+   *  interleaved with sensor wiring and resists a single seam, so the asymmetry is
+   *  intentional, not an oversight. */
+  private finalizeRemoval(id: TerminalId): void {
+    unregisterTerminal(id);
+    dropAwareness(id);
+    emitTerminalsDirty();
+    emitTerminalListChanged();
+  }
+
   /** A terminal's PTY exited naturally. Stop its sensor layer, publish the
    *  exit, drop the entry, save the session. */
   private handleExit(id: TerminalId, exitCode: number): void {
@@ -763,10 +779,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.teardownSensors(id);
     cleanupTerminalScratch(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-    unregisterTerminal(id);
-    dropAwareness(id);
-    emitTerminalsDirty();
-    emitTerminalListChanged();
+    this.finalizeRemoval(id);
   }
 
   async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
@@ -791,10 +804,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       tlog.error({ err }, "pty-host kill failed; unregistering anyway");
     }
     cleanupTerminalScratch(id);
-    unregisterTerminal(id);
-    dropAwareness(id);
-    emitTerminalsDirty();
-    emitTerminalListChanged();
+    this.finalizeRemoval(id);
     return entry.info;
   }
 
@@ -907,10 +917,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return false;
     cleanupTerminalScratch(id);
-    unregisterTerminal(id);
-    dropAwareness(id);
-    emitTerminalsDirty();
-    emitTerminalListChanged();
+    this.finalizeRemoval(id);
     log.child({ terminal: id }).info("discarded sleeping terminal");
     return true;
   }
