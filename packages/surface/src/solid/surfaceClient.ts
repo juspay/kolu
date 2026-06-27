@@ -35,7 +35,7 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
-import { resolveCellVerbs } from "../define";
+import { DEFAULT_COLLECTION_VERBS, resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
@@ -637,22 +637,32 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   }
 
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
-  for (const [key] of Object.entries(spec.collections ?? {})) {
+  for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
+    // Whether this collection opted into batched `deltas` delivery — read from
+    // the SPEC (the authoritative verb set the server also gates on), NEVER from
+    // `(ns as any).deltas`: an oRPC wire client is a lazy Proxy whose every
+    // property access returns a truthy callable, so a transport-level probe is
+    // `true` for EVERY collection and would route a non-opted whole-collection
+    // `.use()` into a `deltas` call the server never registered (the stream
+    // would reject and the collection silently read empty). The server decides
+    // identically — `walkSurface`'s `collVerbs.includes("deltas")`.
+    const collVerbs =
+      (rawColl as CollectionSpec<unknown, unknown>).verbs ??
+      DEFAULT_COLLECTION_VERBS;
+    const hasDeltas = collVerbs.includes("deltas");
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
-        // Whole-collection AND the collection opts into batched delivery (its
-        // contract exposes `deltas`) → ONE coalesced stream folded into a
-        // per-key store, instead of a keys stream + one value stream per key.
-        // A NARROWED subscription (explicit `opts.keys` — the "watch this
-        // subset" case) or a collection without the `deltas` verb takes the
-        // unchanged per-key path below.
-        // biome-ignore lint/suspicious/noExplicitAny: walk-by-string capability probe
-        if (!opts?.keys && (ns as any).deltas) {
+        // Whole-collection AND the collection opts into batched delivery (the
+        // spec lists `deltas`) → ONE coalesced stream folded into a per-key
+        // store, instead of a keys stream + one value stream per key. A NARROWED
+        // subscription (explicit `opts.keys` — the "watch this subset" case) or a
+        // collection without the `deltas` verb takes the unchanged per-key path.
+        if (!opts?.keys && hasDeltas) {
           const view = useCollectionDeltas(
             // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
             (surface.descriptors.collections as any)[key],

@@ -101,6 +101,14 @@ export function useCollection<Name extends string, K, T, I>(
 // store so per-key reads stay fine-grained (only the keys that changed
 // re-notify). It exposes the SAME `{ keys, byKey }` surface as `useCollection`,
 // so the bound `.use()` can pick either delivery with no call-site change.
+//
+// CONSTRAINT: `deltas` requires HOMOGENEOUS PRIMITIVE keys — a `keySchema` that
+// is a single number or string type (true of every Collection key in practice:
+// pids, host names, terminal ids, core indices, NIC names). The value store is
+// keyed by `String(key)`, so a union `keySchema` admitting both `1` and `"1"`
+// would collapse them; an object keySchema would collapse to `"[object Object]"`.
+// The per-key `get` path keys by real `===` and has no such limit, so don't opt
+// a heterogeneous-key collection into `deltas`.
 
 /** The folded collection: values keyed by `String(key)` (a reconcile-backed
  *  object, for fine-grained per-key reactivity) plus the real-typed key list in
@@ -162,6 +170,13 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const keys = createMemo<K[]>(() => sub()?.order ?? []);
 
   function byKey(key: K): Subscription<T> | undefined {
+    // Match the per-key path's contract: a key absent from the live set reads
+    // `undefined`, NOT a live accessor — so `if (byKey(k))` and
+    // `byKey(k)?.pending()` mean the same across both delivery paths. The `in`
+    // check is tracked by the reconcile store, so this re-evaluates when the key
+    // is added/removed.
+    const fold = sub() as DeltasFold<K, T> | undefined;
+    if (fold === undefined || !(String(key) in fold.byKey)) return undefined;
     // A per-key accessor over the shared store — reading `byKey[String(key)]`
     // in a tracking scope tracks only that leaf (reconcile keeps it granular).
     // `error`/`pending` are the single stream's, shared across keys.

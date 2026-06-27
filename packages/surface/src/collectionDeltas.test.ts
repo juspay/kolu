@@ -125,6 +125,26 @@ describe("collection deltas — server coalescing", () => {
     ac.abort();
   });
 
+  it("coalesces a resurrection (remove then re-upsert → upsert wins)", async () => {
+    const { fragment, channel } = buildDeltasFragment();
+    const bus =
+      channel<CollectionDeltaFrame<number, { name: string }>>("items:deltas");
+    const frames: CollectionDeltaFrame<number, { name: string }>[] = [];
+    const ac = new AbortController();
+    collectFrames(bus, ac, frames);
+
+    fragment.ctx.collections.items.upsert(1, { name: "a" });
+    fragment.ctx.collections.items.remove(1);
+    fragment.ctx.collections.items.upsert(1, { name: "a2" });
+
+    await tick();
+
+    expect(frames.length).toBe(1);
+    expect(frames[0]!.upserts).toEqual([[1, { name: "a2" }]]);
+    expect(frames[0]!.removes).toEqual([]);
+    ac.abort();
+  });
+
   it("separate ticks publish separate frames", async () => {
     const { fragment, channel } = buildDeltasFragment();
     const bus =
