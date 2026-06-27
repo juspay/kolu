@@ -8,7 +8,10 @@
  */
 
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
+import {
+  firstFrameOrThrow,
+  firstFrameOrUndefined,
+} from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AwarenessValue,
@@ -55,9 +58,15 @@ export async function snapshotAwareness(
 ): Promise<Array<[TerminalId, AwarenessValue]>> {
   const abort = new AbortController();
   try {
-    const keys =
-      (await firstFrameOrUndefined(await client.surface.awareness.keys({}))) ??
-      [];
+    // The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
+    // is a defined empty array, not an empty stream), so an empty stream means
+    // the link/protocol failed — surface it, don't collapse to "no terminals"
+    // (which `resolveOne` would then misreport as `no terminal matching <id>`).
+    // Mirrors the `version`-cell strict read in `assertCompatible` above.
+    const keys = await firstFrameOrThrow(
+      await client.surface.awareness.keys({}),
+      "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
+    );
     const pairs = await Promise.all(
       keys.map(async (key): Promise<[TerminalId, AwarenessValue] | null> => {
         const value = await firstFrameOrUndefined(
@@ -113,10 +122,13 @@ export async function settledSnapshot(
   const graceMs = opts.graceMs ?? 1500;
   // The key set the daemon first reports — the terminals we wait to resolve.
   // (A terminal appearing later still lands in `acc` and renders; one that
-  // leaves just stops blocking the gate.)
-  const expected =
-    (await firstFrameOrUndefined(await client.surface.awareness.keys({}))) ??
-    [];
+  // leaves just stops blocking the gate.) An empty stream (vs a defined empty
+  // array) is a link/protocol failure, not an empty fleet — fail loud rather
+  // than render a blank table as success (caught-error-must-not-collapse-to-empty).
+  const expected = await firstFrameOrThrow(
+    await client.surface.awareness.keys({}),
+    "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
+  );
 
   const acc = new Map<TerminalId, AwarenessValue>();
   const abort = new AbortController();
@@ -273,4 +285,103 @@ export async function watchAwareness(
     },
     { signal, log },
   ).done;
+}
+
+/** The outcome of a `wait`: the agent reached a target bucket (`met`, carrying
+ *  the matched agent), the terminal we were waiting on was removed before it got
+ *  there (`gone` — its PTY exited, so the bucket can never land), the wait elapsed
+ *  its cap (`timeout`), the caller's signal aborted the wait (`interrupted` — a
+ *  Ctrl+C), or the mirror settled without any of those (`closed` — a genuinely
+ *  dropped link; `error` holds the first upstream failure if there was one). The
+ *  `interrupted`/`closed` split is decided here from `opts.signal`, so the outcome
+ *  alone carries the full result and the caller never re-derives it from a side
+ *  channel. */
+export type WaitOutcome =
+  | { kind: "met"; agent: NonNullable<AwarenessValue["agent"]> }
+  | { kind: "gone" }
+  | { kind: "timeout" }
+  | { kind: "interrupted" }
+  | { kind: "closed"; error?: string };
+
+/** Block until one terminal's agent enters a target bucket (`matches` true),
+ *  then resolve `met`; or resolve `timeout` after `timeoutMs`, or `closed` if
+ *  the link settles first. Pure data layer (no tty, no `process.exit`) so it is
+ *  testable over a real socket — `cmdWait` is the thin glue that maps the
+ *  outcome to output + exit code.
+ *
+ *  It rides `watchAwareness`, so the mirror REPLAYS each terminal's current
+ *  value on connect: an agent already in a target bucket matches immediately
+ *  (no hang waiting for a transition that already happened). If the watched
+ *  terminal is REMOVED before it reaches a target bucket — its PTY exited, so the
+ *  daemon drops it from awareness — the bucket can never land, so we resolve
+ *  `gone` at once rather than blocking until `timeoutMs` (or, with no timeout,
+ *  forever). An external `signal` (the CLI's Ctrl+C) is chained into the internal
+ *  abort, so a caller interrupt unwinds the same way the timeout does — and when
+ *  the mirror settles with no `met`/`gone`/`timeout`, `opts.signal?.aborted` tells
+ *  a Ctrl+C (`interrupted`) apart from a real link drop (`closed`), so `cmdWait`
+ *  switches on the outcome alone. */
+export async function awaitAgentState(
+  client: PulamClient,
+  opts: {
+    id: TerminalId;
+    matches: (agent: AwarenessValue["agent"]) => boolean;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<WaitOutcome> {
+  const abort = new AbortController();
+  if (opts.signal !== undefined) {
+    if (opts.signal.aborted) abort.abort();
+    else
+      opts.signal.addEventListener("abort", () => abort.abort(), {
+        once: true,
+      });
+  }
+  let outcome: WaitOutcome | undefined;
+  let upstreamError: string | undefined;
+  const timer =
+    opts.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          outcome ??= { kind: "timeout" };
+          abort.abort();
+        }, opts.timeoutMs);
+  try {
+    await watchAwareness(
+      client,
+      {
+        onUpsert: (id, value) => {
+          if (id !== opts.id) return;
+          // Guard non-null first so `agent` narrows — `matches` only returns
+          // true for an agent in a target bucket, but the guard keeps the type
+          // honest without a cast.
+          if (value.agent !== null && opts.matches(value.agent)) {
+            outcome ??= { kind: "met", agent: value.agent };
+            abort.abort();
+          }
+        },
+        // The terminal we're waiting on left awareness — its PTY exited, so no
+        // future frame can carry the target bucket. Resolve `gone` and unwind
+        // rather than hanging until the timeout (or, with none, indefinitely).
+        // Removals of OTHER terminals are noise here; ignore them.
+        onRemove: (id) => {
+          if (id !== opts.id) return;
+          outcome ??= { kind: "gone" };
+          abort.abort();
+        },
+      },
+      abort.signal,
+      (line) => {
+        upstreamError ??= line;
+      },
+    );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  return (
+    outcome ??
+    (opts.signal?.aborted
+      ? { kind: "interrupted" }
+      : { kind: "closed", error: upstreamError })
+  );
 }

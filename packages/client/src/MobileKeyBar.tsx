@@ -17,6 +17,7 @@
  *  terminal the user is typing into (soft-keyboard letters already do, via
  *  xterm's own onData). */
 
+import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";
 import {
   applyStickyModifiers,
@@ -35,17 +36,27 @@ interface Key {
   testId: string;
 }
 
+// ^C is the Ctrl-fold of `c` (0x03) drawn from the shared fold, not a re-typed
+// literal. `c` sits in the foldable 0x40–0x5f range so the fold always yields a
+// byte; guard it so a future fold change that broke it crashes loudly here
+// rather than sending `undefined` to a PTY.
+const CTRL_C = controlByte("c");
+if (CTRL_C === undefined) throw new Error("Ctrl+C must fold to a control byte");
+
+// Byte values come from @kolu/terminal-protocol's shared key table / Ctrl fold,
+// so the bar speaks the one vocabulary the rich client and the `send` CLI do;
+// only the labels, testIds, and the literal `/` are bar-local.
 const KEYS: readonly Key[] = [
-  { label: "Esc", data: "\x1b", testId: "esc" },
-  { label: "Tab", data: "\t", testId: "tab" },
-  { label: "⇧Tab", data: "\x1b[Z", testId: "shift-tab" },
-  { label: "↑", data: "\x1b[A", testId: "up" },
-  { label: "↓", data: "\x1b[B", testId: "down" },
-  { label: "←", data: "\x1b[D", testId: "left" },
-  { label: "→", data: "\x1b[C", testId: "right" },
-  { label: "^C", data: "\x03", testId: "ctrl-c" },
+  { label: "Esc", data: NAMED_KEY_BYTES.esc, testId: "esc" },
+  { label: "Tab", data: NAMED_KEY_BYTES.tab, testId: "tab" },
+  { label: "⇧Tab", data: NAMED_KEY_BYTES["shift-tab"], testId: "shift-tab" },
+  { label: "↑", data: NAMED_KEY_BYTES.up, testId: "up" },
+  { label: "↓", data: NAMED_KEY_BYTES.down, testId: "down" },
+  { label: "←", data: NAMED_KEY_BYTES.left, testId: "left" },
+  { label: "→", data: NAMED_KEY_BYTES.right, testId: "right" },
+  { label: "^C", data: CTRL_C, testId: "ctrl-c" },
   { label: "/", data: "/", testId: "slash" },
-  { label: "⏎", data: "\r", testId: "enter" },
+  { label: "⏎", data: NAMED_KEY_BYTES.enter, testId: "enter" },
 ];
 
 interface Mod {

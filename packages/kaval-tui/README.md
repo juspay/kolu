@@ -14,6 +14,7 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```
@@ -42,6 +43,56 @@ kaval-tui create -- htop -d 5    # run htop, not a shell
 ```sh
 id=$(kaval-tui create --json | jq -r .id)
 ```
+
+## Sending input
+
+`send` writes input to a terminal without attaching — the raw _write_ half of
+driving a program in a PTY. Its headline use is handing a prompt to an agent
+(Claude Code, Codex, opencode) running in a terminal, so one agent can drive
+another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
+
+```sh
+kaval-tui send a1b2 "refactor the parser to use a lexer"   # type the prompt…
+kaval-tui send a1b2 --key Enter                            # …then submit it
+```
+
+`send` writes **exactly what you pass — the literal text and any `--key`s, with
+no implicit Enter**. A prompt is submitted only when you say so, as its own step:
+`send <id> --key Enter`. Keeping submit explicit is deliberate — an implicit Enter
+is invisible magic the caller can't time, and against Claude Code's
+bracketed-paste / debounced input it _raced the paste and was silently dropped_,
+leaving the prompt staged while `send` reported success. A separate
+`send --key Enter` lands after the text has settled, so it always submits.
+
+**Multiline text is sent as one bracketed paste**, so it lands in the agent's
+input box as a block instead of submitting line-by-line (each `\n` would
+otherwise fire a half-written prompt). Paste is automatic for multiline or piped
+text; `--no-paste` forces literal, `--paste` forces a wrap. Text comes from the
+positional words or, when you give none, from **stdin** — so large prompts skip
+shell quoting:
+
+```sh
+cat prompt.md | kaval-tui send a1b2        # big prompt → one bracketed paste
+kaval-tui send a1b2 --key Enter            # submit it
+```
+
+`--key` sends named or control keys **after** the text, in order — both the submit
+channel (`--key Enter`) and the channel for interrupting or steering an agent
+rather than typing at it:
+
+```sh
+kaval-tui send a1b2 --key Escape           # interrupt the agent mid-stream
+kaval-tui send a1b2 --key C-c              # SIGINT to whatever's running
+kaval-tui send a1b2 --key Enter            # submit the staged prompt
+```
+
+Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
+`Backspace`, `Space`; chords: `C-<char>` (control), `M-<char>` (meta/alt).
+
+`send` is **blind** — it writes whether or not the program is ready for input —
+so pair it with `snapshot` to look before (or after) you write. `--json` prints
+`{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes
+to stderr, so stdout stays empty unless you ask for JSON.
 
 ## Short ids
 

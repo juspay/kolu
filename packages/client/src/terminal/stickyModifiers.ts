@@ -16,6 +16,7 @@
  *  fold is applied at two input sites (the key bar's own `sendInput` and the
  *  terminal's `onData`), so the armed flag can't live inside either. */
 
+import { controlByte, metaByte } from "@kolu/terminal-protocol";
 import { createSignal } from "solid-js";
 
 const [ctrlArmed, setCtrlArmed] = createSignal(false);
@@ -55,13 +56,10 @@ export function applyStickyModifiers(data: string): string {
   // left alone. Spread-count so a surrogate-pair emoji counts as one.
   if ([...data].length !== 1) return data;
   let out = data;
-  if (ctrl) {
-    // Control bytes exist for @ A–Z [ \ ] ^ _ (0x40–0x5F) → 0x00–0x1F.
-    // Upper-case first so a lowercase letter maps to the same byte as its
-    // shifted form (Ctrl+r === Ctrl+R === 0x12).
-    const code = data.toUpperCase().charCodeAt(0);
-    if (code >= 0x40 && code <= 0x5f) out = String.fromCharCode(code & 0x1f);
-  }
-  if (alt) out = `\x1b${out}`;
+  // Ctrl folds the lone char to its control byte via the shared
+  // terminal-protocol table (Ctrl+r === Ctrl+R === 0x12); a char with no control
+  // byte (a digit, say) is left as-is. Alt/Meta prefixes ESC.
+  if (ctrl) out = controlByte(data) ?? out;
+  if (alt) out = metaByte(out);
   return out;
 }
