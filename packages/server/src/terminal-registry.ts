@@ -13,11 +13,13 @@ import { ORPCError } from "@orpc/server";
 import type {
   AuthoredActiveTerminal,
   AuthoredSleepingTerminal,
+  AwarenessLiveFields,
+  AwarenessPersistedFields,
+  AwarenessValue,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
-import { awarenessFor } from "./awarenessStore.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
@@ -29,6 +31,12 @@ import { awarenessFor } from "./awarenessStore.ts";
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredActiveTerminal;
+  /** The terminal's AWARENESS value (cwd · git · agent · pr · …), born and dropped
+   *  WITH the entry. A required field, so "a terminal exists" and "its awareness
+   *  exists" are one fact the type makes inseparable — there is no second Map to
+   *  keep in lockstep. The sensor sink mutates it in place through the two narrowed
+   *  mutators below. */
+  awareness: AwarenessValue;
   handle: TerminalHandle;
 }
 
@@ -44,6 +52,11 @@ export interface ActiveTerminalProcess {
 export interface SleepingTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredSleepingTerminal;
+  /** Awareness rides the sleeping entry too (sleep does NOT drop it) — the dormant
+   *  tile recomposes its cwd/branch off the persisted half, and wake reads the
+   *  resume inputs back from here. The live half is dead data while sleeping (the
+   *  client's join takes only the persisted half + the authored frozen `pr`). */
+  awareness: AwarenessValue;
   handle?: never;
 }
 
@@ -112,16 +125,16 @@ export const activeTerminalCount = (): number => {
 };
 
 /** Number of ACTIVE terminals currently hosting a Claude Code session. The
- *  `agent` field moved to the awareness store (Design-S), so this reads it via
- *  `awarenessFor(id)` rather than off `entry.meta`; the `state === "active"` gate
- *  stays, since a sleeping terminal's store entry keeps its frozen-stale live half
+ *  `agent` field lives on the entry's `awareness` (Design-S), so this reads
+ *  `entry.awareness.agent` rather than `entry.meta`; the `state === "active"` gate
+ *  stays, since a sleeping terminal's awareness keeps its frozen-stale live half
  *  (sleep does not reset it). Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
-  for (const [id, entry] of terminals) {
+  for (const entry of terminals.values()) {
     if (
       entry.meta.state === "active" &&
-      awarenessFor(id)?.agent?.kind === "claude-code"
+      entry.awareness.agent?.kind === "claude-code"
     )
       n++;
   }
@@ -130,6 +143,43 @@ export function countActiveClaudeSessions(): number {
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
+}
+
+/** The LIVE mutable awareness value for `id`, or `undefined` if no entry exists —
+ *  projected off the registry entry (awareness is a required field, so it is born
+ *  and dropped WITH the entry; there is no separate store to fall out of lockstep).
+ *  The returned object is the one the sensor sink mutates in place (and that
+ *  `record.meta` aliases inside `startAwarenessSensors`), so callers must treat it
+ *  READ-ONLY — mutate only through the two narrowed mutators below. */
+export function awarenessFor(id: TerminalId): AwarenessValue | undefined {
+  return terminals.get(id)?.awareness;
+}
+
+/** Mutate the PERSISTED half of a terminal's awareness IN PLACE and return the
+ *  (same) value, or `undefined` if the terminal has no entry (a late write after
+ *  removal — the apply-and-read-back contract drops it). The mutator is narrowed to
+ *  `AwarenessPersistedFields`, half the write fence: writing
+ *  `m.agent`/`m.pr`/`m.foreground` through it is a COMPILE error. */
+export function mutateAwarenessPersisted(
+  id: TerminalId,
+  mutate: (m: AwarenessPersistedFields) => void,
+): AwarenessValue | undefined {
+  const aw = terminals.get(id)?.awareness;
+  if (aw) mutate(aw);
+  return aw;
+}
+
+/** Mutate the LIVE half of a terminal's awareness IN PLACE and return the (same)
+ *  value, or `undefined` if absent. The mutator is narrowed to
+ *  `AwarenessLiveFields`, the other half of the fence: writing
+ *  `m.cwd`/`m.lastActivityAt`/… through it is a COMPILE error. */
+export function mutateAwarenessLive(
+  id: TerminalId,
+  mutate: (m: AwarenessLiveFields) => void,
+): AwarenessValue | undefined {
+  const aw = terminals.get(id)?.awareness;
+  if (aw) mutate(aw);
+  return aw;
 }
 
 /** Narrow a registry lookup to its ACTIVE arm — the entry only if it is a live

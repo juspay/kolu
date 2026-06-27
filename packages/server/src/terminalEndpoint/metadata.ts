@@ -3,10 +3,11 @@
  * narrowed awareness mutators, plus the client-field mutator and the lifecycle
  * publish.
  *
- * Design-S splits a terminal's record in two: the eight AWARENESS fields live in
- * the process-singleton `../awarenessStore.ts` (the sink is the sole live
- * writer), and the AUTHORED record (location + client fields + discriminant)
- * stays on the registry's `entry.meta`. This module publishes each half on its
+ * Design-S splits a terminal's record in two halves, BOTH carried by the one
+ * registry entry: the eight AWARENESS fields ride `entry.awareness` (the sink is
+ * the sole live writer, mutating it through the two narrowed mutators), and the
+ * AUTHORED record (location + client fields + discriminant) rides `entry.meta`.
+ * This module publishes each half on its
  * OWN collection — awareness onto `terminalWorkspace.awareness`, the authored
  * record onto `kolu.authored` — and the CLIENT joins them at read time
  * (`useTerminalMetadata` → `composeTerminalMetadata`). There is NO server-side
@@ -27,7 +28,7 @@
  *     persisted).
  *
  * Both awareness mutators now key on the terminal ID (the sink closes over the
- * id); the awareness store is the registry their writes land in.
+ * id); `entry.awareness` on the registry is where their writes land.
  */
 
 import { prValue } from "anyforge/schemas";
@@ -38,16 +39,15 @@ import {
   prUnavailableReason,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
-import {
-  mutateAwarenessLive,
-  mutateAwarenessPersisted,
-  removeAwareness,
-  setAwareness,
-} from "../awarenessStore.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
+import {
+  getTerminal,
+  mutateAwarenessLive,
+  mutateAwarenessPersisted,
+  type TerminalProcess,
+} from "../terminal-registry.ts";
 import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
 /** Push an awareness snapshot onto the `terminalWorkspace` surface's `awareness`
@@ -95,27 +95,27 @@ function publishAuthored(
   surfaceCtx.collections.authored.upsert(terminalId, { ...entry.meta });
 }
 
-/** Seed a terminal's awareness into the store AND publish it. Called by the
- *  endpoint on spawn / adopt / orphan / wake / cold-restore, BEFORE the matching
- *  `registerTerminal` (store↔registry lockstep). Does NOT publish the authored
- *  record — the caller's `publishTerminalState` (after register) does, once the
- *  authored record is in the registry; the awareness half is already on its
- *  collection by then, so the client's join has both. */
+/** Fan a terminal's awareness snapshot out onto the `awareness` collection. The
+ *  awareness VALUE itself now rides the registry entry (a required field set when
+ *  the entry is registered), so this no longer writes any backing store — it only
+ *  publishes the snapshot to subscribers. Called by the endpoint AFTER
+ *  `registerTerminal` on spawn / adopt / orphan / wake / cold-restore; the
+ *  caller's `publishTerminalState` publishes the matching authored record, so the
+ *  client's join has both halves. */
 export function installAwareness(
   terminalId: string,
   value: AwarenessValue,
 ): void {
-  setAwareness(terminalId, value);
   publishAwareness(terminalId, value);
 }
 
-/** Drop a terminal's awareness from the store AND the `awareness` collection.
- *  Called by the endpoint AFTER `unregisterTerminal` on exit / kill / discard /
- *  killAll. */
+/** Fan a terminal's awareness REMOVAL out onto the `awareness` collection. The
+ *  awareness value was already dropped with the entry by `unregisterTerminal`
+ *  (it is a field on the entry), so this only tells subscribers it is gone.
+ *  Called by the endpoint's `finalizeRemoval` (and `killAll`) on exit / kill /
+ *  discard. */
 export function dropAwareness(terminalId: string): void {
-  if (removeAwareness(terminalId)) {
-    workspaceSurfaceCtx.collections.awareness.remove(terminalId);
-  }
+  workspaceSurfaceCtx.collections.awareness.remove(terminalId);
 }
 
 /** Atomically mutate PERSISTED awareness (`cwd`, `git`, `lastAgentCommand`,

@@ -26,12 +26,12 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
-import { awarenessFor } from "./awarenessStore.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
+  awarenessFor,
   getTerminal,
   requireActiveTerminal,
   terminalNotFound,

@@ -53,7 +53,7 @@ import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { awarenessFor } from "./awarenessStore.ts";
+import { awarenessFor } from "./terminal-registry.ts";
 import {
   activeTerminalCount,
   countActiveClaudeSessions,

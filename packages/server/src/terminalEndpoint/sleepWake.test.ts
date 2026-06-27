@@ -1,18 +1,18 @@
 /**
  * Sleep / wake state-machine tests — the pty-host-free transitions, under
- * Design-S (awareness store + authored registry entry).
+ * Design-S (the awareness + authored halves on one registry entry).
  *
  * These pin the invariants the discarded first cut (PR #1466) violated, now
  * across the two halves:
  *   - sleep flips the SAME registry entry to the AUTHORED sleeping arm in place
- *     and FREEZES the live `pr` onto it, while the awareness store keeps the
+ *     and FREEZES the live `pr` onto it, while the entry's awareness keeps the
  *     persisted half (crucially `lastAgentCommand`/`agentSession`, the resume
  *     inputs — BUG-B stripped the agent so wake resumed nothing); sleep does NOT
  *     drop awareness, so the dormant tile recomposes cwd/branch;
  *   - the slept terminal serializes through the SAVED sleeping arm (no live
  *     overlay leaks; the frozen pr persists);
- *   - wake resets the store's LIVE half, keeps the persisted half, and flips the
- *     authored record back to active — so the resume form derives from the store;
+ *   - wake resets the entry awareness's LIVE half, keeps the persisted half, and
+ *     flips the authored record back to active — so the resume form derives from it;
  *   - discard removes both halves of a sleeping record, never an active one.
  *
  * Wake's PTY re-spawn + agent replay is exercised end-to-end by the
@@ -30,7 +30,6 @@ import {
   SavedTerminalSchema,
 } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { awarenessFor, removeAwareness } from "../awarenessStore.ts";
 import {
   __resetSurfaceCtxForTest,
   noopSurfaceCtxForTest,
@@ -38,6 +37,7 @@ import {
 } from "../surfaceCtx.ts";
 import {
   type ActiveTerminalProcess,
+  awarenessFor,
   getTerminal,
   registerTerminal,
   unregisterTerminal,
@@ -88,8 +88,11 @@ function recordingSurfaceCtx(
   } as ReturnType<typeof noopSurfaceCtxForTest>;
 }
 
-/** The AUTHORED half of an active terminal (location + client chrome). */
-function authoredActive(): ActiveTerminalProcess {
+/** An active registry entry — the AUTHORED half (location + client chrome) plus
+ *  the AWARENESS half on the one entry (defaulting to `awarenessActive()`). */
+function authoredActive(
+  awareness: AwarenessValue = awarenessActive(),
+): ActiveTerminalProcess {
   return {
     info: { id: ID, pid: 4242 },
     meta: {
@@ -98,6 +101,7 @@ function authoredActive(): ActiveTerminalProcess {
       themeName: "rose",
       intent: "fix the auth race",
     },
+    awareness,
     handle: {} as ActiveTerminalProcess["handle"],
   };
 }
@@ -127,10 +131,12 @@ function awarenessActive(): AwarenessValue {
   };
 }
 
-/** Seed an active terminal's two halves into the store + registry. */
+/** Seed an active terminal's two halves into the registry (one entry), then fan
+ *  its awareness out. */
 function seedActive(): void {
-  installAwareness(ID, awarenessActive());
-  registerTerminal(ID, authoredActive());
+  const entry = authoredActive();
+  registerTerminal(ID, entry);
+  installAwareness(ID, entry.awareness);
 }
 
 beforeEach(() => {
@@ -139,8 +145,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
-  removeAwareness(ID);
   __resetSurfaceCtxForTest();
   __resetWorkspaceSurfaceCtxForTest();
 });
@@ -261,8 +267,9 @@ describe("wake — resets the live half, keeps the persisted half", () => {
 
   it("falls back to most-recent when no conversation ref was ever captured", async () => {
     const { agentSession: _drop, ...noRef } = awarenessActive();
-    installAwareness(ID, noRef as AwarenessValue);
-    registerTerminal(ID, authoredActive());
+    const entry = authoredActive(noRef as AwarenessValue);
+    registerTerminal(ID, entry);
+    installAwareness(ID, entry.awareness);
     expect(beginSleepLocal(ID)).toBe(true);
 
     wakeLocalTerminal(ID);
@@ -289,7 +296,6 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
 
   afterEach(() => {
     unregisterTerminal(WAKE_ID);
-    removeAwareness(WAKE_ID);
   });
 
   it("restores the sleeping entry when the wake spawn fails", async () => {
@@ -345,7 +351,6 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
 
   afterEach(() => {
     unregisterTerminal(PUB_ID);
-    removeAwareness(PUB_ID);
   });
 
   it("pushes the active snapshot on wake, not just a dirty signal", () => {
@@ -390,7 +395,6 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
 
   afterEach(() => {
     unregisterTerminal(SEED_ID);
-    removeAwareness(SEED_ID);
   });
 
   it("seeds both halves: authored sleeping in the registry, persisted in the store", () => {

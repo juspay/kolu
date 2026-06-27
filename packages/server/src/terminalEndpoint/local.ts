@@ -62,9 +62,9 @@ import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import { awarenessFor } from "../awarenessStore.ts";
 import {
   type ActiveTerminalProcess,
+  awarenessFor,
   drainTerminals,
   getActiveTerminal,
   getTerminal,
@@ -370,15 +370,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // this synchronous path cannot see). Seed with the caller's cwd or empty,
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
-    // Design-S: seed the AWARENESS half (cwd + sensor defaults) into the store
-    // BEFORE registering the authored entry (store↔registry lockstep — so the
-    // CLIENT can join both halves once `registerActiveAndSpawn` publishes the
-    // authored one). `lastActivityAt` is the one awareness field a caller seeds:
-    // session restore threads the saved recency through so it survives restart.
+    // Design-S: seed the AWARENESS half (cwd + sensor defaults). It rides the
+    // registry entry built in `registerActiveAndSpawn`, born WITH the authored
+    // half (no separate store, no install-before-register ordering).
+    // `lastActivityAt` is the one awareness field a caller seeds: session restore
+    // threads the saved recency through so it survives restart.
     const aw = seedAwarenessValue(cwd);
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       aw.lastActivityAt = opts.initialMetadata.lastActivityAt;
-    installAwareness(id, aw);
 
     // The AUTHORED half — location + the client-owned chrome seeded before
     // providers run (#642). It names no awareness field.
@@ -393,15 +392,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
     if (initial?.intent) meta.intent = initial.intent;
 
-    return this.registerActiveAndSpawn(id, meta, opts);
+    return this.registerActiveAndSpawn(id, meta, aw, opts);
   }
 
   /** Register a fresh ACTIVE sync-shadow entry under `id` (proxy handle + the
    *  given `meta`) and kick off its async spawn + sensor wiring. The shared core
    *  of `spawnPty` (awareness-seeded) and `wake` (sleeping-base-preserved):
-   *  both register a live entry then spawn, differing only in the `meta` carried
-   *  in and whether `opts.resumeCommand` replays an agent on the freshly-spawned
-   *  PTY.
+   *  both register a live entry then spawn, differing only in the `meta` +
+   *  `awareness` carried in and whether `opts.resumeCommand` replays an agent on
+   *  the freshly-spawned PTY.
    *
    *  Captures the entry this active shadow OVERWRITES (`prior`) and threads it
    *  into the spawn tail so a wake whose spawn/wiring fails can RESTORE the
@@ -413,17 +412,25 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   private registerActiveAndSpawn(
     id: TerminalId,
     meta: AuthoredActiveTerminal,
+    awareness: AwarenessValue,
     opts: PtySpawnOpts,
   ): TerminalInfo {
     const tlog = log.child({ terminal: id });
     const prior = getTerminal(id);
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    // Both halves are born in ONE entry — awareness is a required field, so the
+    // single `registerTerminal` makes "the terminal exists" and "its awareness
+    // exists" inseparable (no install-before-register ordering to remember).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: 0 },
       meta,
+      awareness,
       handle: proxy,
     };
     registerTerminal(id, entry);
+    // Fan the awareness snapshot out to the `awareness` collection now that the
+    // entry is registered (the value already rides `entry.awareness`).
+    installAwareness(id, awareness);
     // A lifecycle flip must PUBLISH, mirroring the sleep path — see
     // `publishTerminalState` for why `terminals:dirty` alone can't reach the
     // client. A WAKE flips `entry.meta` to active on the SAME id the sleep last
@@ -454,15 +461,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    // Seed awareness BEFORE registering the authored entry (store↔registry
-    // lockstep — `startAwarenessSensors` reads `awarenessFor(id)` as `record.meta`).
-    installAwareness(id, awareness);
+    // Both halves ride ONE entry — awareness is a required field
+    // (`startAwarenessSensors` reads `getTerminal(id)!.awareness` as `record.meta`).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta: authored,
+      awareness,
       handle: proxy,
     };
     registerTerminal(id, entry);
+    // Fan the awareness snapshot out to the collection now that the entry exists.
+    installAwareness(id, awareness);
     // The PTY already exists on the survivor — release the handle's queued /
     // awaited verbs at the live pid with no spawn RPC (the sole structural
     // difference from `spawnAndWire`).
@@ -606,11 +615,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     if (getTerminal(id) !== entry) return;
     if (prior?.meta.state === "sleeping") {
-      // Restoring a sleeping record: its awareness store entry was overwritten by
-      // the wake's `installAwareness` (persisted half kept, live half reset),
-      // which is the correct dormant store value — keep it (the sleeping registry
-      // entry exists, so lockstep holds). Do NOT drop it.
+      // Restoring a sleeping record: re-register `prior` WHOLE — its awareness
+      // rides as a field on the entry, so the dormant value comes back with it
+      // (the tile recomposes cwd/branch off the persisted half; the live half is
+      // dead data while sleeping). Re-publish the awareness snapshot so the
+      // collection subscribers see the restored dormant value (the wake had fanned
+      // out the active one). Do NOT drop it.
       registerTerminal(id, prior);
+      installAwareness(id, prior.awareness);
       publishTerminalState(prior, id);
       emitTerminalListChanged();
       return;
@@ -658,16 +670,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       commandRun: inMemoryChannel<CommandRunSample>(),
       foreground: inMemoryChannel<ForegroundSample>(),
     };
-    // `record.meta` MUST be the SAME object the sink mutates: `awarenessFor(id)`
-    // returns the live store value, and the sink's `mutateAwareness*` mutate
-    // `store.get(id)` in place — so the apply-and-read-back contract (the sensors
-    // read `record.meta` back as their own prior state) holds. The store entry is
-    // seeded by the caller (spawnPty/wake/adopt) before we get here.
+    // `record.meta` MUST be the SAME object the sink mutates: it is the registry
+    // entry's `awareness` field, and the sink's `mutateAwareness*` mutate that same
+    // object in place — so the apply-and-read-back contract (the sensors read
+    // `record.meta` back as their own prior state) holds. The entry was registered
+    // by the caller (spawnPty/wake/adopt) before we get here, so its awareness is
+    // present.
     const record: AwarenessRecord = {
       pid,
-      // The store entry is installed before registerActiveAndSpawn / adoptTerminal
-      // reach the sensor wiring, so it is present here.
-      meta: awarenessFor(id)!,
+      meta: getTerminal(id)!.awareness,
       currentAgent: null,
     };
     const sink = makeAwarenessSink(id);
@@ -823,23 +834,23 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.teardownSensors(id);
     // Flip the AUTHORED entry to the sleeping arm IN PLACE. `entry.meta` (location
     // + client chrome) rides the `...entry.meta` spread; the live `pr` is FROZEN
-    // from the awareness store onto the authored sleeping arm (the dormant tile
-    // reads it — the store's live half goes stale once the PTY is released).
+    // from the entry's awareness onto the authored sleeping arm (the dormant tile
+    // reads it — awareness's live half goes stale once the PTY is released).
     //
     // The persisted AWARENESS (cwd / git / lastAgentCommand / agentSession / …)
-    // STAYS in the store — `beginSleep` does NOT `dropAwareness`, so the client's
-    // join still recomposes the dormant tile's cwd / branch off it, and wake reads
-    // `lastAgentCommand` back from there. Sensors went down FIRST so no in-flight
-    // tap re-publishes.
-    const aw = awarenessFor(id);
+    // RIDES the new sleeping entry's `awareness` field — `beginSleep` carries it
+    // over rather than dropping it, so the client's join still recomposes the
+    // dormant tile's cwd / branch off it, and wake reads `lastAgentCommand` back
+    // from there. Sensors went down FIRST so no in-flight tap re-publishes.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: AuthoredSleepingSchema.parse({
         ...entry.meta,
         state: "sleeping",
         sleptAt: Date.now(),
-        pr: aw?.pr,
+        pr: entry.awareness.pr,
       }),
+      awareness: entry.awareness,
     };
     registerTerminal(id, sleeping);
     publishTerminalState(sleeping, id);
@@ -879,9 +890,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // Read the persisted awareness back off the STORE (it was never dropped on
-    // sleep). Render the resume FORM from the OBSERVED `lastAgentCommand` via
-    // `resumeAgentCommand`. With the persisted `agentSession` ref it resumes the
+    // Read the persisted awareness back off the SLEEPING entry (it was never
+    // dropped on sleep). Render the resume FORM from the OBSERVED `lastAgentCommand`
+    // via `resumeAgentCommand`. With the persisted `agentSession` ref it resumes the
     // EXACT conversation that was running on this terminal (juspay/kolu#1495);
     // without it, the most-recent marker (claude `-c`, codex `resume --last`,
     // opencode `--continue`). Null for a never-observed / non-resumable agent
@@ -889,21 +900,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const aw = awarenessFor(id);
     const resumeCommand = resumeFormFor(aw ?? {});
     // Reset the LIVE half (pr/agent/foreground re-derived by the re-spawned PTY's
-    // sensors), keep the PERSISTED half. Re-seed the store via `installAwareness`
-    // so the client's join sees fresh awareness once `registerActiveAndSpawn`
-    // publishes the active authored arm.
-    installAwareness(id, {
+    // sensors), keep the PERSISTED half. This woken awareness rides the active entry
+    // built in `registerActiveAndSpawn`, which fans it out so the client's join sees
+    // fresh awareness once the active authored arm publishes.
+    const wokenAwareness: AwarenessValue = {
       ...(aw ?? seedAwarenessValue("")),
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
-    });
+    };
     // Flip the AUTHORED record to active — drops `sleptAt` + the frozen `pr`.
     const meta = AuthoredActiveSchema.parse({ ...entry.meta, state: "active" });
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
-    return this.registerActiveAndSpawn(id, meta, {
+    return this.registerActiveAndSpawn(id, meta, wokenAwareness, {
       cwd: aw?.cwd,
       parentId: meta.parentId,
       resumeCommand: resumeCommand ?? undefined,
@@ -1041,20 +1052,22 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   const id = idParsed.data;
   if (getTerminal(id)) return false;
   const parsed = recordParsed.data;
-  // Seed the awareness store from the saved persisted half (cwd / git / …), live
-  // half reset — the client's join recomposes the dormant tile's cwd / branch off
-  // it, and the frozen `pr` rides the AUTHORED sleeping record below. Lockstep:
-  // install BEFORE register.
-  installAwareness(id, {
+  // Seed awareness from the saved persisted half (cwd / git / …), live half reset
+  // — the client's join recomposes the dormant tile's cwd / branch off it, and the
+  // frozen `pr` rides the AUTHORED sleeping record below. The value rides the
+  // sleeping entry's `awareness` field (no separate store), then fans out.
+  const awareness: AwarenessValue = {
     ...AwarenessPersistedFieldsSchema.parse(parsed),
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-  });
+  };
   registerTerminal(id, {
     info: { id, pid: 0 },
     meta: AuthoredSleepingSchema.parse(parsed),
+    awareness,
   });
+  installAwareness(id, awareness);
   emitTerminalListChanged();
   return true;
 }

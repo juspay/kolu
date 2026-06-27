@@ -49,6 +49,7 @@ import { contract } from "kolu-common/contract";
 import type {
   ActivityFeed,
   AuthoredTerminal,
+  AwarenessValue,
   KoluBuildInfo,
   Preferences,
   ProcessMemory,
@@ -73,7 +74,6 @@ import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
-import { awarenessFor, awarenessReadAll } from "./awarenessStore.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
 import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
@@ -452,13 +452,22 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       terminalWorkspace: {
         cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
         collections: {
-          // Read-through to the awareness store; writes go through the sink's
+          // Project the awareness half straight off the registry — `.awareness`
+          // exactly as `authored` projects `.meta` (the two halves share one
+          // backing entry). Writes go through the sink's
           // `installAwareness`/`updateServer*Metadata` (which call
           // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
-          // `upsert`/`remove` are no-ops (the store is the authority).
+          // `upsert`/`remove` are no-ops (the registry is the authority).
           awareness: {
-            readAll: () => awarenessReadAll(),
-            readOne: (key) => awarenessFor(key as string),
+            readAll: () => {
+              const map = new Map<string, AwarenessValue>();
+              for (const info of listTerminals()) {
+                const term = getTerminal(info.id);
+                if (term) map.set(info.id, term.awareness);
+              }
+              return map;
+            },
+            readOne: (key) => getTerminal(key as string)?.awareness,
             upsert: () => {},
             remove: () => {},
           },

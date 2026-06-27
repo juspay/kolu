@@ -24,8 +24,6 @@ import {
   type TerminalId,
   type TerminalInfo,
 } from "kolu-common/surface";
-import { awarenessFor } from "./awarenessStore.ts";
-import { log } from "./log.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
 // converge with `localTerminalEndpoint` already initialized by the time
@@ -62,46 +60,30 @@ export {
 
 /** Build a session snapshot from current terminal state.
  *
- *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the
- *  AWARENESS store value through `composeTerminalMetadata` — the SAME join the
- *  client applies at read time — then keyed with `id` and re-validated against
+ *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the entry's
+ *  AWARENESS value through `composeTerminalMetadata` — the SAME join the client
+ *  applies at read time — then keyed with `id` and re-validated against
  *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
  *  persist is one of the join's two sites (the ephemeral client read is the
  *  other), so reusing the one join at both means the live-half strip (and the
  *  sleeping `pr`-from-authored rule) lives in exactly one place — disk and the
- *  client read can never diverge. A new *persisted* field flows through
- *  untouched; a live field can never ride to disk. The save
- *  uses `flatMap` + a guard rather than `?? {}`: a live registry entry with no
- *  awareness (a lockstep violation) is logged and SKIPPED — fail-fast, never
- *  persist a record missing every sensor field. Order is `Map` insertion order —
- *  terminals appear in the sequence they were created. */
+ *  client read can never diverge. A new *persisted* field flows through untouched;
+ *  a live field can never ride to disk. Awareness is a required field on the entry,
+ *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
+ *  `Map` insertion order — terminals appear in the sequence they were created. */
 export function snapshotSession(): SessionSnapshot {
-  const snappedTerminals = [...terminalEntries()].flatMap(
-    ([id, entry]): SavedTerminal[] => {
-      // Design-S: a saved record is the JOIN of the two halves — the AUTHORED
-      // `entry.meta` (location + client chrome + discriminant) and the AWARENESS
-      // store value. Spread order matches `composeTerminalMetadata`: awareness
-      // FIRST, authored LAST (a sleeping record's frozen `pr` wins; the saved
-      // discriminated union strips the live half — agent/foreground — structurally,
-      // so a future live field can never silently ride to disk).
-      const aw = awarenessFor(id);
-      if (!aw) {
-        // Lockstep violated — a live registry entry with no awareness. Fail-fast:
-        // log and SKIP (never `?? {}`, which would persist a record missing every
-        // sensor field). The store↔registry invariant makes this unreachable.
-        log.error(
-          { terminal: id },
-          "snapshot: awareness missing for live terminal — skipping",
-        );
-        return [];
-      }
-      return [
-        SavedTerminalSchema.parse({
-          ...composeTerminalMetadata(entry.meta, aw),
-          id,
-        }),
-      ];
-    },
+  const snappedTerminals = [...terminalEntries()].map(
+    // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
+    // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
+    // `composeTerminalMetadata`: awareness FIRST, authored LAST (a sleeping record's
+    // frozen `pr` wins; the saved discriminated union strips the live half —
+    // agent/foreground — structurally, so a future live field can never silently
+    // ride to disk).
+    ([id, entry]): SavedTerminal =>
+      SavedTerminalSchema.parse({
+        ...composeTerminalMetadata(entry.meta, entry.awareness),
+        id,
+      }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

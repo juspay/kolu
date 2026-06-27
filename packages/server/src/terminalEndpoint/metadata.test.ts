@@ -12,7 +12,6 @@
 
 import { type AwarenessValue, LOCAL_LOCATION } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { removeAwareness } from "../awarenessStore.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
@@ -39,17 +38,19 @@ import {
 
 const ID = "term-pub-test";
 
-/** The AUTHORED half — location + active discriminant, no awareness field. */
+/** A registry entry — AUTHORED half (`meta`, no awareness field) + the AWARENESS
+ *  half (`awareness`, the sink's mutate target), both on the one entry. */
 function fakeTerminal(): ActiveTerminalProcess {
   return {
     info: { id: ID, pid: 0 },
     meta: { state: "active", location: LOCAL_LOCATION },
+    awareness: awValue(),
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as ActiveTerminalProcess["handle"],
   };
 }
 
-/** The AWARENESS half — seeded into the store under the same id. */
+/** The AWARENESS half — rides the entry under the same id. */
 function awValue(): AwarenessValue {
   return {
     cwd: "/tmp",
@@ -79,10 +80,12 @@ beforeEach(async () => {
   // collection) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
   setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
-  // Design-S: the server mutators key on id and land in the awareness store; the
-  // wire publish reads the registry. Seed BOTH halves for ID.
-  registerTerminal(ID, fakeTerminal());
-  installAwareness(ID, awValue());
+  // Design-S: the server mutators key on id and land on `entry.awareness`; the
+  // wire publish reads the registry. Register the entry (carrying BOTH halves),
+  // then fan its awareness out.
+  const entry = fakeTerminal();
+  registerTerminal(ID, entry);
+  installAwareness(ID, entry.awareness);
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -96,8 +99,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   stopWatch?.();
+  // Dropping the entry drops its awareness too (one backing store now).
   unregisterTerminal(ID);
-  removeAwareness(ID);
   __resetSurfaceCtxForTest();
   __resetWorkspaceSurfaceCtxForTest();
 });
