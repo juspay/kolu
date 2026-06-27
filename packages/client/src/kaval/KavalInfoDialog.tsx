@@ -23,8 +23,9 @@ import RestartKavalButton from "./RestartKavalButton";
 import { restartDaemon } from "./useDaemonRestart";
 import {
   DAEMON_STATE_PRESENTATION,
+  daemonTransportLive,
   formatUptime,
-  toneDot,
+  kavalDot,
 } from "./useDaemonStatus";
 
 const Cmd: Component<{ children: string; note: string }> = (props) => (
@@ -103,13 +104,18 @@ const KavalInfoDialog: Component<{
             {(s) => (
               <div class="space-y-1.5">
                 <div class="flex items-center gap-2">
+                  {/* Dot + uptime floored on transport liveness, same as the rail
+                      (kavalDot): a dead/half-open link can't refresh the daemon
+                      state, so the dot reads grey "unknown" and the uptime is
+                      withheld rather than shown stale off a value the channel can
+                      no longer confirm. */}
                   <span
-                    class={`inline-block h-[7px] w-[7px] rounded-full ${toneDot[DAEMON_STATE_PRESENTATION[s().state].tone]}`}
+                    class={`inline-block h-[7px] w-[7px] rounded-full ${kavalDot(s().state, daemonTransportLive())}`}
                   />
                   <span class="text-fg">
                     {DAEMON_STATE_PRESENTATION[s().state].label}
                   </span>
-                  <Show when={s().startedAt}>
+                  <Show when={daemonTransportLive() && s().startedAt}>
                     {(t) => (
                       <span class="text-fg-3 tabular-nums">
                         · up {formatUptime(Date.now() - t())}
