@@ -1,6 +1,6 @@
 ---
-title: The Terminal Model — kolu composes Pty · Sensed · Owned
-description: One picture of a terminal's facts. Each producer owns its type — kaval owns Pty (the live process), pulam owns Sensed (the live readings), kolu owns Owned (its durable UI) and composes them into Terminal. There is no "metadata record" — Terminal is the composition, materialised once at sleep. Carries the types (PR1) and the phase plan.
+title: The Terminal Model — kolu composes KavalMeta · PulamMeta · KoluMeta
+description: One picture of a terminal's facts. Each producer owns its type — kaval owns KavalMeta (the live process), pulam owns PulamMeta (the live readings), kolu owns KoluMeta (its durable UI) and composes them into Terminal. There is no "metadata record" — Terminal is the composition, materialised once at sleep. Carries the types (PR1) and the phase plan.
 parents: [remote-terminals, reference]
 status: proposed
 maturity: budding
@@ -11,56 +11,56 @@ import Svg from "../../components/Svg.astro";
 import Callout from "../../components/Callout.astro";
 import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
-**Each producer owns the type for what it makes:** kaval owns **`Pty`** (the live process), pulam owns **`Sensed`** (the live readings — cwd · git · agent · pr · foreground), kolu owns **`Owned`** (its durable UI). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
+**Each producer owns the type for what it makes:** kaval owns **`KavalMeta`** (the live process), pulam owns **`PulamMeta`** (the live readings — cwd · git · agent · pr · foreground), kolu owns **`KoluMeta`** (its durable UI). kolu **composes** them into **`Terminal`** — the dependency arrow points *out*. There is no separate "metadata record"; `Terminal` **is** the composition.
 
-<Svg svg={diagram} caption="kaval owns Pty (in the daemon), pulam's sensors watch it and own Sensed (live, ephemeral), kolu owns Owned (persisted) and imports the other two to compose Terminal. LIVE = owned + pty + sensed, projected by id — never stored. SLEEP releases the PTY (no sensed) → kolu freezes the last Sensed into a snapshot it now owns & persists — the one materialised copy, and your restore/sleep display." />
+<Svg svg={diagram} caption="kaval owns KavalMeta (the PTY, in the daemon), pulam's sensors watch it and own PulamMeta (live, ephemeral), kolu owns KoluMeta (persisted) and imports the other two to compose Terminal. LIVE = KoluMeta + KavalMeta + PulamMeta, projected by id — never stored. SLEEP releases the PTY (no PulamMeta) → kolu freezes the last PulamMeta into a snapshot it now owns & persists — the one materialised copy, and your restore/sleep display." />
 
 ## Live vs Sleeping
 
 ```text
-  LIVE   (PTY exists)                 SLEEPING   (PTY released)
-  ────────────────────                ────────────────────────
-  owned + pty + sensed                owned + snapshot   (= frozen Sensed)
-  sensed projected by id              no pty · no live sensed
-  disk: owned (+ restore-seeds)       disk: owned + snapshot
+  LIVE   (PTY exists)                       SLEEPING   (PTY released)
+  ──────────────────────────                ──────────────────────────────
+  KoluMeta + KavalMeta + PulamMeta          KoluMeta + snapshot  (frozen PulamMeta)
+  PulamMeta projected by id                 no KavalMeta · no live PulamMeta
+  disk: KoluMeta (+ restore-seeds)          disk: KoluMeta + snapshot
 ```
 
 <Callout kind="note" title="First principle">
-**A terminal has no metadata — `Terminal` is a composition, kept *virtual*.** The live arm is *projected* from its producers (kaval's `pty`, pulam's `sensed[id]`); nothing is stored fused. Materialise it exactly once: at **sleep** (freeze `Sensed` into a snapshot). Every other materialisation is the bug — co-owning one record (two writers → the green-dot lie, #1564) or re-fusing it server-side (PR #1594's `composeTerminalMetadata`, every tick).
+**A terminal has no metadata — `Terminal` is a composition, kept *virtual*.** The live arm is *projected* from its producers (kaval's `KavalMeta`, pulam's `PulamMeta[id]`); nothing is stored fused. Materialise it exactly once: at **sleep** (freeze `PulamMeta` into a snapshot). Every other materialisation is the bug — co-owning one record (two writers → the green-dot lie, #1564) or re-fusing it server-side (PR #1594's `composeTerminalMetadata`, every tick).
 
-**persist = author.** The live `Sensed` collection never hits disk; kolu *authors a snapshot* of it (a restore-seed, or the whole sleep snapshot), and **that** is what's persisted — so session-restore and sleeping tiles show `cwd`/`git`/`agent` from the **owned snapshot**, not from a live read. The PTY survives in the daemon; once it re-attaches, live `sensed` takes back over.
+**persist = author.** The live `PulamMeta` collection never hits disk; kolu *authors a snapshot* of it (a restore-seed, or the whole sleep snapshot), and **that** is what's persisted — so session-restore and sleeping tiles show `cwd`/`git`/`agent` from the **`KoluMeta` snapshot**, not from a live read. The PTY survives in the daemon; once it re-attaches, live `PulamMeta` takes back over.
 
-`Sensed` and `Owned` are each a `Collection` (an `Incremental`); `Terminal` is a join of two — see [surface live data](surface-live-data.html). Nothing to invent.
+`PulamMeta` and `KoluMeta` are each a `Collection` (an `Incremental`); `Terminal` is a join of two — see [surface live data](surface-live-data.html). Nothing to invent.
 </Callout>
 
 ## The types (PR1)
 
 ```ts
-// kaval   →   export type Pty    = …                                  // the live process handle
-// pulam   →   export type Sensed = { cwd; git; agent; pr; foreground; … }   // a LIVE-ONLY collection, keyed by id, NEVER persisted
+// kaval   →   export type KavalMeta = …                                  // the live PTY / process handle
+// pulam   →   export type PulamMeta = { cwd; git; agent; pr; foreground; … }   // a LIVE-ONLY collection, keyed by id, NEVER persisted
 
 // kolu:
-type Owned = { theme; layout; panels; intent; restoreSeeds }           // kolu's own · PERSISTED (incl. the snapshot)
+type KoluMeta = { theme; layout; panels; intent; restoreSeeds }           // kolu's own · PERSISTED (incl. the snapshot)
 
 type Terminal =
-  | { state: "live";     id: TerminalId; owned: Owned; pty: Pty; sensed: Sensed }   // pty + sensed projected live, by id
-  | { state: "sleeping"; id: TerminalId; owned: Owned; snapshot: Sensed }           // frozen Sensed, now kolu-owned & persisted
+  | { state: "live";     id: TerminalId; kolu: KoluMeta; kaval: KavalMeta; pulam: PulamMeta }   // kaval + pulam projected live, by id
+  | { state: "sleeping"; id: TerminalId; kolu: KoluMeta; snapshot: PulamMeta }                  // frozen PulamMeta, now kolu-owned & persisted
 ```
 
 ```text
 illegal states become unrepresentable ✓
-  · pty/sensed live only on the LIVE arm     → a sleeping terminal can't hold live state
-  · snapshot lives only on SLEEPING          → a live terminal can't carry a frozen copy
-  · pr (in Sensed) has ONE writer (the sensor) → frozen into snapshot at sleep, never re-authored
+  · KavalMeta/PulamMeta live only on the LIVE arm   → a sleeping terminal can't hold live state
+  · snapshot lives only on SLEEPING                  → a live terminal can't carry a frozen copy
+  · pr (in PulamMeta) has ONE writer (the sensor)    → frozen into snapshot at sleep, never re-authored
 ```
 
 ## Plan — three phases
 
 ```text
-PR1  types        kaval exports Pty · pulam exports Sensed · kolu composes Terminal = Live | Sleeping · refactor onto them
-P2   redo R8      serve Sensed as the collection · kolu projects it into Terminal at the reader · slim the wire ·
-                  delete composeTerminalMetadata (server) · disk = Owned only
-R9   remote       swap where Sensed is backed (local store → mirrored remote collection) — nothing else
+PR1  types        kaval exports KavalMeta · pulam exports PulamMeta · kolu composes Terminal = Live | Sleeping · refactor onto them
+P2   redo R8      serve PulamMeta as the collection · kolu projects it into Terminal at the reader · slim the wire ·
+                  delete composeTerminalMetadata (server) · disk = KoluMeta only
+R9   remote       swap where PulamMeta is backed (local store → mirrored remote collection) — nothing else
 ```
 
-Done-criterion a shim can't satisfy: **kolu's own browser reads the served `Sensed` collection · the wire carries `Owned` only · no server-side recompose.**
+Done-criterion a shim can't satisfy: **kolu's own browser reads the served `PulamMeta` collection · the wire carries `KoluMeta` only · no server-side recompose.**

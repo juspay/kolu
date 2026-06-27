@@ -6,62 +6,62 @@
 
   <text x="410" y="26" text-anchor="middle" font-size="14.5" font-weight="700" fill="#334155">each producer owns its type · kolu composes them into <tspan fill="#3a2bb8">Terminal</tspan></text>
 
-  <!-- kaval / Pty -->
+  <!-- kaval / KavalMeta -->
   <text x="135" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#475569">kaval</text>
-  <rect x="45" y="70" width="180" height="116" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
-  <text x="135" y="100" text-anchor="middle" font-size="16" font-weight="700" fill="#334155">Pty</text>
-  <text x="135" y="120" text-anchor="middle" font-size="11.5" fill="#64748b">the live process</text>
-  <line x1="62" y1="132" x2="208" y2="132" stroke="#dbe2ea"/>
-  <text x="135" y="153" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">in the daemon</text>
-  <text x="135" y="170" text-anchor="middle" font-size="10.5" fill="#64748b">survives a kolu restart</text>
+  <rect x="40" y="70" width="190" height="116" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
+  <text x="135" y="98" text-anchor="middle" font-size="15.5" font-weight="700" fill="#334155">KavalMeta</text>
+  <text x="135" y="118" text-anchor="middle" font-size="11.5" fill="#64748b">the live PTY / process</text>
+  <line x1="58" y1="130" x2="212" y2="130" stroke="#dbe2ea"/>
+  <text x="135" y="151" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">in the daemon</text>
+  <text x="135" y="168" text-anchor="middle" font-size="10.5" fill="#64748b">survives a kolu restart</text>
 
-  <!-- pulam / Sensed -->
+  <!-- pulam / PulamMeta -->
   <text x="402" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#b06d12">pulam · sensors</text>
-  <rect x="300" y="70" width="205" height="116" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
-  <text x="316" y="97" font-size="16" font-weight="700" fill="#8a5a12">Sensed</text>
-  <text x="316" y="117" font-size="12" fill="#7a4f10">cwd · git</text>
-  <text x="316" y="135" font-size="12" fill="#7a4f10">agent · pr · foreground</text>
-  <line x1="314" y1="146" x2="489" y2="146" stroke="#f0d9b0"/>
+  <rect x="298" y="70" width="208" height="116" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="314" y="97" font-size="15.5" font-weight="700" fill="#8a5a12">PulamMeta</text>
+  <text x="314" y="117" font-size="12" fill="#7a4f10">cwd · git</text>
+  <text x="314" y="135" font-size="12" fill="#7a4f10">agent · pr · foreground</text>
+  <line x1="312" y1="146" x2="490" y2="146" stroke="#f0d9b0"/>
   <text x="402" y="170" text-anchor="middle" font-size="11" fill="#b07d2a" font-weight="700">live · ephemeral (re-derives)</text>
 
-  <!-- kolu / Owned -->
-  <text x="687" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#5a3ff0">kolu</text>
-  <rect x="600" y="70" width="175" height="116" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
-  <text x="616" y="97" font-size="16" font-weight="700" fill="#3a2bb8">Owned</text>
-  <text x="616" y="117" font-size="12" fill="#352a7a">theme · layout</text>
-  <text x="616" y="135" font-size="12" fill="#352a7a">panels · intent</text>
-  <line x1="614" y1="146" x2="759" y2="146" stroke="#d4cbff"/>
-  <text x="687" y="170" text-anchor="middle" font-size="11" fill="#6b5fd0" font-weight="700">PERSISTED — kolu's file</text>
+  <!-- kolu / KoluMeta -->
+  <text x="690" y="60" text-anchor="middle" font-size="12" font-weight="700" fill="#5a3ff0">kolu</text>
+  <rect x="595" y="70" width="185" height="116" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="611" y="97" font-size="15.5" font-weight="700" fill="#3a2bb8">KoluMeta</text>
+  <text x="611" y="117" font-size="12" fill="#352a7a">theme · layout</text>
+  <text x="611" y="135" font-size="12" fill="#352a7a">panels · intent</text>
+  <line x1="609" y1="146" x2="764" y2="146" stroke="#d4cbff"/>
+  <text x="690" y="170" text-anchor="middle" font-size="11" fill="#6b5fd0" font-weight="700">PERSISTED — kolu's file</text>
 
   <!-- watch -->
-  <line x1="225" y1="128" x2="298" y2="128" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
-  <text x="261" y="120" text-anchor="middle" font-size="10.5" fill="#64748b" font-style="italic">watches</text>
+  <line x1="230" y1="128" x2="296" y2="128" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
+  <text x="263" y="120" text-anchor="middle" font-size="10.5" fill="#64748b" font-style="italic">watches</text>
 
   <!-- compose arrows into Terminal -->
-  <line x1="135" y1="186" x2="320" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <line x1="135" y1="186" x2="318" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
   <line x1="402" y1="186" x2="410" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
-  <line x1="687" y1="186" x2="500" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
-  <text x="566" y="250" font-size="11" fill="#8678d6" font-style="italic">kolu imports Pty + Sensed</text>
-  <text x="566" y="265" font-size="11" fill="#8678d6" font-style="italic">— the arrow points out.</text>
+  <line x1="690" y1="186" x2="502" y2="318" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <text x="582" y="248" font-size="11" fill="#8678d6" font-style="italic">kolu imports</text>
+  <text x="582" y="263" font-size="11" fill="#8678d6" font-style="italic">KavalMeta + PulamMeta</text>
+  <text x="582" y="278" font-size="11" fill="#8678d6" font-style="italic">— the arrow points out.</text>
 
   <!-- Terminal -->
-  <rect x="245" y="330" width="330" height="118" rx="11" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.8"/>
+  <rect x="240" y="330" width="340" height="118" rx="11" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.8"/>
   <text x="410" y="356" text-anchor="middle" font-size="15" font-weight="700" fill="#3a2bb8">Terminal  (kolu composes)</text>
-  <line x1="262" y1="368" x2="558" y2="368" stroke="#d4cbff"/>
-  <text x="266" y="392" font-size="12.5" fill="#15803d" font-weight="700">LIVE</text>
-  <text x="330" y="392" font-size="12.5" fill="#334155">owned + pty + sensed</text>
-  <text x="566" y="392" font-size="10.5" fill="#94a3b8" text-anchor="end">live · by id</text>
-  <text x="266" y="416" font-size="12.5" fill="#9a3a3a" font-weight="700">SLEEP</text>
-  <text x="330" y="416" font-size="12.5" fill="#334155">owned + snapshot</text>
-  <text x="566" y="416" font-size="10.5" fill="#94a3b8" text-anchor="end">frozen sensed</text>
-  <text x="410" y="437" text-anchor="middle" font-size="10.5" fill="#7c71c0" font-style="italic">never a stored record — live is projected; sleep is the one frozen copy</text>
+  <line x1="258" y1="368" x2="562" y2="368" stroke="#d4cbff"/>
+  <text x="262" y="392" font-size="12" fill="#15803d" font-weight="700">LIVE</text>
+  <text x="320" y="392" font-size="11.5" fill="#334155">KoluMeta + KavalMeta + PulamMeta</text>
+  <text x="262" y="416" font-size="12" fill="#9a3a3a" font-weight="700">SLEEP</text>
+  <text x="320" y="416" font-size="11.5" fill="#334155">KoluMeta + snapshot</text>
+  <text x="458" y="416" font-size="10.5" fill="#94a3b8">(frozen PulamMeta)</text>
+  <text x="410" y="437" text-anchor="middle" font-size="10.5" fill="#7c71c0" font-style="italic">live is projected by id · sleep is the one frozen copy</text>
 
   <!-- persist = author -->
-  <rect x="600" y="330" width="175" height="118" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <rect x="600" y="330" width="180" height="118" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
   <text x="617" y="354" font-size="12.5" font-weight="700" fill="#334155">persist = author</text>
-  <text x="617" y="375" font-size="11" fill="#475569">only Owned hits disk.</text>
-  <text x="617" y="392" font-size="11" fill="#475569">the snapshot IS owned</text>
-  <text x="617" y="407" font-size="11" fill="#475569">(a frozen Sensed) — so</text>
+  <text x="617" y="375" font-size="11" fill="#475569">only KoluMeta hits disk.</text>
+  <text x="617" y="392" font-size="11" fill="#475569">the snapshot IS KoluMeta</text>
+  <text x="617" y="407" font-size="11" fill="#475569">(a frozen PulamMeta) — so</text>
   <text x="617" y="422" font-size="11" fill="#475569">restore shows cwd/git/</text>
   <text x="617" y="437" font-size="11" fill="#475569">agent from it.</text>
 </svg>
