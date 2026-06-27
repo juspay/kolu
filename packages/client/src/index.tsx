@@ -10,7 +10,7 @@ import { koluBuildInfo } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import App from "./App";
 import { toast } from "solid-sonner";
-import { status } from "./rpc/rpc";
+import { presentingDown, status } from "./rpc/rpc";
 import { surfaceApp } from "./wire";
 import "./index.css";
 
@@ -50,6 +50,7 @@ render(
       clientCommit={shellCommit()}
       buildInfo={koluBuildInfo}
       status={status}
+      presentingDown={presentingDown}
       onError={(err) => toast.error(`Build identity error: ${err.message}`)}
     >
       <MetaProvider>

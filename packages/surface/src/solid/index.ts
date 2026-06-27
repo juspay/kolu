@@ -45,6 +45,10 @@ export {
   type SurfaceConnectionStatus,
   type WatchableSocket,
 } from "./liveSignal";
+// The browser wake-event seam (window focus / tab visible → an immediate heartbeat
+// re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
+// same fast resume path over its own watchdog; a no-op off-DOM.
+export { onWake } from "./onWake";
 // Re-exported so `@kolu/surface-app` (which has no direct `@orpc` dependency) can
 // constrain its own generics (`connectSurfaces<C extends AnyContractRouter>`) over
 // the combined contract without reaching into `@orpc/contract` itself.

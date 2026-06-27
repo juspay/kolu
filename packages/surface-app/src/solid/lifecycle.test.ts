@@ -8,7 +8,12 @@
 import { shouldNotRetryORPCError } from "@kolu/surface/client";
 import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createServerLifecycle, retireSocket, type WsLike } from "./index";
+import {
+  createServerLifecycle,
+  DISCONNECT_OVERLAY_GRACE_MS,
+  retireSocket,
+  type WsLike,
+} from "./index";
 
 /** A minimal transport whose `open`/`close` we fire by hand. `close` can carry a
  *  code so the restart-close-code path is exercisable. `readyState` defaults to
@@ -327,6 +332,69 @@ describe("createServerLifecycle", () => {
       expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
       expect(errors).toHaveLength(1);
       expect((errors[0] as Error).message).toBe("observer blew up");
+      dispose();
+    });
+  });
+});
+
+describe("createServerLifecycle — presentingDown overlay grace window", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("a sub-second down→live cycle never trips presentingDown — a forced reconnect doesn't flash the overlay", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { status, presentingDown } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        heartbeat: false, // isolate the lifecycle; the watchdog has its own cases
+      });
+      t.fire("open");
+      await Promise.resolve();
+      expect(status()).toBe("live");
+      expect(presentingDown()).toBe(false);
+
+      // Drop: `status()` flips to `down` INSTANTLY, but the overlay predicate waits.
+      t.fire("close");
+      expect(status()).toBe("down");
+      expect(presentingDown()).toBe(false);
+
+      // Reconnect well within the grace window — the overlay never armed.
+      vi.advanceTimersByTime(300);
+      t.fire("open");
+      await Promise.resolve();
+      expect(status()).toBe("live");
+      expect(presentingDown()).toBe(false);
+
+      // The cancelled show-timer can't fire even after the window fully elapses.
+      vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS * 5);
+      expect(presentingDown()).toBe(false);
+      dispose();
+    });
+  });
+
+  it("a sustained down DOES trip presentingDown once the grace window elapses, and recovery hides it instantly", async () => {
+    const t = fakeWs();
+    await createRoot(async (dispose) => {
+      const { status, presentingDown } = createServerLifecycle({
+        ws: t.ws,
+        probe: () => Promise.resolve({ processId: "p1" }),
+        heartbeat: false,
+      });
+      t.fire("open");
+      await Promise.resolve();
+      t.fire("close");
+      expect(status()).toBe("down");
+      // Just before the window closes: still held back.
+      vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 1);
+      expect(presentingDown()).toBe(false);
+      // Past it: a genuine sustained outage surfaces.
+      vi.advanceTimersByTime(1);
+      expect(presentingDown()).toBe(true);
+      // Recovery hides it instantly (no second grace window on the way back).
+      t.fire("open");
+      await Promise.resolve();
+      expect(presentingDown()).toBe(false);
       dispose();
     });
   });

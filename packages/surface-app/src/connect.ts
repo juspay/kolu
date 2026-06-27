@@ -224,10 +224,12 @@ const warnProbeThrew = (error: unknown) =>
  *  1000, NOT the stale-tab 4001, so the retire path is untouched). The public
  *  `onStale` here is a REPORTER (default `console.warn`), run after the reconnect.
  *
- *  Returns `dispose()` to stop the interval AND any in-flight probe timeout —
- *  wire it to the consumer's teardown (kolu's `onCleanup`). */
+ *  Returns `dispose()` to stop the interval AND any in-flight probe timeout (wire
+ *  it to the consumer's teardown — kolu's `onCleanup`), plus `wake()` — the
+ *  browser leg's fast resume re-probe (wire it to `onWake`). */
 export function createHeartbeat(opts: HeartbeatOptions): {
   dispose: () => void;
+  wake: () => void;
 } {
   return createHeartbeatPrimitive({
     probe: opts.probe,

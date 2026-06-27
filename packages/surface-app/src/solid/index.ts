@@ -38,6 +38,7 @@ export {
   retireSocket,
 } from "../lifecycle";
 
+import { onWake } from "@kolu/surface/solid";
 import {
   createHeartbeat,
   type HeartbeatConfig,
@@ -140,6 +141,17 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
   restarted: "restarted",
 };
 
+/** How long the transport may sit `down` before a consumer's full-screen
+ *  "Disconnected" overlay should appear. A forced reconnect — the half-open
+ *  watchdog recovering, partysocket riding out a Wi-Fi roam — closes and reopens
+ *  the socket in well under a second, and flashing a full-screen alarm for that
+ *  blink is noise. The grace-windowed `presentingDown` (on the lifecycle / model)
+ *  holds the overlay back until `down` has PERSISTED this long; a genuine sustained
+ *  outage still surfaces promptly. Baked, not a knob — a tunable would just be a way
+ *  to make the flash reappear. `status()` itself stays INSTANTANEOUS: it gates the
+ *  heartbeat probe, the client, and the header dot, none of which want a delay. */
+export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
+
 /** Derive the server lifecycle from a transport + an identity probe — the generic
  *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
  *  `processId`: the first connect is `connected`; a later one is `reconnected`
@@ -210,6 +222,12 @@ export function createServerLifecycle<
 }): {
   lifecycle: Accessor<ServerLifecycleEvent>;
   status: Accessor<ConnectionStatus>;
+  /** `status() === "down"`, but grace-windowed: true only once `down` has PERSISTED
+   *  past {@link DISCONNECT_OVERLAY_GRACE_MS}, so a sub-second forced reconnect never
+   *  trips a full-screen overlay. Hand this to `<SurfaceAppProvider presentingDown>`
+   *  (the `{ status }` source) — or read it directly — to gate the overlay; keep
+   *  `status()` for everything that must be instantaneous (the header dot, gating). */
+  presentingDown: Accessor<boolean>;
   serverProcessId: Accessor<string | undefined>;
   /** Detach the transport listeners. Auto-wired to `onCleanup` under an owner;
    *  call it directly for a module-level (owner-less) lifecycle. */
@@ -224,6 +242,41 @@ export function createServerLifecycle<
   // `connected` — not a spurious `reconnected`. `knownProcessId` is null until a
   // probe resolves, so its nullness IS that flag.
   let knownProcessId: string | null = null;
+  // The grace-windowed overlay predicate — IMPERATIVE (driven by the transitions
+  // below, not a reactive effect), so it works identically in the browser and in
+  // the node-env unit suite where `createEffect` is a no-op, and is testable with
+  // the same `createRoot` + fake-timer pattern as the lifecycle itself. `status()`
+  // flips to `down` the instant the socket closes; `presentingDown` only turns true
+  // once `down` has PERSISTED past DISCONNECT_OVERLAY_GRACE_MS, so a sub-second
+  // forced reconnect never paints a consumer's full-screen overlay.
+  const [presentingDown, setPresentingDown] = createSignal(false);
+  let downGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  const reflectDown = (down: boolean) => {
+    if (down) {
+      // Arm once on entering `down`; a repeat must not reset the window.
+      if (downGraceTimer === undefined && !presentingDown()) {
+        downGraceTimer = setTimeout(() => {
+          downGraceTimer = undefined;
+          // Re-read truth at fire: only paint if the transport is STILL down.
+          if (lifecycle().kind === "disconnected") setPresentingDown(true);
+        }, DISCONNECT_OVERLAY_GRACE_MS);
+      }
+    } else {
+      // Leaving `down`: cancel a pending show and hide instantly.
+      if (downGraceTimer !== undefined) {
+        clearTimeout(downGraceTimer);
+        downGraceTimer = undefined;
+      }
+      if (presentingDown()) setPresentingDown(false);
+    }
+  };
+  // Every lifecycle transition routes through here so `presentingDown` tracks the
+  // `down` state by construction — a bare `setLifecycle` that skipped it would let
+  // the windowed predicate desync from the status it shadows.
+  const commit = (event: ServerLifecycleEvent) => {
+    setLifecycle(event);
+    reflectDown(event.kind === "disconnected");
+  };
   const onOpen = () => {
     opts
       .probe()
@@ -240,11 +293,11 @@ export function createServerLifecycle<
         // probe become reconnect (same id) / restart (changed id).
         if (knownProcessId === null) {
           knownProcessId = processId;
-          setLifecycle({ kind: "connected", processId });
+          commit({ kind: "connected", processId });
         } else {
           const restarted = processId !== knownProcessId;
           knownProcessId = processId;
-          setLifecycle(
+          commit(
             restarted
               ? // Probe-driven restart: this open landed against a fresh
                 // process, so the socket is OPEN.
@@ -290,7 +343,7 @@ export function createServerLifecycle<
       // hand is the dead process we were detached from, and surfacing it under
       // the live-id field would have `serverProcessId()` report a contradictory
       // "current" id.
-      setLifecycle({ kind: "restarted", transport: "closed" });
+      commit({ kind: "restarted", transport: "closed" });
       // Fire the consumer's teardown synchronously, here at the single site that
       // decodes the stale-close — so the consumer provides the *action* (retire
       // THIS socket) without re-reading `event.code` itself or racing a reactive
@@ -300,7 +353,7 @@ export function createServerLifecycle<
     }
     // Only report a drop once an identity has been established — a close before
     // the first successful probe never established a relationship to report lost.
-    if (knownProcessId !== null) setLifecycle({ kind: "disconnected" });
+    if (knownProcessId !== null) commit({ kind: "disconnected" });
   };
   opts.ws.addEventListener("open", onOpen);
   opts.ws.addEventListener("close", onClose);
@@ -327,15 +380,24 @@ export function createServerLifecycle<
     probe: opts.livenessProbe ?? opts.probe,
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
+  // When this lifecycle owns the watchdog (the turnkey `{ ws, probe }` path —
+  // drishti's admin control plane), give it the browser's fast resume re-probe too:
+  // a wake event probes NOW instead of waiting up to a full interval for a socket a
+  // suspension killed. No-op off-DOM and when the watchdog is disabled (kolu's
+  // `heartbeat: false`, where the wire-side `createLiveSignal` already wired it).
+  const detachWake = heartbeat ? onWake(heartbeat.wake) : undefined;
   const dispose = () => {
     opts.ws.removeEventListener?.("open", onOpen);
     opts.ws.removeEventListener?.("close", onClose);
+    if (downGraceTimer !== undefined) clearTimeout(downGraceTimer);
+    detachWake?.();
     heartbeat?.dispose();
   };
   if (getOwner()) onCleanup(dispose);
   return {
     lifecycle,
     status: () => STATUS_OF[lifecycle().kind],
+    presentingDown,
     serverProcessId: () => {
       const e = lifecycle();
       return "processId" in e ? e.processId : undefined;
@@ -414,6 +476,12 @@ export interface SurfaceAppModel<
 > {
   /** Connection lifecycle — build-skew is one facet of the same relationship. */
   status: Accessor<ConnectionStatus>;
+  /** `status() === "down"`, GRACE-WINDOWED: true only once the transport has been
+   *  `down` longer than {@link DISCONNECT_OVERLAY_GRACE_MS}. Gate a full-screen
+   *  "Disconnected" overlay on THIS, not `status()`, so a sub-second forced
+   *  reconnect (the half-open watchdog recovering, a Wi-Fi roam) never flashes the
+   *  alarm. Use `status()` for the always-instant header dot. */
+  presentingDown: Accessor<boolean>;
   /** This browser's build is provably behind the server's. */
   stale: Accessor<boolean>;
   /** What am I bound to — whatever the buildInfo cell carries (commit, …). */
@@ -483,7 +551,16 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      own lifecycle uses `{ status }` instead and wires those itself.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
-  | { status: Accessor<ConnectionStatus>; ws?: undefined; probe?: undefined }
+  | {
+      status: Accessor<ConnectionStatus>;
+      /** The grace-windowed `down` predicate from the SAME lifecycle you derived
+       *  `status` from (`createServerLifecycle(...).presentingDown`). Pass it so the
+       *  overlay rides the windowed signal; omit it and the provider falls back to
+       *  the instantaneous `status() === "down"` (the pre-grace behavior). */
+      presentingDown?: Accessor<boolean>;
+      ws?: undefined;
+      probe?: undefined;
+    }
   | {
       // The turnkey source OWNS the socket's whole lifecycle — observe (open/
       // close → status), retire it on a stale-restart, AND keep it alive with a
@@ -592,8 +669,17 @@ export function SurfaceAppProvider<
   // and let two observers disagree). Otherwise derive it here from `ws`+`probe`
   // (the turnkey shape), or stay permanently `"live"` when neither is given.
   let status: Accessor<ConnectionStatus>;
+  // The overlay-gating predicate: `status()`'s `down`, grace-windowed so a
+  // sub-second forced reconnect never paints the full-screen alarm. Resolved
+  // alongside `status` from whichever source — never debounced onto `status` itself
+  // (which must stay instant for the header dot and the heartbeat gate).
+  let presentingDown: Accessor<boolean>;
   if (props.status) {
     status = props.status;
+    // A consumer that derived the lifecycle elsewhere (kolu's `rpc.ts`) passes its
+    // grace-windowed accessor; absent it, fall back to the instantaneous status —
+    // the pre-grace behavior, so no existing consumer regresses.
+    presentingDown = props.presentingDown ?? (() => status() === "down");
   } else if (props.ws && props.probe) {
     const ws = props.ws;
     const lifecycle = createServerLifecycle({
@@ -628,6 +714,7 @@ export function SurfaceAppProvider<
         props.onError?.(err instanceof Error ? err : new Error(String(err))),
     });
     status = lifecycle.status;
+    presentingDown = lifecycle.presentingDown;
     // The turnkey source owns the socket's LIVENESS too — but that watchdog now
     // lives INSIDE `createServerLifecycle` (default-on, disposed with the
     // lifecycle), so there is no separate `createHeartbeat` to wire here. A
@@ -635,6 +722,7 @@ export function SurfaceAppProvider<
     // plane) gets the half-open watchdog for free.
   } else {
     status = () => "live";
+    presentingDown = () => false;
   }
   // Staleness is a property of the build-identity fragment; the fragment's
   // `isStale` wants a concrete value, so fall back to the schema default.
@@ -660,6 +748,7 @@ export function SurfaceAppProvider<
   }
   const model: SurfaceAppModel<T> = {
     status,
+    presentingDown,
     stale,
     server,
     clientCommit: props.clientCommit,

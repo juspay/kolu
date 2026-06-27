@@ -55,6 +55,7 @@ import { type Accessor, createSignal } from "solid-js";
 import { createHeartbeat, type HeartbeatTuning } from "../heartbeat";
 import { websocketLink } from "../links/websocket";
 import { probeSurfaceLive } from "../liveness";
+import { onWake } from "./onWake";
 
 export type { HeartbeatTuning };
 
@@ -108,6 +109,14 @@ export type WatchableSocket = {
   reconnect: () => void;
   addEventListener(type: "open", listener: () => void): void;
   addEventListener(
+    type: "close",
+    listener: (event?: { code?: number }) => void,
+  ): void;
+  // `dispose()` detaches the open/close listeners it attached (when present) so a
+  // disposed handle leaks nothing across a remount. Optional, like
+  // `createServerLifecycle`'s `WsLike` — every real partysocket supplies it.
+  removeEventListener?(type: "open", listener: () => void): void;
+  removeEventListener?(
     type: "close",
     listener: (event?: { code?: number }) => void,
   ): void;
@@ -195,14 +204,18 @@ export function createLiveSignal<
   // `() => status() === "live"` must never stand in for a `LiveSignalHandle`.
   const [status, setStatus] =
     createSignal<SurfaceConnectionStatus>("connecting");
-  ws.addEventListener("open", () => setStatus("live"));
-  ws.addEventListener("close", (event) => {
+  // Named so `dispose()` can detach them — otherwise these outlive the handle and
+  // leak across a remount (drishti's per-host sockets, a test re-creating one).
+  const onOpen = () => setStatus("live");
+  const onClose = (event?: { code?: number }) => {
     const retired =
       opts.retireOnStaleClose === true &&
       opts.restartCloseCode !== undefined &&
       event?.code === opts.restartCloseCode;
     setStatus(retired ? "down" : "reconnecting");
-  });
+  };
+  ws.addEventListener("open", onOpen);
+  ws.addEventListener("close", onClose);
   // Build the oRPC link over THIS socket — the one we watch and reconnect — so the
   // probe channel IS the reconnected channel. There is no caller-supplied probe
   // target to fabricate: a caller could once hand back an in-memory
@@ -248,6 +261,15 @@ export function createLiveSignal<
     onStaleReport: opts.onStale ?? warnStale,
     onProbeError: warnProbeThrew,
   });
+  // Latency optimization (browser only): a wake event — window focus on app-switch
+  // return, or a tab becoming visible — means the runtime may have just resumed, so
+  // probe NOW rather than wait up to a full interval for the next tick to catch a
+  // socket the suspension actually killed. `wake()` only ever PROBES (never voids,
+  // never declares stale), and `onWake` is a no-op off-DOM (the node unit suite),
+  // so this is pure recovery-latency, not a correctness leg — the measured clock-gap
+  // void inside the heartbeat is what keeps a *healthy* resumed socket from a
+  // spurious reconnect, with or without a wake event firing.
+  const detachWake = onWake(heartbeat.wake);
   // Assemble the handle ONLY now — after the watchdog above is wired over the owned
   // link. Because this is the one place that builds the link, wires the watchdog,
   // AND mints the handle, a handle existing IS proof a watchdog probes the socket it
@@ -259,7 +281,15 @@ export function createLiveSignal<
     live: isLive,
     status,
     link,
-    dispose: () => heartbeat.dispose(),
+    dispose: () => {
+      heartbeat.dispose();
+      detachWake();
+      // Detach the open/close listeners this handle attached (when the socket
+      // supports it) so nothing survives the handle — a page-lifetime socket never
+      // calls this, but a remounting consumer (drishti, a test) must leak nothing.
+      ws.removeEventListener?.("open", onOpen);
+      ws.removeEventListener?.("close", onClose);
+    },
   };
   LIVE_SIGNAL_HANDLES.add(handle);
   return handle;
