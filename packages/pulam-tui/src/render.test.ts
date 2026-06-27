@@ -5,12 +5,15 @@ import type {
 } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import {
+  agentMatchesUntil,
   formatAwarenessJson,
   formatStatus,
+  formatWaitMet,
   formatWatchEvent,
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  parseUntilStates,
   resolveTerminalId,
   shortId,
 } from "./render.ts";
@@ -175,6 +178,86 @@ describe("formatWatchEvent", () => {
       live: true,
     });
     expect(line.endsWith("●")).toBe(true);
+  });
+});
+
+describe("parseUntilStates", () => {
+  it("parses a single bucket", () => {
+    expect(parseUntilStates("awaiting")).toEqual({
+      kind: "ok",
+      targets: new Set(["awaiting"]),
+    });
+  });
+
+  it("parses a comma list, trimming and case-folding", () => {
+    expect(parseUntilStates(" Awaiting , WAITING ")).toEqual({
+      kind: "ok",
+      targets: new Set(["awaiting", "waiting"]),
+    });
+  });
+
+  it("dedupes repeated buckets", () => {
+    expect(parseUntilStates("awaiting,awaiting")).toEqual({
+      kind: "ok",
+      targets: new Set(["awaiting"]),
+    });
+  });
+
+  it("rejects an empty value as an error (no silent match-everything)", () => {
+    expect(parseUntilStates("").kind).toBe("error");
+    expect(parseUntilStates("  ,  ").kind).toBe("error");
+  });
+
+  it("rejects an unknown bucket, naming the offending token", () => {
+    const result = parseUntilStates("awaiting,bogus");
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("bogus");
+  });
+
+  it("rejects `idle` — not a bucket the agentBucket fold emits", () => {
+    expect(parseUntilStates("idle").kind).toBe("error");
+  });
+});
+
+describe("agentMatchesUntil", () => {
+  it("never matches a terminal with no agent", () => {
+    expect(agentMatchesUntil(null, new Set(["awaiting", "waiting"]))).toBe(
+      false,
+    );
+  });
+
+  it("folds the raw state through agentBucket before testing membership", () => {
+    // thinking → working, so it is NOT in {awaiting, waiting}.
+    expect(
+      agentMatchesUntil(agentVal("thinking"), new Set(["awaiting", "waiting"])),
+    ).toBe(false);
+    // tool_use → working.
+    expect(agentMatchesUntil(agentVal("tool_use"), new Set(["working"]))).toBe(
+      true,
+    );
+    // awaiting_user → awaiting; waiting → waiting.
+    expect(
+      agentMatchesUntil(
+        agentVal("awaiting_user"),
+        new Set(["awaiting", "waiting"]),
+      ),
+    ).toBe(true);
+    expect(
+      agentMatchesUntil(agentVal("waiting"), new Set(["awaiting", "waiting"])),
+    ).toBe(true);
+  });
+});
+
+describe("formatWaitMet", () => {
+  it("names the short id, the bucket it reached, and the agent's state", () => {
+    const line = formatWaitMet(
+      id("a3f1aaaa-1111"),
+      agentVal("awaiting_user") as NonNullable<AwarenessValue["agent"]>,
+    );
+    expect(line).toContain("a3f1aaaa");
+    expect(line).toContain("awaiting");
+    expect(line).toContain("claude");
+    expect(line).toContain(agentStatusLabel("awaiting_user"));
   });
 });
 

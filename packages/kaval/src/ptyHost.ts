@@ -330,6 +330,10 @@ interface Entry {
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
   lastForegroundKey: string | undefined;
+  /** Wall-clock of the last on-output foreground sample, to throttle it (see
+   *  `FOREGROUND_SAMPLE_THROTTLE_MS`). The OSC samplers are instant and
+   *  unthrottled; this only bounds the output-driven fallback. */
+  lastForegroundSampleAt: number;
   /** Pending burst timers (post-command settle samples); cleared on
    *  teardown so a killed PTY schedules nothing. */
   foregroundTimers: ReturnType<typeof setTimeout>[];
@@ -346,6 +350,15 @@ interface Entry {
  *  reacting to that tap sees the settled foreground without coupling to this
  *  schedule. */
 const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
+
+/** Min interval (ms) between OUTPUT-driven foreground samples per PTY. The OSC
+ *  samplers (title / 633;E) only fire for a shell carrying kolu's rc-hooks; a
+ *  bare `kaval-tui create` shell emits none, so without this its `foregroundPid`
+ *  is never captured and agent detection (which keys on it) never sees the agent.
+ *  A working agent streams output, so sampling on data — throttled — captures its
+ *  foreground within the window while bounding the `tcgetpgrp` rate under a flood
+ *  of output. Dedup (`lastForegroundKey`) makes a steady foreground free. */
+const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
 
 /** Read node-pty's foreground-pid accessor, collapsing the transient 0
  *  (before the child finishes `setsid`) to `undefined`. */
@@ -517,6 +530,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       lastCommand: undefined,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
+      lastForegroundSampleAt: 0,
       foregroundTimers: [],
       onDispose: spawnOpts.onDispose,
     };
@@ -618,7 +632,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // a single point with no gap and no overlap.
     entry.disposables.push(
       proc.onData((data: string) => {
-        entry.lastActivity = Date.now();
+        const now = Date.now();
+        entry.lastActivity = now;
+        // Output-driven foreground sample (throttled) — the fallback for a
+        // hook-less terminal that emits no OSC title/633 to trigger the samplers
+        // above. A working agent streams output, so this captures its
+        // `foregroundPid` so agent detection can key on it; dedup makes a steady
+        // foreground free, and the throttle bounds `tcgetpgrp` under a flood.
+        if (
+          now - entry.lastForegroundSampleAt >=
+          FOREGROUND_SAMPLE_THROTTLE_MS
+        ) {
+          entry.lastForegroundSampleAt = now;
+          sampleForeground(entry);
+        }
         headless.write(data, () => {
           // New bytes have parsed into the mirror, so the memoized snapshot is
           // stale: clear it BEFORE publishing, so a cached value always implies
