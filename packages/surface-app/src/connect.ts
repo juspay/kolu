@@ -189,7 +189,7 @@ export interface HeartbeatOptions {
    *  a silent half-open recovery is never invisible; pass your own logger. */
   onStale?: () => void;
   /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
-   *  from an async rejection). Defaults to a `console.warn` so the heartbeat
+   *  from an async rejection). Defaults to a `console.error` so the heartbeat
    *  going inert is never silent; pass your own logger. */
   onProbeError?: (error: unknown) => void;
 }
@@ -199,8 +199,13 @@ const warnStale = () =>
     "surface-app: heartbeat probe timed out — forcing reconnect (half-open socket)",
   );
 
+// `error` level, not `warn` (matching `@kolu/surface`'s `liveSignal` reporter): a
+// synchronous throw is an unexpected exception that leaves the watchdog permanently
+// INERT — a hard fault, not the degraded-but-recoverable blip a timed-out probe is
+// (`warnStale`, which recovers by reconnecting). Operators filtering on `error`
+// must see a heartbeat that has gone silent.
 const warnProbeThrew = (error: unknown) =>
-  console.warn(
+  console.error(
     "surface-app: heartbeat probe threw synchronously — no round-trip was made; " +
       "the probe is likely miswired (heartbeat is inert until fixed)",
     error,
