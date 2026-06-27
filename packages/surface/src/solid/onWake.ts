@@ -34,19 +34,20 @@ export function onWake(wake: () => void): () => void {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return () => {};
   }
-  const onFocus = () => wake();
+  // `focus` and `resume` are unconditional re-probes, so `wake` is the listener
+  // directly (it ignores the event arg); only `visibilitychange` needs a guard to
+  // fire on the visible edge alone.
   const onVisible = () => {
     if (document.visibilityState === "visible") wake();
   };
-  const onResume = () => wake();
-  window.addEventListener("focus", onFocus);
+  window.addEventListener("focus", wake);
   document.addEventListener("visibilitychange", onVisible);
   // `resume` is a Page-Lifecycle event not yet in `DocumentEventMap`, so it lands
   // on `addEventListener`'s string overload — typed but not in the named union.
-  document.addEventListener("resume", onResume);
+  document.addEventListener("resume", wake);
   return () => {
-    window.removeEventListener("focus", onFocus);
+    window.removeEventListener("focus", wake);
     document.removeEventListener("visibilitychange", onVisible);
-    document.removeEventListener("resume", onResume);
+    document.removeEventListener("resume", wake);
   };
 }

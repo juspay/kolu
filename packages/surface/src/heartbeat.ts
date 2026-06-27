@@ -312,9 +312,10 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // link half-open. UNLESS the void budget is spent (a flap that has deferred a
       // verdict for too long of ACTUAL running time): then fall through and fire
       // stale, so voiding can never silence the watchdog.
+      const currentMono = mono();
       const suspended =
-        now() - launchWall - (mono() - launchMono) > SUSPENSION_SLACK_MS;
-      if (suspended && mono() - lastSettledMono <= voidBudgetMs) {
+        now() - launchWall - (currentMono - launchMono) > SUSPENSION_SLACK_MS;
+      if (suspended && currentMono - lastSettledMono <= voidBudgetMs) {
         abandon();
         tick(); // fresh, full-timeoutMs probe over a continuously-running window
         return;
