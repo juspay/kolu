@@ -12,6 +12,8 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Phase from "../../components/Phase.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
+import Svg from "../../components/Svg.astro";
+import topology from "../../diagrams/r90-process-topology.svg?raw";
 
 **The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. But R8 also made **kolu serve awareness *in-process*** (the registry-projection backing of `serveTerminalWorkspace`), which **re-coupled awareness into kolu** — the exact thing pulam ([R4](pulam.html)) exists to decouple. This note corrects course: **pulam is the single awareness authority per host; kolu *consumes* a local pulam.** Then the remote work (R9.3) is the *same* mirror pointed at a *remote* pulam — **local becomes a special case of remote** — and the R9a desync never arises. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; full model in [the terminal model](terminal-metadata-model.html).
 
@@ -75,8 +77,11 @@ export const PT = [
 
 This **subsumes R9a**: one sensor set, all readers mirror it, so the `working`-vs-`idle` desync cannot occur.
 
-- **Open (decide here):** (a) *who owns the local pulam's lifecycle* — **recommend** kolu-server `adoptOrEnsure`s it via the [R2](pty-daemon.html) daemon-supervisor spine (boot brings up kaval → local pulam → mirror), so it's the same supervision the kaval already gets; (b) *migration off R8's in-process backing* — cut over, or flag the swap behind one seam and retire the in-process path once the mirror is proven.
-- **Needs:** R8 (the reader-join + the injection seam), R4 (the pulam daemon).
+<Svg svg={topology} caption="After R9.0, on the local box: kaval (owns the PTYs) and a local pulam (the one sensor set, R4) are each daemons on a unix socket, both spawned + supervised by kolu-server (R2 adoptOrEnsure). kolu-server dials kaval over a unix socket for PTY I/O, and mirrors the local pulam's terminalWorkspace.awareness over a unix socket as its awareness backing; the local pulam reads kaval's taps (unix socket) to run the sensors. The browser reads kolu-server over a websocket (/rpc/ws); pulam-web, if present, mirrors the SAME local pulam. A remote host (R9.3) is the identical shape, reached over ssh stdio instead of unix sockets." />
+
+- **Decided:** the local pulam's lifecycle is **kolu-server's** — it `adoptOrEnsure`s the local pulam via the [R2](pty-daemon.html) daemon-supervisor spine (boot brings up kaval → local pulam → mirror), the same supervision the kaval already gets.
+- **Open:** *migration off R8's in-process backing* — cut over, or flag the swap behind one seam and retire the in-process path once the mirror is proven.
+- **Needs:** R8 (the reader-join + the injection seam) and R4 (the pulam daemon) — **both shipped**.
 - **Done:** kolu-server runs **no** awareness sensors; its awareness backing is a local-pulam mirror; kolu's Dock and pulam-web render identical state **by construction** (the old R9a differential, now free); local and remote awareness share **one** mirror code path.
 
 <a id="r91"></a>
@@ -157,7 +162,7 @@ Resolve each before the phase that needs it — so the implementer isn't choosin
 
 | decision | needed by | options |
 | --- | --- | --- |
-| **local pulam lifecycle** | **R9.0** | kolu-server `adoptOrEnsure`s a local pulam (recommended — reuses the R2 supervisor), or a separately-managed unit |
+| ~~local pulam lifecycle~~ | R9.0 | **decided — kolu-server `adoptOrEnsure`s the local pulam (R2 daemon-supervisor)** |
 | **migration off R8's in-process backing** | **R9.0** | hard cutover, or flag the backing swap behind one seam and retire the in-process path once proven |
 | rename the join `TerminalMetadata → Terminal` | cosmetic, any time | ride a mechanical pass (~63 refs), or leave it |
 | reconnect re-validation semantics | **R9.4** | what's compared (`location` vs the remote kaval's live `cwd`) + the fail-fast behavior |
