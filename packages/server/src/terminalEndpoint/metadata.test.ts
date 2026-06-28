@@ -261,4 +261,95 @@ describe("applyMirroredAwareness — kolu-persisted history vs pulam-derivable f
     await settle();
     expect(dirtyCount).toBe(1);
   });
+
+  // ── git is the async-resolved persisted field — the relocated blocker ──
+  function gitInfo(
+    root = "/repo",
+    branch = "main",
+  ): NonNullable<AwarenessValue["git"]> {
+    return {
+      repoRoot: root,
+      repoName: "repo",
+      worktreePath: root,
+      branch,
+      isWorktree: false,
+      mainRepoRoot: root,
+      remoteUrl: null,
+    };
+  }
+
+  it("preserves a restored NON-NULL git when pulam's first frame is git:null and the cwd is still in the repo (and does NOT persist the transient null)", async () => {
+    // The restart blocker: kolu restored git; the ephemeral pulam's first frame
+    // carries git:null before it re-resolves. cwd still inside the repo ⇒ the
+    // resolution window, NOT a departure ⇒ preserve the restored git.
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.git = gitInfo("/repo", "feat-x");
+    entry.awareness.cwd = "/repo/src";
+    dirtyCount = 0;
+    applyMirroredAwareness(ID, pulamFrame({ cwd: "/repo/src", git: null }));
+    await settle();
+    expect(getTerminal(ID)?.awareness.git?.branch).toBe("feat-x"); // not clobbered
+    // The preserved git is UNCHANGED, so no persisted-field diff fires — the
+    // transient null never reaches disk (the dirty-gate, achieved by the fold).
+    expect(dirtyCount).toBe(0);
+  });
+
+  it("clears git once the cwd has LEFT the repo (a real departure, not the window)", () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.git = gitInfo("/repo", "feat-x");
+    entry.awareness.cwd = "/repo";
+    applyMirroredAwareness(ID, pulamFrame({ cwd: "/tmp", git: null }));
+    expect(getTerminal(ID)?.awareness.git).toBeNull(); // genuinely left → cleared
+  });
+
+  // ── every persisted field must ARM terminals:dirty (so a silent drop from
+  //    the schema-derived diff fails CI) ── cwd is covered above; the rest: ──
+  it("git change arms terminals:dirty", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/tmp";
+    dirtyCount = 0;
+    applyMirroredAwareness(ID, pulamFrame({ cwd: "/tmp", git: gitInfo() }));
+    await settle();
+    expect(dirtyCount).toBe(1);
+  });
+
+  it("lastAgentCommand change arms terminals:dirty", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/tmp";
+    dirtyCount = 0;
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ cwd: "/tmp", lastAgentCommand: "claude" }),
+    );
+    await settle();
+    expect(dirtyCount).toBe(1);
+  });
+
+  it("agentSession change arms terminals:dirty", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/tmp";
+    dirtyCount = 0;
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({
+        cwd: "/tmp",
+        agentSession: { kind: "claude-code", id: "s1" },
+      }),
+    );
+    await settle();
+    expect(dirtyCount).toBe(1);
+  });
+
+  it("lastActivityAt advance arms terminals:dirty", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/tmp";
+    entry.awareness.lastActivityAt = 0;
+    dirtyCount = 0;
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ cwd: "/tmp", lastActivityAt: 9999 }),
+    );
+    await settle();
+    expect(dirtyCount).toBe(1);
+  });
 });

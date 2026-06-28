@@ -32,6 +32,7 @@
  */
 
 import { prValue } from "anyforge/schemas";
+import { AwarenessPersistedFieldsSchema } from "@kolu/terminal-workspace";
 import {
   type AwarenessLiveFields,
   type AwarenessPersistedFields,
@@ -182,19 +183,24 @@ export function applyMirroredAwareness(
   if (!prior) return; // no entry — drop (the mirror re-sends on the next change)
 
   // Fold pulam's frame over the entry, honoring the kolu-persisted vs
-  // pulam-derivable boundary. pulam re-derives cwd / git / pr / agent /
-  // foreground from the live kaval, so those OVERWRITE. But `lastActivityAt`,
-  // `lastAgentCommand`, and `agentSession` are kolu-PERSISTED HISTORY the
-  // EPHEMERAL pulam never saw — it re-derives from now and seeds them empty
-  // (lastActivityAt: 0, the rest absent). So kolu's restored value is PRESERVED
-  // unless pulam derived a fresher one going forward (a newer activity bump, a
-  // new command, a re-resolved session). Without this, pulam's empty seed would
-  // clobber a restored terminal's recency ordering AND its resume offer on the
-  // first frame — and persist that loss to disk. lastActivityAt is monotonic
-  // (max), so an idle terminal keeps T_saved while a real transition advances it.
+  // pulam-derivable boundary. pulam re-derives cwd / pr / agent / foreground from
+  // the live kaval immediately, so those OVERWRITE. The PERSISTED fields are the
+  // subtle ones — the EPHEMERAL pulam re-derives from now and seeds them empty
+  // (lastActivityAt 0, git null, the rest absent), so a verbatim copy of its
+  // FIRST frame after a (re)start would clobber kolu's restored value:
+  //   - lastActivityAt: monotonic (max) — an idle terminal keeps T_saved while a
+  //     real agent transition advances it;
+  //   - lastAgentCommand / agentSession: keep kolu's restored value unless pulam
+  //     derived a fresher one going forward (a new command, a re-resolved session)
+  //     — so a restored terminal's resume offer survives;
+  //   - git: async-resolved, so pulam's first frame carries git:null before
+  //     resolution. `foldMirroredGit` preserves the restored git WHILE the cwd is
+  //     still inside it (the resolution window) and clears it once the cwd has
+  //     LEFT the repo (a real departure) — so a restart can't clobber it, yet
+  //     leaving a repo still updates.
   const folded: AwarenessValue = {
     cwd: value.cwd,
-    git: value.git,
+    git: foldMirroredGit(prior, value),
     pr: value.pr,
     agent: value.agent,
     foreground: value.foreground,
@@ -233,22 +239,48 @@ export function applyMirroredAwareness(
   }
 }
 
-/** Did any PERSISTED awareness field change between `prior` and `next`? — cwd,
- *  git, lastAgentCommand, agentSession, lastActivityAt: the half a host persists
- *  and the session autosave captures. The two objects (git, agentSession) are
- *  compared STRUCTURALLY because the local-pulam mirror sends a fresh object each
- *  frame, so identity always differs even when the content is unchanged. */
+/** The persisted-awareness field names, DERIVED from the schema so a future 6th
+ *  persisted field is folded into the dirty-gate automatically — hand-enumerating
+ *  them would silently drop a new field from the gate (the inverse defect: lost
+ *  persistence). */
+const PERSISTED_AWARENESS_KEYS = Object.keys(
+  AwarenessPersistedFieldsSchema.shape,
+) as Array<keyof AwarenessPersistedFields>;
+
+/** Did any PERSISTED awareness field change between `prior` and `next`? — the
+ *  half a host persists and the session autosave captures. Compared STRUCTURALLY
+ *  (JSON) on every persisted key: the local-pulam mirror sends fresh objects each
+ *  frame, so identity always differs even when the content is unchanged, and a
+ *  uniform structural compare needs no per-field special-casing. */
 function persistedAwarenessChanged(
   prior: AwarenessValue,
   next: AwarenessValue,
 ): boolean {
-  return (
-    prior.cwd !== next.cwd ||
-    prior.lastAgentCommand !== next.lastAgentCommand ||
-    prior.lastActivityAt !== next.lastActivityAt ||
-    JSON.stringify(prior.git) !== JSON.stringify(next.git) ||
-    JSON.stringify(prior.agentSession) !== JSON.stringify(next.agentSession)
+  return PERSISTED_AWARENESS_KEYS.some(
+    (k) => JSON.stringify(prior[k]) !== JSON.stringify(next[k]),
   );
+}
+
+/** Fold the persisted, ASYNC-resolved `git` field across one mirrored frame. git
+ *  is pulam-derivable (it reads the live repo), but the ephemeral pulam seeds it
+ *  null and resolves it asynchronously — so its first frame after a (re)start
+ *  carries git:null before resolution. That null is AMBIGUOUS: "not resolved yet"
+ *  vs "genuinely no repo here". The cwd disambiguates: a null git while the cwd is
+ *  STILL inside the last-known repo is the resolution window (preserve the restored
+ *  git, so a restart can't clobber it); a null git once the cwd has LEFT the repo
+ *  is a real departure (take the null, clearing it). The lone residual is a `.git`
+ *  deleted in place (cwd stays, repo truly gone) — preserved stale until the cwd
+ *  leaves; rare and self-correcting. */
+function foldMirroredGit(
+  prior: AwarenessValue,
+  incoming: AwarenessValue,
+): AwarenessValue["git"] {
+  if (incoming.git !== null) return incoming.git; // resolved → take it
+  if (prior.git === null) return null; // nothing restored to preserve
+  const root = prior.git.mainRepoRoot;
+  const stillInRepo =
+    incoming.cwd === root || incoming.cwd.startsWith(`${root}/`);
+  return stillInRepo ? prior.git : null;
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,

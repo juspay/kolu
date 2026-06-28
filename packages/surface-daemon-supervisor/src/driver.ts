@@ -218,8 +218,13 @@ export interface EphemeralSpawnDeps {
  *     dev all reap it.
  *   - **The residual** is a hard SIGKILL of the parent *off* systemd: it bypasses
  *     the exit hook (uncatchable), exactly as it bypasses kolu's own
- *     `process.on("exit")` cleanup. Harmless here — the socket is per-port, the
- *     orphan reads a now-dead kaval, and the next boot's recycle clears it.
+ *     `process.on("exit")` cleanup. The orphaned daemon keeps serving on its
+ *     per-port socket (still dialing the SURVIVABLE kaval, which a kolu-only kill
+ *     leaves alive), and a same-port restart can't reap it — it writes no gate,
+ *     and a fresh boot's driver holds no `prior` — so a new instance collides on
+ *     the socket until the orphan is killed by hand. Production avoids it (the
+ *     systemd cgroup reaps the child); dev avoids it (random per-port sockets
+ *     never collide). It bites only an off-systemd, fixed-port hard-kill.
  *
  * Self-recycling: the driver holds the last child it spawned and SIGTERMs it
  * before launching fresh, so a supervisor `ensure()`/`adoptOrEnsure()` re-spawn

@@ -106,13 +106,13 @@ The `terminalWorkspace.awareness` collection is served by **two homes** — kolu
 
 | backing | kolu-server | pulam |
 | --- | --- | --- |
-| `awareness` source | projects off its **registry** (`.awareness` per entry) | reads its **own store** |
-| `activity` source | `quietActivity` — no raw byte tap yet | **live**, over its activity tracker |
+| `awareness` source | projects off its **registry** (`.awareness` per entry), now **written by the local-pulam mirror** (R9.0) | reads its **own store** |
+| `activity` source | **live**, over the **local-pulam mirror** (the local pulam owns the kaval byte tap) | **live**, over its activity tracker |
 
-It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
+It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9.0 turning kolu's backings into a pulam mirror — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
 
-<Callout kind="warn" title="Correction (proposed) — the in-process home is the mis-step">
-The *kolu-in-process* home of this factory re-couples awareness into kolu — the thing [pulam](pulam.html) exists to decouple. The fix ([R9.0](remote-terminals-finale.html#r90)) makes kolu's awareness backing a **mirror of a local pulam**, so the backing is *always* a pulam mirror (local or remote) and **pulam is the one authority per host**. The reader-join and the injection seam stay; only the backing source changes.
+<Callout kind="note" title="Shipped (R9.0) — kolu consumes a local pulam">
+The *kolu-in-process* home of this factory re-coupled awareness into kolu — the thing [pulam](pulam.html) exists to decouple. The fix ([R9.0](remote-terminals-finale.html#r90), [#1614](https://github.com/juspay/kolu/pull/1614)) makes kolu's awareness backing a **mirror of its supervised local pulam** — the same mirror [R9.3](remote-terminals-finale.html#r93) points at a *remote* pulam — so the arrow points **→ pulam** with no cross-reach. The reader-join and the injection seam stay; only the backing source changes. It does **not** unify the two pulam instances (pulam-web keeps its own — that's the optional [R9-converge](remote-terminals-finale.html#r9-converge)), so this makes no single-authority claim.
 </Callout>
 
 ## Next — R9 (corrected: kolu consumes a pulam)

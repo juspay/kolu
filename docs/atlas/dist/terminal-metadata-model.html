@@ -211,18 +211,18 @@
 <tbody>
 <tr>
 <td><code>awareness</code> source</td>
-<td>projects off its <strong>registry</strong> (<code>.awareness</code> per entry)</td>
+<td>projects off its <strong>registry</strong> (<code>.awareness</code> per entry), now <strong>written by the local-pulam mirror</strong> (R9.0)</td>
 <td>reads its <strong>own store</strong></td>
 </tr>
 <tr>
 <td><code>activity</code> source</td>
-<td><code>quietActivity</code> — no raw byte tap yet</td>
+<td><strong>live</strong>, over the <strong>local-pulam mirror</strong> (the local pulam owns the kaval byte tap)</td>
 <td><strong>live</strong>, over its activity tracker</td>
 </tr>
 </tbody>
 </table>
-<p>It’s the volatility-boundary twin of <code>serveFsGit</code>: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu’s <code>activity</code> live — is a <strong>backing injection</strong>, never a second hand-assembled copy (pinned by <code>serveTerminalWorkspace.test.ts</code>).</p>
-<aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Correction (proposed) — the in-process home is the mis-step</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The <em>kolu-in-process</em> home of this factory re-couples awareness into kolu — the thing <a href="pulam.html">pulam</a> exists to decouple. The fix (<a href="remote-terminals-finale.html#r90">R9.0</a>) makes kolu’s awareness backing a <strong>mirror of a local pulam</strong>, so the backing is <em>always</em> a pulam mirror (local or remote) and <strong>pulam is the one authority per host</strong>. The reader-join and the injection seam stay; only the backing source changes.</p></div></aside>
+<p>It’s the volatility-boundary twin of <code>serveFsGit</code>: the factory hides the assembly, only the backing varies. So a second home — or R9.0 turning kolu’s backings into a pulam mirror — is a <strong>backing injection</strong>, never a second hand-assembled copy (pinned by <code>serveTerminalWorkspace.test.ts</code>).</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Shipped (R9.0) — kolu consumes a local pulam</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The <em>kolu-in-process</em> home of this factory re-coupled awareness into kolu — the thing <a href="pulam.html">pulam</a> exists to decouple. The fix (<a href="remote-terminals-finale.html#r90">R9.0</a>, <a href="https://github.com/juspay/kolu/pull/1614">#1614</a>) makes kolu’s awareness backing a <strong>mirror of its supervised local pulam</strong> — the same mirror <a href="remote-terminals-finale.html#r93">R9.3</a> points at a <em>remote</em> pulam — so the arrow points <strong>→ pulam</strong> with no cross-reach. The reader-join and the injection seam stay; only the backing source changes. It does <strong>not</strong> unify the two pulam instances (pulam-web keeps its own — that’s the optional <a href="remote-terminals-finale.html#r9-converge">R9-converge</a>), so this makes no single-authority claim.</p></div></aside>
 <h2 id="next--r9-corrected-kolu-consumes-a-pulam">Next — R9 (corrected: kolu consumes a pulam)</h2>
 <p>R8 did the hard part — the reader-join <strong>and</strong> the <code>serveTerminalWorkspace</code> backing-injection seam — <em>keep both</em>. But R8’s choice to have kolu <em>serve awareness in-process</em> re-coupled awareness into kolu. The correction: <strong>pulam is the single awareness authority per host; kolu’s awareness backing is always a <em>pulam mirror</em>.</strong></p>
 <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-language="text"><code><span class="line"><span>R9.0  kolu's `awareness` backing:  in-process registry projection  →  a mirror of a</span></span>
