@@ -26,8 +26,8 @@ const commands = [
   },
   {
     cmd: "kaval-tui snapshot <id>",
-    flags: "",
-    what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
+    flags: "--viewport · --tail N",
+    what: "Print a terminal's rendered screen as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean). Defaults to the full scrollback; --viewport prints just the visible screen (the daemon's own last screenful — the right read when driving an agent), --tail N the last N rendered lines.",
   },
   {
     cmd: "kaval-tui attach <id>",

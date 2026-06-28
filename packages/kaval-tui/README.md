@@ -13,7 +13,7 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 ```
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
-kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
 kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
@@ -93,6 +93,28 @@ Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
 so pair it with `snapshot` to look before (or after) you write. `--json` prints
 `{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes
 to stderr, so stdout stays empty unless you ask for JSON.
+
+## Reading the screen
+
+`snapshot` prints a terminal's **rendered** screen — plain text, not the VT
+escape stream — so you can `grep` it or read it back when driving an agent.
+
+By default it prints the **whole scrollback**, which on a long-running (or
+compacted) agent session is thousands of lines — so `snapshot <id> | tail -8`
+hands you the bottom of the buffer (often just trailing blanks), not the current
+screen. Two flags bound it instead:
+
+```sh
+kaval-tui snapshot a1b2 --viewport      # just the visible screen (the daemon's last screenful)
+kaval-tui snapshot a1b2 --tail 40       # the last 40 rendered lines (--lines 40 is a synonym)
+```
+
+`--viewport` is the right read for "what's on screen now" when driving an agent —
+it asks the daemon for the terminal's own last screenful, so it's correct
+regardless of how tall _your_ shell is (your stdout is usually a pipe, and over
+`--host` the remote terminal is a different size entirely). `--viewport`,
+`--tail`, and `--lines` are mutually exclusive; pass at most one. A trailer line
+(`— a1b2 · N lines`) goes to stderr, so stdout stays clean, scriptable text.
 
 ## Short ids
 

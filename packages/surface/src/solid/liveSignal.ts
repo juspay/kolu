@@ -52,6 +52,7 @@
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { type Accessor, createSignal } from "solid-js";
+import { scopeSibling } from "../define";
 import { createHeartbeat, type HeartbeatTuning } from "../heartbeat";
 import { websocketLink } from "../links/websocket";
 import { probeSurfaceLive } from "../liveness";
@@ -226,15 +227,10 @@ export function createLiveSignal<
   // the named sibling for a combined link, or the link itself for a single surface.
   const link = websocketLink<C>(ws as unknown as WebSocket);
   // Walk-by-string of the freshly-built oRPC link to the named sibling (or the whole
-  // link for a single surface). The cast is the narrow `{ surface }` shape, not `any`.
+  // link for a single surface) — scoped through `scopeSibling`, the sibling-scope
+  // `{ surface: link.surface[key] }` re-wrap shared with `surfaceClients`.
   const probeTarget: unknown =
-    opts.siblingKey !== undefined
-      ? {
-          surface: (link as { surface: Record<string, unknown> }).surface[
-            opts.siblingKey
-          ],
-        }
-      : link;
+    opts.siblingKey !== undefined ? scopeSibling(link, opts.siblingKey) : link;
   // The half-open watchdog — ALWAYS wired (there is no disable knob). It probes
   // `system.live` over the owned link while the socket is OPEN and, on a TIMEOUT,
   // forces `status` to `reconnecting` (so `live` flips false even if the socket's

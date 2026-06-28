@@ -77,8 +77,10 @@ export type PtyId = string;
  *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
  *  the live buffer length is known. Screen-scrape detectors that inspect only
  *  the screen bottom pass it so a long scrollback (the configured 50k lines)
- *  isn't allocated, joined, and shipped every poll just to be discarded —
- *  `tailLines` overrides an explicit `startLine`. */
+ *  isn't allocated, joined, and shipped every poll just to be discarded. This
+ *  positional leaf is the single translation target for {@link ScreenExtent};
+ *  callers above pick exactly one bound, so `startLine` and `tailLines` never
+ *  arrive together. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -100,6 +102,18 @@ export function getScreenText(
   }
   return lines.join("\n");
 }
+
+/** Which slice of the rendered buffer a screen-text read returns — the single
+ *  bound axis as a closed set of mutually-exclusive variants, so an illegal
+ *  combination (a tail AND a range, a viewport AND a tail) is unrepresentable
+ *  rather than resolved by a silent precedence. `viewport` is "the visible
+ *  screen", resolved host-side to a tail of the live grid's own `rows` (a
+ *  caller can't know it). Absent extent ⇒ the full buffer. */
+export type ScreenExtent =
+  | { kind: "full" }
+  | { kind: "range"; startLine?: number; endLine?: number }
+  | { kind: "tail"; lines: number }
+  | { kind: "viewport" };
 
 /**
  * Per-PTY control + introspection surface vended by {@link PtyHost.handle}.
@@ -124,14 +138,10 @@ export interface PtyHandle {
   /** Serialized screen state (VT escape sequences) for late-joining
    *  clients. Empty string before any output. */
   getScreenState(): string;
-  /** Plain text content of the terminal buffer (scrollback + viewport).
-   *  `tailLines` reads only the last N rendered lines (see {@link getScreenText});
-   *  pass it instead of fetching the whole buffer when only the tail matters. */
-  getScreenText(
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string;
+  /** Plain text content of the terminal buffer. `extent` bounds the read to one
+   *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
+   *  viewport). See {@link ScreenExtent}. */
+  getScreenText(extent?: ScreenExtent): string;
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -287,14 +297,10 @@ export interface PtyHost {
   getTitle(id: PtyId): string | undefined;
   /** Serialized screen state; empty string if gone. */
   getScreenState(id: PtyId): string;
-  /** Plain text of the buffer; empty string if gone. `tailLines` reads only
-   *  the last N rendered lines (see {@link getScreenText}). */
-  getScreenText(
-    id: PtyId,
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string;
+  /** Plain text of the buffer; empty string if gone. `extent` bounds the read
+   *  to one slice (range / tail / viewport); omit it for the full buffer. See
+   *  {@link ScreenExtent}. */
+  getScreenText(id: PtyId, extent?: ScreenExtent): string;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -758,20 +764,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry ? snapshotOf(entry) : "";
   }
 
-  function getScreenTextFor(
-    id: PtyId,
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string {
+  function getScreenTextFor(id: PtyId, extent?: ScreenExtent): string {
     const entry = entries.get(id);
     if (!entry) return "";
-    return getScreenText(
-      entry.headless.buffer.active,
-      startLine,
-      endLine,
-      tailLines,
-    );
+    const buffer = entry.headless.buffer.active;
+    // One bound axis, one switch — no silent precedence to pick between bounds.
+    const bound: ScreenExtent = extent ?? { kind: "full" };
+    switch (bound.kind) {
+      case "full":
+        return getScreenText(buffer);
+      case "range":
+        return getScreenText(buffer, bound.startLine, bound.endLine);
+      case "tail":
+        return getScreenText(buffer, undefined, undefined, bound.lines);
+      case "viewport":
+        // The visible screen = a tail of the live grid's height, the only place
+        // the real `rows` is known. The last `rows` lines of `buffer.active` are
+        // exactly the viewport in both buffers: the normal buffer's bottom
+        // screenful, and the whole alt buffer (whose length IS rows) a
+        // full-screen TUI draws into.
+        return getScreenText(buffer, undefined, undefined, entry.headless.rows);
+    }
   }
 
   function write(id: PtyId, data: string): void {
@@ -808,8 +821,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       write: (data) => write(id, data),
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
-      getScreenText: (startLine, endLine, tailLines) =>
-        getScreenTextFor(id, startLine, endLine, tailLines),
+      getScreenText: (extent) => getScreenTextFor(id, extent),
     };
   }
 

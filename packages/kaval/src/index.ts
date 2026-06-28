@@ -65,6 +65,9 @@ export {
   type PtyListEntry,
   type PtySpawnOpts,
   type PtySpawnResult,
+  // The public bound type named in `PtyHost`/`PtyHandle`'s `getScreenText`
+  // signatures — re-exported so a downstream consumer can name the parameter.
+  type ScreenExtent,
 } from "./ptyHost.ts";
 // The pty-host wire contract — the surface and its version. `ptyHostSurface`
 // is a VALUE export (not type-only): consumers do `typeof ptyHostSurface.contract`

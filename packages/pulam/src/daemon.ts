@@ -219,8 +219,12 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
       record,
       publish,
       readScreenText: async (tailLines) =>
-        (await kaval.client.surface.terminal.getScreenText({ id, tailLines }))
-          .text,
+        (
+          await kaval.client.surface.terminal.getScreenText({
+            id,
+            extent: { kind: "tail", lines: tailLines },
+          })
+        ).text,
     });
     // Seed the collection immediately so a subscriber sees the terminal before
     // any tap fires.

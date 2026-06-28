@@ -258,6 +258,41 @@ export interface CollectionHandlers<K, T> {
   test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
 }
 
+/** Snapshot-then-live with NO lost-update window: subscribe to `bus` FIRST, THEN
+ *  produce the snapshot, then forward. `bus.subscribe()` registers the subscriber
+ *  synchronously (see `inMemoryChannel`), so opening the iterator BEFORE producing
+ *  the snapshot means any frame published in the snapshot→first-forward window is
+ *  BUFFERED, not dropped — the gap a snapshot-then-subscribe generator leaves open
+ *  (it doesn't reach `subscribe()` until the consumer's SECOND pull, so a frame born
+ *  in that window publishes to ZERO subscribers).
+ *
+ *  `snapshot` is a THUNK, not a value: it MUST run AFTER `subscribe()`. A caller
+ *  passing an already-computed value would move the read back BEFORE the subscribe
+ *  and reopen the window — the thunk keeps the `readAll()` on the safe side.
+ *
+ *  Cleanup: acquire ONE iterator up front and forward it via
+ *  `yield* { [Symbol.asyncIterator]: () => iterator }` — NOT a bare `yield* frames`,
+ *  which would call `[Symbol.asyncIterator]()` a second time and forward a different
+ *  iterator than the one the `finally` returns. The snapshot `yield` sits BEFORE the
+ *  forwarding, so an early `.return()` taken after the snapshot (which makes an async
+ *  generator skip everything past the suspended `yield`) still hits the `finally`,
+ *  which returns the iterator and drops the subscriber. Idempotent: the channel's
+ *  `return()`/`close()` are double-call-guarded. */
+async function* subscribeBeforeSnapshot<S, F>(
+  bus: Channel<F>,
+  signal: AbortSignal | undefined,
+  snapshot: () => S,
+): AsyncGenerator<S | F> {
+  const frames = bus.subscribe(signal);
+  const iterator = frames[Symbol.asyncIterator]();
+  try {
+    yield snapshot();
+    yield* { [Symbol.asyncIterator]: () => iterator };
+  } finally {
+    await iterator.return?.();
+  }
+}
+
 export function collectionHandlers<Name extends string, K, T>(
   _coll: Collection<Name, K, T>,
   deps: CollectionHandlerDeps<K, T>,
@@ -265,10 +300,16 @@ export function collectionHandlers<Name extends string, K, T>(
   const readOne = deps.readOne ?? ((k: K) => deps.readAll().get(k));
 
   const handlers: CollectionHandlers<K, T> = {
-    keys: async function* ({ signal }) {
-      yield Array.from(deps.readAll().keys());
-      for await (const v of deps.keysBus.subscribe(signal)) yield v;
-    },
+    // `keys` is self-healing (every frame is a full set snapshot, so a consumer
+    // folds re-sends idempotently), yet a key born in the snapshot→subscribe window
+    // of a QUIESCENT stream has no later frame to self-heal from until the next
+    // membership change — so it still needs subscribe-before-snapshot. That, with
+    // the `broadcastKeys` publish-side fix, is what lets an already-subscribed mirror
+    // never miss a key born after it connected. See `subscribeBeforeSnapshot`.
+    keys: ({ signal }) =>
+      subscribeBeforeSnapshot(deps.keysBus, signal, () =>
+        Array.from(deps.readAll().keys()),
+      ),
     get: async function* ({ input, signal }) {
       const initial = readOne(input.key);
       if (initial === undefined) {
@@ -296,53 +337,25 @@ export function collectionHandlers<Name extends string, K, T>(
   };
 
   // The batched `deltas` stream, wired only when the collection opts in (the
-  // `deltasBus` is present). Snapshot-then-deltas — the same retry-resume
-  // invariant the `keys`/`get` streams rely on: a (re)subscribe replays the
-  // full set, then each producer tick's coalesced `{upserts, removes}` follows.
-  //
-  // SUBSCRIBE BEFORE SNAPSHOT — `deltasBus.subscribe()` registers the subscriber
-  // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE reading
-  // the snapshot closes the gap a delta could slip through. If we snapshotted
-  // first and subscribed second, any tick flushed between the `readAll()` and the
-  // `subscribe()` would be neither in the snapshot nor buffered, and — UNLIKE the
-  // self-healing `keys`/`get` streams (each publish is a full slice snapshot, so
-  // a miss self-corrects on the next one) — a `deltas` frame is INCREMENTAL, so a
-  // missed one is lost until reconnect. The subscribe and `readAll()` run with no
-  // `await` between them, so no tick can interleave; a tick whose store write
-  // already landed is in the snapshot AND re-applied by its buffered delta
-  // (idempotent: upsert is last-write-wins, remove of an absent key is a no-op).
+  // `deltasBus` is present). Snapshot-then-deltas: a (re)subscribe replays the full
+  // set, then each producer tick's coalesced `{upserts, removes}` follows. A
+  // `deltas` frame is INCREMENTAL (not a full snapshot), so — UNLIKE the self-healing
+  // `keys`/`get` streams — a frame missed in the snapshot→subscribe window is lost
+  // until reconnect, which makes subscribe-before-snapshot load-bearing here. See
+  // `subscribeBeforeSnapshot`. (A tick whose store write already landed is in BOTH
+  // the snapshot and a buffered delta — idempotent: upsert is last-write-wins,
+  // remove of an absent key is a no-op.)
   const deltasBus = deps.deltasBus;
   if (deltasBus) {
-    handlers.deltas = async function* ({ signal }) {
-      // `subscribe()` registers the subscriber and starts buffering NOW (before
-      // the snapshot read), so the subscriber is live across the whole snapshot
-      // read and any tick flushed during it is buffered, not dropped.
-      //
-      // We acquire ONE iterator up front and forward it inside a `try/finally`.
-      // The snapshot `yield` sits BEFORE the forwarding, so if the consumer closes
-      // the generator (`.return()`) after taking the snapshot but before asking
-      // for the next frame, an async generator's `return()` resumes as a `return`
-      // AT that suspended `yield` and skips everything after it — the `yield*`
-      // below would never run, so the subscription's `iterator.return()` would
-      // never fire and the `sub` would leak (a dead entry whose queue grows on
-      // every future publish, since signal-abort is a separate lifecycle the
-      // generator's `.return()` doesn't trigger). The `finally` owns that cleanup:
-      // every exit — normal completion, an early `.return()`, or a `throw` —
-      // returns the iterator and drops the subscriber (idempotent: the channel's
-      // `return()`/`close()` are double-call-guarded, so the `yield*`-forwarded
-      // and the `finally` return can both run safely).
-      const frames = deltasBus.subscribe(signal);
-      const iterator = frames[Symbol.asyncIterator]();
-      try {
-        yield {
+    handlers.deltas = ({ signal }) =>
+      subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
+        deltasBus,
+        signal,
+        () => ({
           kind: "snapshot",
           entries: Array.from(deps.readAll().entries()),
-        };
-        yield* { [Symbol.asyncIterator]: () => iterator };
-      } finally {
-        await iterator.return?.();
-      }
-    };
+        }),
+      );
   }
 
   return handlers;
@@ -1332,23 +1345,55 @@ function walkSurface<const S extends SurfaceSpec>(
     // additive on top.
     //
     // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
-    // ("broadcasts K[] snapshots on add/remove"). A value-only upsert (existing
-    // key, new value) leaves the key SET identical, so re-publishing the whole
-    // key array would be a redundant full-snapshot the `keys` subscribers fold to
-    // the same set (and a spurious re-render). The membership test reads the store
-    // BEFORE `upsert`, so a first-write key still counts as an add. Value updates
-    // travel the per-key `get` stream (`perKeyBus`) and the batched `deltas`
-    // stream (`coalescer`), both of which DO fire on every upsert.
+    // ("broadcasts K[] snapshots on add/remove"). BOTH mirror paths enforce that
+    // symmetrically against `broadcastKeys`: `wrappedUpsert` publishes only when a
+    // key is NEW to the set, and `wrappedRemove` only when the key was actually IN
+    // it. A value-only upsert (existing key, new value) leaves the key SET
+    // identical, and a remove of a non-member (a repeat/no-op drop) leaves it
+    // identical too, so in either case re-publishing the whole key array would be a
+    // redundant full-snapshot the `keys` subscribers fold to the same set (and a
+    // spurious re-render). Value updates travel the per-key `get` stream
+    // (`perKeyBus`) and the batched `deltas` stream (`coalescer`), both of which DO
+    // fire on every upsert.
+    //
+    // "New key" must mean new to SUBSCRIBERS, NOT new to the store. A registry-
+    // PROJECTION collection (kolu's `awareness` / `authored` / `daemonStatus`) has
+    // a no-op `upsert` and adds the entry to its registry BEFORE calling this
+    // publish, so `collDeps.readAll().has(k)` is ALREADY true here — a store test
+    // taken before `upsert` would read the key as pre-existing and never broadcast
+    // the add, so an already-subscribed `keys` consumer (a cross-process mirror)
+    // would never see a key born after it connected (kolu's own client dodges this
+    // by sourcing membership from a sibling, then reading per-key values). So track
+    // the framework's OWN record of which keys it has broadcast and fire the
+    // membership snapshot on a key's first upsert regardless of when the backing
+    // inserted it — correct for an in-memory Map dep (where `upsert` adds the key)
+    // and a registry projection alike.
+    //
+    // Seed the set from the keys ALREADY in the backing store at construction. A
+    // consumer that subscribes later reads those keys from the `keys` handler's
+    // connect snapshot (which reads `readAll()` live), so they need no membership
+    // delta — and a value-only upsert on a key PRELOADED before this server was
+    // built must NOT spuriously re-publish the whole key set. (An empty seed would
+    // fire one redundant full-snapshot on such a key's first upsert: harmless —
+    // subscribers fold it to the same set — but a real weakening of the
+    // "membership-change only" contract this stream promises, and untested.) The
+    // published array is always the live `readAll()` set, so the seed only ever
+    // suppresses a redundant snapshot, never a wrong one.
+    const broadcastKeys = new Set<unknown>(collDeps.readAll().keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
-      const isNewKey = !collDeps.readAll().has(k);
       collDeps.upsert(k, v);
-      if (isNewKey) keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (!broadcastKeys.has(k)) {
+        broadcastKeys.add(k);
+        keysBus.publish(Array.from(collDeps.readAll().keys()));
+      }
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
-      keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (broadcastKeys.delete(k)) {
+        keysBus.publish(Array.from(collDeps.readAll().keys()));
+      }
       coalescer?.remove(k);
     };
 
