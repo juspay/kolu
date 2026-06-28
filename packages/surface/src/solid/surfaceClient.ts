@@ -35,7 +35,7 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
-import { collectionHasDeltas, resolveCellVerbs } from "../define";
+import { collectionHasDeltas, resolveCellVerbs, scopeSibling } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
@@ -885,11 +885,8 @@ export function surfaceClients<
       k,
       buildSurfaceClient(
         surface,
-        {
-          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
-          surface: (link as any).surface[k],
-          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
-        } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: the scoped sibling slice is dynamic; the per-surface spec carries call-site safety.
+        scopeSibling(link, k) as any,
         live,
       ),
     ]),
