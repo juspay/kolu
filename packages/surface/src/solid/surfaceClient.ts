@@ -35,7 +35,7 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
-import { resolveCellVerbs } from "../define";
+import { collectionHasDeltas, resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
@@ -51,7 +51,11 @@ import {
   type SurfaceHealth,
 } from "./health";
 import { type UseCellResult, useCell } from "./useCell";
-import { type UseCollectionResult, useCollection } from "./useCollection";
+import {
+  type UseCollectionResult,
+  useCollection,
+  useCollectionDeltas,
+} from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
@@ -633,14 +637,43 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   }
 
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
-  for (const [key] of Object.entries(spec.collections ?? {})) {
+  for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
+    // Whether this collection opted into batched `deltas` delivery — read from
+    // the SPEC (the authoritative verb set the server also gates on), NEVER from
+    // `(ns as any).deltas`: an oRPC wire client is a lazy Proxy whose every
+    // property access returns a truthy callable, so a transport-level probe is
+    // `true` for EVERY collection and would route a non-opted whole-collection
+    // `.use()` into a `deltas` call the server never registered (the stream
+    // would reject and the collection silently read empty). The server decides
+    // identically — `walkSurface`'s `collVerbs.includes("deltas")`.
+    const hasDeltas = collectionHasDeltas(
+      rawColl as CollectionSpec<unknown, unknown>,
+    );
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
+        // Whole-collection AND the collection opts into batched delivery (the
+        // spec lists `deltas`) → ONE coalesced stream folded into a per-key
+        // store, instead of a keys stream + one value stream per key. A NARROWED
+        // subscription (explicit `opts.keys` — the "watch this subset" case) or a
+        // collection without the `deltas` verb takes the unchanged per-key path.
+        if (!opts?.keys && hasDeltas) {
+          const view = useCollectionDeltas(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+            (surface.descriptors.collections as any)[key],
+            {
+              // biome-ignore lint/suspicious/noExplicitAny: walk-by-string stream ref
+              source: () => unenrolledStreamCall((ns as any).deltas, undefined),
+              onError,
+              enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+            },
+          );
+          return { ...view, upsert, delete: del };
+        }
         // Default keys: subscribe to the server's keys stream and lift
         // it to a SolidJS accessor. The `.use()` runs inside a Solid
         // owner so the subscription disposes with the component.

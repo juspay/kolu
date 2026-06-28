@@ -24,12 +24,15 @@ import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
   type CellSpec,
+  type CollectionDelta,
+  type CollectionDeltasMsg,
   type CollectionSpec,
+  collectionHasDeltas,
   composeSurfaceContracts,
-  DEFAULT_COLLECTION_VERBS,
   type EventSpec,
   type ProcedureSpec,
   resolveCellVerbs,
+  resolveCollectionVerbs,
   type StreamSpec,
   type Surface,
   type SurfaceSpec,
@@ -196,11 +199,60 @@ export interface CollectionHandlerDeps<K, T> {
   perKeyBus: (key: K) => Channel<T>;
   /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove). */
   keysBus: Channel<K[]>;
+  /** Bus for the coalesced batched delta stream — one `{upserts, removes}` per
+   *  producer tick. Present only when the collection exposes the `deltas` verb
+   *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
+  deltasBus?: Channel<CollectionDelta<K, T>>;
+}
+
+/** Per-tick coalescer for a collection's batched `deltas` stream. A `pending`
+ *  Map keeps last-op-wins in program order (an upsert then a remove of the same
+ *  key in one tick resolves to a remove), and a single `queueMicrotask` flush
+ *  runs after the synchronous upsert/remove loop the producer drives — so N
+ *  keyed mutations publish ONE `{upserts, removes}` frame instead of N per-key
+ *  frames. A bounded, time-based leaf (value + microtask window), lifted out of
+ *  `walkSurface` so the spec walk holds no batching state. Constructed only when
+ *  the collection opts into `deltas`; the `bus` is non-optional, so "deltas is
+ *  on" has a single representation — this coalescer's existence. */
+function createTickCoalescer<K, V>(
+  bus: Channel<CollectionDelta<K, V>>,
+): { upsert: (k: K, v: V) => void; remove: (k: K) => void } {
+  const pending = new Map<K, { value: V } | "remove">();
+  let flushScheduled = false;
+  const scheduleFlush = () => {
+    if (flushScheduled) return;
+    flushScheduled = true;
+    queueMicrotask(() => {
+      flushScheduled = false;
+      if (pending.size === 0) return;
+      const upserts: [K, V][] = [];
+      const removes: K[] = [];
+      for (const [k, op] of pending) {
+        if (op === "remove") removes.push(k);
+        else upserts.push([k, op.value]);
+      }
+      pending.clear();
+      bus.publish({ kind: "delta", upserts, removes });
+    });
+  };
+  return {
+    upsert: (k, v) => {
+      pending.set(k, { value: v });
+      scheduleFlush();
+    },
+    remove: (k) => {
+      pending.set(k, "remove");
+      scheduleFlush();
+    },
+  };
 }
 
 export interface CollectionHandlers<K, T> {
   keys: (opts: { signal?: AbortSignal }) => AsyncGenerator<K[]>;
   get: (opts: { input: { key: K }; signal?: AbortSignal }) => AsyncGenerator<T>;
+  deltas?: (opts: {
+    signal?: AbortSignal;
+  }) => AsyncGenerator<CollectionDeltasMsg<K, T>>;
   upsert: (opts: { input: { key: K; value: T } }) => void;
   delete: (opts: { input: { key: K } }) => void;
   test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
@@ -212,7 +264,7 @@ export function collectionHandlers<Name extends string, K, T>(
 ): CollectionHandlers<K, T> {
   const readOne = deps.readOne ?? ((k: K) => deps.readAll().get(k));
 
-  return {
+  const handlers: CollectionHandlers<K, T> = {
     keys: async function* ({ signal }) {
       yield Array.from(deps.readAll().keys());
       for await (const v of deps.keysBus.subscribe(signal)) yield v;
@@ -242,6 +294,58 @@ export function collectionHandlers<Name extends string, K, T>(
       for (const { key, value } of input) deps.upsert(key, value);
     },
   };
+
+  // The batched `deltas` stream, wired only when the collection opts in (the
+  // `deltasBus` is present). Snapshot-then-deltas — the same retry-resume
+  // invariant the `keys`/`get` streams rely on: a (re)subscribe replays the
+  // full set, then each producer tick's coalesced `{upserts, removes}` follows.
+  //
+  // SUBSCRIBE BEFORE SNAPSHOT — `deltasBus.subscribe()` registers the subscriber
+  // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE reading
+  // the snapshot closes the gap a delta could slip through. If we snapshotted
+  // first and subscribed second, any tick flushed between the `readAll()` and the
+  // `subscribe()` would be neither in the snapshot nor buffered, and — UNLIKE the
+  // self-healing `keys`/`get` streams (each publish is a full slice snapshot, so
+  // a miss self-corrects on the next one) — a `deltas` frame is INCREMENTAL, so a
+  // missed one is lost until reconnect. The subscribe and `readAll()` run with no
+  // `await` between them, so no tick can interleave; a tick whose store write
+  // already landed is in the snapshot AND re-applied by its buffered delta
+  // (idempotent: upsert is last-write-wins, remove of an absent key is a no-op).
+  const deltasBus = deps.deltasBus;
+  if (deltasBus) {
+    handlers.deltas = async function* ({ signal }) {
+      // `subscribe()` registers the subscriber and starts buffering NOW (before
+      // the snapshot read), so the subscriber is live across the whole snapshot
+      // read and any tick flushed during it is buffered, not dropped.
+      //
+      // We acquire ONE iterator up front and forward it inside a `try/finally`.
+      // The snapshot `yield` sits BEFORE the forwarding, so if the consumer closes
+      // the generator (`.return()`) after taking the snapshot but before asking
+      // for the next frame, an async generator's `return()` resumes as a `return`
+      // AT that suspended `yield` and skips everything after it — the `yield*`
+      // below would never run, so the subscription's `iterator.return()` would
+      // never fire and the `sub` would leak (a dead entry whose queue grows on
+      // every future publish, since signal-abort is a separate lifecycle the
+      // generator's `.return()` doesn't trigger). The `finally` owns that cleanup:
+      // every exit — normal completion, an early `.return()`, or a `throw` —
+      // returns the iterator and drops the subscriber (idempotent: the channel's
+      // `return()`/`close()` are double-call-guarded, so the `yield*`-forwarded
+      // and the `finally` return can both run safely).
+      const frames = deltasBus.subscribe(signal);
+      const iterator = frames[Symbol.asyncIterator]();
+      try {
+        yield {
+          kind: "snapshot",
+          entries: Array.from(deps.readAll().entries()),
+        };
+        yield* { [Symbol.asyncIterator]: () => iterator };
+      } finally {
+        await iterator.return?.();
+      }
+    };
+  }
+
+  return handlers;
 }
 
 // ── Stream handlers ────────────────────────────────────────────────────
@@ -1206,17 +1310,46 @@ function walkSurface<const S extends SurfaceSpec>(
     const perKeyBus = (k: unknown) =>
       deps.channel<unknown>(`${key}:${String(k)}`);
 
-    // Surface-owned publish: every upsert/remove broadcasts the new key set
-    // (and, on upsert, the new per-key value) through the framework's
-    // channels. Consumers' upsert/remove stay persistence-only.
+    // The batched `deltas` stream is OPT-IN: its bus and per-tick coalescing
+    // exist only when the collection lists the `deltas` verb. A non-opted
+    // collection pays nothing here — the per-key `keys`/`get` path is untouched.
+    const collVerbs = resolveCollectionVerbs(collSpec);
+    const hasDeltas = collectionHasDeltas(collSpec);
+    const deltasBus = hasDeltas
+      ? deps.channel<CollectionDelta<unknown, unknown>>(`${key}:deltas`)
+      : undefined;
+    // The per-tick coalescer owns the `pending` buffer + microtask flush; it
+    // exists ONLY when the collection opts into `deltas`, so `hasDeltas` is the
+    // single representation of "deltas is on" and the walk loop holds no
+    // batching state. `coalescer?.upsert`/`.remove` below are the only gate.
+    const coalescer = deltasBus
+      ? createTickCoalescer<unknown, unknown>(deltasBus)
+      : undefined;
+
+    // Surface-owned publish: every upsert broadcasts the new per-key value, and
+    // an upsert that ADDS a key (or any remove) broadcasts the new key set.
+    // Consumers' upsert/remove stay persistence-only. The deltas coalescing is
+    // additive on top.
+    //
+    // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
+    // ("broadcasts K[] snapshots on add/remove"). A value-only upsert (existing
+    // key, new value) leaves the key SET identical, so re-publishing the whole
+    // key array would be a redundant full-snapshot the `keys` subscribers fold to
+    // the same set (and a spurious re-render). The membership test reads the store
+    // BEFORE `upsert`, so a first-write key still counts as an add. Value updates
+    // travel the per-key `get` stream (`perKeyBus`) and the batched `deltas`
+    // stream (`coalescer`), both of which DO fire on every upsert.
     const wrappedUpsert = (k: unknown, v: unknown) => {
+      const isNewKey = !collDeps.readAll().has(k);
       collDeps.upsert(k, v);
-      keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (isNewKey) keysBus.publish(Array.from(collDeps.readAll().keys()));
       perKeyBus(k).publish(v);
+      coalescer?.upsert(k, v);
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
+      coalescer?.remove(k);
     };
 
     collectionsCtx[key] = {
@@ -1240,12 +1373,12 @@ function walkSurface<const S extends SurfaceSpec>(
         remove: wrappedRemove,
         perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,
         keysBus: keysBus as Channel<unknown[]>,
+        deltasBus,
       },
     );
 
-    const verbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
     const ns: Record<string, unknown> = {};
-    for (const v of verbs) {
+    for (const v of collVerbs) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
       const h = (handlers as any)[v];
       if (h === undefined) continue;

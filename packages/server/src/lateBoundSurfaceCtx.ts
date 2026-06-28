@@ -16,8 +16,9 @@
  *
  * Without this holder, biome's `noImportCycles` flags every domain module's ctx
  * import, and the production Node ESM loader can land on an import order where
- * `surface.ts`'s top-level `localTerminalEndpoint` reference runs while that
- * binding is still in TDZ — production crashes that vite-node's evaluation order
+ * `surface.ts`'s top-level local-endpoint resolution (now read through
+ * `resolveTerminalEndpoint(LOCAL_LOCATION)`) runs while that binding is still in
+ * TDZ — production crashes that vite-node's evaluation order
  * does not reproduce in unit tests (#1005). The `proxy` throws on access before
  * `set` has been called, so a top-level access surfaces at startup rather than
  * yielding `undefined` and crashing later.
