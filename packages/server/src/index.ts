@@ -34,6 +34,7 @@ import {
   previewTailFromRawUrl,
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
+import { startEventLoopWatchdog } from "./eventLoopWatchdog.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
@@ -215,6 +216,12 @@ process.on("unhandledRejection", (reason) => {
   );
   process.exit(1);
 });
+
+// Last-resort liveness net: an out-of-loop worker that aborts the process if
+// the main event loop stops heartbeating (a total freeze the in-loop handlers
+// above can't catch — a blocked loop runs no JS). The supervisor restarts the
+// fresh process. See `eventLoopWatchdog.ts` for the 2026-06-28 wedge it backs.
+startEventLoopWatchdog();
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
