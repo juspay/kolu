@@ -168,11 +168,14 @@ export function foldCollectionDeltas<K, T>(
   const byKey: Record<string, T> = { ...acc.byKey };
   for (const [k, v] of msg.upserts) byKey[String(k)] = v;
   for (const k of msg.removes) delete byKey[String(k)];
-  const removedStr = new Set(msg.removes.map(String));
-  const existingStr = new Set(acc.order.map(String));
-  const order = acc.order.filter((k) => !removedStr.has(String(k)));
+  // `order` is the real-typed key set: keep membership/removal on the real keys
+  // (`===`-keyed Sets), so only the value store's `byKey` stringifies. One
+  // stringification site, not four threaded through the order logic.
+  const removed = new Set(msg.removes);
+  const existing = new Set(acc.order);
+  const order = acc.order.filter((k) => !removed.has(k));
   for (const [k] of msg.upserts) {
-    if (!existingStr.has(String(k))) order.push(k);
+    if (!existing.has(k)) order.push(k);
   }
   assertKeysInjective(byKey, order);
   return { byKey, order };
