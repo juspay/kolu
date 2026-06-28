@@ -53,6 +53,9 @@ export type ActivityStreamDeps = NonNullable<
 export const quietActivity: ActivityStreamDeps = {
   source: (_input, signal) =>
     pollOnEvent<TerminalId[]>({
+      // The live set is constant-empty: `read` returns `[]` and touches no I/O,
+      // so it cannot fail — `onReadError` is unreachable, intentionally empty
+      // (not a swallowed error). `install` never fires (nothing changes).
       read: async () => [],
       isEqual: () => true,
       install: () => () => {},
