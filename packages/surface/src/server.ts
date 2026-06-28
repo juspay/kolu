@@ -315,16 +315,35 @@ export function collectionHandlers<Name extends string, K, T>(
   if (deltasBus) {
     handlers.deltas = async function* ({ signal }) {
       // `subscribe()` registers the subscriber and starts buffering NOW (before
-      // the first `for await` pull); the snapshot is read on the next line with
-      // no `await` between, so the subscriber is live across the whole snapshot
-      // read. `for await` over the already-open iterable preserves the iterator's
-      // `return()` cleanup on early exit.
+      // the snapshot read), so the subscriber is live across the whole snapshot
+      // read and any tick flushed during it is buffered, not dropped.
+      //
+      // We drive a SINGLE iterator by hand inside a `try/finally` rather than a
+      // bare `for await`. The snapshot `yield` sits BEFORE the loop, so if the
+      // consumer closes the generator (`.return()`) after taking the snapshot but
+      // before asking for the next frame, an async generator's `return()` resumes
+      // as a `return` AT that suspended `yield` and skips everything after it — a
+      // bare `for await` below would never run, so the subscription's
+      // `iterator.return()` would never fire and the `sub` would leak (a dead
+      // entry whose queue grows on every future publish, since signal-abort is a
+      // separate lifecycle the generator's `.return()` doesn't trigger). The
+      // `finally` owns that cleanup: every exit — normal completion, an early
+      // `.return()`, or a `throw` — returns the iterator and drops the subscriber.
       const frames = deltasBus.subscribe(signal);
-      yield {
-        kind: "snapshot",
-        entries: Array.from(deps.readAll().entries()),
-      };
-      for await (const frame of frames) yield frame;
+      const iterator = frames[Symbol.asyncIterator]();
+      try {
+        yield {
+          kind: "snapshot",
+          entries: Array.from(deps.readAll().entries()),
+        };
+        while (true) {
+          const next = await iterator.next();
+          if (next.done === true) break;
+          yield next.value;
+        }
+      } finally {
+        await iterator.return?.();
+      }
     };
   }
 

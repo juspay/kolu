@@ -238,6 +238,49 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
 
     await gen.return?.(undefined);
   });
+
+  it("drops the subscriber when the consumer closes the generator right after the snapshot (no lifecycle leak)", async () => {
+    // Subscribe-before-snapshot opens the `deltasBus` subscription BEFORE the
+    // snapshot `yield`. If the consumer takes the snapshot and then closes the
+    // generator before pulling again, the generator's `.return()` resumes as a
+    // `return` AT that suspended `yield` and skips the delta loop below it — so
+    // the subscription's own `iterator.return()` never runs from the loop. The
+    // handler's `try/finally` is what guarantees cleanup; without it the `sub`
+    // would sit live in the channel forever, its queue growing on every publish.
+    const store = new Map<number, V>([[1, { name: "a" }]]);
+    const deltasBus = inMemoryChannel<CollectionDelta<number, V>>();
+    const handlers = collectionHandlers({ name: "items" } as never, {
+      readAll: () => store,
+      perKeyBus: () => inMemoryChannel<V>(),
+      keysBus: inMemoryChannel<number[]>(),
+      deltasBus,
+      upsert: () => {},
+      remove: () => {},
+    });
+    const gen = handlers.deltas!({});
+
+    const first = await gen.next();
+    expect(first.value).toEqual({
+      kind: "snapshot",
+      entries: [[1, { name: "a" }]],
+    });
+    // The subscription is live the instant we hold the snapshot.
+    expect(deltasBus.subscriberCount()).toBe(1);
+
+    // Close the generator while it is suspended at the snapshot `yield`, before
+    // the delta loop has run even once. The `finally` must still return the
+    // pre-opened iterator and drop the subscriber.
+    await gen.return?.(undefined);
+    expect(deltasBus.subscriberCount()).toBe(0);
+
+    // A later publish lands on nobody — no leaked queue accumulating frames.
+    deltasBus.publish({
+      kind: "delta",
+      upserts: [[2, { name: "b" }]],
+      removes: [],
+    });
+    expect(deltasBus.subscriberCount()).toBe(0);
+  });
 });
 
 describe("foldCollectionDeltas — client fold", () => {
