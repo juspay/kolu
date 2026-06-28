@@ -70,6 +70,16 @@ export type CollectionDeltasMsg<K, T> =
   | { kind: "snapshot"; entries: [K, T][] }
   | { kind: "delta"; upserts: [K, T][]; removes: K[] };
 
+/** The `delta` frame of {@link CollectionDeltasMsg} — one coalesced
+ *  `{upserts, removes}` batch for a producer tick. Carried both on the server's
+ *  internal `deltasBus` and on the wire, so deriving it from the union (rather
+ *  than declaring a structural twin) keeps the bus payload and the wire frame
+ *  ONE type that can't drift. */
+export type CollectionDelta<K, T> = Extract<
+  CollectionDeltasMsg<K, T>,
+  { kind: "delta" }
+>;
+
 export interface CellSpec<T = unknown, P = T> {
   schema: ZodType<T>;
   default: T;

@@ -24,6 +24,7 @@ import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
   type CellSpec,
+  type CollectionDelta,
   type CollectionDeltasMsg,
   type CollectionSpec,
   collectionHasDeltas,
@@ -201,14 +202,7 @@ export interface CollectionHandlerDeps<K, T> {
   /** Bus for the coalesced batched delta stream — one `{upserts, removes}` per
    *  producer tick. Present only when the collection exposes the `deltas` verb
    *  (opt-in); `walkSurface` wires it and the per-tick coalescing together. */
-  deltasBus?: Channel<CollectionDeltaFrame<K, T>>;
-}
-
-/** A coalesced batch of a collection's mutations within one producer tick —
- *  the bus payload behind the `deltas` stream's `delta` frames. */
-export interface CollectionDeltaFrame<K, T> {
-  upserts: [K, T][];
-  removes: K[];
+  deltasBus?: Channel<CollectionDelta<K, T>>;
 }
 
 /** Per-tick coalescer for a collection's batched `deltas` stream. A `pending`
@@ -221,7 +215,7 @@ export interface CollectionDeltaFrame<K, T> {
  *  the collection opts into `deltas`; the `bus` is non-optional, so "deltas is
  *  on" has a single representation — this coalescer's existence. */
 function createTickCoalescer<K, V>(
-  bus: Channel<CollectionDeltaFrame<K, V>>,
+  bus: Channel<CollectionDelta<K, V>>,
 ): { upsert: (k: K, v: V) => void; remove: (k: K) => void } {
   const pending = new Map<K, { value: V } | "remove">();
   let flushScheduled = false;
@@ -238,7 +232,7 @@ function createTickCoalescer<K, V>(
         else upserts.push([k, op.value]);
       }
       pending.clear();
-      bus.publish({ upserts, removes });
+      bus.publish({ kind: "delta", upserts, removes });
     });
   };
   return {
@@ -312,9 +306,7 @@ export function collectionHandlers<Name extends string, K, T>(
         kind: "snapshot",
         entries: Array.from(deps.readAll().entries()),
       };
-      for await (const frame of deltasBus.subscribe(signal)) {
-        yield { kind: "delta", upserts: frame.upserts, removes: frame.removes };
-      }
+      for await (const frame of deltasBus.subscribe(signal)) yield frame;
     };
   }
 
@@ -1289,7 +1281,7 @@ function walkSurface<const S extends SurfaceSpec>(
     const collVerbs = resolveCollectionVerbs(collSpec);
     const hasDeltas = collectionHasDeltas(collSpec);
     const deltasBus = hasDeltas
-      ? deps.channel<CollectionDeltaFrame<unknown, unknown>>(`${key}:deltas`)
+      ? deps.channel<CollectionDelta<unknown, unknown>>(`${key}:deltas`)
       : undefined;
     // The per-tick coalescer owns the `pending` buffer + microtask flush; it
     // exists ONLY when the collection opts into `deltas`, so `hasDeltas` is the
