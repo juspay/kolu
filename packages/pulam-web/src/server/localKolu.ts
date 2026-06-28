@@ -30,6 +30,7 @@ import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
   createHeartbeat,
   createSurfaceSocket,
+  type HeartbeatSocket,
 } from "@kolu/surface-app/connect";
 import { type AgentClient, mirrorOnce } from "@kolu/surface-nix-host";
 import {
@@ -53,14 +54,11 @@ type KoluKeyedContract = ReturnType<
   }>
 >;
 
-/** The minimal partysocket face this module touches — the same two verbs
- *  `createHeartbeat`'s `HeartbeatSocket` reads, plus the `open` event the pump
- *  awaits before each (re)mirror and `close()` for teardown. Kept structural so a
- *  test's fake link needs no real socket. */
-interface ReconnectingSocket {
-  readyState: number;
-  readonly OPEN: number;
-  reconnect(): void;
+/** The minimal partysocket face this module touches — `createHeartbeat`'s
+ *  `HeartbeatSocket` (`readyState`/`OPEN`/`reconnect`), plus the `open` event the
+ *  pump awaits before each (re)mirror and `close()` for teardown. Kept structural
+ *  (extends the shared type) so a test's fake link needs no real socket. */
+interface ReconnectingSocket extends HeartbeatSocket {
   close(): void;
   addEventListener(type: "open", cb: () => void): void;
   removeEventListener(type: "open", cb: () => void): void;

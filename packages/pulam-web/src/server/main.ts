@@ -61,7 +61,7 @@ import {
   type HostEntry,
   makeBuildEntry,
 } from "./hostEntry.ts";
-import { type LocalKoluMirror, startLocalKoluMirror } from "./localKolu.ts";
+import { startLocalKoluMirror } from "./localKolu.ts";
 import { registerReconnectRoute } from "./reconnectRoute.ts";
 
 const log = (line: string): void => {
@@ -154,24 +154,9 @@ async function main(): Promise<void> {
   // probe single-source. Mints internally; we read it back for `gateStaleSocket`.
   const { processId } = surfaceAppServer();
 
-  // ── The localhost mirror(s): the local kolu's served awareness (R9a) ─────
-  // One sensor (kolu's in-process sink), two readers (kolu's Dock + this
-  // dashboard) — never a second pulam. `koluUrl` is non-null whenever
-  // `localHosts` is non-empty.
-  const localMirrors = new Map<string, LocalKoluMirror>();
-  for (const host of localHosts) {
-    localMirrors.set(
-      host,
-      startLocalKoluMirror({
-        koluUrl: koluUrl as string,
-        log: (line) => log(`[${host}] ${line}`),
-      }),
-    );
-  }
-
   // ── One host plane every consumer plugs into ─────────────────────────────
-  // The parent's FULL host set is the ssh registry PLUS the local mirrors, both
-  // adapted into a uniform `HostHandle` keyed by host. Every consumer below
+  // The parent's FULL host set is the ssh registry PLUS the local mirrors (R9a),
+  // both adapted into a uniform `HostHandle` keyed by host. Every consumer below
   // (`/api/hosts`, the `?host=` dispatch, the reconnect route, socket tracking,
   // shutdown) reads THIS one map — never folds two planes. The browser leg is
   // already uniform (it dials `?host=<id>` the same for a local or remote host);
@@ -226,9 +211,17 @@ async function main(): Promise<void> {
     }
   }
 
-  // local mirrors: a static localhost source (R9a) — never removed, so its handle
-  // omits socket tracking (nothing to close on a removal that can't happen).
-  for (const [host, mirror] of localMirrors) {
+  // local mirrors: a static localhost source (R9a) — the local kolu's served
+  // awareness (one sensor, kolu's in-process sink; two readers, kolu's Dock + this
+  // dashboard, never a second pulam). Started AFTER the ssh registry so a failed
+  // `makeResolveDrvPath()` boot can't orphan an already-dialed kolu WebSocket; it's
+  // never removed, so its handle omits socket tracking (nothing to close on a
+  // removal that can't happen). `koluUrl` is non-null whenever `localHosts` is.
+  for (const host of localHosts) {
+    const mirror = startLocalKoluMirror({
+      koluUrl: koluUrl as string,
+      log: (line) => log(`[${host}] ${line}`),
+    });
     hosts.set(host, {
       handler: mirror.handler,
       reconnect: () => mirror.reconnect(),
