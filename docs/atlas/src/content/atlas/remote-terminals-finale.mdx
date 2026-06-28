@@ -1,0 +1,155 @@
+---
+title: Remote terminals — the finale (R9–R10)
+description: R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged.
+parents: [remote-terminals]
+status: proposed
+maturity: budding
+updated: 2026-06-27
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Phase from "../../components/Phase.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+
+**The last leg of <Issue n={951} /> — kolu dials remote hosts — broken into landable PRs.** R9 was one paragraph hiding ~12 workstreams; now that **R8 shipped** (<PrLink pr={1594} /> — the awareness bisection, the reader-side join, and the `serveTerminalWorkspace` factory), the remote work reduces to *injecting a mirrored awareness backing behind shipped seams* plus an ssh driver. This note decomposes R9 the way [pty-daemon](pty-daemon.html) (R2) and [pulam](pulam.html) (R4) decomposed theirs; the parent [remote-terminals](remote-terminals.html) keeps the one-line roadmap rows. Full model: [the terminal model](terminal-metadata-model.html).
+
+<Callout kind="note" title="R9 is a backing-injection, not a new model">
+R8 split a terminal's record into two raw served collections — `terminalWorkspace.awareness` (the sensor half) and `kolu.authored` (kolu's half) — joined **at the reader** via `composeTerminalMetadata`, with **one factory** (`serveTerminalWorkspace`) assembling the surface for both homes (kolu-server in-process, pulam remote) and injecting only the **awareness backing** + **activity source**. So remote awareness in R9 is: make kolu-server's awareness backing resolve **remote** terminals from the mirror (local ones stay the registry projection). The reader join, the contract, and disk persistence are untouched.
+</Callout>
+
+## Roadmap
+
+export const PT = [
+  { d: 0, g: "▶", c: "prog", l: "R9a · localhost dedup — one sensor set (the first PR)", m: "R8 ✓ · startable now", h: "#r9a" },
+  { d: 0, g: "◐", c: "prog", l: "R9.1 · the TerminalEndpoint resolver (local-only retrofit)", m: "◐ #1603", h: "#r91" },
+  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
+  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness (mirror the surface)", m: "needs R9.2 · R7", h: "#r93" },
+  { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
+  { d: 0, g: "○", c: "prog", l: "R9.5 · Code-tab fs/git → procedure + pulse", m: "needs R-pulamweb-4 · R9.3", h: "#r95" },
+  { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "needs R9", h: "#r10" },
+];
+
+<PhaseTree title="FINALE — R9 (decomposed) · R10" phases={PT} />
+
+Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4) (the live git drill-in that proves the procedure + pulse remote leg). **R9a** needs only the shipped R8, so it is the first landable PR.
+
+## What R9 reuses — and what it must build
+
+**Shipped seams (reuse as-is):**
+
+| seam | where | leg it serves |
+| --- | --- | --- |
+| `frontDaemonOverStdio` | `@kolu/surface-daemon` | dial the remote **kaval** over ssh stdio — the `ssh <host> kaval --stdio` relay `kaval-tui --host` already uses → the PTY |
+| `getHostSession` | `@kolu/surface-nix-host` | a pooled, long-lived session to dial the remote **pulam** → the mirror |
+| `mirrorRemoteSurface` | `@kolu/surface` | the total dual (`{ procedures, done }`, R7) — mirror the whole terminal-workspace surface into one local handle |
+| `HostLocation` remote arm | `@kolu/common` | `{ kind:"remote", hostId }` (note: `hostId`, not `host`) |
+| persisted `location` | `ServerPersistedTerminalFieldsSchema` | `location` already round-trips to disk |
+| `serveTerminalWorkspace` | `@kolu/terminal-workspace` | the awareness-backing injection point (R8) |
+
+**Must build (not in code today):**
+
+| gap | today | the phase that builds it |
+| --- | --- | --- |
+| a `HostLocation`-keyed endpoint resolver | `localTerminalEndpoint` is a **singleton** imported directly by `router.ts`/`surface.ts`/`terminals.ts`; no `location.kind` switch exists anywhere | **R9.1** (a retrofit — route the imports through the resolver) |
+| the ssh **driver** | only the `{kind:"local"}` arm exists | **R9.2** |
+| live **local** `activity` | kolu serves `quietActivity` — no raw byte tap | *open decision (below)* |
+
+## The sub-phases
+
+<a id="r9a"></a>
+
+### R9a — localhost dedup (one sensor set) · *the first PR*
+
+<Phase id="R9a" name="localhost dedup — one sensor set" status="todo" needs={["R8"]} />
+
+**The desync users actually see.** Under `PULAM_WEB_HOSTS=localhost`, pulam-web spawns its **own** pulam, so two sensor sets observe the same terminals and never reconcile — `working` in pulam-web vs `idle` in the Dock. **Fix:** don't spawn a second pulam; point pulam-web at kolu's **served** `terminalWorkspace.awareness` (cross-process as of R8) instead of its own sensor-fed cache. One sensor, two readers.
+
+- **Needs:** R8 (shipped). **Not** R-pulamweb-4 — landable now.
+- **Done:** under `localhost`, pulam-web and the Dock render identical agent state for the same terminal (a differential test); no second pulam process is spawned.
+
+<a id="r91"></a>
+
+### R9.1 — the `TerminalEndpoint` resolver (local-only retrofit)
+
+<Phase id="R9.1" name="HostLocation-keyed endpoint resolver" status="build-clean" needs={["R8"]} />
+
+Today `localTerminalEndpoint` is a singleton imported directly at `router.ts` / `surface.ts` / `terminals.ts`; there is **no** `location.kind` switch. Introduce **one resolver** keyed on `HostLocation` — the sole place a terminal maps to its kaval endpoint — and route every direct import through it. **Local-only and behavior-preserving** (the `{kind:"local"}` arm is the only arm). This is the retrofit that makes the remote arm purely additive; there is no `RemoteTerminalEndpoint`.
+
+- **Needs:** R8.
+- **Done:** every call site resolves through the resolver; the full suite is green with **no behavior change**; a test pins `{kind:"local"}` → `localTerminalEndpoint`. Delivered in <PrLink pr={1603} /> — per-terminal ops (attach, kill) resolve off the terminal's own `entry.meta.location` so R9.2 is a one-`case` addition, and a `{kind:"remote"}` location fails loudly rather than degrading onto the local PTY.
+
+<a id="r92"></a>
+
+### R9.2 — ssh kaval driver → a remote PTY tile
+
+<Phase id="R9.2" name="ssh kaval driver — remote PTY" status="todo" needs={["R9.1"]} />
+
+Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **kaval** over `frontDaemonOverStdio` (the same `ssh <host> kaval --stdio` relay `kaval-tui --host` uses) → a remote PTY on the canvas, **PTY only** (no awareness badge yet). Persist `location = {kind:"remote",hostId}`. Adoption reuses the local boot's `adoptOrEnsure` spine + the pid-gate's atomic `link(2)` (a dial *joins* a host's kaval, never races to kill it).
+
+- **Needs:** R9.1.
+- **Done:** dial a host, spawn a PTY, see an `ssh`-badged remote tile that echoes; it survives a network blip via re-attach. e2e: a remote PTY round-trips over ssh.
+
+<a id="r93"></a>
+
+### R9.3 — remote awareness (mirror the surface)
+
+<Phase id="R9.3" name="remote awareness via the mirror" status="todo" needs={["R9.2", "R7"]} />
+
+Dial the host's **pulam** over a long-lived `getHostSession`, **mirror the whole terminal-workspace surface** (R7's total dual) into one local handle, and make kolu-server's awareness backing resolve **remote** terminals from that mirror (local ones stay the registry projection) — plus a **live** `activity` source off the mirror's tracker. The remote tile gains the git/agent/PR badge + green dot.
+
+- **Needs:** R9.2, R7.
+- **Done:** a remote tile shows live awareness mirrored from the remote pulam; a differential test pins it equal to the remote pulam's own `awareness`.
+
+<a id="r94"></a>
+
+### R9.4 — persisted location, reconnect, adoption
+
+<Phase id="R9.4" name="persisted location + reconnect + adoption" status="todo" needs={["R9.2"]} />
+
+Harden the remote lifecycle: re-validate the persisted `location` on reconnect, and cover the adoption/reconcile cases.
+
+| the remote kaval is… | kolu does |
+| --- | --- |
+| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
+| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in |
+| live · a build behind | adopt **+** an "update pending" nudge |
+| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError` |
+| unreachable | bounded retry, then **degraded — never killed** |
+
+- **Open (decide here):** *what* is re-validated on reconnect and the fail behavior. `location` is the host discriminator (`kolu.authored`); `cwd` is the observed dir (`terminalWorkspace.awareness`) — they live in different collections. Spell out the comparison and the fail-fast (crash loudly vs re-derive); don't invent it at implementation time.
+- **Needs:** R9.2.
+- **Done:** a kolu-server restart re-adopts remote PTYs; each adoption-table row has a test.
+
+<a id="r95"></a>
+
+### R9.5 — the Code-tab fs/git rewrite (procedure + pulse)
+
+<Phase id="R9.5" name="Code-tab fs/git → procedure + pulse" status="todo" needs={["R-pulamweb-4", "R9.3"]} />
+
+The one **large client change**, and the only finale phase R-pulamweb-4 gates. The Code tab reads `koluSurface`'s **value-bearing** streams today (`CodeTab.tsx` — `app.streams.gitStatus/fsListAll/gitDiff.use`). Rewrite it to the shared surface's **procedure + `{seq}` pulse**: call the procedure once, re-query on each pulse (the two wire shapes are in [surface live data](surface-live-data.html)). This deletes the last `koluSurface` fs/git reads and works for local and remote tiles alike.
+
+- **Needs:** **R-pulamweb-4** (proves the procedure + pulse remote leg over `websocketLink` + `surfaceClient`), R9.3.
+- **Done:** the Code tab shows live git status/diff for a **remote** tile via procedure + pulse; no `koluSurface` fs/git reads remain.
+
+<a id="r10"></a>
+
+### R10 — canvas multiplex + validate
+
+<Phase id="R10" name="canvas multiplex + validate" status="todo" needs={["R9.5"]} />
+
+The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. The granularity call lands here, validated, not up front.
+
+- **Needs:** R9 (all of it).
+- **Done:** the validated UX call, recorded.
+
+## Open decisions
+
+Resolve each before the phase that needs it — so the implementer isn't choosing mid-flight.
+
+| decision | needed by | options |
+| --- | --- | --- |
+| rename the join `TerminalMetadata → Terminal` | cleanest **before R9.1** (a mechanical pass, ~63 refs) | ride it into R9.1, or defer out of the finale (recommended in [the terminal model](terminal-metadata-model.html)) |
+| where **local** live `activity` comes from | **R9.3** (remote gets it via the mirror; local does not) | build kaval's raw byte tap, or scope local "green dot" out of R9 |
+| reconnect re-validation semantics | **R9.4** | what's compared (`location` vs the remote kaval's live `cwd`) + the fail-fast behavior |

@@ -70,6 +70,13 @@ Feature: Right panel (Code + Inspector)
     Then the inspector should show the kaval-tui attach command
     And there should be no page errors
 
+  Scenario: Inspector shows the send command and agent-driving guidance
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector should show the send command and agent-driving guidance
+    And there should be no page errors
+
   Scenario: Inspector covers split terminals and the snapshot command
     # The tile's main pane and every split each get their own attach + snapshot
     # command pair, since each split is its own PTY in the daemon.

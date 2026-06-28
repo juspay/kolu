@@ -1,0 +1,127 @@
+---
+title: The Terminal Model — two collections, one reader-side join (and what to name them)
+description: A terminal's facts are split across two served collections — the observed half (AwarenessValue, 8 sensor fields) and the authored half (AuthoredTerminal, kolu's own UI). The client joins them at read time via composeTerminalMetadata into a TerminalMetadata; the same join authors the on-disk SavedTerminal. There is no server-side fused record (landed in PR #1594). This note pins the shipped types and weighs the naming proposals — role-named vs producer-named — for the family.
+parents: [remote-terminals, reference]
+status: proposed
+maturity: budding
+updated: 2026-06-27
+---
+
+import Svg from "../../components/Svg.astro";
+import Callout from "../../components/Callout.astro";
+import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
+
+**A terminal's facts are split across two served collections, joined at the reader.** The **observed** half — `AwarenessValue`, the eight sensor fields — is served raw on `terminalWorkspace.awareness`. The **authored** half — `AuthoredTerminal`, kolu's own UI + the `active | sleeping` discriminant — is served raw on `kolu.authored`. The client's `useTerminalMetadata` subscribes to **both** and joins them with `composeTerminalMetadata` into a `TerminalMetadata`; `snapshotSession` reuses the **same** join to author the on-disk `SavedTerminal`. **Nothing fuses the two server-side** — `surfaceCtx.collections.terminalMetadata` is a compile error (pinned by `surface.test.ts`). This shipped in **PR #1594**.
+
+<Svg svg={diagram} caption="Two collections served raw — terminalWorkspace.awareness (AwarenessValue, 8 sensor fields) and kolu.authored (AuthoredTerminal, kolu's UI + discriminant) — joined by composeTerminalMetadata at the reader (useTerminalMetadata) and at save (snapshotSession) into a TerminalMetadata. No server-side fusion; R9 swaps awareness's backing behind the same seam." />
+
+## The shipped types
+
+```ts
+//  observed half  ── @kolu/terminal-workspace, served as `terminalWorkspace.awareness`
+type AwarenessValue   = { cwd; git; pr; agent; foreground;
+                          lastAgentCommand?; agentSession?; lastActivityAt }   // 8 fields
+
+//  authored half  ── @kolu/common, served as `kolu.authored`
+type AuthoredTerminal = { location; themeName?; parentId?; canvasLayout?;
+                          subPanel?; rightPanel?; intent? } & ( { state:"active" }
+                          | { state:"sleeping"; sleptAt; pr? } )
+
+//  the join  ── NOT served · computed at the reader and at save · a z.infer type, not a value
+type TerminalMetadata = ActiveTerminal | SleepingTerminal       // = compose(authored, awareness)
+```
+
+```text
+composeTerminalMetadata(authored, awareness):
+  active    →  { ...awareness, ...authored }                 // authored wins; full live overlay
+  sleeping  →  { ...persisted(awareness), ...authored }       // live half (pr·agent·foreground)
+                                                              // dropped; authored's frozen pr is
+                                                              // the only pr a sleeping tile shows
+```
+
+## Where the facts come from
+
+| half | type | fields | producer |
+| --- | --- | --- | --- |
+| **observed** | `AwarenessValue` | `cwd` · `git` · `pr` · `agent` · `foreground` · `lastAgentCommand` · `agentSession` · `lastActivityAt` | **sensors** derive `git`/`pr`/`agent` and **relay** kaval's `cwd`/`foreground`/`command`. `cwd` originates at **kaval** (OSC 7); kaval is untouched by this PR. |
+| **authored** | `AuthoredTerminal` | `location` · `themeName` · `parentId` · `canvasLayout` · `subPanel` · `rightPanel` · `intent` + `state`/`sleptAt` | **kolu** authors it; `location` set once at spawn; `state` is the `active`\|`sleeping` discriminant. |
+
+<Callout kind="note" title="cwd is kaval's, not pulam's">
+The sensors don't *know* `cwd` — they **relay** it. It originates at kaval's OSC 7 tap, flows through the sensor's `cwd` channel, lands in `AwarenessValue.cwd`, and the sensors **derive** `git` from it (`cwd → git → pr`). So `AwarenessValue` is itself a *bundle*: kaval-relayed facts (`cwd`, `foreground`) plus sensor-derived ones (`git`, `pr`, `agent`).
+</Callout>
+
+## Active vs Sleeping
+
+```text
+  ACTIVE                                       SLEEPING
+  ─────────────────────────────                ─────────────────────────────────
+  PTY alive · sensors live                     PTY killed · live sensors stop
+  awareness updates each tick                  entry + awareness KEPT (frozen)
+  join = { ...awareness, ...authored }         authored flipped to sleeping IN PLACE
+  full live overlay (pr·agent·fg)              join = persisted(awareness) + authored
+                                               frozen pr only · pr·agent·fg dropped
+```
+
+Sleep flips the authored arm to `sleeping` **in place** and keeps the (now frozen) `awareness` entry — so the reader join still resolves. Dropping awareness happens only on **removal** (exit / kill / discard, via `finalizeRemoval`), never on sleep. Sleep also **kills** the PTY (`releaseSleptPty` → `terminal.kill`); **wake re-spawns** a fresh PTY and resumes (`claude --resume <id>`). The "PTY survives the daemon and gets re-adopted" path is a **different** event — a kolu-server **restart** (`adoptLocalOrphan`).
+
+## Persistence — author a snapshot, reuse the join
+
+<Callout kind="note" title="persist = author · disk and read can't diverge">
+The two live collections are **push-only** — nothing in them hits disk; **the registry is the store**. At sleep/session-save, `snapshotSession` runs the **same** `composeTerminalMetadata(entry.meta, entry.awareness)` and parses it through `SavedTerminalSchema`, which **strips the live overlay** (`pr`/`agent`/`foreground`). So the on-disk `SavedTerminal` carries the **persisted** awareness half (`cwd` · `git` · `lastAgentCommand` · `agentSession` · `lastActivityAt`) **+** kolu's authored fields, and a restored tile shows **`cwd`/`git` from that snapshot** while **`agent`/`pr`/`foreground` re-derive** on wake. Because disk and the client read share the *one* join, they cannot diverge.
+</Callout>
+
+## Identity
+
+```text
+key  =  ( location , TerminalId )
+
+  TerminalId   a uuid · minted by kolu-server, passed verbatim to kaval, keys BOTH collections
+  location     { kind:"local" } | { kind:"remote", hostId }   — lives in AuthoredTerminal
+```
+
+The same id value flows through all three (kaval's `PtyId` *is* the terminal id). The **types** stay distinct on purpose: `TerminalId = z.string().uuid()`, while kaval's `PtyId = string` (opaque, un-branded). This PR **does not** brand them together — kaval stays id-opaque (it neither mints nor interprets ids), so the coupling lives only at kolu's boundary.
+
+## Naming — the shipped names vs the proposals
+
+The three slots below are real and stable; only their **names** are open. The shipped names work but don't read as a family (`…Value` / `…Terminal` / `…Metadata`).
+
+| slot | what it is | **shipped (#1594)** | role → `Terminal` | symmetric halves | producer-named |
+| --- | --- | --- | --- | --- | --- |
+| observed half | 8 sensor fields | `AwarenessValue` | `AwarenessValue` | `ObservedTerminal` | `PulamMeta` ⚠ |
+| authored half | kolu's own | `AuthoredTerminal` | `AuthoredTerminal` | `AuthoredTerminal` | `KoluMeta` |
+| the join | authored ⋈ observed | `TerminalMetadata` | **`Terminal`** | **`Terminal`** | `TerminalMeta` |
+| *(kaval PTY facts)* | *not in this PR* | `PtyListEntry` | `PtyListEntry` | `PtyListEntry` | `KavalMeta` |
+| **reads as** | — | mixed suffixes | *a `Terminal` is `AuthoredTerminal` ⋈ `AwarenessValue`* | fully parallel pair | producer-coupled |
+| **churn** | — | shipped, 0 | ~63 refs · `Terminal` is free | ~63 + ~85 refs + `awareness` collection + pulam | large + a future lie |
+
+<Callout kind="warn" title="Name by role, not producer">
+Producer names (`PulamMeta`, `KavalMeta`) bake in **who** makes the data — but that producer is **volatile**: R9 swaps the awareness producer from local sensors to remote `pulam`, so `PulamMeta` becomes a lie the moment R9 lands. Role names (`Awareness`, `Observed`, `Authored`) name **what** the data is and survive the swap. That alone rules out the producer-named column.
+</Callout>
+
+**Recommendation:** rename the **join** `TerminalMetadata` → **`Terminal`** (the name is free; ~63 refs) and leave the two halves as `AuthoredTerminal` / `AwarenessValue`. It buys the model sentence — *"a `Terminal` is its authored half joined with its observed half"* — for the lowest churn, without the cross-package `AwarenessValue` rename the symmetric column drags in.
+
+## One surface, two homes — `serveTerminalWorkspace`
+
+The `terminalWorkspace.awareness` collection is served by **two homes** — kolu-server (in-process) and the `pulam` daemon (remote, over ssh) — but assembled in **one place**. `@kolu/terminal-workspace/serveTerminalWorkspace` owns the surface skeleton (the `version` handshake cell + the fs/git procedures and watcher streams, off `serveFsGit`); each home injects only its **two volatile backings**:
+
+| backing | kolu-server | pulam |
+| --- | --- | --- |
+| `awareness` source | projects off its **registry** (`.awareness` per entry) | reads its **own store** |
+| `activity` source | `quietActivity` — no raw byte tap yet | **live**, over its activity tracker |
+
+It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
+
+## Next — R9 (remote awareness)
+
+R8 did the hard part: it pushed the bisection all the way to the reader **and** put the assembly behind one factory. So **R9 is a backing-swap, not a rewrite** — everything downstream of the `terminalWorkspace.awareness` seam already exists.
+
+```text
+R9   kolu-server's `awareness` backing:  registry projection  →  a mirror of a remote
+     pulam's awareness collection (over ssh)  ·  kolu's `activity`  →  live
+     UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
+                 (terminalWorkspaceSurface) · the authored half · disk persistence
+```
+
+The single seam is `terminalWorkspace.awareness`, served via `serveTerminalWorkspace` in both homes. R9 injects a remote-mirrored awareness backing into kolu-server's call plus a live `activity` source — nothing past the seam moves.
+
+**Still open (pick before/with R9):** rename the join `TerminalMetadata` → `Terminal` (recommended above).

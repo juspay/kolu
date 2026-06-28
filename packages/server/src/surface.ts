@@ -56,6 +56,7 @@ import type {
 import {
   bytesToWholeMB,
   type koluSurface,
+  LOCAL_LOCATION,
   surfaces,
 } from "kolu-common/surface";
 import {
@@ -84,14 +85,17 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
 // *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
-const localEndpoint = localTerminalEndpoint;
+// Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
+// exactly as the prior direct reference was — the late-bound surface ctx
+// (#1005) is what keeps that read TDZ-safe across ESM load orders.
+const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -264,10 +268,11 @@ const koluDeps: Omit<
   },
 
   streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint.
-    // P3 adds remote-endpoint impls behind the same TerminalEndpointFs /
-    // TerminalEndpointGit seam — this block reads them off `localEndpoint`
-    // and never names a host.
+    // fs/git streams are per-host one-shot ops bound to this endpoint. For now
+    // they read the LOCAL endpoint off the `localEndpoint` alias
+    // (`resolveTerminalEndpoint(LOCAL_LOCATION)`); R9.5's Code-tab rewrite makes
+    // them resolve per-terminal so a remote tile's fs/git dials its host behind
+    // the same TerminalEndpointFs / TerminalEndpointGit seam.
     gitStatus: {
       read: async (input) =>
         localEndpoint.git.getStatus(input.repoPath, input.mode),

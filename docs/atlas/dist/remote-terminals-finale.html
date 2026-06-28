@@ -1,0 +1,194 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Remote terminals — the finale (R9–R10) · the kolu Atlas</title><meta name="description" content="R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/remote-terminals-finale.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="Remote terminals — the finale (R9–R10) · the kolu Atlas"><meta property="og:description" content="R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/remote-terminals-finale.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-06-27T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="Remote terminals — the finale (R9–R10) · the kolu Atlas"><meta name="twitter:description" content="R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">Remote terminals — the finale (R9–R10)</h1><div class="meta-row"><span>budding</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-06-27T00:00:00.000Z">JUN 27, 2026</time></div><p class="note-sub">R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#roadmap" data-astro-cid-rda6bqd5>Roadmap</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-r9-reuses--and-what-it-must-build" data-astro-cid-rda6bqd5>What R9 reuses — and what it must build</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-sub-phases" data-astro-cid-rda6bqd5>The sub-phases</a><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r9a--localhost-dedup-one-sensor-set--the-first-pr" data-astro-cid-rda6bqd5>R9a — localhost dedup (one sensor set) · the first PR</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r91--the-terminalendpoint-resolver-local-only-retrofit" data-astro-cid-rda6bqd5>R9.1 — the TerminalEndpoint resolver (local-only retrofit)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r92--ssh-kaval-driver--a-remote-pty-tile" data-astro-cid-rda6bqd5>R9.2 — ssh kaval driver → a remote PTY tile</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r93--remote-awareness-mirror-the-surface" data-astro-cid-rda6bqd5>R9.3 — remote awareness (mirror the surface)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r94--persisted-location-reconnect-adoption" data-astro-cid-rda6bqd5>R9.4 — persisted location, reconnect, adoption</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r95--the-code-tab-fsgit-rewrite-procedure--pulse" data-astro-cid-rda6bqd5>R9.5 — the Code-tab fs/git rewrite (procedure + pulse)</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#r10--canvas-multiplex--validate" data-astro-cid-rda6bqd5>R10 — canvas multiplex + validate</a></li></ul></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#open-decisions" data-astro-cid-rda6bqd5>Open decisions</a></li></ul></nav></header><div class="prose"><p><strong>The last leg of <a href="https://github.com/juspay/kolu/issues/951" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>#951</a> — kolu dials remote hosts — broken into landable PRs.</strong> R9 was one paragraph hiding ~12 workstreams; now that <strong>R8 shipped</strong> (<a href="https://github.com/juspay/kolu/pull/1594" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1594</a> — the awareness bisection, the reader-side join, and the <code>serveTerminalWorkspace</code> factory), the remote work reduces to <em>injecting a mirrored awareness backing behind shipped seams</em> plus an ssh driver. This note decomposes R9 the way <a href="pty-daemon.html">pty-daemon</a> (R2) and <a href="pulam.html">pulam</a> (R4) decomposed theirs; the parent <a href="remote-terminals.html">remote-terminals</a> keeps the one-line roadmap rows. Full model: <a href="terminal-metadata-model.html">the terminal model</a>.</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>R9 is a backing-injection, not a new model</p><div class="callout-body" data-astro-cid-q2ml7llr><p>R8 split a terminal’s record into two raw served collections — <code>terminalWorkspace.awareness</code> (the sensor half) and <code>kolu.authored</code> (kolu’s half) — joined <strong>at the reader</strong> via <code>composeTerminalMetadata</code>, with <strong>one factory</strong> (<code>serveTerminalWorkspace</code>) assembling the surface for both homes (kolu-server in-process, pulam remote) and injecting only the <strong>awareness backing</strong> + <strong>activity source</strong>. So remote awareness in R9 is: make kolu-server’s awareness backing resolve <strong>remote</strong> terminals from the mirror (local ones stay the registry projection). The reader join, the contract, and disk persistence are untouched.</p></div></aside>
+<h2 id="roadmap">Roadmap</h2>
+
+<div style="font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfcfd;border:1px solid #e2e8f0;border-radius:10px;padding:.9rem 1.1rem;margin:1.1rem 0;overflow-x:auto"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.4rem;margin-bottom:.55rem"><span style="color:#334155;font-weight:700;font-size:.92em;letter-spacing:.02em">FINALE — R9 (decomposed) · R10</span><span style="color:#94a3b8;font-size:.8em">✓ shipped · ▶ do next · ◐ build-clean · ○ todo · → drill in</span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">▶</span><span style="color:#1f2937;font-weight:600">R9a · localhost dedup — one sensor set (the first PR)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r9a" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">R8 ✓ · startable now</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">◐</span><span style="color:#1f2937;font-weight:600">R9.1 · the TerminalEndpoint resolver (local-only retrofit)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r91" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">◐ #1603</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">R9.2 · ssh kaval driver → a remote PTY tile</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r92" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs R9.1</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">R9.3 · remote awareness (mirror the surface)</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r93" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs R9.2 · R7</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">R9.4 · persisted location + reconnect + adoption</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r94" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs R9.2</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#b45309;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">R9.5 · Code-tab fs/git → procedure + pulse</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r95" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs R-pulamweb-4 · R9.3</a></span></div><div style="display:flex;align-items:baseline;gap:.6ch;padding:.07rem 0;padding-left:0rem"><span style="color:#64748b;width:1.2ch;flex:none;text-align:center">○</span><span style="color:#1f2937;font-weight:600">R10 · canvas multiplex + validate</span><span style="color:#6b7280;margin-left:auto;white-space:nowrap;font-size:.92em"><a href="#r10" style="color:#6b7280;text-decoration:underline;text-decoration-color:#cbd5e1;text-underline-offset:2px">needs R9</a></span></div></div>
+<p>Only <strong>R9.5</strong> is gated on <a href="pulam-web.html#r-pulamweb-4">R-pulamweb-4</a> (the live git drill-in that proves the procedure + pulse remote leg). <strong>R9a</strong> needs only the shipped R8, so it is the first landable PR.</p>
+<h2 id="what-r9-reuses--and-what-it-must-build">What R9 reuses — and what it must build</h2>
+<p><strong>Shipped seams (reuse as-is):</strong></p>
+<table>
+<thead>
+<tr>
+<th>seam</th>
+<th>where</th>
+<th>leg it serves</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frontDaemonOverStdio</code></td>
+<td><code>@kolu/surface-daemon</code></td>
+<td>dial the remote <strong>kaval</strong> over ssh stdio — the <code>ssh &lt;host&gt; kaval --stdio</code> relay <code>kaval-tui --host</code> already uses → the PTY</td>
+</tr>
+<tr>
+<td><code>getHostSession</code></td>
+<td><code>@kolu/surface-nix-host</code></td>
+<td>a pooled, long-lived session to dial the remote <strong>pulam</strong> → the mirror</td>
+</tr>
+<tr>
+<td><code>mirrorRemoteSurface</code></td>
+<td><code>@kolu/surface</code></td>
+<td>the total dual (<code>{ procedures, done }</code>, R7) — mirror the whole terminal-workspace surface into one local handle</td>
+</tr>
+<tr>
+<td><code>HostLocation</code> remote arm</td>
+<td><code>@kolu/common</code></td>
+<td><code>{ kind:&quot;remote&quot;, hostId }</code> (note: <code>hostId</code>, not <code>host</code>)</td>
+</tr>
+<tr>
+<td>persisted <code>location</code></td>
+<td><code>ServerPersistedTerminalFieldsSchema</code></td>
+<td><code>location</code> already round-trips to disk</td>
+</tr>
+<tr>
+<td><code>serveTerminalWorkspace</code></td>
+<td><code>@kolu/terminal-workspace</code></td>
+<td>the awareness-backing injection point (R8)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Must build (not in code today):</strong></p>
+<table>
+<thead>
+<tr>
+<th>gap</th>
+<th>today</th>
+<th>the phase that builds it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a <code>HostLocation</code>-keyed endpoint resolver</td>
+<td><code>localTerminalEndpoint</code> is a <strong>singleton</strong> imported directly by <code>router.ts</code>/<code>surface.ts</code>/<code>terminals.ts</code>; no <code>location.kind</code> switch exists anywhere</td>
+<td><strong>R9.1</strong> (a retrofit — route the imports through the resolver)</td>
+</tr>
+<tr>
+<td>the ssh <strong>driver</strong></td>
+<td>only the <code>{kind:&quot;local&quot;}</code> arm exists</td>
+<td><strong>R9.2</strong></td>
+</tr>
+<tr>
+<td>live <strong>local</strong> <code>activity</code></td>
+<td>kolu serves <code>quietActivity</code> — no raw byte tap</td>
+<td><em>open decision (below)</em></td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-sub-phases">The sub-phases</h2>
+<a id="r9a"></a>
+<h3 id="r9a--localhost-dedup-one-sensor-set--the-first-pr">R9a — localhost dedup (one sensor set) · <em>the first PR</em></h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9a</span><span style="color:#334155">· localhost dedup — one sensor set</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R8</span></div></div>
+<p><strong>The desync users actually see.</strong> Under <code>PULAM_WEB_HOSTS=localhost</code>, pulam-web spawns its <strong>own</strong> pulam, so two sensor sets observe the same terminals and never reconcile — <code>working</code> in pulam-web vs <code>idle</code> in the Dock. <strong>Fix:</strong> don’t spawn a second pulam; point pulam-web at kolu’s <strong>served</strong> <code>terminalWorkspace.awareness</code> (cross-process as of R8) instead of its own sensor-fed cache. One sensor, two readers.</p>
+<ul>
+<li><strong>Needs:</strong> R8 (shipped). <strong>Not</strong> R-pulamweb-4 — landable now.</li>
+<li><strong>Done:</strong> under <code>localhost</code>, pulam-web and the Dock render identical agent state for the same terminal (a differential test); no second pulam process is spawned.</li>
+</ul>
+<a id="r91"></a>
+<h3 id="r91--the-terminalendpoint-resolver-local-only-retrofit">R9.1 — the <code>TerminalEndpoint</code> resolver (local-only retrofit)</h3>
+<div style="border:1px solid #c7d2fe;background:#eef2ff;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9.1</span><span style="color:#334155">· HostLocation-keyed endpoint resolver</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#4f46e5">◐ build-clean</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R8</span></div></div>
+<p>Today <code>localTerminalEndpoint</code> is a singleton imported directly at <code>router.ts</code> / <code>surface.ts</code> / <code>terminals.ts</code>; there is <strong>no</strong> <code>location.kind</code> switch. Introduce <strong>one resolver</strong> keyed on <code>HostLocation</code> — the sole place a terminal maps to its kaval endpoint — and route every direct import through it. <strong>Local-only and behavior-preserving</strong> (the <code>{kind:&quot;local&quot;}</code> arm is the only arm). This is the retrofit that makes the remote arm purely additive; there is no <code>RemoteTerminalEndpoint</code>.</p>
+<ul>
+<li><strong>Needs:</strong> R8.</li>
+<li><strong>Done:</strong> every call site resolves through the resolver; the full suite is green with <strong>no behavior change</strong>; a test pins <code>{kind:&quot;local&quot;}</code> → <code>localTerminalEndpoint</code>. Delivered in <a href="https://github.com/juspay/kolu/pull/1603" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1603</a> — per-terminal ops (attach, kill) resolve off the terminal’s own <code>entry.meta.location</code> so R9.2 is a one-<code>case</code> addition, and a <code>{kind:&quot;remote&quot;}</code> location fails loudly rather than degrading onto the local PTY.</li>
+</ul>
+<a id="r92"></a>
+<h3 id="r92--ssh-kaval-driver--a-remote-pty-tile">R9.2 — ssh kaval driver → a remote PTY tile</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9.2</span><span style="color:#334155">· ssh kaval driver — remote PTY</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R9.1</span></div></div>
+<p>Add the <code>{kind:&quot;remote&quot;,hostId}</code> arm to the resolver: dial the remote host’s <strong>kaval</strong> over <code>frontDaemonOverStdio</code> (the same <code>ssh &lt;host&gt; kaval --stdio</code> relay <code>kaval-tui --host</code> uses) → a remote PTY on the canvas, <strong>PTY only</strong> (no awareness badge yet). Persist <code>location = {kind:&quot;remote&quot;,hostId}</code>. Adoption reuses the local boot’s <code>adoptOrEnsure</code> spine + the pid-gate’s atomic <code>link(2)</code> (a dial <em>joins</em> a host’s kaval, never races to kill it).</p>
+<ul>
+<li><strong>Needs:</strong> R9.1.</li>
+<li><strong>Done:</strong> dial a host, spawn a PTY, see an <code>ssh</code>-badged remote tile that echoes; it survives a network blip via re-attach. e2e: a remote PTY round-trips over ssh.</li>
+</ul>
+<a id="r93"></a>
+<h3 id="r93--remote-awareness-mirror-the-surface">R9.3 — remote awareness (mirror the surface)</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9.3</span><span style="color:#334155">· remote awareness via the mirror</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R9.2 · R7</span></div></div>
+<p>Dial the host’s <strong>pulam</strong> over a long-lived <code>getHostSession</code>, <strong>mirror the whole terminal-workspace surface</strong> (R7’s total dual) into one local handle, and make kolu-server’s awareness backing resolve <strong>remote</strong> terminals from that mirror (local ones stay the registry projection) — plus a <strong>live</strong> <code>activity</code> source off the mirror’s tracker. The remote tile gains the git/agent/PR badge + green dot.</p>
+<ul>
+<li><strong>Needs:</strong> R9.2, R7.</li>
+<li><strong>Done:</strong> a remote tile shows live awareness mirrored from the remote pulam; a differential test pins it equal to the remote pulam’s own <code>awareness</code>.</li>
+</ul>
+<a id="r94"></a>
+<h3 id="r94--persisted-location-reconnect-adoption">R9.4 — persisted location, reconnect, adoption</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9.4</span><span style="color:#334155">· persisted location + reconnect + adoption</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R9.2</span></div></div>
+<p>Harden the remote lifecycle: re-validate the persisted <code>location</code> on reconnect, and cover the adoption/reconcile cases.</p>
+<table>
+<thead>
+<tr>
+<th>the remote kaval is…</th>
+<th>kolu does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>absent</td>
+<td>provision + spawn fresh (<code>adoptOrEnsure</code> → ensure)</td>
+</tr>
+<tr>
+<td>live · wire-compatible</td>
+<td><strong>adopt</strong> — connect, never kill; its PTYs reconcile in</td>
+</tr>
+<tr>
+<td>live · a build behind</td>
+<td>adopt <strong>+</strong> an “update pending” nudge</td>
+</tr>
+<tr>
+<td>live · contract-skewed</td>
+<td>recycle (kill → respawn) — only on a typed <code>DaemonContractSkewError</code></td>
+</tr>
+<tr>
+<td>unreachable</td>
+<td>bounded retry, then <strong>degraded — never killed</strong></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Open (decide here):</strong> <em>what</em> is re-validated on reconnect and the fail behavior. <code>location</code> is the host discriminator (<code>kolu.authored</code>); <code>cwd</code> is the observed dir (<code>terminalWorkspace.awareness</code>) — they live in different collections. Spell out the comparison and the fail-fast (crash loudly vs re-derive); don’t invent it at implementation time.</li>
+<li><strong>Needs:</strong> R9.2.</li>
+<li><strong>Done:</strong> a kolu-server restart re-adopts remote PTYs; each adoption-table row has a test.</li>
+</ul>
+<a id="r95"></a>
+<h3 id="r95--the-code-tab-fsgit-rewrite-procedure--pulse">R9.5 — the Code-tab fs/git rewrite (procedure + pulse)</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R9.5</span><span style="color:#334155">· Code-tab fs/git → procedure + pulse</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R-pulamweb-4 · R9.3</span></div></div>
+<p>The one <strong>large client change</strong>, and the only finale phase R-pulamweb-4 gates. The Code tab reads <code>koluSurface</code>’s <strong>value-bearing</strong> streams today (<code>CodeTab.tsx</code> — <code>app.streams.gitStatus/fsListAll/gitDiff.use</code>). Rewrite it to the shared surface’s <strong>procedure + <code>{seq}</code> pulse</strong>: call the procedure once, re-query on each pulse (the two wire shapes are in <a href="surface-live-data.html">surface live data</a>). This deletes the last <code>koluSurface</code> fs/git reads and works for local and remote tiles alike.</p>
+<ul>
+<li><strong>Needs:</strong> <strong>R-pulamweb-4</strong> (proves the procedure + pulse remote leg over <code>websocketLink</code> + <code>surfaceClient</code>), R9.3.</li>
+<li><strong>Done:</strong> the Code tab shows live git status/diff for a <strong>remote</strong> tile via procedure + pulse; no <code>koluSurface</code> fs/git reads remain.</li>
+</ul>
+<a id="r10"></a>
+<h3 id="r10--canvas-multiplex--validate">R10 — canvas multiplex + validate</h3>
+<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:.45rem .7rem;margin:.6rem 0 .5rem;font-size:.9em"><div style="display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;color:#0f172a">R10</span><span style="color:#334155">· canvas multiplex + validate</span><span style="margin-left:auto;font-size:.85em;font-weight:600;color:#64748b">○ todo</span></div><div style="display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.32rem;font-size:.84em;color:#475569"><span><span style="color:#94a3b8">needs ←</span> R9.5</span></div></div>
+<p>The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — <em>kinda like tmux sessions</em>. Then <strong>validate the feel</strong> on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn’t earn its keep. The granularity call lands here, validated, not up front.</p>
+<ul>
+<li><strong>Needs:</strong> R9 (all of it).</li>
+<li><strong>Done:</strong> the validated UX call, recorded.</li>
+</ul>
+<h2 id="open-decisions">Open decisions</h2>
+<p>Resolve each before the phase that needs it — so the implementer isn’t choosing mid-flight.</p>
+<table>
+<thead>
+<tr>
+<th>decision</th>
+<th>needed by</th>
+<th>options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rename the join <code>TerminalMetadata → Terminal</code></td>
+<td>cleanest <strong>before R9.1</strong> (a mechanical pass, ~63 refs)</td>
+<td>ride it into R9.1, or defer out of the finale (recommended in <a href="terminal-metadata-model.html">the terminal model</a>)</td>
+</tr>
+<tr>
+<td>where <strong>local</strong> live <code>activity</code> comes from</td>
+<td><strong>R9.3</strong> (remote gets it via the mirror; local does not)</td>
+<td>build kaval’s raw byte tap, or scope local “green dot” out of R9</td>
+</tr>
+<tr>
+<td>reconnect re-validation semantics</td>
+<td><strong>R9.4</strong></td>
+<td>what’s compared (<code>location</code> vs the remote kaval’s live <code>cwd</code>) + the fail-fast behavior</td>
+</tr>
+</tbody>
+</table></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./remote-terminals.html" data-astro-cid-aziudkuj>Remote terminals over SSH</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>
