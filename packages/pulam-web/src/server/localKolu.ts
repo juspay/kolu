@@ -166,8 +166,16 @@ export async function runLocalMirror(opts: {
   while (!signal.aborted) {
     try {
       await link.ready(signal);
-    } catch {
-      return; // aborted while waiting for the link
+    } catch (err) {
+      if (signal.aborted) return; // aborted while waiting for the link — clean stop
+      // `link.ready()` is contracted to reject ONLY on abort (the production
+      // `waitForOpen` does). A rejection while NOT aborted is an unexpected fault —
+      // surface it loudly rather than silently ending the mirror loop, which would
+      // freeze the localhost card with no trace (the no-silent-swallow convention).
+      log(
+        `local kolu mirror: link.ready() rejected without an abort — ending mirror loop: ${(err as Error).message}`,
+      );
+      return;
     }
     if (signal.aborted) return;
     seq += 1;
