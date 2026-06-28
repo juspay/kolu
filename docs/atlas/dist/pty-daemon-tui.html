@@ -151,8 +151,8 @@
 </tr>
 <tr>
 <td><code>kaval-tui snapshot &lt;id&gt;</code></td>
-<td><code>terminal.getScreenText({id, viewport?, tailLines?})</code></td>
-<td>One-shot, non-interactive: dump the rendered screen as <strong>plain rendered text</strong> (not the <code>terminalAttach</code> first frame — that’s serialized VT screen state for late attach, which would replay control sequences and defeat <code>grep</code>) + a trailer line to stderr, then exit. Defaults to the full scrollback; <code>--viewport</code> bounds it to the visible screen (the host resolves it to its own <code>rows</code> — the CLI can’t know the daemon’s grid) and <code>--tail N</code> to the last N lines, so an agent-driving loop reads the current screen instead of <code>| tail</code>-ing a huge buffer. The scriptable primitive the <a href="#headless-test">headless test</a> asserts on.</td>
+<td><code>terminal.getScreenText({id, extent?})</code></td>
+<td>One-shot, non-interactive: dump the rendered screen as <strong>plain rendered text</strong> (not the <code>terminalAttach</code> first frame — that’s serialized VT screen state for late attach, which would replay control sequences and defeat <code>grep</code>) + a trailer line to stderr, then exit. <code>extent</code> is a discriminated union bounding which slice comes back — omit it (or <code>{kind:&quot;full&quot;}</code>) for the full scrollback; <code>--viewport</code> sends <code>{kind:&quot;viewport&quot;}</code> (the host resolves it to its own <code>rows</code> — the CLI can’t know the daemon’s grid) and <code>--tail N</code> sends <code>{kind:&quot;tail&quot;, lines:N}</code>, so an agent-driving loop reads the current screen instead of <code>| tail</code>-ing a huge buffer. (A <code>{kind:&quot;range&quot;, startLine?, endLine?}</code> variant rounds out the union for callers wanting an explicit line window.) The scriptable primitive the <a href="#headless-test">headless test</a> asserts on.</td>
 </tr>
 <tr>
 <td><code>kaval-tui send &lt;id&gt; [text]</code></td>

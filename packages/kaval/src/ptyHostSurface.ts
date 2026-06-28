@@ -71,12 +71,18 @@ import { z } from "zod";
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
- *  Bumped to 3.4 (additive · minor): `getScreenText` gained an optional
- *  `extent` — a discriminated union ({ full | range | tail | viewport }) that
- *  bounds which slice of the buffer to return (viewport = the host's own
- *  visible `rows`) — a 3.3 survivor lacks it and would silently return the full
- *  scrollback, so it is recycled on adoption rather than ignoring the bound. */
-export const PTY_HOST_CONTRACT_VERSION = "3.4";
+ *  Bumped to 4.0 (breaking · major): `getScreenText`'s input was *reshaped*, not
+ *  extended — the positional `startLine` / `endLine` / `tailLines` fields were
+ *  removed and replaced by a single optional `extent` discriminated union
+ *  ({ full | range | tail | viewport }, viewport = the host's own visible
+ *  `rows`). This is NOT additive in either skew direction: a new daemon serving
+ *  the 4.0 schema would silently STRIP an old 3.x client's legacy `tailLines`
+ *  (zod drops unknown keys) and return the full scrollback — the exact
+ *  full-buffer poll cost this change removes — while an old 3.x daemon would
+ *  ignore a new client's `extent`. A major bump makes the predicate reject the
+ *  skew in BOTH directions (`major` mismatch), so each side forces an honest
+ *  recycle instead of a silently-wrong bound. */
+export const PTY_HOST_CONTRACT_VERSION = "4.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -334,7 +340,14 @@ export const ptyHostSurface = defineSurface({
                 startLine: z.number().int().optional(),
                 endLine: z.number().int().optional(),
               }),
-              z.object({ kind: z.literal("tail"), lines: z.number().int() }),
+              z.object({
+                kind: z.literal("tail"),
+                // "Last N lines" — N is a count, so a negative is meaningless.
+                // Reject it at the wire boundary (fail loud) rather than letting
+                // `getScreenText`'s `Math.max(0, …)` clamp turn it into a silent
+                // empty read.
+                lines: z.number().int().nonnegative(),
+              }),
               z.object({ kind: z.literal("viewport") }),
             ])
             .optional(),
