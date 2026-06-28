@@ -303,14 +303,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         },
         getScreenText: async ({ input }) => {
           requirePty(input.id as PtyId);
-          return {
-            text: host.getScreenText(
-              input.id,
-              input.startLine,
-              input.endLine,
-              input.tailLines,
-            ),
-          };
+          return { text: host.getScreenText(input.id, input.extent) };
         },
       },
       system: {

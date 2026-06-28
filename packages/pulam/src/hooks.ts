@@ -32,7 +32,7 @@ export interface AwarenessSinkDeps {
   publish: (meta: AwarenessValue) => void;
   /** Read the terminal's rendered screen tail — kaval's `getScreenText`. Drives
    *  the agents' screen-scrape promotion (Claude's awaiting-user prompt). */
-  readScreenText: (tailLines?: number) => Promise<string>;
+  readScreenText: (tailLines: number) => Promise<string>;
 }
 
 /** Build the daemon's per-terminal sink. */

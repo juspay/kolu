@@ -186,8 +186,12 @@ export interface AwarenessSink {
    *  detector inspects just the screen bottom, so the poll asks for exactly
    *  its tail (`screenScrape.tailLines`) rather than the whole buffer — a long
    *  scrollback (the configured 50k lines) isn't allocated, joined, shipped,
-   *  and discarded once a second while a session waits. */
-  readScreenText?: (tailLines?: number) => Promise<string>;
+   *  and discarded once a second while a session waits. Required, not optional:
+   *  the only caller is the screen-scrape poll, which always passes its
+   *  detector's `screenScrape.tailLines` (a `number`). Leaving it optional would
+   *  let a host map an omitted count to a `tail`-with-no-`lines` request the
+   *  pty-host wire schema rejects — an impossible state we forbid in the type. */
+  readScreenText?: (tailLines: number) => Promise<string>;
 }
 
 // ── Foreground process observer ──────────────────────────────────────
