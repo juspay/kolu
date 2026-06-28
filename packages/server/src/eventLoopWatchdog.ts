@@ -56,12 +56,14 @@ export function isStalled(
 
 /** The worker body, kept as a plain-JS string and run with `eval: true` so it
  *  needs no separate file and no TS loader inside the worker (we also clear
- *  `execArgv` so it doesn't inherit the parent's `--import tsx`). It mirrors
- *  {@link isStalled}: read the shared millis, abort if older than the
- *  threshold. `Atomics.load` reads the value the main thread `Atomics.store`s.
- *  `process.kill(process.pid, "SIGABRT")` terminates the WHOLE process (same
- *  PID across threads) even with the main loop blocked — `SIGABRT` has no JS
- *  handler to wait on, so the kernel's default disposition fires immediately.
+ *  `execArgv` so it doesn't inherit the parent's `--import tsx`). The stall
+ *  decision is the SAME {@link isStalled}: its source is interpolated in below
+ *  so the worker runs the exact predicate the unit test exercises — one
+ *  definition, no hand-synced copy. `Atomics.load` reads the value the main
+ *  thread `Atomics.store`s. `process.kill(process.pid, "SIGABRT")` terminates
+ *  the WHOLE process (same PID across threads) even with the main loop blocked
+ *  — `SIGABRT` has no JS handler to wait on, so the kernel's default
+ *  disposition fires immediately.
  *
  *  Exported so the child-process test can drive the REAL worker body: an
  *  in-process test can't exercise the abort without killing the test runner. */
@@ -70,24 +72,23 @@ const { workerData } = require("node:worker_threads");
 const beats = new BigInt64Array(workerData.sab);
 const thresholdMs = workerData.thresholdMs;
 const checkMs = workerData.checkMs;
+const isStalled = ${isStalled.toString()};
 setInterval(() => {
   const last = Number(Atomics.load(beats, 0));
-  if (last === 0) return; // no heartbeat yet — still starting up
-  const staleMs = Date.now() - last;
-  if (staleMs > thresholdMs) {
-    // The worker can't reach the main logger; stderr is captured by the
-    // service journal. Write SYNCHRONOUSLY to fd 2 — a buffered console.error
-    // would race the abort below and lose the line. One structured line, then
-    // pull the ripcord.
-    require("node:fs").writeSync(2, JSON.stringify({
-      level: "fatal",
-      subsystem: "event-loop-watchdog",
-      msg: "event loop wedged past threshold — aborting for supervisor restart",
-      staleMs,
-      thresholdMs,
-    }) + "\\n");
-    process.kill(process.pid, "SIGABRT");
-  }
+  if (!isStalled(last, Date.now(), thresholdMs)) return;
+  const staleMs = Date.now() - last; // diagnostic display value, not the decision
+  // The worker can't reach the main logger; stderr is captured by the
+  // service journal. Write SYNCHRONOUSLY to fd 2 — a buffered console.error
+  // would race the abort below and lose the line. One structured line, then
+  // pull the ripcord.
+  require("node:fs").writeSync(2, JSON.stringify({
+    level: "fatal",
+    subsystem: "event-loop-watchdog",
+    msg: "event loop wedged past threshold — aborting for supervisor restart",
+    staleMs,
+    thresholdMs,
+  }) + "\\n");
+  process.kill(process.pid, "SIGABRT");
 }, checkMs);
 `;
 
