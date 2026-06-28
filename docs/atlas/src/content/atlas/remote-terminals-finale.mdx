@@ -28,7 +28,7 @@ R8's **reader-join** and the `serveTerminalWorkspace` **awareness-backing inject
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "R9.0 · kolu consumes a local pulam (retire in-process awareness)", m: "the decouple · needs R8 · R4", h: "#r90" },
+  { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu consumes a local pulam (retire in-process awareness)", m: "the decouple · #1614", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
   { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = the SAME mirror, a remote pulam", m: "needs R9.0 · R9.2 · R7", h: "#r93" },
@@ -68,9 +68,9 @@ export const PT = [
 
 <a id="r90"></a>
 
-### R9.0 — kolu consumes a local pulam (retire in-process awareness) · *the decouple*
+### R9.0 — kolu consumes a local pulam (retire in-process awareness) · *the decouple* <PrLink pr={1614} />
 
-<Phase id="R9.0" name="kolu consumes a local pulam; pulam is the awareness authority" status="todo" needs={["R8", "R4"]} />
+<Phase id="R9.0" name="kolu consumes a local pulam; pulam is the awareness authority" status="shipped" needs={["R8", "R4"]} links={[{ label: "#1614", href: "https://github.com/juspay/kolu/pull/1614" }]} />
 
 **The fault R8 left.** R8 made kolu run the awareness sensors **in-process** and serve them (the registry-projection backing). That re-coupled awareness into kolu and gave awareness two serving shapes (kolu multiplexed, pulam standalone) — the asymmetry R9a then papered over with a kolu-aware mirror.
 
