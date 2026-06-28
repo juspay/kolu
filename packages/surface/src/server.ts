@@ -1335,19 +1335,37 @@ function walkSurface<const S extends SurfaceSpec>(
     // ("broadcasts K[] snapshots on add/remove"). A value-only upsert (existing
     // key, new value) leaves the key SET identical, so re-publishing the whole
     // key array would be a redundant full-snapshot the `keys` subscribers fold to
-    // the same set (and a spurious re-render). The membership test reads the store
-    // BEFORE `upsert`, so a first-write key still counts as an add. Value updates
-    // travel the per-key `get` stream (`perKeyBus`) and the batched `deltas`
-    // stream (`coalescer`), both of which DO fire on every upsert.
+    // the same set (and a spurious re-render). Value updates travel the per-key
+    // `get` stream (`perKeyBus`) and the batched `deltas` stream (`coalescer`),
+    // both of which DO fire on every upsert.
+    //
+    // "New key" must mean new to SUBSCRIBERS, NOT new to the store. A registry-
+    // PROJECTION collection (kolu's `awareness` / `authored` / `daemonStatus`) has
+    // a no-op `upsert` and adds the entry to its registry BEFORE calling this
+    // publish, so `collDeps.readAll().has(k)` is ALREADY true here — a store test
+    // taken before `upsert` would read the key as pre-existing and never broadcast
+    // the add, so an already-subscribed `keys` consumer (a cross-process mirror)
+    // would never see a key born after it connected (kolu's own client dodges this
+    // by sourcing membership from a sibling, then reading per-key values). So track
+    // the framework's OWN record of which keys it has broadcast and fire the
+    // membership snapshot on a key's first upsert regardless of when the backing
+    // inserted it — correct for an in-memory Map dep (where `upsert` adds the key)
+    // and a registry projection alike. The published array is always the live
+    // `readAll()` set, so a stale `broadcastKeys` only ever costs one redundant
+    // (self-healing) snapshot, never a wrong one.
+    const broadcastKeys = new Set<unknown>();
     const wrappedUpsert = (k: unknown, v: unknown) => {
-      const isNewKey = !collDeps.readAll().has(k);
       collDeps.upsert(k, v);
-      if (isNewKey) keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (!broadcastKeys.has(k)) {
+        broadcastKeys.add(k);
+        keysBus.publish(Array.from(collDeps.readAll().keys()));
+      }
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
+      broadcastKeys.delete(k);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
       coalescer?.remove(k);
     };
