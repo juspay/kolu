@@ -58,7 +58,17 @@ export interface UseCollectionResult<K, T> {
   keys: Accessor<K[]>;
   /** Reactive accessor for the value at `key`, or `undefined` if not yet
    *  yielded. The per-key subscription is created lazily and disposed
-   *  when the key leaves the set. */
+   *  when the key leaves the set.
+   *
+   *  DELIVERY-PATH CONTRACT — this receptacle backs BOTH delivery paths
+   *  (`useCollection`'s per-key streams and `useCollectionDeltas`'s single
+   *  batched stream), and the encapsulated axis leaks on two points a consumer
+   *  must know: (1) the value read is identical across paths, but `error()` /
+   *  `pending()` are NOT — under per-key delivery they are THAT key's own
+   *  stream's, while under batched delivery (a collection opted into the `deltas`
+   *  verb) they are the SINGLE batched stream's: collection-wide, shared across
+   *  keys, not per-key; (2) `keys()` is arrival-order under batched delivery and
+   *  not stable across the two paths — treat it as a set, not an ordered list. */
   byKey: (key: K) => Subscription<T> | undefined;
 }
 

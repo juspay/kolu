@@ -15,8 +15,9 @@
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineSurface } from "../define";
+import { type CollectionDeltasMsg, defineSurface } from "../define";
 import { surfaceClient } from "./surfaceClient";
+import { useCollectionDeltas } from "./useCollection";
 
 const settle = async (): Promise<void> => {
   await new Promise((r) => setTimeout(r, 0));
@@ -64,6 +65,81 @@ function wireProxyLink() {
     );
   return { surface: new Proxy({}, { get: () => verbProxy() }) };
 }
+
+/** A controllable snapshot-then-delta source: each `push` feeds one frame to the
+ *  single batched stream `useCollectionDeltas` folds, so the test can observe the
+ *  `byKey` contract step by step. The iterator never completes (mirrors a live
+ *  stream); the createRoot dispose tears the subscription down. */
+function pushableFrames<T>() {
+  const queue: T[] = [];
+  let wake: (() => void) | null = null;
+  const iterable: AsyncIterable<T> = {
+    [Symbol.asyncIterator]() {
+      return {
+        async next(): Promise<IteratorResult<T>> {
+          while (queue.length === 0) {
+            await new Promise<void>((r) => {
+              wake = r;
+            });
+          }
+          return { value: queue.shift() as T, done: false };
+        },
+      };
+    },
+  };
+  return {
+    source: () => Promise.resolve(iterable),
+    push(frame: T) {
+      queue.push(frame);
+      wake?.();
+      wake = null;
+    },
+  };
+}
+
+describe("collection deltas — byKey contract over the single batched stream", () => {
+  it("byKey reads value/absent/removed like the per-key path, with collection-wide error()/pending()", async () => {
+    type V = { v: number };
+    await createRoot(async (dispose) => {
+      const { source, push } = pushableFrames<CollectionDeltasMsg<string, V>>();
+      const view = useCollectionDeltas<"batched", string, V>(
+        // biome-ignore lint/suspicious/noExplicitAny: descriptor is a runtime type-discriminator only
+        (surface.descriptors.collections as any).batched,
+        { source },
+      );
+
+      // Snapshot establishes one present key; an absent key reads `undefined`
+      // (NOT a live accessor) — the contract the per-key path also holds.
+      push({ kind: "snapshot", entries: [["a", { v: 1 }]] });
+      await settle();
+      expect(view.byKey("a")?.()).toEqual({ v: 1 });
+      expect(view.byKey("absent")).toBeUndefined();
+
+      // A delta upsert makes a previously-absent key present and readable.
+      push({ kind: "delta", upserts: [["b", { v: 2 }]], removes: [] });
+      await settle();
+      expect(view.byKey("b")?.()).toEqual({ v: 2 });
+
+      // error()/pending() are the SINGLE batched stream's — collection-wide and
+      // shared across keys, NOT per-key (the documented divergence the byKey
+      // receptacle now spells out). Two present keys share the same accessors.
+      const a = view.byKey("a");
+      const b = view.byKey("b");
+      expect(a).toBeDefined();
+      expect(b).toBeDefined();
+      expect(a?.error).toBe(b?.error);
+      expect(a?.pending).toBe(b?.pending);
+
+      // A delta remove returns the key to `undefined`, same as the per-key path.
+      push({ kind: "delta", upserts: [], removes: ["a"] });
+      await settle();
+      expect(view.byKey("a")).toBeUndefined();
+      expect(view.byKey("b")?.()).toEqual({ v: 2 });
+
+      dispose();
+    });
+  });
+});
 
 describe("collection deltas — opt-in gate reads the spec, not the link proxy", () => {
   it("a non-opted collection takes the per-key path even when ns.deltas is truthy", async () => {
