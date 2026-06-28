@@ -93,6 +93,7 @@ import {
   isVisible,
   locationText,
   pipVariantFor,
+  rowBackground,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -136,14 +137,14 @@ function AgentRow(props: {
           if (v.agent) return agentShortName(v.agent.kind);
           return v.foreground?.name ?? DASH;
         };
+        const rowStyle = (): string | undefined => {
+          const bg = rowBackground(value(), props.live());
+          return bg ? `background:${bg}` : undefined;
+        };
         return (
           <li
             class="flex items-center gap-2 border-b border-[#161b22] px-3 py-1.5 text-[13px]"
-            style={
-              urgency() === "need"
-                ? "background:color-mix(in oklch, var(--color-alert) 10%, transparent)"
-                : undefined
-            }
+            style={rowStyle()}
           >
             {/* One merged status indicator — the SAME component kolu's Dock
              *  renders, folding three axes into one glyph: the agent-state CORE

@@ -100,6 +100,26 @@ export function fleetAlert(value: AwarenessValue): boolean {
   return value.agent ? alertClass(value.agent.state) === "notify" : false;
 }
 
+/** The per-row background WASH — the fleet's at-a-glance "is this row hot?" fold,
+ *  layered behind the pip. A row that NEEDS you keeps the alert (violet) wash; a
+ *  row that is WORKING or has live terminal output (the green-ring `live` axis,
+ *  off the `activity` stream) gets the working (teal) wash; an idle/quiet row
+ *  stays bare. Both tints reuse the SAME agent-state tokens the pip + urgency
+ *  colours do (`--color-alert`, `--color-accent`), so the wash can't drift from
+ *  them. `need` wins over `work`/`live`: a blocked agent is the louder signal.
+ *  Returns the bare `background` value (or `undefined` for no wash). */
+export function rowBackground(
+  value: AwarenessValue,
+  live: boolean,
+): string | undefined {
+  const urgency = agentUrgency(value.agent);
+  if (urgency === "need")
+    return "color-mix(in oklch, var(--color-alert) 10%, transparent)";
+  if (urgency === "work" || live)
+    return "color-mix(in oklch, var(--color-accent) 10%, transparent)";
+  return undefined;
+}
+
 /** Fleet *chrome* colours — the per-host accent. Deliberately NOT a `@kolu/theme`
  *  token: R-pip-unify moved the **agent-state** palette (pip + urgency colour/
  *  label) onto the shared tokens so the pip matches kolu's Dock, and
