@@ -213,24 +213,36 @@ export function foldCollectionDeltas<K, T>(
   // Copy onto a fresh NULL-PROTOTYPE dict (`{ ...acc.byKey }` would reintroduce
   // `Object.prototype`); `Object.assign` keeps the null prototype.
   const byKey = Object.assign(emptyDict<T>(), acc.byKey);
+  // Collect the keys NEW to this frame as we upsert. Newness is the O(1)
+  // `String(k) in acc.byKey` over the dict we already hold (its pre-upsert key
+  // set) — no per-frame `Set(acc.order)` allocation sized to the whole
+  // collection. A remove of an absent key is a harmless no-op, so its key needs
+  // no `assertFoldableKey` (a bad key never entered `byKey` — adds assert).
+  const added: K[] = [];
   for (const [k, v] of msg.upserts) {
     assertFoldableKey(k);
+    if (!(String(k) in acc.byKey)) added.push(k);
     byKey[String(k)] = v;
   }
-  for (const k of msg.removes) {
-    assertFoldableKey(k);
-    delete byKey[String(k)];
+  for (const k of msg.removes) delete byKey[String(k)];
+  // Key set UNCHANGED (a pure value-update tick: every upsert key already
+  // present, nothing removed) → keep `order` BY REFERENCE so the `keys()` memo
+  // doesn't re-notify on a values-only tick, and skip the O(n) injectivity guard
+  // — a String() collision can only appear when a NEW key enters.
+  if (added.length === 0 && msg.removes.length === 0) {
+    return { byKey, order: acc.order };
   }
-  // `order` is the real-typed key set: keep membership/removal on the real keys
-  // (`===`-keyed Sets), so only the value store's `byKey` stringifies. One
-  // stringification site, not four threaded through the order logic.
-  const removed = new Set(msg.removes);
-  const existing = new Set(acc.order);
-  const order = acc.order.filter((k) => !removed.has(k));
-  for (const [k] of msg.upserts) {
-    if (!existing.has(k)) order.push(k);
+  // Rebuild `order` only when membership moved. `Set(msg.removes)` is sized to
+  // the (small) removal set, never to the whole collection.
+  let order: K[];
+  if (msg.removes.length > 0) {
+    const removed = new Set(msg.removes);
+    order = acc.order.filter((k) => !removed.has(k));
+  } else {
+    order = acc.order.slice(); // copy before appending so `acc` is untouched
   }
-  assertKeysInjective(byKey, order);
+  for (const k of added) order.push(k);
+  if (added.length > 0) assertKeysInjective(byKey, order);
   return { byKey, order };
 }
 
@@ -264,15 +276,14 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // when the key is added/removed (`Object.hasOwn` would read an untracked
     // descriptor and miss those updates). `byKey` is null-prototype, so a stray
     // inherited name like `toString` reads absent rather than shadowing.
+    const sk = String(key);
     const fold = sub() as DeltasFold<K, T> | undefined;
-    if (fold === undefined || !(String(key) in fold.byKey)) return undefined;
-    // A per-key accessor over the shared store — reading `byKey[String(key)]`
-    // in a tracking scope tracks only that leaf (reconcile keeps it granular).
+    if (fold === undefined || !(sk in fold.byKey)) return undefined;
+    // A per-key accessor over the shared store — reading `byKey[sk]` in a
+    // tracking scope tracks only that leaf (reconcile keeps it granular).
     // `error`/`pending` are the single stream's, shared across keys.
     const read = (() =>
-      (sub() as DeltasFold<K, T> | undefined)?.byKey[
-        String(key)
-      ]) as Subscription<T>;
+      (sub() as DeltasFold<K, T> | undefined)?.byKey[sk]) as Subscription<T>;
     return Object.assign(read, { error: sub.error, pending: sub.pending });
   }
 

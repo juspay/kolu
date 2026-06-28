@@ -318,17 +318,19 @@ export function collectionHandlers<Name extends string, K, T>(
       // the snapshot read), so the subscriber is live across the whole snapshot
       // read and any tick flushed during it is buffered, not dropped.
       //
-      // We drive a SINGLE iterator by hand inside a `try/finally` rather than a
-      // bare `for await`. The snapshot `yield` sits BEFORE the loop, so if the
-      // consumer closes the generator (`.return()`) after taking the snapshot but
-      // before asking for the next frame, an async generator's `return()` resumes
-      // as a `return` AT that suspended `yield` and skips everything after it — a
-      // bare `for await` below would never run, so the subscription's
-      // `iterator.return()` would never fire and the `sub` would leak (a dead
-      // entry whose queue grows on every future publish, since signal-abort is a
-      // separate lifecycle the generator's `.return()` doesn't trigger). The
-      // `finally` owns that cleanup: every exit — normal completion, an early
-      // `.return()`, or a `throw` — returns the iterator and drops the subscriber.
+      // We acquire ONE iterator up front and forward it inside a `try/finally`.
+      // The snapshot `yield` sits BEFORE the forwarding, so if the consumer closes
+      // the generator (`.return()`) after taking the snapshot but before asking
+      // for the next frame, an async generator's `return()` resumes as a `return`
+      // AT that suspended `yield` and skips everything after it — the `yield*`
+      // below would never run, so the subscription's `iterator.return()` would
+      // never fire and the `sub` would leak (a dead entry whose queue grows on
+      // every future publish, since signal-abort is a separate lifecycle the
+      // generator's `.return()` doesn't trigger). The `finally` owns that cleanup:
+      // every exit — normal completion, an early `.return()`, or a `throw` —
+      // returns the iterator and drops the subscriber (idempotent: the channel's
+      // `return()`/`close()` are double-call-guarded, so the `yield*`-forwarded
+      // and the `finally` return can both run safely).
       const frames = deltasBus.subscribe(signal);
       const iterator = frames[Symbol.asyncIterator]();
       try {
@@ -336,11 +338,7 @@ export function collectionHandlers<Name extends string, K, T>(
           kind: "snapshot",
           entries: Array.from(deps.readAll().entries()),
         };
-        while (true) {
-          const next = await iterator.next();
-          if (next.done === true) break;
-          yield next.value;
-        }
+        yield* { [Symbol.asyncIterator]: () => iterator };
       } finally {
         await iterator.return?.();
       }
@@ -1379,9 +1377,8 @@ function walkSurface<const S extends SurfaceSpec>(
       },
     );
 
-    const verbs = collVerbs;
     const ns: Record<string, unknown> = {};
-    for (const v of verbs) {
+    for (const v of collVerbs) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
       const h = (handlers as any)[v];
       if (h === undefined) continue;

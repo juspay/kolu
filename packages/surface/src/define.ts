@@ -468,14 +468,10 @@ type UnionToIntersection<U> = (
 
 /** The full per-verb contract shape for a collection — the type oracle the
  *  per-verb {@link CollectionVerbEntry} indexes into. `buildCollection` covers
- *  the stream/mutation verbs (`keys` / `get` / `deltas` / `upsert` / `delete`);
- *  `test__set` (the opt-in e2e replace-all) is intersected in so the shape
- *  carries every verb the runtime {@link collectionContractEntries} can emit. */
-type CollectionContractShape<K, T> = ReturnType<
-  typeof buildCollection<K, T>
-> & {
-  test__set: ReturnType<typeof buildCollectionTestSet<K, T>>;
-};
+ *  every verb the runtime {@link collectionContractEntries} can emit (`keys` /
+ *  `get` / `deltas` / `upsert` / `delete` / `test__set`); the per-verb gate
+ *  surfaces each only for a collection whose `verbs` lists it. */
+type CollectionContractShape<K, T> = ReturnType<typeof buildCollection<K, T>>;
 
 /** One contract entry per resolved collection verb — distributed over the verb
  *  union then folded by {@link UnionToIntersection}, the collection dual of
@@ -695,21 +691,15 @@ function buildCollection<K, T>(opts: {
       .input(z.object({ key: opts.keySchema, value: opts.schema }))
       .output(z.void()),
     delete: oc.input(keyShape).output(z.void()),
+    // The opt-in `test__set` verb (replace-all from a fixture). Listed alongside
+    // the other verbs: opt-in gating is done by `CollectionVerbEntry` indexing
+    // the verb UNION, not by which builder owns the field, so `test__set`
+    // surfaces only for a collection whose `verbs` lists it. Mirrors the runtime
+    // `entries.test__set = …` branch in `collectionContractEntries` (drift watch).
+    test__set: oc
+      .input(z.array(z.object({ key: opts.keySchema, value: opts.schema })))
+      .output(z.void()),
   };
-}
-
-// The opt-in `test__set` verb's contract entry (replace-all from a fixture).
-// Lives outside `buildCollection` because `test__set` is opt-in, not a default
-// verb — `CollectionContractShape` intersects it in so the per-verb gate can
-// surface it only for a collection whose `verbs` lists it. Mirrors the runtime
-// `entries.test__set = …` branch in `collectionContractEntries` (drift watch).
-function buildCollectionTestSet<K, T>(opts: {
-  keySchema: ZodType<K>;
-  schema: ZodType<T>;
-}) {
-  return oc
-    .input(z.array(z.object({ key: opts.keySchema, value: opts.schema })))
-    .output(z.void());
 }
 
 function buildStream<I, T>(opts: {
