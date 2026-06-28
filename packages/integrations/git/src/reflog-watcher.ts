@@ -31,6 +31,8 @@ const reflogWatcher = createDirFilenameWatcher({
       await fs.promises.access(logsDir);
       return logsDir;
     } catch {
+      // logs/ doesn't exist yet (fresh repo, no commits) — treat as
+      // not-watchable and return null silently. See comment above.
       return null;
     }
   },

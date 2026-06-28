@@ -51,6 +51,9 @@ async function revParseDir(cwd: string, flag: string): Promise<string | null> {
     });
     return await fs.promises.realpath(path.resolve(cwd, stdout.trim()));
   } catch {
+    // Expected: not a git repo, git not installed, 5 s timeout (wedged child),
+    // or realpath failure on a slow/hung mount — all mean "can't resolve git
+    // dir" and the caller skips the watcher install silently.
     return null;
   }
 }
