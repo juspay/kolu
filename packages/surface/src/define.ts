@@ -956,12 +956,18 @@ export function composeSurfaceContracts<
  *  `{ surface: innerLink }` a per-key client rides, so the bundle's internal
  *  `link.surface.<prim>` walk resolves at the wire path `/surface/<key>/<prim>`.
  *
- *  This OWNS the one documented unsafe key-walk on the type-erased link
- *  (`link.surface[key]`): both `surfaceClients` (the Solid bundle) and
- *  `createLiveSignal`'s half-open watchdog probe scope a sibling through HERE,
- *  so a future keying change is a single edit, not a cast re-derived per call
- *  site. The caller keeps its OWN downstream target-type assertion on the slice
- *  (the `buildSurfaceClient` cast); only the dynamic key-walk lives here. */
+ *  This owns the SIBLING-scoping walk — the `{ surface: link.surface[key] }`
+ *  re-wrap — for its two call sites: `surfaceClients` (the Solid bundle) and
+ *  `createLiveSignal`'s half-open watchdog probe, which both scope a sibling
+ *  through HERE. It is NOT the sole owner of every `link.surface[...]` index: the
+ *  per-primitive `link.surface[<prim>]` walks inside `buildSurfaceClient` are a
+ *  separate, co-located cluster at a DIFFERENT nesting level (primitive, not
+ *  sibling), and `server.ts`'s `walkSurface` (`t.surface[key]`, the `implement`
+ *  builder) and `liveness.ts`'s `probeSurfaceLive` (its own `SurfaceLiveProbeable`
+ *  receptacle, a constant key) are structurally distinct walks — a wire-keying
+ *  change touches all of them, not just here. The caller keeps its OWN downstream
+ *  target-type assertion on the slice (the `buildSurfaceClient` cast); only this
+ *  sibling-scope re-wrap lives here. */
 export function scopeSibling(link: unknown, key: string): { surface: unknown } {
   return {
     surface: (link as { surface: Record<string, unknown> }).surface[key],

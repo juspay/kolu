@@ -227,8 +227,8 @@ export function createLiveSignal<
   // the named sibling for a combined link, or the link itself for a single surface.
   const link = websocketLink<C>(ws as unknown as WebSocket);
   // Walk-by-string of the freshly-built oRPC link to the named sibling (or the whole
-  // link for a single surface) — through `scopeSibling`, the ONE owner of the
-  // type-erased `link.surface[key]` walk, so a keying change is a single edit.
+  // link for a single surface) — scoped through `scopeSibling`, the sibling-scope
+  // `{ surface: link.surface[key] }` re-wrap shared with `surfaceClients`.
   const probeTarget: unknown =
     opts.siblingKey !== undefined ? scopeSibling(link, opts.siblingKey) : link;
   // The half-open watchdog — ALWAYS wired (there is no disable knob). It probes
