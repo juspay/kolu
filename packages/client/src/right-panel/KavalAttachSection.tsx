@@ -41,7 +41,7 @@
  *  over. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { localDaemonStatus } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CopyCommandButton from "../ui/CopyCommandButton";
@@ -156,8 +156,10 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
   ];
   const hasSplits = () => terminals().length > 1;
   // This server's kaval socket, resolved once and threaded to every card's
-  // command builder (kavalCmd pins it after the id; see kavalCmd.ts).
-  const socket = () => localDaemonStatus()?.socketPath;
+  // command builder (kavalCmd pins it after the id; see kavalCmd.ts). A memo,
+  // not a plain accessor: each card row AND the footer Show read it, so the
+  // single store read fans out to every consumer (per the SolidJS convention).
+  const socket = createMemo(() => localDaemonStatus()?.socketPath);
   return (
     <div class="space-y-3">
       <p class="text-[11px] leading-relaxed text-fg-3">
