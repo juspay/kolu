@@ -118,6 +118,25 @@ interface DeltasFold<K, T> {
   order: K[];
 }
 
+/** Guard the delta fold's homogeneous-primitive-key precondition (the CONSTRAINT
+ *  above): `byKey` is keyed by `String(key)` while `order` holds the real keys,
+ *  so two DISTINCT real keys that collapse to one string (an object key, or a
+ *  union admitting both `1` and `"1"`) leave `byKey` STRICTLY SHORTER than
+ *  `order`. Fires exactly on that collision and never for legitimate homogeneous
+ *  primitive keys (a single length compare). Crash loudly at the point of
+ *  corruption rather than silently serving a collapsed set — the fail-fast the
+ *  prose constraint can only ask for. */
+function assertKeysInjective<K, T>(
+  byKey: Record<string, T>,
+  order: readonly K[],
+): void {
+  if (Object.keys(byKey).length !== order.length) {
+    throw new Error(
+      "deltas key collision: keys are not String()-injective — deltas requires homogeneous primitive keys",
+    );
+  }
+}
+
 /** Fold one `deltas` frame into the accumulated collection. A `snapshot`
  *  replaces the whole set; a `delta` applies upserts then removes onto a copy.
  *  Returns a new object each call — `createSubscription`'s `reconcile` makes the
@@ -133,6 +152,7 @@ export function foldCollectionDeltas<K, T>(
       byKey[String(k)] = v;
       order.push(k);
     }
+    assertKeysInjective(byKey, order);
     return { byKey, order };
   }
   const byKey: Record<string, T> = { ...acc.byKey };
@@ -144,6 +164,7 @@ export function foldCollectionDeltas<K, T>(
   for (const [k] of msg.upserts) {
     if (!existingStr.has(String(k))) order.push(k);
   }
+  assertKeysInjective(byKey, order);
   return { byKey, order };
 }
 
