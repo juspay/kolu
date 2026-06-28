@@ -87,7 +87,7 @@ This closes the **mud** — the architectural defect — by decoupling kolu, wit
 - **Decided — supervision:** kolu-server owns the local pulam's lifecycle via the [R2](pty-daemon.html) `adoptOrEnsure` spine (ephemeral, per the callout above) — boot brings up kaval → local pulam → mirror.
 - **Decided — migration:** a **hard cutover** — one PR deletes kolu's in-process sensors and points the awareness backing at the local-pulam mirror, with no flag and no fallback (the no-knobs rule; the worst case on the local awareness path is a briefly-stale badge, never lost work).
 - **Needs:** R8 (the reader-join + the injection seam) and R4 (the pulam daemon) — **both shipped**.
-- **Done:** kolu-server runs **no** in-process awareness sensors; its backing is a **mirror of its supervised local pulam**; `buildReServe` is lifted to a shared home (both kolu and pulam-web consume it); the arrow points **→ pulam** with **no cross-reach** (no `connectTerminalWorkspace`). *Out of scope* (→ [R9-converge](#r9-converge)): collapsing to one pulam *instance* / killing the localhost Dock-vs-pulam-web desync.
+- **Done:** kolu-server runs **no** in-process awareness sensors; its backing is a **mirror of its supervised local pulam**; the shared mirror-fold (`mirrorTerminalWorkspace`, lifted out of pulam-web's `buildReServe`) lives in `@kolu/terminal-workspace` and both kolu and pulam-web consume it; the arrow points **→ pulam** with **no cross-reach** (no `connectTerminalWorkspace`). The mirror folds only pulam's *derivable* fields, preserving kolu's *persisted history* (recency / resume) the ephemeral pulam never saw. *Out of scope* (→ [R9-converge](#r9-converge)): collapsing to one pulam *instance* / killing the localhost Dock-vs-pulam-web desync.
 
 <a id="r91"></a>
 

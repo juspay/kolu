@@ -453,7 +453,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         },
         // LIVE over the mirror: the local pulam owns the kaval byte-tap, so the
         // `activity` live-set rides the same mirror fold as awareness — closing
-        // the old "kolu has no live activity" gap (`quietActivity` is retired).
+        // the old "kolu has no live activity" gap (it served an empty set before).
         activity: pulamMirror.activity,
         endpoint: localEndpoint,
         log,

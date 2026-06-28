@@ -10,8 +10,8 @@ import pino from "pino";
 import { describe, expect, it } from "vitest";
 import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import {
+  type ActivityStreamDeps,
   type AwarenessCollectionDeps,
-  quietActivity,
   serveTerminalWorkspace,
 } from "./serveTerminalWorkspace.ts";
 
@@ -24,12 +24,19 @@ const stubAwareness: AwarenessCollectionDeps = {
   upsert: () => {},
   remove: () => {},
 };
+// A trivial activity backing for the passthrough assertion — both real homes now
+// inject a live source (kolu the local-pulam mirror, `pulam` its activity tracker).
+const stubActivity: ActivityStreamDeps = {
+  source: async function* () {
+    yield [];
+  },
+};
 
 describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () => {
   it("assembles the full deps: version cell + fs/git procedures + watcher streams, with the backings injected verbatim", () => {
     const deps = serveTerminalWorkspace({
       awareness: stubAwareness,
-      activity: quietActivity,
+      activity: stubActivity,
       endpoint: stubEndpoint,
       log: stubLog,
     });
@@ -46,6 +53,6 @@ describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () =>
 
     // The VOLATILE backings are injected through verbatim (identity):
     expect(deps.collections?.awareness).toBe(stubAwareness);
-    expect(deps.streams?.activity).toBe(quietActivity);
+    expect(deps.streams?.activity).toBe(stubActivity);
   });
 });

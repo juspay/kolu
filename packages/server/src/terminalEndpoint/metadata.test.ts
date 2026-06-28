@@ -30,6 +30,7 @@ import {
   setWorkspaceSurfaceCtx,
 } from "../workspaceSurfaceCtx.ts";
 import {
+  applyMirroredAwareness,
   installAwareness,
   updateClientMetadata,
   updateServerLiveMetadata,
@@ -179,5 +180,85 @@ describe("metadata publish routing", () => {
     const entry = getTerminal(ID) as ActiveTerminalProcess;
     // @ts-expect-error — `cwd` lives in the awareness store; entry.meta is AUTHORED.
     entry.meta.cwd = "/x";
+  });
+});
+
+describe("applyMirroredAwareness — kolu-persisted history vs pulam-derivable fold (R9.0)", () => {
+  /** A pulam frame: derivable fields (cwd/git/pr/agent/foreground) fresh, the
+   *  PERSISTED-HISTORY fields at the ephemeral pulam's empty seed — lastActivityAt
+   *  0, no command, no session — exactly what a freshly-spawned pulam sends before
+   *  it re-derives anything. */
+  function pulamFrame(over: Partial<AwarenessValue> = {}): AwarenessValue {
+    return {
+      cwd: "/work",
+      git: null,
+      lastActivityAt: 0,
+      lastAgentCommand: undefined,
+      agentSession: undefined,
+      pr: { kind: "pending" },
+      agent: null,
+      foreground: null,
+      ...over,
+    };
+  }
+
+  it("preserves kolu's restored history when pulam's first frame seeds it empty", async () => {
+    // Simulate a restart restore: kolu loaded the persisted half from disk.
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.lastActivityAt = 1000;
+    entry.awareness.lastAgentCommand = "claude --resume sess-A";
+    entry.awareness.agentSession = { kind: "claude-code", id: "sess-A" };
+
+    // The ephemeral pulam's FIRST frame: re-derived cwd, but empty history.
+    applyMirroredAwareness(ID, pulamFrame({ cwd: "/restored/repo" }));
+
+    const aw = getTerminal(ID)?.awareness;
+    expect(aw?.cwd).toBe("/restored/repo"); // derivable → overwritten
+    expect(aw?.lastActivityAt).toBe(1000); // history → preserved, NOT clobbered to 0
+    expect(aw?.lastAgentCommand).toBe("claude --resume sess-A"); // resume offer kept
+    expect(aw?.agentSession).toEqual({ kind: "claude-code", id: "sess-A" });
+  });
+
+  it("lastActivityAt is monotonic — a real activity bump advances it", () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.lastActivityAt = 1000;
+    applyMirroredAwareness(ID, pulamFrame({ lastActivityAt: 5000 }));
+    expect(getTerminal(ID)?.awareness.lastActivityAt).toBe(5000);
+  });
+
+  it("a fresher command / session from pulam DOES win over the restored value", () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.lastAgentCommand = "claude --resume old";
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ lastAgentCommand: "codex resume new" }),
+    );
+    expect(getTerminal(ID)?.awareness.lastAgentCommand).toBe(
+      "codex resume new",
+    );
+  });
+
+  it("does NOT fire terminals:dirty for a live-only frame (the firehose fence)", async () => {
+    // Prior == frame on every PERSISTED field; only a LIVE field (foreground)
+    // differs — exactly an agent-stream tick.
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/work";
+    entry.awareness.lastActivityAt = 0;
+    dirtyCount = 0;
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ cwd: "/work", foreground: { name: "vim", title: null } }),
+    );
+    await settle();
+    expect(dirtyCount).toBe(0);
+  });
+
+  it("DOES fire terminals:dirty when a persisted field changes (cwd)", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.cwd = "/old";
+    dirtyCount = 0;
+    applyMirroredAwareness(ID, pulamFrame({ cwd: "/new" }));
+    await settle();
+    expect(dirtyCount).toBe(1);
   });
 });

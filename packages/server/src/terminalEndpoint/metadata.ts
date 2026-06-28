@@ -161,43 +161,94 @@ export function updateServerLiveMetadata(
   publishAwareness(terminalId, aw);
 }
 
-/** Apply a full awareness snapshot from the LOCAL-PULAM MIRROR (R9.0) to the
- *  matching registry entry and publish it. This is the writer that REPLACES the
- *  deleted in-process sensor sink: kolu no longer computes awareness, it mirrors
- *  its supervised pulam, and each mirrored frame lands here. Folds the whole
- *  value in place (so the persist/sleep/wake readers stay current), publishes on
- *  the `awareness` collection, and fires `terminals:dirty` so the session autosave
- *  captures the change — exactly the visibility the old `updateServerMetadata`
- *  gave. A no-op if `id` has no entry: pulam observed a terminal kolu's registry
- *  doesn't (yet/any longer) hold; the mirror re-sends on the next change, so
- *  dropping the frame is safe (kolu owns terminal membership, pulam the content). */
+/** Apply one awareness frame from the LOCAL-PULAM MIRROR (R9.0) to the matching
+ *  registry entry and publish it. This is the writer that REPLACES the deleted
+ *  in-process sensor sink: kolu no longer computes awareness, it mirrors its
+ *  supervised pulam, and each mirrored frame lands here. It does NOT blindly
+ *  overwrite the value — it FOLDS pulam's derivable fields over kolu's persisted
+ *  history (see below), publishes on the `awareness` collection, and arms the
+ *  session autosave ONLY when a persisted field actually changed (the firehose
+ *  fence the in-process `updateServerMetadata`/`updateServerLiveMetadata` split
+ *  enforced by type). A no-op if `id` has no entry: pulam observed a terminal
+ *  kolu's registry doesn't (yet/any longer) hold; the mirror re-sends on the next
+ *  change, so dropping the frame is safe (kolu owns terminal membership, pulam the
+ *  content). */
 export function applyMirroredAwareness(
   terminalId: string,
   value: AwarenessValue,
 ): void {
-  // Capture the prior CHANGE keys before `replaceAwareness` mutates the entry in
-  // place (it returns the same object the prior fields lived on).
+  // Snapshot the prior (kolu-restored, then mirror-folded) value before writing.
   const prior = awarenessFor(terminalId);
-  const priorRepoRoot = prior?.git?.mainRepoRoot;
-  const priorAgentCommand = prior?.lastAgentCommand;
+  if (!prior) return; // no entry — drop (the mirror re-sends on the next change)
 
-  const aw = replaceAwareness(terminalId, value);
+  // Fold pulam's frame over the entry, honoring the kolu-persisted vs
+  // pulam-derivable boundary. pulam re-derives cwd / git / pr / agent /
+  // foreground from the live kaval, so those OVERWRITE. But `lastActivityAt`,
+  // `lastAgentCommand`, and `agentSession` are kolu-PERSISTED HISTORY the
+  // EPHEMERAL pulam never saw — it re-derives from now and seeds them empty
+  // (lastActivityAt: 0, the rest absent). So kolu's restored value is PRESERVED
+  // unless pulam derived a fresher one going forward (a newer activity bump, a
+  // new command, a re-resolved session). Without this, pulam's empty seed would
+  // clobber a restored terminal's recency ordering AND its resume offer on the
+  // first frame — and persist that loss to disk. lastActivityAt is monotonic
+  // (max), so an idle terminal keeps T_saved while a real transition advances it.
+  const folded: AwarenessValue = {
+    cwd: value.cwd,
+    git: value.git,
+    pr: value.pr,
+    agent: value.agent,
+    foreground: value.foreground,
+    lastActivityAt: Math.max(prior.lastActivityAt, value.lastActivityAt),
+    lastAgentCommand: value.lastAgentCommand ?? prior.lastAgentCommand,
+    agentSession: value.agentSession ?? prior.agentSession,
+  };
+
+  const persistedChanged = persistedAwarenessChanged(prior, folded);
+  const aw = replaceAwareness(terminalId, folded);
   if (!aw) return;
   publishAwareness(terminalId, aw);
-  terminalsDirtyChannel.publish({});
+  // Arm the session autosave ONLY on a real PERSISTED-field change — restoring
+  // the fence the deleted in-process path enforced BY TYPE: live-half writes went
+  // through `updateServerLiveMetadata` and never fired `terminals:dirty`. A blind
+  // publish on every ~150 ms agent-state frame would drive a full snapshotSession
+  // + disk write every autosave window for the life of any agent stream.
+  if (persistedChanged) terminalsDirtyChannel.publish({});
 
   // Feed kolu's command-palette MRUs off the mirror — the deleted in-process sink
-  // drove `trackRecentRepo`/`trackRecentAgent`; the mirror is now that feed.
-  // Gated on CHANGE so the activity-feed cell isn't re-published on every
-  // awareness frame, and so a REPLAYED agent command (same value on restore)
-  // doesn't re-rank — exactly the old `!replayed` semantics, expressed as
-  // "the value differs from the prior frame".
-  if (value.git && value.git.mainRepoRoot !== priorRepoRoot) {
-    trackRecentRepo(value.git.mainRepoRoot, value.git.repoName);
+  // drove `trackRecentRepo`/`trackRecentAgent`. NOTE: these re-stamp recency when
+  // the repo / command VALUE changes, NOT on every re-run — pulam's awareness
+  // surface carries the value, not per-invocation events, so re-running the SAME
+  // command in the SAME terminal does not refresh its MRU recency. This is a
+  // deliberate consequence of sourcing the MRU from the mirrored value rather than
+  // the old per-event sink; matching the old per-invocation re-stamp would need a
+  // command-run event on the surface (out of R9.0 scope).
+  if (folded.git && folded.git.mainRepoRoot !== prior.git?.mainRepoRoot) {
+    trackRecentRepo(folded.git.mainRepoRoot, folded.git.repoName);
   }
-  if (value.lastAgentCommand && value.lastAgentCommand !== priorAgentCommand) {
-    trackRecentAgent(value.lastAgentCommand);
+  if (
+    folded.lastAgentCommand &&
+    folded.lastAgentCommand !== prior.lastAgentCommand
+  ) {
+    trackRecentAgent(folded.lastAgentCommand);
   }
+}
+
+/** Did any PERSISTED awareness field change between `prior` and `next`? — cwd,
+ *  git, lastAgentCommand, agentSession, lastActivityAt: the half a host persists
+ *  and the session autosave captures. The two objects (git, agentSession) are
+ *  compared STRUCTURALLY because the local-pulam mirror sends a fresh object each
+ *  frame, so identity always differs even when the content is unchanged. */
+function persistedAwarenessChanged(
+  prior: AwarenessValue,
+  next: AwarenessValue,
+): boolean {
+  return (
+    prior.cwd !== next.cwd ||
+    prior.lastAgentCommand !== next.lastAgentCommand ||
+    prior.lastActivityAt !== next.lastActivityAt ||
+    JSON.stringify(prior.git) !== JSON.stringify(next.git) ||
+    JSON.stringify(prior.agentSession) !== JSON.stringify(next.agentSession)
+  );
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type DaemonSpawnConfig, survivableSpawnDriver } from "./driver.ts";
+import {
+  type DaemonSpawnConfig,
+  type EphemeralSpawnDeps,
+  ephemeralSpawnDriver,
+  survivableSpawnDriver,
+} from "./driver.ts";
 
 interface Captured {
   command: string;
@@ -145,5 +150,123 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       fromSource: true, // force the detached branch, skip systemd-run
     });
     await expect(driver.spawn()).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+interface EphemeralChild {
+  command: string;
+  args: string[];
+  options: { detached: boolean; stdio: "ignore"; env?: Record<string, string> };
+  unrefd: boolean;
+  signals: Array<NodeJS.Signals | number | undefined>;
+}
+
+/** A capture seam for the ephemeral driver: records each spawn AND the signals
+ *  each child receives. `killThrows` simulates killing an already-dead child.
+ *  The parent-exit hook is captured per-test via the driver's `onParentExit`
+ *  dep, so no real `process` listener is touched. */
+function captureEphemeral(opts: { killThrows?: boolean } = {}): {
+  calls: EphemeralChild[];
+  spawnProcess: NonNullable<EphemeralSpawnDeps["spawnProcess"]>;
+} {
+  const calls: EphemeralChild[] = [];
+  const spawnProcess = (
+    command: string,
+    args: string[],
+    options: EphemeralChild["options"],
+  ) => {
+    const rec: EphemeralChild = {
+      command,
+      args,
+      options,
+      unrefd: false,
+      signals: [],
+    };
+    calls.push(rec);
+    return {
+      unref() {
+        rec.unrefd = true;
+      },
+      kill(signal?: NodeJS.Signals | number) {
+        if (opts.killThrows) throw new Error("kill ESRCH (already gone)");
+        rec.signals.push(signal);
+        return true;
+      },
+    };
+  };
+  return { calls, spawnProcess };
+}
+
+const ephCfg: DaemonSpawnConfig = {
+  binPath: "/nix/store/abc/bin/pulam",
+  args: [
+    "--kaval",
+    "/run/user/1000/kaval-7692/pty-host.sock",
+    "--socket",
+    "/x",
+  ],
+  env: { XDG_RUNTIME_DIR: "/run/user/1000" },
+  unitPrefix: "pulam",
+};
+
+describe("ephemeralSpawnDriver — dies with its parent, self-recycling", () => {
+  it("spawns a plain child (no systemd-run), detached:false + unref", async () => {
+    const cap = captureEphemeral();
+    const driver = ephemeralSpawnDriver(ephCfg, {
+      env: { INVOCATION_ID: "deadbeef" }, // even under systemd: NEVER systemd-run
+      spawnProcess: cap.spawnProcess,
+      onParentExit: () => {},
+    });
+    await driver.spawn();
+    expect(cap.calls).toHaveLength(1);
+    const c = cap.calls[0];
+    expect(c?.command).toBe("/nix/store/abc/bin/pulam");
+    expect(c?.options.detached).toBe(false);
+    expect(c?.unrefd).toBe(true);
+  });
+
+  it("recycles: a second spawn SIGTERMs the prior child before launching fresh", async () => {
+    const cap = captureEphemeral();
+    const driver = ephemeralSpawnDriver(ephCfg, {
+      spawnProcess: cap.spawnProcess,
+      onParentExit: () => {},
+    });
+    await driver.spawn();
+    await driver.spawn();
+    expect(cap.calls).toHaveLength(2);
+    // The first child was SIGTERMed (the recycle), the second is still live.
+    expect(cap.calls[0]?.signals).toEqual(["SIGTERM"]);
+    expect(cap.calls[1]?.signals).toEqual([]);
+  });
+
+  it("swallows a kill that throws (the prior child already died)", async () => {
+    const cap = captureEphemeral({ killThrows: true });
+    const driver = ephemeralSpawnDriver(ephCfg, {
+      spawnProcess: cap.spawnProcess,
+      onParentExit: () => {},
+    });
+    await driver.spawn();
+    // The recycle's kill throws (dead child) — must not propagate; the fresh
+    // spawn still happens.
+    await expect(driver.spawn()).resolves.toBeUndefined();
+    expect(cap.calls).toHaveLength(2);
+  });
+
+  it("death-pact: the registered parent-exit hook SIGTERMs the current child", async () => {
+    const cap = captureEphemeral();
+    let exitHandler: (() => void) | undefined;
+    const driver = ephemeralSpawnDriver(ephCfg, {
+      spawnProcess: cap.spawnProcess,
+      onParentExit: (h) => {
+        exitHandler = h;
+      },
+    });
+    await driver.spawn();
+    await driver.spawn(); // recycle — the CURRENT child is calls[1]
+    expect(exitHandler).toBeTypeOf("function");
+    exitHandler?.(); // parent exits
+    // The current child is reaped on exit; the prior (calls[0]) was already
+    // reaped by the recycle.
+    expect(cap.calls[1]?.signals).toEqual(["SIGTERM"]);
   });
 });

@@ -14,8 +14,9 @@
  *     the matching registry entry (so kolu's persist/sleep/wake readers stay
  *     current) and published on the served `awareness` collection; the `activity`
  *     live-set rides the fold's bus, which `surface.ts` plugs into
- *     `serveTerminalWorkspace`'s `activity` backing — replacing `quietActivity`,
- *     so the live byte-tap kolu lacked in-process now arrives over the mirror.
+ *     `serveTerminalWorkspace`'s `activity` backing — so the live byte-tap kolu
+ *     lacked in-process (it served an empty activity set before R9.0) now arrives
+ *     over the mirror.
  *
  *   - `startLocalPulamMirror` — the supervise-and-mirror LOOP: bring the local
  *     pulam up through the R2 supervisor spine (EPHEMERAL — `adoptOrEnsure` finds

@@ -196,14 +196,14 @@ export function mutateAwarenessLive(
   return aw;
 }
 
-/** Replace a terminal's WHOLE awareness value IN PLACE from a mirrored snapshot
- *  (both halves at once), returning it, or `undefined` if no entry. Unlike the
- *  two narrowed mutators above this writes the full value: after R9.0 the
- *  local-pulam mirror is the single authority for the complete awareness, so the
- *  persisted/live fence (which guards the now-deleted in-process sensor writers)
- *  doesn't apply. `Object.assign` keeps the entry's awareness OBJECT identity, so
- *  the persist/sleep/wake readers that hold the entry see the update through
- *  their existing reference. */
+/** Write a COMPLETE awareness value into the entry IN PLACE, returning it, or
+ *  `undefined` if no entry. `Object.assign` keeps the entry's awareness OBJECT
+ *  identity, so the persist/sleep/wake readers that hold the entry see the update
+ *  through their existing reference. This is a low-level setter — the CALLER
+ *  supplies the complete value; `applyMirroredAwareness` is where the
+ *  kolu-persisted-history vs pulam-derivable boundary is actually decided (it
+ *  folds pulam's frame over the prior value), NOT here. The caller always passes
+ *  every field, so this is a true replace, not a partial merge. */
 export function replaceAwareness(
   id: TerminalId,
   value: AwarenessValue,

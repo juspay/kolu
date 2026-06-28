@@ -192,6 +192,11 @@ export interface EphemeralSpawnDeps {
       env?: Record<string, string>;
     },
   ) => RecyclableChild;
+  /** How the death-pact's parent-exit hook is registered — defaults to
+   *  `process.on("exit", handler)`. Injectable so a test can CAPTURE the handler
+   *  (asserting it kills the child) without accumulating real process listeners,
+   *  and so a host that wants its own shutdown ordering can supply it. */
+  onParentExit?: (handler: () => void) => void;
 }
 
 /**
@@ -199,11 +204,22 @@ export interface EphemeralSpawnDeps {
  * parent**, for a process kolu owns whose state is *re-derivable*, not
  * irreplaceable — the ephemeral local `pulam` (its awareness is recomputed from
  * the surviving kaval on every boot), unlike kaval (which owns the PTYs and must
- * survive). So this spawns a **plain child**, NEVER through `systemd-run`: under
- * a systemd user service the child stays in the parent service's cgroup and is
- * reaped with it (the `KillMode=control-group` behaviour that #1031 fought FOR
- * kaval is exactly what we WANT here); off systemd it's a child of this process.
- * Either way it shares the parent's fate — no gate, no adoption, no survival.
+ * survive). So this spawns a **plain child**, NEVER through `systemd-run`.
+ *
+ * How "dies with its parent" is actually enforced — three real mechanisms, not a
+ * hand-wave:
+ *   - **Under a systemd user service** the child stays in the parent service's
+ *     cgroup and is reaped with it on stop (`KillMode=control-group`, the #1031
+ *     behaviour that hurt kaval is exactly what we WANT here). This covers the
+ *     production hard-kill case.
+ *   - **Off systemd**, a parent EXIT (a signal handler routing through
+ *     `process.exit`, a fatal handler, or natural exit) fires the `onParentExit`
+ *     hook below, which SIGTERMs the held child. So Ctrl-C / SIGTERM / a crash in
+ *     dev all reap it.
+ *   - **The residual** is a hard SIGKILL of the parent *off* systemd: it bypasses
+ *     the exit hook (uncatchable), exactly as it bypasses kolu's own
+ *     `process.on("exit")` cleanup. Harmless here — the socket is per-port, the
+ *     orphan reads a now-dead kaval, and the next boot's recycle clears it.
  *
  * Self-recycling: the driver holds the last child it spawned and SIGTERMs it
  * before launching fresh, so a supervisor `ensure()`/`adoptOrEnsure()` re-spawn
@@ -219,7 +235,24 @@ export function ephemeralSpawnDriver(
 ): DaemonDriver {
   const env = deps.env ?? process.env;
   const spawnProcess = deps.spawnProcess ?? nodeSpawn;
+  const onParentExit =
+    deps.onParentExit ??
+    ((handler: () => void) => {
+      process.on("exit", handler);
+    });
   let prior: RecyclableChild | undefined;
+
+  // The death-pact's off-systemd arm: when THIS process exits, SIGTERM the child
+  // we currently hold so an ephemeral daemon never outlives its parent. Reads the
+  // live `prior` at exit time (one hook covers every recycle). Best-effort and
+  // synchronous, exactly as a `process.on("exit")` handler must be.
+  onParentExit(() => {
+    try {
+      prior?.kill?.("SIGTERM");
+    } catch {
+      // Already gone — nothing to reap.
+    }
+  });
 
   return {
     spawn(): Promise<void> {
