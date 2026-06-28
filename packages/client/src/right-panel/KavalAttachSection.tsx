@@ -67,8 +67,8 @@ const TerminalCard: Component<{
   terminalId: TerminalId;
   /** This server's kaval socket, resolved once by the section and threaded in. */
   socket: string | undefined;
-  /** Shown in the header when the tile has splits; "Terminal" for a lone one. */
-  label?: string;
+  /** Header text for this card — the parent owns the full string. */
+  label: string;
   /** Appended to the `inspector-{verb}-command` testid (`""` for the main). */
   testIdSuffix: string;
 }> = (props) => {
@@ -77,7 +77,7 @@ const TerminalCard: Component<{
     <div class="rounded-lg border border-edge bg-surface-1/30 p-2 space-y-1.5">
       <div class="flex items-center justify-between gap-2">
         <span class="text-[10px] font-medium uppercase tracking-wide text-fg-3">
-          {props.label ?? "Terminal"}
+          {props.label}
         </span>
         {/* The raw id, copyable — shows the short id (full on hover) but copies
             the FULL uuid so it's unambiguous outside kaval's prefix resolution;
@@ -187,7 +187,11 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
                 terminalId={id}
                 socket={socket()}
                 label={
-                  isMain() ? (hasSplits() ? "Main" : undefined) : `Split ${i()}`
+                  isMain()
+                    ? hasSplits()
+                      ? "Main"
+                      : "Terminal"
+                    : `Split ${i()}`
                 }
                 testIdSuffix={isMain() ? "" : `-split-${i() - 1}`}
               />
