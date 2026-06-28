@@ -50,6 +50,7 @@ import {
   makeResolveDrvPath,
   PULAM_WEB_HOSTS_ENV,
   PULAM_WEB_KAVAL_SOCKETS_ENV,
+  PULAM_WEB_KOLU_URL_ENV,
   parsePort,
   readInitialHosts,
   readKavalSockets,
@@ -127,17 +128,26 @@ async function main(): Promise<void> {
     `hosts (${initialHosts.length}): ssh=[${sshHosts.join(", ") || "—"}] local=[${localHosts.join(", ") || "—"}]`,
   );
 
-  // Per-host kaval socket overrides (for a multi-kaval host). A socket named for
-  // a host we don't dial is a typo — fail loud (matching pulam-tui's --kaval
-  // host validation) rather than silently ignoring it.
+  // Per-host kaval socket overrides (for a multi-kaval SSH host). Validated against
+  // the SSH host set, not all hosts: only an ssh-dialed `pulam` reads a kaval, so a
+  // socket for any non-ssh host is a dead knob — and the no-ignored-knobs rule says
+  // a knob that can never apply must fail loud, not be silently dropped. A
+  // `localhost=…` entry is the common trap (localhost mirrors kolu's served
+  // awareness directly as of R9a — there's no kaval to disambiguate), so it gets its
+  // own message pointing at the real local lever (`PULAM_WEB_KOLU_URL`).
   const kavalSockets = readKavalSockets();
   for (const host of kavalSockets.keys()) {
-    if (!initialHosts.includes(host)) {
+    if (sshHosts.includes(host)) continue;
+    if (localHosts.includes(host)) {
       log(
-        `${PULAM_WEB_KAVAL_SOCKETS_ENV}: '${host}' is not in ${PULAM_WEB_HOSTS_ENV} — fix the host or drop the override.`,
+        `${PULAM_WEB_KAVAL_SOCKETS_ENV}: '${host}' is a local host — localhost mirrors kolu's served awareness directly (R9a), so it has no kaval to disambiguate. Drop the override (and use ${PULAM_WEB_KOLU_URL_ENV} if kolu isn't on the default loopback port).`,
       );
-      process.exit(1);
+    } else {
+      log(
+        `${PULAM_WEB_KAVAL_SOCKETS_ENV}: '${host}' is not an ssh host in ${PULAM_WEB_HOSTS_ENV} — fix the host or drop the override.`,
+      );
     }
+    process.exit(1);
   }
 
   // The per-process id the stale-tab gate and the (unused-in-R4.8a) identity
@@ -191,9 +201,19 @@ async function main(): Promise<void> {
       const handler = registry.getHandler(host);
       const session = registry.getSession(host);
       // `registry.hosts()` just listed `host`, and `getHandler`/`getSession` read
-      // the same `entries` map, so both are present — the guard only narrows the
-      // `| undefined` the registry's getters carry for an unknown host.
-      if (handler === undefined || session === undefined) continue;
+      // the same `entries` map, so both are ALWAYS present — this only narrows the
+      // `| undefined` the registry's getters carry for an unknown host. If the
+      // invariant ever broke, silently dropping a configured host from `/api/hosts`
+      // would be the wrong failure mode (a host the operator asked for vanishes with
+      // no trace), so crash loudly naming the inconsistency — fail-fast over a
+      // silent omission.
+      if (handler === undefined || session === undefined) {
+        throw new Error(
+          `host registry inconsistency: '${host}' is listed by hosts() but its ${
+            handler === undefined ? "handler" : "session"
+          } is missing — getHandler/getSession disagree with hosts().`,
+        );
+      }
       hosts.set(host, {
         handler,
         reconnect: () => registry.reconnect(host),

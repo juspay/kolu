@@ -81,8 +81,16 @@ export interface KoluLink {
   /** Resolve once the link is ready to mirror (the socket is OPEN). Immediate for
    *  an in-process link. Rejects if `signal` aborts while waiting. */
   ready(signal: AbortSignal): Promise<void>;
-  /** Force a fresh connect — the `/api/reconnect` button's re-arm. A no-op for an
-   *  always-live in-process link. */
+  /** Is the transport currently OPEN? After a mirror pass ENDS, the loop reads this
+   *  to tell a genuine link close (the socket dropped — let it reconnect on its own,
+   *  paced by partysocket) from a mirror that DRAINED while the socket stayed open
+   *  (a wrong/old kolu that rejects every primitive, so every subscription settles
+   *  with no `version` handshake). The latter must NOT be re-mirrored on the same
+   *  dead-but-open socket — `ready()` would resolve at once and hot-spin the loop. */
+  isOpen(): boolean;
+  /** Force a fresh connect — the `/api/reconnect` button's re-arm, and the loop's
+   *  break for a mirror that drained on a still-open socket (partysocket's backoff
+   *  then paces the retry). A no-op for an always-live in-process link. */
   reconnect(): void;
   /** Tear the transport down (server shutdown). */
   dispose(): void;
@@ -167,6 +175,11 @@ export async function runLocalMirror(opts: {
     seq += 1;
     reServe.setConnection(CONNECTING);
     log(`local kolu mirror #${seq}: link ready — mirroring awareness`);
+    // The first `version` frame is the link-live handshake; it flips the card to
+    // `connected`. We also remember whether it ever arrived this pass, so a mirror
+    // that drained WITHOUT one can be reported as an incompatible-kolu skew rather
+    // than a normal link drop.
+    let sawVersion = false;
     // One link-up's mirror lifecycle, through the SAME shared body the ssh pump
     // uses (`mirrorOnce`): publish the live holders, await the mirror, then clear
     // them and run `onLinkDown`. Only the OUTER loop differs from the pump — the
@@ -178,6 +191,7 @@ export async function runLocalMirror(opts: {
       // The first `version` frame is the link-live handshake — flip the card to
       // `connected` there (the local analogue of `session.markConnected()`).
       sink: reServe.makeSink(() => {
+        sawVersion = true;
         reServe.setConnection(CONNECTED);
         log(`local kolu mirror #${seq}: first version frame — connected`);
       }),
@@ -201,7 +215,29 @@ export async function runLocalMirror(opts: {
       signal,
       log,
     });
-    log(`local kolu mirror #${seq}: link closed — awaiting reconnect`);
+    if (signal.aborted) return;
+    // `mirrorOnce` returns when every subscription has settled. Normally that means
+    // the socket CLOSED: `link.ready()` at the top then blocks until partysocket
+    // reopens, so the loop is paced by the reconnect. But the mirror ALSO drains
+    // while the socket stays OPEN — a link to a wrong/old kolu that rejects (or
+    // never serves) the `terminalWorkspace` sibling, so every per-primitive `get`
+    // errors out, each subscription settles, and `done` resolves with no `version`
+    // handshake ever seen. Re-entering the mirror on that same dead-but-open socket
+    // would hot-spin (its `link.ready()` resolves immediately). So force a fresh
+    // connect: partysocket's backoff then paces the retry (and grows it on repeat),
+    // turning a tight loop into the same "reconnecting" cadence a down host shows.
+    if (link.isOpen()) {
+      log(
+        `local kolu mirror #${seq}: mirror drained on a still-OPEN link${
+          sawVersion
+            ? ""
+            : " (no version handshake — wrong or incompatible kolu?)"
+        } — forcing reconnect`,
+      );
+      link.reconnect();
+    } else {
+      log(`local kolu mirror #${seq}: link closed — awaiting reconnect`);
+    }
   }
 }
 
@@ -248,6 +284,7 @@ function connectKoluOverWs(
   return {
     client,
     ready: (signal) => waitForOpen(socket.ws, signal),
+    isOpen: () => socket.ws.readyState === socket.ws.OPEN,
     reconnect: () => socket.ws.reconnect(),
     dispose: () => {
       heartbeat.dispose();

@@ -127,6 +127,7 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
     const link: KoluLink = {
       client: kolu.client,
       ready: () => Promise.resolve(),
+      isOpen: () => true,
       reconnect: () => {},
       dispose: () => {},
     };
@@ -168,6 +169,7 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
       link: {
         client: kolu.client,
         ready: () => Promise.resolve(),
+        isOpen: () => true,
         reconnect: () => {},
         dispose: () => {},
       },
@@ -194,6 +196,52 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
     expect(served()).toEqual(kolu.cache.get(TERM_A));
     expect(agentPaintClass(agentState(served()))).toBe("awaiting");
   });
+
+  it("forces a reconnect (never hot-loops) when the mirror drains on a still-OPEN incompatible link", async () => {
+    // A link to a wrong/old kolu: the socket is OPEN but the server doesn't serve
+    // the `terminalWorkspace` sibling, so EVERY per-primitive `get`/`keys` rejects.
+    // `mirrorRemoteSurface` logs each as an upstream blip and settles, so `mirror.done`
+    // resolves at once with no `version` handshake. The loop must NOT re-mirror on the
+    // same dead-but-open socket (a tight CPU/log/connect hot loop, F1) — it must force
+    // a reconnect so partysocket's backoff paces the retry.
+    const rejecting = {
+      surface: new Proxy(
+        {},
+        {
+          get: () => ({
+            get: () =>
+              Promise.reject(new Error("no terminalWorkspace sibling")),
+            keys: () =>
+              Promise.reject(new Error("no terminalWorkspace sibling")),
+          }),
+        },
+      ),
+    } as unknown as KoluLink["client"];
+
+    const reServe = buildReServe();
+    const abort = new AbortController();
+    disposers.push(() => abort.abort());
+    let reconnects = 0;
+    const link: KoluLink = {
+      client: rejecting,
+      ready: () => Promise.resolve(),
+      // The socket stayed OPEN even though the mirror drained — the F1 trap.
+      isOpen: () => true,
+      // The loop's break: stop the test after one forced reconnect so the loop can't
+      // spin unbounded if the fix regresses (a regressed loop would never call this).
+      reconnect: () => {
+        reconnects += 1;
+        abort.abort();
+      },
+      dispose: () => {},
+    };
+    void runLocalMirror({ reServe, link, signal: abort.signal, log: () => {} });
+
+    // The drain-on-open path forced exactly one reconnect (then aborted) — not a
+    // re-mirror on the same socket.
+    await waitFor(() => reconnects === 1);
+    expect(reconnects).toBe(1);
+  });
 });
 
 describe("startLocalKoluMirror — wires a local link, never an ssh/pulam spawn", () => {
@@ -210,6 +258,7 @@ describe("startLocalKoluMirror — wires a local link, never an ssh/pulam spawn"
     const link: KoluLink = {
       client: kolu.client,
       ready: () => Promise.resolve(),
+      isOpen: () => true,
       reconnect: () => {},
       dispose: () => {
         disposed += 1;
