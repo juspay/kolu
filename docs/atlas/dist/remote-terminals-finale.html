@@ -159,9 +159,10 @@
   <text x="390" y="504" text-anchor="middle" font-size="10" fill="#64748b"><tspan font-weight="700" fill="#475569">REMOTE (R9.3):</tspan> the remote host runs the SAME kaval + pulam (unix sockets between them); kolu-server reaches them over <tspan font-weight="700">ssh stdio</tspan> — local is a special case of remote.</text>
 </svg>
 <figcaption data-astro-cid-6cvztg6h>After R9.0, on the local box: kaval (owns the PTYs) and a local pulam (the one sensor set, R4) are each daemons on a unix socket, both spawned + supervised by kolu-server (R2 adoptOrEnsure). kolu-server dials kaval over a unix socket for PTY I/O, and mirrors the local pulam&#39;s terminalWorkspace.awareness over a unix socket as its awareness backing; the local pulam reads kaval&#39;s taps (unix socket) to run the sensors. The browser reads kolu-server over a websocket (/rpc/ws); pulam-web, if present, mirrors the SAME local pulam. A remote host (R9.3) is the identical shape, reached over ssh stdio instead of unix sockets.</figcaption></figure>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Lifecycle — kaval survives, pulam is ephemeral</p><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>kaval</strong> owns the PTYs, so it must <em>survive</em> a kolu restart/redeploy: it’s a detached daemon kolu <strong>re-adopts</strong> on boot (R2) — terminals untouched. <strong>pulam</strong> owns nothing irreplaceable (its awareness is <em>computed</em> from the kaval), so it is <strong>ephemeral</strong> — it dies with kolu, and a fresh one <strong>re-derives</strong> all awareness from the surviving kaval on boot. The only cost is a brief awareness gap during the restart; no work is lost. So <code>adoptOrEnsure</code> for the local pulam effectively always <em>ensures</em> (spawns fresh), never adopts.</p></div></aside>
 <ul>
-<li><strong>Decided:</strong> the local pulam’s lifecycle is <strong>kolu-server’s</strong> — it <code>adoptOrEnsure</code>s the local pulam via the <a href="pty-daemon.html">R2</a> daemon-supervisor spine (boot brings up kaval → local pulam → mirror), the same supervision the kaval already gets.</li>
-<li><strong>Open:</strong> <em>migration off R8’s in-process backing</em> — cut over, or flag the swap behind one seam and retire the in-process path once the mirror is proven.</li>
+<li><strong>Decided — supervision:</strong> kolu-server owns the local pulam’s lifecycle via the <a href="pty-daemon.html">R2</a> <code>adoptOrEnsure</code> spine (ephemeral, per the callout above) — boot brings up kaval → local pulam → mirror.</li>
+<li><strong>Decided — migration:</strong> a <strong>hard cutover</strong> — one PR deletes kolu’s in-process sensors and points the awareness backing at the local-pulam mirror, with no flag and no fallback (the no-knobs rule; the worst case on the local awareness path is a briefly-stale badge, never lost work).</li>
 <li><strong>Needs:</strong> R8 (the reader-join + the injection seam) and R4 (the pulam daemon) — <strong>both shipped</strong>.</li>
 <li><strong>Done:</strong> kolu-server runs <strong>no</strong> awareness sensors; its awareness backing is a local-pulam mirror; kolu’s Dock and pulam-web render identical state <strong>by construction</strong> (the old R9a differential, now free); local and remote awareness share <strong>one</strong> mirror code path.</li>
 </ul>
@@ -254,12 +255,12 @@
 <tr>
 <td><del>local pulam lifecycle</del></td>
 <td>R9.0</td>
-<td><strong>decided — kolu-server <code>adoptOrEnsure</code>s the local pulam (R2 daemon-supervisor)</strong></td>
+<td><strong>decided — kolu-server <code>adoptOrEnsure</code>s an <em>ephemeral</em> local pulam (R2 supervisor); it dies with kolu and re-derives on boot</strong></td>
 </tr>
 <tr>
-<td><strong>migration off R8’s in-process backing</strong></td>
-<td><strong>R9.0</strong></td>
-<td>hard cutover, or flag the backing swap behind one seam and retire the in-process path once proven</td>
+<td><del>migration off R8’s in-process backing</del></td>
+<td>R9.0</td>
+<td><strong>decided — hard cutover (no flag, no fallback)</strong></td>
 </tr>
 <tr>
 <td>rename the join <code>TerminalMetadata → Terminal</code></td>
