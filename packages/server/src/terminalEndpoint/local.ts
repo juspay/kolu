@@ -200,13 +200,16 @@ class PtyHostTerminalProxy implements TerminalHandle {
   ): Promise<string> {
     await this.ready;
     // Translate the positional `TerminalHandle` contract into the wire's single
-    // bound axis: a tail pins the read to the screen bottom, otherwise it's a
-    // (possibly open) line range. The two never combine, so there's no
-    // precedence to encode.
+    // bound axis: a tail pins the read to the screen bottom; an explicit
+    // start/end is a line range; nothing set is the full scrollback. The three
+    // never combine, so there's no precedence to encode — each maps to its own
+    // `ScreenExtent` variant rather than an open range standing in for "full".
     const extent =
       tailLines !== undefined
         ? ({ kind: "tail", lines: tailLines } as const)
-        : ({ kind: "range", startLine, endLine } as const);
+        : startLine === undefined && endLine === undefined
+          ? ({ kind: "full" } as const)
+          : ({ kind: "range", startLine, endLine } as const);
     const { text } = await this.client.surface.terminal.getScreenText({
       id: this.id,
       extent,
