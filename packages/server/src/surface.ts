@@ -37,13 +37,13 @@ import {
   confStore,
   type ImplementSurfaceDeps,
   implementSurfaces,
-  inMemoryStore,
-  pollOnEvent,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
-import { DEFAULT_VERSION } from "@kolu/terminal-workspace/surface";
+import {
+  quietActivity,
+  serveTerminalWorkspace,
+} from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -52,7 +52,6 @@ import type {
   Preferences,
   ProcessMemory,
   SavedSession,
-  TerminalId,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
@@ -93,12 +92,6 @@ import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
 const localEndpoint = localTerminalEndpoint;
-
-// The fs/git procedures + watcher streams for the `terminalWorkspace` sibling
-// surface, backed by the SAME `createTerminalWorkspaceEndpoint` impl kolu's own
-// value-bearing streams read off `localEndpoint.fs/git` (R6). Reuses the source
-// of truth rather than a parallel wrapper.
-const fsGit = fsGitSurfaceDeps(localEndpoint, log);
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -434,48 +427,33 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       kolu: koluDeps,
 
       // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
-      // The GENERIC awareness surface (R8): the `version` handshake cell, the
-      // `awareness` collection backed by kolu-server's process-singleton awareness
-      // store (Design-S), the live `activity` flow, and the fs/git procedures +
-      // watcher streams (`fsGit`, off the same in-process endpoint kolu's own
-      // streams read). `implementSurfaces` throws on a missing primitive, so EVERY
-      // one the surface declares is provided here. Per-key deps are typed against
-      // `terminalWorkspaceSurface.spec`, so this needs no cast.
-      terminalWorkspace: {
-        cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
-        collections: {
-          // Project the awareness half straight off the registry — `.awareness`
-          // exactly as `authored` projects `.meta` (the two halves share one
-          // backing entry). Writes go through the sink's
-          // `installAwareness`/`updateServer*Metadata` (which call
-          // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
-          // `upsert`/`remove` are no-ops (the registry is the authority).
-          awareness: {
-            readAll: () => registryMap((t) => t.awareness),
-            readOne: (key) => getTerminal(key as string)?.awareness,
-            upsert: () => {},
-            remove: () => {},
-          },
+      // The GENERIC awareness surface (R8), assembled by the ONE shared factory
+      // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
+      // fs/git procedures + watcher streams live THERE, built off the SAME
+      // in-process endpoint kolu's own value-bearing streams read. kolu injects
+      // only the two volatile backings: the `awareness` collection (projected off
+      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
+      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
+      terminalWorkspace: serveTerminalWorkspace({
+        // Project the awareness half straight off the registry — `.awareness`
+        // exactly as `authored` projects `.meta` (the two halves share one
+        // backing entry). Writes go through the sink's
+        // `installAwareness`/`updateServer*Metadata` (which call
+        // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
+        // `upsert`/`remove` are no-ops (the registry is the authority).
+        awareness: {
+          readAll: () => registryMap((t) => t.awareness),
+          readOne: (key) => getTerminal(key as string)?.awareness,
+          upsert: () => {},
+          remove: () => {},
         },
-        streams: {
-          // QUIET activity for now: kolu-server has no raw byte tap (R9 makes it
-          // live), so it truthfully yields the empty live set once — not a lie, the
-          // honest "nothing known to be moving". The fs/git watcher streams ride
-          // alongside off `fsGit`.
-          activity: {
-            source: (_input, signal) =>
-              pollOnEvent<TerminalId[]>({
-                read: async () => [],
-                isEqual: () => true,
-                install: () => () => {},
-                signal,
-                onReadError: () => {},
-              }),
-          },
-          ...fsGit.streams,
-        },
-        procedures: fsGit.procedures,
-      },
+        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
+        // truthfully yields the empty live set — not a lie, the honest "nothing
+        // known to be moving". R9 injects a live source here instead.
+        activity: quietActivity,
+        endpoint: localEndpoint,
+        log,
+      }),
     },
   );
 
