@@ -10,6 +10,9 @@ describe("kavalCmd", () => {
     expect(kavalCmd("snapshot", "0a1b2c3d", undefined)).toBe(
       "kaval-tui snapshot 0a1b2c3d",
     );
+    expect(kavalCmd("send", "0a1b2c3d", undefined)).toBe(
+      "kaval-tui send 0a1b2c3d",
+    );
   });
 
   it("pins a clean socket path unquoted after the id", () => {

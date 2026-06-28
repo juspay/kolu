@@ -31,6 +31,8 @@ const CopyCommandButton: Component<{
   idle?: JSX.Element;
   /** Corner radius utility. Defaults to `rounded-lg`. */
   rounded?: string;
+  /** Width utility. Defaults to `w-full`; pass `w-auto` for an inline chip. */
+  widthClass?: string;
 }> = (props) => {
   const [copied, setCopied] = createSignal(false);
 
@@ -59,7 +61,7 @@ const CopyCommandButton: Component<{
       data-testid={props.testId}
       onClick={copy}
       title={props.title}
-      class={`w-full flex items-center justify-between gap-2 px-2 py-1.5 ${props.rounded ?? "rounded-lg"} bg-surface-2 hover:bg-surface-3 font-mono text-[11px] text-fg cursor-pointer transition-colors`}
+      class={`${props.widthClass ?? "w-full"} flex items-center justify-between gap-2 px-2 py-1.5 ${props.rounded ?? "rounded-lg"} bg-surface-2 hover:bg-surface-3 font-mono text-[11px] text-fg cursor-pointer transition-colors`}
     >
       <span class="truncate">{props.command}</span>
       <span class="shrink-0 flex items-center gap-1 text-fg-3 text-[10px]">

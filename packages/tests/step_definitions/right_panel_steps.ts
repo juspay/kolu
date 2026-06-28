@@ -248,6 +248,29 @@ Then(
 );
 
 Then(
+  "the inspector should show the send command and agent-driving guidance",
+  async function (this: KoluWorld) {
+    // Beyond attach/snapshot, each terminal card carries a `send` command (the
+    // verb that drives an agent in it), and the section closes with a
+    // drive-an-agent callout that links the llm-debate worked example. Assert
+    // both so the redesign's new affordances don't silently regress.
+    const send = this.page.locator('[data-testid="inspector-send-command"]');
+    await send.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const shown = (await send.textContent())?.trim() ?? "";
+    assert.ok(
+      /^kaval-tui send [0-9a-f]{8}\b/.test(shown),
+      `Expected a "kaval-tui send <short id>" command, got "${shown}"`,
+    );
+
+    // The agent-driving callout links llm-debate as the worked example.
+    const example = this.page.locator(
+      'a[href="https://github.com/srid/llm-debate"]',
+    );
+    await example.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the inspector should not show a kaval-tui attach command",
   async function (this: KoluWorld) {
     // A sleeping tile released its PTY (and its splits were closed), so it is no
