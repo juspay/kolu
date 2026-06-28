@@ -21,6 +21,10 @@ compilation:
 # Reinstall all:       just ai::apm
 dependencies:
   apm:
+    # Reusable skills extracted into the in-tree `agents/` package (its own
+    # apm.yml + .apm/). Local path dependency — `just ai::apm` deploys them
+    # alongside the remote packages below. See agents/README.md.
+    - path: ./agents
     - srid/agency#master
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript

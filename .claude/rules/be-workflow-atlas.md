@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**"
+  - "{agents/.apm/skills/be/**,agents/.apm/skills/be-review/**,docs/atlas/src/content/atlas/be-workflow.mdx,docs/atlas/src/diagrams/be-workflow.svg}"
 ---
 
 ## Keep the /be Atlas note in sync
@@ -11,7 +11,7 @@ The Atlas note **`docs/atlas/src/content/atlas/be-workflow.mdx`** and its diagra
 describe the same flow these skills implement, so an edit here can leave the map
 stale.
 
-Whenever you change `.apm/skills/be/**` or `.apm/skills/be-review/**` in a way a
+Whenever you change `agents/.apm/skills/be/**` or `agents/.apm/skills/be-review/**` in a way a
 reader would notice — a phase added/removed/reordered, a reviewer added or
 dropped from the gauntlet, a skill swapped in/out of a phase, the interview
 questions changing — **update the note and the diagram in the same change**:

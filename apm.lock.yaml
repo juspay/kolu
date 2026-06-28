@@ -1,7 +1,89 @@
 lockfile_version: '1'
-generated_at: '2026-06-26T10:33:55.405379+00:00'
+generated_at: '2026-06-28T20:59:40.050335+00:00'
 apm_version: 0.22.0
 dependencies:
+- repo_url: _local/agents
+  name: agents
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/be
+  - .agents/skills/be-review
+  - .agents/skills/be-review/SKILL.md
+  - .agents/skills/be/SKILL.md
+  - .agents/skills/codex-debate
+  - .agents/skills/codex-debate/SKILL.md
+  - .agents/skills/codex-debate/answer.workflow.js
+  - .agents/skills/codex-debate/debate.workflow.js
+  - .agents/skills/codex-debate/scripts/codex-answer.schema.json
+  - .agents/skills/codex-debate/scripts/codex-answer.sh
+  - .agents/skills/codex-debate/scripts/codex-exec-lib.sh
+  - .agents/skills/codex-debate/scripts/codex-review.sh
+  - .agents/skills/codex-debate/scripts/codex-verdict.schema.json
+  - .agents/skills/kolu
+  - .agents/skills/kolu/SKILL.md
+  - .agents/skills/lens-debate
+  - .agents/skills/lens-debate/SKILL.md
+  - .agents/skills/lens-debate/debate.workflow.js
+  - .agents/skills/perfection-review
+  - .agents/skills/perfection-review/SKILL.md
+  - .agents/skills/surface
+  - .agents/skills/surface/SKILL.md
+  - .claude/skills/be
+  - .claude/skills/be-review
+  - .claude/skills/be-review/SKILL.md
+  - .claude/skills/be/SKILL.md
+  - .claude/skills/codex-debate
+  - .claude/skills/codex-debate/SKILL.md
+  - .claude/skills/codex-debate/answer.workflow.js
+  - .claude/skills/codex-debate/debate.workflow.js
+  - .claude/skills/codex-debate/scripts/codex-answer.schema.json
+  - .claude/skills/codex-debate/scripts/codex-answer.sh
+  - .claude/skills/codex-debate/scripts/codex-exec-lib.sh
+  - .claude/skills/codex-debate/scripts/codex-review.sh
+  - .claude/skills/codex-debate/scripts/codex-verdict.schema.json
+  - .claude/skills/kolu
+  - .claude/skills/kolu/SKILL.md
+  - .claude/skills/lens-debate
+  - .claude/skills/lens-debate/SKILL.md
+  - .claude/skills/lens-debate/debate.workflow.js
+  - .claude/skills/perfection-review
+  - .claude/skills/perfection-review/SKILL.md
+  - .claude/skills/surface
+  - .claude/skills/surface/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
+    .agents/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
+    .agents/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
+    .agents/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
+    .agents/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
+    .agents/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
+    .agents/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
+    .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
+    .agents/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
+    .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
+    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
+    .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
+    .agents/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
+    .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
+    .claude/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
+    .claude/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
+    .claude/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
+    .claude/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
+    .claude/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
+    .claude/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
+    .claude/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
+    .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
+    .claude/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
+    .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
+    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
+    .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
+    .claude/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
+    .claude/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
+  source: local
+  local_path: ./agents
 - repo_url: anthropics/skills
   name: skills
   host: github.com
@@ -250,44 +332,22 @@ mcp_configs:
 local_deployed_files:
 - .agents/skills/atlas
 - .agents/skills/atlas/SKILL.md
-- .agents/skills/be
-- .agents/skills/be-review
-- .agents/skills/be-review/SKILL.md
-- .agents/skills/be/SKILL.md
 - .agents/skills/blog-post
 - .agents/skills/blog-post/SKILL.md
-- .agents/skills/codex-debate
-- .agents/skills/codex-debate/SKILL.md
-- .agents/skills/codex-debate/answer.workflow.js
-- .agents/skills/codex-debate/debate.workflow.js
-- .agents/skills/codex-debate/scripts/codex-answer.schema.json
-- .agents/skills/codex-debate/scripts/codex-answer.sh
-- .agents/skills/codex-debate/scripts/codex-exec-lib.sh
-- .agents/skills/codex-debate/scripts/codex-review.sh
-- .agents/skills/codex-debate/scripts/codex-verdict.schema.json
 - .agents/skills/dev-server
 - .agents/skills/dev-server/SKILL.md
 - .agents/skills/evidence
 - .agents/skills/evidence/SKILL.md
-- .agents/skills/kolu
-- .agents/skills/kolu/SKILL.md
-- .agents/skills/lens-debate
-- .agents/skills/lens-debate/SKILL.md
-- .agents/skills/lens-debate/debate.workflow.js
 - .agents/skills/parcel
 - .agents/skills/parcel/SKILL.md
 - .agents/skills/perf-diagnose
 - .agents/skills/perf-diagnose/SKILL.md
-- .agents/skills/perfection-review
-- .agents/skills/perfection-review/SKILL.md
 - .agents/skills/pierre
 - .agents/skills/pierre/SKILL.md
 - .agents/skills/release
 - .agents/skills/release/SKILL.md
 - .agents/skills/self-improve
 - .agents/skills/self-improve/SKILL.md
-- .agents/skills/surface
-- .agents/skills/surface/SKILL.md
 - .agents/skills/test
 - .agents/skills/test/SKILL.md
 - .claude/rules/apm-sources.md
@@ -307,77 +367,40 @@ local_deployed_files:
 - .claude/rules/toast-conventions.md
 - .claude/skills/atlas
 - .claude/skills/atlas/SKILL.md
-- .claude/skills/be
-- .claude/skills/be-review
-- .claude/skills/be-review/SKILL.md
-- .claude/skills/be/SKILL.md
 - .claude/skills/blog-post
 - .claude/skills/blog-post/SKILL.md
-- .claude/skills/codex-debate
-- .claude/skills/codex-debate/SKILL.md
-- .claude/skills/codex-debate/answer.workflow.js
-- .claude/skills/codex-debate/debate.workflow.js
-- .claude/skills/codex-debate/scripts/codex-answer.schema.json
-- .claude/skills/codex-debate/scripts/codex-answer.sh
-- .claude/skills/codex-debate/scripts/codex-exec-lib.sh
-- .claude/skills/codex-debate/scripts/codex-review.sh
-- .claude/skills/codex-debate/scripts/codex-verdict.schema.json
 - .claude/skills/dev-server
 - .claude/skills/dev-server/SKILL.md
 - .claude/skills/evidence
 - .claude/skills/evidence/SKILL.md
-- .claude/skills/kolu
-- .claude/skills/kolu/SKILL.md
-- .claude/skills/lens-debate
-- .claude/skills/lens-debate/SKILL.md
-- .claude/skills/lens-debate/debate.workflow.js
 - .claude/skills/parcel
 - .claude/skills/parcel/SKILL.md
 - .claude/skills/perf-diagnose
 - .claude/skills/perf-diagnose/SKILL.md
-- .claude/skills/perfection-review
-- .claude/skills/perfection-review/SKILL.md
 - .claude/skills/pierre
 - .claude/skills/pierre/SKILL.md
 - .claude/skills/release
 - .claude/skills/release/SKILL.md
 - .claude/skills/self-improve
 - .claude/skills/self-improve/SKILL.md
-- .claude/skills/surface
-- .claude/skills/surface/SKILL.md
 - .claude/skills/test
 - .claude/skills/test/SKILL.md
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
-  .agents/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-  .agents/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/codex-debate/SKILL.md: sha256:f01d65044965b8fc59726758e04c6a47371d0aca525d3bbe1b38f56e128198b0
-  .agents/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
-  .agents/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
-  .agents/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
-  .agents/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
-  .agents/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
-  .agents/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
-  .agents/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
   .agents/skills/dev-server/SKILL.md: sha256:1b56467bc51ddafa778997d1f7a8774f7364e55543d71e3ebf62af47efdcc13a
   .agents/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
-  .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-  .agents/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
-  .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
   .agents/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
-  .agents/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .agents/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
   .agents/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
-  .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
   .agents/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/atlas.md: sha256:952a49f91d233d35fa8fc1f731cbff874161df7491b5696edc1e91da588c6d90
-  .claude/rules/be-workflow-atlas.md: sha256:543874c621c56943dc5d7cf765dab27045f27eea1a766f9d845bb18bcbe17dc4
+  .claude/rules/be-workflow-atlas.md: sha256:c16190acae27d8f1b8b8fc10e508701ea5d216c83807156df081b52a75341ae5
   .claude/rules/conventions.md: sha256:33edfa92cf1a1bbbf6c205a45f9f91a9d5c15b6f0355002993987bde5a5e7d47
   .claude/rules/dock-fleet-mirror.md: sha256:29422ee3a47826a73d7586d8b3d5afbc3b2d06bf05536c91852f65f11ec8977c
   .claude/rules/docs.md: sha256:c78ee3eb709a228c4d8c86031ac2c9de2967fed129c97c07f8e5998d5c1f085c
@@ -389,27 +412,12 @@ local_deployed_file_hashes:
   .claude/rules/surface.md: sha256:2f96cb3cd96e5e985130c5baae68ac4f6d4c91097085dcb96979b8bd9353db8d
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/skills/atlas/SKILL.md: sha256:4de315b396e4807b84fb90c95d23661f6c59ce5385d926101620e6f4004379e6
-  .claude/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-  .claude/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/codex-debate/SKILL.md: sha256:f01d65044965b8fc59726758e04c6a47371d0aca525d3bbe1b38f56e128198b0
-  .claude/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
-  .claude/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
-  .claude/skills/codex-debate/scripts/codex-answer.schema.json: sha256:6c33a78fc5b21914f34368b06325e67dfeafcaa19ce1f97bd5caa4cd51f0ca25
-  .claude/skills/codex-debate/scripts/codex-answer.sh: sha256:05734cad63863b4c27c67b1d87da0bf41ba325c3dd816002acfbd69c66877e67
-  .claude/skills/codex-debate/scripts/codex-exec-lib.sh: sha256:8abcec954fac110c0c3bc27a382acc015ed5cd5f29effcbf06eba75f36ced3c5
-  .claude/skills/codex-debate/scripts/codex-review.sh: sha256:8d97126372d6e716d9455f7e9e821c6fa717d1f55968dd82b93f9bb8999d0fc9
-  .claude/skills/codex-debate/scripts/codex-verdict.schema.json: sha256:93e33150cd20b300eddb590adcf2c9253c85d68a7ef70aa42e4c8a49049a1fe3
   .claude/skills/dev-server/SKILL.md: sha256:1b56467bc51ddafa778997d1f7a8774f7364e55543d71e3ebf62af47efdcc13a
   .claude/skills/evidence/SKILL.md: sha256:84152c26c4708fd0332ac1c15423be57b0fc19e78bb0a284b79684216ca8845d
-  .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
-  .claude/skills/lens-debate/SKILL.md: sha256:07972d265dc9845f6f0c848b1511768ef0183b66bb2d707e305d06b5f407fbeb
-  .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
   .claude/skills/parcel/SKILL.md: sha256:953c1dad8bd7d7b06d9f30de8597590dcba5a64e1d550aca4963c96eaa4fca45
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
-  .claude/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .claude/skills/release/SKILL.md: sha256:9ecdcae3c7e44df8984f5edb877d8fb3c613fde4abd80e230bc5f83dbec5a8e4
   .claude/skills/self-improve/SKILL.md: sha256:0f8c6bacddfe459b60265bc7de5b148a3a66750271f3264f1fad131f9bf870bd
-  .claude/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
   .claude/skills/test/SKILL.md: sha256:ab8421b6937ad1687b6670fca17eacb908bdf637d7cddd4cc734f2a0e3c16c53

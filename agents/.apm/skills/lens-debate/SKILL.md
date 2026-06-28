@@ -257,7 +257,7 @@ The lenses read `.claude/skills/{lowy,hickey}/SKILL.md` (and
 `.claude/skills/code-police/SKILL.md` with `--with-police`) at runtime for their
 frameworks.
 
-This is generated from `.apm/skills/lens-debate/`; edit the source there and run
+This is generated from `agents/.apm/skills/lens-debate/`; edit the source there and run
 `just ai::apm` to regenerate.
 
 ARGUMENTS: $ARGUMENTS

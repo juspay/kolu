@@ -1,0 +1,37 @@
+name: agents
+version: 0.1.0
+description: >-
+  Reusable AI-native development skills extracted from kolu — the /be review
+  gauntlet (lens-debate, codex-debate, perfection-review, be, be-review),
+  agent-to-agent driving (kolu), and shared @kolu/surface consumption
+  (surface). Repo-agnostic: a consuming project supplies its own /atlas,
+  /test, /dev-server, and (optionally) /evidence skills.
+type: hybrid
+targets:
+  - claude
+  - codex
+  - opencode
+
+# Generated AGENTS.md files are runtime outputs, not source inputs. Excluding
+# them keeps distributed compilation from treating stale generated files as
+# additional placement anchors on subsequent `apm compile` runs.
+compilation:
+  exclude:
+    - AGENTS.md
+    - "**/AGENTS.md"
+    - node_modules/**
+    - "**/node_modules/**"
+
+# Skills here call into these shared packages:
+#   srid/agency             — /lowy /hickey /code-police /simplify /forge-pr /fact-check
+#   juspay/project-unknown  — /pu (ephemeral box for heavy work)
+#   juspay/odu              — /ci /odu-mcp
+#
+# A consuming project additionally supplies its OWN /atlas, /test, /dev-server,
+# and (optionally) /evidence skills — these are intentionally project-specific
+# and are NOT vendored here (see README → "Using this in your own project").
+dependencies:
+  apm:
+    - srid/agency#master
+    - juspay/project-unknown
+    - juspay/odu
