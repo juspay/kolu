@@ -389,6 +389,22 @@ export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
     ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
     : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
 
+/** The verb set a collection exposes — the TYPE counterpart of the runtime
+ *  {@link resolveCollectionVerbs}: `spec.verbs` when present, else
+ *  {@link DEFAULT_COLLECTION_VERBS}. TS can't reuse the runtime value, so this
+ *  mirrors it; keep the two in step. Honoring `verbs` here is load-bearing, the
+ *  collection dual of {@link CellVerbsOf}: `deltas` and `test__set` are OPT-IN,
+ *  so a DEFAULT collection must NOT type a `.deltas` the runtime contract router
+ *  never binds — otherwise a downstream consumer (kolu, drishti) sees a typed
+ *  `surface.<collection>.deltas` that compiles and then rejects at runtime, and
+ *  a read-only collection (`verbs: ["keys", "get"]`, e.g. `common`'s `authored` /
+ *  `daemonStatus`) must NOT type the `upsert` / `delete` the server omits. */
+export type CollectionVerbsOf<S extends CollectionSpec<any, any>> = S extends {
+  verbs: readonly CollectionVerb[];
+}
+  ? S["verbs"][number]
+  : (typeof DEFAULT_COLLECTION_VERBS)[number];
+
 /** Whether a cell exposes a CLIENT-facing wire-mutation verb — `set` or
  *  `patch`, the verbs the Solid client's `.use()` mutate path actually calls.
  *  `test__set` does NOT count: it's the opt-in e2e reset procedure, never a
@@ -450,11 +466,36 @@ type UnionToIntersection<U> = (
   ? I
   : never;
 
+/** The full per-verb contract shape for a collection — the type oracle the
+ *  per-verb {@link CollectionVerbEntry} indexes into. `buildCollection` covers
+ *  the stream/mutation verbs (`keys` / `get` / `deltas` / `upsert` / `delete`);
+ *  `test__set` (the opt-in e2e replace-all) is intersected in so the shape
+ *  carries every verb the runtime {@link collectionContractEntries} can emit. */
+type CollectionContractShape<K, T> = ReturnType<
+  typeof buildCollection<K, T>
+> & {
+  test__set: ReturnType<typeof buildCollectionTestSet<K, T>>;
+};
+
+/** One contract entry per resolved collection verb — distributed over the verb
+ *  union then folded by {@link UnionToIntersection}, the collection dual of
+ *  {@link CellVerbEntry}. Mirrors the runtime `entries[v] = …` switch in
+ *  {@link collectionContractEntries} 1:1, so a default collection types only
+ *  `keys` / `get` / `upsert` / `delete` and an OPT-IN verb (`deltas`,
+ *  `test__set`) appears ONLY when `verbs` lists it. */
+type CollectionVerbEntry<
+  V extends CollectionVerb,
+  K,
+  T,
+> = V extends keyof CollectionContractShape<K, T>
+  ? { [P in V]: CollectionContractShape<K, T>[P] }
+  : EmptyObj;
+
 type CollectionContract<S extends CollectionSpec<any, any>> = S extends {
   keySchema: ZodType<infer K>;
   schema: ZodType<infer T>;
 }
-  ? ReturnType<typeof buildCollection<K, T>>
+  ? UnionToIntersection<CollectionVerbEntry<CollectionVerbsOf<S>, K, T>>
   : never;
 
 type StreamContract<S extends StreamSpec<any, any>> = S extends {
@@ -655,6 +696,20 @@ function buildCollection<K, T>(opts: {
       .output(z.void()),
     delete: oc.input(keyShape).output(z.void()),
   };
+}
+
+// The opt-in `test__set` verb's contract entry (replace-all from a fixture).
+// Lives outside `buildCollection` because `test__set` is opt-in, not a default
+// verb — `CollectionContractShape` intersects it in so the per-verb gate can
+// surface it only for a collection whose `verbs` lists it. Mirrors the runtime
+// `entries.test__set = …` branch in `collectionContractEntries` (drift watch).
+function buildCollectionTestSet<K, T>(opts: {
+  keySchema: ZodType<K>;
+  schema: ZodType<T>;
+}) {
+  return oc
+    .input(z.array(z.object({ key: opts.keySchema, value: opts.schema })))
+    .output(z.void());
 }
 
 function buildStream<I, T>(opts: {

@@ -119,23 +119,67 @@ export function useCollection<Name extends string, K, T, I>(
 // would collapse them; an object keySchema would collapse to `"[object Object]"`.
 // The per-key `get` path keys by real `===` and has no such limit, so don't opt
 // a heterogeneous-key collection into `deltas`.
+//
+// The precondition is ENFORCED, not just documented: `assertFoldableKey` crashes
+// on a non-primitive key (so a single object key — which `assertKeysInjective`'s
+// length compare can't catch on its own — fails fast) and on the literal
+// `"__proto__"` (the Solid store proxy special-cases that name in BOTH its `get`
+// and `has` traps, so it could never be stored or queried safely whatever the
+// dictionary's prototype). The value store is a NULL-PROTOTYPE dict, so inherited
+// names (`toString`, `constructor`, …) are absent from the `in`-membership check
+// rather than shadowing a real key; the `in` operator (not `Object.hasOwn`) is
+// kept because only Solid's `has` trap registers the reactive existence
+// dependency — `Object.hasOwn` reads `getOwnPropertyDescriptor`, which the store
+// proxy does not track, so it would silently break per-key reactivity.
+
+/** A fresh NULL-PROTOTYPE value store. `Object.create(null)` (not `{}`) so a key
+ *  like `"toString"` is absent from `in`-membership instead of inherited from
+ *  `Object.prototype`. Solid's `reconcile` treats a null-prototype object as
+ *  wrappable (`isWrappable`), so per-key reactivity is intact. */
+function emptyDict<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
 
 /** The folded collection: values keyed by `String(key)` (a reconcile-backed
- *  object, for fine-grained per-key reactivity) plus the real-typed key list in
- *  arrival order (so `keys()` returns `K[]`, not stringified keys). */
+ *  null-prototype object, for fine-grained per-key reactivity) plus the
+ *  real-typed key list in arrival order (so `keys()` returns `K[]`, not
+ *  stringified keys). */
 interface DeltasFold<K, T> {
   byKey: Record<string, T>;
   order: K[];
 }
 
+/** Crash loudly on a key that violates the homogeneous-primitive-key CONSTRAINT
+ *  above, at the point the bad key enters the fold (every snapshot entry, every
+ *  delta upsert/remove) — so corruption can't be expressed, not merely detected
+ *  after. Rejects (1) a non-primitive key: `byKey` is keyed by `String(key)`, so
+ *  an object/symbol/null/boolean key is a silent collapse the length compare in
+ *  {@link assertKeysInjective} can't always catch (a SINGLE object key collapses
+ *  nothing). (2) the literal `"__proto__"`: the Solid store proxy special-cases
+ *  that name in its `get`/`has` traps regardless of the dict's prototype, so it
+ *  can never round-trip. */
+function assertFoldableKey(key: unknown): void {
+  const t = typeof key;
+  if (t !== "number" && t !== "string") {
+    throw new Error(
+      `deltas key must be a primitive number or string, got ${t} — deltas requires homogeneous primitive keys`,
+    );
+  }
+  if (key === "__proto__") {
+    throw new Error(
+      'deltas key "__proto__" is reserved — the reactive store special-cases it and cannot serve it',
+    );
+  }
+}
+
 /** Guard the delta fold's homogeneous-primitive-key precondition (the CONSTRAINT
  *  above): `byKey` is keyed by `String(key)` while `order` holds the real keys,
- *  so two DISTINCT real keys that collapse to one string (an object key, or a
- *  union admitting both `1` and `"1"`) leave `byKey` STRICTLY SHORTER than
- *  `order`. Fires exactly on that collision and never for legitimate homogeneous
- *  primitive keys (a single length compare). Crash loudly at the point of
+ *  so two DISTINCT real keys that collapse to one string (a union admitting both
+ *  `1` and `"1"`) leave `byKey` STRICTLY SHORTER than `order`. Fires exactly on
+ *  that collision (a single length compare). Crash loudly at the point of
  *  corruption rather than silently serving a collapsed set — the fail-fast the
- *  prose constraint can only ask for. */
+ *  prose constraint can only ask for. (`assertFoldableKey` already rejects the
+ *  non-primitive single-key case this length compare alone would miss.) */
 function assertKeysInjective<K, T>(
   byKey: Record<string, T>,
   order: readonly K[],
@@ -156,18 +200,27 @@ export function foldCollectionDeltas<K, T>(
   msg: CollectionDeltasMsg<K, T>,
 ): DeltasFold<K, T> {
   if (msg.kind === "snapshot") {
-    const byKey: Record<string, T> = {};
+    const byKey = emptyDict<T>();
     const order: K[] = [];
     for (const [k, v] of msg.entries) {
+      assertFoldableKey(k);
       byKey[String(k)] = v;
       order.push(k);
     }
     assertKeysInjective(byKey, order);
     return { byKey, order };
   }
-  const byKey: Record<string, T> = { ...acc.byKey };
-  for (const [k, v] of msg.upserts) byKey[String(k)] = v;
-  for (const k of msg.removes) delete byKey[String(k)];
+  // Copy onto a fresh NULL-PROTOTYPE dict (`{ ...acc.byKey }` would reintroduce
+  // `Object.prototype`); `Object.assign` keeps the null prototype.
+  const byKey = Object.assign(emptyDict<T>(), acc.byKey);
+  for (const [k, v] of msg.upserts) {
+    assertFoldableKey(k);
+    byKey[String(k)] = v;
+  }
+  for (const k of msg.removes) {
+    assertFoldableKey(k);
+    delete byKey[String(k)];
+  }
   // `order` is the real-typed key set: keep membership/removal on the real keys
   // (`===`-keyed Sets), so only the value store's `byKey` stringifies. One
   // stringification site, not four threaded through the order logic.
@@ -194,7 +247,7 @@ export function useCollectionDeltas<Name extends string, K, T>(
   const sub = createSubscription<CollectionDeltasMsg<K, T>, DeltasFold<K, T>>(
     options.source,
     {
-      initial: { byKey: {}, order: [] },
+      initial: { byKey: emptyDict<T>(), order: [] },
       reduce: foldCollectionDeltas,
       onError: options.onError,
     },
@@ -207,8 +260,10 @@ export function useCollectionDeltas<Name extends string, K, T>(
     // Match the per-key path's contract: a key absent from the live set reads
     // `undefined`, NOT a live accessor — so `if (byKey(k))` and
     // `byKey(k)?.pending()` mean the same across both delivery paths. The `in`
-    // check is tracked by the reconcile store, so this re-evaluates when the key
-    // is added/removed.
+    // check is tracked by the reconcile store's `has` trap, so this re-evaluates
+    // when the key is added/removed (`Object.hasOwn` would read an untracked
+    // descriptor and miss those updates). `byKey` is null-prototype, so a stray
+    // inherited name like `toString` reads absent rather than shadowing.
     const fold = sub() as DeltasFold<K, T> | undefined;
     if (fold === undefined || !(String(key) in fold.byKey)) return undefined;
     // A per-key accessor over the shared store — reading `byKey[String(key)]`

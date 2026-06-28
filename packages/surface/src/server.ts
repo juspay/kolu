@@ -299,14 +299,32 @@ export function collectionHandlers<Name extends string, K, T>(
   // `deltasBus` is present). Snapshot-then-deltas — the same retry-resume
   // invariant the `keys`/`get` streams rely on: a (re)subscribe replays the
   // full set, then each producer tick's coalesced `{upserts, removes}` follows.
+  //
+  // SUBSCRIBE BEFORE SNAPSHOT — `deltasBus.subscribe()` registers the subscriber
+  // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE reading
+  // the snapshot closes the gap a delta could slip through. If we snapshotted
+  // first and subscribed second, any tick flushed between the `readAll()` and the
+  // `subscribe()` would be neither in the snapshot nor buffered, and — UNLIKE the
+  // self-healing `keys`/`get` streams (each publish is a full slice snapshot, so
+  // a miss self-corrects on the next one) — a `deltas` frame is INCREMENTAL, so a
+  // missed one is lost until reconnect. The subscribe and `readAll()` run with no
+  // `await` between them, so no tick can interleave; a tick whose store write
+  // already landed is in the snapshot AND re-applied by its buffered delta
+  // (idempotent: upsert is last-write-wins, remove of an absent key is a no-op).
   const deltasBus = deps.deltasBus;
   if (deltasBus) {
     handlers.deltas = async function* ({ signal }) {
+      // `subscribe()` registers the subscriber and starts buffering NOW (before
+      // the first `for await` pull); the snapshot is read on the next line with
+      // no `await` between, so the subscriber is live across the whole snapshot
+      // read. `for await` over the already-open iterable preserves the iterator's
+      // `return()` cleanup on early exit.
+      const frames = deltasBus.subscribe(signal);
       yield {
         kind: "snapshot",
         entries: Array.from(deps.readAll().entries()),
       };
-      for await (const frame of deltasBus.subscribe(signal)) yield frame;
+      for await (const frame of frames) yield frame;
     };
   }
 
@@ -1291,13 +1309,23 @@ function walkSurface<const S extends SurfaceSpec>(
       ? createTickCoalescer<unknown, unknown>(deltasBus)
       : undefined;
 
-    // Surface-owned publish: every upsert/remove broadcasts the new key set
-    // (and, on upsert, the new per-key value) through the framework's
-    // channels. Consumers' upsert/remove stay persistence-only. The per-key
-    // `keys`/`get` publishes are UNCHANGED; the deltas coalescing is additive.
+    // Surface-owned publish: every upsert broadcasts the new per-key value, and
+    // an upsert that ADDS a key (or any remove) broadcasts the new key set.
+    // Consumers' upsert/remove stay persistence-only. The deltas coalescing is
+    // additive on top.
+    //
+    // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
+    // ("broadcasts K[] snapshots on add/remove"). A value-only upsert (existing
+    // key, new value) leaves the key SET identical, so re-publishing the whole
+    // key array would be a redundant full-snapshot the `keys` subscribers fold to
+    // the same set (and a spurious re-render). The membership test reads the store
+    // BEFORE `upsert`, so a first-write key still counts as an add. Value updates
+    // travel the per-key `get` stream (`perKeyBus`) and the batched `deltas`
+    // stream (`coalescer`), both of which DO fire on every upsert.
     const wrappedUpsert = (k: unknown, v: unknown) => {
+      const isNewKey = !collDeps.readAll().has(k);
       collDeps.upsert(k, v);
-      keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (isNewKey) keysBus.publish(Array.from(collDeps.readAll().keys()));
       perKeyBus(k).publish(v);
       coalescer?.upsert(k, v);
     };
