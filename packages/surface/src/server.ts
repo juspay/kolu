@@ -258,6 +258,41 @@ export interface CollectionHandlers<K, T> {
   test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
 }
 
+/** Snapshot-then-live with NO lost-update window: subscribe to `bus` FIRST, THEN
+ *  produce the snapshot, then forward. `bus.subscribe()` registers the subscriber
+ *  synchronously (see `inMemoryChannel`), so opening the iterator BEFORE producing
+ *  the snapshot means any frame published in the snapshot→first-forward window is
+ *  BUFFERED, not dropped — the gap a snapshot-then-subscribe generator leaves open
+ *  (it doesn't reach `subscribe()` until the consumer's SECOND pull, so a frame born
+ *  in that window publishes to ZERO subscribers).
+ *
+ *  `snapshot` is a THUNK, not a value: it MUST run AFTER `subscribe()`. A caller
+ *  passing an already-computed value would move the read back BEFORE the subscribe
+ *  and reopen the window — the thunk keeps the `readAll()` on the safe side.
+ *
+ *  Cleanup: acquire ONE iterator up front and forward it via
+ *  `yield* { [Symbol.asyncIterator]: () => iterator }` — NOT a bare `yield* frames`,
+ *  which would call `[Symbol.asyncIterator]()` a second time and forward a different
+ *  iterator than the one the `finally` returns. The snapshot `yield` sits BEFORE the
+ *  forwarding, so an early `.return()` taken after the snapshot (which makes an async
+ *  generator skip everything past the suspended `yield`) still hits the `finally`,
+ *  which returns the iterator and drops the subscriber. Idempotent: the channel's
+ *  `return()`/`close()` are double-call-guarded. */
+async function* subscribeBeforeSnapshot<S, F>(
+  bus: Channel<F>,
+  signal: AbortSignal | undefined,
+  snapshot: () => S,
+): AsyncGenerator<S | F> {
+  const frames = bus.subscribe(signal);
+  const iterator = frames[Symbol.asyncIterator]();
+  try {
+    yield snapshot();
+    yield* { [Symbol.asyncIterator]: () => iterator };
+  } finally {
+    await iterator.return?.();
+  }
+}
+
 export function collectionHandlers<Name extends string, K, T>(
   _coll: Collection<Name, K, T>,
   deps: CollectionHandlerDeps<K, T>,
@@ -265,34 +300,16 @@ export function collectionHandlers<Name extends string, K, T>(
   const readOne = deps.readOne ?? ((k: K) => deps.readAll().get(k));
 
   const handlers: CollectionHandlers<K, T> = {
-    keys: async function* ({ signal }) {
-      // SUBSCRIBE BEFORE SNAPSHOT — the same lost-update guard the `deltas`
-      // handler documents below. `keysBus.subscribe()` registers the subscriber
-      // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE
-      // reading the `readAll()` snapshot means a membership change published
-      // between the snapshot read and the first forwarded frame is BUFFERED, not
-      // dropped. With subscribe-AFTER-snapshot an async generator doesn't reach
-      // the `subscribe()` until the consumer pulls a SECOND time, so a key born
-      // in that window publishes to ZERO subscribers — and because a quiescent
-      // `keys` stream has no later frame to self-heal from (each frame is a full
-      // snapshot, but only the NEXT membership change emits one), the consumer
-      // would miss that key until the next add/remove or a reconnect. That is the
-      // exact already-subscribed-mirror gap the `broadcastKeys` fix closes on the
-      // PUBLISH side; this closes it on the SUBSCRIBE side too. We acquire ONE
-      // iterator up front and forward it in a `try/finally` so an early `.return()`
-      // taken after the snapshot yield still drops the subscriber (same reasoning
-      // as the `deltas` handler's `finally`). A key added between the subscribe and
-      // the snapshot read lands in BOTH the snapshot and a buffered frame — but
-      // each frame is a full set snapshot, so the consumer folds them idempotently.
-      const frames = deps.keysBus.subscribe(signal);
-      const iterator = frames[Symbol.asyncIterator]();
-      try {
-        yield Array.from(deps.readAll().keys());
-        yield* { [Symbol.asyncIterator]: () => iterator };
-      } finally {
-        await iterator.return?.();
-      }
-    },
+    // `keys` is self-healing (every frame is a full set snapshot, so a consumer
+    // folds re-sends idempotently), yet a key born in the snapshot→subscribe window
+    // of a QUIESCENT stream has no later frame to self-heal from until the next
+    // membership change — so it still needs subscribe-before-snapshot. That, with
+    // the `broadcastKeys` publish-side fix, is what lets an already-subscribed mirror
+    // never miss a key born after it connected. See `subscribeBeforeSnapshot`.
+    keys: ({ signal }) =>
+      subscribeBeforeSnapshot(deps.keysBus, signal, () =>
+        Array.from(deps.readAll().keys()),
+      ),
     get: async function* ({ input, signal }) {
       const initial = readOne(input.key);
       if (initial === undefined) {
@@ -320,53 +337,25 @@ export function collectionHandlers<Name extends string, K, T>(
   };
 
   // The batched `deltas` stream, wired only when the collection opts in (the
-  // `deltasBus` is present). Snapshot-then-deltas — the same retry-resume
-  // invariant the `keys`/`get` streams rely on: a (re)subscribe replays the
-  // full set, then each producer tick's coalesced `{upserts, removes}` follows.
-  //
-  // SUBSCRIBE BEFORE SNAPSHOT — `deltasBus.subscribe()` registers the subscriber
-  // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE reading
-  // the snapshot closes the gap a delta could slip through. If we snapshotted
-  // first and subscribed second, any tick flushed between the `readAll()` and the
-  // `subscribe()` would be neither in the snapshot nor buffered, and — UNLIKE the
-  // self-healing `keys`/`get` streams (each publish is a full slice snapshot, so
-  // a miss self-corrects on the next one) — a `deltas` frame is INCREMENTAL, so a
-  // missed one is lost until reconnect. The subscribe and `readAll()` run with no
-  // `await` between them, so no tick can interleave; a tick whose store write
-  // already landed is in the snapshot AND re-applied by its buffered delta
-  // (idempotent: upsert is last-write-wins, remove of an absent key is a no-op).
+  // `deltasBus` is present). Snapshot-then-deltas: a (re)subscribe replays the full
+  // set, then each producer tick's coalesced `{upserts, removes}` follows. A
+  // `deltas` frame is INCREMENTAL (not a full snapshot), so — UNLIKE the self-healing
+  // `keys`/`get` streams — a frame missed in the snapshot→subscribe window is lost
+  // until reconnect, which makes subscribe-before-snapshot load-bearing here. See
+  // `subscribeBeforeSnapshot`. (A tick whose store write already landed is in BOTH
+  // the snapshot and a buffered delta — idempotent: upsert is last-write-wins,
+  // remove of an absent key is a no-op.)
   const deltasBus = deps.deltasBus;
   if (deltasBus) {
-    handlers.deltas = async function* ({ signal }) {
-      // `subscribe()` registers the subscriber and starts buffering NOW (before
-      // the snapshot read), so the subscriber is live across the whole snapshot
-      // read and any tick flushed during it is buffered, not dropped.
-      //
-      // We acquire ONE iterator up front and forward it inside a `try/finally`.
-      // The snapshot `yield` sits BEFORE the forwarding, so if the consumer closes
-      // the generator (`.return()`) after taking the snapshot but before asking
-      // for the next frame, an async generator's `return()` resumes as a `return`
-      // AT that suspended `yield` and skips everything after it — the `yield*`
-      // below would never run, so the subscription's `iterator.return()` would
-      // never fire and the `sub` would leak (a dead entry whose queue grows on
-      // every future publish, since signal-abort is a separate lifecycle the
-      // generator's `.return()` doesn't trigger). The `finally` owns that cleanup:
-      // every exit — normal completion, an early `.return()`, or a `throw` —
-      // returns the iterator and drops the subscriber (idempotent: the channel's
-      // `return()`/`close()` are double-call-guarded, so the `yield*`-forwarded
-      // and the `finally` return can both run safely).
-      const frames = deltasBus.subscribe(signal);
-      const iterator = frames[Symbol.asyncIterator]();
-      try {
-        yield {
+    handlers.deltas = ({ signal }) =>
+      subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
+        deltasBus,
+        signal,
+        () => ({
           kind: "snapshot",
           entries: Array.from(deps.readAll().entries()),
-        };
-        yield* { [Symbol.asyncIterator]: () => iterator };
-      } finally {
-        await iterator.return?.();
-      }
-    };
+        }),
+      );
   }
 
   return handlers;
