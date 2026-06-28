@@ -2,7 +2,7 @@
 title: Remote terminals — the finale (R9–R10)
 description: R9 (kolu dials remotes) and R10 (canvas) decomposed into landable PRs, now that R8 shipped the awareness bisection. R9a localhost dedup · R9.1 the TerminalEndpoint resolver · R9.2 ssh kaval driver · R9.3 remote awareness via the surface mirror · R9.4 persisted location + reconnect + adoption · R9.5 the Code-tab fs/git rewrite (procedure + pulse) · R10 canvas multiplex. Each phase carries its own needs, done-criterion and test; every reused seam is grounded in code, and the three open decisions are flagged.
 parents: [remote-terminals]
-status: proposed
+status: accepted
 maturity: budding
 updated: 2026-06-27
 ---
@@ -22,8 +22,8 @@ R8 split a terminal's record into two raw served collections — `terminalWorksp
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "R9a · localhost dedup — one sensor set (the first PR)", m: "R8 ✓ · startable now", h: "#r9a" },
-  { d: 0, g: "○", c: "prog", l: "R9.1 · the TerminalEndpoint resolver (local-only retrofit)", m: "after R9a", h: "#r91" },
+  { d: 0, g: "✓", c: "ship", l: "R9a · localhost dedup — one sensor set (the first PR)", m: "#1604 ✓", h: "#r9a" },
+  { d: 0, g: "○", c: "prog", l: "R9.1 · the TerminalEndpoint resolver (local-only retrofit)", m: "after R9a ✓ · startable now", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
   { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness (mirror the surface)", m: "needs R9.2 · R7", h: "#r93" },
   { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
@@ -33,7 +33,7 @@ export const PT = [
 
 <PhaseTree title="FINALE — R9 (decomposed) · R10" phases={PT} />
 
-Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4) (the live git drill-in that proves the procedure + pulse remote leg). **R9a** needs only the shipped R8, so it is the first landable PR.
+Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4) (the live git drill-in that proves the procedure + pulse remote leg). **R9a has shipped** (<PrLink pr={1604} />) — the first landable PR, needing only the shipped R8.
 
 ## What R9 reuses — and what it must build
 
@@ -60,14 +60,14 @@ Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4) (the live 
 
 <a id="r9a"></a>
 
-### R9a — localhost dedup (one sensor set) · *the first PR*
+### R9a — localhost dedup (one sensor set) · *shipped*
 
-<Phase id="R9a" name="localhost dedup — one sensor set" status="todo" needs={["R8"]} />
+<Phase id="R9a" name="localhost dedup — one sensor set" status="shipped" needs={["R8"]} links={[{ label: "#1604", href: "https://github.com/juspay/kolu/pull/1604" }]} />
 
-**The desync users actually see.** Under `PULAM_WEB_HOSTS=localhost`, pulam-web spawns its **own** pulam, so two sensor sets observe the same terminals and never reconcile — `working` in pulam-web vs `idle` in the Dock. **Fix:** don't spawn a second pulam; point pulam-web at kolu's **served** `terminalWorkspace.awareness` (cross-process as of R8) instead of its own sensor-fed cache. One sensor, two readers.
+**Shipped** (<PrLink pr={1604} />). **The desync users actually saw:** under `PULAM_WEB_HOSTS=localhost`, pulam-web spawned its **own** pulam, so two sensor sets observed the same terminals and never reconciled — `working` in pulam-web vs `idle` in the Dock. **Fix:** don't spawn a second pulam; a `localhost` host now mirrors kolu's **served** `terminalWorkspaceSurface` (the `terminalWorkspace` sibling on kolu's `/rpc/ws`, cross-process as of R8) over a reconnecting WebSocket — scoped to the sibling, folded into the **same** re-serve the ssh path uses (`pulam-web/src/server/localKolu.ts`, the local-link dual of `pumpRemoteSurface`). One sensor (kolu's in-process sink), two readers (kolu's Dock + this dashboard).
 
-- **Needs:** R8 (shipped). **Not** R-pulamweb-4 — landable now.
-- **Done:** under `localhost`, pulam-web and the Dock render identical agent state for the same terminal (a differential test); no second pulam process is spawned.
+- **Needs:** R8 (shipped). **Not** R-pulamweb-4.
+- **Done:** a differential test pins pulam-web's re-served awareness equal to kolu's served value and folds it (`agentProjection`) identically to the Dock; a localhost-only deployment spawns no pulam and needs neither `PULAM_AGENT_DRVS_JSON` nor `PULAM_WEB_KAVAL_SOCKETS` (new knob: `PULAM_WEB_KOLU_URL`, the local kolu's `/rpc/ws`).
 
 <a id="r91"></a>
 
