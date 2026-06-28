@@ -14,6 +14,21 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   return { promise, resolve };
 }
 
+/** A no-op logger that records `error` payloads, so a test can assert a
+ *  caught failure was logged rather than thrown. */
+function makeTestLog(): { log: unknown; errors: string[] } {
+  const errors: string[] = [];
+  const log = {
+    info() {},
+    debug() {},
+    warn() {},
+    error(obj: { err?: unknown }) {
+      errors.push(String(obj.err));
+    },
+  };
+  return { log, errors };
+}
+
 describe("createDirFilenameWatcher async install", () => {
   let tmpDir: string;
 
@@ -87,15 +102,7 @@ describe("createDirFilenameWatcher async install", () => {
   // A throwing reconcile listener must be caught (logged), never reject the
   // settle promise — otherwise the server's unhandledRejection handler exits.
   it("a throwing reconcile listener is caught, not propagated", async () => {
-    const errors: string[] = [];
-    const log = {
-      info() {},
-      debug() {},
-      warn() {},
-      error(obj: { err?: unknown }) {
-        errors.push(String(obj.err));
-      },
-    };
+    const { log, errors } = makeTestLog();
     const w = createDirFilenameWatcher({
       resolveDir: async (cwd) => cwd,
       filename: "HEAD",
@@ -137,15 +144,7 @@ describe("createDirFilenameWatcher async install", () => {
   });
 
   it("a resolveDir that rejects is caught and logged, never thrown", async () => {
-    const errors: string[] = [];
-    const log = {
-      info() {},
-      debug() {},
-      warn() {},
-      error(obj: { err?: unknown }) {
-        errors.push(String(obj.err));
-      },
-    };
+    const { log, errors } = makeTestLog();
     const w = createDirFilenameWatcher({
       resolveDir: () => Promise.reject(new Error("resolver boom")),
       filename: "HEAD",
