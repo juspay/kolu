@@ -73,6 +73,16 @@ browser.")
   screen, not the cause to a layer.
 - **"No existing scenario exercises it."** That decides *how* you capture (drive it live — §A2's
   chrome-devtools path), never *whether* you capture. Absence of a scenario is not a skip.
+- **"It renders only in a terminal / it's a CLI / TUI / daemon, so a pasted text transcript is the
+  evidence."** A terminal, CLI, or TUI render **is** an on-screen surface — the gate answers YES, not
+  NO. "No *kolu* (browser) surface" is not "no on-screen surface": the screen the user means is
+  whatever the change makes someone *look at*, terminal included. And a real text transcript — a
+  pasted code-block of the binary's actual output — is **not** a visual artifact even though it came
+  from really running the binary: the user wants to *see* it render. Capture an actual
+  `vhs`/`asciinema` recording of the real binary against live data (a GIF/mp4, or a still pulled from
+  it — see the vhs section), never a pasted transcript. A real run posted exactly this — *"CLI/daemon
+  change with no on-screen surface, so the faithful artifact is a terminal transcript"* — and the
+  user rejected it: *"I want actual terminal recording for evidence."*
 - **"The test suite / the unit tests are the honest proof."** Tests prove the logic; they are
   **never** a substitute for a visual artifact when there is on-screen impact. They may *accompany*
   the artifact, never replace it. The user wants to **SEE** it in the actual app.
