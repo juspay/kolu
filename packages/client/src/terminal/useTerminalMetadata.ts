@@ -14,14 +14,16 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
+import {
+  type AuthoredTerminal,
+  composeTerminalMetadata,
+  type TerminalId,
+  type TerminalInfo,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { app } from "../wire";
+import { app, workspace } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -51,13 +53,56 @@ export function sameTerminalIdOrder(
 export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
 }) {
-  const meta = app.collections.terminalMetadata.use({
-    keys: () => deps.list()?.map((t) => t.id) ?? [],
+  // Design-S: a terminal's record is a JOIN of two halves served on two
+  // collections — the kolu-owned AUTHORED record (`kolu.authored`: location +
+  // client chrome + the active|sleeping discriminant) and the GENERIC AWARENESS
+  // value (`terminalWorkspace.awareness`: the eight sensor fields). Both subscribe
+  // to the SAME key set (the live terminal list); `getMetadata` recomposes them at
+  // read time via `composeTerminalMetadata` — the ONE join, shared with disk
+  // persist (`snapshotSession`). There is no server-side re-fusion: the bisection
+  // reaches HERE, the consumer. R9 (remote awareness) swaps the awareness backing
+  // remote-side behind `terminalWorkspace.awareness` with no change at this seam.
+  // Memoized so the id array is computed once per list change, not re-mapped on
+  // every `.use({ keys })` read, every `terminalIds` recompute, and every
+  // `getSubTerminalIds` call (the last runs O(terminals) times per display
+  // rebuild).
+  const keys = createMemo<TerminalId[]>(
+    () => deps.list()?.map((t) => t.id) ?? [],
+  );
+  const authored = app.collections.authored.use({
+    keys,
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
+  const awareness = workspace.collections.awareness.use({
+    keys,
+    onError: (err) => toast.error(`Awareness error: ${err.message}`),
+  });
 
+  /** Recompose a terminal's wire shape from its two halves — `undefined` until
+   *  BOTH the authored record and the awareness value have arrived (the join
+   *  can't be materialized from one half alone). The two `byKey` reads are
+   *  reactive, so this re-runs as either half updates. The result is a fresh
+   *  object per call (no cached reference): every one of the ~20 consumers reads
+   *  it field-wise inside its own tracking scope — none compares it by identity —
+   *  so identity-freshness is sound, and per-key reactivity stays granular (a
+   *  change to one terminal's half notifies only readers of that terminal). */
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return meta.byKey(id)?.();
+    const a = authored.byKey(id)?.();
+    const w = awareness.byKey(id)?.();
+    return a && w ? composeTerminalMetadata(a, w) : undefined;
+  }
+
+  /** A terminal's AUTHORED record once BOTH halves have arrived — the cheap read
+   *  the ordering filters below need. `parentId` lives only on `authored`, so the
+   *  joined record's value always equals `authored.parentId`; reading it here
+   *  (rather than `getMetadata`) skips the full join — no spread on the active
+   *  arm, no zod parse on the sleeping arm — on the per-tick reactivity keystone.
+   *  Gated on awareness presence too (same `a && w` gate as `getMetadata`), so a
+   *  still-loading terminal is excluded from the order exactly as before. */
+  function authoredIfReady(id: TerminalId): AuthoredTerminal | undefined {
+    const a = authored.byKey(id)?.();
+    const w = awareness.byKey(id)?.();
+    return a && w ? a : undefined;
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
@@ -73,9 +118,9 @@ export function useTerminalMetadata(deps: {
    *  longer does is *notify* downstream when the set is identical. */
   const terminalIds = createMemo<TerminalId[]>(
     () =>
-      meta.keys().filter((id) => {
-        const m = getMetadata(id);
-        return m && !m.parentId;
+      keys().filter((id) => {
+        const a = authoredIfReady(id);
+        return a && !a.parentId;
       }),
     [],
     { equals: sameTerminalIdOrder },
@@ -83,7 +128,7 @@ export function useTerminalMetadata(deps: {
 
   /** Sub-terminal IDs for a parent, in server-provided order. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return meta.keys().filter((id) => getMetadata(id)?.parentId === parentId);
+    return keys().filter((id) => authoredIfReady(id)?.parentId === parentId);
   }
 
   /** True if any terminal outside of `excludeId`'s tree is also on

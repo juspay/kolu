@@ -43,8 +43,8 @@ set per terminal as they come and go.
 
 The sensor set lives in [`@kolu/terminal-workspace`](../terminal-workspace) and
 is **shared, not forked**: kolu-server runs it _in-process_ for local terminals
-(writing `terminalMetadata` directly); pulam runs the _same_ code as a separate
-process and publishes each terminal's `AwarenessValue` into the served
+(writing the **awareness store** directly); pulam runs the _same_ code as a
+separate process and publishes each terminal's `AwarenessValue` into the served
 collection. The only per-consumer code is the thin `AwarenessSink` — mutate the
 record, then publish — plus the `bridgeKavalTaps` adapter that feeds the sensors
 from a dialed kaval's taps. So there is one copy of the freshness-critical

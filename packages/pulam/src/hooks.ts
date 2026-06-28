@@ -1,11 +1,11 @@
 /**
  * `pulam`'s `AwarenessSink` — the one seam that differs from kolu-server's
- * local endpoint. Where kolu-server mutates its co-owned `terminalMetadata`
- * entry (splitting persisted vs live across its autosave fence), `pulam` owns
- * the *whole* `AwarenessValue` and simply publishes each updated record into
- * the served `awareness` collection. There is no fold here and none locally,
- * ever — the merge + persisted/live split is a kolu-side, remote-only concern
- * (P2). The daemon owns one undivided value per terminal.
+ * local endpoint. Where kolu-server's sink splits each terminal's awareness
+ * across persisted vs live (its autosave fence) in a process-singleton store,
+ * `pulam` owns the *whole* `AwarenessValue` and simply publishes each updated
+ * record into the served `awareness` collection. There is no fold here and none
+ * locally, ever — the merge + persisted/live split is a kolu-side, remote-only
+ * concern (P2). The daemon owns one undivided value per terminal.
  *
  * The load-bearing rule from `@kolu/terminal-workspace`'s `AwarenessSink`
  * docstring: mutate `record.meta` **synchronously** before publishing — the

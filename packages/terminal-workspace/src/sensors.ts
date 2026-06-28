@@ -77,10 +77,10 @@ import type {
  *  constructs one per terminal; the sensors only touch `pid` + `meta` +
  *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
  *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
- *  partition the sink enforces). kolu's `TerminalServerMetadata` (which adds
- *  `location`; the full `TerminalMetadata` adds the client UI fields on top)
- *  satisfies it directly by width subtyping, so the local endpoint can pass its
- *  own `entry.meta` here unchanged. */
+ *  partition the sink enforces). kolu holds each terminal's `AwarenessValue` in
+ *  its single-writer awareness store — a SIBLING of the app-owned authored record
+ *  (location + UI fields), not a base that record extends — and passes that value
+ *  here directly. */
 export interface AwarenessRecord {
   /** OS pid of the PTY's shell — constant for the terminal's life, known at
    *  spawn. The agent detectors compare it to the foreground pid to decide

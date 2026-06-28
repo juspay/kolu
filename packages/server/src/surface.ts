@@ -40,6 +40,10 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import {
+  quietActivity,
+  serveTerminalWorkspace,
+} from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -48,7 +52,6 @@ import type {
   Preferences,
   ProcessMemory,
   SavedSession,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
@@ -70,9 +73,11 @@ import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
+import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
   getTerminal,
   listTerminals,
+  registryMap,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -230,24 +235,19 @@ const koluDeps: Omit<
   },
 
   collections: {
-    terminalMetadata: {
-      readAll: () => {
-        const map = new Map<string, TerminalMetadata>();
-        for (const info of listTerminals()) {
-          const term = getTerminal(info.id);
-          if (term) map.set(info.id, term.meta);
-        }
-        return map;
-      },
-      readOne: (key) => {
-        const term = getTerminal(key as string);
-        return term ? term.meta : undefined;
-      },
-      // Server-internal collection: clients can't write. The `upsert`/
-      // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
-      // publish without re-mutating the registry (the registry is the
-      // store; `terminalEndpoint/metadata.ts` mutates entry.meta in place before
-      // calling ctx.upsert).
+    authored: {
+      // Design-S: kolu serves the AUTHORED half (location + client chrome + the
+      // active|sleeping discriminant) straight off the registry — NO awareness,
+      // NO compose. The AWARENESS half rides the sibling
+      // `terminalWorkspace.awareness` collection below, and the client joins the
+      // two at read time (`useTerminalMetadata`). There is no server-side
+      // re-fusion: the wire never carries a single fused record.
+      readAll: () => registryMap((t) => t.meta),
+      readOne: (key) => getTerminal(key as string)?.meta,
+      // Server-internal collection: clients can't write. The registry IS the
+      // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
+      // `terminalEndpoint/metadata.ts` calls `surfaceCtx.collections.authored
+      // .upsert` on every authored flip (spawn / sleep / wake / client field).
       upsert: () => {},
       remove: () => {},
     },
@@ -257,7 +257,7 @@ const koluDeps: Omit<
       readOne: (key) => readDaemonStatus(key as string),
       // Server-internal: `publishDaemonStatus` writes the store before calling
       // `surfaceCtx.collections.daemonStatus.upsert`, so these are no-ops (the
-      // store is the authority, mirroring `terminalMetadata`).
+      // store is the authority, mirroring `authored`).
       upsert: () => {},
       remove: () => {},
     },
@@ -425,6 +425,35 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
       kolu: koluDeps,
+
+      // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
+      // The GENERIC awareness surface (R8), assembled by the ONE shared factory
+      // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
+      // fs/git procedures + watcher streams live THERE, built off the SAME
+      // in-process endpoint kolu's own value-bearing streams read. kolu injects
+      // only the two volatile backings: the `awareness` collection (projected off
+      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
+      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
+      terminalWorkspace: serveTerminalWorkspace({
+        // Project the awareness half straight off the registry — `.awareness`
+        // exactly as `authored` projects `.meta` (the two halves share one
+        // backing entry). Writes go through the sink's
+        // `installAwareness`/`updateServer*Metadata` (which call
+        // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
+        // `upsert`/`remove` are no-ops (the registry is the authority).
+        awareness: {
+          readAll: () => registryMap((t) => t.awareness),
+          readOne: (key) => getTerminal(key as string)?.awareness,
+          upsert: () => {},
+          remove: () => {},
+        },
+        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
+        // truthfully yields the empty live set — not a lie, the honest "nothing
+        // known to be moving". R9 injects a live source here instead.
+        activity: quietActivity,
+        endpoint: localEndpoint,
+        log,
+      }),
     },
   );
 
@@ -433,3 +462,6 @@ export const surfaceRouter = surfaceRouterFragment;
 // surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
 // driven by the runtime-fired cell `.connect`, not by domain code.
 setSurfaceCtx(surfaceCtxBuilt.kolu);
+// The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
+// `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
+setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);

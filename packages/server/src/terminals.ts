@@ -16,6 +16,7 @@
  */
 
 import {
+  composeTerminalMetadata,
   type InitialTerminalMetadata,
   type RightPanelPerTerminalState,
   type SavedTerminal,
@@ -59,25 +60,30 @@ export {
 
 /** Build a session snapshot from current terminal state.
  *
- *  Each live registry entry (an `ActiveTerminal`) is projected onto
- *  `SavedActiveTerminalSchema` — the schema IS the single source of truth for
- *  the persisted-vs-live partition, so the live overlay (pr/agent/foreground) is
- *  stripped structurally and a future live field can never silently ride to disk.
- *  A hand-named destructure would have to be kept in sync with the live partition
- *  by convention (TS does not excess-check object spreads, so a drifted strip
- *  would type-clean); deriving the strip from the schema makes
- *  "a persisted record carrying a live field" unrepresentable here. A new
- *  *persisted* field, being part of the schema, flows through untouched.
- *  Order is `Map` insertion order — terminals appear in the sequence they were
- *  created. */
+ *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the entry's
+ *  AWARENESS value through `composeTerminalMetadata` — the SAME join the client
+ *  applies at read time — then keyed with `id` and re-validated against
+ *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
+ *  persist is one of the join's two sites (the ephemeral client read is the
+ *  other), so reusing the one join at both means the live-half strip (and the
+ *  sleeping `pr`-from-authored rule) lives in exactly one place — disk and the
+ *  client read can never diverge. A new *persisted* field flows through untouched;
+ *  a live field can never ride to disk. Awareness is a required field on the entry,
+ *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
+ *  `Map` insertion order — terminals appear in the sequence they were created. */
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
+    // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
+    // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
+    // `composeTerminalMetadata`: awareness FIRST, authored LAST (a sleeping record's
+    // frozen `pr` wins; the saved discriminated union strips the live half —
+    // agent/foreground — structurally, so a future live field can never silently
+    // ride to disk).
     ([id, entry]): SavedTerminal =>
-      // The registry now holds the `Terminal` union, so project each entry
-      // through the SAVED discriminated union: an active entry strips its live
-      // overlay onto the active arm, a sleeping entry carries its persisted base
-      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
-      SavedTerminalSchema.parse({ ...entry.meta, id }),
+      SavedTerminalSchema.parse({
+        ...composeTerminalMetadata(entry.meta, entry.awareness),
+        id,
+      }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }

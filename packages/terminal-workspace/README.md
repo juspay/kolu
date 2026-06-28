@@ -73,10 +73,15 @@ vendor-neutral source libraries it builds on (`anyforge` for PRs, `kolu-git` for
 git/fs, the per-agent packages for agent state).
 
 `kolu-server` embeds it (sensors in-process; fs/git bound to its local
-`TerminalEndpoint`; awareness folded into the terminal metadata it serves the
-browser, the reads re-exposed on `koluSurface`'s value-bearing streams). `pulam`
-serves the impl on `terminalWorkspaceSurface` remotely; the single surface both
-homes serve is closed in R8.
+`TerminalEndpoint`, the reads re-exposed on `koluSurface`'s value-bearing streams)
+AND — since **R8** — serves `terminalWorkspaceSurface` itself, in-process: the
+sensors write one awareness store (the single writer) that backs its `awareness`
+collection; `kolu-server` serves each terminal's **authored** record on its own
+`koluSurface.authored` collection, and the browser **joins the two halves at read
+time** (`composeTerminalMetadata`) — there is no server-side re-fusion. `pulam`
+serves the same surface remotely. The **awareness** half of
+"one surface, both homes" is closed in R8; the Code tab's value-bearing fs/git
+streams move onto this surface's procedure+pulse in R9.
 
 ## Entry points
 
@@ -87,7 +92,7 @@ consumer:
 | --- | --- | --- |
 | `.` | Node | the sensors (`startAwareness`) + `AwarenessValue` |
 | `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
-| `./surface` | browser-safe | `terminalWorkspaceSurface` — pulam's surface (kolu mirrors it in R8) |
+| `./surface` | browser-safe | `terminalWorkspaceSurface` — served by `pulam` (remote) and, since R8, by `kolu-server` in-process; kolu mirrors a remote host's in R9 |
 | `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
 | `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
 | `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |
