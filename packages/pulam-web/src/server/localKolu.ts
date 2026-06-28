@@ -139,7 +139,7 @@ export async function runLocalMirror(opts: {
       // browser-facing card to `disconnected` so the fault is visible, then end the
       // loop. Silently logging + returning would freeze the localhost card on its
       // last state with no on-screen trace (the no-silent-swallow convention).
-      const reason = (err as Error).message;
+      const reason = err instanceof Error ? err.message : String(err);
       log(
         `local kolu mirror: link.ready() rejected without an abort: ${reason}`,
       );
