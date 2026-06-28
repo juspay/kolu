@@ -266,6 +266,7 @@ describe("applyMirroredAwareness — kolu-persisted history vs pulam-derivable f
   function gitInfo(
     root = "/repo",
     branch = "main",
+    over: Partial<NonNullable<AwarenessValue["git"]>> = {},
   ): NonNullable<AwarenessValue["git"]> {
     return {
       repoRoot: root,
@@ -273,8 +274,11 @@ describe("applyMirroredAwareness — kolu-persisted history vs pulam-derivable f
       worktreePath: root,
       branch,
       isWorktree: false,
+      // Non-worktree: mainRepoRoot === repoRoot. An external worktree diverges
+      // them (overridden below) — the case the containment anchor must get right.
       mainRepoRoot: root,
       remoteUrl: null,
+      ...over,
     };
   }
 
@@ -299,6 +303,41 @@ describe("applyMirroredAwareness — kolu-persisted history vs pulam-derivable f
     entry.awareness.git = gitInfo("/repo", "feat-x");
     entry.awareness.cwd = "/repo";
     applyMirroredAwareness(ID, pulamFrame({ cwd: "/tmp", git: null }));
+    expect(getTerminal(ID)?.awareness.git).toBeNull(); // genuinely left → cleared
+  });
+
+  // The anchor case: an EXTERNAL worktree (`git worktree add ../wt`) lives
+  // OUTSIDE its main clone, so cwd is under repoRoot but NOT under mainRepoRoot.
+  // Containment must anchor on repoRoot — a fixture where the two roots DIVERGE
+  // is the only one that exercises the bug (a non-worktree fixture is vacuous).
+  it("EXTERNAL WORKTREE: preserves restored git on a git:null first frame (cwd under repoRoot, not mainRepoRoot)", async () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.git = gitInfo("/ext/wt-foo", "feature", {
+      mainRepoRoot: "/main/repo",
+      isWorktree: true,
+    });
+    entry.awareness.cwd = "/ext/wt-foo/src"; // under repoRoot, NOT under mainRepoRoot
+    dirtyCount = 0;
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ cwd: "/ext/wt-foo/src", git: null }),
+    );
+    await settle();
+    expect(getTerminal(ID)?.awareness.git?.branch).toBe("feature"); // preserved
+    expect(dirtyCount).toBe(0); // transient null not persisted
+  });
+
+  it("EXTERNAL WORKTREE: clears git on a genuine cd-out (cwd leaves the worktree)", () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    entry.awareness.git = gitInfo("/ext/wt-foo", "feature", {
+      mainRepoRoot: "/main/repo",
+      isWorktree: true,
+    });
+    entry.awareness.cwd = "/ext/wt-foo";
+    applyMirroredAwareness(
+      ID,
+      pulamFrame({ cwd: "/somewhere/else", git: null }),
+    );
     expect(getTerminal(ID)?.awareness.git).toBeNull(); // genuinely left → cleared
   });
 

@@ -266,18 +266,26 @@ function persistedAwarenessChanged(
  *  null and resolves it asynchronously — so its first frame after a (re)start
  *  carries git:null before resolution. That null is AMBIGUOUS: "not resolved yet"
  *  vs "genuinely no repo here". The cwd disambiguates: a null git while the cwd is
- *  STILL inside the last-known repo is the resolution window (preserve the restored
- *  git, so a restart can't clobber it); a null git once the cwd has LEFT the repo
- *  is a real departure (take the null, clearing it). The lone residual is a `.git`
- *  deleted in place (cwd stays, repo truly gone) — preserved stale until the cwd
- *  leaves; rare and self-correcting. */
+ *  STILL inside the working tree is the resolution window (preserve the restored
+ *  git, so a restart can't clobber it); a null git once the cwd has LEFT the
+ *  working tree is a real departure (take the null, clearing it).
+ *
+ *  The containment anchor is `repoRoot` — the working tree's OWN `--show-toplevel`
+ *  — NOT `mainRepoRoot` (the main clone). They diverge for a worktree: an external
+ *  worktree's cwd lives under its `repoRoot` but NOT under its `mainRepoRoot`, so
+ *  anchoring on `mainRepoRoot` would misread the restart's git:null as a departure
+ *  and clobber the restored git (and over-preserve a stale worktree branch when
+ *  cd-ing into the main repo). `repoRoot` contains the cwd by construction, so the
+ *  cwd leaves it only on a genuine cd-out. The lone residual is a `.git` deleted
+ *  in place (cwd stays, repo truly gone) — preserved stale until the cwd leaves;
+ *  rare and self-correcting. */
 function foldMirroredGit(
   prior: AwarenessValue,
   incoming: AwarenessValue,
 ): AwarenessValue["git"] {
   if (incoming.git !== null) return incoming.git; // resolved → take it
   if (prior.git === null) return null; // nothing restored to preserve
-  const root = prior.git.mainRepoRoot;
+  const root = prior.git.repoRoot;
   const stillInRepo =
     incoming.cwd === root || incoming.cwd.startsWith(`${root}/`);
   return stillInRepo ? prior.git : null;
