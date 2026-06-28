@@ -35,9 +35,7 @@
 import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
 import {
   type CellStore,
-  type Channel,
   implementSurface,
-  inMemoryChannel,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
@@ -48,6 +46,10 @@ import type {
 } from "@kolu/surface-nix-host";
 import { observableHolder, seedConnectionCell } from "@kolu/surface-nix-host";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
+import {
+  mirrorTerminalWorkspace,
+  type TerminalWorkspaceMirror,
+} from "@kolu/terminal-workspace/reserve";
 import type {
   AwarenessValue,
   TerminalId,
@@ -138,18 +140,10 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // `session.onState` (NOT folded from the mirror — it's the SESSION's state),
   // through the framework-wrapped `setConnection` below.
   const connection = seedConnectionCell();
-  // The awareness cache — the R4.8a render payload. The mirror's sink upserts /
-  // removes per key; the browser-facing collection reads the whole map.
+  // The awareness cache — the R4.8a render payload. The shared mirror fold
+  // (R9.0) upserts / removes per key through the fragment's PUBLISHED write
+  // below; the browser-facing collection reads the whole map.
   const awarenessCache = new Map<TerminalId, AwarenessValue>();
-  // A local bus the mirror's `activity` sink republishes each remote frame onto,
-  // so the browser-facing `activity` source forwards the same data without
-  // re-subscribing to the remote. `activityLatest` caches the most-recent frame
-  // the mirror folded so a browser that subscribes mid-stream gets the TRUE live
-  // set as its snapshot — NOT the awareness key set (every terminal would falsely
-  // paint live). It starts `[]`: until the first real frame, NOTHING is live (the
-  // dot is the byte-tap, distinct from a terminal merely existing).
-  const activityBus: Channel<TerminalId[]> = inMemoryChannel<TerminalId[]>();
-  let activityLatest: TerminalId[] = [];
 
   // ── The forwarding holders (populated by the session loop per spawn) ──────
   // The live client is OBSERVABLE: its input-param stream forwarders must hold
@@ -166,6 +160,15 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // base primitives are folded/forwarded from the daemon's surface; `connection`
   // is the seeded local store the session pump writes — so the browser reads the
   // augmented surface while the mirror still tracks the connection-free base.
+  //
+  // The `version`/`awareness`/`activity` PUSH fold is the SHARED
+  // `mirrorTerminalWorkspace` core (R9.0) — kolu-server folds the SAME way. Its
+  // awareness target is the fragment's PUBLISHED write and `onVersion` feeds the
+  // fragment's version cell; both reference `fragment`, built here. The
+  // fragment's `activity` stream in turn reads `mirror.activity`, so the source
+  // is forwarded through `activitySource` (assigned just after the mirror) to
+  // break that construction cycle without reading the fragment before it exists.
+  let activitySource: TerminalWorkspaceMirror["activity"]["source"] | undefined;
   const fragment = implementSurface(pulamSurface, {
     channel: inMemoryChannelByName(),
     cells: {
@@ -188,18 +191,16 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
       },
     },
     streams: {
-      // Browser-facing `activity` — yields the parent's current live set on
-      // subscribe (snapshot-then-delta, the streaming contract every reconnect
-      // relies on), then forwards every frame the mirror republished onto the
-      // local bus. The snapshot is `activityLatest` (the last frame the mirror
-      // folded, `[]` before any), NOT the awareness key set: the live dot is the
-      // byte-tap, so a quiet terminal that merely exists must NOT paint live.
+      // Browser-facing `activity` — the shared mirror fold's source (snapshot of
+      // the current live set on subscribe, then the bus frames). Forwarded
+      // through `activitySource` to break the construction cycle: the value is in
+      // place before any subscribe, so the guard never fires at runtime.
       activity: {
-        source: async function* (_input, signal) {
-          yield [...activityLatest];
-          for await (const frame of activityBus.subscribe(signal)) {
-            yield frame;
+        source: (input, signal) => {
+          if (activitySource === undefined) {
+            throw new Error("re-serve activity source read before build");
           }
+          return activitySource(input, signal);
         },
       },
       // Browser-facing `subscribeRepoChange` — a per-repo watcher the parent
@@ -249,6 +250,24 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
     },
   });
 
+  // The shared mirror fold, wired to publish through the fragment: each
+  // `awareness` frame goes through the fragment's framework-wrapped
+  // `upsert`/`remove` (cache write + channel fan-out, so a browser subscribed
+  // across the fold sees deltas), and each `version` frame into the fragment's
+  // version cell. `onFirstVersion` (the link-live handshake) is wired per-spawn
+  // by the session loop through `makeSink`.
+  const mirror: TerminalWorkspaceMirror = mirrorTerminalWorkspace({
+    awareness: {
+      upsert: (key, value) =>
+        fragment.ctx.collections.awareness.upsert(key, value),
+      remove: (key) => fragment.ctx.collections.awareness.remove(key),
+    },
+    onVersion: (value) => {
+      fragment.ctx.cells.version.set(value);
+    },
+  });
+  activitySource = mirror.activity.source;
+
   // `implementSurface` returns a router FRAGMENT (`{ surface: ... }`). Passed
   // straight to `RPCHandler` it double-prefixes (`surface/surface/...`) and no
   // procedure matches; flatten once via `implement(contract).router({...})` (the
@@ -258,76 +277,6 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const router: unknown = implement(pulamSurface.contract).router({
     ...fragment.router,
   });
-
-  /**
-   * Build the mirror sink for one client. Every PUSH primitive folds here:
-   * `version` (the first frame is the link-live handshake → `onFirstVersion`),
-   * `awareness` (per-key upsert/remove into the cache), and `activity`
-   * (republished onto the local bus). The forwarded primitives
-   * (`subscribe*Change`, `fs.*`, `git.*`) are NOT in the sink — they're pulled
-   * via the live holders.
-   */
-  const makeSink = (onFirstVersion?: () => void): SurfaceSink<PulamSpec> => {
-    let firstVersionFrame = true;
-    return {
-      cells: {
-        version: (value) => {
-          if (firstVersionFrame) {
-            firstVersionFrame = false;
-            log("version: first snapshot → link live");
-            onFirstVersion?.();
-          }
-          fragment.ctx.cells.version.set(value);
-        },
-      },
-      collections: {
-        awareness: {
-          upsert: (key, value) =>
-            fragment.ctx.collections.awareness.upsert(key, value),
-          remove: (key) => fragment.ctx.collections.awareness.remove(key),
-        },
-      },
-      streams: {
-        activity: {
-          input: {},
-          // Cache the frame as the new snapshot BEFORE publishing, so a browser
-          // subscribing immediately after sees this frame as its snapshot rather
-          // than a stale one (the publish only reaches already-subscribed
-          // consumers; a fresh subscribe reads `activityLatest`).
-          onFrame: (frame) => {
-            activityLatest = frame;
-            activityBus.publish(frame);
-          },
-        },
-      },
-    };
-  };
-
-  // Drop the whole remote-derived fold on link death (the pump's `onLinkDown`):
-  // BOTH the awareness cache and the activity live-set, the two pieces of
-  // per-host-session local state a stale link can pin.
-  //
-  // Awareness: go through the framework-wrapped `remove` — NOT a bare
-  // `awarenessCache.clear()` — so each departure publishes the shortened key set
-  // through the collection's channels and a browser subscribed across the
-  // reconnect sees the stale rows leave (a raw `.clear()` would only help a
-  // browser that subscribes AFTER, via `readAll`). Snapshot the keys first: the
-  // wrapped remove deletes from the map as it goes, so iterating the live map
-  // would skip entries.
-  //
-  // Activity: the live-set has the identical staleness pathology — if the last
-  // frame before the link died named a terminal, `activityLatest` pins it as the
-  // snapshot a fresh subscriber reads, and an already-subscribed browser never
-  // hears it go quiet. Reset `activityLatest = []` AND publish `[]` on the bus,
-  // mirroring the awareness path: the empty snapshot for fresh subscribers, the
-  // empty frame for ones subscribed across the reconnect.
-  const resetRemoteFold = (): void => {
-    for (const key of [...awarenessCache.keys()]) {
-      fragment.ctx.collections.awareness.remove(key);
-    }
-    activityLatest = [];
-    activityBus.publish([]);
-  };
 
   // Write the browser-facing connection cell via the framework-wrapped setter
   // (publishes the delta to subscribers + updates the snapshot store), mirroring
@@ -339,10 +288,17 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
 
   return {
     router,
-    makeSink,
+    // The mirror sink folds `version`/`awareness`/`activity`; `onFirstVersion`
+    // is the link-live handshake (the session loop wires `markConnected`).
+    makeSink: (onFirstVersion) => mirror.sink(onFirstVersion),
     liveClient,
     liveProcedures,
-    resetRemoteFold,
+    // The pump's `onLinkDown` — drop the whole remote-derived fold (stale
+    // awareness rows AND the pinned activity live-set) so the next spawn rebuilds
+    // from the remote's authoritative snapshot. The fold's `remove` runs through
+    // the fragment's published write, so a browser subscribed across the
+    // reconnect sees the stale rows depart and the live dots go dark.
+    resetRemoteFold: () => mirror.reset(),
     setConnection,
   };
 }

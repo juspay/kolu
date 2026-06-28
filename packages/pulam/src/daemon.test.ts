@@ -16,8 +16,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
+import { mirrorTerminalWorkspace } from "@kolu/terminal-workspace/reserve";
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type {
-  terminalWorkspaceSurface,
   AwarenessValue,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
@@ -287,4 +289,116 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
     (await snapshot(conn.client)).has(terminalId) ? undefined : true,
   );
   expect((await snapshot(conn.client)).has(terminalId)).toBe(false);
+}, 30000);
+
+it("the shared terminalWorkspace mirror fold reflects a real pulam (R9.0 — kolu's awareness backing)", async () => {
+  // R9.0: kolu-server's awareness backing is a MIRROR of its supervised local
+  // pulam, folded through the shared `mirrorTerminalWorkspace` core (the same
+  // fold pulam-web uses for its browser re-serve). This proves that fold over the
+  // real local chain: an in-process kaval, a real shell in a git repo, the pulam
+  // daemon dialing that kaval, and the fold mirroring pulam's awareness into a
+  // local cache — asserting the mirrored value EQUALS pulam's own.
+
+  // ── a kaval (in-process pty-host) served over a real unix socket ──
+  const ptyHost = createInProcessPtyHost({
+    log: hostLog,
+    rcDir: tmp("pulam-mirror-rc-"),
+  });
+  const kavalSocket = join(tmp("pulam-mirror-kaval-"), "pty-host.sock");
+  const listener = await servePtyHostOverUnixSocket({
+    socketPath: kavalSocket,
+    router: ptyHost.servedRouter,
+    log: hostLog,
+  });
+  cleanups.push(() => listener.close());
+
+  // ── a real git repo + a shell spawned in it ──────────────────────
+  const repo = tmp("pulam-mirror-repo-");
+  const BRANCH = "feat/mirror-it";
+  execFileSync("git", ["init", "-q", "-b", BRANCH, repo]);
+  execFileSync("git", ["-C", repo, "config", "user.email", "it@pulam.test"]);
+  execFileSync("git", ["-C", repo, "config", "user.name", "pulam it"]);
+  execFileSync("git", ["-C", repo, "commit", "-q", "--allow-empty", "-m", "x"]);
+
+  const info = await ptyHost.client.surface.system.info({});
+  const { id } = await ptyHost.client.surface.terminal.spawn({
+    argv: [info.shell],
+    cwd: repo,
+    env: { PATH: process.env.PATH ?? "", HOME: info.home },
+    initFiles: [],
+  });
+  const terminalId = id as TerminalId;
+  cleanups.push(async () => {
+    await ptyHost.client.surface.terminal.kill({ id });
+  });
+
+  // ── pulam, dialing that kaval, serving on its own socket ─────────
+  const abort = new AbortController();
+  const pulamSocket = join(tmp("pulam-mirror-pulam-"), "awareness.sock");
+  const ready = new Promise<void>((resolve) => {
+    void runPulamDaemon({
+      kavalSocket,
+      serve: { kind: "socket", socketPath: pulamSocket },
+      log: pulamLog,
+      signal: abort.signal,
+      onReady: () => resolve(),
+      pollIntervalMs: 100,
+    });
+  });
+  cleanups.push(() => abort.abort());
+  await ready;
+
+  // Pulam's awareness, read directly — the TRUTH the mirror must reflect.
+  const conn = await unixSocketLink<typeof terminalWorkspaceSurface.contract>({
+    socketPath: pulamSocket,
+  });
+  cleanups.push(() => conn.dispose());
+
+  // Kolu's side: the SHARED mirror fold folds pulam's frames into a local cache
+  // (kolu-server folds into its registry entry instead, pulam-web into its
+  // re-serve cache; the fold mechanism is the same). Drive it with
+  // `mirrorRemoteSurface` against the live pulam, exactly as kolu's mirror loop.
+  const cache = new Map<TerminalId, AwarenessValue>();
+  const fold = mirrorTerminalWorkspace({
+    awareness: {
+      upsert: (k, v) => {
+        cache.set(k, v);
+      },
+      remove: (k) => {
+        cache.delete(k);
+      },
+    },
+  });
+  const mirrorAbort = new AbortController();
+  const mirror = mirrorRemoteSurface(
+    terminalWorkspaceSurface,
+    conn.client,
+    fold.sink(),
+    { signal: mirrorAbort.signal },
+  );
+  cleanups.push(() => {
+    mirrorAbort.abort();
+    return mirror.done;
+  });
+
+  // The mirrored cache converges to pulam's awareness. `git.branch` is the
+  // load-bearing field: it is right ONLY if pulam dialed kaval, ran the git
+  // sensor, published the slice, and the fold carried it through to the cache.
+  const mirrored = await waitFor(async () => {
+    const v = cache.get(terminalId);
+    return v && v.git?.branch === BRANCH ? v : undefined;
+  });
+  const truth = (await snapshot(conn.client)).get(terminalId);
+  expect(truth).toBeDefined();
+  // Faithful: the fold's value equals pulam's own on every load-bearing field.
+  expect(mirrored.cwd).toBe(repo);
+  expect(mirrored.cwd).toBe(truth?.cwd);
+  expect(mirrored.git?.branch).toBe(truth?.git?.branch);
+  expect(mirrored.pr.kind).toBe(truth?.pr.kind);
+
+  // A kill reconciles the terminal out — pulam removes it from its collection,
+  // and the fold's `remove` drops it from the cache.
+  await ptyHost.client.surface.terminal.kill({ id });
+  await waitFor(async () => (cache.has(terminalId) ? undefined : true));
+  expect(cache.has(terminalId)).toBe(false);
 }, 30000);

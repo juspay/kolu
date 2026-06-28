@@ -40,10 +40,7 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import {
-  quietActivity,
-  serveTerminalWorkspace,
-} from "@kolu/terminal-workspace/serveTerminalWorkspace";
+import { serveTerminalWorkspace } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -70,6 +67,7 @@ import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { pulamMirror } from "./localPulamMirror.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
@@ -436,26 +434,27 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
       // fs/git procedures + watcher streams live THERE, built off the SAME
       // in-process endpoint kolu's own value-bearing streams read. kolu injects
-      // only the two volatile backings: the `awareness` collection (projected off
-      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
-      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
+      // only the two volatile backings, BOTH now fed by the local-pulam mirror
+      // (R9.0 — kolu consumes a pulam, it no longer serves awareness itself).
+      // Typed against `terminalWorkspaceSurface.spec`, so this needs no cast.
       terminalWorkspace: serveTerminalWorkspace({
         // Project the awareness half straight off the registry — `.awareness`
         // exactly as `authored` projects `.meta` (the two halves share one
-        // backing entry). Writes go through the sink's
-        // `installAwareness`/`updateServer*Metadata` (which call
-        // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
-        // `upsert`/`remove` are no-ops (the registry is the authority).
+        // backing entry). The registry entry is now written by the MIRROR
+        // (`applyMirroredAwareness`, on each frame from the supervised local
+        // pulam) instead of in-process sensors; that writer publishes through
+        // `workspaceSurfaceCtx.collections.awareness.upsert`, so the framework's
+        // `upsert`/`remove` here stay no-ops (the registry is the read authority).
         awareness: {
           readAll: () => registryMap((t) => t.awareness),
           readOne: (key) => getTerminal(key as string)?.awareness,
           upsert: () => {},
           remove: () => {},
         },
-        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
-        // truthfully yields the empty live set — not a lie, the honest "nothing
-        // known to be moving". R9 injects a live source here instead.
-        activity: quietActivity,
+        // LIVE over the mirror: the local pulam owns the kaval byte-tap, so the
+        // `activity` live-set rides the same mirror fold as awareness — closing
+        // the old "kolu has no live activity" gap (`quietActivity` is retired).
+        activity: pulamMirror.activity,
         endpoint: localEndpoint,
         log,
       }),

@@ -101,6 +101,21 @@ export interface SpawnDriverDeps {
 
 let spawnCounter = 0;
 
+/** Wire a freshly-spawned child into the spawn promise: resolve on its `spawn`
+ *  event (the launch succeeded), reject on `error` (ENOENT/EACCES/fork failure)
+ *  — and ALWAYS attach the `error` listener so the async failure is handled
+ *  rather than thrown as an uncaught exception that kills the parent. `unref` the
+ *  child either way so it never keeps the parent's event loop alive. A seam child
+ *  with no `once` (the test mock) has no real fork to fail, so resolve next tick. */
+function settleSpawn(child: SpawnedChild): Promise<void> {
+  child.unref();
+  if (typeof child.once !== "function") return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    child.once?.("spawn", () => resolve());
+    child.once?.("error", (err) => reject(err));
+  });
+}
+
 export function survivableSpawnDriver(
   cfg: DaemonSpawnConfig,
   deps: SpawnDriverDeps = {},
@@ -113,21 +128,6 @@ export function survivableSpawnDriver(
       spawnCounter += 1;
       return `${process.pid}-${Date.now()}-${spawnCounter}`;
     });
-
-  /** Wire a freshly-spawned child into the spawn promise: resolve on its `spawn`
-   *  event (the launch succeeded), reject on `error` (ENOENT/EACCES/fork failure)
-   *  — and ALWAYS attach the `error` listener so the async failure is handled
-   *  rather than thrown as an uncaught exception that kills the parent. `unref`
-   *  the child either way so it outlives us. A seam child with no `once` (the
-   *  test mock) has no real fork to fail, so resolve on the next tick. */
-  const settle = (child: SpawnedChild): Promise<void> => {
-    child.unref();
-    if (typeof child.once !== "function") return Promise.resolve();
-    return new Promise<void>((resolve, reject) => {
-      child.once?.("spawn", () => resolve());
-      child.once?.("error", (err) => reject(err));
-    });
-  };
 
   return {
     spawn(): Promise<void> {
@@ -152,7 +152,7 @@ export function survivableSpawnDriver(
           cfg.binPath,
           ...cfg.args,
         ];
-        return settle(
+        return settleSpawn(
           spawnProcess("systemd-run", args, {
             detached: true,
             stdio: "ignore",
@@ -161,13 +161,86 @@ export function survivableSpawnDriver(
       }
       // Detached + unref: survives the parent on macOS/launchd and on a
       // cgroup-less host. The forwarded env is layered onto ours.
-      return settle(
+      return settleSpawn(
         spawnProcess(cfg.binPath, cfg.args, {
           detached: true,
           stdio: "ignore",
           env: { ...(env as Record<string, string>), ...cfg.env },
         }),
       );
+    },
+  };
+}
+
+/** A child the ephemeral driver can recycle: `unref` + the lifecycle events
+ *  (from {@link SpawnedChild}) plus `kill`, so the driver can SIGTERM the prior
+ *  spawn before launching fresh. The real `ChildProcess` satisfies this; a test
+ *  seam may supply just `{ unref, kill }`. */
+export type RecyclableChild = SpawnedChild &
+  Partial<Pick<ChildProcess, "kill">>;
+
+export interface EphemeralSpawnDeps {
+  /** Defaults to `process.env` — layered under `cfg.env` onto the child. */
+  env?: Record<string, string | undefined>;
+  /** Defaults to `node:child_process` `spawn` (detached: false). */
+  spawnProcess?: (
+    command: string,
+    args: string[],
+    options: {
+      detached: boolean;
+      stdio: "ignore";
+      env?: Record<string, string>;
+    },
+  ) => RecyclableChild;
+}
+
+/**
+ * The DUAL of {@link survivableSpawnDriver}: a daemon that **dies with its
+ * parent**, for a process kolu owns whose state is *re-derivable*, not
+ * irreplaceable — the ephemeral local `pulam` (its awareness is recomputed from
+ * the surviving kaval on every boot), unlike kaval (which owns the PTYs and must
+ * survive). So this spawns a **plain child**, NEVER through `systemd-run`: under
+ * a systemd user service the child stays in the parent service's cgroup and is
+ * reaped with it (the `KillMode=control-group` behaviour that #1031 fought FOR
+ * kaval is exactly what we WANT here); off systemd it's a child of this process.
+ * Either way it shares the parent's fate — no gate, no adoption, no survival.
+ *
+ * Self-recycling: the driver holds the last child it spawned and SIGTERMs it
+ * before launching fresh, so a supervisor `ensure()`/`adoptOrEnsure()` re-spawn
+ * (e.g. after a dropped link to a still-live daemon) can't leave two instances
+ * racing for the socket. This replaces the survivor-kill the pid-gate does for
+ * survivable daemons — an ephemeral daemon writes no gate, so the driver owns
+ * the recycle directly off the child handle it already holds. `unref` so the
+ * child never blocks the parent's own exit.
+ */
+export function ephemeralSpawnDriver(
+  cfg: DaemonSpawnConfig,
+  deps: EphemeralSpawnDeps = {},
+): DaemonDriver {
+  const env = deps.env ?? process.env;
+  const spawnProcess = deps.spawnProcess ?? nodeSpawn;
+  let prior: RecyclableChild | undefined;
+
+  return {
+    spawn(): Promise<void> {
+      // Recycle: SIGTERM the child we spawned last (if any) before launching a
+      // fresh one, so the new daemon never collides with a still-live prior on
+      // the same socket. Best-effort — a dead child just throws, which we ignore.
+      if (prior !== undefined) {
+        try {
+          prior.kill?.("SIGTERM");
+        } catch {
+          // Already gone — nothing to recycle.
+        }
+        prior = undefined;
+      }
+      const child = spawnProcess(cfg.binPath, cfg.args, {
+        detached: false,
+        stdio: "ignore",
+        env: { ...(env as Record<string, string>), ...cfg.env },
+      });
+      prior = child;
+      return settleSpawn(child);
     },
   };
 }

@@ -162,9 +162,9 @@ export function getTerminal(id: TerminalId): TerminalProcess | undefined {
 /** The LIVE mutable awareness value for `id`, or `undefined` if no entry exists —
  *  projected off the registry entry (awareness is a required field, so it is born
  *  and dropped WITH the entry; there is no separate store to fall out of lockstep).
- *  The returned object is the one the sensor sink mutates in place (and that
- *  `record.meta` aliases inside `startAwarenessSensors`), so callers must treat it
- *  READ-ONLY — mutate only through the two narrowed mutators below. */
+ *  The returned object is the one the local-pulam mirror folds into in place (via
+ *  `replaceAwareness`), so callers must treat it READ-ONLY — mutate only through
+ *  the mutators below. */
 export function awarenessFor(id: TerminalId): AwarenessValue | undefined {
   return terminals.get(id)?.awareness;
 }
@@ -193,6 +193,23 @@ export function mutateAwarenessLive(
 ): AwarenessValue | undefined {
   const aw = terminals.get(id)?.awareness;
   if (aw) mutate(aw);
+  return aw;
+}
+
+/** Replace a terminal's WHOLE awareness value IN PLACE from a mirrored snapshot
+ *  (both halves at once), returning it, or `undefined` if no entry. Unlike the
+ *  two narrowed mutators above this writes the full value: after R9.0 the
+ *  local-pulam mirror is the single authority for the complete awareness, so the
+ *  persisted/live fence (which guards the now-deleted in-process sensor writers)
+ *  doesn't apply. `Object.assign` keeps the entry's awareness OBJECT identity, so
+ *  the persist/sleep/wake readers that hold the entry see the update through
+ *  their existing reference. */
+export function replaceAwareness(
+  id: TerminalId,
+  value: AwarenessValue,
+): AwarenessValue | undefined {
+  const aw = terminals.get(id)?.awareness;
+  if (aw) Object.assign(aw, value);
   return aw;
 }
 

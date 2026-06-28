@@ -338,6 +338,7 @@ let
       --set KAVAL_BUILD_ID "${kavalBuildId}" \
       --set KAVAL_COMMIT_HASH "${commitHash}" \
       --set KOLU_KAVAL_BIN "${kaval}/bin/kaval" \
+      --set KOLU_PULAM_BIN "${pulam}/bin/pulam" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';

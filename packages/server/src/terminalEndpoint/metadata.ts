@@ -39,12 +39,15 @@ import {
   prUnavailableReason,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
+import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
+  awarenessFor,
   mutateAwarenessLive,
   mutateAwarenessPersisted,
+  replaceAwareness,
   type TerminalProcess,
 } from "../terminal-registry.ts";
 import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
@@ -156,6 +159,45 @@ export function updateServerLiveMetadata(
     return;
   }
   publishAwareness(terminalId, aw);
+}
+
+/** Apply a full awareness snapshot from the LOCAL-PULAM MIRROR (R9.0) to the
+ *  matching registry entry and publish it. This is the writer that REPLACES the
+ *  deleted in-process sensor sink: kolu no longer computes awareness, it mirrors
+ *  its supervised pulam, and each mirrored frame lands here. Folds the whole
+ *  value in place (so the persist/sleep/wake readers stay current), publishes on
+ *  the `awareness` collection, and fires `terminals:dirty` so the session autosave
+ *  captures the change — exactly the visibility the old `updateServerMetadata`
+ *  gave. A no-op if `id` has no entry: pulam observed a terminal kolu's registry
+ *  doesn't (yet/any longer) hold; the mirror re-sends on the next change, so
+ *  dropping the frame is safe (kolu owns terminal membership, pulam the content). */
+export function applyMirroredAwareness(
+  terminalId: string,
+  value: AwarenessValue,
+): void {
+  // Capture the prior CHANGE keys before `replaceAwareness` mutates the entry in
+  // place (it returns the same object the prior fields lived on).
+  const prior = awarenessFor(terminalId);
+  const priorRepoRoot = prior?.git?.mainRepoRoot;
+  const priorAgentCommand = prior?.lastAgentCommand;
+
+  const aw = replaceAwareness(terminalId, value);
+  if (!aw) return;
+  publishAwareness(terminalId, aw);
+  terminalsDirtyChannel.publish({});
+
+  // Feed kolu's command-palette MRUs off the mirror — the deleted in-process sink
+  // drove `trackRecentRepo`/`trackRecentAgent`; the mirror is now that feed.
+  // Gated on CHANGE so the activity-feed cell isn't re-published on every
+  // awareness frame, and so a REPLAYED agent command (same value on restore)
+  // doesn't re-rank — exactly the old `!replayed` semantics, expressed as
+  // "the value differs from the prior frame".
+  if (value.git && value.git.mainRepoRoot !== priorRepoRoot) {
+    trackRecentRepo(value.git.mainRepoRoot, value.git.repoName);
+  }
+  if (value.lastAgentCommand && value.lastAgentCommand !== priorAgentCommand) {
+    trackRecentAgent(value.lastAgentCommand);
+  }
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,

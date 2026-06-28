@@ -3,17 +3,20 @@
  * `kolu-server` is a client of a separately spawned kaval daemon, and reaches
  * it through the typed `ptyHostSurface` contract via the stable `ptyHostClient`
  * forwarding facade (`../ptyHost/index.ts`) over that daemon's own socket. This
- * endpoint forwards spawn/kill/write/resize/attach through that client AND
- * **runs the per-terminal sensor set** (`@kolu/terminal-workspace`) against the
- * pty-host's raw tap streams (cwd · title · command-run · foreground).
+ * endpoint forwards spawn/kill/write/resize/attach through that client and
+ * watches each terminal's `exit` tap for the lifecycle signal (`handleExit`).
+ *
+ * It no longer runs the awareness sensor set (R9.0 — "kolu consumes a local
+ * pulam"): kolu's awareness backing is now a MIRROR of its supervised local
+ * pulam (`../localPulamMirror.ts`), which owns the one sensor set per host. So
+ * this endpoint owns terminal LIFECYCLE (spawn/kill/exit) while pulam owns the
+ * awareness CONTENT — the arrow points → pulam, no in-process sensors here.
  *
  * Why route through the contract rather than call `PtyHost` directly: the
  * consumer here is then written against `PtyHostClient` — the exact shape the
- * daemon (over a unix socket) or a remote ssh pty-host serves. The sensor set
- * has zero synchronous dependency on the host (it reads taps, not a
- * `PtyHandle`), so it runs identically across the wire. The kaval daemon serves
- * its own socket, which `kaval-tui` reaches directly — a second consumer of the
- * one host, and nothing in this file changes for it. See
+ * daemon (over a unix socket) or a remote ssh pty-host serves. The kaval daemon
+ * serves its own socket, which `kaval-tui` reaches directly — a second consumer
+ * of the one host, and nothing in this file changes for it. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * `TerminalEndpoint.fs/git` bind to the host-side wrapper lifted into
@@ -22,20 +25,14 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
-import { inMemoryChannel } from "@kolu/surface/server";
 import {
   AwarenessPersistedFieldsSchema,
-  type AwarenessRecord,
-  type AwarenessSignals,
-  type AwarenessSink,
-  type CommandRunSample,
   seedAwarenessLive,
   seedAwarenessValue,
-  startAwareness,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { resumeFormFor } from "anyagent/cli";
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import type { PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   AuthoredActiveTerminal,
   AwarenessValue,
@@ -58,7 +55,6 @@ import type {
   TerminalEndpoint,
   TerminalHandle,
 } from "kolu-common/terminalEndpoint";
-import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
@@ -71,7 +67,6 @@ import {
   listTerminals,
   registerTerminal,
   type SleepingTerminalProcess,
-  terminalNotFound,
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
@@ -80,7 +75,6 @@ import {
   dropAwareness,
   installAwareness,
   publishTerminalState,
-  updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
 
@@ -262,42 +256,12 @@ export function bridgeStream<T>(
   })();
 }
 
-/** Wire the awareness sink to kolu-server's metadata + activity surfaces.
- *  `record.meta` IS the awareness-store value for `id` (same object — see
- *  `startAwarenessSensors`), so a sensor mutating its record IS writing the store;
- *  the sink's two mutators key on `id` and land in the same store object. */
-function makeAwarenessSink(id: TerminalId): AwarenessSink {
-  return {
-    updateServerMetadata: (_record, mutate) => updateServerMetadata(id, mutate),
-    updateServerLiveMetadata: (_record, mutate) =>
-      updateServerLiveMetadata(id, mutate),
-    trackRecentRepo,
-    trackRecentAgent,
-    // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
-    // reads the rendered screen through the pty-host handle. `getScreenText`
-    // waits on `ready`, so it's safe even if a poll tick races spawn. The
-    // promoter passes its detector's `tailLines` so only the screen bottom is
-    // read — not the full (up to 50k-line) scrollback — each poll. The handle is
-    // read off the live active entry (the sensor set runs only while active).
-    readScreenText: (tailLines) => {
-      // Look the entry up explicitly rather than `getActiveTerminal(id)!`: a poll
-      // tick can race teardown/sleep, and a non-null assertion would throw a bare
-      // TypeError the sensor's `isNotFoundError` gate misreads as an UNEXPECTED
-      // scrape failure (logged at error). Throw the structured `terminalNotFound`
-      // (an `ORPCError("NOT_FOUND")`) so the race stays classified as the benign
-      // teardown it is — the same fail-loud stance as `getScreenState`.
-      const entry = getActiveTerminal(id);
-      if (!entry) throw terminalNotFound(id);
-      return entry.handle.getScreenText(undefined, undefined, tailLines);
-    },
-  };
-}
-
-/** Everything needed to stop one terminal's sensor set + tap bridges: abort
- *  the tap-stream subscriptions and stop the watchers. */
+/** Everything needed to stop one terminal's exit watch: abort the `exit` tap
+ *  subscription. (Before R9.0 this also carried the in-process awareness sensor
+ *  set's `stopAwareness`; awareness now rides the local-pulam mirror, so only the
+ *  lifecycle exit tap remains here.) */
 interface TerminalLifecycle {
   abort: AbortController;
-  stopAwareness: () => void;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -462,12 +426,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  Re-establish kolu's side WITHOUT spawning — install the caller-built
    *  `awareness` (a whole saved record via `adoptedAwareness`, or an orphan's
    *  live-snapshot defaults via `orphanAwareness`; either way the live fields
-   *  pr/agent/foreground are re-derived by the sensors, the freshness guarantee),
-   *  register the terminal under the `authored` half, release the handle at the
-   *  live pid, and re-run the sensor set
-   *  against the surviving taps. The sibling of `spawnPty`/`spawnAndWire` minus
-   *  the spawn RPC: both converge on `startAwarenessSensors`, and a wiring failure
-   *  reaps the orphaned PTY through the shared `killHalfWiredPty`. */
+   *  pr/agent/foreground are re-derived by the local-pulam mirror, the freshness
+   *  guarantee), register the terminal under the `authored` half, release the
+   *  handle at the live pid, and start the exit watch on the surviving taps. The
+   *  sibling of `spawnPty`/`spawnAndWire` minus the spawn RPC: both converge on
+   *  `startExitWatch`, and a wiring failure reaps the orphaned PTY through the
+   *  shared `killHalfWiredPty`. */
   adoptTerminal(
     id: TerminalId,
     authored: AuthoredActiveTerminal,
@@ -476,8 +440,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     const tlog = log.child({ terminal: id });
     const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
-    // Both halves ride ONE entry — awareness is a required field
-    // (`startAwarenessSensors` reads `getTerminal(id)!.awareness` as `record.meta`).
+    // Both halves ride ONE entry — awareness is a required field (the local-pulam
+    // mirror writes `getTerminal(id).awareness` in place as frames arrive).
     const entry: ActiveTerminalProcess = {
       info: { id, pid: liveEntry.pid },
       meta: authored,
@@ -490,7 +454,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // difference from `spawnAndWire`).
     proxy.markReady(liveEntry.pid);
     try {
-      this.startAwarenessSensors(id, liveEntry.pid);
+      this.startExitWatch(id);
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
@@ -579,8 +543,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
-    // Seed the authoritative resolved cwd before starting the sensor set (the git
-    // watcher reads `record.meta.cwd` at start).
+    // Seed the authoritative resolved cwd so the tile renders the right directory
+    // immediately, before the local-pulam mirror delivers its first awareness
+    // frame for this terminal (which then keeps `cwd` current).
     updateServerMetadata(id, (m) => {
       m.cwd = res.cwd;
     });
@@ -589,7 +554,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // a failure here must KILL the child (not just unregister the entry), or
     // we leak an orphaned PTY with no server-side record.
     try {
-      this.startAwarenessSensors(id, res.pid);
+      this.startExitWatch(id);
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -660,7 +625,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     reason: string,
   ): void {
     tlog.error({ err }, reason);
-    this.teardownSensors(id);
+    this.stopExitWatch(id);
     void ptyHostClient.surface.terminal
       .kill({ id })
       .catch((killErr) =>
@@ -669,75 +634,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id, entry, prior);
   }
 
-  /** Start the per-terminal sensor set against the pty-host's tap streams.
-   *  The sensor set runs HERE, in kolu-server, so it's always the current build's
-   *  code (the freshness guarantee — the most-edited code never rides the
-   *  long-lived pty-host). */
-  private startAwarenessSensors(id: TerminalId, pid: number): void {
+  /** Watch the terminal's `exit` tap — the pty-host lifecycle signal that fires
+   *  `handleExit` when the PTY dies. Before R9.0 this also started the in-process
+   *  awareness sensor set against the cwd/title/command/foreground taps; awareness
+   *  now rides the local-pulam mirror (which owns the one sensor set per host), so
+   *  only this lifecycle exit watch remains in-process. */
+  private startExitWatch(id: TerminalId): void {
     const abort = new AbortController();
     const { signal } = abort;
-    const signals: AwarenessSignals = {
-      cwd: inMemoryChannel<string>(),
-      title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
-      foreground: inMemoryChannel<ForegroundSample>(),
-    };
-    // `record.meta` MUST be the SAME object the sink mutates: it is the registry
-    // entry's `awareness` field, and the sink's `mutateAwareness*` mutate that same
-    // object in place — so the apply-and-read-back contract (the sensors read
-    // `record.meta` back as their own prior state) holds. The entry was registered
-    // by the caller (spawnPty/wake/adopt) before we get here, so its awareness is
-    // present.
-    const record: AwarenessRecord = {
-      pid,
-      meta: getTerminal(id)!.awareness,
-      currentAgent: null,
-    };
-    const sink = makeAwarenessSink(id);
-
-    // Bridge the raw VT taps onto the awareness signals. cwd also lands on
-    // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
-    // `signals.cwd` to re-resolve git).
-    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
-    // is intentionally not awaited (only the inventory reconciler awaits it).
-    void bridgeStream(
-      ptyHostClient.surface.cwd.get({ id }, { signal }),
-      signal,
-      (msg) => {
-        updateServerMetadata(id, (m) => {
-          m.cwd = msg.cwd;
-        });
-        signals.cwd.publish(msg.cwd);
-      },
-    );
-    void bridgeStream(
-      ptyHostClient.surface.title.get({ id }, { signal }),
-      signal,
-      (msg) => signals.title.publish(msg.title),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.commandRun.get({ id }, { signal }),
-      signal,
-      (msg) =>
-        signals.commandRun.publish({
-          command: msg.command,
-          replayed: msg.replayed,
-        }),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.foreground.get({ id }, { signal }),
-      signal,
-      (msg) =>
-        signals.foreground.publish({
-          process: msg.process,
-          foregroundPid: msg.foregroundPid,
-        }),
-    );
-    const stopAwareness = startAwareness(record, id, signals, sink, log);
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
-    // aborts this signal first (see `teardownSensors`), so `handleExit` only
+    // aborts this signal first (see `stopExitWatch`), so `handleExit` only
     // ever fires for a genuine exit.
+    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
+    // is intentionally not awaited (only the inventory reconciler awaits it).
     void bridgeStream(
       ptyHostClient.surface.exit.get({ id }, { signal }),
       signal,
@@ -760,18 +670,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
 
-    this.lifecycles.set(id, { abort, stopAwareness });
+    this.lifecycles.set(id, { abort });
   }
 
-  /** Stop a terminal's sensor set + tap bridges (idempotent). Aborting the
-   *  signal ends every tap subscription — including the `exit` tap, so a kill
-   *  that calls this BEFORE the pty-host kill can't trip `handleExit`. */
-  private teardownSensors(id: TerminalId): void {
+  /** Stop a terminal's exit watch (idempotent). Aborting the signal ends the
+   *  `exit` tap subscription, so a kill that calls this BEFORE the pty-host kill
+   *  can't trip `handleExit`. */
+  private stopExitWatch(id: TerminalId): void {
     const lc = this.lifecycles.get(id);
     if (!lc) return;
     this.lifecycles.delete(id);
     lc.abort.abort();
-    lc.stopAwareness();
   }
 
   /** Fully remove a terminal from existence — the two-store teardown tail as one
@@ -798,7 +707,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getTerminal(id);
     if (!entry) return;
     log.child({ terminal: id }).info({ exitCode }, "exited");
-    this.teardownSensors(id);
+    this.stopExitWatch(id);
     cleanupTerminalScratch(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
     this.finalizeRemoval(id);
@@ -819,7 +728,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // makes no kill/exit distinction) can't reach `handleExit` and
     // double-publish `terminalExit`. The kill RPC's response drives client
     // cleanup instead.
-    this.teardownSensors(id);
+    this.stopExitWatch(id);
     try {
       await ptyHostClient.surface.terminal.kill({ id });
     } catch (err) {
@@ -842,7 +751,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   beginSleep(id: TerminalId): boolean {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
-    this.teardownSensors(id);
+    this.stopExitWatch(id);
     // Flip the AUTHORED entry to the sleeping arm IN PLACE. `entry.meta` (location
     // + client chrome) rides the `...entry.meta` spread; the live `pr` is FROZEN
     // from the entry's awareness onto the authored sleeping arm (the dormant tile
@@ -944,7 +853,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   async killAllTerminals(): Promise<void> {
     const ids = listTerminals().map((info) => info.id);
     log.info({ count: ids.length }, "killing all terminals");
-    for (const id of ids) this.teardownSensors(id);
+    for (const id of ids) this.stopExitWatch(id);
     try {
       await ptyHostClient.surface.terminal.killAll({});
     } catch (err) {

@@ -35,6 +35,7 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
+import { startLocalPulamMirror } from "./localPulamMirror.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { publisherSize } from "./publisher.ts";
@@ -352,6 +353,16 @@ await ensureLocalEndpoint({
   // the reconciler's own re-subscribe loop absorbs the down/connect lifecycle.
   onBootSettled: startInventoryReconciler,
 });
+
+// --- awareness backing (local pulam), R9.0 "kolu consumes a local pulam" ---
+// kolu no longer runs the awareness sensors in-process: it spawns ONE ephemeral
+// local pulam (which dials the kaval above, runs the one sensor set, and serves
+// `terminalWorkspaceSurface`) and MIRRORS it as the awareness backing — the arrow
+// points → pulam, no cross-reach. Started AFTER the kaval endpoint (pulam dials
+// kaval's socket) and fire-and-forget: the mirror is best-effort, so a slow pulam
+// leaves awareness briefly absent (re-derived next cycle), never blocking the
+// boot. This is the LOCAL arm of the same mirror R9.3 points at a remote pulam.
+startLocalPulamMirror({ port });
 
 // Feed the chrome bar's memory readout: sample this server's RSS and poll the
 // kaval daemon's RSS on a fixed cadence, publishing both on the `processMemory`
