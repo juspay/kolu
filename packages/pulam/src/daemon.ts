@@ -19,7 +19,6 @@
 import {
   type AwarenessValue,
   terminalWorkspaceSurface,
-  DEFAULT_VERSION,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
@@ -33,7 +32,6 @@ import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   implementSurface,
   inMemoryChannelByName,
-  inMemoryStore,
   pollOnEvent,
 } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
@@ -44,7 +42,7 @@ import {
   startAwareness,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
-import { fsGitSurfaceDeps } from "@kolu/terminal-workspace/serveFsGit";
+import { serveTerminalWorkspace } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -156,15 +154,16 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   // whole workspace from one dial. fs/git is host-scoped (keyed by repoPath),
   // not per-terminal, so it rides outside the per-terminal sensor loop below.
   const workspace = createTerminalWorkspaceEndpoint(log);
-  const fsGit = fsGitSurfaceDeps(workspace, log);
 
-  // ── The served workspace surface — awareness collection + cell + activity,
-  //    plus the fs/git procedures + watcher streams (R6) ──
+  // ── The served workspace surface — awareness collection + version cell +
+  //    activity, plus the fs/git procedures + watcher streams (R6) — assembled by
+  //    the ONE shared `serveTerminalWorkspace` factory that kolu-server also calls.
+  //    pulam injects only its volatile backings: the cache-backed `awareness`
+  //    store and a LIVE `activity` source over its tracker. ──
   const cache = new Map<TerminalId, AwarenessValue>();
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
-    collections: {
+    ...serveTerminalWorkspace({
       awareness: {
         readAll: () => cache,
         upsert: (key, value) => {
@@ -174,8 +173,6 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
           cache.delete(key);
         },
       },
-    },
-    streams: {
       // Poll-on-event over the live set: yield the current set, then re-yield
       // whenever a terminal lights up or goes quiet. `sameActivitySet` suppresses
       // the redundant yield when a timer re-arm left the set unchanged.
@@ -189,11 +186,9 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
             onReadError: () => {},
           }),
       },
-      // The fs/git change-pulse watchers (`subscribeRepoChange` /
-      // `subscribeFileChange`) — each a per-subscription `seq` pulse source.
-      ...fsGit.streams,
-    },
-    procedures: fsGit.procedures,
+      endpoint: workspace,
+      log,
+    }),
   });
   const router = implement(terminalWorkspaceSurface.contract).router({
     ...fragment.router,

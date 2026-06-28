@@ -260,17 +260,22 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        const term = requireActiveTerminal(input.id);
-        const agent = term.meta.agent;
+        // `requireActiveTerminal` proves the terminal exists AND narrows it to the
+        // active arm; awareness is a REQUIRED field on that entry (Design-S), so the
+        // agent + cwd + git + pr fields are read straight off `entry.awareness` —
+        // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
+        // lockstep bug.
+        const { awareness: aw } = requireActiveTerminal(input.id);
+        const agent = aw.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = term.meta.cwd;
-        const repoName = term.meta.git?.repoName ?? null;
-        const prInfo = prValue(term.meta.pr);
+        const cwd = aw.cwd;
+        const repoName = aw.git?.repoName ?? null;
+        const prInfo = prValue(aw.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;

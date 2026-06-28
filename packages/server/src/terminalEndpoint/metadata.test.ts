@@ -1,64 +1,91 @@
 /**
- * Publish-routing tests for the metadata update helpers.
+ * Publish-routing + type-fence tests for the Design-S awareness/metadata seam.
  *
- * Guards against the firehose regressing: persisted-field writers MUST
- * fire `terminals:dirty`; live-field writers MUST NOT. Without this,
- * a future contributor who routes a new persisted field through
- * `updateServerLiveMetadata` (or vice versa) silently breaks autosave
- * cadence — either over-saving or losing data on restart.
+ * Guards against the firehose regressing: persisted-awareness writers MUST fire
+ * `terminals:dirty`; live-awareness writers MUST NOT. The type fences pin the
+ * structural guarantee that awareness has ONE writer:
+ *   - `updateServerMetadata`'s mutator can't touch a LIVE field;
+ *   - `updateServerLiveMetadata`'s mutator can't touch a PERSISTED field;
+ *   - `entry.meta` (now AUTHORED) names NO awareness field — `entry.meta.cwd = x`
+ *     is a compile error.
  */
 
-import { LOCAL_LOCATION } from "kolu-common/surface";
+import { type AwarenessValue, LOCAL_LOCATION } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import type { ActiveTerminalProcess } from "../terminal-registry.ts";
+import {
+  type ActiveTerminalProcess,
+  getTerminal,
+  registerTerminal,
+  unregisterTerminal,
+} from "../terminal-registry.ts";
 import {
   __resetSurfaceCtxForTest,
   noopSurfaceCtxForTest,
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
 import {
+  __resetWorkspaceSurfaceCtxForTest,
+  noopWorkspaceSurfaceCtxForTest,
+  setWorkspaceSurfaceCtx,
+} from "../workspaceSurfaceCtx.ts";
+import {
+  installAwareness,
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
 
+const ID = "term-pub-test";
+
+/** A registry entry — AUTHORED half (`meta`, no awareness field) + the AWARENESS
+ *  half (`awareness`, the sink's mutate target), both on the one entry. */
 function fakeTerminal(): ActiveTerminalProcess {
   return {
-    info: { id: "term-pub-test", pid: 0 },
-    meta: {
-      state: "active",
-      cwd: "/tmp",
-      git: null,
-      location: LOCAL_LOCATION,
-      pr: { kind: "pending" },
-      agent: null,
-      foreground: null,
-      lastActivityAt: 0,
-    },
+    info: { id: ID, pid: 0 },
+    meta: { state: "active", location: LOCAL_LOCATION },
+    awareness: awValue(),
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as ActiveTerminalProcess["handle"],
+  };
+}
+
+/** The AWARENESS half — rides the entry under the same id. */
+function awValue(): AwarenessValue {
+  return {
+    cwd: "/tmp",
+    git: null,
+    lastActivityAt: 0,
+    pr: { kind: "pending" },
+    agent: null,
+    foreground: null,
   };
 }
 
 let dirtyCount: number;
 let stopWatch: () => void;
 
-/** Yield to the event loop so the channel's async iterator (started by
- *  `consume`) can receive any queued publishes. The publisher pipeline
- *  is async end-to-end (`publish` returns a Promise; the consume IIFE
- *  awaits via `for await`), so a synchronous read of `dirtyCount`
- *  immediately after `updateServerMetadata` will see the pre-event
- *  count. Two `setImmediate` ticks cover both legs of the pipe. */
+/** Yield to the event loop so the channel's async iterator can receive queued
+ *  publishes. The publisher pipeline is async end-to-end, so a synchronous read
+ *  immediately after a mutator would see the pre-event count. Two `setImmediate`
+ *  ticks cover both legs of the pipe. */
 async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 beforeEach(async () => {
-  // surface.ts is not imported by this test module; supply a no-op ctx
-  // so calls to publishSnapshot (via surfaceCtx.collections…upsert) don't throw.
+  // surface.ts is not imported here; supply no-op ctxes so the publish paths
+  // (the `kolu` authored collection + the `terminalWorkspace` awareness
+  // collection) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
+  setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
+  // Design-S: the server mutators key on id and land on `entry.awareness`; the
+  // wire publish reads the registry. Register the entry (carrying BOTH halves),
+  // then fan its awareness out.
+  const entry = fakeTerminal();
+  registerTerminal(ID, entry);
+  installAwareness(ID, entry.awareness);
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -66,23 +93,21 @@ beforeEach(async () => {
     },
     onError: () => {},
   });
-  // Let `consume`'s async IIFE reach its first `for await` before any
-  // test publishes; otherwise the first publish races the subscribe.
+  // Let `consume`'s async IIFE reach its first `for await` before any publish.
   await settle();
 });
 
 afterEach(() => {
-  // Each test gets a fresh subscriber; without this, prior subscribers
-  // keep firing into the shared `dirtyCount` and bystander tests see
-  // inflated counts.
   stopWatch?.();
+  // Dropping the entry drops its awareness too (one backing store now).
+  unregisterTerminal(ID);
   __resetSurfaceCtxForTest();
+  __resetWorkspaceSurfaceCtxForTest();
 });
 
 describe("metadata publish routing", () => {
   it("updateServerMetadata fires terminals:dirty (cwd is persisted)", async () => {
-    const entry = fakeTerminal();
-    updateServerMetadata(entry, "term-pub-test", (m) => {
+    updateServerMetadata(ID, (m) => {
       m.cwd = "/new/cwd";
     });
     await settle();
@@ -90,8 +115,8 @@ describe("metadata publish routing", () => {
   });
 
   it("updateClientMetadata fires terminals:dirty (every client field is persisted)", async () => {
-    const entry = fakeTerminal();
-    updateClientMetadata(entry, "term-pub-test", (m) => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    updateClientMetadata(entry, ID, (m) => {
       m.themeName = "dracula";
     });
     await settle();
@@ -99,8 +124,7 @@ describe("metadata publish routing", () => {
   });
 
   it("updateServerLiveMetadata does NOT fire terminals:dirty (agent stream is live)", async () => {
-    const entry = fakeTerminal();
-    updateServerLiveMetadata(entry, "term-pub-test", (m) => {
+    updateServerLiveMetadata(ID, (m) => {
       m.agent = {
         kind: "claude-code",
         state: "thinking",
@@ -118,9 +142,8 @@ describe("metadata publish routing", () => {
   });
 
   it("updateServerLiveMetadata called repeatedly stays silent (the firehose case)", async () => {
-    const entry = fakeTerminal();
     for (let i = 0; i < 50; i += 1) {
-      updateServerLiveMetadata(entry, "term-pub-test", (m) => {
+      updateServerLiveMetadata(ID, (m) => {
         m.foreground = { name: "claude", title: `tick ${i}` };
       });
     }
@@ -128,15 +151,12 @@ describe("metadata publish routing", () => {
     expect(dirtyCount).toBe(0);
   });
 
-  // Type-fence assertions — these are the structural guarantee that the
-  // firehose can't grow back. If any of these `@ts-expect-error` lines
-  // start compiling, the fence is broken and a future write site can
-  // silently re-firehose live writes through the persisting path (or
-  // vice versa). Test runtime is irrelevant; the assertion is at type
-  // check.
+  // Type-fence assertions — the structural guarantee that the firehose can't grow
+  // back AND that awareness has one writer. If any `@ts-expect-error` line starts
+  // compiling, a fence is broken. Test runtime is irrelevant; the assertion is at
+  // type check.
   it("type fence: live fields cannot be written through updateServerMetadata", () => {
-    const entry = fakeTerminal();
-    updateServerMetadata(entry, "term-pub-test", (m) => {
+    updateServerMetadata(ID, (m) => {
       // @ts-expect-error — `agent` is live, not persisted.
       m.agent = null;
       // @ts-expect-error — `pr` is live, not persisted.
@@ -147,12 +167,17 @@ describe("metadata publish routing", () => {
   });
 
   it("type fence: persisted fields cannot be written through updateServerLiveMetadata", () => {
-    const entry = fakeTerminal();
-    updateServerLiveMetadata(entry, "term-pub-test", (m) => {
+    updateServerLiveMetadata(ID, (m) => {
       // @ts-expect-error — `cwd` is persisted, not live.
       m.cwd = "/tmp";
       // @ts-expect-error — `lastActivityAt` is persisted, not live.
       m.lastActivityAt = 0;
     });
+  });
+
+  it("type fence: awareness fields cannot be written through entry.meta (authored)", () => {
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    // @ts-expect-error — `cwd` lives in the awareness store; entry.meta is AUTHORED.
+    entry.meta.cwd = "/x";
   });
 });
