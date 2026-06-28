@@ -566,7 +566,7 @@ Answer mode:
   answer prompts, the answer schema/session file, the answer-shaped error).
 - `scripts/codex-answer.schema.json` — the JSON Schema codex's answer is constrained to.
 
-These are generated from `.apm/skills/codex-debate/`; edit the source there and
+These are generated from `agents/.apm/skills/codex-debate/`; edit the source there and
 run `just ai apm` to regenerate.
 
 ARGUMENTS: $ARGUMENTS

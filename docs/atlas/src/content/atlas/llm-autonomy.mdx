@@ -151,13 +151,13 @@ copies), `.agency/do.md`, and `settings.json` hooks.
 
 | # | Improvement | Lever | Effort · Impact |
 | --- | --- | --- | --- |
-| 1 | **Wire `/be` into the existing Stop guard** — write the generic `.do-results.json` the guard already understands | `.apm/skills/be/SKILL.md` §1/§Done; reuse `do/scripts/do-results`. No hook change needed | S · **high** |
+| 1 | **Wire `/be` into the existing Stop guard** — write the generic `.do-results.json` the guard already understands | `agents/.apm/skills/be/SKILL.md` §1/§Done; reuse `do/scripts/do-results`. No hook change needed | S · **high** |
 | 2 | **First PreToolUse Bash hook: hard-block prod-kolu kills & prod-port binds** | new `.apm` hook → `settings.json` PreToolUse; cite from `dev-server` skill | M · **high** |
-| 3 | **Full `/ci` on every touched PR + master-sync at the head of §5** | `.apm/skills/be/SKILL.md` §5; `.agency/do.md` `## CI` | S · **high** |
+| 3 | **Full `/ci` on every touched PR + master-sync at the head of §5** | `agents/.apm/skills/be/SKILL.md` §5; `.agency/do.md` `## CI` | S · **high** |
 | 4 <Pill variant="ok">shipped</Pill> <PrLink pr={1418} /> | **Codify design philosophy as an always-loaded rule** (fail-fast/no-fallbacks · electricity boundaries · reuse-existing-source) and force §2 to read it | `.apm/instructions/conventions.instructions.md` → `conventions.md`; `be` §2 | S · **high** |
 | 5 | **Hard-gate Done on real artifacts** — extend the Stop guard with ci-green + evidence-present + gauntlet-comments-present | `do-stop-guard.sh` (apm source); `/be` writes the fields | M · **high** |
 | 6 | **`## CI failure triage` policy** — named flaky lanes + per-node enumerate/fix-or-waive | `.agency/do.md` | S · **high** |
-| 7 | **Make §4 a self-driving in-process Skill chain**; forbid handing reviewers back to the user | `.apm/skills/be/SKILL.md` §4; `be-review` | M · **high** |
+| 7 | **Make §4 a self-driving in-process Skill chain**; forbid handing reviewers back to the user | `agents/.apm/skills/be/SKILL.md` §4; `be-review` | M · **high** |
 | 8 | **§3 deliverable-coverage gate + grep-before-assert** — never report a PR whose diff doesn't match the task; never claim "no fallbacks" unchecked | `be` §3; `code-police` / `fact-check` | M · med |
 | 9 | **Machine-checked RED→GREEN repro & observed-green before Done** (tests passing ≠ verified) | `be` §2; Stop guard `verified` field | M · **high** |
 | 10 | **§0 echoes a concrete task contract; PreToolUse blocks AskUserQuestion after §0** | `be` §0; new PreToolUse hook | M · med |
@@ -273,8 +273,8 @@ method constant so successive runs are comparable.
 </Callout>
 
 <Callout kind="accent" title="The lever map (where fixes go)">
-- **`.apm/skills/be/SKILL.md`** — the `/be` stages & gates (most fixes).
-- **`.apm/skills/be-review/SKILL.md`** + the gauntlet sub-skills (`codex-debate`,
+- **`agents/.apm/skills/be/SKILL.md`** — the `/be` stages & gates (most fixes).
+- **`agents/.apm/skills/be-review/SKILL.md`** + the gauntlet sub-skills (`codex-debate`,
   `lens-debate`, `simplify`, `code-police`, `evidence`, `ci`, `forge-pr`).
 - **`.apm/instructions/*.md`** → always-loaded `.claude/rules/*.md`
   (`conventions.md` is the home for the design-philosophy rule).
