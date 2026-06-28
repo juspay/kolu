@@ -7,8 +7,8 @@
  *     the three id-targeted commands as copy-paste buttons: `attach` (take the
  *     session over), `snapshot` (dump its scrollback), and `send` (type a prompt
  *     into it — the verb that lets one agent drive another). The tile root and
- *     its splits are labelled Main / Split N only when a split exists; a lone
- *     terminal stays label-free.
+ *     its splits are labelled Main / Split N when a split exists; a lone
+ *     terminal heads its card with a plain `Terminal` label.
  *  2. **Command reference** — the rest of the `kaval-tui` surface (list, create,
  *     kill) plus its awareness sibling `pulam-tui` (status, watch, wait), as a
  *     compact cheatsheet so the section covers the whole CLI, not just the three
@@ -29,8 +29,12 @@
  *    goes after the id so the long path truncates off the visible end rather
  *    than hiding the id; before the daemon status (and its socketPath) has
  *    loaded, the bare command is shown and auto-discovery covers the gap. The
- *    socket is also surfaced once at the foot so the reference commands (which
- *    take no id) can target this server too.
+ *    socket is also surfaced once at the foot — as a ready-to-append `--socket
+ *    <path>` argument — so the *kaval-tui* reference commands (list/create/kill,
+ *    which take no id) can target this server too. It is kaval's pty-host
+ *    socket, NOT pulam's: the `pulam-tui` reference rows dial their own
+ *    awareness socket (default `$XDG_RUNTIME_DIR/pulam/awareness.sock`), so this
+ *    one is deliberately scoped to kaval-tui and never offered for pulam-tui.
  *
  *  Composes the shared `CopyCommandButton`, which uses `writeTextToClipboard`
  *  so copy survives the plain-HTTP / Tailscale contexts kolu is often reached
@@ -42,7 +46,7 @@ import { localDaemonStatus } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CopyCommandButton from "../ui/CopyCommandButton";
 import { CopyIcon } from "../ui/Icons";
-import { kavalCmd } from "./kavalCmd";
+import { kavalCmd, kavalSocketArg } from "./kavalCmd";
 
 const SHORT_ID_LEN = 8;
 
@@ -106,8 +110,10 @@ const TerminalCard: Component<{
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
       />
-      {/* `send` takes a prompt you append after the command — copying this is the
-          starting point for driving an agent in this terminal from a script. */}
+      {/* Unlike attach/snapshot, `send` is a TEMPLATE, not a runnable line: it
+          carries a `'<prompt>'` placeholder (kavalCmd) where your text goes,
+          because `send` refuses an empty payload. Copying it is the starting
+          point for driving an agent in this terminal from a script. */}
       <CopyCommandButton
         command={kavalCmd("send", short(), props.socket)}
         title={kavalCmd("send", props.terminalId, props.socket)}
@@ -231,19 +237,21 @@ const KavalAttachSection: Component<{ terminalId: TerminalId }> = (props) => {
         </p>
       </div>
 
-      {/* The daemon socket, surfaced once — the reference commands take no id, so
-          this is how they target THIS server's kaval rather than whatever
-          auto-discovery would pick. */}
+      {/* The kaval socket, surfaced once as a ready-to-append `--socket <path>`
+          argument — the kaval-tui reference commands take no id, so this is how
+          they target THIS server's kaval rather than whatever auto-discovery
+          would pick. Scoped to kaval-tui on purpose: pulam-tui dials its own
+          awareness socket, so this one is NOT for its status/watch/wait rows. */}
       <Show when={socket()}>
         {(s) => (
           <div class="space-y-1 border-t border-edge pt-2.5">
             <p class="text-[10px] text-fg-3/80">
-              This kolu's daemon socket — pass it as{" "}
-              <span class="font-mono text-fg-2">--socket</span> to the reference
-              commands.
+              This kolu's kaval socket — append it to a{" "}
+              <span class="font-mono text-fg-2">kaval-tui</span> reference
+              command (list / create / kill) to target this server.
             </p>
             <CopyCommandButton
-              command={s()}
+              command={kavalSocketArg(s())}
               testId="inspector-socket"
               rounded="rounded-md"
               idle={<CopyIcon class="w-3 h-3" />}
