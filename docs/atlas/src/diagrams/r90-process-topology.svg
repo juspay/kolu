@@ -15,8 +15,9 @@
 
   <!-- pulam-web (optional dashboard) -->
   <rect x="530" y="42" width="210" height="56" rx="9" fill="#ffffff" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4"/>
-  <text x="635" y="66" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">pulam-web (optional)</text>
-  <text x="635" y="84" text-anchor="middle" font-size="10" fill="#94a3b8">fleet dashboard · a second reader</text>
+  <text x="635" y="63" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">pulam-web (separate)</text>
+  <text x="635" y="79" text-anchor="middle" font-size="9.5" fill="#94a3b8">fleet dashboard · keeps its OWN</text>
+  <text x="635" y="91" text-anchor="middle" font-size="9.5" fill="#94a3b8">pulam (ssh) — converge later</text>
 
   <!-- kolu-server -->
   <rect x="190" y="170" width="400" height="98" rx="11" fill="#efebff" stroke="#5a3ff0" stroke-width="1.8"/>
@@ -45,9 +46,9 @@
   <rect x="150" y="120" width="118" height="17" rx="3" fill="#fff"/>
   <text x="209" y="133" text-anchor="middle" font-size="10" font-weight="700" fill="#3a2bb8">websocket · /rpc/ws</text>
 
-  <!-- pulam-web -> local pulam : unix socket mirror -->
-  <line x1="635" y1="98" x2="612" y2="358" stroke="#94a3b8" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#s)"/>
-  <text x="660" y="230" font-size="9.5" fill="#94a3b8" transform="rotate(90 660 230)">unix socket · mirror awareness</text>
+  <!-- pulam-web -> local pulam : DEFERRED convergence (R9-converge) -->
+  <line x1="635" y1="98" x2="612" y2="358" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="2 5" marker-end="url(#s)"/>
+  <text x="662" y="228" font-size="9.5" fill="#94a3b8" transform="rotate(90 662 228)">R9-converge (optional, later)</text>
 
   <!-- kolu-server -> kaval : unix socket (PTY) -->
   <line x1="300" y1="268" x2="210" y2="358" stroke="#3a2bb8" stroke-width="1.7" marker-end="url(#b)"/>
