@@ -11,7 +11,12 @@ export const meta = {
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
 // ---------------------------------------------------------------------------
-const a = args || {}
+// The harness JSON-ENCODES `args` before the workflow sees it, so it arrives as a
+// STRING even when the caller passed a real object; a bare `args.repoPath`/`.prompt`
+// would then be `undefined` and every input silently default. Parse a stringified
+// `args` defensively (empty string → {}; object used as-is; malformed JSON throws
+// loudly). See debate.workflow.js for the full cross-repo failure this fixes.
+const a = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : args || {}
 const repoPath = a.repoPath || '.'
 // The user's freeform prompt — the question both assistants answer and then
 // cross-check toward one agreed reply. Required; the orchestrator passes it.
