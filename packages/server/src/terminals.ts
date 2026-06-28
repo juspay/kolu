@@ -42,11 +42,7 @@ import {
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import {
-  getActiveTerminal,
-  getTerminal,
-  terminalEntries,
-} from "./terminal-registry.ts";
+import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
@@ -125,12 +121,10 @@ export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
   // Route by the terminal's OWN location so a remote tile's kill reaches its
-  // host (R9.2), never the local endpoint by default. Only an ACTIVE terminal
-  // can be killed — the endpoint re-checks this too — so an absent/sleeping id
-  // is "not found" here exactly as before (the endpoint would also return
-  // undefined). The lookup is synchronous right up to the kill call, so it adds
-  // no race window the endpoint's own gate doesn't already own.
-  const entry = getActiveTerminal(id);
+  // host (R9.2), never the local endpoint by default. Routing needs only a
+  // location, present on both arms; the endpoint owns the kill-requires-active
+  // gate.
+  const entry = getTerminal(id);
   if (!entry) return undefined;
   return resolveTerminalEndpoint(entry.meta.location).killTerminal(id);
 }
