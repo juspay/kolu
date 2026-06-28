@@ -70,8 +70,12 @@ import { z } from "zod";
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
- *  is recycled on adoption rather than feeding the server unparseable marks. */
-export const PTY_HOST_CONTRACT_VERSION = "3.3";
+ *  is recycled on adoption rather than feeding the server unparseable marks.
+ *  Bumped to 3.4 (additive · minor): `getScreenText` gained an optional
+ *  `viewport` flag that bounds the read to the visible screen (the host's own
+ *  `rows`) — a 3.3 survivor lacks it and would silently return the full
+ *  scrollback, so it is recycled on adoption rather than ignoring the bound. */
+export const PTY_HOST_CONTRACT_VERSION = "3.4";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -317,6 +321,11 @@ export const ptyHostSurface = defineSurface({
           startLine: z.number().int().optional(),
           endLine: z.number().int().optional(),
           tailLines: z.number().int().optional(),
+          // `viewport: true` bounds the read to the terminal's *visible screen*
+          // — the last `rows` rendered lines, resolved against the host's own
+          // live grid (the CLI can't know it; its stdout is usually a pipe and
+          // never the daemon terminal's size). Overrides `tailLines` when set.
+          viewport: z.boolean().optional(),
         }),
         output: z.object({ text: z.string() }),
       },

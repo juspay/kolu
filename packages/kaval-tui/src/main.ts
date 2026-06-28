@@ -7,7 +7,7 @@
  *
  *   kaval-tui list [--json]     list your live terminals (id · pid · idle · cwd)
  *   kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
- *   kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+ *   kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
  *   kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *   kaval-tui kill <id>         end a terminal the daemon owns (id or prefix)
@@ -151,9 +151,26 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Print a terminal's current rendered scrollback. <id> is the short id from `list` or any unique prefix.",
+          "Print a terminal's rendered screen. Default: the full scrollback (thousands of lines on a long session). `--viewport` prints just the visible screen — the best read for 'what's on screen now' when driving an agent; `--tail N` (alias `--lines N`) prints the last N rendered lines. <id> is the short id from `list` or any unique prefix.",
       },
-      flags: { ...endpointFlags },
+      flags: {
+        ...endpointFlags,
+        viewport: {
+          type: Boolean,
+          description:
+            "print only the visible screen (the terminal's last screenful), resolved against the daemon's own grid — the best default for reading an agent's current state",
+          default: false,
+        },
+        tail: {
+          type: Number,
+          description:
+            "print only the last N rendered lines (like `tail -N`, but over the rendered buffer)",
+        },
+        lines: {
+          type: Number,
+          description: "synonym for --tail",
+        },
+      },
     }),
     command({
       name: "send",
@@ -299,14 +316,25 @@ async function cmdList(conn: Connection, json: boolean): Promise<void> {
   );
 }
 
-async function cmdSnapshot(conn: Connection, id: string): Promise<void> {
-  // Plain rendered scrollback — NOT the `terminalAttach` first frame. That
-  // first frame is the *serialized xterm screen state* (VT escape sequences)
-  // used for late attach; piping it to a terminal would replay those control
-  // sequences, and `grep`-ing it (the headless-CI use the docs promise) would
-  // match against escape bytes, not text. `getScreenText` is the rendered
-  // buffer the `snapshot | grep MARK-` flow needs.
-  const { text } = await conn.client.surface.terminal.getScreenText({ id });
+async function cmdSnapshot(
+  conn: Connection,
+  id: string,
+  bound: { viewport: boolean; tailLines: number | undefined },
+): Promise<void> {
+  // Plain rendered screen — NOT the `terminalAttach` first frame. That first
+  // frame is the *serialized xterm screen state* (VT escape sequences) used for
+  // late attach; piping it to a terminal would replay those control sequences,
+  // and `grep`-ing it (the headless-CI use the docs promise) would match
+  // against escape bytes, not text. `getScreenText` is the rendered buffer the
+  // `snapshot | grep MARK-` flow needs. By default it's the *full* scrollback;
+  // `--viewport` (the daemon's own last screenful) and `--tail N` bound it so
+  // the agent-driving loop reads the current screen instead of `| tail`-ing a
+  // huge buffer of trailing blanks.
+  const { text } = await conn.client.surface.terminal.getScreenText({
+    id,
+    viewport: bound.viewport,
+    tailLines: bound.tailLines,
+  });
   await writeOut(text.endsWith("\n") ? text : `${text}\n`);
   // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
   // from the text we already hold, no second round-trip to decorate it.
@@ -643,9 +671,34 @@ async function main(): Promise<void> {
     if (argv.command === "list") await cmdList(conn, argv.flags.json);
     else if (argv.command === "create")
       await cmdCreate(conn, endpoint, argv._.command, argv.flags.json);
-    else if (argv.command === "snapshot")
-      await cmdSnapshot(conn, await resolveOne(conn, argv._.id));
-    else if (argv.command === "send") {
+    else if (argv.command === "snapshot") {
+      // `--viewport`, `--tail`, and `--lines` (a synonym for `--tail`) each
+      // bound the output differently, so more than one is ambiguous — crash
+      // loud rather than silently pick a precedence. `--tail`/`--lines` collapse
+      // to one `tailLines`; both set is the same conflict.
+      const { viewport, tail, lines } = argv.flags;
+      const bounds = [
+        viewport && "--viewport",
+        tail !== undefined && "--tail",
+        lines !== undefined && "--lines",
+      ].filter(Boolean);
+      if (bounds.length > 1)
+        fail(
+          `${bounds.join(" and ")} are mutually exclusive — pass at most one (omit all for the full scrollback).`,
+        );
+      const tailLines = tail ?? lines;
+      if (
+        tailLines !== undefined &&
+        (!Number.isInteger(tailLines) || tailLines < 0)
+      )
+        fail(
+          `--tail/--lines takes a non-negative whole number of lines, got ${JSON.stringify(tailLines)}.`,
+        );
+      await cmdSnapshot(conn, await resolveOne(conn, argv._.id), {
+        viewport,
+        tailLines,
+      });
+    } else if (argv.command === "send") {
       // The tristate lives in two Boolean flags, so the both-set combination is
       // expressible but illegal — crash loud rather than silently pick one.
       if (argv.flags.paste && argv.flags.noPaste)

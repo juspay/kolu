@@ -196,6 +196,58 @@ describe("runAttach — over a real unix socket", () => {
     );
   });
 
+  it("getScreenText bounds output: --viewport and --tail over the wire", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-snap-bound-"));
+    const id = "33333333-4444-5555-6666-777777777777";
+    // Print 60 numbered lines into the default 24-row grid, so the top scrolls
+    // out of the visible screen — the exact long-buffer case #1607 hit.
+    await conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id,
+        cwd: dir,
+        env: process.env,
+        command: [
+          "sh",
+          "-c",
+          "for i in $(seq 1 60); do printf 'L%02d\\n' $i; done; sleep 100",
+        ],
+      }),
+    );
+    let screen = "";
+    await until(
+      () => screen.includes("L60"),
+      "all lines printed",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
+
+    // Full read keeps the scrolled-off top.
+    const full = (await conn.client.surface.terminal.getScreenText({ id }))
+      .text;
+    expect(full).toContain("L01");
+    expect(full).toContain("L60");
+
+    // --viewport: only the visible screen (the daemon's own 24 rows) — drops L01.
+    const viewport = (
+      await conn.client.surface.terminal.getScreenText({ id, viewport: true })
+    ).text;
+    expect(viewport).toContain("L60");
+    expect(viewport).not.toContain("L01");
+
+    // --tail 3: exactly the last 3 rendered lines (the bottom of the buffer —
+    // L60 plus the blank cursor line, never the scrolled-off top).
+    const tail = (
+      await conn.client.surface.terminal.getScreenText({ id, tailLines: 3 })
+    ).text;
+    expect(tail.split("\n")).toHaveLength(3);
+    expect(tail).toContain("L60");
+    expect(tail).not.toContain("L01");
+  });
+
   it("paints the snapshot, round-trips a keystroke, detaches on ~., and leaves the PTY alive", {
     timeout: 30_000,
   }, async () => {

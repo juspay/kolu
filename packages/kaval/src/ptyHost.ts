@@ -126,11 +126,14 @@ export interface PtyHandle {
   getScreenState(): string;
   /** Plain text content of the terminal buffer (scrollback + viewport).
    *  `tailLines` reads only the last N rendered lines (see {@link getScreenText});
-   *  pass it instead of fetching the whole buffer when only the tail matters. */
+   *  pass it instead of fetching the whole buffer when only the tail matters.
+   *  `viewport: true` reads just the visible screen (the last `rows` lines) and
+   *  overrides `tailLines`. */
   getScreenText(
     startLine?: number,
     endLine?: number,
     tailLines?: number,
+    viewport?: boolean,
   ): string;
 }
 
@@ -288,12 +291,15 @@ export interface PtyHost {
   /** Serialized screen state; empty string if gone. */
   getScreenState(id: PtyId): string;
   /** Plain text of the buffer; empty string if gone. `tailLines` reads only
-   *  the last N rendered lines (see {@link getScreenText}). */
+   *  the last N rendered lines (see {@link getScreenText}); `viewport: true`
+   *  reads just the visible screen (the last `rows` lines) and overrides
+   *  `tailLines`. */
   getScreenText(
     id: PtyId,
     startLine?: number,
     endLine?: number,
     tailLines?: number,
+    viewport?: boolean,
   ): string;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
@@ -763,14 +769,21 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     startLine?: number,
     endLine?: number,
     tailLines?: number,
+    viewport?: boolean,
   ): string {
     const entry = entries.get(id);
     if (!entry) return "";
+    // `viewport` is "the visible screen" expressed as a tail of the live grid's
+    // height — the only place the real `rows` is known. The last `rows` lines
+    // of `buffer.active` are exactly the viewport in both buffers: the normal
+    // buffer's bottom screenful, and the whole alt buffer (whose length IS rows)
+    // a full-screen TUI draws into.
+    const effectiveTail = viewport ? entry.headless.rows : tailLines;
     return getScreenText(
       entry.headless.buffer.active,
       startLine,
       endLine,
-      tailLines,
+      effectiveTail,
     );
   }
 
@@ -808,8 +821,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       write: (data) => write(id, data),
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
-      getScreenText: (startLine, endLine, tailLines) =>
-        getScreenTextFor(id, startLine, endLine, tailLines),
+      getScreenText: (startLine, endLine, tailLines, viewport) =>
+        getScreenTextFor(id, startLine, endLine, tailLines, viewport),
     };
   }
 

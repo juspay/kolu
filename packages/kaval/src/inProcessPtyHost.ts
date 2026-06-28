@@ -309,6 +309,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               input.startLine,
               input.endLine,
               input.tailLines,
+              input.viewport,
             ),
           };
         },

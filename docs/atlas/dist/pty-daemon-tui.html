@@ -151,8 +151,8 @@
 </tr>
 <tr>
 <td><code>kaval-tui snapshot &lt;id&gt;</code></td>
-<td><code>terminal.getScreenText({id})</code></td>
-<td>One-shot, non-interactive: dump the current scrollback as <strong>plain rendered text</strong> (not the <code>terminalAttach</code> first frame — that’s serialized VT screen state for late attach, which would replay control sequences and defeat <code>grep</code>) + a trailer line to stderr, then exit. The scriptable primitive the <a href="#headless-test">headless test</a> asserts on.</td>
+<td><code>terminal.getScreenText({id, viewport?, tailLines?})</code></td>
+<td>One-shot, non-interactive: dump the rendered screen as <strong>plain rendered text</strong> (not the <code>terminalAttach</code> first frame — that’s serialized VT screen state for late attach, which would replay control sequences and defeat <code>grep</code>) + a trailer line to stderr, then exit. Defaults to the full scrollback; <code>--viewport</code> bounds it to the visible screen (the host resolves it to its own <code>rows</code> — the CLI can’t know the daemon’s grid) and <code>--tail N</code> to the last N lines, so an agent-driving loop reads the current screen instead of <code>| tail</code>-ing a huge buffer. The scriptable primitive the <a href="#headless-test">headless test</a> asserts on.</td>
 </tr>
 <tr>
 <td><code>kaval-tui send &lt;id&gt; [text]</code></td>

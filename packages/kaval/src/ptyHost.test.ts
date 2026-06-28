@@ -149,6 +149,45 @@ describe("createPtyHost", () => {
     expect(host.getScreenText(id)).toContain("hello mirror");
   });
 
+  it("viewport reads only the visible screen (the host's own rows)", async () => {
+    host = createPtyHost({ log: silentLog });
+    // A 10-row grid printing 30 lines: scrollback holds L01..L30, but the
+    // visible screen is just the bottom screenful. `viewport` resolves to the
+    // host's live `rows` — the CLI can't know it — so it drops the scrolled-off
+    // top while a full read keeps it.
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: [
+        "-c",
+        "for i in $(seq 1 30); do printf 'L%02d\\n' $i; done; sleep 1",
+      ],
+      env: shellEnv,
+      cwd: "/tmp",
+      rows: 10,
+      cols: 80,
+    });
+    await waitFor(() => host.getScreenText(id).includes("L30"));
+
+    const full = host.getScreenText(id);
+    expect(full).toContain("L01");
+    expect(full).toContain("L30");
+
+    // viewport (last `rows` = 10 lines) keeps the bottom of the buffer, never L01.
+    const viewport = host.getScreenText(
+      id,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(viewport).toContain("L30");
+    expect(viewport).not.toContain("L01");
+    // It overrides an explicit tailLines — viewport wins.
+    const overridden = host.getScreenText(id, undefined, undefined, 1, true);
+    expect(overridden).toContain("L30");
+    expect(overridden).not.toContain("L01");
+  });
+
   it("delivers live output to attach() deltas", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({

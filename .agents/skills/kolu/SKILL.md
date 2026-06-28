@@ -32,13 +32,22 @@ id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner
 kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. TYPE the prompt
 kaval-tui send  "$id" --key Enter                              # 2. SUBMIT it (its own step)
 wait_until_settled "$id"                                       # 3. let its turn finish (below)
-kaval-tui snapshot "$id" | tail -40                            # 4. read the reply
+kaval-tui snapshot "$id" --viewport                            # 4. read the screen
 kaval-tui send  "$id" "now add tests for it"; kaval-tui send "$id" --key Enter   # loop
 ```
 
 Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (type) ·
 **send --key Enter** (submit) · **snapshot** (read) · **kill**. **Typing and
 submitting are two separate `send`s** — that is load-bearing, see below.
+
+> **Read with `snapshot --viewport`, not `| tail`.** A bare `snapshot` prints the
+> **whole scrollback** — thousands of lines on a long-running or compacted agent —
+> so `snapshot | tail -8` hands you the bottom of the buffer (often just trailing
+> blanks), not the live screen. `--viewport` asks the daemon for just its
+> terminal's last screenful — the right "what's on screen now" read, and correct
+> regardless of how tall your own shell is (over `--host` the remote terminal is a
+> different size). `--tail N` (alias `--lines N`) bounds it to the last N lines
+> when you want a fixed slice.
 
 ## `kaval-tui send` — type, then submit (two steps)
 
@@ -98,12 +107,16 @@ wait_until_settled() {
   local id=$1 deadline=$(( $(date +%s) + 600 )) prev="" cur stable=0
   while [ "$stable" -lt 2 ] && [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 3
-    cur=$(kaval-tui snapshot "$id")
+    cur=$(kaval-tui snapshot "$id" --viewport)   # diff the live screen, not the whole scrollback
     if [ "$cur" = "$prev" ]; then stable=$((stable + 1)); else stable=0; fi
     prev=$cur
   done
 }
 ```
+
+Poll **`--viewport`**, not a bare `snapshot`: a settle test diffs two reads, and
+diffing two full-scrollback dumps is slow and noisy (any scrollback churn reads
+as "still moving"), while two screenfuls compare cleanly.
 
 Tune `sleep`/deadline to the work. It's coarser than `pulam-tui wait` (a busy
 agent that pauses mid-thought can read as settled), so after it returns,
