@@ -43,6 +43,8 @@ export {
   type HostRegistry,
   type HostRegistryOptions,
   type LiveSpawnHolder,
+  type MirrorOnceOptions,
+  mirrorOnce,
   type ObservableHolder,
   observableHolder,
   type PumpRemoteSurfaceOptions,

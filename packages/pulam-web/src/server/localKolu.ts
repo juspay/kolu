@@ -27,12 +27,11 @@ import { RPCHandler } from "@orpc/server/ws";
 import type { composeSurfaceContracts } from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   createHeartbeat,
   createSurfaceSocket,
 } from "@kolu/surface-app/connect";
-import type { AgentClient } from "@kolu/surface-nix-host";
+import { type AgentClient, mirrorOnce } from "@kolu/surface-nix-host";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { PulamContract, PulamHandler } from "./hostEntry.ts";
@@ -129,12 +128,17 @@ function disconnected(reason: string): ConnectionInfo {
 
 /**
  * The local mirror pump — the local-link dual of `pumpRemoteSurface`. Loop: wait
- * for the link, mirror the whole `terminalWorkspaceSurface` into the re-serve's
- * sink (and publish the live client/procedures for the re-serve's forwards), block
- * until the link dies, drop the remote-derived fold so the next mirror rebuilds
- * from kolu's fresh snapshot (never paints a stale row across a kolu restart —
- * #1549's invariant, here for the local link), then wait for the socket to
- * reconnect and repeat. Exits only when `signal` aborts (server shutdown).
+ * for the link, then run ONE link-up's mirror lifecycle through the shared
+ * `mirrorOnce` body (mirror the whole `terminalWorkspaceSurface` into the
+ * re-serve's sink, publish the live client/procedures for the re-serve's forwards,
+ * block until the link dies, then clear the holders and run `onLinkDown`). This
+ * loop owns the two edges that genuinely differ from the ssh pump: the client
+ * source (this one reconnecting link, not a `HostSession` cursor) and the
+ * connection-state model (inline CONNECTING/CONNECTED/disconnected, not
+ * `pipeSessionStateToCell`). `onLinkDown` drops the remote-derived fold so the
+ * next mirror rebuilds from kolu's fresh snapshot (never paints a stale row across
+ * a kolu restart — #1549's invariant, here for the local link). Exits only when
+ * `signal` aborts (server shutdown).
  *
  * Fire-and-forget (`void`), matching `hostEntry`'s `pumpRemoteSurface` call: a
  * broken local fold rejects `mirror.done` (a `SinkError`) and must surface
@@ -161,37 +165,40 @@ export async function runLocalMirror(opts: {
     seq += 1;
     reServe.setConnection(CONNECTING);
     log(`local kolu mirror #${seq}: link ready — mirroring awareness`);
-    const mirror = mirrorRemoteSurface(
-      terminalWorkspaceSurface,
-      link.client,
+    // One link-up's mirror lifecycle, through the SAME shared body the ssh pump
+    // uses (`mirrorOnce`): publish the live holders, await the mirror, then clear
+    // them and run `onLinkDown`. Only the OUTER loop differs from the pump — the
+    // client source is this one reconnecting link (not a `HostSession` cursor) and
+    // the connection state is set inline (not via `pipeSessionStateToCell`).
+    await mirrorOnce({
+      source: terminalWorkspaceSurface,
+      client: link.client,
       // The first `version` frame is the link-live handshake — flip the card to
       // `connected` there (the local analogue of `session.markConnected()`).
-      reServe.makeSink(() => {
+      sink: reServe.makeSink(() => {
         reServe.setConnection(CONNECTED);
         log(`local kolu mirror #${seq}: first version frame — connected`);
       }),
-      { signal, log },
-    );
-    // Publish this mirror's forwarding handles so the re-serve's input-param
-    // streams (`subscribe*Change`) and `fs.*`/`git.*` procedures reach kolu; clear
-    // them the instant the link dies so a forward in the gap fails honestly.
-    reServe.liveProcedures.current = mirror.procedures;
-    reServe.liveClient.current = link.client;
-    reServe.liveClient.onChange?.();
-    try {
-      await mirror.done;
-    } finally {
-      reServe.liveProcedures.current = null;
-      reServe.liveClient.current = null;
-      reServe.liveClient.onChange?.();
-      // Drop the awareness cache + activity live-set so the next mirror rebuilds
-      // from kolu's authoritative snapshot rather than pinning a stale row across
-      // the reconnect (the pump's `onLinkDown` contract, #1549).
-      reServe.resetRemoteFold();
-      if (!signal.aborted) {
-        reServe.setConnection(disconnected("kolu link closed — reconnecting"));
-      }
-    }
+      // The re-serve's input-param streams (`subscribe*Change`) and `fs.*`/`git.*`
+      // procedures reach kolu through these holders; `mirrorOnce` clears them the
+      // instant the link dies so a forward in the gap fails honestly.
+      liveProcedures: reServe.liveProcedures,
+      liveClient: reServe.liveClient,
+      // On link death: drop the awareness cache + activity live-set so the next
+      // mirror rebuilds from kolu's authoritative snapshot rather than pinning a
+      // stale row across the reconnect (the pump's `onLinkDown` contract, #1549),
+      // then flip the card to disconnected (unless we're shutting down).
+      onLinkDown: () => {
+        reServe.resetRemoteFold();
+        if (!signal.aborted) {
+          reServe.setConnection(
+            disconnected("kolu link closed — reconnecting"),
+          );
+        }
+      },
+      signal,
+      log,
+    });
     log(`local kolu mirror #${seq}: link closed — awaiting reconnect`);
   }
 }

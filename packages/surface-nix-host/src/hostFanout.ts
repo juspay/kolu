@@ -108,6 +108,93 @@ export function observableHolder<T>(): ObservableHolder<T> {
   };
 }
 
+// ── mirrorOnce — one live client's mirror lifecycle ────────────────────────
+
+export interface MirrorOnceOptions<S extends SurfaceSpec, Client> {
+  /** The surface to mirror. */
+  source: Surface<S>;
+  /** The ONE live client to mirror this pass — a single (re)spawn for the pump,
+   *  or one link-up for a reconnecting local link. Generic over the client TYPE
+   *  (not the contract) so both `AgentClient<C>` callers infer it whole — a
+   *  `ContractRouterClient<C>` is too deeply nested to reverse-infer `C` from. */
+  client: Client;
+  /** The mirror sink folding this client's frames inward. Built FRESH per pass by
+   *  the caller, so per-client state (first-frame flags, counters) resets each
+   *  reconnect. */
+  sink: SurfaceSink<S>;
+  /** See {@link PumpRemoteSurfaceOptions.liveProcedures}. Set to this pass's
+   *  `mirror.procedures` while it lives, cleared when the link dies. */
+  liveProcedures?: LiveSpawnHolder<ProcedureForwarders<S>>;
+  /** See {@link PumpRemoteSurfaceOptions.liveClient}. Set to `client` while it
+   *  lives, cleared when the link dies. */
+  liveClient?: LiveSpawnHolder<Client>;
+  /** See {@link PumpRemoteSurfaceOptions.onLinkDown}. Fired AFTER the holders are
+   *  cleared, in the `finally`, so a `SinkError` can't skip it. */
+  onLinkDown?: () => void;
+  /** Thread cancellation into the mirror. The pump omits it (the session owns
+   *  teardown); a reconnecting local link passes its loop's signal. */
+  signal?: AbortSignal;
+  /** Diagnostic sink. Default no-op. */
+  log?: (line: string) => void;
+}
+
+/**
+ * Run ONE live client's worth of the reconnect-mirror lifecycle — the body the
+ * two loops that drive it ({@link pumpRemoteSurface}'s per-spawn body and
+ * pulam-web's local-link `runLocalMirror`) both need, factored out so it lives
+ * once: mirror the whole surface into `sink`, publish the live forwarding holders
+ * (waking any `onChange` observer), block on the mirror until the link dies, then
+ * — in a `finally` so a broken local fold (`SinkError`) can't skip it — clear the
+ * holders and fire `onLinkDown`.
+ *
+ * The two callers keep their OWN outer loops: the client SOURCE differs (a
+ * `HostSession` cursor of successive spawns vs a single reconnecting link) and so
+ * does the connection-state model (`pipeSessionStateToCell` vs an inline
+ * CONNECTING/CONNECTED/disconnected). Only this link-death-ordering body — which
+ * encodes the #1549 (`onLinkDown` rebuild-from-snapshot) and #1564 (clear-on-death)
+ * invariants — is shared, so a change to it lands in one place.
+ */
+export async function mirrorOnce<S extends SurfaceSpec, Client>(
+  opts: MirrorOnceOptions<S, Client>,
+): Promise<void> {
+  const log = opts.log ?? (() => {});
+  const mirror = mirrorRemoteSurface(
+    opts.source,
+    opts.client as unknown as SurfaceClientLike,
+    opts.sink,
+    { signal: opts.signal, log },
+  );
+  // Publish this pass's forwarding stubs + live client; clear them the instant the
+  // link dies so a forward in the gap fails honestly rather than calling a dead
+  // client. `onChange` wakes any forwarder holding open across reconnects (an
+  // observable holder's `whenChanged()` waiters) — both on the set (rebind to this
+  // pass) and the clear (the link just died).
+  if (opts.liveProcedures) {
+    opts.liveProcedures.current = mirror.procedures;
+    opts.liveProcedures.onChange?.();
+  }
+  if (opts.liveClient) {
+    opts.liveClient.current = opts.client;
+    opts.liveClient.onChange?.();
+  }
+  try {
+    await mirror.done;
+  } finally {
+    if (opts.liveProcedures) {
+      opts.liveProcedures.current = null;
+      opts.liveProcedures.onChange?.();
+    }
+    if (opts.liveClient) {
+      opts.liveClient.current = null;
+      opts.liveClient.onChange?.();
+    }
+    // The link to this pass is down: let the caller drop any per-link LOCAL state
+    // (a re-serve's awareness fold) so the NEXT pass rebuilds from the fresh
+    // snapshot instead of painting a stale row across the reconnect.
+    opts.onLinkDown?.();
+  }
+}
+
 export interface PumpRemoteSurfaceOptions<
   S extends SurfaceSpec,
   C extends AnyContractRouter,
@@ -215,41 +302,19 @@ export async function pumpRemoteSurface<
       }
       seq += 1;
       log(`agent client ready (client #${seq}); starting mirror`);
-      const mirror = mirrorRemoteSurface(
-        opts.source,
-        client as SurfaceClientLike,
-        opts.makeSink({ seq }),
-        { log },
-      );
-      // Publish this spawn's forwarding stubs + live client; clear them the
-      // instant the link dies so a forward in the gap fails honestly rather than
-      // calling a dead client. `onChange` wakes any forwarder holding open across
-      // reconnects (an observable holder's `whenChanged()` waiters) — both on the
-      // set (rebind to this spawn) and the clear (the link just died).
-      if (opts.liveProcedures) {
-        opts.liveProcedures.current = mirror.procedures;
-        opts.liveProcedures.onChange?.();
-      }
-      if (opts.liveClient) {
-        opts.liveClient.current = client;
-        opts.liveClient.onChange?.();
-      }
-      try {
-        await mirror.done;
-      } finally {
-        if (opts.liveProcedures) {
-          opts.liveProcedures.current = null;
-          opts.liveProcedures.onChange?.();
-        }
-        if (opts.liveClient) {
-          opts.liveClient.current = null;
-          opts.liveClient.onChange?.();
-        }
-        // The link to this spawn is down: let the consumer drop any per-link local
-        // state (e.g. a re-serve's awareness fold) so the NEXT spawn rebuilds from
-        // the fresh snapshot instead of painting a stale row across the reconnect.
-        opts.onLinkDown?.();
-      }
+      // One spawn's mirror lifecycle — the shared body (publish holders → await
+      // the mirror → clear holders + onLinkDown). The session owns teardown, so
+      // no `signal` is threaded; the cursor's `next()` is what blocks the loop
+      // until the next spawn.
+      await mirrorOnce({
+        source: opts.source,
+        client,
+        sink: opts.makeSink({ seq }),
+        liveProcedures: opts.liveProcedures,
+        liveClient: opts.liveClient,
+        onLinkDown: opts.onLinkDown,
+        log,
+      });
       log(`pump: mirror ended for client #${seq} — awaiting next client`);
     }
   } finally {
