@@ -1,85 +1,71 @@
-<svg viewBox="0 0 860 580" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+<svg viewBox="0 0 880 600" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
   <defs>
-    <marker id="v" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#5a3ff0"/></marker>
+    <marker id="v" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
     <marker id="s" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/></marker>
-    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
   </defs>
 
-  <text x="430" y="24" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">today: three sources of facts <tspan fill="#15803d">fused into ONE</tspan> <tspan font-style="italic">terminalMetadata</tspan> record</text>
+  <text x="440" y="24" text-anchor="middle" font-size="14.5" font-weight="700" fill="#334155">two served collections · <tspan fill="#15803d">joined at the reader</tspan> · never fused server-side  <tspan font-size="11" fill="#94a3b8">(landed: PR #1594)</tspan></text>
 
-  <!-- kaval -->
-  <text x="149" y="50" text-anchor="middle" font-size="11.5" font-weight="700" fill="#475569">kaval — the PTY</text>
-  <rect x="24" y="58" width="250" height="118" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
-  <text x="40" y="82" font-size="14.5" font-weight="700" fill="#334155">live Entry state</text>
-  <text x="40" y="101" font-size="11.5" fill="#475569">cwd · title · command · exit</text>
-  <text x="40" y="118" font-size="11.5" fill="#475569">foreground <tspan font-size="9.5" fill="#94a3b8">(sampled live, not cached)</tspan></text>
-  <line x1="40" y1="128" x2="258" y2="128" stroke="#dbe2ea"/>
-  <text x="40" y="146" font-size="9.5" fill="#64748b">cwd=OSC 7 · title=OSC 0;2 · cmd=OSC 633;E</text>
-  <text x="40" y="161" font-size="9.5" fill="#64748b">+ the write·resize·kill·I/O handle</text>
+  <!-- producers -->
+  <text x="144" y="48" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">kaval — the PTY</text>
+  <rect x="28" y="56" width="232" height="92" rx="9" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="44" y="79" font-size="12.5" font-weight="700" fill="#334155">live Entry state</text>
+  <text x="44" y="97" font-size="10.5" fill="#475569">cwd · title · foreground · command · exit</text>
+  <text x="44" y="113" font-size="9.5" fill="#64748b">OSC 7 / 0;2 / 633;E · tcgetpgrp</text>
+  <text x="44" y="132" font-size="9.5" fill="#64748b">(untouched by this PR · feeds the sensors)</text>
 
-  <!-- sensors -->
-  <text x="430" y="50" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b06d12">sensors — @kolu/terminal-workspace</text>
-  <rect x="305" y="58" width="250" height="118" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
-  <text x="321" y="82" font-size="14.5" font-weight="700" fill="#8a5a12">derive from kaval's taps</text>
-  <text x="321" y="101" font-size="11.5" fill="#7a4f10">git · pr · agent</text>
-  <text x="321" y="118" font-size="11.5" fill="#7a4f10">lastAgentCommand · agentSession · lastActivityAt</text>
-  <line x1="321" y1="128" x2="539" y2="128" stroke="#f0d9b0"/>
-  <text x="321" y="146" font-size="9.5" fill="#b07d2a">cwd → git → pr · normalise command</text>
-  <text x="321" y="161" font-size="9.5" fill="#b07d2a">run by kolu-server (local) or pulam (remote)</text>
+  <text x="396" y="48" text-anchor="middle" font-size="11" font-weight="700" fill="#b06d12">sensors — @kolu/terminal-workspace</text>
+  <rect x="280" y="56" width="232" height="92" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.5"/>
+  <text x="296" y="79" font-size="12.5" font-weight="700" fill="#8a5a12">derive + relay</text>
+  <text x="296" y="97" font-size="10.5" fill="#7a4f10">git · pr · agent · lastAgentCommand …</text>
+  <text x="296" y="113" font-size="9.5" fill="#b07d2a">cwd → git → pr · relay cwd/foreground</text>
+  <text x="296" y="132" font-size="9.5" fill="#b07d2a">local endpoint now · pulam at R9</text>
 
-  <!-- kolu -->
-  <text x="711" y="50" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5a3ff0">kolu — the UI author</text>
-  <rect x="586" y="58" width="250" height="118" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
-  <text x="602" y="82" font-size="14.5" font-weight="700" fill="#3a2bb8">authored, persisted</text>
-  <text x="602" y="101" font-size="11.5" fill="#352a7a"><tspan font-weight="700" fill="#5a3ff0">location</tspan> · themeName · parentId · intent</text>
-  <text x="602" y="118" font-size="11.5" fill="#352a7a">canvasLayout · subPanel · rightPanel</text>
-  <line x1="602" y1="128" x2="820" y2="128" stroke="#d4cbff"/>
-  <text x="602" y="146" font-size="9.5" fill="#6b5fd0">+ discriminant: state = active | sleeping</text>
-  <text x="602" y="161" font-size="9.5" fill="#6b5fd0">location set once at spawn, never mutated</text>
+  <text x="736" y="48" text-anchor="middle" font-size="11" font-weight="700" fill="#5a3ff0">kolu — the UI author</text>
+  <rect x="620" y="56" width="232" height="92" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.5"/>
+  <text x="636" y="79" font-size="12.5" font-weight="700" fill="#3a2bb8">authored, persisted</text>
+  <text x="636" y="97" font-size="10.5" fill="#352a7a">location · theme · panels · intent</text>
+  <text x="636" y="113" font-size="9.5" fill="#6b5fd0">+ state = active | sleeping · sleptAt</text>
 
-  <!-- kaval relays into sensors -->
-  <line x1="274" y1="92" x2="303" y2="92" stroke="#64748b" stroke-width="1.5" marker-end="url(#s)"/>
-  <text x="289" y="84" text-anchor="middle" font-size="8.5" fill="#94a3b8" font-style="italic">relay</text>
+  <line x1="260" y1="100" x2="278" y2="100" stroke="#64748b" stroke-width="1.4" marker-end="url(#s)"/>
 
-  <!-- compose arrows into the fused record -->
-  <line x1="149" y1="176" x2="300" y2="250" stroke="#15803d" stroke-width="1.5" marker-end="url(#g)"/>
-  <line x1="430" y1="176" x2="410" y2="250" stroke="#15803d" stroke-width="1.5" marker-end="url(#g)"/>
-  <line x1="660" y1="176" x2="520" y2="250" stroke="#15803d" stroke-width="1.5" marker-end="url(#g)"/>
-  <text x="572" y="214" font-size="10" fill="#3f9b63" font-style="italic">fused on every change</text>
+  <!-- two served collections -->
+  <line x1="396" y1="148" x2="300" y2="208" stroke="#d98a1f" stroke-width="1.5" marker-end="url(#s)"/>
+  <line x1="180" y1="148" x2="250" y2="208" stroke="#64748b" stroke-width="1.2" marker-end="url(#s)"/>
+  <line x1="736" y1="148" x2="715" y2="208" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#s)"/>
 
-  <!-- fused record -->
-  <rect x="170" y="252" width="430" height="104" rx="11" fill="#eefcf2" stroke="#15803d" stroke-width="1.8"/>
-  <text x="385" y="278" text-anchor="middle" font-size="15" font-weight="700" fill="#15803d">terminalMetadata  ·  one fused record</text>
-  <text x="385" y="298" text-anchor="middle" font-size="11.5" fill="#334155">value = <tspan font-style="italic">Terminal = active | sleeping</tspan>  (kolu's koluSurface)</text>
-  <line x1="200" y1="310" x2="570" y2="310" stroke="#bfe6cd"/>
-  <text x="385" y="330" text-anchor="middle" font-size="10.5" fill="#475569"><tspan font-weight="700">entry.meta</tspan> in the server registry — the registry IS the store</text>
-  <text x="385" y="347" text-anchor="middle" font-size="10" fill="#64748b">(no KavalMeta/PulamMeta/KoluMeta types · no compose fn)</text>
+  <rect x="110" y="210" width="320" height="96" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.8"/>
+  <text x="270" y="234" text-anchor="middle" font-size="13.5" font-weight="700" fill="#8a5a12">terminalWorkspace.awareness</text>
+  <text x="270" y="253" text-anchor="middle" font-size="12" font-weight="700" fill="#7a4f10">AwarenessValue</text>
+  <text x="270" y="271" text-anchor="middle" font-size="10" fill="#7a4f10">cwd·git·pr·agent·foreground·lastActivityAt·</text>
+  <text x="270" y="285" text-anchor="middle" font-size="10" fill="#7a4f10">lastAgentCommand·agentSession  (8 fields)</text>
+  <text x="270" y="300" text-anchor="middle" font-size="9" fill="#b06d12">served raw · single-writer store</text>
 
-  <!-- awareness, the OTHER collection -->
-  <rect x="630" y="252" width="206" height="104" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.4" stroke-dasharray="4 3"/>
-  <text x="733" y="276" text-anchor="middle" font-size="12" font-weight="700" fill="#8a5a12">awareness (pulam)</text>
-  <text x="733" y="294" text-anchor="middle" font-size="10" fill="#7a4f10">the 8-field AwarenessValue</text>
-  <text x="733" y="309" text-anchor="middle" font-size="9.5" fill="#7a4f10">kaval-relayed + sensor-derived</text>
-  <line x1="650" y1="318" x2="816" y2="318" stroke="#f0d9b0"/>
-  <text x="733" y="338" text-anchor="middle" font-size="10" font-weight="700" fill="#b06d12">kolu does NOT read this today</text>
-  <text x="733" y="351" text-anchor="middle" font-size="9" fill="#b07d2a">(served on terminalWorkspaceSurface)</text>
+  <rect x="560" y="210" width="290" height="96" rx="10" fill="#efebff" stroke="#5a3ff0" stroke-width="1.8"/>
+  <text x="705" y="234" text-anchor="middle" font-size="13.5" font-weight="700" fill="#3a2bb8">kolu.authored</text>
+  <text x="705" y="253" text-anchor="middle" font-size="12" font-weight="700" fill="#352a7a">AuthoredTerminal</text>
+  <text x="705" y="271" text-anchor="middle" font-size="10" fill="#352a7a">location · client chrome ·</text>
+  <text x="705" y="285" text-anchor="middle" font-size="10" fill="#352a7a">active | sleeping discriminant</text>
+  <text x="705" y="300" text-anchor="middle" font-size="9" fill="#6b5fd0">served raw · names NO awareness field</text>
 
-  <!-- wire + disk arrows -->
-  <line x1="300" y1="356" x2="280" y2="408" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
-  <line x1="470" y1="356" x2="500" y2="408" stroke="#5a3ff0" stroke-width="1.5" marker-end="url(#v)"/>
+  <!-- join -->
+  <line x1="270" y1="306" x2="360" y2="372" stroke="#15803d" stroke-width="1.6" marker-end="url(#v)"/>
+  <line x1="705" y1="306" x2="560" y2="372" stroke="#15803d" stroke-width="1.6" marker-end="url(#v)"/>
 
-  <rect x="120" y="410" width="320" height="74" rx="9" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.4"/>
-  <text x="136" y="432" font-size="12" font-weight="700" fill="#3a2bb8">WIRE — every tick</text>
-  <text x="136" y="451" font-size="10.5" fill="#475569">publishSnapshot → upsert(id, &#123;...entry.meta&#125;)</text>
-  <text x="136" y="468" font-size="10" fill="#64748b">the whole record, re-published on each change</text>
+  <rect x="225" y="374" width="430" height="128" rx="12" fill="#eefcf2" stroke="#15803d" stroke-width="2"/>
+  <text x="440" y="399" text-anchor="middle" font-size="14.5" font-weight="700" fill="#15803d">composeTerminalMetadata(authored, awareness)</text>
+  <text x="440" y="419" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">= TerminalMetadata  ·  active | sleeping</text>
+  <line x1="250" y1="430" x2="630" y2="430" stroke="#bfe6cd"/>
+  <text x="440" y="449" text-anchor="middle" font-size="10.5" fill="#475569">active   → &#123; ...awareness, ...authored &#125;   (full live overlay)</text>
+  <text x="440" y="465" text-anchor="middle" font-size="10.5" fill="#475569">sleeping → &#123; ...persisted(awareness), ...authored &#125;   (frozen pr)</text>
+  <text x="440" y="487" text-anchor="middle" font-size="10" font-style="italic" fill="#3f9b63">the ONE join — at the READER (useTerminalMetadata) and at SAVE (snapshotSession)</text>
 
-  <rect x="455" y="410" width="345" height="74" rx="9" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.4"/>
-  <text x="471" y="432" font-size="12" font-weight="700" fill="#334155">DISK — at sleep / session-save</text>
-  <text x="471" y="451" font-size="10.5" fill="#475569">SavedTerminalSchema.parse(&#123;...entry.meta, id&#125;)</text>
-  <text x="471" y="468" font-size="10" fill="#9a3a3a">live overlay (pr·agent·foreground) STRIPPED · sleeping freezes pr</text>
+  <!-- two consumers of the join -->
+  <text x="250" y="525" text-anchor="middle" font-size="10.5" fill="#5a3ff0">↳ client read · ~20 getMetadata consumers</text>
+  <text x="630" y="525" text-anchor="middle" font-size="10.5" fill="#64748b">↳ disk · SavedTerminal (live overlay stripped)</text>
 
-  <!-- target footnote -->
-  <rect x="40" y="506" width="780" height="52" rx="9" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="5 4"/>
-  <text x="430" y="528" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">the cleanup (PR1 → P2 → R9), NOT today:</text>
-  <text x="430" y="546" text-anchor="middle" font-size="10.5" fill="#64748b">name the 3 sources (KavalMeta·PulamMeta·KoluMeta) · serve awareness to kolu's browser · join at the reader · no server-side fuse · wire = kolu's fields only</text>
+  <!-- footnote -->
+  <rect x="40" y="548" width="800" height="44" rx="9" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="5 4"/>
+  <text x="440" y="566" text-anchor="middle" font-size="10.5" font-weight="700" fill="#475569">No server-side fused collection.</text>
+  <text x="440" y="582" text-anchor="middle" font-size="10" fill="#64748b">`surfaceCtx.collections.terminalMetadata` is a compile error (pinned by surface.test.ts). R9 = swap awareness's backing remote-side behind the same seam.</text>
 </svg>
