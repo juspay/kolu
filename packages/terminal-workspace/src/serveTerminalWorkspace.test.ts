@@ -6,9 +6,9 @@
  * `awareness` and `activity` — are injected through verbatim.
  */
 
-import type { Logger } from "pino";
+import pino from "pino";
 import { describe, expect, it } from "vitest";
-import type { TerminalEndpointFs, TerminalEndpointGit } from "./endpoint.ts";
+import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import {
   type AwarenessCollectionDeps,
   quietActivity,
@@ -16,12 +16,9 @@ import {
 } from "./serveTerminalWorkspace.ts";
 
 // fs/git are wired into procedures/streams but never INVOKED at assembly time,
-// so bare stubs suffice for the structural assertions below.
-const stubEndpoint = {
-  fs: {} as TerminalEndpointFs,
-  git: {} as TerminalEndpointGit,
-};
-const stubLog = { error: () => {} } as unknown as Logger;
+// so a bare endpoint stub suffices for the structural assertions below.
+const stubEndpoint = {} as TerminalWorkspaceEndpoint;
+const stubLog = pino({ level: "silent" });
 const stubAwareness: AwarenessCollectionDeps = {
   readAll: () => new Map(),
   upsert: () => {},

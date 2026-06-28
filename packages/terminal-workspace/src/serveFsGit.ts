@@ -21,7 +21,7 @@
 
 import { type ImplementSurfaceDeps, pollOnEvent } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import type { TerminalEndpointFs, TerminalEndpointGit } from "./endpoint.ts";
+import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import type { RepoChangePulse, terminalWorkspaceSurface } from "./surface.ts";
 
 type WorkspaceDeps = ImplementSurfaceDeps<typeof terminalWorkspaceSurface.spec>;
@@ -52,7 +52,7 @@ function changePulseSource(
  *  `createTerminalWorkspaceEndpoint` instance. The caller spreads these into its
  *  full deps (its own `activity` stream rides alongside the watchers). */
 export function fsGitSurfaceDeps(
-  fsGit: { fs: TerminalEndpointFs; git: TerminalEndpointGit },
+  fsGit: TerminalWorkspaceEndpoint,
   log: Logger,
 ): {
   procedures: NonNullable<WorkspaceDeps["procedures"]>;

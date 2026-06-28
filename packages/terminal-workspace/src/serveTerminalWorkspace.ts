@@ -26,7 +26,7 @@ import {
   pollOnEvent,
 } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import type { TerminalEndpointFs, TerminalEndpointGit } from "./endpoint.ts";
+import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import type { TerminalId } from "./schema.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
 import { DEFAULT_VERSION, type terminalWorkspaceSurface } from "./surface.ts";
@@ -70,7 +70,7 @@ export const quietActivity: ActivityStreamDeps = {
 export function serveTerminalWorkspace(deps: {
   awareness: AwarenessCollectionDeps;
   activity: ActivityStreamDeps;
-  endpoint: { fs: TerminalEndpointFs; git: TerminalEndpointGit };
+  endpoint: TerminalWorkspaceEndpoint;
   log: Logger;
 }): Omit<WorkspaceDeps, "channel"> {
   const fsGit = fsGitSurfaceDeps(deps.endpoint, deps.log);
