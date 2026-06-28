@@ -104,15 +104,23 @@ export function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
+/** The host-side fs/git endpoint — `createTerminalWorkspaceEndpoint`'s two faces
+ *  (`fs`, `git`). The NAMED injection seam both `serveFsGit` and
+ *  `serveTerminalWorkspace` accept, so the shape is spelled once instead of
+ *  re-derived at each boundary. */
+export type TerminalWorkspaceEndpoint = {
+  fs: TerminalEndpointFs;
+  git: TerminalEndpointGit;
+};
+
 /** The host-side fs/git endpoint — shell out to `kolu-git` on this machine. One
  *  impl, two faces: kolu-server binds it to its in-process `TerminalEndpoint`,
  *  and `serveFsGit` exposes it on the `terminalWorkspaceSurface` (procedures +
  *  watcher streams) that pulam serves and R8 mirrors. `log` is injected — the
  *  package's lone host coupling, never a fallback knob. */
-export function createTerminalWorkspaceEndpoint(log: Logger): {
-  fs: TerminalEndpointFs;
-  git: TerminalEndpointGit;
-} {
+export function createTerminalWorkspaceEndpoint(
+  log: Logger,
+): TerminalWorkspaceEndpoint {
   const fs: TerminalEndpointFs = {
     async listAll(repoPath: string): Promise<FsListAllOutput> {
       return { paths: unwrapGit(await listAll(repoPath, log)) };

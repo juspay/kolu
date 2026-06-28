@@ -10,15 +10,15 @@
  * kolu-github · the per-agent packages) and names NOTHING app-specific — no
  * `location` endpoint discriminator, no client/UI fields.
  *
- * kolu's own `TerminalServerMetadata` is built ON TOP of this: it merges in
- * `location` (the local/remote endpoint discriminator the app owns), the one
- * kolu-specific server field. (The full `TerminalMetadata` then layers the
- * client-persisted UI fields — themeName / parentId / canvasLayout / … — on
- * top of that; those are NOT on `TerminalServerMetadata`, the server write
- * fence.) So the awareness value is not carved out of kolu's record — kolu's
- * record extends this generic base. That inversion is what lets `pulam` (the
- * standalone daemon) and `pulam-tui` (the viewer) reuse the sensors with zero
- * dependency on any kolu-app package.
+ * kolu does NOT build a record ON TOP of this. It serves this generic
+ * `AwarenessValue` UNCHANGED on its `terminalWorkspace.awareness` collection, and
+ * recomposes its full `TerminalMetadata` at the CLIENT by JOINING that value with
+ * a SEPARATE authored record — the app-owned `location` (the local/remote endpoint
+ * discriminator) plus the client-persisted UI fields (themeName / parentId /
+ * canvasLayout / …). So awareness is a SIBLING of kolu's authored record, not a
+ * base kolu's record extends. That separation is what lets `pulam` (the standalone
+ * daemon) and `pulam-tui` (the viewer) reuse the sensors with zero dependency on
+ * any kolu-app package.
  *
  * The persisted-vs-live partition is the same write fence the sensors honor
  * through `AwarenessSink` (and that kolu's `metadata.ts` enforces): persisted
@@ -175,31 +175,36 @@ export const AwarenessLiveFieldsSchema = z.object({
 });
 export type AwarenessLiveFields = z.infer<typeof AwarenessLiveFieldsSchema>;
 
-/** The whole generic awareness value — persisted half ∪ live half. kolu's
- *  `TerminalServerMetadata` is this plus `location`; `pulam` serves exactly
+/** The whole generic awareness value — persisted half ∪ live half. kolu serves
+ *  exactly this on `terminalWorkspace.awareness` and JOINS it with a separate
+ *  authored record (location + UI fields) at the client; `pulam` serves exactly
  *  this over the wire. */
 export const AwarenessValueSchema = AwarenessPersistedFieldsSchema.merge(
   AwarenessLiveFieldsSchema,
 );
 export type AwarenessValue = z.infer<typeof AwarenessValueSchema>;
 
+/** The live half of a fresh / reset awareness value — PR pending, no agent, no
+ *  foreground: the "not yet resolved" defaults the sensors fill in. The ONE home
+ *  for the live-default set, so a fresh spawn (via {@link seedAwarenessValue}), a
+ *  wake, and an adoption all reset the live half through this and can't drift. A
+ *  fresh object each call — the value is mutated in place by the sensor sink, so
+ *  callers must not share one. */
+export function seedAwarenessLive(): AwarenessLiveFields {
+  return { pr: { kind: "pending" }, agent: null, foreground: null };
+}
+
 /** The initial awareness value for a freshly-spawned terminal: its spawn-time
- *  cwd, everything else at its "not yet resolved" seed (git absent, PR pending,
- *  no agent, no foreground, recency at 0). The sensors fill it in from now.
+ *  cwd, everything else at its "not yet resolved" seed (git absent, recency at 0,
+ *  and the live half from {@link seedAwarenessLive}). The sensors fill it in from
+ *  now.
  *
  *  Owned HERE, beside the schema that defines its shape, so every consumer
  *  shares one seed: `pulam`'s daemon seeds a watched terminal with it, and
  *  kolu's `createMetadata` spreads it under the kolu-only `location`. A new
  *  awareness field then has exactly one seed value to set. */
 export function seedAwarenessValue(cwd: string): AwarenessValue {
-  return {
-    cwd,
-    git: null,
-    lastActivityAt: 0,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-  };
+  return { cwd, git: null, lastActivityAt: 0, ...seedAwarenessLive() };
 }
 
 // ── Schema-derived sub-types ──────────────────────────────────────────

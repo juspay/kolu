@@ -139,11 +139,13 @@ export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
-  // Two sibling surfaces multiplexed over one transport (kolu#1197): kolu's
+  // Three sibling surfaces multiplexed over one transport (kolu#1197): kolu's
   // OWN primitives under `kolu`, surface-app's complete surface (buildInfo cell
-  // + identity probe) under `surfaceApp`. `composeSurfaceContracts` keys each
-  // inner contract, producing `{ surface: { kolu: …, surfaceApp: … } }` — wire
-  // paths are `surface.kolu.<prim>.<verb>` / `surface.surfaceApp.<prim>.<verb>`.
+  // + identity probe) under `surfaceApp`, and the generic `@kolu/terminal-workspace`
+  // surface (awareness collection + version cell + activity flow + fs/git) under
+  // `terminalWorkspace`. `composeSurfaceContracts` keys each inner contract,
+  // producing `{ surface: { kolu: …, surfaceApp: …, terminalWorkspace: … } }` —
+  // wire paths are `surface.<key>.<prim>.<verb>`.
   // `surfaces` is the single source shared with the server + client.
   ...composeSurfaceContracts(surfaces),
   server: {
