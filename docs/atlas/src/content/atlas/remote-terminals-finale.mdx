@@ -23,7 +23,7 @@ R8 split a terminal's record into two raw served collections — `terminalWorksp
 
 export const PT = [
   { d: 0, g: "▶", c: "prog", l: "R9a · localhost dedup — one sensor set (the first PR)", m: "R8 ✓ · startable now", h: "#r9a" },
-  { d: 0, g: "○", c: "prog", l: "R9.1 · the TerminalEndpoint resolver (local-only retrofit)", m: "after R9a", h: "#r91" },
+  { d: 0, g: "◐", c: "prog", l: "R9.1 · the TerminalEndpoint resolver (local-only retrofit)", m: "◐ #1603", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
   { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness (mirror the surface)", m: "needs R9.2 · R7", h: "#r93" },
   { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
@@ -73,12 +73,12 @@ Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4) (the live 
 
 ### R9.1 — the `TerminalEndpoint` resolver (local-only retrofit)
 
-<Phase id="R9.1" name="HostLocation-keyed endpoint resolver" status="todo" needs={["R8"]} />
+<Phase id="R9.1" name="HostLocation-keyed endpoint resolver" status="build-clean" needs={["R8"]} />
 
 Today `localTerminalEndpoint` is a singleton imported directly at `router.ts` / `surface.ts` / `terminals.ts`; there is **no** `location.kind` switch. Introduce **one resolver** keyed on `HostLocation` — the sole place a terminal maps to its kaval endpoint — and route every direct import through it. **Local-only and behavior-preserving** (the `{kind:"local"}` arm is the only arm). This is the retrofit that makes the remote arm purely additive; there is no `RemoteTerminalEndpoint`.
 
 - **Needs:** R8.
-- **Done:** every call site resolves through the resolver; the full suite is green with **no behavior change**; a test pins `{kind:"local"}` → `localTerminalEndpoint`.
+- **Done:** every call site resolves through the resolver; the full suite is green with **no behavior change**; a test pins `{kind:"local"}` → `localTerminalEndpoint`. Delivered in <PrLink pr={1603} /> — per-terminal ops (attach, kill) resolve off the terminal's own `entry.meta.location` so R9.2 is a one-`case` addition, and a `{kind:"remote"}` location fails loudly rather than degrading onto the local PTY.
 
 <a id="r92"></a>
 
