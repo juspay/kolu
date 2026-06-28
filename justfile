@@ -96,7 +96,9 @@ client:
 # tsx server (:4800) side-by-side. Set PULAM_WEB_HOSTS to a comma-separated ssh
 # host list (e.g. `PULAM_WEB_HOSTS=localhost,srid@box just pulam-web`); the pulam
 # drv map is baked from the flake (the SAME value `nix run .#pulam-web` --sets),
-# so a localhost or remote dial just works. Open http://localhost:5800.
+# so a remote ssh dial just works. A `localhost` host mirrors the local kolu
+# directly (no pulam) — set PULAM_WEB_KOLU_URL if it isn't on the default port.
+# Open http://localhost:5800.
 pulam-web: install
     #!/usr/bin/env bash
     set -euo pipefail

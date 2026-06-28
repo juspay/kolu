@@ -37,6 +37,17 @@ export const PULAM_WEB_HOSTS_ENV = "PULAM_WEB_HOSTS";
  *  messages and the `process.env` read can't silently drift. */
 export const PULAM_AGENT_DRVS_ENV = "PULAM_AGENT_DRVS_JSON";
 
+/** The env var carrying the LOCAL kolu's `/rpc/ws` URL — the source the
+ *  `localhost` host mirrors instead of spawning a second `pulam` (R9a). One
+ *  literal, so the address pulam-web dials and the error message can't drift. */
+export const PULAM_WEB_KOLU_URL_ENV = "PULAM_WEB_KOLU_URL";
+
+/** kolu's default loopback `/rpc/ws`. The `7681` mirrors `@kolu/common`'s
+ *  `DEFAULT_PORT`; pulam-web does NOT depend on `@kolu/common` (its barrel drags
+ *  node-only modules the client build can't load), so the port is paired by value
+ *  here, documented — not imported. Override with `PULAM_WEB_KOLU_URL`. */
+const DEFAULT_KOLU_URL = "ws://127.0.0.1:7681/rpc/ws";
+
 /** The env var carrying per-host kaval socket overrides — `host=socket` pairs,
  *  comma-separated. A host running SEVERAL kaval daemons (e.g. a box with both a
  *  kolu-server and a standalone kaval) is AMBIGUOUS to pulam's default discovery
@@ -117,6 +128,31 @@ export function readKavalSockets(env = process.env): Map<string, string> {
     map.set(host, socket);
   }
   return map;
+}
+
+/** The LOCAL kolu's `/rpc/ws` URL the `localhost` host mirrors (R9a). Defaults to
+ *  the loopback {@link DEFAULT_KOLU_URL}; an explicit `PULAM_WEB_KOLU_URL` must be a
+ *  `ws://`/`wss://` URL or this throws (fail-fast at boot, no silent fallback — a
+ *  typo'd URL would otherwise surface as a confusing perpetually-`disconnected`
+ *  localhost card). Read only when `PULAM_WEB_HOSTS` actually lists a local host. */
+export function readKoluUrl(env = process.env): string {
+  const raw = env[PULAM_WEB_KOLU_URL_ENV];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_KOLU_URL;
+  const url = raw.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(
+      `${PULAM_WEB_KOLU_URL_ENV}: invalid URL ${JSON.stringify(raw)} — set it to kolu's /rpc/ws (e.g. ${DEFAULT_KOLU_URL}).`,
+    );
+  }
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    throw new Error(
+      `${PULAM_WEB_KOLU_URL_ENV}: ${JSON.stringify(raw)} must be a ws:// or wss:// URL (e.g. ${DEFAULT_KOLU_URL}).`,
+    );
+  }
+  return url;
 }
 
 /** Parse + validate pulam's `{ system → drvPath }` map from an already-read env

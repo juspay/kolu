@@ -17,9 +17,11 @@ import {
   makeResolveDrvPath,
   PULAM_AGENT_DRVS_ENV,
   PULAM_WEB_KAVAL_SOCKETS_ENV,
+  PULAM_WEB_KOLU_URL_ENV,
   parsePort,
   readInitialHosts,
   readKavalSockets,
+  readKoluUrl,
 } from "./config.ts";
 
 const { resolveSystemMock } = vi.hoisted(() => ({
@@ -186,5 +188,44 @@ describe("readKavalSockets", () => {
         } as NodeJS.ProcessEnv),
       ).toThrow(PULAM_WEB_KAVAL_SOCKETS_ENV);
     }
+  });
+});
+
+describe("readKoluUrl", () => {
+  it("defaults to kolu's loopback /rpc/ws when unset/blank", () => {
+    expect(readKoluUrl({} as NodeJS.ProcessEnv)).toBe(
+      "ws://127.0.0.1:7681/rpc/ws",
+    );
+    expect(
+      readKoluUrl({ [PULAM_WEB_KOLU_URL_ENV]: "  " } as NodeJS.ProcessEnv),
+    ).toBe("ws://127.0.0.1:7681/rpc/ws");
+  });
+
+  it("returns an explicit ws:// or wss:// URL as-is (trimmed)", () => {
+    expect(
+      readKoluUrl({
+        [PULAM_WEB_KOLU_URL_ENV]: " ws://kolu.internal:9000/rpc/ws ",
+      } as NodeJS.ProcessEnv),
+    ).toBe("ws://kolu.internal:9000/rpc/ws");
+    expect(
+      readKoluUrl({
+        [PULAM_WEB_KOLU_URL_ENV]: "wss://kolu.example/rpc/ws",
+      } as NodeJS.ProcessEnv),
+    ).toBe("wss://kolu.example/rpc/ws");
+  });
+
+  it("fails fast on a malformed URL or a non-ws protocol (no silent default)", () => {
+    // A typo'd URL would otherwise surface as a confusing perpetually-disconnected
+    // localhost card, not a boot error.
+    expect(() =>
+      readKoluUrl({
+        [PULAM_WEB_KOLU_URL_ENV]: "not a url",
+      } as NodeJS.ProcessEnv),
+    ).toThrow(PULAM_WEB_KOLU_URL_ENV);
+    expect(() =>
+      readKoluUrl({
+        [PULAM_WEB_KOLU_URL_ENV]: "http://127.0.0.1:7681/rpc/ws",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("ws://");
   });
 });

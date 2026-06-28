@@ -33,7 +33,11 @@ import {
   installPwaManifest,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
-import { buildHostRegistry, destroyAllSessions } from "@kolu/surface-nix-host";
+import {
+  buildHostRegistry,
+  destroyAllSessions,
+  isLocalHost,
+} from "@kolu/surface-nix-host";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import {
@@ -44,13 +48,18 @@ import {
   parsePort,
   readInitialHosts,
   readKavalSockets,
+  readKoluUrl,
 } from "./config.ts";
 import {
   type PulamContract,
   type HostEntry,
   makeBuildEntry,
 } from "./hostEntry.ts";
-import { registerReconnectRoute } from "./reconnectRoute.ts";
+import { type LocalKoluMirror, startLocalKoluMirror } from "./localKolu.ts";
+import {
+  type ReconnectRegistry,
+  registerReconnectRoute,
+} from "./reconnectRoute.ts";
 
 const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
@@ -79,10 +88,37 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  // Parses + validates PULAM_AGENT_DRVS_JSON eagerly; throws here (caught below)
-  // if the Nix wrapper didn't bake the drv map.
-  const resolveDrvPath = makeResolveDrvPath();
-  log(`hosts (${initialHosts.length}): ${initialHosts.join(", ")}`);
+  // Split the host set by KIND. A `localhost` / `127.0.0.1` / `::1` host is NOT
+  // ssh-dialed: as of R9a pulam-web MIRRORS the local kolu's already-served
+  // awareness (kolu serves `terminalWorkspaceSurface` cross-process since R8)
+  // instead of spawning a second `pulam` sensor set against the same kaval — the
+  // working-in-pulam-web vs idle-in-Dock desync. Every OTHER host stays an ssh
+  // remote dialed through the `HostSession` registry.
+  const localHosts = initialHosts.filter(isLocalHost);
+  const sshHosts = initialHosts.filter((h) => !isLocalHost(h));
+
+  // The `{ system → pulam .drv }` map is needed ONLY to spawn `pulam` on an ssh
+  // host. `makeResolveDrvPath` parses + validates PULAM_AGENT_DRVS_JSON eagerly
+  // (throwing if the Nix wrapper didn't bake it), so gate that eager read on
+  // actually having an ssh host to dial: a localhost-ONLY deployment dials no
+  // pulam and must not require the map. The fallback thunk can only run if the ssh
+  // registry somehow dials despite no ssh hosts — it never does (the registry is
+  // seeded with `sshHosts`), so it fails loud rather than silently.
+  const resolveDrvPath =
+    sshHosts.length > 0
+      ? makeResolveDrvPath()
+      : (host: string): Promise<string> =>
+          Promise.reject(
+            new Error(
+              `no pulam derivations configured (localhost-only ${PULAM_WEB_HOSTS_ENV}) — cannot dial ssh host ${host}`,
+            ),
+          );
+  // kolu's /rpc/ws URL the localhost mirror dials — read + validated only when a
+  // local host is actually configured.
+  const koluUrl = localHosts.length > 0 ? readKoluUrl() : null;
+  log(
+    `hosts (${initialHosts.length}): ssh=[${sshHosts.join(", ") || "—"}] local=[${localHosts.join(", ") || "—"}]`,
+  );
 
   // Per-host kaval socket overrides (for a multi-kaval host). A socket named for
   // a host we don't dial is a typo — fail loud (matching pulam-tui's --kaval
@@ -101,16 +137,46 @@ async function main(): Promise<void> {
   // probe single-source. Mints internally; we read it back for `gateStaleSocket`.
   const { processId } = surfaceAppServer();
 
-  // ── The per-host session + handler registry ──────────────────────────────
+  // ── The per-host session + handler registry (ssh hosts) ──────────────────
   // No `persist` — the host set is static (env-seeded). `buildEntry` is sync, so
   // an unreachable boot host surfaces as a per-host `failed` state, never a
-  // throw that takes the port down.
+  // throw that takes the port down. Seeded with `sshHosts` only — localhost is
+  // mirrored separately below, never ssh-dialed.
   const buildEntry = makeBuildEntry({ resolveDrvPath, kavalSockets, log });
   const registry = buildHostRegistry<PulamContract, HostEntry["handler"]>({
-    initialHosts,
+    initialHosts: sshHosts,
     buildEntry,
     log,
   });
+
+  // ── The localhost mirror(s): the local kolu's served awareness (R9a) ─────
+  // One sensor (kolu's in-process sink), two readers (kolu's Dock + this
+  // dashboard) — never a second pulam. Keyed by host so the `?host=` dispatcher,
+  // `/api/hosts`, the reconnect route, and shutdown reach it beside the ssh
+  // registry. `koluUrl` is non-null whenever `localHosts` is non-empty.
+  const localMirrors = new Map<string, LocalKoluMirror>();
+  for (const host of localHosts) {
+    localMirrors.set(
+      host,
+      startLocalKoluMirror({
+        koluUrl: koluUrl as string,
+        log: (line) => log(`[${host}] ${line}`),
+      }),
+    );
+  }
+
+  // The parent's FULL host set is the ssh registry plus the local mirrors. These
+  // three readers fold the two together so the rest of the server treats every
+  // host uniformly — the browser leg already does, dialing `?host=<id>` the same
+  // for a local or remote host.
+  const allHosts = (): string[] => [
+    ...localMirrors.keys(),
+    ...registry.hosts(),
+  ];
+  const hasHost = (host: string): boolean =>
+    localMirrors.has(host) || registry.has(host);
+  const handlerFor = (host: string): HostEntry["handler"] | undefined =>
+    localMirrors.get(host)?.handler ?? registry.getHandler(host);
 
   // The RPC surface is unauthenticated; allowlist extra browser origins (a
   // reverse-proxy FQDN) via `PULAM_WEB_ALLOWED_ORIGINS` for the proxied case.
@@ -131,7 +197,7 @@ async function main(): Promise<void> {
   // changes; a tab still carrying the OLD one is rejected by `gateStaleSocket`
   // below (and retired client-side) instead of silently replaying onto a fresh
   // instance. The first-ever connect omits `pid` and always passes.
-  app.get("/api/hosts", (c) => c.json({ hosts: registry.hosts(), processId }));
+  app.get("/api/hosts", (c) => c.json({ hosts: allHosts(), processId }));
 
   // `POST /api/reconnect?host=<id>` — the failed-card Reconnect button. A
   // session that gave up into the terminal `failed` state only retries on an
@@ -139,7 +205,24 @@ async function main(): Promise<void> {
   // exposed to the browser. The route's gate / unknown-host-404 / fail-loud
   // missing-session / rearm branches live in `reconnectRoute.ts` so each is
   // reachable from a route-level test (`reconnectRoute.test.ts`).
-  registerReconnectRoute(app, { registry, allowedOrigins, log });
+  // The route reaches BOTH planes: each ssh host's `HostSession` AND each local
+  // mirror exposes a `reconnect()` re-arm (re-spawn the ssh session, or re-open
+  // the kolu link). `getSession` hands back the narrow `{ reconnect() }` slice the
+  // route uses, so a localhost card's Reconnect button is live, not a no-op.
+  const reconnectRegistry: ReconnectRegistry = {
+    has: hasHost,
+    getSession: (host) => {
+      const local = localMirrors.get(host);
+      return local
+        ? { reconnect: () => local.reconnect() }
+        : registry.getSession(host);
+    },
+  };
+  registerReconnectRoute(app, {
+    registry: reconnectRegistry,
+    allowedOrigins,
+    log,
+  });
 
   // PWA manifest — served dynamically so it's one source of truth with the
   // server (the kolu twin: `packages/server/src/index.ts`). pulam-web is a
@@ -245,7 +328,7 @@ async function main(): Promise<void> {
       socket.destroy();
       return;
     }
-    if (!registry.has(host)) {
+    if (!hasHost(host)) {
       socket.destroy();
       return;
     }
@@ -256,16 +339,19 @@ async function main(): Promise<void> {
       // The dispatch never runs for a stale tab, and the socket can't be
       // dispatched un-enrolled.
       acceptor.accept(ws, url, () => {
-        const handler = registry.getHandler(host);
+        const handler = handlerFor(host);
         if (handler === undefined) {
           // Race: host removed between the `has` check above and here.
           ws.close(1008, `unknown host: ${host}`);
           return;
         }
-        registry.registerConnection(host, ws);
+        // Socket tracking exists so `registry.remove()` can close a removed host's
+        // sockets; only the (removable) ssh hosts need it. A local mirror is static
+        // (never removed), so it tracks nothing.
+        if (registry.has(host)) registry.registerConnection(host, ws);
         log(`browser ws connect (host=${host})`);
         ws.on("close", (code, reason) => {
-          registry.unregisterConnection(host, ws);
+          if (registry.has(host)) registry.unregisterConnection(host, ws);
           log(
             `browser ws disconnect (host=${host}) (code=${code} reason=${reason.toString() || "<none>"})`,
           );
@@ -278,6 +364,7 @@ async function main(): Promise<void> {
   // ── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = (sig: string): void => {
     log(`${sig}: destroying host sessions`);
+    for (const mirror of localMirrors.values()) mirror.destroy();
     registry.destroyAll();
     destroyAllSessions();
     acceptor.stop();

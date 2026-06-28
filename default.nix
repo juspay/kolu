@@ -502,15 +502,18 @@ let
   #     @orpc resolve identically — the server's runtime deps are kolu-server's
   #     too, kept in `${kolu}`'s node_modules), serves that bundle via
   #     `installFreshStatic` (`PULAM_WEB_DIST_DIR`), and provisions + dials each
-  #     remote pulam over ssh. `PULAM_AGENT_DRVS_JSON` carries the per-system
+  #     remote pulam over ssh — and, for a `localhost` host, mirrors the LOCAL
+  #     machine's kolu directly (R9a), so no pulam (and no awareness sensors) ever
+  #     run on this parent box. `PULAM_AGENT_DRVS_JSON` carries the per-system
   #     `{ system → pulam .drv }` map (the same env `config.ts` reads), baked with
   #     `--set` (NOT `--set-default`): a baked build fact — the exact pulam DAEMON
   #     derivations this server ships + realises on each remote — never a tunable
   #     an ambient env could override (the repo's fail-fast rule). openssh + nix
-  #     are on PATH for the provision (resolveSystem's ssh arch-probe +
-  #     provisionAgent's `nix copy`); git + gh match the awareness sensors' needs
-  #     on a localhost dial. Set `PULAM_WEB_HOSTS` (comma-separated ssh hosts) and
-  #     open http://localhost:4800.
+  #     are on PATH for the per-host provision (resolveSystem's ssh arch-probe +
+  #     provisionAgent's `nix copy`); no git/gh — the sensors run on the remote
+  #     pulam (or inside kolu for localhost), never here. Set `PULAM_WEB_HOSTS`
+  #     (comma-separated; `localhost` reads the local kolu) and open
+  #     http://localhost:4800.
   pulamWebDist = pkgs.stdenv.mkDerivation {
     pname = "pulam-web-client";
     inherit version src;
@@ -549,9 +552,11 @@ let
   # lived server — so its `shutdown` handler (destroy host sessions, stop the
   # heartbeat, close the WS server + sockets) would be skipped and it would leak
   # ssh subprocesses + sockets on stop, exactly the failure `kaval`/`pulam`'s
-  # wrappers use the single-process loader form to avoid. openssh + nix + git + gh
-  # are on PATH for the per-host provision (resolveSystem's ssh arch-probe +
-  # provisionAgent's `nix copy`/`nix-store`, and the awareness sensors' git/gh).
+  # wrappers use the single-process loader form to avoid. openssh + nix are on PATH
+  # for the per-host provision of REMOTE hosts (resolveSystem's ssh arch-probe +
+  # provisionAgent's `nix copy`/`nix-store`); no git/gh/KOLU_GH_BIN — the awareness
+  # sensors run on the remote pulam (or, for `localhost`, inside kolu), never on
+  # this parent box, which R9a's localhost-mirror leaves running no pulam at all.
   pulam-web = pkgs.runCommand "pulam-web"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -563,8 +568,7 @@ let
       --add-flags "${kolu}/packages/pulam-web/src/server/main.ts" \
       --set PULAM_WEB_DIST_DIR "${pulamWebDist}/dist" \
       --set PULAM_AGENT_DRVS_JSON '${pulamAgentDrvsJson}' \
-      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix pkgs.git pkgs.gh ]}
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 
   # @kolu/surface example demos — derivations live next to each demo's
