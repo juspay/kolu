@@ -100,10 +100,28 @@ Producer names (`PulamMeta`, `KavalMeta`) bake in **who** makes the data — but
 
 **Recommendation:** rename the **join** `TerminalMetadata` → **`Terminal`** (the name is free; ~63 refs) and leave the two halves as `AuthoredTerminal` / `AwarenessValue`. It buys the model sentence — *"a `Terminal` is its authored half joined with its observed half"* — for the lowest churn, without the cross-package `AwarenessValue` rename the symmetric column drags in.
 
-## What's left
+## One surface, two homes — `serveTerminalWorkspace`
+
+The `terminalWorkspace.awareness` collection is served by **two homes** — kolu-server (in-process) and the `pulam` daemon (remote, over ssh) — but assembled in **one place**. `@kolu/terminal-workspace/serveTerminalWorkspace` owns the surface skeleton (the `version` handshake cell + the fs/git procedures and watcher streams, off `serveFsGit`); each home injects only its **two volatile backings**:
+
+| backing | kolu-server | pulam |
+| --- | --- | --- |
+| `awareness` source | projects off its **registry** (`.awareness` per entry) | reads its **own store** |
+| `activity` source | `quietActivity` — no raw byte tap yet | **live**, over its activity tracker |
+
+It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
+
+## Next — R9 (remote awareness)
+
+R8 did the hard part: it pushed the bisection all the way to the reader **and** put the assembly behind one factory. So **R9 is a backing-swap, not a rewrite** — everything downstream of the `terminalWorkspace.awareness` seam already exists.
 
 ```text
-shipped (#1594)   two raw collections · reader-side join · no server fusion · disk reuses the join
-naming            pick a column above (recommend: join → Terminal)
-R9                swap awareness's backing: local sensors → mirrored remote collection — nothing else
+R9   kolu-server's `awareness` backing:  registry projection  →  a mirror of a remote
+     pulam's awareness collection (over ssh)  ·  kolu's `activity`  →  live
+     UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
+                 (terminalWorkspaceSurface) · the authored half · disk persistence
 ```
+
+The single seam is `terminalWorkspace.awareness`, served via `serveTerminalWorkspace` in both homes. R9 injects a remote-mirrored awareness backing into kolu-server's call plus a live `activity` source — nothing past the seam moves.
+
+**Still open (pick before/with R9):** rename the join `TerminalMetadata` → `Terminal` (recommended above).
