@@ -24,57 +24,32 @@
  */
 
 import { RPCHandler } from "@orpc/server/ws";
-import type { composeSurfaceContracts } from "@kolu/surface/define";
-import { websocketLink } from "@kolu/surface/links/websocket";
-import { probeSurfaceLive } from "@kolu/surface/liveness";
-import {
-  createHeartbeat,
-  createSurfaceSocket,
-  type HeartbeatSocket,
-} from "@kolu/surface-app/connect";
 import { type AgentClient, mirrorOnce } from "@kolu/surface-nix-host";
 import {
   type ConnectionInfo,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-nix-host/connection";
+import {
+  connectTerminalWorkspace,
+  type TerminalWorkspaceSocket,
+} from "@kolu/terminal-workspace/connect";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { PulamContract, PulamHandler } from "./hostEntry.ts";
 import { buildReServe, type ReServe } from "./reserve.ts";
 
 export type { PulamContract };
 
-/** The keyed contract kolu serves the `terminalWorkspace` sibling under
- *  (`surface.terminalWorkspace.*`) — the same keying kolu's `implementSurfaces`
- *  produces, and the type `websocketLink`'s client is generic over. Derived off
- *  `composeSurfaceContracts` so it can't drift from how kolu composes the sibling;
- *  only the TYPE is needed, so no runtime contract value is allocated. */
-type KoluKeyedContract = ReturnType<
-  typeof composeSurfaceContracts<{
-    terminalWorkspace: typeof terminalWorkspaceSurface;
-  }>
->;
-
-/** The minimal partysocket face this module touches — `createHeartbeat`'s
- *  `HeartbeatSocket` (`readyState`/`OPEN`/`reconnect`), plus the `open` event the
- *  pump awaits before each (re)mirror and `close()` for teardown. Kept structural
- *  (extends the shared type) so a test's fake link needs no real socket. */
-interface ReconnectingSocket extends HeartbeatSocket {
-  close(): void;
-  addEventListener(type: "open", cb: () => void): void;
-  removeEventListener(type: "open", cb: () => void): void;
-}
-
 /**
  * A live link to the local kolu's `terminalWorkspaceSurface` — the source the
  * mirror folds into the re-serve. Abstracted so the production path (a reconnecting
- * WebSocket to kolu's `/rpc/ws`) and the hermetic test path (an in-process
- * `directLink` to a stand-in kolu) plug into the SAME pump.
+ * WebSocket to kolu, via `connectTerminalWorkspace`) and the hermetic test path (an
+ * in-process `directLink` to a stand-in kolu) plug into the SAME pump.
  */
 export interface KoluLink {
   /** The surface client `mirrorRemoteSurface` reads structurally as
    *  `client.surface.<primitive>.<verb>` (awareness/version/activity/fs/git). For
-   *  the WS path this is the `terminalWorkspace` sibling slice of the multiplexed
-   *  link; in-process it's a plain `directLink` client. */
+   *  the WS path this is `connectTerminalWorkspace`'s `terminalWorkspace`-scoped
+   *  client; in-process it's a plain `directLink` client. */
   client: AgentClient<PulamContract>;
   /** Resolve once the link is ready to mirror (the socket is OPEN). Immediate for
    *  an in-process link. Rejects if `signal` aborts while waiting. */
@@ -170,10 +145,16 @@ export async function runLocalMirror(opts: {
       if (signal.aborted) return; // aborted while waiting for the link — clean stop
       // `link.ready()` is contracted to reject ONLY on abort (the production
       // `waitForOpen` does). A rejection while NOT aborted is an unexpected fault —
-      // surface it loudly rather than silently ending the mirror loop, which would
-      // freeze the localhost card with no trace (the no-silent-swallow convention).
+      // SURFACE it (not just a stderr line a dashboard user never sees): flip the
+      // browser-facing card to `disconnected` so the fault is visible, then end the
+      // loop. Silently logging + returning would freeze the localhost card on its
+      // last state with no on-screen trace (the no-silent-swallow convention).
+      const reason = (err as Error).message;
       log(
-        `local kolu mirror: link.ready() rejected without an abort — ending mirror loop: ${(err as Error).message}`,
+        `local kolu mirror: link.ready() rejected without an abort: ${reason}`,
+      );
+      reServe.setConnection(
+        disconnected(`kolu link could not be reached: ${reason}`),
       );
       return;
     }
@@ -251,51 +232,32 @@ export async function runLocalMirror(opts: {
  * Build the production kolu link: a reconnecting WebSocket to the running kolu's
  * `/rpc/ws`, scoped to the `terminalWorkspace` sibling.
  *
- * kolu multiplexes three sibling surfaces over `/rpc/ws` (`kolu`, `surfaceApp`,
- * `terminalWorkspace`), so the client must address `surface.terminalWorkspace.*`.
- * `composeSurfaceContracts({ terminalWorkspace })` mints exactly that keying (the
- * same keying kolu's `implementSurfaces` serves), and the per-sibling slice
- * `{ surface: link.surface.terminalWorkspace }` is the `client.surface.<primitive>`
- * shape `mirrorRemoteSurface` reads — the server-side twin of how
- * `connectSurfaces` scopes each browser sibling client.
- *
- * pulam-web is a non-browser client: it sends no `Origin` (kolu's CSWSH gate
- * passes it) and no `pid` (kolu's stale-tab gate passes a first/echo-less connect),
- * so no `ProcessIdEcho` is wired — `createSurfaceSocket` just gives the reconnecting
- * partysocket. `createHeartbeat` turns a SILENTLY half-open socket (kolu wedged, TCP
- * alive) into a real reconnect via the reserved `system.live` probe, so the mirror
- * can't hang forever on a dead-but-open link.
+ * How kolu serves `terminalWorkspaceSurface` — the `terminalWorkspace` sibling on
+ * its multiplexed `/rpc/ws`, the non-browser no-Origin/no-pid posture, the
+ * `system.live` half-open watchdog — is composition knowledge owned by the SERVE
+ * side, so it lives in `@kolu/terminal-workspace`'s `connectTerminalWorkspace` (the
+ * client twin of `serveTerminalWorkspace`). This wrapper only adapts that
+ * connection's transport into the `KoluLink` lifecycle the pump drives; it names no
+ * sibling, no `/rpc/ws`, and never reconstructs `composeSurfaceContracts`. The
+ * returned `client` is the SAME `AgentClient` the remote `getHostSession` dial
+ * yields, so the local mirror is uniform with the remote one.
  */
 function connectKoluOverWs(
   koluUrl: string,
   log: (line: string) => void,
 ): KoluLink {
-  const socket = createSurfaceSocket({ url: koluUrl });
-  const link = websocketLink<KoluKeyedContract>(
-    socket.ws as unknown as WebSocket,
-  );
-  // The `terminalWorkspace` sibling slice — `client.surface.<primitive>` over the
-  // multiplexed link. The cast is the documented sibling-scope cast (`connectSurfaces`
-  // does the same `(link as any).surface[key]` internally); the runtime shape is a
-  // valid surface client of `terminalWorkspaceSurface`.
-  const client = {
-    surface: (link as { surface: Record<string, unknown> }).surface
-      .terminalWorkspace,
-  } as unknown as AgentClient<PulamContract>;
-  const heartbeat = createHeartbeat({
-    ws: socket.ws,
-    probe: () => probeSurfaceLive(client),
+  const conn = connectTerminalWorkspace(koluUrl, {
     onStale: () => log("local kolu link half-open — forcing reconnect"),
   });
   return {
-    client,
-    ready: (signal) => waitForOpen(socket.ws, signal),
-    isOpen: () => socket.ws.readyState === socket.ws.OPEN,
-    reconnect: () => socket.ws.reconnect(),
-    dispose: () => {
-      heartbeat.dispose();
-      socket.ws.close();
-    },
+    // `TerminalWorkspaceClient` IS `AgentClient<terminalWorkspaceSurface.contract>`
+    // (= `AgentClient<PulamContract>`), so the local and remote mirror take the
+    // same client type — no re-cast here.
+    client: conn.client,
+    ready: (signal) => waitForOpen(conn.socket, signal),
+    isOpen: () => conn.socket.readyState === conn.socket.OPEN,
+    reconnect: () => conn.socket.reconnect(),
+    dispose: () => conn.dispose(),
   };
 }
 
@@ -304,7 +266,7 @@ function connectKoluOverWs(
  *  auto-reconnects on its own; this just gates each (re)mirror so a `get()` never
  *  fires at a closed socket and busy-loops the pump. */
 function waitForOpen(
-  ws: ReconnectingSocket,
+  ws: TerminalWorkspaceSocket,
   signal: AbortSignal,
 ): Promise<void> {
   if (ws.readyState === ws.OPEN) return Promise.resolve();
@@ -339,7 +301,9 @@ function waitForOpen(
  * default opens the real WebSocket.
  */
 export function startLocalKoluMirror(opts: {
-  /** kolu's `/rpc/ws` URL (e.g. `ws://127.0.0.1:7681/rpc/ws`). */
+  /** The local kolu's WS URL — read + validated by `config.ts`'s `readKoluUrl`
+   *  (default `@kolu/terminal-workspace`'s `DEFAULT_KOLU_WS_URL`). Passed opaque to
+   *  `connectTerminalWorkspace`, which owns the endpoint path. */
   koluUrl: string;
   log?: (line: string) => void;
   /** Transport factory — defaults to the real reconnecting WebSocket link. */

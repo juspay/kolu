@@ -42,6 +42,7 @@ import {
   browserLink,
   standUpAgent,
   TERM_A,
+  TERM_B,
   useDisposers,
   waitFor,
 } from "./testKolu.ts";
@@ -77,7 +78,14 @@ function withAgent(state: AgentState, cwd = "/work/repo"): AwarenessValue {
 // A stand-in for the LOCAL kolu is the shared `standUpAgent` fixture seeded with
 // the test's awareness map and a quiet (empty) live-set — kolu serves the same
 // `terminalWorkspaceSurface` an ssh pulam does, so the differential test reads it
-// through the same stand-up the re-serve test uses.
+// through the same stand-up the re-serve test uses. `registryBacked: true` makes
+// the awareness collection a no-op-upsert registry PROJECTION (kolu-server's
+// pattern, not the pulam daemon's Map), and `kolu.publish`/`kolu.drop` mutate it
+// the way kolu's sensors do (registry first, then publish) — the backing under
+// which membership deltas must still reach a connected mirror.
+function standUpKolu(seed: Map<TerminalId, AwarenessValue>) {
+  return standUpAgent({ seed, quietLiveSet: [], registryBacked: true });
+}
 
 const disposers = useDisposers();
 
@@ -116,10 +124,7 @@ function agentState(
 describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)", () => {
   it("re-serves kolu's awareness value VERBATIM, and folds it to the same agent state", async () => {
     // kolu serves an awaiting-you agent for TERM_A.
-    const kolu = standUpAgent({
-      seed: new Map([[TERM_A, withAgent("awaiting_user")]]),
-      quietLiveSet: [],
-    });
+    const kolu = standUpKolu(new Map([[TERM_A, withAgent("awaiting_user")]]));
 
     // Drive the ACTUAL localhost pump with kolu as the source — no socket, no Nix.
     const reServe = buildReServe();
@@ -158,10 +163,7 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
   });
 
   it("tracks kolu's awareness deltas — a state change re-folds identically", async () => {
-    const kolu = standUpAgent({
-      seed: new Map([[TERM_A, withAgent("thinking")]]),
-      quietLiveSet: [],
-    });
+    const kolu = standUpKolu(new Map([[TERM_A, withAgent("thinking")]]));
     const reServe = buildReServe();
     const abort = new AbortController();
     void runLocalMirror({
@@ -187,14 +189,67 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
         agentPaintClass(agentState(served())) === "working",
     );
 
-    // kolu's sensor flips the agent to awaiting-you — the SAME event the Dock sees.
-    kolu.ctx.collections.awareness.upsert(TERM_A, withAgent("awaiting_user"));
+    // kolu's sensor flips the agent to awaiting-you — the SAME event the Dock sees
+    // (published kolu-style: registry first, then fan-out).
+    kolu.publish(TERM_A, withAgent("awaiting_user"));
 
     // pulam-web re-folds to the new state in lockstep — no stale `working` row, the
     // exact desync R9a fixes.
     await waitFor(() => agentUrgency(served()?.agent) === "need");
     expect(served()).toEqual(kolu.cache.get(TERM_A));
     expect(agentPaintClass(agentState(served()))).toBe("awaiting");
+  });
+
+  it("shows a terminal that appears AFTER the mirror connects, and drops one that leaves (live membership)", async () => {
+    // The real-world case the live-verification caught: open pulam-web FIRST, then
+    // start a terminal. The mirror connects with only TERM_A; TERM_B is born after.
+    // Its key must reach the re-served `awareness` collection live — without a
+    // mirror reconnect — or the dashboard freezes on its connect-time snapshot
+    // (the membership half of the desync). kolu's awareness is a registry
+    // PROJECTION (no-op upsert), so this only holds with the framework keys-delta
+    // fix; a Map-backed stand-in would mask the bug.
+    const kolu = standUpKolu(new Map([[TERM_A, withAgent("thinking")]]));
+    const reServe = buildReServe();
+    const abort = new AbortController();
+    void runLocalMirror({
+      reServe,
+      link: {
+        client: kolu.client,
+        ready: () => Promise.resolve(),
+        isOpen: () => true,
+        reconnect: () => {},
+        dispose: () => {},
+      },
+      signal: abort.signal,
+      log: () => {},
+    });
+    disposers.push(() => abort.abort());
+
+    // The browser reads the WHOLE re-served key set (a row per key), the way
+    // `HostGroup` does — so a key born after connect must appear here on its own.
+    let keys: readonly TerminalId[] = [];
+    createRoot((dispose) => {
+      disposers.push(dispose);
+      const app = surfaceClient(pulamSurface, browserLink(reServe.router));
+      const awareness = app.collections.awareness.use({});
+      createEffect(() => {
+        keys = awareness.keys() as TerminalId[];
+      });
+    });
+
+    // Connect snapshot: only TERM_A is present.
+    await waitFor(() => keys.includes(TERM_A));
+    expect([...keys].sort()).toEqual([TERM_A]);
+
+    // TERM_B is BORN in kolu after the mirror connected — it must surface live.
+    kolu.publish(TERM_B, withAgent("awaiting_user"));
+    await waitFor(() => keys.includes(TERM_B));
+    expect([...keys].sort()).toEqual([TERM_A, TERM_B]);
+
+    // And a terminal that LEAVES kolu drops from the dashboard live.
+    kolu.drop(TERM_A);
+    await waitFor(() => !keys.includes(TERM_A));
+    expect([...keys].sort()).toEqual([TERM_B]);
   });
 
   it("forces a reconnect (never hot-loops) when the mirror drains on a still-OPEN incompatible link", async () => {
@@ -249,10 +304,9 @@ describe("startLocalKoluMirror — wires a local link, never an ssh/pulam spawn"
     // The injected `connect` IS the only connection path — `localKolu.ts` imports
     // no `getHostSession`/`pulam` spawn, so a localhost host can't start a second
     // sensor set by construction. The injection just lets the test see it run.
-    const kolu = standUpAgent({
-      seed: new Map([[TERM_A, seedAwarenessValue("/work/repo")]]),
-      quietLiveSet: [],
-    });
+    const kolu = standUpKolu(
+      new Map([[TERM_A, seedAwarenessValue("/work/repo")]]),
+    );
     let connected = 0;
     let disposed = 0;
     const link: KoluLink = {

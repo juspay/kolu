@@ -26,6 +26,7 @@
  */
 
 import { ResolveDrvError, resolveSystem } from "@kolu/surface-nix-host";
+import { DEFAULT_KOLU_WS_URL } from "@kolu/terminal-workspace/connect";
 
 /** The env var carrying the static, comma-separated host set the parent dials.
  *  No persistence in R4.8a — this env is the whole host registry's seed. */
@@ -37,16 +38,12 @@ export const PULAM_WEB_HOSTS_ENV = "PULAM_WEB_HOSTS";
  *  messages and the `process.env` read can't silently drift. */
 export const PULAM_AGENT_DRVS_ENV = "PULAM_AGENT_DRVS_JSON";
 
-/** The env var carrying the LOCAL kolu's `/rpc/ws` URL — the source the
- *  `localhost` host mirrors instead of spawning a second `pulam` (R9a). One
- *  literal, so the address pulam-web dials and the error message can't drift. */
+/** The env var carrying the LOCAL kolu's WS URL — the source the `localhost` host
+ *  mirrors instead of spawning a second `pulam` (R9a). One literal, so the address
+ *  pulam-web dials and the error message can't drift. The endpoint path + default
+ *  live in `@kolu/terminal-workspace`'s `connectTerminalWorkspace` (the home of how
+ *  kolu serves the surface) — pulam-web hard-codes neither. */
 export const PULAM_WEB_KOLU_URL_ENV = "PULAM_WEB_KOLU_URL";
-
-/** kolu's default loopback `/rpc/ws`. The `7681` mirrors `@kolu/common`'s
- *  `DEFAULT_PORT`; pulam-web does NOT depend on `@kolu/common` (its barrel drags
- *  node-only modules the client build can't load), so the port is paired by value
- *  here, documented — not imported. Override with `PULAM_WEB_KOLU_URL`. */
-const DEFAULT_KOLU_URL = "ws://127.0.0.1:7681/rpc/ws";
 
 /** The env var carrying per-host kaval socket overrides — `host=socket` pairs,
  *  comma-separated. A host running SEVERAL kaval daemons (e.g. a box with both a
@@ -130,26 +127,27 @@ export function readKavalSockets(env = process.env): Map<string, string> {
   return map;
 }
 
-/** The LOCAL kolu's `/rpc/ws` URL the `localhost` host mirrors (R9a). Defaults to
- *  the loopback {@link DEFAULT_KOLU_URL}; an explicit `PULAM_WEB_KOLU_URL` must be a
- *  `ws://`/`wss://` URL or this throws (fail-fast at boot, no silent fallback — a
- *  typo'd URL would otherwise surface as a confusing perpetually-`disconnected`
- *  localhost card). Read only when `PULAM_WEB_HOSTS` actually lists a local host. */
+/** The LOCAL kolu's WS URL the `localhost` host mirrors (R9a). Defaults to the
+ *  loopback {@link DEFAULT_KOLU_WS_URL} (owned by `@kolu/terminal-workspace`, the
+ *  surface's home); an explicit `PULAM_WEB_KOLU_URL` must be a `ws://`/`wss://` URL
+ *  or this throws (fail-fast at boot, no silent fallback — a typo'd URL would
+ *  otherwise surface as a confusing perpetually-`disconnected` localhost card).
+ *  Read only when `PULAM_WEB_HOSTS` actually lists a local host. */
 export function readKoluUrl(env = process.env): string {
   const raw = env[PULAM_WEB_KOLU_URL_ENV];
-  if (raw === undefined || raw.trim() === "") return DEFAULT_KOLU_URL;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_KOLU_WS_URL;
   const url = raw.trim();
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new Error(
-      `${PULAM_WEB_KOLU_URL_ENV}: invalid URL ${JSON.stringify(raw)} — set it to kolu's /rpc/ws (e.g. ${DEFAULT_KOLU_URL}).`,
+      `${PULAM_WEB_KOLU_URL_ENV}: invalid URL ${JSON.stringify(raw)} — set it to kolu's WS endpoint (e.g. ${DEFAULT_KOLU_WS_URL}).`,
     );
   }
   if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
     throw new Error(
-      `${PULAM_WEB_KOLU_URL_ENV}: ${JSON.stringify(raw)} must be a ws:// or wss:// URL (e.g. ${DEFAULT_KOLU_URL}).`,
+      `${PULAM_WEB_KOLU_URL_ENV}: ${JSON.stringify(raw)} must be a ws:// or wss:// URL (e.g. ${DEFAULT_KOLU_WS_URL}).`,
     );
   }
   return url;

@@ -47,6 +47,15 @@ export interface StandUpAgentOptions {
    *  agent), or `[]` for a quiet kolu stand-in (localKolu's — kolu serves a quiet
    *  live-set). */
   quietLiveSet?: readonly TerminalId[];
+  /** Back the awareness collection the way KOLU-SERVER does — a registry PROJECTION
+   *  whose `upsert`/`remove` are NO-OPS (the registry IS the store) and whose entry
+   *  is added to the backing BEFORE the publishing `ctx.upsert` runs. The pulam
+   *  DAEMON instead uses a real Map `upsert` (the default here). The two differ in
+   *  exactly the case R9a's membership bug lived in: a Map `upsert` ADDS the key, so
+   *  the framework's keys-delta fires; a registry projection's no-op `upsert` on an
+   *  already-inserted key would (pre-fix) suppress it. localKolu's stand-in passes
+   *  `true` so it models kolu faithfully; use `publish`/`drop` to mutate it. */
+  registryBacked?: boolean;
 }
 
 /**
@@ -71,15 +80,19 @@ export function standUpAgent(opts: StandUpAgentOptions = {}) {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
     collections: {
-      awareness: {
-        readAll: () => cache,
-        upsert: (key, value) => {
-          cache.set(key, value);
-        },
-        remove: (key) => {
-          cache.delete(key);
-        },
-      },
+      // kolu-server projects awareness off its registry (no-op upsert/remove); the
+      // pulam daemon writes a real Map. `registryBacked` picks the kolu pattern.
+      awareness: opts.registryBacked
+        ? { readAll: () => cache, upsert: () => {}, remove: () => {} }
+        : {
+            readAll: () => cache,
+            upsert: (key, value) => {
+              cache.set(key, value);
+            },
+            remove: (key) => {
+              cache.delete(key);
+            },
+          },
     },
     streams: {
       // Live-set source. With a feed, forward each frame; otherwise yield ONE
@@ -144,7 +157,26 @@ export function standUpAgent(opts: StandUpAgentOptions = {}) {
   // `AgentClient<PulamContract>` is assignable from this at its call site.
   // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — the implementSurface router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
   const client = directLink<PulamContract>(router as any);
-  return { cache, ctx, client };
+  return {
+    cache,
+    ctx,
+    client,
+    /** Publish an awareness value the way kolu's `installAwareness` /
+     *  `updateServer*Metadata` do: mutate the registry (the `cache`) FIRST, then fan
+     *  out through `ctx` — so a terminal BORN after a consumer subscribed exercises
+     *  the registry-backed keys delta a Map `ctx.upsert` would mask. Works for both
+     *  backings (the Map `upsert`'s own `cache.set` is then idempotent). */
+    publish(id: TerminalId, value: AwarenessValue): void {
+      cache.set(id, value);
+      ctx.collections.awareness.upsert(id, value);
+    },
+    /** Drop a terminal the way kolu's `dropAwareness` does: registry entry gone
+     *  first, then the `ctx` removal that tells subscribers. */
+    drop(id: TerminalId): void {
+      cache.delete(id);
+      ctx.collections.awareness.remove(id);
+    },
+  };
 }
 
 /** A `directLink` to a re-serve router, typed over the BROWSER contract
