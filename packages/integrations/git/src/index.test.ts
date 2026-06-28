@@ -26,15 +26,18 @@ import {
 } from "vitest";
 import {
   _resetSharedConfigWatchers,
+  _settledSharedConfigWatchers,
   _sharedConfigWatcherCount,
 } from "./config-watcher.ts";
 import {
   _resetSharedCwdGitWatchers,
+  _settledSharedCwdGitWatchers,
   _sharedCwdGitWatcherCount,
 } from "./cwd-git-watcher.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import {
   _resetSharedHeadWatchers,
+  _settledSharedHeadWatchers,
   _sharedHeadWatcherCount,
 } from "./head-watcher.ts";
 import {
@@ -50,6 +53,16 @@ import {
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
+
+/** Await every async watcher install kicked off by `watch*()` /
+ *  `subscribeGitInfo`. Installs now resolve their git dir off the event
+ *  loop and attach `fs.watch` on a later tick, so `_sharedXCount()` and the
+ *  install/retire log counters are only truthful once these settle. */
+async function settleWatchers(): Promise<void> {
+  await _settledSharedHeadWatchers();
+  await _settledSharedConfigWatchers();
+  await _settledSharedCwdGitWatchers();
+}
 
 // --- getDiff: renames ---
 
@@ -751,10 +764,11 @@ describe("watchGitHead", () => {
     expect(_sharedHeadWatcherCount()).toBe(0);
   });
 
-  it("returns a no-op for non-git directories", () => {
+  it("returns a no-op for non-git directories", async () => {
     const dir = path.join(tmpDir, "no-git");
     fs.mkdirSync(dir, { recursive: true });
     const stop = watchGitHead(dir, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(0);
     stop(); // must not throw
   });
@@ -763,6 +777,7 @@ describe("watchGitHead", () => {
     const { dir } = await initRepo("shared-one-repo");
     const stop1 = watchGitHead(dir, () => {});
     const stop2 = watchGitHead(dir, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop1();
     expect(_sharedHeadWatcherCount()).toBe(1);
@@ -779,6 +794,7 @@ describe("watchGitHead", () => {
 
     const stop1 = watchGitHead(dir, () => {});
     const stop2 = watchGitHead(sub, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop1();
     stop2();
@@ -790,6 +806,7 @@ describe("watchGitHead", () => {
     const b = await initRepo("repo-b");
     const stopA = watchGitHead(a.dir, () => {});
     const stopB = watchGitHead(b.dir, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(2);
     stopA();
     stopB();
@@ -799,10 +816,12 @@ describe("watchGitHead", () => {
   it("a fresh subscribe after teardown installs a new watcher", async () => {
     const { dir } = await initRepo("rebuild-repo");
     const stop1 = watchGitHead(dir, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop1();
     expect(_sharedHeadWatcherCount()).toBe(0);
     const stop2 = watchGitHead(dir, () => {});
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     stop2();
     expect(_sharedHeadWatcherCount()).toBe(0);
@@ -812,6 +831,7 @@ describe("watchGitHead", () => {
     const { dir } = await initRepo("idempotent-repo");
     const stop1 = watchGitHead(dir, () => {});
     const stop2 = watchGitHead(dir, () => {});
+    await settleWatchers();
     stop1();
     stop1(); // must not double-tear-down or affect stop2's subscription
     expect(_sharedHeadWatcherCount()).toBe(1);
@@ -860,6 +880,7 @@ describe("watchGitHead", () => {
       const stopB = watchGitHead(dir, () => {
         bFires++;
       });
+      await settleWatchers();
       expect(_sharedHeadWatcherCount()).toBe(1);
 
       // Branch switch rewrites .git/HEAD, which is what we're watching.
@@ -887,6 +908,7 @@ describe("watchGitHead", () => {
       const stopB = watchGitHead(dir, () => {
         bFires++;
       });
+      await settleWatchers();
 
       await git.checkoutLocalBranch("feature");
       await waitForHeadEvent(() => bFires > 0, gitDir);
@@ -934,10 +956,11 @@ describe("watchGitConfig", () => {
     expect(_sharedConfigWatcherCount()).toBe(0);
   });
 
-  it("returns a no-op for non-git directories", () => {
+  it("returns a no-op for non-git directories", async () => {
     const dir = path.join(tmpDir, "no-git");
     fs.mkdirSync(dir, { recursive: true });
     const stop = watchGitConfig(dir, () => {});
+    await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(0);
     stop(); // must not throw
   });
@@ -946,6 +969,7 @@ describe("watchGitConfig", () => {
     const { dir } = await initRepo("config-refcount");
     expect(_sharedConfigWatcherCount()).toBe(0);
     const stop = watchGitConfig(dir, () => {});
+    await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(1);
     stop();
     expect(_sharedConfigWatcherCount()).toBe(0);
@@ -961,6 +985,7 @@ describe("watchGitConfig", () => {
 
     const stopMain = watchGitConfig(dir, () => {});
     const stopWorktree = watchGitConfig(worktreeDir, () => {});
+    await settleWatchers();
     expect(_sharedConfigWatcherCount()).toBe(1);
     stopMain();
     expect(_sharedConfigWatcherCount()).toBe(1);
@@ -1029,7 +1054,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo dual watcher", () => {
       updates.push(info);
     });
 
-    // Synchronous install in head mode brings up both shared watchers.
+    // Head mode brings up both shared watchers; their installs settle off
+    // the event loop, so await before asserting the counts.
+    await settleWatchers();
     expect(_sharedHeadWatcherCount()).toBe(1);
     expect(_sharedConfigWatcherCount()).toBe(1);
 
@@ -1157,6 +1184,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     await waitFor(() => updates.length >= 1);
     expect(updates[0]?.repoRoot).toBe(fs.realpathSync(repoDir));
 
+    // The head install settles off the event loop; await it so its install
+    // log has fired and `stop()` produces the matching retire.
+    await settleWatchers();
     sub.stop();
 
     // The bug: 2 installs + 1 retire on a single cd into a repo, plus
@@ -1185,7 +1215,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     );
 
     // Initial subscribe on a non-git dir installs the cwd watcher, not the
-    // HEAD watcher — there's nothing inside `.git/` to watch yet.
+    // HEAD watcher — there's nothing inside `.git/` to watch yet. The cwd
+    // install settles off the event loop, so await it before counting.
+    await settleWatchers();
     expect(counter.installs).toBe(0);
     expect(counter.cwdInstalls).toBe(1);
 
@@ -1202,6 +1234,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     await waitFor(() => updates.length >= 1, 3000);
     expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
 
+    await settleWatchers();
     sub.stop();
 
     expect(counter.installs).toBe(1);
@@ -1240,6 +1273,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     await waitFor(() => updates.length >= 1);
     expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
 
+    await settleWatchers();
     sub.stop();
 
     // Even with both paths potentially firing, the HEAD watcher is
@@ -1262,7 +1296,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
       counter.log,
     );
 
-    // Initial subscribe installed on a's gitDir synchronously.
+    // Initial subscribe installs on a's gitDir; the install settles off the
+    // event loop, so await it before counting.
+    await settleWatchers();
     expect(counter.installs).toBe(1);
 
     // Wait for the initial GitInfo to publish before swapping.
@@ -1271,6 +1307,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     sub.setCwd(b.dir);
     await waitFor(() => updates.length >= 2);
 
+    await settleWatchers();
     sub.stop();
 
     // Initial install on a + retire on transition + install on b + retire on stop.
@@ -1300,6 +1337,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     );
 
     await waitFor(() => updates.length >= 1);
+    // Ensure the HEAD watcher has actually attached (its install settles off
+    // the event loop) so the rewrite below reliably drives the listener.
+    await settleWatchers();
 
     // Rewrite .git/HEAD to schedule a debounced watcher event. After the
     // debounce window, the listener will call `resolve()`, which then

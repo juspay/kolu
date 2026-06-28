@@ -30,6 +30,10 @@ export const watchGitConfig = configWatcher.watch;
  *  `fs.watch`. */
 export const _sharedConfigWatcherCount = configWatcher._watcherCount;
 
+/** Test-only barrier — resolves once every in-flight `watchGitConfig`
+ *  resolution has installed or cancelled. Await before reading the count. */
+export const _settledSharedConfigWatchers = configWatcher._whenSettled;
+
 /** Test-only teardown — close every active config-watcher and clear the
  *  singleton's registry. Production code must never call this; it exists so
  *  vitest `beforeEach` can break the module-scope leak that turns one
