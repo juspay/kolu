@@ -19,7 +19,10 @@
  * and `./schema` subpaths do not import this.
  */
 
-import type { composeSurfaceContracts } from "@kolu/surface/define";
+import {
+  type composeSurfaceContracts,
+  scopeSibling,
+} from "@kolu/surface/define";
 import { websocketLink } from "@kolu/surface/links/websocket";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import {
@@ -102,13 +105,14 @@ export function connectTerminalWorkspace(
     socket.ws as unknown as WebSocket,
   );
   // The `terminalWorkspace` sibling slice — `client.surface.<primitive>` over the
-  // multiplexed link. The cast is the documented sibling-scope cast (the runtime
-  // shape is a valid client of `terminalWorkspaceSurface`); it is the raw twin of
-  // the `(link as any).surface[key]` walk `surfaceClients` does for Solid clients.
-  const client = {
-    surface: (link as { surface: Record<string, unknown> }).surface
-      .terminalWorkspace,
-  } as TerminalWorkspaceClient;
+  // multiplexed link. `scopeSibling` owns the documented `link.surface[key]`
+  // key-walk (the SAME one `surfaceClients` rides for Solid clients); the cast
+  // here is just the downstream target-type assertion (the runtime shape is a
+  // valid client of `terminalWorkspaceSurface`).
+  const client = scopeSibling(
+    link,
+    "terminalWorkspace",
+  ) as TerminalWorkspaceClient;
   const heartbeat = createHeartbeat({
     ws: socket.ws,
     probe: () => probeSurfaceLive(client),

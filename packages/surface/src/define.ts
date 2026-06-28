@@ -948,3 +948,27 @@ export function composeSurfaceContracts<
     };
   };
 }
+
+/** Scope a `composeSurfaceContracts`-shaped combined link down to ONE sibling
+ *  key — the runtime twin of {@link composeSurfaceContracts}'s
+ *  `{ surface: { <key>: … } }` shape. A combined transport is
+ *  `{ surface: { <key>: innerLink } }`; this returns the single-sibling slice
+ *  `{ surface: innerLink }` a per-key client rides, so the bundle's internal
+ *  `link.surface.<prim>` walk resolves at the wire path `/surface/<key>/<prim>`.
+ *
+ *  This OWNS the one documented unsafe key-walk on the type-erased link
+ *  (`link.surface[key]`): both `surfaceClients` (the Solid bundle) and a raw
+ *  consumer (`@kolu/terminal-workspace`'s `connectTerminalWorkspace`) scope a
+ *  sibling through HERE, so a future keying change is a single edit, not a cast
+ *  re-derived per call site. The caller keeps its OWN downstream target-type
+ *  assertion on the slice (`as TerminalWorkspaceClient`, the `buildSurfaceClient`
+ *  cast); only the dynamic key-walk lives here. */
+export function scopeSibling(
+  // biome-ignore lint/suspicious/noExplicitAny: the combined link is type-erased; the key-walk is dynamic and the caller's target-type assertion carries call-site safety.
+  link: any,
+  key: string,
+): { surface: unknown } {
+  return {
+    surface: (link as { surface: Record<string, unknown> }).surface[key],
+  };
+}
