@@ -47,7 +47,9 @@ export interface DirFilenameWatcher {
    *  the unsubscribe **synchronously**; the underlying `fs.watch` attaches
    *  on a later tick once the async `resolveDir` settles (a no-op if it
    *  resolves null). Unsubscribing before that settles cancels the pending
-   *  install. */
+   *  install. Once the handle is live, `onChange` fires once as a
+   *  reconciliation tick so a change that landed in the snapshot→attach
+   *  window isn't lost (the consumer re-reads and converges). */
   watch(cwd: string, onChange: () => void, log?: Logger): () => void;
   /** Test-only inspector — number of distinct resolved dirs with active
    *  shared watchers. Reflects installs that have already settled; pair
@@ -181,6 +183,27 @@ export function createDirFilenameWatcher(
           entry = fresh;
         }
         unsubscribe = entry.subscribe(onChange);
+        // Post-install reconciliation. The consumer takes its snapshot (a `git
+        // status`, a `resolveGitInfo`) and *then* calls `watch()`; this resolve
+        // + `fs.watch` attach lands on a LATER tick (an `execFile` git subprocess
+        // + a `realpath` ago). A change to the watched file inside that window is
+        // in neither the already-sent snapshot nor a future `fs.watch` event, so
+        // the consumer would sit on a stale view until the *next* unrelated
+        // change. Fire one reconcile tick now that the handle is live so the
+        // consumer re-reads and converges. Mirrors `watchWorkingTree`'s own
+        // post-install reconciliation (and the @parcel/watcher skill's guidance)
+        // — the git-dir axes (HEAD/reflog/index/config) need the same lost-update
+        // protection the working-tree axis already has. Wrapped like the event
+        // dispatch so a throwing listener can't reject this settle promise (which
+        // would surface as an unhandledRejection and, in the server, exit).
+        try {
+          onChange();
+        } catch (e) {
+          log?.error(
+            { err: e instanceof Error ? e.message : String(e), dir },
+            `${config.logLabel} reconcile listener threw`,
+          );
+        }
       })();
       const tracked = settle.finally(() => pending.delete(tracked));
       pending.add(tracked);

@@ -63,15 +63,28 @@ describe("the watchdog aborts a wedged process", () => {
     // Plain ESM (.mjs) so the child needs no TS loader — it builds the worker
     // from the real source handed in via env, stamps the heartbeat once, then
     // wedges its main loop so the stamp can never refresh.
+    // A scratch dir + sentinel file the worker must remove before it aborts
+    // (the SIGABRT path's stand-in for `process.on('exit')` cleanup).
+    const scratchDir = path.join(tmpDir, "scratch-root");
+    fs.mkdirSync(scratchDir);
+    fs.writeFileSync(path.join(scratchDir, "secret.txt"), "pasted image bytes");
+
     const fixture = `
 import { Worker } from "node:worker_threads";
 const sab = new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT);
 const beats = new BigInt64Array(sab);
-beats[0] = BigInt(Date.now()); // single heartbeat; the wedge never refreshes it
+// Single monotonic heartbeat; the wedge never refreshes it. Must be the SAME
+// clock the worker reads (process.hrtime.bigint, not Date.now).
+beats[0] = process.hrtime.bigint();
 new Worker(process.env.WD_SRC, {
   eval: true,
   execArgv: [],
-  workerData: { sab, thresholdMs: 200, checkMs: 50 },
+  workerData: {
+    sab,
+    thresholdNs: 200 * 1_000_000,
+    checkMs: 50,
+    cleanupPaths: [process.env.WD_SCRATCH],
+  },
 });
 // Wedge the main loop. The heartbeat interval can't fire, so the stamp goes
 // stale and the worker must abort us.
@@ -82,7 +95,11 @@ while (Date.now() < deadline) {}
     fs.writeFileSync(fixturePath, fixture);
 
     const child = spawn(process.execPath, [fixturePath], {
-      env: { ...process.env, WD_SRC: WATCHDOG_WORKER_SOURCE },
+      env: {
+        ...process.env,
+        WD_SRC: WATCHDOG_WORKER_SOURCE,
+        WD_SCRATCH: scratchDir,
+      },
       stdio: ["ignore", "ignore", "pipe"],
     });
 
@@ -111,5 +128,8 @@ while (Date.now() < deadline) {}
     // And it explained itself on stderr for the journal/postmortem.
     expect(stderr).toContain("event loop wedged");
     expect(stderr).toContain("event-loop-watchdog");
+    // And it cleaned this instance's scratch root before aborting — the SIGABRT
+    // path's stand-in for the `process.on('exit')` cleanup it bypasses.
+    expect(fs.existsSync(scratchDir)).toBe(false);
   });
 });

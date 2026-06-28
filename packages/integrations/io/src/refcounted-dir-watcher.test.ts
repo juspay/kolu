@@ -58,6 +58,66 @@ describe("createDirFilenameWatcher async install", () => {
     expect(w._watcherCount()).toBe(0);
   });
 
+  // Lost-update guard: the consumer snapshots BEFORE `watch()` and the handle
+  // attaches a tick later, so a change in that window would be invisible without
+  // a reconciliation tick. `watch()` must fire `onChange` once the handle is
+  // live so the consumer re-reads and converges.
+  it("fires a reconciliation tick once the watcher is installed", async () => {
+    let fires = 0;
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "test",
+    });
+
+    const stop = w.watch(tmpDir, () => {
+      fires++;
+    });
+    // Nothing fires synchronously — the resolve hasn't settled yet.
+    expect(fires).toBe(0);
+
+    await w._whenSettled();
+    // Exactly one reconcile tick after the handle attaches.
+    expect(fires).toBe(1);
+
+    stop();
+  });
+
+  // A throwing reconcile listener must be caught (logged), never reject the
+  // settle promise — otherwise the server's unhandledRejection handler exits.
+  it("a throwing reconcile listener is caught, not propagated", async () => {
+    const errors: string[] = [];
+    const log = {
+      info() {},
+      debug() {},
+      warn() {},
+      error(obj: { err?: unknown }) {
+        errors.push(String(obj.err));
+      },
+    };
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "test",
+    });
+
+    const stop = w.watch(
+      tmpDir,
+      () => {
+        throw new Error("reconcile boom");
+      },
+      log as never,
+    );
+    // Must settle without an unhandled rejection.
+    await w._whenSettled();
+    expect(errors.some((e) => e.includes("reconcile boom"))).toBe(true);
+    expect(w._watcherCount()).toBe(1);
+
+    stop();
+  });
+
   it("unsubscribing before the resolution settles cancels the install", async () => {
     const gate = deferred<string | null>();
     const w = createDirFilenameWatcher({

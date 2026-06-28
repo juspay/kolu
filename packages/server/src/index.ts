@@ -35,7 +35,7 @@ import {
   rawTargetFromContext,
 } from "./iframePreviewRoute.ts";
 import { startEventLoopWatchdog } from "./eventLoopWatchdog.ts";
-import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
+import { ensureKoluRoot, koluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { liveSamplerDeps, startMemorySampler } from "./memorySampler.ts";
 import { publisherSize } from "./publisher.ts";
@@ -186,11 +186,12 @@ app.use("/rpc/*", async (c, next) => {
 });
 
 // --- Graceful shutdown ---
-// One cleanup registration covers every exit path (signals, fatal
+// One cleanup registration covers every NORMAL exit path (signals, fatal
 // handlers, natural exit). `process.on('exit', ...)` fires on any call
 // to process.exit() and runs synchronously — exactly what rmSync needs.
-// Only SIGKILL / power loss bypass it, and XDG logout-wipe is the
-// backstop for those.
+// SIGKILL / power loss bypass it (XDG logout-wipe is the backstop), and so
+// does the watchdog's SIGABRT — that recovery path cleans `koluRoot` itself
+// from inside the worker (see `startEventLoopWatchdog({ cleanupPaths })` below).
 process.on("exit", shutdownCleanup);
 
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
@@ -221,7 +222,9 @@ process.on("unhandledRejection", (reason) => {
 // the main event loop stops heartbeating (a total freeze the in-loop handlers
 // above can't catch — a blocked loop runs no JS). The supervisor restarts the
 // fresh process. See `eventLoopWatchdog.ts` for the 2026-06-28 wedge it backs.
-startEventLoopWatchdog();
+// `cleanupPaths` lets the abort path drop this instance's scratch root (the
+// SIGABRT skips the `process.on('exit')` cleanup above).
+startEventLoopWatchdog({ cleanupPaths: [koluRoot] });
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
