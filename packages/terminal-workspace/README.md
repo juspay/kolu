@@ -95,4 +95,6 @@ consumer:
 | `./surface` | browser-safe | `terminalWorkspaceSurface` — served by `pulam` (remote) and, since R8, by `kolu-server` in-process; kolu mirrors a remote host's in R9 |
 | `./endpoint` | Node | `createTerminalWorkspaceEndpoint` (the fs/git wrapper) + its interfaces |
 | `./serveFsGit` | Node | `fsGitSurfaceDeps` — wires the endpoint onto the surface |
+| `./serveTerminalWorkspace` | Node | `serveTerminalWorkspace` — the ONE factory both homes (kolu-server, `pulam`) use to assemble the surface deps; each injects only `awareness` + `activity` |
+| `./connect` | Node | `connectTerminalWorkspace` — the **client twin** of `serveTerminalWorkspace`: dial a kolu-served `terminalWorkspaceSurface` over its multiplexed `/rpc/ws`, scope the `terminalWorkspace` sibling, arm the `system.live` watchdog, and hand back the same `AgentClient` a remote dial yields. pulam-web's localhost mirror (R9a) consumes it so it names no sibling and no `/rpc/ws` |
 | `./socket` | Node | the well-known socket path the daemon serves and the viewer dials |
