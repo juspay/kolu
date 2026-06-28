@@ -83,10 +83,13 @@ interface HostHandle {
   destroy(): void;
   /** Track an open browser socket so a host removal can close it. Present ONLY
    *  for the (removable) ssh hosts; a static local mirror tracks nothing and
-   *  omits it (an absent capability, not a remembered guard). */
-  registerConnection?(ws: ClosableSocket): void;
-  /** Stop tracking a socket once it has closed on its own. */
-  unregisterConnection?(ws: ClosableSocket): void;
+   *  omits the whole capability (an absent capability, not a remembered guard).
+   *  The two halves (`register`/`unregister`) are ONE object so the coupling is
+   *  structural — you can't supply one without the other. */
+  tracking?: {
+    register(ws: ClosableSocket): void;
+    unregister(ws: ClosableSocket): void;
+  };
 }
 
 // The colour the pulam shell paints behind everything (the PWA splash/background).
@@ -204,9 +207,12 @@ async function main(): Promise<void> {
         reconnect: () => registry.reconnect(host),
         destroy: () => session.destroy(),
         // Only the (removable) ssh hosts track sockets, so `registry.remove()`
-        // can close a removed host's open browser sockets.
-        registerConnection: (ws) => registry.registerConnection(host, ws),
-        unregisterConnection: (ws) => registry.unregisterConnection(host, ws),
+        // can close a removed host's open browser sockets. The pair is supplied
+        // as ONE object — register and unregister can't drift apart.
+        tracking: {
+          register: (ws) => registry.registerConnection(host, ws),
+          unregister: (ws) => registry.unregisterConnection(host, ws),
+        },
       });
     }
   }
@@ -390,13 +396,13 @@ async function main(): Promise<void> {
           return;
         }
         // Track the socket if this host supports removal (ssh) so a removal can
-        // close it; a static local mirror has no `registerConnection` capability
-        // and tracks nothing — the optional call is the structural form of the
-        // old `if (registry.has(host))` guard.
-        handle.registerConnection?.(ws);
+        // close it; a static local mirror has no `tracking` capability and tracks
+        // nothing — the optional call is the structural form of the old
+        // `if (registry.has(host))` guard.
+        handle.tracking?.register(ws);
         log(`browser ws connect (host=${host})`);
         ws.on("close", (code, reason) => {
-          handle.unregisterConnection?.(ws);
+          handle.tracking?.unregister(ws);
           log(
             `browser ws disconnect (host=${host}) (code=${code} reason=${reason.toString() || "<none>"})`,
           );
