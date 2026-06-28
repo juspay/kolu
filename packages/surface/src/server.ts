@@ -1350,10 +1350,19 @@ function walkSurface<const S extends SurfaceSpec>(
     // the framework's OWN record of which keys it has broadcast and fire the
     // membership snapshot on a key's first upsert regardless of when the backing
     // inserted it — correct for an in-memory Map dep (where `upsert` adds the key)
-    // and a registry projection alike. The published array is always the live
-    // `readAll()` set, so a stale `broadcastKeys` only ever costs one redundant
-    // (self-healing) snapshot, never a wrong one.
-    const broadcastKeys = new Set<unknown>();
+    // and a registry projection alike.
+    //
+    // Seed the set from the keys ALREADY in the backing store at construction. A
+    // consumer that subscribes later reads those keys from the `keys` handler's
+    // connect snapshot (which reads `readAll()` live), so they need no membership
+    // delta — and a value-only upsert on a key PRELOADED before this server was
+    // built must NOT spuriously re-publish the whole key set. (An empty seed would
+    // fire one redundant full-snapshot on such a key's first upsert: harmless —
+    // subscribers fold it to the same set — but a real weakening of the
+    // "membership-change only" contract this stream promises, and untested.) The
+    // published array is always the live `readAll()` set, so the seed only ever
+    // suppresses a redundant snapshot, never a wrong one.
+    const broadcastKeys = new Set<unknown>(collDeps.readAll().keys());
     const wrappedUpsert = (k: unknown, v: unknown) => {
       collDeps.upsert(k, v);
       if (!broadcastKeys.has(k)) {

@@ -43,8 +43,13 @@ const surface = defineSurface({
  * call only fans out to subscribers). `add(k, v)` reproduces kolu's
  * `installAwareness` ordering: insert into the registry FIRST, THEN publish.
  */
-function serveRegistryBacked() {
-  const registry = new Map<number, { name: string }>();
+function serveRegistryBacked(
+  /** Keys ALREADY in the backing store at `implementSurface` time — preloaded
+   *  out-of-band, NOT through `ctx.collections.items.upsert`. Models a registry
+   *  that already holds entries when kolu builds its surface server. */
+  preload?: ReadonlyArray<readonly [number, { name: string }]>,
+) {
+  const registry = new Map<number, { name: string }>(preload);
   const { router, ctx } = implementSurface(surface, {
     channel: <T>(_name: string): Channel<T> => inMemoryChannel<T>(),
     collections: {
@@ -151,6 +156,36 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a-renamed");
     await flush();
     expect(seen.length).toBe(framesAfterConnect);
+
+    ac.abort();
+  });
+
+  it("does NOT re-broadcast keys for a value-only update on a key PRELOADED before the server was built", async () => {
+    // Key 1 is in the backing store at `implementSurface` time — it never went
+    // through `ctx.collections.items.upsert`, so the framework's broadcast set
+    // only knows it if it seeds from `readAll()` at construction. An empty seed
+    // would treat the first value-only upsert on key 1 as a brand-new key and
+    // fire a spurious full keys snapshot.
+    const kolu = serveRegistryBacked([[1, { name: "a" }]]);
+
+    const seen: number[][] = [];
+    const ac = watchKeys(kolu.client, seen);
+    await flush();
+    // The connect snapshot still carries the preloaded key.
+    expect(seen.at(-1)).toEqual([1]);
+    const framesAfterConnect = seen.length;
+
+    // A value-only update on the PRELOADED key: membership is unchanged, so the
+    // keys stream must NOT re-yield even though this key never went through upsert.
+    kolu.add(1, "a-renamed");
+    await flush();
+    expect(seen.length).toBe(framesAfterConnect);
+
+    // A genuinely new key (not preloaded) still fires the membership delta, so the
+    // seed suppresses only the redundant snapshot, never a real add.
+    kolu.add(2, "b");
+    await flush();
+    expect(seen.at(-1)?.sort()).toEqual([1, 2]);
 
     ac.abort();
   });
