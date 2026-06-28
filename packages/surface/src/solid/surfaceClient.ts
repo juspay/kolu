@@ -35,7 +35,7 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
-import { DEFAULT_COLLECTION_VERBS, resolveCellVerbs } from "../define";
+import { collectionHasDeltas, resolveCellVerbs } from "../define";
 import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
@@ -648,10 +648,9 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     // `.use()` into a `deltas` call the server never registered (the stream
     // would reject and the collection silently read empty). The server decides
     // identically — `walkSurface`'s `collVerbs.includes("deltas")`.
-    const collVerbs =
-      (rawColl as CollectionSpec<unknown, unknown>).verbs ??
-      DEFAULT_COLLECTION_VERBS;
-    const hasDeltas = collVerbs.includes("deltas");
+    const hasDeltas = collectionHasDeltas(
+      rawColl as CollectionSpec<unknown, unknown>,
+    );
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {

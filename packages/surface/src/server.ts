@@ -26,11 +26,12 @@ import {
   type CellSpec,
   type CollectionDeltasMsg,
   type CollectionSpec,
+  collectionHasDeltas,
   composeSurfaceContracts,
-  DEFAULT_COLLECTION_VERBS,
   type EventSpec,
   type ProcedureSpec,
   resolveCellVerbs,
+  resolveCollectionVerbs,
   type StreamSpec,
   type Surface,
   type SurfaceSpec,
@@ -1243,8 +1244,8 @@ function walkSurface<const S extends SurfaceSpec>(
     // The batched `deltas` stream is OPT-IN: its bus and per-tick coalescing
     // exist only when the collection lists the `deltas` verb. A non-opted
     // collection pays nothing here — the per-key `keys`/`get` path is untouched.
-    const collVerbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
-    const hasDeltas = collVerbs.includes("deltas");
+    const collVerbs = resolveCollectionVerbs(collSpec);
+    const hasDeltas = collectionHasDeltas(collSpec);
     const deltasBus = hasDeltas
       ? deps.channel<CollectionDeltaFrame<unknown, unknown>>(`${key}:deltas`)
       : undefined;

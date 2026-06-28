@@ -198,6 +198,26 @@ export function resolveCellVerbs(
   );
 }
 
+/** A collection's effective verbs — `spec.verbs` when present, else
+ *  {@link DEFAULT_COLLECTION_VERBS}. The collection-side dual of
+ *  {@link resolveCellVerbs}: the SINGLE runtime source of this rule, so the
+ *  contract derivation (`collectionContractEntries`), the server handler walk
+ *  (`server.ts`'s `walkSurface`), and the client binding (`surfaceClient`) can't
+ *  drift on a `??` someone forgot to update. */
+export function resolveCollectionVerbs(
+  spec: CollectionSpec<any, any>,
+): readonly CollectionVerb[] {
+  return spec.verbs ?? DEFAULT_COLLECTION_VERBS;
+}
+
+/** Whether a collection opts into batched `deltas` delivery — derived from
+ *  {@link resolveCollectionVerbs} so the deltas gate (server-side coalescing and
+ *  client-side routing) reads from the one verb resolver, never an inline
+ *  `.includes("deltas")` that a third call site could forget. */
+export function collectionHasDeltas(spec: CollectionSpec<any, any>): boolean {
+  return resolveCollectionVerbs(spec).includes("deltas");
+}
+
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
@@ -249,7 +269,7 @@ function collectionDeltasSchema<K, T>(
 function collectionContractEntries<K, T>(
   spec: CollectionSpec<K, T>,
 ): Record<string, unknown> {
-  const verbs = spec.verbs ?? DEFAULT_COLLECTION_VERBS;
+  const verbs = resolveCollectionVerbs(spec);
   const keyShape = z.object({ key: spec.keySchema });
   const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
   const entries: Record<string, unknown> = {};
