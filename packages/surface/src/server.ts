@@ -211,6 +211,48 @@ export interface CollectionDeltaFrame<K, T> {
   removes: K[];
 }
 
+/** Per-tick coalescer for a collection's batched `deltas` stream. A `pending`
+ *  Map keeps last-op-wins in program order (an upsert then a remove of the same
+ *  key in one tick resolves to a remove), and a single `queueMicrotask` flush
+ *  runs after the synchronous upsert/remove loop the producer drives — so N
+ *  keyed mutations publish ONE `{upserts, removes}` frame instead of N per-key
+ *  frames. A bounded, time-based leaf (value + microtask window), lifted out of
+ *  `walkSurface` so the spec walk holds no batching state. Constructed only when
+ *  the collection opts into `deltas`; the `bus` is non-optional, so "deltas is
+ *  on" has a single representation — this coalescer's existence. */
+function createTickCoalescer<K, V>(
+  bus: Channel<CollectionDeltaFrame<K, V>>,
+): { upsert: (k: K, v: V) => void; remove: (k: K) => void } {
+  const pending = new Map<K, { value: V } | "remove">();
+  let flushScheduled = false;
+  const scheduleFlush = () => {
+    if (flushScheduled) return;
+    flushScheduled = true;
+    queueMicrotask(() => {
+      flushScheduled = false;
+      if (pending.size === 0) return;
+      const upserts: [K, V][] = [];
+      const removes: K[] = [];
+      for (const [k, op] of pending) {
+        if (op === "remove") removes.push(k);
+        else upserts.push([k, op.value]);
+      }
+      pending.clear();
+      bus.publish({ upserts, removes });
+    });
+  };
+  return {
+    upsert: (k, v) => {
+      pending.set(k, { value: v });
+      scheduleFlush();
+    },
+    remove: (k) => {
+      pending.set(k, "remove");
+      scheduleFlush();
+    },
+  };
+}
+
 export interface CollectionHandlers<K, T> {
   keys: (opts: { signal?: AbortSignal }) => AsyncGenerator<K[]>;
   get: (opts: { input: { key: K }; signal?: AbortSignal }) => AsyncGenerator<T>;
@@ -1249,30 +1291,13 @@ function walkSurface<const S extends SurfaceSpec>(
     const deltasBus = hasDeltas
       ? deps.channel<CollectionDeltaFrame<unknown, unknown>>(`${key}:deltas`)
       : undefined;
-    // Coalesce a producer tick's mutations into ONE frame: a Map keyed by the
-    // entity key keeps last-op-wins in program order (an upsert then a remove of
-    // the same key in one tick resolves to a remove), and a single
-    // `queueMicrotask` flush runs after the synchronous upsert/remove loop the
-    // producer drives — so N keyed mutations publish one `{upserts, removes}`
-    // instead of N per-key frames.
-    const pending = new Map<unknown, { value: unknown } | "remove">();
-    let flushScheduled = false;
-    const scheduleFlush = () => {
-      if (flushScheduled || deltasBus === undefined) return;
-      flushScheduled = true;
-      queueMicrotask(() => {
-        flushScheduled = false;
-        if (pending.size === 0) return;
-        const upserts: [unknown, unknown][] = [];
-        const removes: unknown[] = [];
-        for (const [k, op] of pending) {
-          if (op === "remove") removes.push(k);
-          else upserts.push([k, op.value]);
-        }
-        pending.clear();
-        deltasBus.publish({ upserts, removes });
-      });
-    };
+    // The per-tick coalescer owns the `pending` buffer + microtask flush; it
+    // exists ONLY when the collection opts into `deltas`, so `hasDeltas` is the
+    // single representation of "deltas is on" and the walk loop holds no
+    // batching state. `coalescer?.upsert`/`.remove` below are the only gate.
+    const coalescer = deltasBus
+      ? createTickCoalescer<unknown, unknown>(deltasBus)
+      : undefined;
 
     // Surface-owned publish: every upsert/remove broadcasts the new key set
     // (and, on upsert, the new per-key value) through the framework's
@@ -1282,18 +1307,12 @@ function walkSurface<const S extends SurfaceSpec>(
       collDeps.upsert(k, v);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
       perKeyBus(k).publish(v);
-      if (hasDeltas) {
-        pending.set(k, { value: v });
-        scheduleFlush();
-      }
+      coalescer?.upsert(k, v);
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
       keysBus.publish(Array.from(collDeps.readAll().keys()));
-      if (hasDeltas) {
-        pending.set(k, "remove");
-        scheduleFlush();
-      }
+      coalescer?.remove(k);
     };
 
     collectionsCtx[key] = {
