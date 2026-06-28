@@ -135,7 +135,7 @@ or to deeper reading where there is some.</p>
   <text class="ptitle" x="380" y="550">Review gauntlet</text>
   <text class="psub"   x="380" y="572">four reviewers, SERIAL — each sole editor, commits in turn</text>
 
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md" target="_blank" rel="noopener">
     <path class="link" d="M750,555 L800,555"/>
     <rect class="chip" x="800" y="531" width="340" height="48" rx="8"/>
     <text class="skill"  x="818" y="553">/be-review</text>
@@ -146,13 +146,13 @@ or to deeper reading where there is some.</p>
   <path class="serial" d="M540,588 L540,608 L150,608 L150,636" marker-end="url(#arrowSerial)"/>
 
   <!-- 4 serial reviewers -->
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="50" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="68" y="660">/lens-debate</text>
     <text class="skilln" x="68" y="678">boundaries ⇄ simplicity</text>
   </a>
   <path class="serial" d="M250,664 L320,664" marker-end="url(#arrowSerial)"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="320" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="338" y="660">/codex-debate</text>
     <text class="skilln" x="338" y="678">codex ⇄ claude, to consensus</text>
@@ -294,8 +294,8 @@ Two things actually do:</p>
 That’s the reason <code>/be</code> exists as its own skill. A dynamic workflow is a script
 Claude Code’s runtime executes to orchestrate many subagents at scale. <code>/do</code> is
 harness-agnostic; <code>/be</code> is optimized for Claude Code so its review gauntlet can
-run as dynamic workflows — the debate skills <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a> drives
-(<a href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a>, <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a>) each fan out
+run as dynamic workflows — the debate skills <a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a> drives
+(<a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a>, <a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a>) each fan out
 dozens of subagents from a workflow script, which <code>/do</code>’s flow has no way to
 express.</li>
 <li><strong>It opens with a short interview.</strong> Before any work, <code>/be</code> asks a single
@@ -349,20 +349,20 @@ merges</em>; the human reviews the commits and merges when satisfied. Then it ru
 <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/self-improve/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/self-improve</a> to mine the session for recurring friction.</li>
 </ol>
 <h2 id="the-review-gauntlet">The review gauntlet</h2>
-<p>Phase 4 is <a href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a>, which runs four reviewers <strong>serially</strong> —
+<p>Phase 4 is <a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/be-review</a>, which runs four reviewers <strong>serially</strong> —
 each the <strong>sole editor of the branch while it runs</strong>. Serial, not parallel, by
 design: two reviewers writing the same worktree at once would see torn,
 half-edited state. Running one at a time means every reviewer reads a clean,
 committed tree and applies its own fixes directly — no snapshot machinery, no
 separate apply pass.</p>
 <ol>
-<li><a href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a> — two structural lenses,
+<li><a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/lens-debate</a> — two structural lenses,
 <a href="https://kolu.dev/blog/hickey-lowy">lowy</a> (volatility-based boundaries) and
 <a href="https://kolu.dev/blog/hickey-lowy">hickey</a> (structural simplicity), review
 independently, cross-examine every finding to consensus, then apply the agreed
 fixes. Both lenses — and why kolu reviews with them — are explained in the blog
 post <a href="https://kolu.dev/blog/hickey-lowy">Hickey &amp; Lowy</a>.</li>
-<li><a href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a> — codex (reviewer) and a Claude author debate the
+<li><a href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md" style="font-family:var(--mono);font-weight:600;white-space:nowrap">/codex-debate</a> — codex (reviewer) and a Claude author debate the
 diff to consensus, each round auto-committing its <code>fix(…)</code>.</li>
 <li><a href="https://docs.claude.com/en/docs/claude-code/slash-commands">/simplify</a> — the
 self-applying reuse, simplification, and efficiency pass over the changed code.
@@ -399,9 +399,9 @@ point a human had to intervene. It produces nothing unless a lesson durably
 recurs; when one does, it ships a small fix to the skill sources on its <em>own</em>
 draft PR for a human to review — never on the <code>/be</code> branch, never merged.</p>
 <aside class="callout callout-note" data-astro-cid-q2ml7llr><div class="callout-body" data-astro-cid-q2ml7llr><p><strong>This note is kept in sync with the skills it describes.</strong> The skill sources
-live under <code>.apm/</code>; an instruction file
-(<code>.apm/instructions/be-workflow-atlas.instructions.md</code>) reminds anyone editing
-<code>.apm/skills/be/**</code> or <code>.apm/skills/be-review/**</code> to revisit this note and its
+live under <code>.apm/</code> (kolu-local) and the reusable <code>agents/.apm/</code> package; an
+instruction file (<code>.apm/instructions/be-workflow-atlas.instructions.md</code>) reminds
+anyone editing <code>agents/.apm/skills/be/**</code> or <code>agents/.apm/skills/be-review/**</code> to revisit this note and its
 diagram so the map never drifts from the pipeline.</p></div></aside>
 <p>This note shipped in <a href="https://github.com/juspay/kolu/pull/1565" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1565</a>.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
 </body></html>
