@@ -318,6 +318,9 @@ const probeIdentity = (): Promise<ServerProbe> =>
 // anywhere inside — render your OWN badge/rail/prompt from the model:
 const pwa = useSurfaceApp();
 //   pwa.status()      → "live" | "reconnecting" | "restarted" | "down"
+//   pwa.presentingDown() → status()==="down", GRACE-WINDOWED — gate a full-screen
+//                          "Disconnected" overlay on THIS so a sub-second forced
+//                          reconnect doesn't flash it (status() stays instant)
 //   pwa.stale()       → this bundle is provably behind the server's build
 //   pwa.server()      → { commit, … } the build you're bound to
 //   pwa.clientCommit  → this bundle's commit

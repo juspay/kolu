@@ -1,11 +1,11 @@
 /** The Inspector's "drive these terminals from your shell" affordance: a short
- *  explanation for anyone who's never met kaval, then a copy-pasteable
- *  `kaval-tui <verb> <id> --socket <path>` command pair — **attach** (take the
- *  session over) and **snapshot** (dump its scrollback) — for the active tile's
- *  main terminal AND each of its splits. Every split is its own PTY in the
- *  daemon with its own id, so each gets its own pair; the tile root and its
- *  splits are labelled only when a split exists (the lone-terminal case stays
- *  label-free).
+ *  explanation for anyone who's never met kaval, then copy-pasteable affordances
+ *  — the `kaval-tui <verb> <id> --socket <path>` commands **attach** (take the
+ *  session over) and **snapshot** (dump its scrollback), plus the bare terminal
+ *  **id** on its own — for the active tile's main terminal AND each of its
+ *  splits. Every split is its own PTY in the daemon with its own id, so each gets
+ *  its own set; the tile root and its splits are labelled only when a split
+ *  exists (the lone-terminal case stays label-free).
  *
  *  - **Short id, full on hover.** Each button shows and copies the 8-char short
  *    id (the same form `kaval-tui list` prints; kaval-tui resolves any unique
@@ -32,8 +32,9 @@ import { kavalCmd } from "./kavalCmd";
 
 const SHORT_ID_LEN = 8;
 
-/** One terminal's command pair: attach over the top, snapshot under it. Both
- *  follow the same WYSIWYG contract — show/copy the short id, full id on hover. */
+/** One terminal's affordances: attach, snapshot, then the bare id. The two
+ *  commands follow the WYSIWYG contract — show/copy the short id, full id on
+ *  hover; the bare-id button shows the short id but copies the full uuid. */
 const TerminalCommands: Component<{
   terminalId: TerminalId;
   /** This server's kaval socket, resolved once by the section and threaded in. */
@@ -66,6 +67,19 @@ const TerminalCommands: Component<{
         testId={`inspector-snapshot-command${props.testIdSuffix}`}
         rounded="rounded-md"
         idle={<CopyIcon class="w-3 h-3" />}
+      />
+      {/* The raw id alone — the argument `kaval-tui attach <id>` takes — for
+          pasting into a script or any other tool. Shows the short id (full on
+          hover) but copies the FULL uuid so it's unambiguous outside kaval's
+          prefix resolution; same value the "Copy terminal ID" palette command
+          copies. */}
+      <CopyCommandButton
+        command={short()}
+        copyText={props.terminalId}
+        title={props.terminalId}
+        testId={`inspector-id-command${props.testIdSuffix}`}
+        rounded="rounded-md"
+        idle="copy id"
       />
     </div>
   );

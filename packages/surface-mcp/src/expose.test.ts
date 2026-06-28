@@ -56,9 +56,12 @@ describe("resolveExpose", () => {
     ]);
   });
 
-  it("default-deny: only listed procedures become tools, with mutates flagged", () => {
+  it("default-deny: only listed procedures become tools; mutates defaults conservatively", () => {
     const r = resolveExpose(buildSpec(), {
       "counter.bump": { tool: { mutates: true } },
+      // The bare `"tool"` shorthand carries no flag, so it defaults to MUTATING
+      // (conservative): an unannotated procedure is never advertised as a harmless
+      // read. A genuinely read-only one would use `{ tool: { mutates: false } }`.
       "counter.add": "tool",
       // admin.nuke deliberately omitted.
     });
@@ -71,7 +74,7 @@ describe("resolveExpose", () => {
     expect(tools).toEqual(
       expect.arrayContaining([
         { name: "counter_bump", mutates: true, hasInput: false },
-        { name: "counter_add", mutates: false, hasInput: true },
+        { name: "counter_add", mutates: true, hasInput: true },
       ]),
     );
     expect(tools.map((t) => t.name)).not.toContain("admin_nuke");
@@ -134,6 +137,30 @@ describe("resolveExpose", () => {
     );
     // The void-input stream still resolves.
     expect(resolveExpose(spec, { ticks: "resource" }).resources).toHaveLength(
+      1,
+    );
+  });
+
+  it("an input-bearing event can't be exposed as a static resource (F1)", () => {
+    const spec = defineSurface({
+      events: {
+        // Requires an `{ id }` — its subscribe path would call `.get(undefined)`
+        // and fail validation, so this exposure is rejected at boot (the same
+        // gate streams take).
+        terminalExit: {
+          inputSchema: z.object({ id: z.string() }),
+          outputSchema: z.number(),
+        },
+        // A void-input event is fine.
+        exited: { inputSchema: z.void(), outputSchema: z.number() },
+      },
+    }).spec;
+
+    expect(() => resolveExpose(spec, { terminalExit: "resource" })).toThrow(
+      /requires an input/,
+    );
+    // The void-input event still resolves.
+    expect(resolveExpose(spec, { exited: "resource" }).resources).toHaveLength(
       1,
     );
   });

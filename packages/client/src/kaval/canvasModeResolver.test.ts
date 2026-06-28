@@ -22,6 +22,7 @@ function facts(overrides: Partial<CanvasFacts> = {}): CanvasFacts {
     warmingLabel: "Connecting…",
     daemonState: "connected",
     terminalCount: 1,
+    transportLive: true,
     ...overrides,
   };
 }
@@ -97,5 +98,26 @@ describe("resolveCanvasMode precedence (#1340)", () => {
     expect(resolveCanvasMode(facts({ terminalCount: 3 }))).toEqual({
       kind: "workspace",
     });
+  });
+
+  it("floors `empty` on transport-live — a dead link never paints a stale 'no terminals'", () => {
+    // The round-3 relocation of the #1568 SHAPE A class (the canvas counterpart of
+    // the rail dot's kavalDot floor): "no terminals" is a claim the dead channel
+    // can't confirm, so over a not-live link the canvas shows the neutral connecting
+    // surface (0 terminals) or the last-good workspace (terminals on screen) — never
+    // `empty` with its active Restore / new-terminal affordances. The post-grace
+    // TransportOverlay owns the disconnect messaging. (`down`/`warming` arrive
+    // pre-floored from their source accessors, so this gates the remaining arm.)
+    expect(
+      resolveCanvasMode(facts({ transportLive: false, terminalCount: 0 })),
+    ).toEqual({ kind: "connecting" });
+    expect(
+      resolveCanvasMode(facts({ transportLive: false, terminalCount: 3 })),
+    ).toEqual({ kind: "workspace" });
+    // Sanity: the SAME facts over a LIVE link still resolve to `empty` — the floor
+    // only withholds the claim when the link is dead, never otherwise.
+    expect(
+      resolveCanvasMode(facts({ transportLive: true, terminalCount: 0 })),
+    ).toEqual({ kind: "empty" });
   });
 });

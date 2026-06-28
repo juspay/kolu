@@ -123,6 +123,34 @@ describe("HostStatusPip — green is fact-only (round-5 single-source)", () => {
     expect(dot.style.background).not.toBe("#7ec699");
   });
 
+  it("FLOORS green on the fact's `live` leg — a custom `ready` that ignores live cannot paint green over a dead link", () => {
+    // The no-override-knob relocation: green is fact-floored via the `notReadyTone`
+    // throw, but a custom `ready` predicate that DROPS the `h.live &&` conjunct (the
+    // realistic mistake — pulam-web's `h.live && !errors` minus the live half) or a
+    // blunt `() => true` bypassed that throw — `display()` was already "ready", so it
+    // painted readyColor over a `live:false` fact, the #1564 green-over-a-dead-link
+    // lie one prop over. A `ready` predicate may only REFINE the verdict WITHIN a
+    // live link, never claim ready over a dead one; green requires `live` by
+    // construction.
+    const [h, setH] = createSignal<SurfaceHealth>(DEAD);
+    const dot = mount(() => (
+      <HostStatusPip
+        health={h}
+        // Ignores `live` entirely — the bug class the floor must override.
+        ready={() => true}
+        readyColor="#7ec699"
+        notReadyTone={() => "#e6a23c"}
+      />
+    ));
+    // Dead fact: green REFUSED despite the always-true predicate.
+    expect(dot.getAttribute("data-health")).not.toBe("ready");
+    expect(dot.style.background).not.toBe("#7ec699");
+    // The predicate still governs WITHIN a live fact: live → green.
+    setH(READY);
+    expect(dot.getAttribute("data-health")).toBe("ready");
+    expect(dot.style.background).toBe("#7ec699");
+  });
+
   it("a custom `ready` predicate governs green and matches a gate (ignores pending)", () => {
     // pulam-web's predicate: live ∧ no error, IGNORING pending — so the dot stays
     // green while data loads (matching a body gate with its own loading states),

@@ -18,7 +18,7 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import type { Component } from "solid-js";
 import type { KoluBuildInfo } from "kolu-common/surface";
 import { kavalStale } from "./kavalCurrency";
-import { localDaemonStatus } from "./useDaemonStatus";
+import { daemonTransportLive, localDaemonStatus } from "./useDaemonStatus";
 
 /** The server's *expected* kaval identity — the build it would spawn
  *  (`buildInfo.expectedKaval`: closure `staleKey` + git `navigableCommit`). Named
@@ -33,11 +33,18 @@ export const expectedKaval = (): KoluBuildInfo["expectedKaval"] =>
  *  the live `daemonStatus` — must be called under `<SurfaceAppProvider>`. Gate
  *  the nudge on this: `<Show when={kavalUpdatePending()}><KavalUpdateBadge /></Show>`. */
 export const kavalUpdatePending = (): boolean => {
+  // Floored on transport liveness like the kaval dot beside it: over a dead/half-open
+  // link the retained daemon identity is stale, so the "a newer build is available;
+  // click to restart" nudge can't honestly fire — the grey "unknown" dot must not sit
+  // next to an amber "connected and behind" chip whose restart would fail loudly. The
+  // floor rides INSIDE `kavalStale` (a required `live` leg), so the dialog's own banner
+  // (KavalInfoDialog) can't re-derive the verdict without it.
   const status = localDaemonStatus();
   return kavalStale(
     expectedKaval()?.staleKey,
     status?.identity?.staleKey,
     status?.state,
+    daemonTransportLive(),
   );
 };
 

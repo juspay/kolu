@@ -57,7 +57,10 @@ export interface HostStatusPipProps {
    *  ready>` — e.g. `(h) => h.live && !h.subs.some((s) => s.error)` — so dot and
    *  gate agree. Whatever the predicate, it reads the FACT (`h.live` carries the
    *  mirror leg by construction); there is no raw-cell input, so green is never
-   *  paintable from a stale `.state`. */
+   *  paintable from a stale `.state`. And green is FLOORED on `h.live` regardless of
+   *  this predicate: a `ready` that drops the `h.live &&` conjunct (or `() => true`)
+   *  can only REFINE green WITHIN a live link, never claim it over a `live:false`
+   *  fact — so the dot's green is fact-floored even against a buggy predicate. */
   ready?: (health: SurfaceHealth) => boolean;
   /** The dot color when `ready` holds — the ONLY path to a "good" color.
    *  Default: a framework green. */
@@ -86,9 +89,18 @@ export interface HostStatusPipProps {
  *  green is fact-only by construction, not by convention. */
 export function HostStatusPip(props: HostStatusPipProps): JSX.Element {
   const status = createMemo(() => gateStatus(props.health()));
-  const ready = createMemo(() =>
-    props.ready ? props.ready(props.health()) : status() === "ready",
-  );
+  const ready = createMemo(() => {
+    // Green requires a LIVE fact, FLOORED here so it can't be overridden: a custom
+    // `ready` predicate may only REFINE the verdict WITHIN a live link (withhold
+    // green — pulam-web ignores `pending`), NEVER claim ready over a `live:false`
+    // fact. The default branch (`gateStatus(h) === "ready"`) already implies live;
+    // the explicit `h.live` floor catches a CUSTOM predicate that dropped the
+    // conjunct (or a blunt `() => true`), so green is fact-FLOORED, not merely
+    // fact-derived — the #1564 green-over-a-dead-link lie has no `ready`-prop escape.
+    const h = props.health();
+    if (!h.live) return false;
+    return props.ready ? props.ready(h) : status() === "ready";
+  });
   // The verdict actually RENDERED: `ready` when the predicate holds; otherwise
   // the fact's coarse status, clamped off `ready` so a STRICTER custom predicate
   // (one that withholds green while `gateStatus` already says ready) still reads

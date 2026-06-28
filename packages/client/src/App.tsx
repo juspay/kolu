@@ -193,6 +193,7 @@ const App: Component = () => {
   const commands = createCommands({
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleCopyTerminalId: () => void crud.handleCopyTerminalId(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
     handleExportSessionAsHtml: () => exportSessionDialog.openDialog(),

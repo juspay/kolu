@@ -70,10 +70,12 @@ So how does an author say "map *this* one," concretely? Three ways, ordered by *
 1. **Structural — membership is the tag.** Put the primitive in the exposed surface and leave the rest out; the surface's *shape* is the allowlist, no annotation at all. This is the second-surface cut (below), and it's the strongest — core surface stays MCP-agnostic and the dangerous verb is *unreachable*, not merely unticked.
 2. **A typed `expose` allowlist** (the hello-world's map) — the recommended default when you don't want a second surface. Fully type-checked: keys are constrained to the spec's own primitive names, each value constrained by that primitive's *kind* — a procedure may be a `tool`, a cell a `resource`; mis-tag a cell as a tool, or typo a name, and it's a compile error. Omission means *not exposed*:
    ```ts
-   // surface-mcp infers the legal keys & values from your spec
+   // surface-mcp infers the legal keys & values from your spec.
+   // `mutates` is optional but defaults CONSERVATIVELY: absent ⇒ mutating/destructive
+   // (a host could auto-run a read-only-hinted tool unconfirmed); mark a read-only tool `mutates: false`.
    type Expose<S extends SurfaceSpec> =
      & { [K in ProcedureName<S>]?: "tool" | { tool: { mutates?: boolean } } }
-     & { [K in CellName<S> | StreamName<S> | EventName<S>]?: "resource" | "tool" };
+     & { [K in CellName<S> | CollectionName<S> | StreamName<S> | EventName<S>]?: "resource" };
    ```
 3. **Co-located wrapper tags** — for teams who want the tag *next* to the primitive, surface-mcp can ship `mcpTool()` / `mcpResource()` / `readOnly()` helpers used at definition time; they attach a symbol-keyed annotation the adapter reads, so the MCP vocabulary still lives in the *sibling* package, never in core surface.
 
@@ -164,7 +166,7 @@ The whole diff from hand-rolled to package: **~1550 lines of protocol plumbing �
 
 "Every surface is an MCP server" means **every exposed procedure is RCE for whoever is connected.** That is *fine* under odu's model — single operator, same ssh trust as the CLI, `run.configure` simply not on the wire — and it is **load-bearing the moment this enables multi-client exposure.** The read-observer-versus-mutator boundary the browser PWA face would also force (catalogued as latent in [the odu note](./odu.html), since grown into [its own plan](./odu-web.html)) is the same boundary here, arriving earlier: an MCP host is an untrusted-ish caller by default.
 
-So the curation gate isn't only about *usefulness* (surface the four good tools), it's about *safety* (keep the dangerous verb off, and mark which tools mutate). A generic adapter must make "this tool mutates / this resource is read-only" a first-class, default-deny annotation — not a comment. This is why the gate sits *downstream* of the spine in the diagram, fronting the host: the spine makes the wire correct; the gate decides what's allowed onto it.
+So the curation gate isn't only about *usefulness* (surface the four good tools), it's about *safety* (keep the dangerous verb off, and mark which tools mutate). A generic adapter must make "this tool mutates / this resource is read-only" a first-class, default-deny annotation — not a comment. And `mutates` itself fails safe: it's optional but **defaults conservatively** — an absent `mutates` reads as `true` (destructive / not auto-approvable), because an unannotated tool advertised `readOnlyHint: true` could be auto-run unconfirmed by a host; a genuinely read-only tool opts in with explicit `mutates: false`. This is why the gate sits *downstream* of the spine in the diagram, fronting the host: the spine makes the wire correct; the gate decides what's allowed onto it.
 
 ## Curation as a projected surface — the `projectSurface` primitive #982 ships
 

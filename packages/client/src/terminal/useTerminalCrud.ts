@@ -292,6 +292,22 @@ export const useTerminalCrud = createSharedRoot(() => {
     }
   }
 
+  /** Copy the focused terminal's id to the clipboard — the value
+   *  `kaval-tui attach <id>` takes to grab this exact PTY from a shell. Each
+   *  split is its own PTY with its own id, so this copies the focused pane's,
+   *  matching `handleCopyTerminalText`'s `focusedId()`. */
+  async function handleCopyTerminalId() {
+    const id = store.focusedId();
+    if (id === null) return;
+    try {
+      await writeTextToClipboard(id);
+      toast.success("Copied terminal ID to clipboard");
+    } catch (err) {
+      console.error("Failed to copy terminal ID:", err);
+      toast.error(`Failed to copy terminal ID: ${(err as Error).message}`);
+    }
+  }
+
   /** Write a command line into the active terminal WITHOUT pressing Enter.
    *  Used by the "Recent agents" palette entry to prefill a previously
    *  seen agent CLI — the user reviews/edits and hits Enter themselves.
@@ -350,6 +366,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleWake,
     handleDiscard,
     handleCopyTerminalText,
+    handleCopyTerminalId,
     handleRunInActiveTerminal,
     handleCloseAll,
     exportScrollbackPdf,
