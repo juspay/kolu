@@ -1332,12 +1332,16 @@ function walkSurface<const S extends SurfaceSpec>(
     // additive on top.
     //
     // `keysBus` fires on MEMBERSHIP change only — the contract its dep doc states
-    // ("broadcasts K[] snapshots on add/remove"). A value-only upsert (existing
-    // key, new value) leaves the key SET identical, so re-publishing the whole
-    // key array would be a redundant full-snapshot the `keys` subscribers fold to
-    // the same set (and a spurious re-render). Value updates travel the per-key
-    // `get` stream (`perKeyBus`) and the batched `deltas` stream (`coalescer`),
-    // both of which DO fire on every upsert.
+    // ("broadcasts K[] snapshots on add/remove"). BOTH mirror paths enforce that
+    // symmetrically against `broadcastKeys`: `wrappedUpsert` publishes only when a
+    // key is NEW to the set, and `wrappedRemove` only when the key was actually IN
+    // it. A value-only upsert (existing key, new value) leaves the key SET
+    // identical, and a remove of a non-member (a repeat/no-op drop) leaves it
+    // identical too, so in either case re-publishing the whole key array would be a
+    // redundant full-snapshot the `keys` subscribers fold to the same set (and a
+    // spurious re-render). Value updates travel the per-key `get` stream
+    // (`perKeyBus`) and the batched `deltas` stream (`coalescer`), both of which DO
+    // fire on every upsert.
     //
     // "New key" must mean new to SUBSCRIBERS, NOT new to the store. A registry-
     // PROJECTION collection (kolu's `awareness` / `authored` / `daemonStatus`) has
@@ -1374,8 +1378,9 @@ function walkSurface<const S extends SurfaceSpec>(
     };
     const wrappedRemove = (k: unknown) => {
       collDeps.remove(k);
-      broadcastKeys.delete(k);
-      keysBus.publish(Array.from(collDeps.readAll().keys()));
+      if (broadcastKeys.delete(k)) {
+        keysBus.publish(Array.from(collDeps.readAll().keys()));
+      }
       coalescer?.remove(k);
     };
 

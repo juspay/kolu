@@ -141,6 +141,35 @@ describe("served collection keys-stream — membership for a registry-backed pro
     ac.abort();
   });
 
+  it("does NOT re-broadcast the key set on a no-op remove of a non-member key (the remove guard mirrors the upsert guard)", async () => {
+    const kolu = serveRegistryBacked();
+    kolu.add(1, "a");
+
+    const seen: number[][] = [];
+    const ac = watchKeys(kolu.client, seen);
+    await flush();
+    const framesAfterConnect = seen.length;
+
+    // Drop a key that was never added/seeded: membership is unchanged, so the keys
+    // stream must NOT re-yield. Without the guard the remove path would fire a
+    // redundant full-snapshot, breaking the symmetry the upsert path enforces.
+    kolu.drop(99);
+    await flush();
+    expect(seen.length).toBe(framesAfterConnect);
+
+    // Dropping the SAME key twice: the first drop is a real membership delta, the
+    // second is a no-op that must NOT re-yield.
+    kolu.drop(1);
+    await flush();
+    expect(seen.at(-1)).toEqual([]);
+    const framesAfterRealDrop = seen.length;
+    kolu.drop(1);
+    await flush();
+    expect(seen.length).toBe(framesAfterRealDrop);
+
+    ac.abort();
+  });
+
   it("does NOT re-broadcast the key set on a value-only update (the optimization holds)", async () => {
     const kolu = serveRegistryBacked();
     kolu.add(1, "a");
