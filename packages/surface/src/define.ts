@@ -963,11 +963,7 @@ export function composeSurfaceContracts<
  *  re-derived per call site. The caller keeps its OWN downstream target-type
  *  assertion on the slice (`as TerminalWorkspaceClient`, the `buildSurfaceClient`
  *  cast); only the dynamic key-walk lives here. */
-export function scopeSibling(
-  // biome-ignore lint/suspicious/noExplicitAny: the combined link is type-erased; the key-walk is dynamic and the caller's target-type assertion carries call-site safety.
-  link: any,
-  key: string,
-): { surface: unknown } {
+export function scopeSibling(link: unknown, key: string): { surface: unknown } {
   return {
     surface: (link as { surface: Record<string, unknown> }).surface[key],
   };
