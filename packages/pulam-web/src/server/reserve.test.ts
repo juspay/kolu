@@ -29,163 +29,31 @@
  * re-notifies, keys become {B}. That re-notify is the proof.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { StandardRPCMatcher } from "@orpc/server/standard";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
 import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
-  type AwarenessValue,
-  DEFAULT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { type PulamBrowserContract, pulamSurface } from "../shared/contract.ts";
-import { type PulamContract, buildReServe } from "./reserve.ts";
-
-// Two real UUID terminal ids (the collection's key schema is `z.string().uuid()`,
-// so a bare "A"/"B" would fail validation at the agent's collection boundary).
-const TERM_A = "11111111-1111-4111-8111-111111111111" as TerminalId;
-const TERM_B = "22222222-2222-4222-8222-222222222222" as TerminalId;
-
-/** A `directLink` to a re-serve router, typed over the BROWSER contract
- *  (`pulamSurface` = base + connection). The documented fragment→client cast (the
- *  `implementSurface` router's `Lazy<Router>` shape isn't accepted by
- *  `directLink`'s input type; the runtime is a valid router) lives here, once,
- *  rather than at every call site. */
-function browserLink(router: unknown) {
-  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — runtime shape is valid.
-  return directLink<PulamBrowserContract>(router as any);
-}
-
-/** Stand up a REAL `terminalWorkspaceSurface` agent over `directLink`. The
- *  awareness collection is backed by the returned `cache` Map and driven through
- *  the returned `ctx` — pushing a delta is `ctx.collections.awareness.upsert(...)`
- *  / `.remove(...)`, exactly what the daemon's sensors do. Every other primitive
- *  is implemented minimally (it must be: `implementSurface` fail-fast THROWS on
- *  any unimplemented one) — they're never exercised by this test, but their
- *  presence proves the re-serve grafts onto a COMPLETE agent surface. */
-function standUpAgent(
-  opts: { activityFeed?: AsyncIterable<TerminalId[]> } = {},
-) {
-  const cache = new Map<TerminalId, AwarenessValue>();
-  cache.set(TERM_A, seedAwarenessValue("/work/repo-a"));
-
-  // The agent serves the BASE surface (connection-free) — link health is the
-  // PARENT's, added only at the re-serve seam via `mirroredSurface`.
-  const { router, ctx } = implementSurface(terminalWorkspaceSurface, {
-    channel: inMemoryChannelByName(),
-    cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
-    collections: {
-      awareness: {
-        readAll: () => cache,
-        upsert: (key, value) => {
-          cache.set(key, value);
-        },
-        remove: (key) => {
-          cache.delete(key);
-        },
-      },
-    },
-    streams: {
-      // Live-set source. By default yields the current key set once (not
-      // exercised); the activity re-notify test drives it from a hand-fed feed so
-      // the live-set frames are deterministic, not snapshot-timing-dependent.
-      activity: {
-        source: opts.activityFeed
-          ? async function* (_input, signal) {
-              for await (const frame of opts.activityFeed as AsyncIterable<
-                TerminalId[]
-              >) {
-                if (signal?.aborted) break;
-                yield frame;
-              }
-            }
-          : async function* () {
-              yield [...cache.keys()];
-            },
-      },
-      // Minimal watcher sources — one snapshot pulse, then done. Not exercised.
-      subscribeRepoChange: {
-        source: async function* () {
-          yield { seq: 0 };
-        },
-      },
-      subscribeFileChange: {
-        source: async function* () {
-          yield { seq: 0 };
-        },
-      },
-    },
-    // Minimal fs/git — canned, schema-valid, never called by this test.
-    procedures: {
-      fs: {
-        listAll: () => ({ paths: [] }),
-        readFile: () => ({ content: "", truncated: false }),
-        statFileMtimeMs: () => 0,
-      },
-      git: {
-        getStatus: ({ input }) =>
-          input.mode === "local"
-            ? {
-                mode: "local" as const,
-                files: [],
-                branch: {
-                  name: "main",
-                  upstream: null,
-                  ahead: 0,
-                  behind: 0,
-                },
-                workingTree: { staged: 0, modified: 0, untracked: 0 },
-              }
-            : { mode: "branch" as const, files: [], base: null },
-        getDiff: () => ({
-          oldFileName: null,
-          newFileName: null,
-          hunks: [],
-          binary: false,
-        }),
-      },
-    },
-  });
-
-  // biome-ignore lint/suspicious/noExplicitAny: matches the repo's documented fragment→client cast — the implementSurface router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
-  const client = directLink<PulamContract>(router as any);
-  return { cache, ctx, client };
-}
+import { describe, expect, it, vi } from "vitest";
+import { pulamSurface } from "../shared/contract.ts";
+import { buildReServe } from "./reserve.ts";
+import {
+  browserLink,
+  standUpAgent,
+  TERM_A,
+  TERM_B,
+  useDisposers,
+  waitFor,
+} from "./testKolu.ts";
 
 // Track Solid roots + mirror aborts so each test tears its reactive graph and
 // background mirror down (no leaked effects across tests).
-const disposers: Array<() => void> = [];
-afterEach(() => {
-  for (const dispose of disposers.splice(0)) {
-    try {
-      dispose();
-    } catch {
-      /* best-effort teardown */
-    }
-  }
-});
-
-/** Poll until `predicate()` holds — delegates to `vi.waitFor` (Vitest's built-in
- *  retry loop) so the test's clock for the async fold (mirror frame → re-serve
- *  publish → Solid effect flush) stays consistent with the rest of the suite. */
-async function waitFor(
-  predicate: () => boolean,
-  { timeoutMs = 1000 } = {},
-): Promise<void> {
-  await vi.waitFor(() => expect(predicate()).toBe(true), {
-    timeout: timeoutMs,
-  });
-}
+const disposers = useDisposers();
 
 /** A hand-fed async iterable: `push(frame)` enqueues, `close()` ends it. Frames
  *  are pushed by the test, so the activity stream's order is deterministic rather

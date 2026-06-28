@@ -18,12 +18,6 @@
  * no Nix, no second pulam.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
 import { seedAwarenessValue } from "@kolu/terminal-workspace";
 import {
@@ -31,23 +25,26 @@ import {
   agentUrgency,
   alertClass,
 } from "@kolu/terminal-workspace/agentProjection";
-import {
-  type AwarenessValue,
-  DEFAULT_VERSION,
-  type TerminalId,
-  terminalWorkspaceSurface,
+import type {
+  AwarenessValue,
+  TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { createEffect, createRoot } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { type PulamBrowserContract, pulamSurface } from "../shared/contract.ts";
+import { describe, expect, it } from "vitest";
+import { pulamSurface } from "../shared/contract.ts";
 import {
   type KoluLink,
   runLocalMirror,
   startLocalKoluMirror,
 } from "./localKolu.ts";
-import { type PulamContract, buildReServe } from "./reserve.ts";
-
-const TERM_A = "11111111-1111-4111-8111-111111111111" as TerminalId;
+import { buildReServe } from "./reserve.ts";
+import {
+  browserLink,
+  standUpAgent,
+  TERM_A,
+  useDisposers,
+  waitFor,
+} from "./testKolu.ts";
 
 type AgentState =
   | "thinking"
@@ -77,104 +74,12 @@ function withAgent(state: AgentState, cwd = "/work/repo"): AwarenessValue {
   };
 }
 
-/**
- * Stand up a stand-in for the LOCAL kolu: a real `terminalWorkspaceSurface` served
- * over `directLink`, its `awareness` collection backed by a Map the test drives
- * through the returned `ctx` (`ctx.collections.awareness.upsert/remove`) — exactly
- * what kolu serves on `terminalWorkspace.awareness`. Every other primitive is
- * implemented minimally so `implementSurface`'s fail-fast construction passes; none
- * but `awareness`/`version`/`activity` is exercised here.
- */
-function standUpKolu(seed: ReadonlyMap<TerminalId, AwarenessValue>) {
-  const cache = new Map(seed);
-  const { router, ctx } = implementSurface(terminalWorkspaceSurface, {
-    channel: inMemoryChannelByName(),
-    cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
-    collections: {
-      awareness: {
-        readAll: () => cache,
-        upsert: (key, value) => {
-          cache.set(key, value);
-        },
-        remove: (key) => {
-          cache.delete(key);
-        },
-      },
-    },
-    streams: {
-      // Quiet live-set (kolu serves `quietActivity` until R9) — one empty frame.
-      activity: {
-        source: async function* () {
-          yield [];
-        },
-      },
-      subscribeRepoChange: {
-        source: async function* () {
-          yield { seq: 0 };
-        },
-      },
-      subscribeFileChange: {
-        source: async function* () {
-          yield { seq: 0 };
-        },
-      },
-    },
-    procedures: {
-      fs: {
-        listAll: () => ({ paths: [] }),
-        readFile: () => ({ content: "", truncated: false }),
-        statFileMtimeMs: () => 0,
-      },
-      git: {
-        getStatus: ({ input }) =>
-          input.mode === "local"
-            ? {
-                mode: "local" as const,
-                files: [],
-                branch: { name: "main", upstream: null, ahead: 0, behind: 0 },
-                workingTree: { staged: 0, modified: 0, untracked: 0 },
-              }
-            : { mode: "branch" as const, files: [], base: null },
-        getDiff: () => ({
-          oldFileName: null,
-          newFileName: null,
-          hunks: [],
-          binary: false,
-        }),
-      },
-    },
-  });
-  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — the implementSurface router's Lazy<Router> spread isn't accepted by directLink's input type; the runtime shape is valid.
-  const client = directLink<PulamContract>(router as any) as KoluLink["client"];
-  return { cache, ctx, client };
-}
+// A stand-in for the LOCAL kolu is the shared `standUpAgent` fixture seeded with
+// the test's awareness map and a quiet (empty) live-set — kolu serves the same
+// `terminalWorkspaceSurface` an ssh pulam does, so the differential test reads it
+// through the same stand-up the re-serve test uses.
 
-/** A `directLink` to a re-serve router, typed over the BROWSER contract
- *  (`pulamSurface` = base + connection) — the same read the browser leg makes. */
-function browserLink(router: unknown) {
-  // biome-ignore lint/suspicious/noExplicitAny: documented fragment→client cast — runtime shape is valid.
-  return directLink<PulamBrowserContract>(router as any);
-}
-
-const disposers: Array<() => void> = [];
-afterEach(() => {
-  for (const dispose of disposers.splice(0)) {
-    try {
-      dispose();
-    } catch {
-      /* best-effort teardown */
-    }
-  }
-});
-
-async function waitFor(
-  predicate: () => boolean,
-  { timeoutMs = 1000 } = {},
-): Promise<void> {
-  await vi.waitFor(() => expect(predicate()).toBe(true), {
-    timeout: timeoutMs,
-  });
-}
+const disposers = useDisposers();
 
 /** Read one terminal's re-served awareness value the way a browser ROW does: a
  *  per-key `byKey` subscription inside a reactive root (the read must run in a
@@ -211,7 +116,10 @@ function agentState(
 describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)", () => {
   it("re-serves kolu's awareness value VERBATIM, and folds it to the same agent state", async () => {
     // kolu serves an awaiting-you agent for TERM_A.
-    const kolu = standUpKolu(new Map([[TERM_A, withAgent("awaiting_user")]]));
+    const kolu = standUpAgent({
+      seed: new Map([[TERM_A, withAgent("awaiting_user")]]),
+      quietLiveSet: [],
+    });
 
     // Drive the ACTUAL localhost pump with kolu as the source — no socket, no Nix.
     const reServe = buildReServe();
@@ -249,7 +157,10 @@ describe("R9a — localhost mirror: one sensor, two readers (Dock ≡ pulam-web)
   });
 
   it("tracks kolu's awareness deltas — a state change re-folds identically", async () => {
-    const kolu = standUpKolu(new Map([[TERM_A, withAgent("thinking")]]));
+    const kolu = standUpAgent({
+      seed: new Map([[TERM_A, withAgent("thinking")]]),
+      quietLiveSet: [],
+    });
     const reServe = buildReServe();
     const abort = new AbortController();
     void runLocalMirror({
@@ -290,9 +201,10 @@ describe("startLocalKoluMirror — wires a local link, never an ssh/pulam spawn"
     // The injected `connect` IS the only connection path — `localKolu.ts` imports
     // no `getHostSession`/`pulam` spawn, so a localhost host can't start a second
     // sensor set by construction. The injection just lets the test see it run.
-    const kolu = standUpKolu(
-      new Map([[TERM_A, seedAwarenessValue("/work/repo")]]),
-    );
+    const kolu = standUpAgent({
+      seed: new Map([[TERM_A, seedAwarenessValue("/work/repo")]]),
+      quietLiveSet: [],
+    });
     let connected = 0;
     let disposed = 0;
     const link: KoluLink = {
