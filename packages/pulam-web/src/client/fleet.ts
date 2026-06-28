@@ -100,6 +100,13 @@ export function fleetAlert(value: AwarenessValue): boolean {
   return value.agent ? alertClass(value.agent.state) === "notify" : false;
 }
 
+/** CSS `background` value for the needs-you (alert/violet) wash. */
+export const ALERT_WASH =
+  "color-mix(in oklch, var(--color-alert) 10%, transparent)";
+/** CSS `background` value for the working/live (accent/teal) wash. */
+export const ACCENT_WASH =
+  "color-mix(in oklch, var(--color-accent) 10%, transparent)";
+
 /** The per-row background WASH — the fleet's at-a-glance "is this row hot?" fold,
  *  layered behind the pip. A row that NEEDS you keeps the alert (violet) wash; a
  *  row that is WORKING or has live terminal output (the green-ring `live` axis,
@@ -113,10 +120,8 @@ export function rowBackground(
   live: boolean,
 ): string | undefined {
   const urgency = agentUrgency(value.agent);
-  if (urgency === "need")
-    return "color-mix(in oklch, var(--color-alert) 10%, transparent)";
-  if (urgency === "work" || live)
-    return "color-mix(in oklch, var(--color-accent) 10%, transparent)";
+  if (urgency === "need") return ALERT_WASH;
+  if (urgency === "work" || live) return ACCENT_WASH;
   return undefined;
 }
 

@@ -23,6 +23,8 @@ import {
   compareFleetEntries,
   DEFAULT_FLEET_FILTERS,
   type FleetEntry,
+  ACCENT_WASH,
+  ALERT_WASH,
   fleetAlert,
   isVisible,
   locationText,
@@ -32,9 +34,6 @@ import {
   URGENCY,
   URGENCY_LABELS,
 } from "./fleet.ts";
-
-const ALERT_WASH = "color-mix(in oklch, var(--color-alert) 10%, transparent)";
-const ACCENT_WASH = "color-mix(in oklch, var(--color-accent) 10%, transparent)";
 
 /** Build an awareness value with a given agent state. Only `kind`/`state` are
  *  read by the projection, so a minimal cast keeps the test on the projection
