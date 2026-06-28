@@ -4,7 +4,7 @@ description: A terminal's facts are split across two served collections — the 
 parents: [remote-terminals, reference]
 status: proposed
 maturity: budding
-updated: 2026-06-27
+updated: 2026-06-28
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -111,17 +111,22 @@ The `terminalWorkspace.awareness` collection is served by **two homes** — kolu
 
 It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
 
-## Next — R9 (remote awareness)
+<Callout kind="warn" title="Correction (proposed) — the in-process home is the mis-step">
+The *kolu-in-process* home of this factory re-couples awareness into kolu — the thing [pulam](pulam.html) exists to decouple. The fix ([R9.0](remote-terminals-finale.html#r90)) makes kolu's awareness backing a **mirror of a local pulam**, so the backing is *always* a pulam mirror (local or remote) and **pulam is the one authority per host**. The reader-join and the injection seam stay; only the backing source changes.
+</Callout>
 
-R8 did the hard part: it pushed the bisection all the way to the reader **and** put the assembly behind one factory. So **R9 is a backing-swap, not a rewrite** — everything downstream of the `terminalWorkspace.awareness` seam already exists.
+## Next — R9 (corrected: kolu consumes a pulam)
+
+R8 did the hard part — the reader-join **and** the `serveTerminalWorkspace` backing-injection seam — *keep both*. But R8's choice to have kolu *serve awareness in-process* re-coupled awareness into kolu. The correction: **pulam is the single awareness authority per host; kolu's awareness backing is always a *pulam mirror*.**
 
 ```text
-R9   kolu-server's `awareness` backing:  registry projection  →  a mirror of a remote
-     pulam's awareness collection (over ssh)  ·  kolu's `activity`  →  live
-     UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
-                 (terminalWorkspaceSurface) · the authored half · disk persistence
+R9.0  kolu's `awareness` backing:  in-process registry projection  →  a mirror of a
+      LOCAL pulam (retire the in-process sensors) · the local pulam owns `activity`
+R9.3  the SAME backing, pointed at a REMOTE pulam (over ssh) — local is a special case
+      UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
+                  (terminalWorkspaceSurface) · the authored half · disk persistence
 ```
 
-The single seam is `terminalWorkspace.awareness`, served via `serveTerminalWorkspace` in both homes. R9 injects a remote-mirrored awareness backing into kolu-server's call plus a live `activity` source — nothing past the seam moves.
+One sensor set per host (a pulam); every reader — kolu's Dock, pulam-web — mirrors it; the arrow always points **→ pulam**. The seam is the same `serveTerminalWorkspace` backing injection R8 built — R9.0 fills it with a local-pulam mirror, R9.3 with a remote one. Full plan: [the finale](remote-terminals-finale.html).
 
-**Still open (pick before/with R9):** rename the join `TerminalMetadata` → `Terminal` (recommended above).
+**Still open:** who owns the local pulam's lifecycle (recommend kolu's R2 daemon-supervisor) and migrating off R8's in-process backing — see the [finale](remote-terminals-finale.html#r90).
