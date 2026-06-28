@@ -60,15 +60,19 @@ commit.
   carry the work in a *companion repo* (e.g. the drishti PR a `@kolu/surface`
   change requires per `/be` §5) while the session is rooted in a kolu worktree.
   Set `repoPath` to that target repo's absolute path (default: the cwd worktree
-  root) and thread it into **every** step. **The debate steps run as a `Workflow`,
-  whose `args` MUST be a real object** — `Workflow({ scriptPath, args: { repoPath,
-  base: MB, … } })`. Passing `args` as a **stringified JSON** silently fails: the
-  script does `const a = args || {}; const repoPath = a.repoPath || '.'`, so a
-  *string* `a` has no `.repoPath`, `repoPath` degrades to `.`, the debate runs
-  `git -C .` against the (clean) cwd, and you get a **vacuous false "clean"** — a
-  silently-skipped review gate, the worst gauntlet failure. If a cross-repo step
-  returns `clean` with `rounds: 0` against a non-empty *target* diff, suspect this
-  before trusting it.
+  root) and thread it into **every** step. Pass `args` as a real object —
+  `Workflow({ scriptPath, args: { repoPath, base: MB, … } })`. **Note the harness
+  JSON-ENCODES `args` before the workflow script sees it, so `args` arrives as a
+  *string* regardless of what you pass.** The debate scripts now parse a stringified
+  `args` defensively (`const a = typeof args === 'string' ? JSON.parse(args) : args`),
+  so `repoPath`/`base`/`rationale`/`context` thread through correctly and malformed
+  `args` throws *loudly* instead of degrading. This fixed a real cross-repo failure: an
+  earlier run's scripts did the bare `const a = args || {}`, so the stringified `args`
+  had no `.repoPath`, `repoPath` silently degraded to `.`, and a cross-repo lens-debate
+  re-reviewed the **cwd** repo and committed five fixes onto the wrong repo (same-repo
+  runs only "worked" by cwd coincidence). If a cross-repo step still returns `clean`
+  with `rounds: 0` against a non-empty *target* diff, suspect the `repoPath` didn't
+  take effect before trusting it.
 - **codex login** (unless `--tracks` excludes it): `codex login status`. If not
   logged in, tell the user to run `codex login` (suggest the `!` prefix) and
   continue with the remaining steps.
