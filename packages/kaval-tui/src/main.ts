@@ -330,10 +330,17 @@ async function cmdSnapshot(
   // `--viewport` (the daemon's own last screenful) and `--tail N` bound it so
   // the agent-driving loop reads the current screen instead of `| tail`-ing a
   // huge buffer of trailing blanks.
+  // The flags are already proven mutually exclusive (see the snapshot dispatch),
+  // so collapse them to exactly one `extent` variant — the wire can't carry two
+  // conflicting bounds.
+  const extent = bound.viewport
+    ? ({ kind: "viewport" } as const)
+    : bound.tailLines !== undefined
+      ? ({ kind: "tail", lines: bound.tailLines } as const)
+      : ({ kind: "full" } as const);
   const { text } = await conn.client.surface.terminal.getScreenText({
     id,
-    viewport: bound.viewport,
-    tailLines: bound.tailLines,
+    extent,
   });
   await writeOut(text.endsWith("\n") ? text : `${text}\n`);
   // Trailer to stderr so stdout stays clean, scriptable scrollback — derived

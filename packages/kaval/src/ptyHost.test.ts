@@ -173,19 +173,9 @@ describe("createPtyHost", () => {
     expect(full).toContain("L30");
 
     // viewport (last `rows` = 10 lines) keeps the bottom of the buffer, never L01.
-    const viewport = host.getScreenText(
-      id,
-      undefined,
-      undefined,
-      undefined,
-      true,
-    );
+    const viewport = host.getScreenText(id, { kind: "viewport" });
     expect(viewport).toContain("L30");
     expect(viewport).not.toContain("L01");
-    // It overrides an explicit tailLines — viewport wins.
-    const overridden = host.getScreenText(id, undefined, undefined, 1, true);
-    expect(overridden).toContain("L30");
-    expect(overridden).not.toContain("L01");
   });
 
   it("delivers live output to attach() deltas", async () => {
@@ -417,7 +407,7 @@ describe("createPtyHost", () => {
     expect(host.getCwd(id)).toBe("/tmp/deep");
     // (b) screen-scrape tail still reads the recent screen.
     await waitFor(() => host.getScreenText(id).includes("TAILMARK"));
-    expect(host.getScreenText(id, undefined, undefined, 24)).toContain(
+    expect(host.getScreenText(id, { kind: "tail", lines: 24 })).toContain(
       "TAILMARK",
     );
     // (c) a cold-attaching client repaints the recent output from the snapshot.

@@ -72,8 +72,9 @@ import { z } from "zod";
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
  *  Bumped to 3.4 (additive · minor): `getScreenText` gained an optional
- *  `viewport` flag that bounds the read to the visible screen (the host's own
- *  `rows`) — a 3.3 survivor lacks it and would silently return the full
+ *  `extent` — a discriminated union ({ full | range | tail | viewport }) that
+ *  bounds which slice of the buffer to return (viewport = the host's own
+ *  visible `rows`) — a 3.3 survivor lacks it and would silently return the full
  *  scrollback, so it is recycled on adoption rather than ignoring the bound. */
 export const PTY_HOST_CONTRACT_VERSION = "3.4";
 
@@ -316,16 +317,27 @@ export const ptyHostSurface = defineSurface({
         output: z.object({ data: z.string() }),
       },
       getScreenText: {
+        // `extent` is the single bound axis as a discriminated union, so the
+        // host can't be handed two conflicting bounds (a tail AND a viewport)
+        // to silently choose between — only one variant is expressible. Omit it
+        // for the full buffer. `viewport` carries no payload: it resolves to the
+        // last `rows` rendered lines against the host's own live grid (the CLI
+        // can't know it; its stdout is usually a pipe, never the daemon
+        // terminal's size).
         input: z.object({
           id: PtyIdSchema,
-          startLine: z.number().int().optional(),
-          endLine: z.number().int().optional(),
-          tailLines: z.number().int().optional(),
-          // `viewport: true` bounds the read to the terminal's *visible screen*
-          // — the last `rows` rendered lines, resolved against the host's own
-          // live grid (the CLI can't know it; its stdout is usually a pipe and
-          // never the daemon terminal's size). Overrides `tailLines` when set.
-          viewport: z.boolean().optional(),
+          extent: z
+            .discriminatedUnion("kind", [
+              z.object({ kind: z.literal("full") }),
+              z.object({
+                kind: z.literal("range"),
+                startLine: z.number().int().optional(),
+                endLine: z.number().int().optional(),
+              }),
+              z.object({ kind: z.literal("tail"), lines: z.number().int() }),
+              z.object({ kind: z.literal("viewport") }),
+            ])
+            .optional(),
         }),
         output: z.object({ text: z.string() }),
       },

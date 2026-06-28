@@ -199,11 +199,17 @@ class PtyHostTerminalProxy implements TerminalHandle {
     tailLines?: number,
   ): Promise<string> {
     await this.ready;
+    // Translate the positional `TerminalHandle` contract into the wire's single
+    // bound axis: a tail pins the read to the screen bottom, otherwise it's a
+    // (possibly open) line range. The two never combine, so there's no
+    // precedence to encode.
+    const extent =
+      tailLines !== undefined
+        ? ({ kind: "tail", lines: tailLines } as const)
+        : ({ kind: "range", startLine, endLine } as const);
     const { text } = await this.client.surface.terminal.getScreenText({
       id: this.id,
-      startLine,
-      endLine,
-      tailLines,
+      extent,
     });
     return text;
   }

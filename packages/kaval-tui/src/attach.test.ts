@@ -233,7 +233,10 @@ describe("runAttach — over a real unix socket", () => {
 
     // --viewport: only the visible screen (the daemon's own 24 rows) — drops L01.
     const viewport = (
-      await conn.client.surface.terminal.getScreenText({ id, viewport: true })
+      await conn.client.surface.terminal.getScreenText({
+        id,
+        extent: { kind: "viewport" },
+      })
     ).text;
     expect(viewport).toContain("L60");
     expect(viewport).not.toContain("L01");
@@ -241,7 +244,10 @@ describe("runAttach — over a real unix socket", () => {
     // --tail 3: exactly the last 3 rendered lines (the bottom of the buffer —
     // L60 plus the blank cursor line, never the scrolled-off top).
     const tail = (
-      await conn.client.surface.terminal.getScreenText({ id, tailLines: 3 })
+      await conn.client.surface.terminal.getScreenText({
+        id,
+        extent: { kind: "tail", lines: 3 },
+      })
     ).text;
     expect(tail.split("\n")).toHaveLength(3);
     expect(tail).toContain("L60");
