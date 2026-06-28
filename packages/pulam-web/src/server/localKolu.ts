@@ -32,7 +32,10 @@ import {
   createSurfaceSocket,
 } from "@kolu/surface-app/connect";
 import { type AgentClient, mirrorOnce } from "@kolu/surface-nix-host";
-import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
+import {
+  type ConnectionInfo,
+  DEFAULT_CONNECTION,
+} from "@kolu/surface-nix-host/connection";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { PulamContract, PulamHandler } from "./hostEntry.ts";
 import { buildReServe, type ReServe } from "./reserve.ts";
@@ -102,12 +105,11 @@ export interface LocalKoluMirror {
 // `copying` (nix copy) or `connecting`-over-ssh phase and never gives up into the
 // terminal `failed` (it retries forever via partysocket, like a `"network"` ssh
 // fault), so only three states are reachable.
-const CONNECTING: ConnectionInfo = {
-  state: "connecting",
-  lastError: null,
-  failureCause: null,
-  progressLines: [],
-};
+//
+// `connecting` is byte-identical to the gate-closed seed every mirrored surface
+// starts at, so reuse the canonical `DEFAULT_CONNECTION` rather than re-spreading
+// its fields here (one home for the gate-closed seed).
+const CONNECTING: ConnectionInfo = DEFAULT_CONNECTION;
 const CONNECTED: ConnectionInfo = {
   state: "connected",
   lastError: null,
