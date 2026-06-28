@@ -35,6 +35,7 @@ import {
 } from "@kolu/terminal-workspace/connect";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import type { PulamContract, PulamHandler } from "./hostEntry.ts";
+import type { HostHandle } from "./hostPlane.ts";
 import { buildReServe, type ReServe } from "./reserve.ts";
 
 export type { PulamContract };
@@ -67,17 +68,6 @@ export interface KoluLink {
   reconnect(): void;
   /** Tear the transport down (server shutdown). */
   dispose(): void;
-}
-
-/** What `startLocalKoluMirror` returns — the slice `main.ts` registers alongside
- *  the ssh `HostRegistry` (the handler the `?host=` dispatcher upgrades onto, plus
- *  the reconnect/destroy lifecycle the route and shutdown drive). */
-export interface LocalKoluMirror {
-  handler: PulamHandler;
-  /** The `/api/reconnect?host=localhost` re-arm — re-opens the kolu link. */
-  reconnect(): void;
-  /** Server shutdown — stop the mirror loop and close the link. */
-  destroy(): void;
 }
 
 // ── Connection-health frames ──────────────────────────────────────────────
@@ -294,7 +284,10 @@ function waitForOpen(
 
 /**
  * Start mirroring the local kolu's awareness into a fresh re-serve, and return the
- * `{ handler, reconnect, destroy }` `main.ts` registers as the `localhost` host.
+ * `HostHandle` `main.ts` registers as the `localhost` host — the SAME uniform face
+ * the ssh registry adapts into, so `main` registers it with no field-copy re-wrap.
+ * A static local mirror is never removed, so it omits `tracking` (nothing to close
+ * on a removal that can't happen).
  *
  * `connect` is injectable so the differential test drives the WHOLE path with an
  * in-process `directLink` stand-in for kolu (no socket, no Nix) — the production
@@ -308,7 +301,7 @@ export function startLocalKoluMirror(opts: {
   log?: (line: string) => void;
   /** Transport factory — defaults to the real reconnecting WebSocket link. */
   connect?: (koluUrl: string, log: (line: string) => void) => KoluLink;
-}): LocalKoluMirror {
+}): HostHandle {
   const log = opts.log ?? (() => {});
   const reServe = buildReServe({ log });
   // The browser-facing oRPC handler over the flattened re-serve router — the same

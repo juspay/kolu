@@ -39,7 +39,6 @@ import {
 } from "@kolu/surface-app/server";
 import {
   buildHostRegistry,
-  type ClosableSocket,
   destroyAllSessions,
   isLocalHost,
 } from "@kolu/surface-nix-host";
@@ -57,40 +56,17 @@ import {
   readKoluUrl,
 } from "./config.ts";
 import {
-  type PulamContract,
   type HostEntry,
+  type PulamContract,
   makeBuildEntry,
 } from "./hostEntry.ts";
+import type { HostHandle } from "./hostPlane.ts";
 import { startLocalKoluMirror } from "./localKolu.ts";
 import { registerReconnectRoute } from "./reconnectRoute.ts";
 
 const log = (line: string): void => {
   process.stderr.write(`[pulam-web] ${line}\n`);
 };
-
-/** One host's uniform face — what every parent-side consumer (the `?host=`
- *  dispatcher, `/api/hosts`, the reconnect route, socket tracking, shutdown)
- *  plugs into, regardless of whether the host is an ssh-dialed `HostSession` or
- *  the local-kolu mirror. The two sources each adapt into this one shape, so
- *  `main` reads a single map and never folds two planes by hand. */
-interface HostHandle {
-  /** The oRPC handler a `?host=` upgrade dispatches the browser socket onto. */
-  handler: HostEntry["handler"];
-  /** Re-arm the host (the `/api/reconnect` button): re-spawn the ssh session, or
-   *  re-open the kolu link. */
-  reconnect(): void;
-  /** Tear the host down (server shutdown). */
-  destroy(): void;
-  /** Track an open browser socket so a host removal can close it. Present ONLY
-   *  for the (removable) ssh hosts; a static local mirror tracks nothing and
-   *  omits the whole capability (an absent capability, not a remembered guard).
-   *  The two halves (`register`/`unregister`) are ONE object so the coupling is
-   *  structural — you can't supply one without the other. */
-  tracking?: {
-    register(ws: ClosableSocket): void;
-    unregister(ws: ClosableSocket): void;
-  };
-}
 
 // The colour the pulam shell paints behind everything (the PWA splash/background).
 // Named once here — mirroring the kolu twin's `PWA_BACKGROUND_COLOR`
@@ -224,15 +200,16 @@ async function main(): Promise<void> {
   // never removed, so its handle omits socket tracking (nothing to close on a
   // removal that can't happen). `koluUrl` is non-null whenever `localHosts` is.
   for (const host of localHosts) {
-    const mirror = startLocalKoluMirror({
-      koluUrl: koluUrl as string,
-      log: (line) => log(`[${host}] ${line}`),
-    });
-    hosts.set(host, {
-      handler: mirror.handler,
-      reconnect: () => mirror.reconnect(),
-      destroy: () => mirror.destroy(),
-    });
+    // `startLocalKoluMirror` already produces the unified `HostHandle` shape (it
+    // omits `tracking` — a static local mirror is never removed), so register it
+    // directly with no field-copy re-wrap.
+    hosts.set(
+      host,
+      startLocalKoluMirror({
+        koluUrl: koluUrl as string,
+        log: (line) => log(`[${host}] ${line}`),
+      }),
+    );
   }
 
   // The RPC surface is unauthenticated; allowlist extra browser origins (a
