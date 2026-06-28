@@ -23,10 +23,13 @@ import {
   compareFleetEntries,
   DEFAULT_FLEET_FILTERS,
   type FleetEntry,
+  ACCENT_WASH,
+  ALERT_WASH,
   fleetAlert,
   isVisible,
   locationText,
   pipVariantFor,
+  rowBackground,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -230,5 +233,33 @@ describe("fleetAlert (the per-row badge — fleet ≡ the Dock's alert membershi
       foreground: { name: "vim", title: null },
     };
     expect(fleetAlert(withForeground)).toBe(false);
+  });
+});
+
+describe("rowBackground (the per-row wash — working|live rows stand out)", () => {
+  it("a working agent gets the accent (teal) wash", () => {
+    expect(rowBackground(withAgent("thinking"), false)).toBe(ACCENT_WASH);
+    expect(rowBackground(withAgent("tool_use"), false)).toBe(ACCENT_WASH);
+    expect(rowBackground(withAgent("running_background"), false)).toBe(
+      ACCENT_WASH,
+    );
+  });
+
+  it("live terminal activity gets the accent wash even when the agent is idle", () => {
+    // The green-ring `live` axis alone is enough — a quiet agent whose terminal
+    // is moving bytes still reads as hot.
+    expect(rowBackground(withAgent("waiting"), true)).toBe(ACCENT_WASH);
+    expect(rowBackground(seedAwarenessValue("/x"), true)).toBe(ACCENT_WASH);
+  });
+
+  it("a needs-you agent keeps the alert (violet) wash — and it wins over work/live", () => {
+    expect(rowBackground(withAgent("awaiting_user"), false)).toBe(ALERT_WASH);
+    // `need` is the louder signal: a blocked agent that is ALSO live stays alert.
+    expect(rowBackground(withAgent("awaiting_user"), true)).toBe(ALERT_WASH);
+  });
+
+  it("an idle, quiet row stays bare (no wash)", () => {
+    expect(rowBackground(withAgent("waiting"), false)).toBeUndefined();
+    expect(rowBackground(seedAwarenessValue("/x"), false)).toBeUndefined();
   });
 });

@@ -60,6 +60,16 @@ applies its own fixes directly — no snapshot, no apply pass. be-review pushes 
 at the end and *then* posts the PR comments (lens, codex, and a code-police
 summary), so no comment advertises a local-only commit.
 
+**This phase is non-negotiable, and it costs you almost nothing:** the reviewers run
+OFF your context, as backgrounded `Workflow`s that notify you when they settle. So
+"this would balloon my context / budget" is **never** grounds to skip a reviewer, run
+fewer than all four, or substitute a hand-rolled review for the real gauntlet — that
+excuse doesn't survive ten seconds of scrutiny, and dropping a step you were told to
+run is the single worst gauntlet failure. `/be`'s autonomy means *don't ask permission
+for each step*, NOT *decide which steps matter*. If a mandatory step is genuinely
+infeasible, **STOP and ask the user** at that moment — never silently substitute and
+disclose it later in the wrap-up.
+
 - Pass `base`, the change **`rationale`** (so the lenses don't flag deliberate
   decisions), and **`context`** — the task intent and key decisions you hold from
   this run, so the codex author **inherits what you know instead of re-deriving it

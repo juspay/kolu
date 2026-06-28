@@ -170,6 +170,14 @@ and mark it resolved, or address CLAUDE's dispute — concede (mark it resolved)
 hold firm with specific technical reasoning in responseToRebuttal. Raise a NEW
 finding ONLY if CLAUDE's changes THIS round introduced it (a regression).
 
+EXCEPTION to "hold firm": if CLAUDE shows a finding is NOT a code edit for THIS
+worktree but a downstream / ship-phase / process gate (a companion repo pinning this
+repo's final post-review HEAD, a CI/release step, a cross-repo PR), mark it RESOLVED —
+acknowledged and DEFERRED to the ship phase. You cannot satisfy a ship-phase gate
+mid-review, and holding it open deadlocks the debate forever; the review converges on
+the CODE. This is ONLY for a genuine non-code/process gate, NEVER a code change CLAUDE
+would simply rather not make — those you still hold firm on.
+
 Return your updated review in the JSON schema:
   - findings: one entry per issue, each with severity and the stable id you used
     before. status=resolved once addressed (CLAUDE fixed it, OR you accept CLAUDE's
@@ -213,6 +221,14 @@ Return your review in the JSON schema:
   - responseToRebuttal: when CLAUDE disputes a finding, address each dispute
     individually — concede (mark that finding resolved) or hold firm with specific,
     technical reasoning. Leave no dispute unanswered. Empty on round 1.
+
+One EXCEPTION to "hold firm": if CLAUDE shows a finding is NOT a code edit for THIS
+worktree but a downstream / ship-phase / process gate (a companion repo pinning this
+repo's final post-review HEAD, a CI/release step, a cross-repo PR), mark it RESOLVED —
+acknowledged and DEFERRED to the ship phase. You cannot satisfy a ship-phase gate
+mid-review, and holding it open deadlocks the debate forever; the review converges on
+the CODE. This is ONLY for a genuine non-code/process gate, NEVER a code change CLAUDE
+would simply rather not make — those you still hold firm on.
 EOF
 )"
 fi

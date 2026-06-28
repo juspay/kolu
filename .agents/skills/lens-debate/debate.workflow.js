@@ -27,7 +27,14 @@ const MODEL = 'opus'
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
 // ---------------------------------------------------------------------------
-const a = args || {}
+// The harness JSON-ENCODES `args` before the workflow sees it, so it arrives as a
+// STRING even when the caller passed a real object; a bare `args.repoPath` would then
+// be `undefined` and every input (repoPath/base/rationale/…) silently default. That's
+// the cross-repo bug: `repoPath` degrades to `.` (the cwd), the lenses review the
+// WRONG repo and the apply phase commits onto it. Parse a stringified `args`
+// defensively (empty string → {}; object used as-is; malformed JSON throws loudly,
+// fail-fast). See codex-debate/debate.workflow.js for the same fix and its evidence.
+const a = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : args || {}
 const repoPath = a.repoPath || '.'
 // The diff base. Resolved to the MERGE-BASE of (rawBase, HEAD) just below, before
 // DIFF is built, so the lenses review only what THIS branch changed — not commits
