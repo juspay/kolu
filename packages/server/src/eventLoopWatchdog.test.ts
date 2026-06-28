@@ -122,9 +122,11 @@ while (Date.now() < deadline) {}
       });
     });
 
-    // Killed by a signal (SIGABRT), not a clean exit — the worker pulled the
-    // ripcord on the wedged loop.
-    expect(result.signal === "SIGABRT" || result.code === null).toBe(true);
+    // Killed by SIGABRT — the worker pulled the ripcord on the wedged loop.
+    // (The 6 s fallback timer above rejects the promise, so this line is only
+    // reached when the child actually exits — SIGABRT is the only signal the
+    // watchdog sends; anything else would indicate a test environment anomaly.)
+    expect(result.signal).toBe("SIGABRT");
     // And it explained itself on stderr for the journal/postmortem.
     expect(stderr).toContain("event loop wedged");
     expect(stderr).toContain("event-loop-watchdog");
