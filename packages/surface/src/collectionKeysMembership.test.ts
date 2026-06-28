@@ -16,8 +16,9 @@
  * tracks the framework's own broadcast set, so the membership snapshot fires on a
  * key's first upsert regardless of the backing.
  *
- * The default per-key `keys`/`get` path is exercised here (no `deltas` verb), so
- * this is the path every collection consumer uses.
+ * The default `keys`/`get` verbs are served here (no `deltas` opt-in), so this
+ * pins the path every collection consumer uses; the assertions drive the `keys`
+ * membership stream.
  */
 
 import { describe, expect, it } from "vitest";
@@ -25,7 +26,7 @@ import { z } from "zod";
 import { defineSurface } from "./define";
 import { directLink } from "./links/direct";
 import { implement } from "@orpc/server";
-import { type Channel, implementSurface, inMemoryChannel } from "./server";
+import { implementSurface, inMemoryChannelByName } from "./server";
 
 const surface = defineSurface({
   collections: {
@@ -51,7 +52,14 @@ function serveRegistryBacked(
 ) {
   const registry = new Map<number, { name: string }>(preload);
   const { router, ctx } = implementSurface(surface, {
-    channel: <T>(_name: string): Channel<T> => inMemoryChannel<T>(),
+    // Canonical name-keyed in-process channels: the SAME `Channel` instance per
+    // name across every call, so the per-key `get` bus and the `keys` bus each
+    // bind name→instance. A bare `inMemoryChannel()` factory hands out a FRESH
+    // channel per lookup, silently severing per-key publishers from subscribers
+    // (the keys stream happens to survive it because `keysBus` is captured once,
+    // but the `get` value path would be wired to a different bus than the
+    // publisher — exactly the footgun `inMemoryPublisher`'s doc warns about).
+    channel: inMemoryChannelByName(),
     collections: {
       items: {
         readAll: () => registry,
@@ -79,21 +87,26 @@ function serveRegistryBacked(
   };
 }
 
-/** Subscribe `items.keys` and collect every yielded key-set into `out`. */
+/** Subscribe `items.keys` and collect every yielded key-set into `out`. Returns
+ *  the `AbortController` plus a `done` promise the test MUST await after
+ *  `ac.abort()`: `done` resolves on the expected abort teardown and REJECTS on
+ *  any other stream failure (route, schema, iterator), so a broken stream fails
+ *  the test loudly instead of being swallowed and the test asserting on a partial
+ *  frame list. */
 function watchKeys(
   client: ReturnType<typeof serveRegistryBacked>["client"],
   out: number[][],
-): AbortController {
+): { ac: AbortController; done: Promise<void> } {
   const ac = new AbortController();
-  void (async () => {
-    try {
-      const stream = await client.surface.items.keys({}, { signal: ac.signal });
-      for await (const keys of stream) out.push([...keys]);
-    } catch {
-      /* aborted on teardown */
-    }
-  })();
-  return ac;
+  const done = (async () => {
+    const stream = await client.surface.items.keys({}, { signal: ac.signal });
+    for await (const keys of stream) out.push([...keys]);
+  })().catch((err) => {
+    // `ac.abort()` rejects the in-flight pull with the abort reason — expected
+    // end-of-life teardown. ANY other failure is real and must surface.
+    if (!ac.signal.aborted) throw err;
+  });
+  return { ac, done };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -104,7 +117,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a"); // a terminal present before the consumer connects
 
     const seen: number[][] = [];
-    const ac = watchKeys(kolu.client, seen);
+    const { ac, done } = watchKeys(kolu.client, seen);
     await flush();
     // The connect snapshot carries the pre-existing key.
     expect(seen.at(-1)).toEqual([1]);
@@ -122,6 +135,55 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.at(-1)?.sort()).toEqual([1, 2, 3]);
 
     ac.abort();
+    await done;
+  });
+
+  it("buffers a membership add that lands in the snapshot→subscribe window", async () => {
+    // The lost-update window the `deltas` handler closes with subscribe-before-
+    // snapshot — pinned here for the `keys` membership stream. Drive the iterator
+    // by hand so the add lands AFTER the connect snapshot is pulled but BEFORE the
+    // consumer pulls again: with subscribe-AFTER-snapshot the generator hasn't
+    // subscribed yet, the publish hits zero subscribers, and — a quiescent `keys`
+    // stream having no later frame to self-heal from — the key is lost until the
+    // next membership change or a reconnect.
+    const kolu = serveRegistryBacked();
+    kolu.add(1, "a");
+
+    const ac = new AbortController();
+    const stream = await kolu.client.surface.items.keys(
+      {},
+      { signal: ac.signal },
+    );
+    const iter = stream[Symbol.asyncIterator]() as AsyncIterator<number[]>;
+
+    // First pull: the connect snapshot. With the fix the generator is ALREADY
+    // subscribed here (subscribe runs before the snapshot yield).
+    const first = await iter.next();
+    expect(first.value?.sort()).toEqual([1]);
+
+    // A key born in the snapshot→next-pull window — registry-first, then publish.
+    kolu.add(2, "b");
+
+    // Second pull MUST deliver the buffered membership snapshot. Without
+    // subscribe-before-snapshot this hangs (the publish was dropped and no later
+    // membership change follows), so race a short timeout to fail fast and loud.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              "second keys pull hung — a membership add in the snapshot→subscribe window was dropped",
+            ),
+          ),
+        250,
+      );
+    });
+    const second = await Promise.race([iter.next(), timeout]);
+    clearTimeout(timer);
+    expect(second.value?.sort()).toEqual([1, 2]);
+
+    ac.abort();
   });
 
   it("broadcasts a removal to an already-subscribed consumer", async () => {
@@ -130,7 +192,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(2, "b");
 
     const seen: number[][] = [];
-    const ac = watchKeys(kolu.client, seen);
+    const { ac, done } = watchKeys(kolu.client, seen);
     await flush();
     expect(seen.at(-1)?.sort()).toEqual([1, 2]);
 
@@ -139,6 +201,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.at(-1)).toEqual([2]);
 
     ac.abort();
+    await done;
   });
 
   it("does NOT re-broadcast the key set on a no-op remove of a non-member key (the remove guard mirrors the upsert guard)", async () => {
@@ -146,7 +209,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a");
 
     const seen: number[][] = [];
-    const ac = watchKeys(kolu.client, seen);
+    const { ac, done } = watchKeys(kolu.client, seen);
     await flush();
     const framesAfterConnect = seen.length;
 
@@ -168,6 +231,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.length).toBe(framesAfterRealDrop);
 
     ac.abort();
+    await done;
   });
 
   it("does NOT re-broadcast the key set on a value-only update (the optimization holds)", async () => {
@@ -175,7 +239,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     kolu.add(1, "a");
 
     const seen: number[][] = [];
-    const ac = watchKeys(kolu.client, seen);
+    const { ac, done } = watchKeys(kolu.client, seen);
     await flush();
     const framesAfterConnect = seen.length;
 
@@ -187,6 +251,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.length).toBe(framesAfterConnect);
 
     ac.abort();
+    await done;
   });
 
   it("does NOT re-broadcast keys for a value-only update on a key PRELOADED before the server was built", async () => {
@@ -198,7 +263,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     const kolu = serveRegistryBacked([[1, { name: "a" }]]);
 
     const seen: number[][] = [];
-    const ac = watchKeys(kolu.client, seen);
+    const { ac, done } = watchKeys(kolu.client, seen);
     await flush();
     // The connect snapshot still carries the preloaded key.
     expect(seen.at(-1)).toEqual([1]);
@@ -217,5 +282,6 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.at(-1)?.sort()).toEqual([1, 2]);
 
     ac.abort();
+    await done;
   });
 });

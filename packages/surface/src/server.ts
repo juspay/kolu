@@ -266,8 +266,32 @@ export function collectionHandlers<Name extends string, K, T>(
 
   const handlers: CollectionHandlers<K, T> = {
     keys: async function* ({ signal }) {
-      yield Array.from(deps.readAll().keys());
-      for await (const v of deps.keysBus.subscribe(signal)) yield v;
+      // SUBSCRIBE BEFORE SNAPSHOT — the same lost-update guard the `deltas`
+      // handler documents below. `keysBus.subscribe()` registers the subscriber
+      // synchronously (see `inMemoryChannel`), so opening the iterator BEFORE
+      // reading the `readAll()` snapshot means a membership change published
+      // between the snapshot read and the first forwarded frame is BUFFERED, not
+      // dropped. With subscribe-AFTER-snapshot an async generator doesn't reach
+      // the `subscribe()` until the consumer pulls a SECOND time, so a key born
+      // in that window publishes to ZERO subscribers — and because a quiescent
+      // `keys` stream has no later frame to self-heal from (each frame is a full
+      // snapshot, but only the NEXT membership change emits one), the consumer
+      // would miss that key until the next add/remove or a reconnect. That is the
+      // exact already-subscribed-mirror gap the `broadcastKeys` fix closes on the
+      // PUBLISH side; this closes it on the SUBSCRIBE side too. We acquire ONE
+      // iterator up front and forward it in a `try/finally` so an early `.return()`
+      // taken after the snapshot yield still drops the subscriber (same reasoning
+      // as the `deltas` handler's `finally`). A key added between the subscribe and
+      // the snapshot read lands in BOTH the snapshot and a buffered frame — but
+      // each frame is a full set snapshot, so the consumer folds them idempotently.
+      const frames = deps.keysBus.subscribe(signal);
+      const iterator = frames[Symbol.asyncIterator]();
+      try {
+        yield Array.from(deps.readAll().keys());
+        yield* { [Symbol.asyncIterator]: () => iterator };
+      } finally {
+        await iterator.return?.();
+      }
     },
     get: async function* ({ input, signal }) {
       const initial = readOne(input.key);
