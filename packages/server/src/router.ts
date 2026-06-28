@@ -38,10 +38,10 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
-  localTerminalEndpoint,
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
   createTerminal,
@@ -171,11 +171,12 @@ export const appRouter = t.router({
      * output is `z.string()` — and a no-op `term.write("")` for xterm.)
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      requireActiveTerminal(input.id);
-      const { snapshot, deltas } = await localTerminalEndpoint.attach(
-        input.id,
-        signal,
-      );
+      // Resolve the endpoint by the terminal's OWN location so a remote tile's
+      // attach reaches its host (R9.2) with no change here. Local today.
+      const entry = requireActiveTerminal(input.id);
+      const { snapshot, deltas } = await resolveTerminalEndpoint(
+        entry.meta.location,
+      ).attach(input.id, signal);
       yield snapshot;
       for await (const data of deltas) yield data;
     }),

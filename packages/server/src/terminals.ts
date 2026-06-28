@@ -18,6 +18,7 @@
 import {
   composeTerminalMetadata,
   type InitialTerminalMetadata,
+  LOCAL_LOCATION,
   type RightPanelPerTerminalState,
   type SavedTerminal,
   SavedTerminalSchema,
@@ -35,17 +36,24 @@ import {
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 import {
   beginSleepLocal,
-  localTerminalEndpoint,
   releaseSleptLocalPty,
 } from "./terminalEndpoint/local.ts";
+// `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
+// to preserve the metadata→local order the TDZ note above depends on.
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import {
+  getActiveTerminal,
+  getTerminal,
+  terminalEntries,
+} from "./terminal-registry.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
-// A single local endpoint today. P3 will select the endpoint per call
-// site (e.g. a sub-terminal inheriting its parent's endpoint).
-const localEndpoint = localTerminalEndpoint;
+// A single local endpoint today, resolved through the one `HostLocation` seam.
+// R9.2 selects the endpoint per call site (a remote-dialed kaval, or a
+// sub-terminal inheriting its parent's endpoint).
+const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
@@ -116,7 +124,15 @@ export function createTerminal(
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  return localEndpoint.killTerminal(id);
+  // Route by the terminal's OWN location so a remote tile's kill reaches its
+  // host (R9.2), never the local endpoint by default. Only an ACTIVE terminal
+  // can be killed — the endpoint re-checks this too — so an absent/sleeping id
+  // is "not found" here exactly as before (the endpoint would also return
+  // undefined). The lookup is synchronous right up to the kill call, so it adds
+  // no race window the endpoint's own gate doesn't already own.
+  const entry = getActiveTerminal(id);
+  if (!entry) return undefined;
+  return resolveTerminalEndpoint(entry.meta.location).killTerminal(id);
 }
 
 /** Sleep a terminal — flip it to the sleeping arm IN PLACE, persist the session
