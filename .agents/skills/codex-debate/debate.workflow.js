@@ -9,7 +9,17 @@ export const meta = {
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
 // ---------------------------------------------------------------------------
-const a = args || {}
+// The harness JSON-ENCODES `args` before the workflow sees it, so `args` arrives as
+// a STRING even when the caller passed a real object — a bare `args.repoPath` is then
+// `undefined` and EVERY input below silently falls back to its default. That's the
+// cross-repo bug: `repoPath` degrades to `.` (the cwd), the debate runs `git -C .`
+// against the WRONG repo, and it reports a vacuous "clean" (or, worse, commits fixes
+// onto the cwd repo). It also means `base`/`model`/`rationale`/`context` never thread
+// through; same-repo runs only "work" by cwd coincidence. So parse a stringified
+// `args` defensively here: an empty string means "no args" → {}; an already-parsed
+// object is used as-is; malformed JSON THROWS loudly (fail-fast) rather than degrading
+// to a silent default.
+const a = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : args || {}
 const repoPath = a.repoPath || '.'
 // The diff base. Resolved to the MERGE-BASE of (rawBase, HEAD) just before the
 // debate (see phase 'Debate') so commits rawBase gained since the branch forked
@@ -246,6 +256,7 @@ Address EVERY finding, any severity (don't skip minors/nits):
   - agree → fix it in the working tree; disposition "fixed".
   - disagree → leave the code, dispute it with a specific technical reason (cite file:line); disposition "disputed". Concede when codex is right.
   - partly → fix the valid part, explain the rest; disposition "partial".
+  - NOT a code edit for this worktree — a downstream / ship-phase / process gate (a companion repo pinning this repo's FINAL post-review HEAD, a CI/release step, a cross-repo PR) that cannot be satisfied mid-review → disposition "disputed", and SAY EXPLICITLY it is a ship-phase gate, not a code change, so codex marks it resolved-and-deferred rather than holding the debate open on something neither side can land here. Use this ONLY for a genuine non-code/process gate, never to dodge a code change you'd rather not make.
 
 You may run the formatter on files you touched. SELF-VERIFY before you claim "fixed": a fix you didn't run isn't a fix. Run the project's own fast static-check gate (its lint + typecheck task — e.g. \`just check\`/\`npm run lint\`; discover it from the repo, don't hand-roll one) over your edits and make it pass; only mark a finding "fixed" once the gate is green. Never claim a lint won't fire without running it — that's the exact "I watched it work" gap that lands a red tree on the next step. If the gate stays red after a genuine attempt, say so in the disposition rather than reporting a clean "fixed". ${
     doCommit
