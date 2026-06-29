@@ -5,10 +5,12 @@
  * homes share ONE copy of the freshness-critical code. Its entry points
  * (the export map is the boundary — node-only code never reaches a browser
  * consumer):
- *  - `.` — the per-terminal awareness assembly primitives: the sensor set
- *    (`startAwareness`), the sink (`makeAwarenessSink`), the live-output tracker
- *    (`createActivityTracker`), the kaval-tap bridge (`bridgeKavalTaps`) + the
- *    generic `AwarenessValue` schema they produce.
+ *  - `.` — the awareness primitives with external consumers: the sensor set
+ *    (`startAwareness`) + the generic `AwarenessValue` schema and its
+ *    `seedAwarenessValue` seed. (`createPulam`'s other assembly pieces — the
+ *    sink, the activity tracker, the kaval-tap bridge — stay internal to the
+ *    package; it imports them by relative path, and each is re-exported in the
+ *    R9.0 commit that introduces its real consumer.)
  *  - `./createPulam` — the ONE assembly that turns a dialed kaval into a live,
  *    served `terminalWorkspace` surface, wiring those primitives together. Today
  *    the `pulam` daemon rests on it (its one consumer); kolu-server converges on
@@ -31,11 +33,3 @@
 
 export * from "./sensors.ts";
 export * from "./schema.ts";
-// The kaval-dial bridge — taps → `AwarenessSignals`. Only the standalone
-// `pulam` daemon needs it (kolu-server builds its channels in-process); it
-// lives here so there is one copy of the transport adapter, not a fork.
-export * from "./kavalChannels.ts";
-// The per-terminal sink and the live-output activity tracker — the two assembly
-// pieces `createPulam` wires (formerly stranded in the pulam daemon package).
-export * from "./awarenessSink.ts";
-export * from "./activity.ts";

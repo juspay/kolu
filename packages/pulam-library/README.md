@@ -104,7 +104,7 @@ consumer:
 
 | Entry | Runtime | What |
 | --- | --- | --- |
-| `.` | Node | the assembly primitives — `startAwareness` (sensors), `makeAwarenessSink` (sink), `createActivityTracker` (live-output tracker), `bridgeKavalTaps` (tap feed) — + `AwarenessValue` |
+| `.` | Node | the awareness primitives with external consumers — `startAwareness` (sensors) + the `AwarenessValue` schema (`seedAwarenessValue`); `createPulam`'s other pieces (sink, activity tracker, tap bridge) stay internal |
 | `./createPulam` | Node | `createPulam` — the one assembly (kaval → served `terminalWorkspace` surface); the `pulam` daemon rests on it today (its one consumer), kolu converges on it in R9.0 |
 | `./serveTerminalWorkspace` | Node | `serveTerminalWorkspace` — the surface-skeleton factory `createPulam` returns (awareness/activity backing injection) |
 | `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
