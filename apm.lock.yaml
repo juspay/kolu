@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-29T17:44:14.926258+00:00'
+generated_at: '2026-06-29T20:07:13.174745+00:00'
 apm_version: 0.23.0
 dependencies:
 - repo_url: _local/agents
@@ -53,7 +53,7 @@ dependencies:
   - .claude/skills/surface/SKILL.md
   deployed_file_hashes:
     .agents/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-    .agents/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
+    .agents/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
     .agents/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .agents/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .agents/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
@@ -68,7 +68,7 @@ dependencies:
     .agents/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
     .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
     .claude/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
-    .claude/skills/be/SKILL.md: sha256:c3520012b9dd7885bceb479572aa5e2b58f5b8438d6213f682218149feb8bc68
+    .claude/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
     .claude/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
     .claude/skills/codex-debate/answer.workflow.js: sha256:82ad3a02db21c52cb6b2453a66559bf8742f2ba30f1e8a328c35b896b0e12ada
     .claude/skills/codex-debate/debate.workflow.js: sha256:158853fa60b13e7934ef7a91d08f536dcd8bb92d391c9cbd75d9d235f590046d
