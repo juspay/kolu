@@ -5,8 +5,15 @@
  * homes share ONE copy of the freshness-critical code. Its entry points
  * (the export map is the boundary — node-only code never reaches a browser
  * consumer):
- *  - `.` — the per-terminal awareness sensor set (git · PR · agent ·
- *    foreground) + the generic `AwarenessValue` schema it produces.
+ *  - `.` — the per-terminal awareness assembly primitives: the sensor set
+ *    (`startAwareness`), the sink (`makeAwarenessSink`), the live-output tracker
+ *    (`createActivityTracker`), the kaval-tap bridge (`bridgeKavalTaps`) + the
+ *    generic `AwarenessValue` schema they produce.
+ *  - `./createPulam` — the ONE assembly that turns a dialed kaval into a live,
+ *    served `terminalWorkspace` surface, wiring those primitives together. The
+ *    `pulam` daemon and (R9.0) kolu-server both rest on it.
+ *  - `./serveTerminalWorkspace` — `serveTerminalWorkspace`, the surface-skeleton
+ *    factory `createPulam` returns (awareness + activity backing injection).
  *  - `./schema` — the browser-safe `AwarenessValue` zod schema alone.
  *  - `./endpoint` — `createTerminalWorkspaceEndpoint`, the host-side fs/git
  *    wrapper over `kolu-git` the Code tab reads.
@@ -27,3 +34,7 @@ export * from "./schema.ts";
 // `pulam` daemon needs it (kolu-server builds its channels in-process); it
 // lives here so there is one copy of the transport adapter, not a fork.
 export * from "./kavalChannels.ts";
+// The per-terminal sink and the live-output activity tracker — the two assembly
+// pieces `createPulam` wires (formerly stranded in the pulam daemon package).
+export * from "./awarenessSink.ts";
+export * from "./activity.ts";

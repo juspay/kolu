@@ -1,11 +1,11 @@
 /**
  * Unit tests for the live-output activity tracker — the debounce model behind
- * pulam's `activity` stream (the remote green dot). Pure: no daemon, no kaval.
+ * the workspace `activity` stream (the green dot). Pure: no daemon, no kaval.
  */
 
-import type { TerminalId } from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import { createActivityTracker, sameActivitySet } from "./activity.ts";
+import type { TerminalId } from "./schema.ts";
 
 const id = (s: string): TerminalId => s as TerminalId;
 const delay = (ms: number): Promise<void> =>

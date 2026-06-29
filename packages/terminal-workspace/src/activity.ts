@@ -1,14 +1,14 @@
 /**
- * Live-output activity tracker — the host-side source of pulam's `activity`
- * stream (the green dot for remote terminals on the fleet board).
+ * Live-output activity tracker — the host-side source of the workspace's
+ * `activity` stream (the green dot for terminals on the fleet board).
  *
- * This is the daemon-side twin of kolu's client-side `useTerminalActivity`
+ * This is the host-side twin of kolu's client-side `useTerminalActivity`
  * (`packages/client/src/terminal/useTerminalActivity.ts`): both answer "is this
  * terminal moving bytes *right now*", both key off raw PTY output (here: kaval's
- * `terminalAttach` delta tap), and both flip a terminal back to static after a
- * ~1s quiet window with an explicit boolean rather than a `now - lastOutputAt`
- * clock, so no global ticking is needed. It is deliberately NOT
- * `AwarenessValue.lastActivityAt` — that's the slow agent-staleness clock and
+ * `terminalAttach` delta tap, wired by `createPulam`), and both flip a terminal
+ * back to static after a ~1s quiet window with an explicit boolean rather than a
+ * `now - lastOutputAt` clock, so no global ticking is needed. It is deliberately
+ * NOT `AwarenessValue.lastActivityAt` — that's the slow agent-staleness clock and
  * would never light for a plain `npm run build` or `tail -f`.
  *
  * It carries no bytes: `noteOutput` is called once per output chunk and forgets
@@ -16,7 +16,7 @@
  * the `activity` stream publishes whole (snapshot-then-deltas) on every change.
  */
 
-import type { TerminalId } from "@kolu/terminal-workspace/surface";
+import type { TerminalId } from "./schema.ts";
 
 /** Output quiet-period before a terminal reads as static again — matches kolu's
  *  `useTerminalActivity` IDLE_AFTER_MS, so the local dot and the remote dot
@@ -36,7 +36,7 @@ export interface ActivityTracker {
   snapshot(): TerminalId[];
   /** Subscribe to live-set changes; returns an unsubscribe. */
   onChange(listener: () => void): () => void;
-  /** Stop every timer and drop all state (daemon teardown). */
+  /** Stop every timer and drop all state (teardown). */
   dispose(): void;
 }
 

@@ -1,58 +1,43 @@
 /**
- * The `pulam` daemon — dial a kaval, run the terminal-awareness sensors for
- * every PTY kaval owns, and serve the result as one `awareness` collection.
+ * The `pulam` daemon — dial a kaval, `createPulam`, serve the result.
+ *
+ * The whole awareness assembly (per-terminal sensors, the sink, the byte-tap, the
+ * reconcile loop) lives in the pulam-library behind {@link createPulam}; the
+ * daemon is a thin shell around it: dial a kaval (the connection it owns), build a
+ * pulam against that client with a cache-backed `awareness` store, and serve the
+ * surface over a unix socket (the local case) or stdio (what an ssh dial speaks).
  *
  * `pulam` is *ephemeral* by design: awareness is always re-derivable from live
  * taps + the current host fs, so unlike kaval it sheds all the durability
  * machinery — no single-instance gate, no PTY ownership, no persisted list, no
  * adoption. Every (re)start just re-runs the sensors and recomputes from now.
- * It borrows kaval's terminal inventory (a polled `terminal.list`) and dials
- * kaval as a plain `ptyHostSurface` client, exactly like kaval-tui — adding
- * zero awareness/git/gh logic to kaval.
  *
- *   dial kaval ─► per terminal: bridge taps → startAwareness → publish slice
- *                                                       │
- *                                          serve `awareness` collection
- *                                          (local socket, or stdio for ssh)
+ *   dial kaval ─► createPulam(kaval) ─► serve (local socket, or stdio for ssh)
  */
 
+import { isContractVersionCompatible } from "@kolu/surface/define";
+import {
+  type UnixSocketConnection,
+  unixSocketLink,
+} from "@kolu/surface/links/unix-socket";
+import { serveOverStdio } from "@kolu/surface/peer-server";
+import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
+import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
+import { createPulam } from "@kolu/terminal-workspace/createPulam";
+import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import {
   type AwarenessValue,
   terminalWorkspaceSurface,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
-import { isContractVersionCompatible } from "@kolu/surface/define";
-import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import { serveOverStdio } from "@kolu/surface/peer-server";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  pollOnEvent,
-} from "@kolu/surface/server";
-import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import {
-  type AwarenessRecord,
-  bridgeKavalTaps,
-  seedAwarenessValue,
-  startAwareness,
-} from "@kolu/terminal-workspace";
-import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
-import { serveTerminalWorkspace } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
-  type PtyHostListEntry,
-  ptyHostSurface,
+  type ptyHostSurface,
   resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
-import { createActivityTracker, sameActivitySet } from "./activity.ts";
-import { makeAwarenessSink } from "./hooks.ts";
 
 /** How pulam exposes the awareness surface. `socket` binds a unix socket (the
  *  default, the local case); `stdio` serves over stdin/stdout — what an ssh
@@ -83,8 +68,6 @@ export interface PulamDaemonOptions {
 export type PulamReady =
   | { kind: "socket"; socketPath: string }
   | { kind: "stdio" };
-
-const DEFAULT_POLL_MS = 1000;
 
 /** The kaval socket pulam dials. The selection policy (explicit wins; else
  *  discover; one→use it; many→ambiguous; none→default) plus the candidate labels
@@ -141,186 +124,43 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   }
   log.info({ kavalSocket }, "pulam: dialed kaval");
 
-  // ── Live-output activity — the set of terminals moving bytes right now, fed
-  //    from kaval's raw output tap (below) and served as the `activity` stream
-  //    (snapshot-then-deltas, the whole live set per frame). The flow primitive
-  //    beside the stateful collection + cell.
-  const activity = createActivityTracker();
-
-  // ── The host-side fs/git wrapper, served on the SAME surface (R6) ──
-  // pulam is the remote home of `@kolu/terminal-workspace`: it serves the fs/git
-  // reads (procedures) + change-pulses (watcher streams) beside awareness, off
-  // the one impl kolu drives in-process — so a remote kolu (R8) mirrors the
-  // whole workspace from one dial. fs/git is host-scoped (keyed by repoPath),
-  // not per-terminal, so it rides outside the per-terminal sensor loop below.
-  const workspace = createTerminalWorkspaceEndpoint(log);
-
-  // ── The served workspace surface — awareness collection + version cell +
-  //    activity, plus the fs/git procedures + watcher streams (R6) — assembled by
-  //    the ONE shared `serveTerminalWorkspace` factory that kolu-server also calls.
-  //    pulam injects only its volatile backings: the cache-backed `awareness`
-  //    store and a LIVE `activity` source over its tracker. ──
+  // ── The served workspace surface — assembled by `createPulam`, the
+  //    pulam-library's ONE assembly: the per-terminal sensors, the awareness sink,
+  //    the raw-output byte tap, and the reconcile loop all live there, not here.
+  //    The daemon injects only its volatile backing — a cache-backed `awareness`
+  //    store it owns, read by the served collection and written by the sink
+  //    through the implemented surface (handed to `pulam.start` below). ──
   const cache = new Map<TerminalId, AwarenessValue>();
+  const pulam = createPulam({
+    kaval: kaval.client,
+    awareness: {
+      readAll: () => cache,
+      upsert: (key, value) => {
+        cache.set(key, value);
+      },
+      remove: (key) => {
+        cache.delete(key);
+      },
+    },
+    endpoint: createTerminalWorkspaceEndpoint(log),
+    log,
+    pollIntervalMs: opts.pollIntervalMs,
+  });
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    ...serveTerminalWorkspace({
-      awareness: {
-        readAll: () => cache,
-        upsert: (key, value) => {
-          cache.set(key, value);
-        },
-        remove: (key) => {
-          cache.delete(key);
-        },
-      },
-      // Poll-on-event over the live set: yield the current set, then re-yield
-      // whenever a terminal lights up or goes quiet. `sameActivitySet` suppresses
-      // the redundant yield when a timer re-arm left the set unchanged.
-      activity: {
-        source: (_input, signal) =>
-          pollOnEvent({
-            read: async () => activity.snapshot(),
-            isEqual: sameActivitySet,
-            install: (onEvent) => activity.onChange(onEvent),
-            signal,
-            onReadError: () => {},
-          }),
-      },
-      endpoint: workspace,
-      log,
-    }),
+    ...pulam.served,
   });
   const router = implement(terminalWorkspaceSurface.contract).router({
     ...fragment.router,
     // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any,T> input type; the runtime shape is valid (the remote-process-monitor demo + kolu's server use the same cast).
   }) as any;
 
-  // ── Per-terminal sensors, started on first sight, stopped on departure ──
-  const watched = new Map<TerminalId, () => void>();
-
-  /** Start the awareness sensor set for one terminal, publishing each update
-   *  into the collection. Returns a stop fn (sensors + tap bridge). */
-  const watchTerminal = (
-    id: TerminalId,
-    entry: PtyHostListEntry,
-  ): (() => void) => {
-    const abort = new AbortController();
-    const record: AwarenessRecord = {
-      pid: entry.pid,
-      meta: seedAwarenessValue(entry.cwd),
-      currentAgent: null,
-    };
-    // Shallow-clone on publish: the sensors mutate `record.meta` in place (each
-    // mutator replaces a whole field), so the collection must store an
-    // independent snapshot per upsert rather than alias the live record.
-    const publish = (meta: AwarenessValue): void =>
-      fragment.ctx.collections.awareness.upsert(id, { ...meta });
-    const sink = makeAwarenessSink({
-      record,
-      publish,
-      readScreenText: async (tailLines) =>
-        (
-          await kaval.client.surface.terminal.getScreenText({
-            id,
-            extent: { kind: "tail", lines: tailLines },
-          })
-        ).text,
-    });
-    // Seed the collection immediately so a subscriber sees the terminal before
-    // any tap fires.
-    publish(record.meta);
-
-    const signals = bridgeKavalTaps(kaval.client, id, abort.signal, log);
-    // Persist cwd changes into the published value — a host concern, mirroring
-    // kolu-server's local endpoint (whose cwd bridge writes `m.cwd`). The
-    // channel fans out, so the git sensor still re-resolves off the same taps.
-    signals.cwd.consume({
-      onEvent: (cwd) =>
-        sink.updateServerMetadata(record, (m) => {
-          m.cwd = cwd;
-        }),
-      onError: () => {},
-    });
-    const stopAwareness = startAwareness(record, id, signals, sink, log);
-
-    // Tap raw output to drive the live-activity set (the green dot). We want only
-    // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
-    // (the existing screen, not motion) and treat each delta as one pulse. Held
-    // for the terminal's lifetime; `abort` tears it down on departure. Drive it
-    // through the same `mirrorRemoteSurface` receptacle the consume side uses, so
-    // this tap reuses its subscribe/abort/swallow-AbortError teardown rather than a
-    // third hand-rolled copy. (The other per-terminal taps — cwd/title/command/
-    // foreground — still ride `bridgeKavalTaps`'s `bridgeStream`; folding those onto
-    // the receptacle too would make the shared `@kolu/terminal-workspace` take a
-    // mirror dep, a larger consolidation left for later.)
-    void mirrorRemoteSurface(
-      ptyHostSurface,
-      kaval.client,
-      {
-        streams: {
-          terminalAttach: {
-            input: { id },
-            onFrame: (msg) => {
-              if (msg.kind === "delta") activity.noteOutput(id);
-            },
-          },
-        },
-      },
-      {
-        signal: abort.signal,
-        log: (line) => log.debug({ terminal: id }, line),
-      },
-    ).done;
-
-    return () => {
-      abort.abort();
-      stopAwareness();
-      activity.forget(id);
-    };
-  };
-
-  const reconcile = async (): Promise<void> => {
-    let entries: PtyHostListEntry[];
-    try {
-      ({ entries } = await kaval.client.surface.terminal.list({}));
-    } catch (err) {
-      log.error(
-        { err },
-        "pulam: kaval terminal.list failed; retrying next tick",
-      );
-      return;
-    }
-    const live = new Set<TerminalId>();
-    for (const entry of entries) {
-      live.add(entry.id);
-      if (!watched.has(entry.id)) {
-        log.debug({ terminal: entry.id }, "pulam: watching terminal");
-        watched.set(entry.id, watchTerminal(entry.id, entry));
-      }
-    }
-    for (const [id, stop] of [...watched]) {
-      if (live.has(id)) continue;
-      log.debug({ terminal: id }, "pulam: terminal departed");
-      stop();
-      watched.delete(id);
-      fragment.ctx.collections.awareness.remove(id);
-    }
-  };
-
-  await reconcile();
-  const pollTimer = setInterval(() => {
-    void reconcile();
-  }, opts.pollIntervalMs ?? DEFAULT_POLL_MS);
-  // Don't let the poll keep the loop alive on its own — the serve link does.
-  pollTimer.unref?.();
-
-  const teardown = (): void => {
-    clearInterval(pollTimer);
-    for (const stop of watched.values()) stop();
-    watched.clear();
-    activity.dispose();
-    kaval.dispose();
-  };
+  // Begin watching kaval's terminals — each terminal's sensors publish through the
+  // implemented collection. The initial reconcile runs here (awaited), so a client
+  // dialing right after `onReady` already sees the current terminals. `stopPulam`
+  // tears the whole sensor lifecycle down; the daemon disposes the connection it
+  // dialed itself.
+  const stopPulam = await pulam.start(fragment.ctx.collections.awareness);
 
   // ── Serve, then tear everything down on exit ────────────────────────
   try {
@@ -349,7 +189,8 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
       }
     }
   } finally {
-    teardown();
+    stopPulam();
+    kaval.dispose();
   }
 }
 
