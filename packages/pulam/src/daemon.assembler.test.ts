@@ -4,8 +4,11 @@
  * R9·lib lifted the per-terminal awareness assembly (seed → sink → tap-bridge →
  * sensors → cwd-persist → activity tap → reconcile) into the pulam-library behind
  * ONE entry point, `createPulam`. The daemon is now a thin serve-wrapper: dial a
- * kaval, `createPulam(...)`, serve the result. There is exactly one assembler, in
- * the library — the daemon and (in R9.0) kolu both rest on it.
+ * kaval, `createPulam(...)`, serve the result. Today the daemon owns no second
+ * assembler — `createPulam` IS its awareness assembly, and the daemon rests on it
+ * as its one consumer. kolu still hand-rolls its own assembler in-process; it
+ * converges on `createPulam` in R9.0, once the library grows a sink seam for
+ * kolu's richer sink.
  *
  * This test makes a *second* assembler in the daemon UNSPELLABLE rather than
  * merely discouraged: it parses `daemon.ts`'s imports and asserts none of the
