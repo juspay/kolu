@@ -146,6 +146,19 @@ green before capturing.
        falls back to the repo's on-disk `zest`, and you burn a full CI run on the
        dead host. If you must set `$ODU_HOSTS`, write a real hosts *file* and point
        at it; otherwise reach for `--host`.
+   - **x86_64-linux CI lane — on an ephemeral pu box, *never* `localhost`.** Pin it
+     in the **same** `mcp__odu__run hosts=[…]` call as the darwin lane
+     (`hosts=["x86_64-linux=<user>@<pu-box>", "aarch64-darwin=<user>@<host>"]`) so
+     **both** platforms actually run. A platform you don't explicitly pin **silently
+     drops from the fanout** (the `/ci` skill's `hosts.json` contract), so a
+     darwin-only pin is a *false single-platform green*, not full CI — the same
+     "never silently drop the platform" rule the darwin bullet states, applied to
+     the lane that's easy to forget because the host JSON only ever names darwin.
+     And `localhost` is **not** a venue: it runs the heavy build/test lane *beside
+     production kolu* — the OOM-kill hazard this section opens with — so **load
+     `/pu`** (Skill tool) and run the linux lane on a fresh pu box, exactly as `/ci`
+     and `/evidence` already do. Confirm the settled run actually carried **two**
+     platforms before reporting CI green.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior
