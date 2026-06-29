@@ -87,10 +87,17 @@ export interface Pulam {
    *  into `implementSurface(...)` (the daemon) or merged into the home's
    *  multi-surface implement (kolu). */
   served: ReturnType<typeof serveTerminalWorkspace>;
+  /** Whether {@link start} has run. The serving home asserts this on its serve
+   *  path so a "served but never started" surface — a permanently-empty awareness
+   *  collection + a dead activity stream — fails loud instead of passing silently
+   *  (the two-step is required, so it cannot be made structurally impossible; this
+   *  makes it loud). */
+  isStarted(): boolean;
   /** Begin watching kaval's terminals: run the initial reconcile, then poll. Each
    *  terminal's sensors publish through `collection`. Returns the teardown (stop
    *  polling, stop every terminal's sensors, dispose the activity tracker) — but
-   *  NOT the kaval connection, which the home owns and disposes itself. */
+   *  NOT the kaval connection, which the home owns and disposes itself. **Throws if
+   *  called twice** — a pulam watches its kaval exactly once. */
   start(collection: AwarenessCollectionCtx): Promise<() => void>;
 }
 
@@ -104,6 +111,16 @@ export function createPulam(deps: PulamDeps): Pulam {
   //    flow primitive beside the stateful collection + cell. ──
   const activity = createActivityTracker();
 
+  // `start()` flips this. The two-step (build `served` → implement the surface →
+  // `start`) is genuinely required — the broadcasting collection handle `start`
+  // needs only exists *after* `implementSurface(...)`, which itself needs `served`
+  // first — so the order can't be collapsed. But that lets a home construct +
+  // serve and forget `start()`, leaving awareness permanently empty and activity
+  // dead. The guards below make BOTH that broken state and a double-`start` LOUD
+  // rather than silent: the activity source refuses to be subscribed before
+  // `start`, and the home asserts `isStarted()` on its serve path.
+  let started = false;
+
   // ── The served surface — awareness collection + version cell + activity, plus
   //    the fs/git procedures + watcher streams (R6) — assembled by the ONE shared
   //    `serveTerminalWorkspace` factory. We inject the home's awareness backing and
@@ -114,8 +131,17 @@ export function createPulam(deps: PulamDeps): Pulam {
     // whenever a terminal lights up or goes quiet. `sameActivitySet` suppresses
     // the redundant yield when a timer re-arm left the set unchanged.
     activity: {
-      source: (_input, signal) =>
-        pollOnEvent({
+      source: (_input, signal) => {
+        // Subscribed before `start()` ⇒ the surface was served without starting:
+        // nothing feeds the tracker, so this stream would sit dead-empty forever.
+        // Fail loud (fail-fast: a broken state must not pass silently). After
+        // `start()` this never trips — clients subscribe over the wire post-serve,
+        // and the daemon awaits `start()` before it serves.
+        if (!started)
+          throw new Error(
+            "createPulam: activity subscribed before start() — the surface was served without start(); call start() after implementing the surface.",
+          );
+        return pollOnEvent({
           read: async () => activity.snapshot(),
           isEqual: sameActivitySet,
           install: (onEvent) => activity.onChange(onEvent),
@@ -124,7 +150,8 @@ export function createPulam(deps: PulamDeps): Pulam {
           // it touches no I/O, so it cannot fail: `onReadError` is unreachable,
           // intentionally empty (not a swallowed error). Mirrors `quietActivity`.
           onReadError: () => {},
-        }),
+        });
+      },
     },
     endpoint,
     log,
@@ -133,6 +160,15 @@ export function createPulam(deps: PulamDeps): Pulam {
   const start = async (
     collection: AwarenessCollectionCtx,
   ): Promise<() => void> => {
+    // Once-guard: a pulam watches its one kaval exactly once. A second start would
+    // run a second poll loop and a second per-terminal sensor set feeding the one
+    // shared activity tracker — double-watch. Make it unspellable (fail-fast):
+    if (started)
+      throw new Error(
+        "createPulam: start() called twice — a pulam watches its kaval once; create a second pulam for a second kaval.",
+      );
+    started = true;
+
     // ── Per-terminal sensors, started on first sight, stopped on departure ──
     const watched = new Map<TerminalId, () => void>();
 
@@ -262,5 +298,5 @@ export function createPulam(deps: PulamDeps): Pulam {
     };
   };
 
-  return { served, start };
+  return { served, isStarted: () => started, start };
 }

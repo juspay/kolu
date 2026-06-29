@@ -23,9 +23,9 @@
 <td>the surface-skeleton factory both homes already call — the awareness + activity <strong>backing injection</strong> point</td>
 </tr>
 <tr>
-<td>startAwareness · AwarenessSink · bridgeKavalTaps</td>
+<td>startAwareness · AwarenessSink</td>
 <td>@kolu/pulam-library</td>
-<td>the transport-agnostic sensor engine, sink interface, and kaval-tap bridge — the pieces R9·lib assembles into one entry point</td>
+<td>the transport-agnostic sensor engine + sink interface — still public seams (the <code>.</code> entry). The kaval-tap bridge <code>bridgeKavalTaps</code>, the per-terminal sink, and the byte-tap are now <strong>package-internal</strong> behind <code>createPulam</code> (re-exported only when R9.0’s kolu consumer needs them)</td>
 </tr>
 <tr>
 <td>the pulam daemon</td>
@@ -143,7 +143,7 @@
 </ul></div></aside>
 <ul>
 <li><strong>Needs:</strong> R6 (the library exists) and R4 (the pulam daemon) — <strong>both shipped</strong>.</li>
-<li><strong>Done:</strong> there is <strong>one</strong> assembly entry point in the library (<code>createPulam</code>); the pulam daemon is a thin serve-wrapper over it (no awareness logic of its own, 390→231 lines); <code>makeAwarenessSink</code> and <code>createActivityTracker</code> no longer live in the pulam package (moved to <code>awarenessSink.ts</code> / <code>activity.ts</code> in the library); a <strong>structural</strong> guard (<code>pulam/src/daemon.assembler.test.ts</code>) parses <code>daemon.ts</code>’s imports and forbids the awareness-assembly primitives, making a second assembler in the daemon <strong>unspellable</strong>. (Pinning the daemon’s assembly and kolu’s in-process one as the <em>same</em> code path by a <strong>differential</strong> test is <strong>R9.0</strong>, when kolu cuts over onto <code>createPulam</code> — see below.)</li>
+<li><strong>Done:</strong> there is <strong>one</strong> assembly entry point in the library (<code>createPulam</code>); the pulam daemon is a thin serve-wrapper over it (no awareness logic of its own, 390→231 lines); <code>makeAwarenessSink</code> and <code>createActivityTracker</code> no longer live in the pulam package (moved to <code>awarenessSink.ts</code> / <code>activity.ts</code> in the library); a <strong>structural</strong> guard (<code>pulam/src/daemon.assembler.test.ts</code>) walks the daemon’s import graph and rejects <em>every</em> form that reaches an awareness-assembly primitive — a named import (keyed off the imported symbol, so an alias can’t hide it), a namespace import, a dynamic <code>import()</code>, and <code>serveTerminalWorkspace</code> itself (so <code>createPulam(...).served</code> is the daemon’s only skeleton path) — over a denylist <strong>derived from the library</strong> so a new primitive can’t drift past. That makes a second assembler in the daemon <strong>unspellable</strong>. This is a deliberate re-scope of R9·lib’s bar: the structural guard <strong>plus</strong> the unchanged <code>daemon.test.ts</code> e2e (the daemon still serves correct awareness end-to-end). Pinning the daemon’s assembly and kolu’s in-process one as the <em>same</em> code path by a <strong>differential</strong> test is <strong>R9.0</strong>, when kolu cuts over onto <code>createPulam</code> — see below.</li>
 </ul>
 <a id="r90"></a>
 <h3 id="r90--kolu-consumes-the-pulam-library-in-process--the-decouple-completes">R9.0 — kolu consumes the pulam-library in-process · <em>the decouple completes</em></h3>

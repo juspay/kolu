@@ -162,6 +162,17 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   // dialed itself.
   const stopPulam = await pulam.start(fragment.ctx.collections.awareness);
 
+  // Refuse to serve a surface whose sensors never started — `createPulam.start()`
+  // must run before we expose the router, or awareness would be permanently empty
+  // and the activity stream dead. The `await` above satisfies this; the assertion
+  // enforces the ordering so a future reorder that serves first fails loud here,
+  // not silently on the wire.
+  if (!pulam.isStarted()) {
+    throw new Error(
+      "pulam: refusing to serve before createPulam.start() ran — awareness would be permanently empty.",
+    );
+  }
+
   // ── Serve, then tear everything down on exit ────────────────────────
   try {
     if (opts.serve.kind === "stdio") {
