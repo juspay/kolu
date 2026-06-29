@@ -17,8 +17,8 @@
   <rect x="292" y="44" width="232" height="84" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.9"/>
   <text x="408" y="68" text-anchor="middle" font-size="13" font-weight="700" fill="#8a5a12">memoryless producer</text>
   <text x="408" y="86" text-anchor="middle" font-size="10" fill="#7a4f10">emits observations · no seed</text>
-  <text x="408" y="103" text-anchor="middle" font-size="10" fill="#7a4f10">HostObservation only</text>
-  <text x="408" y="120" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">cannot spell memory (by type)</text>
+  <text x="408" y="103" text-anchor="middle" font-size="10" fill="#7a4f10">Observation only</text>
+  <text x="408" y="120" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">cannot spell the 2 memory fields</text>
   <line x1="244" y1="76" x2="290" y2="86" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
 
   <!-- observation legend -->
@@ -34,9 +34,9 @@
   <!-- kolu fold -->
   <rect x="292" y="196" width="232" height="84" rx="10" fill="#eafaf0" stroke="#15803d" stroke-width="1.8"/>
   <text x="408" y="220" text-anchor="middle" font-size="12.5" font-weight="700" fill="#14663a">kolu's fold</text>
-  <text x="408" y="238" text-anchor="middle" font-size="9.8" fill="#14663a">typed &#123; cache, memory, live &#125; patches</text>
+  <text x="408" y="238" text-anchor="middle" font-size="9.8" fill="#14663a">last-write-wins + 2 kolu-only fields</text>
   <text x="408" y="255" text-anchor="middle" font-size="9.8" fill="#14663a">kolu's clock · identity-only recency</text>
-  <text x="408" y="272" text-anchor="middle" font-size="9.5" fill="#14663a">arm autosave = persisted projection changed</text>
+  <text x="408" y="272" text-anchor="middle" font-size="9.5" fill="#14663a">arm autosave = restore-relevant value changed</text>
   <line x1="408" y1="128" x2="408" y2="196" stroke="#b06d12" stroke-width="1.8" marker-end="url(#a)"/>
   <rect x="360" y="152" width="96" height="16" rx="3" fill="#fff"/>
   <text x="408" y="164" text-anchor="middle" font-size="9" font-weight="700" fill="#b06d12">observations</text>
@@ -44,15 +44,15 @@
   <!-- two stores -->
   <rect x="64" y="322" width="262" height="58" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.7"/>
   <text x="195" y="344" text-anchor="middle" font-size="11" font-weight="700" fill="#3a2bb8">awareness collection</text>
-  <text x="195" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">HostObservation (cache + live) — no memory</text>
+  <text x="195" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">Observation {cwd·git·pr·agent·fg} — no memory</text>
 
   <rect x="470" y="322" width="298" height="58" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.7"/>
   <text x="619" y="344" text-anchor="middle" font-size="11" font-weight="700" fill="#3a2bb8">kolu.authored</text>
-  <text x="619" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">memory: lastActivityAt · agentSession · lastAgentCommand</text>
+  <text x="619" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">memory: lastActivityAt · lastAgentCommand</text>
 
   <line x1="360" y1="280" x2="240" y2="320" stroke="#15803d" stroke-width="1.7" marker-end="url(#g)"/>
   <rect x="244" y="294" width="78" height="15" rx="3" fill="#fff"/>
-  <text x="283" y="306" text-anchor="middle" font-size="8.8" fill="#15803d">cache + live</text>
+  <text x="283" y="306" text-anchor="middle" font-size="8.8" fill="#15803d">observed</text>
   <line x1="470" y1="280" x2="600" y2="320" stroke="#15803d" stroke-width="1.7" marker-end="url(#g)"/>
   <rect x="500" y="294" width="64" height="15" rx="3" fill="#fff"/>
   <text x="532" y="306" text-anchor="middle" font-size="8.8" fill="#15803d">memory</text>
