@@ -20,7 +20,7 @@ import type {
   terminalWorkspaceSurface,
   AwarenessValue,
   TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import {
   type UnixSocketConnection,
   unixSocketLink,
@@ -240,7 +240,7 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   expect(value.pr.kind).toBeTruthy();
 
   // ── R6: pulam serves the workspace fs/git too, over the SAME socket ──
-  // The second home of @kolu/terminal-workspace: the Code tab's fs/git reads
+  // The second home of @kolu/pulam-library: the Code tab's fs/git reads
   // (and R8's remote kolu) are answered by pulam, not just awareness.
   writeFileSync(join(repo, "note.txt"), "hi\n");
   const listed = await conn.client.surface.fs.listAll({ repoPath: repo });

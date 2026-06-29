@@ -1,8 +1,5 @@
-import { agentStatusLabel } from "@kolu/terminal-workspace/agentProjection";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+import { agentStatusLabel } from "@kolu/pulam-library/agentProjection";
+import type { AwarenessValue, TerminalId } from "@kolu/pulam-library/surface";
 import { describe, expect, it } from "vitest";
 import {
   agentMatchesUntil,

@@ -2,7 +2,7 @@
  * The pulam-web fleet view's PRESENTATION layer over the shared agent-state
  * projection. The renderer-agnostic core — bucketing, the needs-you-first
  * ordering, recency formatting, the short agent name, the idle-label fork — lives
- * in `@kolu/terminal-workspace/agentProjection`, shared byte-for-byte across the
+ * in `@kolu/pulam-library/agentProjection`, shared byte-for-byte across the
  * surfaces that render it (pulam-tui, pulam-web, AND kolu's Dock — the two fleet
  * views MIRROR the Dock UX), fenced by the schema's `AgentInfo['state']` union so
  * a new agent state can't drift between them. This module keeps ONLY what is
@@ -29,11 +29,8 @@ import {
   alertClass,
   compareAgents,
   type Urgency,
-} from "@kolu/terminal-workspace/agentProjection";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/agentProjection";
+import type { AwarenessValue, TerminalId } from "@kolu/pulam-library/surface";
 
 /** The last path segment of `cwd` — the terminal's working dir at a glance. A
  *  trailing slash is trimmed first so `/a/b/` reads as `b`, not empty. */

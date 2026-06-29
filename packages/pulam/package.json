@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/pulam-library": "workspace:*",
     "@orpc/server": "^1.13.13",
     "kaval": "workspace:*",
     "pino": "^10.3.1"

@@ -20,7 +20,7 @@ import {
   type ConnectionInfo,
   DEFAULT_CONNECTION,
 } from "@kolu/surface-nix-host/connection";
-import type { TerminalId } from "@kolu/terminal-workspace/surface";
+import type { TerminalId } from "@kolu/pulam-library/surface";
 import { createSignal, type Setter } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";

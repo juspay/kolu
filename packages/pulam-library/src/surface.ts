@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-workspace/surface` — the ONE `@kolu/surface` the `pulam`
+ * `@kolu/pulam-library/surface` — the ONE `@kolu/surface` the `pulam`
  * daemon serves, `pulam-tui` reads, and (in R8) a remote kolu-server mirrors.
  * It is the consume-facing dual of the host-side workspace the library owns: a
  * keyed `AwarenessValue` collection (one entry per terminal a kaval owns), the
@@ -86,7 +86,7 @@ export const FsReadFileTextOutputSchema = z.object({
   truncated: z.boolean(),
 });
 
-/** The terminal-workspace surface — PULAM's home today. R6 ships one fs/git
+/** The terminalWorkspace surface — PULAM's home today. R6 ships one fs/git
  *  IMPL (`createTerminalWorkspaceEndpoint`) with two homes, NOT one surface both
  *  serve: kolu-server (in-process) re-exposes the reads on `koluSurface`'s
  *  value-bearing streams, while pulam (remote) serves them on THIS surface. The
@@ -189,7 +189,7 @@ export type AwarenessKey = SF["collections"]["awareness"]["Key"];
  *  now (the whole current live set, snapshot-then-deltas). */
 export type ActivitySet = SF["streams"]["activity"]["Output"];
 
-// The collection's value is exactly `@kolu/terminal-workspace`'s `AwarenessValue`
+// The collection's value is exactly `@kolu/pulam-library`'s `AwarenessValue`
 // (both are `z.infer<typeof AwarenessValueSchema>`). Re-export the canonical
 // names so a consumer of the surface has one import for the surface AND its
 // value/key shapes.

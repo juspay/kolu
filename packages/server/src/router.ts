@@ -13,7 +13,7 @@ import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
 } from "@kolu/terminal-protocol";
-import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
+import { unwrapGit } from "@kolu/pulam-library/endpoint";
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";

@@ -111,7 +111,7 @@ export const app = clients.kolu;
  *  path). Handed to `<SurfaceAppProvider controlPlane=...>` + `createServerLifecycle`. */
 export const surfaceApp = clients.surfaceApp;
 
-/** The GENERIC `@kolu/terminal-workspace` surface client — kolu reads the
+/** The GENERIC `@kolu/pulam-library` surface client — kolu reads the
  *  per-terminal `awareness` collection here
  *  (`workspace.collections.awareness.use(...)`) and joins each value with the
  *  matching `kolu.authored` record in `useTerminalMetadata`. This is the SAME

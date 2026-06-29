@@ -15,7 +15,7 @@ import {
   terminalWorkspaceSurface,
   DEFAULT_VERSION,
   type TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import { directLink } from "@kolu/surface/links/direct";
 import {
   implementSurface,

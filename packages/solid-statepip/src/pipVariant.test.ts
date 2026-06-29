@@ -1,7 +1,7 @@
 import {
   type AgentPaintClass,
   agentPaintClass,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/pulam-library/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
   ALERT_BADGE_CLASS,

@@ -10,7 +10,7 @@
  * `PreferencesSchema` / `TerminalMetadataSchema` / `ActivityFeedSchema` are
  * composed from — splitting them across files would just re-fragment the same
  * domain. The generic awareness sub-schemas (agent + PR sub-types, foreground,
- * terminal identity) are OWNED by `@kolu/terminal-workspace/schema` (P1a) and
+ * terminal identity) are OWNED by `@kolu/pulam-library/schema` (P1a) and
  * re-exported below; kolu's terminal-field schemas EXTEND that base rather than
  * declare it.
  *
@@ -41,8 +41,8 @@ import {
   type AwarenessValue,
   PrResultSchema,
   TerminalIdSchema,
-} from "@kolu/terminal-workspace/schema";
-import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/schema";
+import { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import {
@@ -57,10 +57,10 @@ import {
 } from "kolu-git/schemas";
 import { z } from "zod";
 
-// ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
+// ── Re-exports — the awareness domain moved to @kolu/pulam-library (P1a) ──
 //
 // The generic awareness value (terminal identity, agent status, PR resolution,
-// foreground) is OWNED by `@kolu/terminal-workspace/schema` now. kolu-common
+// foreground) is OWNED by `@kolu/pulam-library/schema` now. kolu-common
 // EXTENDS that base — adding `location` and the client/UI fields below — and
 // re-exports the moved symbols so existing `kolu-common/surface` import sites
 // are unchanged: the schema home inverted, the consumers didn't move.
@@ -73,7 +73,7 @@ export {
   prUnavailableReason,
   prUnavailableSource,
   reasonForSource,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/pulam-library/schema";
 export type {
   AgentInfo,
   AgentKind,
@@ -87,14 +87,14 @@ export type {
   PrResult,
   PrUnavailableSource,
   TerminalId,
-} from "@kolu/terminal-workspace/schema";
+} from "@kolu/pulam-library/schema";
 export { TerminalIdSchema };
 
 // The renderer-agnostic agent-state projection (bucket · urgency · needs-you
-// rank) is OWNED by `@kolu/terminal-workspace/agentProjection` — the ONE source
+// rank) is OWNED by `@kolu/pulam-library/agentProjection` — the ONE source
 // pulam-tui and pulam-web already share. The kolu client reaches it through the
 // SAME door it already uses for the awareness schema (this module) rather than a
-// second, direct `@kolu/terminal-workspace` edge, so the Dock joins as a third
+// second, direct `@kolu/pulam-library` edge, so the Dock joins as a third
 // consumer of the same definition instead of re-deriving "needs-you".
 export {
   agentBucket,
@@ -102,12 +102,12 @@ export {
   agentUrgency,
   alertClass,
   URGENCY_RANK,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/pulam-library/agentProjection";
 export type {
   AgentPaintClass,
   AlertClass,
   Urgency,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/pulam-library/agentProjection";
 
 export const CanvasLayoutSchema = z.object({
   x: z.number(),
@@ -218,7 +218,7 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
  *
  * This is kolu's EXTENSION of the generic `AwarenessPersistedFieldsSchema`
  * (cwd · git · lastAgentCommand · lastActivityAt, owned by
- * `@kolu/terminal-workspace`): the awareness base plus the one kolu-specific
+ * `@kolu/pulam-library`): the awareness base plus the one kolu-specific
  * field, `location`. The schema home inverted in P1a — kolu's record is built
  * ON TOP of the awareness value, not the other way around.
  *
@@ -286,7 +286,7 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * schemas, it round-trips through disk as-is.
  *
  * Identical to the generic `AwarenessLiveFieldsSchema` (pr · agent ·
- * foreground, owned by `@kolu/terminal-workspace`): no kolu-specific field
+ * foreground, owned by `@kolu/pulam-library`): no kolu-specific field
  * rides the live half (`location` is persisted, not live), so kolu aliases the
  * awareness live schema directly rather than re-declaring it.
  *
@@ -333,7 +333,7 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // union; any consumer that touches a live field must first narrow
 // `state === "active"` — the compiler refuses a live field on the bare union, so
 // a sleeping terminal can sit on the canvas yet never be an input/WebGL target.
-// The awareness schemas in `@kolu/terminal-workspace` stay FLAT: the union is
+// The awareness schemas in `@kolu/pulam-library` stay FLAT: the union is
 // recomposed HERE, and `state` never crosses the awareness wire (pulam/kaval
 // never see a sleeping arm).
 
@@ -907,7 +907,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
 //     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
 //     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
-//   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
+//   - `terminalWorkspaceSurface` — the GENERIC `@kolu/pulam-library` surface
 //     (awareness collection + version cell + activity flow + fs/git procedures &
 //     watcher streams), served under the `terminalWorkspace` key so a viewer reads
 //     the same surface `pulam` serves. Its `awareness` collection is projected
@@ -1052,7 +1052,7 @@ export const koluSurface = defineSurface({
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
-  // The generic `@kolu/terminal-workspace` surface, served as a third sibling
+  // The generic `@kolu/pulam-library` surface, served as a third sibling
   // (R8): the `awareness` collection (projected off each registry entry's
   // `awareness` field — the sensor sink is the sole writer), the `version`
   // handshake cell, the live `activity` flow, and the Code tab's fs/git

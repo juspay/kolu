@@ -207,7 +207,7 @@ export type DockModel = {
  *  prefer `entryBucket()` so parked terminals route to the Idle column.
  *
  *  Defers the per-state PAINT decision to `agentPaintClass` in
- *  `@kolu/terminal-workspace/agentProjection`, so the closed agent-state set is
+ *  `@kolu/pulam-library/agentProjection`, so the closed agent-state set is
  *  folded to a paint class in ONE schema-fenced file: a new state literal
  *  compile-fails THERE (`state satisfies never`) until its paint class is
  *  decided, rather than silently routing through a hand-copied dock-local
@@ -223,7 +223,7 @@ export type DockModel = {
  *
  *  Named `paintBucket` — NOT `agentBucket` — so the name carries the concept:
  *  `agentBucket` unambiguously means the shared projection's activity fold
- *  (`@kolu/terminal-workspace/agentProjection`), and `paintBucket` is this
+ *  (`@kolu/pulam-library/agentProjection`), and `paintBucket` is this
  *  agent-optional paint adapter (the per-state fold itself is `agentPaintClass`
  *  in the projection; this only lifts it over an absent agent). */
 export function paintBucket(

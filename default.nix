@@ -84,7 +84,7 @@ let
       ./packages/terminal-themes
       ./packages/theme
       ./packages/memorable-names
-      ./packages/terminal-workspace
+      ./packages/pulam-library
       ./packages/terminal-protocol
       ./packages/kaval
       ./packages/kaval-tui
@@ -442,13 +442,13 @@ let
     agentDrvsJson = kavalAgentDrvsJson;
   };
 
-  # pulam (plan P1c): the standalone terminal-workspace daemon. Dials a
+  # pulam (plan P1c): the standalone pulam-library daemon. Dials a
   # running kaval as a plain ptyHostSurface client, runs the awareness sensors
   # (git · PR · agent · foreground) for every PTY kaval owns, and serves the
   # result as one `awareness` collection that pulam-tui reads — zero kolu-server
   # involvement. Ephemeral: owns no PTYs, holds no gate, recomputes from now on
   # every start. Runs from the SAME built workspace closure as `kolu` (so kaval
-  # + @kolu/surface + @kolu/terminal-workspace resolve identically).
+  # + @kolu/surface + @kolu/pulam-library resolve identically).
   #
   # Launched as `node --import <tsx loader> bin.ts`, NOT `tsx bin.ts`: the
   # single-process loader form delivers SIGTERM to the daemon so its socket
@@ -489,7 +489,7 @@ let
   };
 
   # pulam-web (R4.8a): the browser fleet of terminals over ssh — drishti's twin
-  # for the terminal-workspace surface. Two pieces, mirroring kolu's own
+  # for the terminalWorkspace surface. Two pieces, mirroring kolu's own
   # client/server split:
   #
   #   - `pulamWebDist` builds the Vite/Solid browser bundle (the SAME toolchain

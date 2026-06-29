@@ -38,14 +38,14 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
-import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import { seedAwarenessValue } from "@kolu/pulam-library";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   type AwarenessValue,
   DEFAULT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import { createEffect, createMemo, createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type PulamBrowserContract, pulamSurface } from "../shared/contract.ts";

@@ -1,4 +1,4 @@
-import { AwarenessPersistedFieldsSchema } from "@kolu/terminal-workspace/schema";
+import { AwarenessPersistedFieldsSchema } from "@kolu/pulam-library/schema";
 import type { PtyHostListEntry } from "kaval";
 import {
   AuthoredActiveSchema,

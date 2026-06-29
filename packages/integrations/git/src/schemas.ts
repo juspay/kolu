@@ -138,7 +138,7 @@ export const GitStatusInputSchema = z.object({
  *
  *  - `local` (working tree vs HEAD): always carries the branch-tracking header
  *    (current branch + ahead/behind vs upstream) and the working-tree section
- *    counts. Both added in terminal-workspace contract 0.4 — pulam's fleet board
+ *    counts. Both added in terminalWorkspace contract 0.4 — pulam's fleet board
  *    reads them on each `subscribeRepoChange` pulse to paint a row's live
  *    ahead/behind and the drill-in summary (R4.7), computed from the same `git
  *    status` the file list already reads (no extra git call).

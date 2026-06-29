@@ -8,7 +8,7 @@
  * stays transport-blind.
  */
 
-import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import type { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 import {
   type UnixSocketConnection,
   unixSocketLink,

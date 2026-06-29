@@ -23,14 +23,14 @@ import {
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import { createPulam } from "@kolu/terminal-workspace/createPulam";
-import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+import { createPulam } from "@kolu/pulam-library/createPulam";
+import { createTerminalWorkspaceEndpoint } from "@kolu/pulam-library/endpoint";
 import {
   type AwarenessValue,
   terminalWorkspaceSurface,
   type TerminalId,
-} from "@kolu/terminal-workspace/surface";
-import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
+} from "@kolu/pulam-library/surface";
+import { pulamSocketPath } from "@kolu/pulam-library/socket";
 import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,

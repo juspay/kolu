@@ -9,7 +9,7 @@ import {
   VersionSchema,
 } from "./surface.ts";
 
-describe("terminal-workspace surface", () => {
+describe("terminalWorkspace surface", () => {
   it("builds the workspace surface contract", () => {
     expect(terminalWorkspaceSurface.contract).toBeTruthy();
   });

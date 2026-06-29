@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-workspace/serveFsGit` — FACE B of the lifted fs/git wrapper:
+ * `@kolu/pulam-library/serveFsGit` — FACE B of the lifted fs/git wrapper:
  * the `implementSurface` deps that expose `createTerminalWorkspaceEndpoint`'s
  * one impl on the `terminalWorkspaceSurface` as procedures + watcher streams.
  * pulam spreads these alongside its `awareness`/`activity`/`version` deps so the
@@ -43,7 +43,7 @@ function changePulseSource(
     install,
     signal,
     onReadError: (err) =>
-      log.error({ err }, `terminal-workspace: ${label} pulse read failed`),
+      log.error({ err }, `pulam-library: ${label} pulse read failed`),
   });
 }
 

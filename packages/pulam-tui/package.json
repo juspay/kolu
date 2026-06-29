@@ -12,7 +12,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-nix-host": "workspace:*",
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/pulam-library": "workspace:*",
     "cleye": "^2.3.0",
     "columnify": "^1.6.0"
   },

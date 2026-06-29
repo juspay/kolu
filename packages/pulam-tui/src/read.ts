@@ -18,7 +18,7 @@ import {
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import type { PulamClient } from "./connect.ts";
 
 /** Confirm the running pulam speaks a wire-compatible workspace contract before

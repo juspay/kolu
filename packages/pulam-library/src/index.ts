@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-workspace` — the host-side terminal WORKSPACE library, run in
+ * `@kolu/pulam-library` — the host-side terminal WORKSPACE library, run in
  * two homes off one codebase: in-process in kolu-server (local terminals) and
  * hosted by `pulam` over ssh (remote ones). Lifted out of kolu-server so both
  * homes share ONE copy of the freshness-critical code. Its entry points

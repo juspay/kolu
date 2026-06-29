@@ -16,11 +16,8 @@ import {
   agentStatusLabel,
   DASH,
   relativeTime,
-} from "@kolu/terminal-workspace/agentProjection";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/agentProjection";
+import type { AwarenessValue, TerminalId } from "@kolu/pulam-library/surface";
 import columnify from "columnify";
 
 /** How many leading chars of a terminal id the human views show. v4 UUIDs
@@ -73,7 +70,7 @@ export function resolveTerminalId(
  *  `agentBucket` fold's vocabulary minus `other` (an `other` bucket never
  *  matches a real agent, so accepting it would only ever time out). `wait`
  *  compares against the *bucket*, never the raw `AgentInfo['state']` literals,
- *  so the one fold in `@kolu/terminal-workspace/agentProjection` stays the
+ *  so the one fold in `@kolu/pulam-library/agentProjection` stays the
  *  single source of truth (see `.claude/rules/dock-fleet-mirror.md`). */
 export const WAIT_STATES = [
   "working",

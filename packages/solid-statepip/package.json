@@ -24,7 +24,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/pulam-library": "workspace:*",
     "solid-js": "^1.9.0"
   }
 }

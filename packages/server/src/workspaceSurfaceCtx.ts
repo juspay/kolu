@@ -10,7 +10,7 @@
  * never forms a bidirectional import edge with `surface.ts`.
  */
 
-import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import type { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 import { createLateBoundSurfaceCtx } from "./lateBoundSurfaceCtx.ts";
 
 export const {

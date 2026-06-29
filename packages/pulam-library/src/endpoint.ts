@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-workspace/endpoint` — the host-side fs/git wrapper, lifted out
+ * `@kolu/pulam-library/endpoint` — the host-side fs/git wrapper, lifted out
  * of kolu-server's `localEndpoint` (R6) so it has ONE home both kolu (in-process)
  * and pulam (remote) drive. A thin layer over `kolu-git`: it unwraps each
  * `GitResult` into a value or a thrown `ORPCError` (fail-fast — a git error
@@ -74,7 +74,7 @@ export interface TerminalEndpointGit {
  * specifically to keep `local.ts` out of an import cycle with `surface.ts`
  * (#1005). Co-locating it here is now safe: (a) this module imports nothing
  * from any surface module, and (b) its remaining external consumer —
- * kolu-server's `router.ts` — reaches it across the `@kolu/terminal-workspace`
+ * kolu-server's `router.ts` — reaches it across the `@kolu/pulam-library`
  * package edge, not within kolu-server, so the #1005 cycle cannot reform.
  */
 export function unwrapGit<T>(result: GitResult<T>): T {

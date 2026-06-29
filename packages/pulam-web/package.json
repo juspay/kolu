@@ -17,7 +17,7 @@
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-nix-host": "workspace:*",
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/pulam-library": "workspace:*",
     "@kolu/theme": "workspace:*",
     "@orpc/server": "^1.13.13",
     "hono": "^4.12.25",

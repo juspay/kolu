@@ -53,8 +53,8 @@ import type {
   TerminalId,
   TerminalWorkspaceSpec,
   Version,
-} from "@kolu/terminal-workspace/surface";
-import { DEFAULT_VERSION } from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
+import { DEFAULT_VERSION } from "@kolu/pulam-library/surface";
 import { implement } from "@orpc/server";
 import { pulamSurface, type PulamContract } from "../shared/contract.ts";
 

@@ -31,11 +31,11 @@
  * CLI's: pulam-tui is single-daemon, like kaval-tui.
  */
 
-import { pulamSocketPath } from "@kolu/terminal-workspace/socket";
+import { pulamSocketPath } from "@kolu/pulam-library/socket";
 import {
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import { cli, command } from "cleye";
 import { type Connection, connectPulam } from "./connect.ts";
 import { connectPulamViaHost } from "./hostConnect.ts";

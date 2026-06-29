@@ -2,21 +2,18 @@
  * Pins `fleet.ts` — the pulam-web PRESENTATION layer over the shared agent-state
  * projection. The renderer-agnostic core (bucketing, urgency, recency, short
  * name, the idle-label fork, the needs-you-first ordering) is tested ONCE in
- * `@kolu/terminal-workspace`'s `agentProjection.test.ts`; this file keeps only
+ * `@kolu/pulam-library`'s `agentProjection.test.ts`; this file keeps only
  * the web-specific bits: the location/cwd helpers, the URGENCY colour/label
  * descriptor, the web-labelled state cell, the terminal-category filter, and the
  * fleet-entry comparator adapter.
  */
 
-import { seedAwarenessValue } from "@kolu/terminal-workspace";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+import { seedAwarenessValue } from "@kolu/pulam-library";
+import type { AwarenessValue, TerminalId } from "@kolu/pulam-library/surface";
 import {
   agentUrgency,
   fleetStateLabel,
-} from "@kolu/terminal-workspace/agentProjection";
+} from "@kolu/pulam-library/agentProjection";
 import { describe, expect, it } from "vitest";
 import {
   basename,

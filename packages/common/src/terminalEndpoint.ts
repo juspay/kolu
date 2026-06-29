@@ -45,7 +45,7 @@
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
-} from "@kolu/terminal-workspace/endpoint";
+} from "@kolu/pulam-library/endpoint";
 import type {
   InitialTerminalMetadata,
   TerminalId,
@@ -115,7 +115,7 @@ export interface TerminalHandle {
 }
 
 // `TerminalEndpointFs` / `TerminalEndpointGit` — the fs/git half of the endpoint
-// — now live in `@kolu/terminal-workspace/endpoint`, beside the one impl both
+// — now live in `@kolu/pulam-library/endpoint`, beside the one impl both
 // kolu (in-process) and pulam (remote) drive (R6). The composite below imports
 // them; a future remote endpoint implements them from the same home.
 

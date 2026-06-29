@@ -30,7 +30,7 @@
  * adding no public API to those drishti-shared packages, so it needs no drishti
  * mirror PR (`.claude/rules/surface.md`).
  */
-import type { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import type { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { dialAgentOnce } from "@kolu/surface-nix-host";
 import type { Connection } from "./connect.ts";

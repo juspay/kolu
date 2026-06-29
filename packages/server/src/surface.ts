@@ -43,7 +43,7 @@ import { surfaceAppServer } from "@kolu/surface-app/server";
 import {
   quietActivity,
   serveTerminalWorkspace,
-} from "@kolu/terminal-workspace/serveTerminalWorkspace";
+} from "@kolu/pulam-library/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -431,7 +431,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
       kolu: koluDeps,
 
-      // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
+      // ── the terminalWorkspace server deps (sibling under `terminalWorkspace`) ──
       // The GENERIC awareness surface (R8), assembled by the ONE shared factory
       // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
       // fs/git procedures + watcher streams live THERE, built off the SAME

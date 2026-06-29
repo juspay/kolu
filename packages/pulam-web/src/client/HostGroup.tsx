@@ -68,11 +68,8 @@ import {
   DASH,
   fleetStateLabel,
   relativeTime,
-} from "@kolu/terminal-workspace/agentProjection";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/agentProjection";
+import type { AwarenessValue, TerminalId } from "@kolu/pulam-library/surface";
 import {
   createEffect,
   createMemo,

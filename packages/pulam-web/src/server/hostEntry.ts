@@ -34,7 +34,7 @@ import {
   type HostSession,
   pumpRemoteSurface,
 } from "@kolu/surface-nix-host";
-import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 import { type PulamContract, buildReServe } from "./reserve.ts";
 
 export type { PulamContract };

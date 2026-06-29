@@ -27,7 +27,7 @@ import {
   DEFAULT_VERSION,
   terminalWorkspaceSurface,
   type TerminalId,
-} from "@kolu/terminal-workspace/surface";
+} from "@kolu/pulam-library/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { connectPulam } from "./connect.ts";
 import { agentMatchesUntil } from "./render.ts";

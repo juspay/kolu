@@ -43,7 +43,7 @@
  *  The rendering call sites import `StatePip` from the barrel; the two entry
  *  points are a deliberate value/JSX split, not redundancy. */
 
-import type { AgentPaintClass } from "@kolu/terminal-workspace/agentProjection";
+import type { AgentPaintClass } from "@kolu/pulam-library/agentProjection";
 
 export type PipVariant =
   | "awaiting" // awaiting, already seen: quiet dim dot (lingering)
@@ -53,7 +53,7 @@ export type PipVariant =
   | "empty"; // parked / none — render nothing
 
 /** The shared agent-paint → pip fold. Speaks only the three agent paint classes
- *  (`@kolu/terminal-workspace/agentProjection`'s `AgentPaintClass`): `none` (no
+ *  (`@kolu/pulam-library/agentProjection`'s `AgentPaintClass`): `none` (no
  *  agent paint) renders nothing — a surface that wants a muted dot for a
  *  touched-but-agentless terminal maps that case itself (the Dock's `idle`,
  *  pulam-web's nonagent), it does not belong to the agent-paint vocabulary.

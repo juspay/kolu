@@ -1,5 +1,5 @@
 /**
- * `@kolu/terminal-workspace/serveTerminalWorkspace` — the ONE assembler of the
+ * `@kolu/pulam-library/serveTerminalWorkspace` — the ONE assembler of the
  * `terminalWorkspaceSurface` server deps, shared by its two homes: kolu-server
  * (in-process) and the `pulam` daemon (remote). The surface SKELETON — the
  * `version` handshake cell + {@link DEFAULT_VERSION}, and the fs/git procedures +

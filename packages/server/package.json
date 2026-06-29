@@ -21,7 +21,7 @@
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
-    "@kolu/terminal-workspace": "workspace:*",
+    "@kolu/pulam-library": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/experimental-pino": "^1.13.13",

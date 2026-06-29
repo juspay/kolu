@@ -11,7 +11,7 @@
  * the live half (`agent`/`foreground`) never reaches the sleeping wire.
  */
 
-import type { AwarenessValue } from "@kolu/terminal-workspace";
+import type { AwarenessValue } from "@kolu/pulam-library";
 import { describe, expect, it } from "vitest";
 import {
   type AuthoredActiveTerminal,

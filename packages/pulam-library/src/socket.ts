@@ -1,5 +1,5 @@
 /**
- * The well-known socket where `pulam` serves its terminal-workspace surface and
+ * The well-known socket where `pulam` serves its terminalWorkspace surface and
  * `pulam-tui` dials it — one resolver both import, so the default path can
  * never drift between them (the role kaval's `getPtyHostSocketPath` plays for
  * the pty-host socket). One `pulam` per host (the standalone default), so a
@@ -7,7 +7,7 @@
  *
  * This is node-coupled (it resolves a per-user runtime dir), so it is a
  * SEPARATE entry from `./surface`: a browser / remote-kolu consumer of
- * `terminalWorkspaceSurface` imports `@kolu/terminal-workspace/surface` and
+ * `terminalWorkspaceSurface` imports `@kolu/pulam-library/surface` and
  * never drags in `node:`.
  */
 
