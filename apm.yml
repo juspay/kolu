@@ -26,6 +26,7 @@ dependencies:
     # alongside the remote packages below. See agents/README.md.
     - path: ./agents
     - srid/agency#master
+    - srid/llm-debate
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - juspay/skills/skills/pg

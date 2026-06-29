@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-06-28T20:59:40.050335+00:00'
-apm_version: 0.22.0
+generated_at: '2026-06-29T17:44:14.926258+00:00'
+apm_version: 0.23.0
 dependencies:
 - repo_url: _local/agents
   name: agents
@@ -315,6 +315,40 @@ dependencies:
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
   content_hash: sha256:e2144eca9c2932044bde96b74db5a546a2cec052f747be926abfc638ab684db9
   declared_license: MIT
+- repo_url: srid/llm-debate
+  name: llm-debate
+  host: github.com
+  resolved_commit: 3a52fca8633016627e33b4fbf036c50da9e4cc2c
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/debate
+  - .agents/skills/debate/SKILL.md
+  - .claude/skills/debate
+  - .claude/skills/debate/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
+    .claude/skills/debate/SKILL.md: sha256:af2c34cda04a8705d9c292be4a6c7b7fe53b22bb8ef526f8413638948600e825
+  content_hash: sha256:9cf74853b4407af783799193d988f2ed028406caeb5d285f7be1a0609c0c6ed4
+- repo_url: juspay/kolu
+  name: kolu
+  host: github.com
+  resolved_commit: dbff5c22c832730e9fc7e08c23480edc64b89a1d
+  version: unknown
+  virtual_path: agents/.apm/skills/kolu
+  is_virtual: true
+  depth: 2
+  resolved_by: srid/llm-debate
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/kolu
+  - .agents/skills/kolu/SKILL.md
+  - .claude/skills/kolu
+  - .claude/skills/kolu/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+    .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
+  content_hash: sha256:c457b0d11e5f706f4ace57c0fdbe510b9367ead42d5b78372b8cb805cf18e2c2
 mcp_servers:
 - chrome-devtools
 - odu
