@@ -73,14 +73,14 @@ export const PT = [
 
 <Phase id="R9·lib" name="one library assembly entry point — createPulam; the daemon wraps it" status="shipped" needs={["R6", "R4"]} links={[{ label: "#1617", href: "https://github.com/juspay/kolu/pull/1617" }]} />
 
-**The gap, grounded.** The library (`@kolu/pulam-library`) is genuinely decoupled — its dependency arrow points **out** (`package.json`: `@kolu/surface`, kaval, the agent/git integrations; no kolu-app dependency) and it has **six** consumers (kolu-server, pulam, pulam-web, pulam-tui, common, solid-statepip). But it exports *parts*, not a *whole*:
+**The gap R9·lib closed, grounded.** The library (`@kolu/pulam-library`) is genuinely decoupled — its dependency arrow points **out** (`package.json`: `@kolu/surface`, kaval, the agent/git integrations; no kolu-app dependency) and it has **six** consumers (kolu-server, pulam, pulam-web, pulam-tui, common, solid-statepip). But before this phase it exported *parts*, not a *whole*:
 
 - the sensor engine `startAwareness` and the **interface** `AwarenessSink` (`sensors.ts:849`, `sensors.ts:163`),
 - the kaval-tap bridge `bridgeKavalTaps` (`kavalChannels.ts:58`),
 - the surface-skeleton factory `serveTerminalWorkspace` + `quietActivity` (`serveTerminalWorkspace.ts:73`, `serveTerminalWorkspace.ts:53`),
 - the surface contract `terminalWorkspaceSurface` and the fs/git endpoint `createTerminalWorkspaceEndpoint`.
 
-What it does **not** export is the assembly that turns *a dialed kaval* into *a live, served terminalWorkspace surface*. That assembly lives in the **pulam daemon** (`pulam/src/daemon.ts:114` `runPulamDaemon`): dial kaval → per-terminal `watchTerminal` (`daemon.ts:203`) wires `seedAwarenessValue` → its own `makeAwarenessSink` → `bridgeKavalTaps` → `startAwareness` → a raw-output activity tap → and `reconcile` (`daemon.ts:282`) keeps the set in step, all fed into `serveTerminalWorkspace`. Two generic pieces are stranded **in the daemon package**: the per-terminal sink `makeAwarenessSink` (`pulam/src/hooks.ts:39`) and the byte-tap `createActivityTracker` (`pulam/src/activity.ts:43`).
+What it did **not** export was the assembly that turns *a dialed kaval* into *a live, served terminalWorkspace surface*. That assembly lived in the **pulam daemon** (`runPulamDaemon` in `pulam/src/daemon.ts`): dial kaval → a per-terminal `watchTerminal` wired `seedAwarenessValue` → its own `makeAwarenessSink` → `bridgeKavalTaps` → `startAwareness` → a raw-output activity tap → and a `reconcile` kept the set in step, all fed into `serveTerminalWorkspace`. Two generic pieces were stranded **in the daemon package**: the per-terminal sink `makeAwarenessSink` (`pulam/src/hooks.ts`) and the byte-tap `createActivityTracker` (`pulam/src/activity.ts`). **R9·lib moved all three into the library** — `createPulam` (`pulam-library/src/createPulam.ts`) now owns the assembly, with the sink and tap-tracker lifted across to `awarenessSink.ts` + `activity.ts`; `pulam/src/hooks.ts` is gone and the daemon dropped 390→231 lines.
 
 kolu re-implements a **divergent** subset of that same assembly:
 
@@ -105,7 +105,7 @@ One assembler, in the library; the daemon and kolu are both thin. That is the 1:
 </Callout>
 
 - **Needs:** R6 (the library exists) and R4 (the pulam daemon) — **both shipped**.
-- **Done:** there is **one** assembly entry point in the library; the pulam daemon is a thin serve-wrapper over it (no awareness logic of its own); `makeAwarenessSink` and `createActivityTracker` no longer live in the pulam package; a differential test pins the daemon's assembly and kolu's in-process one as the **same** code path.
+- **Done:** there is **one** assembly entry point in the library (`createPulam`); the pulam daemon is a thin serve-wrapper over it (no awareness logic of its own, 390→231 lines); `makeAwarenessSink` and `createActivityTracker` no longer live in the pulam package (moved to `awarenessSink.ts` / `activity.ts` in the library); a **structural** guard (`pulam/src/daemon.assembler.test.ts`) parses `daemon.ts`'s imports and forbids the awareness-assembly primitives, making a second assembler in the daemon **unspellable**. (Pinning the daemon's assembly and kolu's in-process one as the *same* code path by a **differential** test is **R9.0**, when kolu cuts over onto `createPulam` — see below.)
 
 <a id="r90"></a>
 
