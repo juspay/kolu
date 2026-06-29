@@ -26,7 +26,7 @@
   <text x="248" y="266" text-anchor="middle" font-size="12" font-weight="700" fill="#8a5a12">pulam-library — createPulam(kaval)</text>
   <text x="248" y="285" text-anchor="middle" font-size="10" fill="#7a4f10">in-process: dial kaval → run sensors → sink</text>
   <text x="248" y="302" text-anchor="middle" font-size="10" fill="#7a4f10">→ writes awareness into kolu's registry</text>
-  <text x="248" y="320" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">(today: @kolu/terminal-workspace)</text>
+  <text x="248" y="320" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">(today: @kolu/pulam-library)</text>
   <text x="248" y="345" text-anchor="middle" font-size="9.5" font-style="italic" fill="#6b5fd0">awareness stays in-process — no awareness socket</text>
 
   <!-- local kaval -->

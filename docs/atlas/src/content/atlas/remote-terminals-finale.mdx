@@ -1,6 +1,6 @@
 ---
 title: Remote terminals — the finale (R9–R10)
-description: The corrected R9–R10 plan. The awareness capability is ALREADY a decoupled library (@kolu/terminal-workspace — its dependency arrow points out, six consumers), and kolu already consumes it in-process. The earlier "kolu runs a local pulam process" correction (PR #1614) was a misdiagnosis and is CLOSED — it conflated a process boundary with code decoupling. The real gap is that there is no 1:1 between the library and the pulam daemon — the awareness ASSEMBLY (the sink, the byte-tap, the dial→sensors→serve orchestration) lives in the daemon and is re-implemented, divergently, inside kolu. The fix — one library assembly entry point (createPulam) the daemon wraps trivially and kolu consumes in-process; remote (R9.3) mirrors the remote pulam daemon's surface, identically. Phases — R9·lib consolidate · R9.0 in-process consume · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote awareness · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
+description: The corrected R9–R10 plan. The awareness capability is ALREADY a decoupled library (@kolu/pulam-library — its dependency arrow points out, six consumers), and kolu already consumes it in-process. The earlier "kolu runs a local pulam process" correction (PR #1614) was a misdiagnosis and is CLOSED — it conflated a process boundary with code decoupling. The real gap is that there is no 1:1 between the library and the pulam daemon — the awareness ASSEMBLY (the sink, the byte-tap, the dial→sensors→serve orchestration) lives in the daemon and is re-implemented, divergently, inside kolu. The fix — one library assembly entry point (createPulam) the daemon wraps trivially and kolu consumes in-process; remote (R9.3) mirrors the remote pulam daemon's surface, identically. Phases — R9·lib consolidate · R9.0 in-process consume · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote awareness · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
@@ -15,10 +15,10 @@ import PhaseTree from "../../components/PhaseTree.astro";
 import Svg from "../../components/Svg.astro";
 import topology from "../../diagrams/r90-process-topology.svg?raw";
 
-**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and the answer turns out to already be in the repo: the awareness capability is a **decoupled library** — `@kolu/terminal-workspace` — and kolu already consumes it **in-process**. The only real defect is that the library is a *bag of pieces* with **no single assembly**, so the daemon and kolu each wire those pieces up themselves, divergently. This note corrects course: give the library **one assembly entry point** (a working name: createPulam), make the pulam **daemon** a trivial wrapper over it, have kolu consume that **same** assembly **in-process** for the local box (R9.0) and **mirror the remote pulam daemon** for a remote host (R9.3). The decoupling is the **library boundary**, not a process boundary. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; full model in [the terminal model](terminal-metadata-model.html).
+**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and the answer turns out to already be in the repo: the awareness capability is a **decoupled library** — `@kolu/pulam-library` — and kolu already consumes it **in-process**. The only real defect is that the library is a *bag of pieces* with **no single assembly**, so the daemon and kolu each wire those pieces up themselves, divergently. This note corrects course: give the library **one assembly entry point** (a working name: createPulam), make the pulam **daemon** a trivial wrapper over it, have kolu consume that **same** assembly **in-process** for the local box (R9.0) and **mirror the remote pulam daemon** for a remote host (R9.3). The decoupling is the **library boundary**, not a process boundary. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; full model in [the terminal model](terminal-metadata-model.html).
 
 <Callout kind="warn" title="The earlier correction was itself a misdiagnosis — R9.0-as-a-process is CLOSED">
-The prior plan (and PR #1614) said R8's mistake was that kolu *serves awareness in-process*, and proposed kolu run a **local pulam process** it mirrors over a socket. That was wrong on the diagnosis and the cure. **Grounded in the code:** `@kolu/terminal-workspace` already points its dependency arrow **out** (it names no kolu-app package; its lone host coupling is an injected logger) and already has six consumers — it *is* the decoupling. kolu already consumes it in-process (`server/src/terminalEndpoint/local.ts` runs the library's `startAwareness` against kaval's taps). So "decouple awareness from kolu in code" was solved before R9.0. The local-pulam-**process** bought no decoupling and introduced a fold-clobber blocker that is intrinsic to mirroring an *ephemeral* local process across a socket. **PR #1614 is CLOSED (never merged); the process approach is rejected.** The pulam daemon is kept for the *remote* case, where a process boundary is real.
+The prior plan (and PR #1614) said R8's mistake was that kolu *serves awareness in-process*, and proposed kolu run a **local pulam process** it mirrors over a socket. That was wrong on the diagnosis and the cure. **Grounded in the code:** `@kolu/pulam-library` already points its dependency arrow **out** (it names no kolu-app package; its lone host coupling is an injected logger) and already has six consumers — it *is* the decoupling. kolu already consumes it in-process (`server/src/terminalEndpoint/local.ts` runs the library's `startAwareness` against kaval's taps). So "decouple awareness from kolu in code" was solved before R9.0. The local-pulam-**process** bought no decoupling and introduced a fold-clobber blocker that is intrinsic to mirroring an *ephemeral* local process across a socket. **PR #1614 is CLOSED (never merged); the process approach is rejected.** The pulam daemon is kept for the *remote* case, where a process boundary is real.
 </Callout>
 
 <Callout kind="note" title="The real gap — no 1:1 between the library and the daemon">
@@ -28,7 +28,7 @@ The library exposes the *parts* — the sensor engine (`startAwareness`) and the
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "R9·lib · consolidate the pulam-library — one assembly (createPulam), lib↔daemon 1:1", m: "the prerequisite · needs R6 · R4", h: "#r9lib" },
+  { d: 0, g: "✓", c: "ship", l: "R9·lib · consolidate the pulam-library — one assembly (createPulam), lib↔daemon 1:1", m: "the prerequisite · #1617", h: "#r9lib" },
   { d: 0, g: "○", c: "prog", l: "R9.0 · kolu consumes the pulam-library in-process (the decouple completes)", m: "needs R9·lib", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
@@ -48,8 +48,8 @@ export const PT = [
 
 | seam | where | leg it serves |
 | --- | --- | --- |
-| serveTerminalWorkspace | @kolu/terminal-workspace | the surface-skeleton factory both homes already call — the awareness + activity **backing injection** point |
-| startAwareness · AwarenessSink · bridgeKavalTaps | @kolu/terminal-workspace | the transport-agnostic sensor engine, sink interface, and kaval-tap bridge — the pieces R9·lib assembles into one entry point |
+| serveTerminalWorkspace | @kolu/pulam-library | the surface-skeleton factory both homes already call — the awareness + activity **backing injection** point |
+| startAwareness · AwarenessSink · bridgeKavalTaps | @kolu/pulam-library | the transport-agnostic sensor engine, sink interface, and kaval-tap bridge — the pieces R9·lib assembles into one entry point |
 | the pulam daemon | pulam ([R4](pulam.html)) | the **one** sensor set per host; serves terminalWorkspaceSurface standalone — kept for the **remote** case |
 | frontDaemonOverStdio | @kolu/surface-daemon | dial a **remote** kaval over ssh stdio → the remote PTY |
 | getHostSession | @kolu/surface-nix-host | a pooled, long-lived session to dial a **remote** pulam → the mirror |
@@ -69,11 +69,11 @@ export const PT = [
 
 <a id="r9lib"></a>
 
-### R9·lib — consolidate the pulam-library (one assembly, lib↔daemon 1:1) · *the prerequisite*
+### R9·lib — consolidate the pulam-library (one assembly, lib↔daemon 1:1) — *shipped* <PrLink pr={1617} />
 
-<Phase id="R9·lib" name="one library assembly entry point — createPulam; the daemon wraps it" status="todo" needs={["R6", "R4"]} />
+<Phase id="R9·lib" name="one library assembly entry point — createPulam; the daemon wraps it" status="shipped" needs={["R6", "R4"]} links={[{ label: "#1617", href: "https://github.com/juspay/kolu/pull/1617" }]} />
 
-**The gap, grounded.** The library (`@kolu/terminal-workspace`) is genuinely decoupled — its dependency arrow points **out** (`package.json`: `@kolu/surface`, kaval, the agent/git integrations; no kolu-app dependency) and it has **six** consumers (kolu-server, pulam, pulam-web, pulam-tui, common, solid-statepip). But it exports *parts*, not a *whole*:
+**The gap, grounded.** The library (`@kolu/pulam-library`) is genuinely decoupled — its dependency arrow points **out** (`package.json`: `@kolu/surface`, kaval, the agent/git integrations; no kolu-app dependency) and it has **six** consumers (kolu-server, pulam, pulam-web, pulam-tui, common, solid-statepip). But it exports *parts*, not a *whole*:
 
 - the sensor engine `startAwareness` and the **interface** `AwarenessSink` (`sensors.ts:849`, `sensors.ts:163`),
 - the kaval-tap bridge `bridgeKavalTaps` (`kavalChannels.ts:58`),
@@ -197,7 +197,7 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 
 ## The shape after R9.0
 
-<Svg svg={topology} caption="The corrected shape. ONE library (the pulam-library, today @kolu/terminal-workspace) owns the awareness assembly behind createPulam(kaval). LOCAL: kolu-server calls createPulam against its own kaval IN-PROCESS — no local pulam process, no awareness socket; the library reads kaval's taps over the unix socket kolu already dials for PTY I/O, runs the sensors, and writes the values straight into kolu's registry. The browser reads kolu-server over a websocket and joins authored ⋈ awareness at the reader (unchanged from R8). REMOTE (R9.3): the remote host runs the SAME library as the pulam daemon — createPulam(kaval) served over a socket — and kolu mirrors its served surface over ssh stdio. local is an in-process call; remote is a mirror of a daemon; the assembly is identical. The 1:1 is library ↔ daemon." />
+<Svg svg={topology} caption="The corrected shape. ONE library (the pulam-library (@kolu/pulam-library)) owns the awareness assembly behind createPulam(kaval). LOCAL: kolu-server calls createPulam against its own kaval IN-PROCESS — no local pulam process, no awareness socket; the library reads kaval's taps over the unix socket kolu already dials for PTY I/O, runs the sensors, and writes the values straight into kolu's registry. The browser reads kolu-server over a websocket and joins authored ⋈ awareness at the reader (unchanged from R8). REMOTE (R9.3): the remote host runs the SAME library as the pulam daemon — createPulam(kaval) served over a socket — and kolu mirrors its served surface over ssh stdio. local is an in-process call; remote is a mirror of a daemon; the assembly is identical. The 1:1 is library ↔ daemon." />
 
 ## Open decisions
 

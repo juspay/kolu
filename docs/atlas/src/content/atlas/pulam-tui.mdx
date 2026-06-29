@@ -148,7 +148,7 @@ The steps:
 4. **Repackage like kaval-tui.** The Nix derivation drops `bun2nix` for the plain Node packaging `packages/kaval-tui` uses; `nix run …#pulam-tui` and the dev recipe follow kaval-tui's wholesale.
 
 <Callout kind="warn" title="Consequence — pulam-tui leaves the three-surface paint mirror">
-The `dock-fleet-mirror` instruction pins a three-surface agent-state contract — kolu's Dock, `pulam-tui`, and `pulam-web` all painting from the shared `@kolu/terminal-workspace/agentProjection` fold. Dropping the TUI's fleet render takes `pulam-tui` out of that set: the contract becomes **Dock + pulam-web** (the two surfaces that still render sorted, colour-coded agent state). The `status` table can still read awareness, but it is an unsorted snapshot — the needs-you-first sort, the paint classes, and the breathing alert are pulam-web's. Update the `dock-fleet-mirror` rule to a two-surface contract as part of this change.
+The `dock-fleet-mirror` instruction pins a three-surface agent-state contract — kolu's Dock, `pulam-tui`, and `pulam-web` all painting from the shared `@kolu/pulam-library/agentProjection` fold. Dropping the TUI's fleet render takes `pulam-tui` out of that set: the contract becomes **Dock + pulam-web** (the two surfaces that still render sorted, colour-coded agent state). The `status` table can still read awareness, but it is an unsorted snapshot — the needs-you-first sort, the paint classes, and the breathing alert are pulam-web's. Update the `dock-fleet-mirror` rule to a two-surface contract as part of this change.
 </Callout>
 
 ## History

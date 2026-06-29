@@ -18,7 +18,7 @@ import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 ## The shipped types
 
 ```ts
-//  observed half  ── @kolu/terminal-workspace, served as `terminalWorkspace.awareness`
+//  observed half  ── @kolu/pulam-library, served as `terminalWorkspace.awareness`
 type AwarenessValue   = { cwd; git; pr; agent; foreground;
                           lastAgentCommand?; agentSession?; lastActivityAt }   // 8 fields
 
@@ -102,7 +102,7 @@ Producer names (`PulamMeta`, `KavalMeta`) bake in **who** makes the data — but
 
 ## One surface, two homes — `serveTerminalWorkspace`
 
-The `terminalWorkspace.awareness` collection is served by **two homes** — kolu-server (in-process) and the `pulam` daemon (remote, over ssh) — but assembled in **one place**. `@kolu/terminal-workspace/serveTerminalWorkspace` owns the surface skeleton (the `version` handshake cell + the fs/git procedures and watcher streams, off `serveFsGit`); each home injects only its **two volatile backings**:
+The `terminalWorkspace.awareness` collection is served by **two homes** — kolu-server (in-process) and the `pulam` daemon (remote, over ssh) — but assembled in **one place**. `@kolu/pulam-library/serveTerminalWorkspace` owns the surface skeleton (the `version` handshake cell + the fs/git procedures and watcher streams, off `serveFsGit`); each home injects only its **two volatile backings**:
 
 | backing | kolu-server | pulam |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ The `terminalWorkspace.awareness` collection is served by **two homes** — kolu
 It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
 
 <Callout kind="note" title="Correction (proposed) — the in-process home is fine; the gap is the missing assembly">
-An earlier draft called the *kolu-in-process* home of this factory a re-coupling mis-step. On a closer read it isn't: `@kolu/terminal-workspace` is a **decoupled library** (its dependency arrow points out, six consumers), so kolu calling it in-process is not re-coupling — the library knows nothing of kolu. The real gap is upstream of this factory: the library exposes only *parts*, with **no single assembly**, so the pulam daemon and kolu each wire the sensors + sink + byte-tap up themselves, divergently. The fix ([R9·lib](remote-terminals-finale.html#r9lib)) gives the library one assembly entry point (createPulam) so the daemon and kolu's in-process consumer are **1:1**; [R9.0](remote-terminals-finale.html#r90) routes kolu's awareness backing through it in-process, and [R9.3](remote-terminals-finale.html#r93) backs a *remote* tile by mirroring the remote pulam daemon. The reader-join and this injection seam stay; only what feeds the `awareness` backing changes.
+An earlier draft called the *kolu-in-process* home of this factory a re-coupling mis-step. On a closer read it isn't: `@kolu/pulam-library` is a **decoupled library** (its dependency arrow points out, six consumers), so kolu calling it in-process is not re-coupling — the library knows nothing of kolu. The real gap is upstream of this factory: the library exposes only *parts*, with **no single assembly**, so the pulam daemon and kolu each wire the sensors + sink + byte-tap up themselves, divergently. The fix ([R9·lib](remote-terminals-finale.html#r9lib)) gives the library one assembly entry point (createPulam) so the daemon and kolu's in-process consumer are **1:1**; [R9.0](remote-terminals-finale.html#r90) routes kolu's awareness backing through it in-process, and [R9.3](remote-terminals-finale.html#r93) backs a *remote* tile by mirroring the remote pulam daemon. The reader-join and this injection seam stay; only what feeds the `awareness` backing changes.
 </Callout>
 
 ## Next — R9 (corrected: one library, two transports)

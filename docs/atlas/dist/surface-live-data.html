@@ -138,7 +138,7 @@ so push it and keep the Code tab dumb.</li>
 host serves over ssh) uses <strong>procedure + pulse</strong>. Streaming a full git diff
 continuously over ssh is wasteful, so it sends a tiny pulse and lets the consumer
 pull on demand — the deliberate choice the surface’s own header records
-(<code>packages/terminal-workspace/src/surface.ts:89-109</code>: <em>“re-queries procedures
+(<code>packages/pulam-library/src/surface.ts:89-109</code>: <em>“re-queries procedures
 rather than streaming full diffs over the wire”</em>).</li>
 </ul>
 <p>That difference is the crux of <a href="remote-terminals.html#r8">remote-terminals R8/R9</a>.

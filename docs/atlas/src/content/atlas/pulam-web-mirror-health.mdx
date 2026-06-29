@@ -174,12 +174,12 @@ export const pipeSessionStateToCell = <C>(
 ): (() => void) => session.onState((s) => set(projectConnection(s)));
 ```
 
-**2 — Compose the cell at the mirror seam, NOT into the base surface.** The base `terminalWorkspaceSurface` (`packages/terminal-workspace/src/surface.ts`) stays **connection-free** — link health is not a property of the daemon's own surface (a direct/local link has no remote to be down). pulam-web's browser/mirror surface wraps it: `pulamSurface = mirroredSurface(terminalWorkspaceSurface)` (`packages/pulam-web/src/shared/contract.ts`). `mirroredSurface` adds the gate-closed get-only `connection` cell; the gate-closed `state: "connecting"` seed comes baked in. drishti composes the *same* `mirroredSurface(base)` at its own mirror (the step-7 companion). Only the browser-safe `@kolu/surface-nix-host/connection` subpath + `import type`s reach the client bundle (the node main entry never does).
+**2 — Compose the cell at the mirror seam, NOT into the base surface.** The base `terminalWorkspaceSurface` (`packages/pulam-library/src/surface.ts`) stays **connection-free** — link health is not a property of the daemon's own surface (a direct/local link has no remote to be down). pulam-web's browser/mirror surface wraps it: `pulamSurface = mirroredSurface(terminalWorkspaceSurface)` (`packages/pulam-web/src/shared/contract.ts`). `mirroredSurface` adds the gate-closed get-only `connection` cell; the gate-closed `state: "connecting"` seed comes baked in. drishti composes the *same* `mirroredSurface(base)` at its own mirror (the step-7 companion). Only the browser-safe `@kolu/surface-nix-host/connection` subpath + `import type`s reach the client bundle (the node main entry never does).
 
 ```ts
 // packages/pulam-web/src/shared/contract.ts
 import { mirroredSurface } from "@kolu/surface-nix-host/connection";
-import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import { terminalWorkspaceSurface } from "@kolu/pulam-library/surface";
 
 // The browser-facing surface = base + the get-only `connection` cell.
 export const pulamSurface = mirroredSurface(terminalWorkspaceSurface);

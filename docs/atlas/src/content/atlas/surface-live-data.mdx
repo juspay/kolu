@@ -145,7 +145,7 @@ two surface shapes — chosen by where the consumer sits.
   host serves over ssh) uses **procedure + pulse**. Streaming a full git diff
   continuously over ssh is wasteful, so it sends a tiny pulse and lets the consumer
   pull on demand — the deliberate choice the surface's own header records
-  (`packages/terminal-workspace/src/surface.ts:89-109`: *"re-queries procedures
+  (`packages/pulam-library/src/surface.ts:89-109`: *"re-queries procedures
   rather than streaming full diffs over the wire"*).
 
 That difference is the crux of [remote-terminals R8/R9](remote-terminals.html#r8).

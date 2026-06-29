@@ -14,7 +14,7 @@
   <text x="44" y="113" font-size="9.5" fill="#64748b">OSC 7 / 0;2 / 633;E · tcgetpgrp</text>
   <text x="44" y="132" font-size="9.5" fill="#64748b">(untouched by this PR · feeds the sensors)</text>
 
-  <text x="396" y="48" text-anchor="middle" font-size="11" font-weight="700" fill="#b06d12">sensors — @kolu/terminal-workspace</text>
+  <text x="396" y="48" text-anchor="middle" font-size="11" font-weight="700" fill="#b06d12">sensors — @kolu/pulam-library</text>
   <rect x="280" y="56" width="232" height="92" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.5"/>
   <text x="296" y="79" font-size="12.5" font-weight="700" fill="#8a5a12">derive + relay</text>
   <text x="296" y="97" font-size="10.5" fill="#7a4f10">git · pr · agent · lastAgentCommand …</text>
