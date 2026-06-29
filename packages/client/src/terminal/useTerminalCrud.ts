@@ -136,8 +136,16 @@ export const useTerminalCrud = createSharedRoot(() => {
     // the create RPC — the server push during the await triggers the
     // canvas placement effect, which consumes the signal. If we set
     // after the await, the effect has already run with no size to inherit.
+    //
+    // Only arm on the cascade-placed fresh-create path that actually
+    // consumes it: a create carrying `initial.canvasLayout` (session
+    // restore, #642) is server-seeded, so the placement effect's `newIds`
+    // excludes it and the slot would be set-but-never-consumed — and a
+    // stale set could then leak into a later create whose active tile
+    // momentarily lacks a layout. Gating on `!initial?.canvasLayout`
+    // keeps the slot scoped to the path that reads it.
     const activeLayout = store.activeMeta()?.canvasLayout;
-    if (activeLayout)
+    if (!initial?.canvasLayout && activeLayout)
       pendingLayouts.setNextDefaultSize({
         w: activeLayout.w,
         h: activeLayout.h,
