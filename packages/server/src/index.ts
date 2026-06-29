@@ -185,11 +185,10 @@ app.use("/rpc/*", async (c, next) => {
 });
 
 // --- Graceful shutdown ---
-// One cleanup registration covers every exit path (signals, fatal
+// One cleanup registration covers every NORMAL exit path (signals, fatal
 // handlers, natural exit). `process.on('exit', ...)` fires on any call
 // to process.exit() and runs synchronously — exactly what rmSync needs.
-// Only SIGKILL / power loss bypass it, and XDG logout-wipe is the
-// backstop for those.
+// SIGKILL / power loss bypass it (XDG logout-wipe is the backstop).
 process.on("exit", shutdownCleanup);
 
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {

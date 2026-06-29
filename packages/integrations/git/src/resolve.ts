@@ -84,7 +84,7 @@ export async function resolveGitInfo(
       // (`/home/user/proj/.git` with sibling `proj/.worktrees/`), cwd can be
       // anywhere around `.git` — falling back to `basename(cwd)` would
       // report the wrong name (e.g. `.worktrees`).
-      const gitDirAbs = fs.realpathSync(
+      const gitDirAbs = await fs.promises.realpath(
         path.resolve(cwd, (await git.raw(["rev-parse", "--git-dir"])).trim()),
       );
       const gitDirBase = path.basename(gitDirAbs);
@@ -124,11 +124,13 @@ export async function resolveGitInfo(
     // --git-common-dir returns the shared .git dir; for worktrees it points
     // back to the main repo's .git, letting us derive the real repo name.
     // The path is relative to cwd (where simple-git runs), not repoRoot.
-    // realpathSync normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
-    // so the comparison with repoRoot (which git already resolved) is reliable.
+    // realpath normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
+    // so the comparison with repoRoot (which git already resolved) is
+    // reliable. Async (`fs.promises`) so the symlink walk never blocks the
+    // event loop on a slow/hung mount — this runs on every GitInfo resolve.
     const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
     const mainRepoRoot = path.dirname(
-      fs.realpathSync(path.resolve(cwd, gitCommonDir)),
+      await fs.promises.realpath(path.resolve(cwd, gitCommonDir)),
     );
     const isWorktree = mainRepoRoot !== repoRoot;
     return ok({
@@ -258,8 +260,14 @@ export function subscribeGitInfo(
     onChange(next);
   }
 
-  // Install synchronously so fs events during the first `resolve()` await
-  // aren't dropped on the floor.
+  // Kick the watcher install off immediately (before the first `resolve()`
+  // await) so the window where fs events could be dropped is as small as
+  // possible. `hasGitDir` is a single fast stat that picks the likely mode
+  // up front, avoiding a cwd→head install/retire flip once `resolve()`
+  // confirms the repo. The install itself now settles asynchronously (the
+  // leaf watcher resolves its git dir off the event loop); any event in that
+  // sub-millisecond attach window is covered by `resolve()` re-reading
+  // current state and by the `setCwd` defense below.
   ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
   void resolve();
 
