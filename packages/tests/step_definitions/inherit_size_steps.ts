@@ -4,6 +4,15 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 
+/** A canvas tile's positioned element by terminal id. `canvas-tile` is the
+ *  same element that carries `data-terminal-id` AND the `left`/`top`/`width`/
+ *  `height` inline style (CanvasTile.tsx), so this one selector lands the
+ *  positioned tile directly — no `closest("[style*='left']")` hop, which
+ *  would substring-match an ancestor's `border-left`/`padding-left` and read
+ *  `NaN` geometry. */
+const tileSelector = (sel: string, tileId: string) =>
+  `${sel} [data-testid="canvas-tile"][data-terminal-id="${tileId}"]`;
+
 /** Set a tile's canvas layout (position + size) via the server RPC. */
 async function setCanvasLayout(
   world: KoluWorld,
@@ -24,45 +33,38 @@ When(
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
     // Read current position, keep it, change size.
+    const tileSel = tileSelector(CANVAS_SELECTOR, id);
     const current = await this.page.evaluate(
-      ({ sel, tileId }: { sel: string; tileId: string }) => {
-        const inner = document.querySelector(
-          `${sel} [data-terminal-id="${tileId}"]`,
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
-        if (!tile) throw new Error(`Tile for ${tileId} not found`);
+      ({ sel }: { sel: string }) => {
+        const tile = document.querySelector(sel) as HTMLElement | null;
+        if (!tile) throw new Error(`Tile not found: ${sel}`);
         return {
           x: parseFloat(tile.style.left),
           y: parseFloat(tile.style.top),
         };
       },
-      { sel: CANVAS_SELECTOR, tileId: id },
+      { sel: tileSel },
     );
     await setCanvasLayout(this, id, { x: current.x, y: current.y, w, h });
     // Wait for the tile to render at the new size.
     await this.page.waitForFunction(
       ({
         sel,
-        tileId,
         wantW,
         wantH,
       }: {
         sel: string;
-        tileId: string;
         wantW: number;
         wantH: number;
       }) => {
-        const inner = document.querySelector(
-          `${sel} [data-terminal-id="${tileId}"]`,
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        const tile = document.querySelector(sel) as HTMLElement | null;
         if (!tile) return false;
         return (
           Math.abs(parseFloat(tile.style.width) - wantW) < 1 &&
           Math.abs(parseFloat(tile.style.height) - wantH) < 1
         );
       },
-      { sel: CANVAS_SELECTOR, tileId: id, wantW: w, wantH: h },
+      { sel: tileSel, wantW: w, wantH: h },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -75,11 +77,9 @@ When(
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
     // Dispatch mousedown directly (same approach as canvas_steps.ts).
     await this.page.evaluate(
-      ({ sel, tileId }: { sel: string; tileId: string }) => {
-        const tile = document.querySelector(
-          `${sel} [data-terminal-id="${tileId}"]`,
-        ) as HTMLElement | null;
-        if (!tile) throw new Error(`Tile for ${tileId} not found`);
+      ({ sel }: { sel: string }) => {
+        const tile = document.querySelector(sel) as HTMLElement | null;
+        if (!tile) throw new Error(`Tile not found: ${sel}`);
         const rect = tile.getBoundingClientRect();
         tile.dispatchEvent(
           new MouseEvent("mousedown", {
@@ -89,7 +89,7 @@ When(
           }),
         );
       },
-      { sel: CANVAS_SELECTOR, tileId: id },
+      { sel: tileSelector(CANVAS_SELECTOR, id) },
     );
     await this.waitForFrame();
   },
@@ -107,26 +107,21 @@ Then(
     await this.page.waitForFunction(
       ({
         sel,
-        tileId,
         wantW,
         wantH,
       }: {
         sel: string;
-        tileId: string;
         wantW: number;
         wantH: number;
       }) => {
-        const inner = document.querySelector(
-          `${sel} [data-terminal-id="${tileId}"]`,
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        const tile = document.querySelector(sel) as HTMLElement | null;
         if (!tile) return false;
         return (
           Math.abs(parseFloat(tile.style.width) - wantW) < 1 &&
           Math.abs(parseFloat(tile.style.height) - wantH) < 1
         );
       },
-      { sel: CANVAS_SELECTOR, tileId: id, wantW: w, wantH: h },
+      { sel: tileSelector(CANVAS_SELECTOR, id), wantW: w, wantH: h },
       { timeout: POLL_TIMEOUT },
     );
   },
