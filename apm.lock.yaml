@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-29T20:07:13.174745+00:00'
+generated_at: '2026-06-29T20:18:33.699425+00:00'
 apm_version: 0.23.0
 dependencies:
 - repo_url: _local/agents
@@ -7,6 +7,8 @@ dependencies:
   version: 0.1.0
   package_type: apm_package
   deployed_files:
+  - .agents/skills/architecture-first-principles
+  - .agents/skills/architecture-first-principles/SKILL.md
   - .agents/skills/be
   - .agents/skills/be-review
   - .agents/skills/be-review/SKILL.md
@@ -29,6 +31,8 @@ dependencies:
   - .agents/skills/perfection-review/SKILL.md
   - .agents/skills/surface
   - .agents/skills/surface/SKILL.md
+  - .claude/skills/architecture-first-principles
+  - .claude/skills/architecture-first-principles/SKILL.md
   - .claude/skills/be
   - .claude/skills/be-review
   - .claude/skills/be-review/SKILL.md
@@ -52,6 +56,7 @@ dependencies:
   - .claude/skills/surface
   - .claude/skills/surface/SKILL.md
   deployed_file_hashes:
+    .agents/skills/architecture-first-principles/SKILL.md: sha256:7ed2b3c42710a666fbdb0be0279ff33df24d1454bbb59b2f20c36f3073b84f65
     .agents/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
     .agents/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
     .agents/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
@@ -65,8 +70,9 @@ dependencies:
     .agents/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
     .agents/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .agents/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
-    .agents/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
+    .agents/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
     .agents/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
+    .claude/skills/architecture-first-principles/SKILL.md: sha256:7ed2b3c42710a666fbdb0be0279ff33df24d1454bbb59b2f20c36f3073b84f65
     .claude/skills/be-review/SKILL.md: sha256:fdb61c7b836caa836f9163660883fec7c9ab8991fe59c6f4b07c77e7ec983ada
     .claude/skills/be/SKILL.md: sha256:1af763c957b9cfa5f4810c48bc8fe906a7843c6c8878422211799f9cb874590a
     .claude/skills/codex-debate/SKILL.md: sha256:5456d1b415ac284e4e7f1d51bab2548124f0dbd0e8175185afc9fb01b0485238
@@ -80,7 +86,7 @@ dependencies:
     .claude/skills/kolu/SKILL.md: sha256:3502c99286fa3f253950dac258f7a5062c563f73fe4747029194f2e0bfaa072d
     .claude/skills/lens-debate/SKILL.md: sha256:7b08a00e9f088e64aa7886659175926e4afaac14a725d53d202e8de14aa30192
     .claude/skills/lens-debate/debate.workflow.js: sha256:94ecd7a58059af0606a1ce1bfc0feb942b80f90f80f993e538ae827f1eedbac3
-    .claude/skills/perfection-review/SKILL.md: sha256:04da07089d67f1e605d2d639b1494a5365be4feeaa0646f4fa740cfd301bfd2c
+    .claude/skills/perfection-review/SKILL.md: sha256:a5464e881cdde4555218325f638289afebee4dd910772fea8efe6e06fff81bdf
     .claude/skills/surface/SKILL.md: sha256:96fb2a33b5a615dd1a9b8963baf3107a41a5ebb29a83ed9e168e593177716501
   source: local
   local_path: ./agents

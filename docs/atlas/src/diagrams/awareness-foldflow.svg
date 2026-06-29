@@ -1,0 +1,68 @@
+<svg viewBox="0 0 800 472" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#3a2bb8"/></marker>
+    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#b06d12"/></marker>
+    <marker id="s" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker>
+  </defs>
+
+  <text x="400" y="22" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">S2 (R9.0) — the producer observes, kolu remembers</text>
+
+  <!-- kaval taps -->
+  <rect x="36" y="52" width="208" height="46" rx="9" fill="#f1f5f9" stroke="#64748b" stroke-width="1.6"/>
+  <text x="140" y="72" text-anchor="middle" font-size="11.5" font-weight="700" fill="#334155">kaval taps</text>
+  <text x="140" y="89" text-anchor="middle" font-size="9.3" fill="#475569">cwd · title · commandRun · foreground</text>
+
+  <!-- producer -->
+  <rect x="292" y="44" width="232" height="84" rx="10" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.9"/>
+  <text x="408" y="68" text-anchor="middle" font-size="13" font-weight="700" fill="#8a5a12">memoryless producer</text>
+  <text x="408" y="86" text-anchor="middle" font-size="10" fill="#7a4f10">emits observations · no seed</text>
+  <text x="408" y="103" text-anchor="middle" font-size="10" fill="#7a4f10">Observation only</text>
+  <text x="408" y="120" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">cannot spell the 2 memory fields</text>
+  <line x1="244" y1="76" x2="290" y2="86" stroke="#64748b" stroke-width="1.6" marker-end="url(#s)"/>
+
+  <!-- observation legend -->
+  <rect x="560" y="46" width="224" height="126" rx="9" fill="#fffdf6" stroke="#e7c98a" stroke-width="1.3"/>
+  <text x="571" y="64" font-size="10.3" font-weight="700" fill="#8a5a12">AwarenessObservation</text>
+  <text x="571" y="82" font-size="9.2" fill="#7a4f10">cwd · git · pr · foreground</text>
+  <text x="571" y="99" font-size="9.2" fill="#7a4f10">agent  (snapshot|delta from frame)</text>
+  <text x="571" y="116" font-size="9.2" fill="#7a4f10">commandRun &#123; replayed &#125;</text>
+  <text x="571" y="135" font-size="9" font-style="italic" fill="#b07d2a">— no memory fields —</text>
+  <text x="571" y="155" font-size="9" font-style="italic" fill="#b07d2a">recentRepo/Agent: fold-derived</text>
+  <line x1="524" y1="92" x2="558" y2="92" stroke="#b06d12" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- kolu fold -->
+  <rect x="292" y="196" width="232" height="84" rx="10" fill="#eafaf0" stroke="#15803d" stroke-width="1.8"/>
+  <text x="408" y="220" text-anchor="middle" font-size="12.5" font-weight="700" fill="#14663a">kolu's fold</text>
+  <text x="408" y="238" text-anchor="middle" font-size="9.8" fill="#14663a">last-write-wins + 2 kolu-only fields</text>
+  <text x="408" y="255" text-anchor="middle" font-size="9.8" fill="#14663a">kolu's clock · identity-only recency</text>
+  <text x="408" y="272" text-anchor="middle" font-size="9.5" fill="#14663a">arm autosave = restore-relevant value changed</text>
+  <line x1="408" y1="128" x2="408" y2="196" stroke="#b06d12" stroke-width="1.8" marker-end="url(#a)"/>
+  <rect x="360" y="152" width="96" height="16" rx="3" fill="#fff"/>
+  <text x="408" y="164" text-anchor="middle" font-size="9" font-weight="700" fill="#b06d12">observations</text>
+
+  <!-- two stores -->
+  <rect x="64" y="322" width="262" height="58" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.7"/>
+  <text x="195" y="344" text-anchor="middle" font-size="11" font-weight="700" fill="#3a2bb8">awareness collection</text>
+  <text x="195" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">Observation {cwd·git·pr·agent·fg} — no memory</text>
+
+  <rect x="470" y="322" width="298" height="58" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.7"/>
+  <text x="619" y="344" text-anchor="middle" font-size="11" font-weight="700" fill="#3a2bb8">kolu.authored</text>
+  <text x="619" y="362" text-anchor="middle" font-size="9.3" fill="#352a7a">memory: lastActivityAt · lastAgentCommand</text>
+
+  <line x1="360" y1="280" x2="240" y2="320" stroke="#15803d" stroke-width="1.7" marker-end="url(#g)"/>
+  <rect x="244" y="294" width="78" height="15" rx="3" fill="#fff"/>
+  <text x="283" y="306" text-anchor="middle" font-size="8.8" fill="#15803d">observed</text>
+  <line x1="470" y1="280" x2="600" y2="320" stroke="#15803d" stroke-width="1.7" marker-end="url(#g)"/>
+  <rect x="500" y="294" width="64" height="15" rx="3" fill="#fff"/>
+  <text x="532" y="306" text-anchor="middle" font-size="8.8" fill="#15803d">memory</text>
+
+  <!-- browser -->
+  <rect x="280" y="412" width="300" height="38" rx="8" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.5"/>
+  <text x="430" y="436" text-anchor="middle" font-size="10.5" font-weight="700" fill="#3a2bb8">browser — authored ⋈ awareness (unchanged)</text>
+  <line x1="220" y1="380" x2="330" y2="412" stroke="#3a2bb8" stroke-width="1.5" marker-end="url(#b)"/>
+  <line x1="600" y1="380" x2="510" y2="412" stroke="#3a2bb8" stroke-width="1.5" marker-end="url(#b)"/>
+
+  <!-- footnote -->
+  <text x="400" y="466" text-anchor="middle" font-size="9.3" font-style="italic" fill="#64748b">no record handed back · no sink · no seed · no clobber — and a producer cannot spell memory, by type</text>
+</svg>
