@@ -22,20 +22,23 @@
  * `terminalWorkspace` surface over the link, so there is one fs/git impl.
  */
 
-import { inMemoryChannel } from "@kolu/surface/server";
 import {
+  type ActivityTracker,
   AwarenessPersistedFieldsSchema,
   type AwarenessRecord,
-  type AwarenessSignals,
   type AwarenessSink,
-  type CommandRunSample,
+  createActivityTracker,
   seedAwarenessLive,
   seedAwarenessValue,
-  startAwareness,
+  watchTerminalAwareness,
 } from "@kolu/pulam-library";
 import { createTerminalWorkspaceEndpoint } from "@kolu/pulam-library/endpoint";
+import {
+  type ActivityStreamDeps,
+  liveActivity,
+} from "@kolu/pulam-library/serveTerminalWorkspace";
 import { resumeFormFor } from "anyagent/cli";
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import type { PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   AuthoredActiveTerminal,
   AwarenessValue,
@@ -71,8 +74,8 @@ import {
   listTerminals,
   registerTerminal,
   type SleepingTerminalProcess,
-  terminalNotFound,
   type TerminalProcess,
+  terminalNotFound,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
@@ -302,11 +305,13 @@ function makeAwarenessSink(id: TerminalId): AwarenessSink {
   };
 }
 
-/** Everything needed to stop one terminal's sensor set + tap bridges: abort
- *  the tap-stream subscriptions and stop the watchers. */
+/** Everything needed to stop one terminal's sensing: stop the shared
+ *  `watchTerminalAwareness` leaf (which aborts its own taps + sensors + drops the
+ *  terminal from the activity set), and abort the kolu-only EXIT tap (lifecycle,
+ *  not awareness — it has its own signal so teardown stops it independently). */
 interface TerminalLifecycle {
-  abort: AbortController;
-  stopAwareness: () => void;
+  exitAbort: AbortController;
+  stopLeaf: () => void;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -378,8 +383,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   readonly fs = localFs;
   readonly git = localGit;
 
-  /** id → its sensor-set + tap-bridge teardown. Its keys ARE the terminals
-   *  with a live sensor layer in this process. */
+  /** This host's live-output activity tracker — the set of terminals moving bytes
+   *  right now, fed by the shared leaf's raw-output tap (per terminal) and served
+   *  LIVE as the `terminalWorkspace.activity` stream (via `localTerminalActivity`,
+   *  replacing the old `quietActivity`). ONE tracker per host (this process), like
+   *  the `pulam` daemon's. NOT the client-side green-dot source: kolu's own client
+   *  keeps the local `useTerminalActivity` (it has resize-suppress the server can't
+   *  replicate); this served stream's consumers are remote viewers (a disjoint set,
+   *  so the two are not a double-source). */
+  readonly activity: ActivityTracker = createActivityTracker();
+
+  /** id → its sensing teardown (the shared leaf + the kolu-only exit tap). Its keys
+   *  ARE the terminals with a live sensor layer in this process. */
   private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
@@ -678,78 +693,56 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id, entry, prior);
   }
 
-  /** Start the per-terminal sensor set against the pty-host's tap streams.
-   *  The sensor set runs HERE, in kolu-server, so it's always the current build's
-   *  code (the freshness guarantee — the most-edited code never rides the
-   *  long-lived pty-host). */
+  /** Start a terminal's sensing by driving the ONE shared `watchTerminalAwareness`
+   *  leaf (the same leaf the `pulam` daemon's poll loop drives) — bridgeKavalTaps →
+   *  cwd-persist → startAwareness → raw-output activity tap. The leaf runs HERE, in
+   *  kolu-server, so it's always the current build's code (the freshness guarantee —
+   *  the most-edited code never rides the long-lived pty-host). kolu injects what is
+   *  legitimately its own: the RESTORED registry record, its richer fold SINK, and a
+   *  per-terminal hook onto its own activity tracker. The EXIT tap is kolu's
+   *  LIFECYCLE signal, NOT awareness sensing (the daemon has none — it polls for
+   *  departure), so it stays here on its own abort. */
   private startAwarenessSensors(id: TerminalId, pid: number): void {
-    const abort = new AbortController();
-    const { signal } = abort;
-    const signals: AwarenessSignals = {
-      cwd: inMemoryChannel<string>(),
-      title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
-      foreground: inMemoryChannel<ForegroundSample>(),
-    };
     // `record.meta` MUST be the SAME object the sink mutates: it is the registry
-    // entry's `awareness` field, and the sink's `mutateAwareness*` mutate that same
-    // object in place — so the apply-and-read-back contract (the sensors read
-    // `record.meta` back as their own prior state) holds. The entry was registered
-    // by the caller (spawnPty/wake/adopt) before we get here, so its awareness is
-    // present.
+    // entry's already-SEEDED `awareness` field (spawn's fresh seed, or the RESTORED
+    // half on adopt/wake/seed), and kolu's sink mutates that same object in place —
+    // so the apply-and-read-back contract holds. The leaf takes this already-seeded
+    // record and NEVER re-seeds it (the fold-clobber fix): a restored cwd / git /
+    // agentSession survives because the leaf only reacts to taps through the sink.
+    // The entry was registered by the caller (spawnPty/wake/adopt) before we get
+    // here, so its awareness is present.
     const record: AwarenessRecord = {
       pid,
       meta: getTerminal(id)!.awareness,
       currentAgent: null,
     };
+    // kolu's RICHER sink — the persisted/live fold (`updateServer{,Live}Metadata`'s
+    // `terminals:dirty` fence) + `trackRecent` + screen reads. INJECTED into the
+    // shared leaf, so the fold stays kolu-side, never baked into the library.
     const sink = makeAwarenessSink(id);
 
-    // Bridge the raw VT taps onto the awareness signals. cwd also lands on
-    // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
-    // `signals.cwd` to re-resolve git).
-    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
-    // is intentionally not awaited (only the inventory reconciler awaits it).
-    void bridgeStream(
-      ptyHostClient.surface.cwd.get({ id }, { signal }),
-      signal,
-      (msg) => {
-        updateServerMetadata(id, (m) => {
-          m.cwd = msg.cwd;
-        });
-        signals.cwd.publish(msg.cwd);
+    const stopLeaf = watchTerminalAwareness({
+      kaval: ptyHostClient,
+      id,
+      record,
+      sink,
+      // Feed kolu's own per-host activity tracker (served LIVE via
+      // `localTerminalActivity`). The home owns the tracker; the leaf only signals.
+      activity: {
+        noteOutput: () => this.activity.noteOutput(id),
+        forget: () => this.activity.forget(id),
       },
-    );
-    void bridgeStream(
-      ptyHostClient.surface.title.get({ id }, { signal }),
-      signal,
-      (msg) => signals.title.publish(msg.title),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.commandRun.get({ id }, { signal }),
-      signal,
-      (msg) =>
-        signals.commandRun.publish({
-          command: msg.command,
-          replayed: msg.replayed,
-        }),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.foreground.get({ id }, { signal }),
-      signal,
-      (msg) =>
-        signals.foreground.publish({
-          process: msg.process,
-          foregroundPid: msg.foregroundPid,
-        }),
-    );
-    const stopAwareness = startAwareness(record, id, signals, sink, log);
+      log,
+    });
 
-    // Natural exit: the `exit` tap yields the code once. An intentional kill
-    // aborts this signal first (see `teardownSensors`), so `handleExit` only
-    // ever fires for a genuine exit.
+    // Natural exit: the `exit` tap yields the code once. This is kolu's LIFECYCLE
+    // teardown trigger, not part of awareness sensing — so it stays OUTSIDE the
+    // leaf, on its OWN abort, which `teardownSensors` aborts FIRST so an intentional
+    // kill's exit can't reach `handleExit`.
+    const exitAbort = new AbortController();
     void bridgeStream(
-      ptyHostClient.surface.exit.get({ id }, { signal }),
-      signal,
+      ptyHostClient.surface.exit.get({ id }, { signal: exitAbort.signal }),
+      exitAbort.signal,
       (msg) => this.handleExit(id, msg.exitCode),
       (err) => {
         // The exit tap is the terminal's lifecycle signal — losing it is not
@@ -769,18 +762,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
 
-    this.lifecycles.set(id, { abort, stopAwareness });
+    this.lifecycles.set(id, { exitAbort, stopLeaf });
   }
 
-  /** Stop a terminal's sensor set + tap bridges (idempotent). Aborting the
-   *  signal ends every tap subscription — including the `exit` tap, so a kill
-   *  that calls this BEFORE the pty-host kill can't trip `handleExit`. */
+  /** Stop a terminal's sensing (idempotent). Aborts the kolu-only EXIT tap FIRST —
+   *  so a kill that calls this BEFORE the pty-host kill can't trip `handleExit` —
+   *  then stops the shared leaf (which aborts its own taps + sensors and drops the
+   *  terminal from the activity set). */
   private teardownSensors(id: TerminalId): void {
     const lc = this.lifecycles.get(id);
     if (!lc) return;
     this.lifecycles.delete(id);
-    lc.abort.abort();
-    lc.stopAwareness();
+    lc.exitAbort.abort();
+    lc.stopLeaf();
   }
 
   /** Fully remove a terminal from existence — the two-store teardown tail as one
@@ -1010,6 +1004,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
 const localEndpointImpl = new LocalTerminalEndpoint();
 export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
+
+/** The LIVE `terminalWorkspace.activity` source kolu-server serves (R9.0) — a
+ *  `pollOnEvent` over this host's activity tracker, fed by the shared leaf's
+ *  raw-output tap as terminals spawn/wake. `surface.ts` injects this in place of
+ *  the old `quietActivity`, so the served stream stops lying empty. The tracker is
+ *  a single per-host instance (the endpoint's), so the `liveActivity` source thunk
+ *  re-invoked per subscription shares it with no per-subscriber state. */
+export const localTerminalActivity: ActivityStreamDeps = liveActivity(
+  localEndpointImpl.activity,
+);
 
 // ── Sleep / wake / discard (local-only today, like adoption) ────────────
 //

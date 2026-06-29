@@ -32,6 +32,7 @@
  * `.set()`; they do not import `store` directly.
  */
 
+import { serveTerminalWorkspace } from "@kolu/pulam-library/serveTerminalWorkspace";
 import {
   type CellStore,
   confStore,
@@ -40,12 +41,14 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import {
-  quietActivity,
-  serveTerminalWorkspace,
-} from "@kolu/pulam-library/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
+// kaval's OWN identity assembler — read in the SERVER process it returns the
+// server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
+// spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
+// *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
+import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { contract } from "kolu-common/contract";
+import { isBinaryPreviewable } from "kolu-common/preview";
 import type {
   ActivityFeed,
   KoluBuildInfo,
@@ -66,31 +69,26 @@ import {
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "kolu-git";
-import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import {
+  readDaemonStatus,
+  readDaemonStatuses,
+} from "./ptyHost/daemonStatus.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
-import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
   getTerminal,
   listTerminals,
   registryMap,
   terminalNotFound,
 } from "./terminal-registry.ts";
-import {
-  readDaemonStatus,
-  readDaemonStatuses,
-} from "./ptyHost/daemonStatus.ts";
+import { localTerminalActivity } from "./terminalEndpoint/local.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-// kaval's OWN identity assembler — read in the SERVER process it returns the
-// server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
-// spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
-// *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
-import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
+import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 
 // Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
 // exactly as the prior direct reference was — the late-bound surface ctx
@@ -437,8 +435,8 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // fs/git procedures + watcher streams live THERE, built off the SAME
       // in-process endpoint kolu's own value-bearing streams read. kolu injects
       // only the two volatile backings: the `awareness` collection (projected off
-      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
-      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
+      // its registry) and a LIVE `activity` source (R9.0). Typed against
+      // `terminalWorkspaceSurface.spec`, so this needs no cast.
       terminalWorkspace: serveTerminalWorkspace({
         // Project the awareness half straight off the registry — `.awareness`
         // exactly as `authored` projects `.meta` (the two halves share one
@@ -452,10 +450,14 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
           upsert: () => {},
           remove: () => {},
         },
-        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
-        // truthfully yields the empty live set — not a lie, the honest "nothing
-        // known to be moving". R9 injects a live source here instead.
-        activity: quietActivity,
+        // LIVE (R9.0): kolu now drives the shared `watchTerminalAwareness` leaf,
+        // whose raw-output tap feeds the local endpoint's per-host activity tracker
+        // — so this stream yields the real "bytes moving now" set instead of the
+        // old empty `quietActivity`. Its consumers are REMOTE viewers (pulam-web's
+        // fleet board, R9.3); kolu's own client green-dot stays the local
+        // `useTerminalActivity` (it has resize-suppress the server can't replicate),
+        // a disjoint set — so this is not a double-source.
+        activity: localTerminalActivity,
         endpoint: localEndpoint,
         log,
       }),

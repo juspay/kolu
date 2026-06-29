@@ -15,7 +15,6 @@
     "./endpoint": "./src/endpoint.ts",
     "./serveFsGit": "./src/serveFsGit.ts",
     "./serveTerminalWorkspace": "./src/serveTerminalWorkspace.ts",
-    "./createPulam": "./src/createPulam.ts",
     "./socket": "./src/socket.ts"
   },
   "scripts": {

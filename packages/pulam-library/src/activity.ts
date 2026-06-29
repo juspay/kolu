@@ -5,7 +5,7 @@
  * This is the host-side twin of kolu's client-side `useTerminalActivity`
  * (`packages/client/src/terminal/useTerminalActivity.ts`): both answer "is this
  * terminal moving bytes *right now*", both key off raw PTY output (here: kaval's
- * `terminalAttach` delta tap, wired by `createPulam`), and both flip a terminal
+ * `terminalAttach` delta tap, wired by `watchTerminalAwareness`), and both flip a terminal
  * back to static after a ~1s quiet window with an explicit boolean rather than a
  * `now - lastOutputAt` clock, so no global ticking is needed. It is deliberately
  * NOT `AwarenessValue.lastActivityAt` — that's the slow agent-staleness clock and

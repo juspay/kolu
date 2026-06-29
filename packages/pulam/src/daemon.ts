@@ -1,20 +1,36 @@
 /**
- * The `pulam` daemon — dial a kaval, `createPulam`, serve the result.
+ * The `pulam` daemon — dial a kaval, serve the `terminalWorkspace` surface,
+ * watch its terminals.
  *
- * The whole awareness assembly (per-terminal sensors, the sink, the byte-tap, the
- * reconcile loop) lives in the pulam-library behind {@link createPulam}; the
- * daemon is a thin shell around it: dial a kaval (the connection it owns), build a
- * pulam against that client with a cache-backed `awareness` store, and serve the
- * surface over a unix socket (the local case) or stdio (what an ssh dial speaks).
+ * The per-terminal SENSING lives in the pulam-library behind the ONE shared leaf
+ * {@link watchTerminalAwareness} (the same leaf kolu-server drives in-process);
+ * the daemon is one of its two HOMES. It owns the home-specific parts: dial a kaval
+ * (the connection it owns), assemble the served surface over a cache-backed
+ * `awareness` store with a LIVE `activity` source over its own tracker, then run a
+ * poll loop ({@link startAwarenessLoop}) that drives the leaf per terminal. The
+ * counterpart home, kolu-server, drives the same leaf from its lifecycle EVENTS
+ * instead of a poll.
  *
  * `pulam` is *ephemeral* by design: awareness is always re-derivable from live
  * taps + the current host fs, so unlike kaval it sheds all the durability
  * machinery — no single-instance gate, no PTY ownership, no persisted list, no
  * adoption. Every (re)start just re-runs the sensors and recomputes from now.
  *
- *   dial kaval ─► createPulam(kaval) ─► serve (local socket, or stdio for ssh)
+ *   dial kaval ─► serveTerminalWorkspace ─► implementSurface ─► poll + leaf
  */
 
+import { createActivityTracker } from "@kolu/pulam-library";
+import { createTerminalWorkspaceEndpoint } from "@kolu/pulam-library/endpoint";
+import {
+  liveActivity,
+  serveTerminalWorkspace,
+} from "@kolu/pulam-library/serveTerminalWorkspace";
+import { pulamSocketPath } from "@kolu/pulam-library/socket";
+import {
+  type AwarenessValue,
+  type TerminalId,
+  terminalWorkspaceSurface,
+} from "@kolu/pulam-library/surface";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import {
   type UnixSocketConnection,
@@ -23,14 +39,6 @@ import {
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import { createPulam } from "@kolu/pulam-library/createPulam";
-import { createTerminalWorkspaceEndpoint } from "@kolu/pulam-library/endpoint";
-import {
-  type AwarenessValue,
-  terminalWorkspaceSurface,
-  type TerminalId,
-} from "@kolu/pulam-library/surface";
-import { pulamSocketPath } from "@kolu/pulam-library/socket";
 import { implement } from "@orpc/server";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -38,6 +46,7 @@ import {
   resolveRunningKavalSocket,
 } from "kaval";
 import type { Logger } from "pino";
+import { startAwarenessLoop } from "./awarenessLoop.ts";
 
 /** How pulam exposes the awareness surface. `socket` binds a unix socket (the
  *  default, the local case); `stdio` serves over stdin/stdout — what an ssh
@@ -124,15 +133,15 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   }
   log.info({ kavalSocket }, "pulam: dialed kaval");
 
-  // ── The served workspace surface — assembled by `createPulam`, the
-  //    pulam-library's ONE assembly: the per-terminal sensors, the awareness sink,
-  //    the raw-output byte tap, and the reconcile loop all live there, not here.
-  //    The daemon injects only its volatile backing — a cache-backed `awareness`
-  //    store it owns, read by the served collection and written by the sink
-  //    through the implemented surface (handed to `pulam.start` below). ──
+  // ── The served workspace surface — assembled by the SHARED
+  //    `serveTerminalWorkspace` factory (the version cell + fs/git + the
+  //    awareness/activity backing seams). The daemon injects its volatile
+  //    backings: a cache-backed `awareness` store it owns (read by the served
+  //    collection, written by each terminal's sink through the implemented
+  //    surface) and a LIVE `activity` source over its own per-host tracker. ──
   const cache = new Map<TerminalId, AwarenessValue>();
-  const pulam = createPulam({
-    kaval: kaval.client,
+  const activity = createActivityTracker();
+  const served = serveTerminalWorkspace({
     awareness: {
       readAll: () => cache,
       upsert: (key, value) => {
@@ -142,36 +151,33 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
         cache.delete(key);
       },
     },
+    activity: liveActivity(activity),
     endpoint: createTerminalWorkspaceEndpoint(log),
     log,
-    pollIntervalMs: opts.pollIntervalMs,
   });
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    ...pulam.served,
+    ...served,
   });
   const router = implement(terminalWorkspaceSurface.contract).router({
     ...fragment.router,
     // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any,T> input type; the runtime shape is valid (the remote-process-monitor demo + kolu's server use the same cast).
   }) as any;
 
-  // Begin watching kaval's terminals — each terminal's sensors publish through the
-  // implemented collection. The initial reconcile runs here (awaited), so a client
-  // dialing right after `onReady` already sees the current terminals. `stopPulam`
-  // tears the whole sensor lifecycle down; the daemon disposes the connection it
-  // dialed itself.
-  const stopPulam = await pulam.start(fragment.ctx.collections.awareness);
-
-  // Refuse to serve a surface whose sensors never started — `createPulam.start()`
-  // must run before we expose the router, or awareness would be permanently empty
-  // and the activity stream dead. The `await` above satisfies this; the assertion
-  // enforces the ordering so a future reorder that serves first fails loud here,
-  // not silently on the wire.
-  if (!pulam.isStarted()) {
-    throw new Error(
-      "pulam: refusing to serve before createPulam.start() ran — awareness would be permanently empty.",
-    );
-  }
+  // Begin watching kaval's terminals — the daemon's home-specific poll loop drives
+  // the SHARED `watchTerminalAwareness` leaf per terminal, publishing through the
+  // BROADCASTING `awareness` collection (which only exists after `implementSurface`
+  // above). The initial reconcile is awaited, so a client dialing right after
+  // `onReady` already sees the current terminals. `stopLoop` tears every terminal's
+  // sensors down; the daemon disposes the kaval connection + the activity tracker
+  // it owns.
+  const stopLoop = await startAwarenessLoop({
+    kaval: kaval.client,
+    collection: fragment.ctx.collections.awareness,
+    activity,
+    log,
+    pollIntervalMs: opts.pollIntervalMs ?? 1000,
+  });
 
   // ── Serve, then tear everything down on exit ────────────────────────
   try {
@@ -200,7 +206,8 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
       }
     }
   } finally {
-    stopPulam();
+    stopLoop();
+    activity.dispose();
     kaval.dispose();
   }
 }

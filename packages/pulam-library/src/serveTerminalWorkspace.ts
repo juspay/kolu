@@ -26,6 +26,7 @@ import {
   pollOnEvent,
 } from "@kolu/surface/server";
 import type { Logger } from "pino";
+import { type ActivityTracker, sameActivitySet } from "./activity.ts";
 import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import type { TerminalId } from "./schema.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
@@ -63,6 +64,31 @@ export const quietActivity: ActivityStreamDeps = {
       onReadError: () => {},
     }),
 };
+
+/** A LIVE activity source over a home-owned {@link ActivityTracker} — the source
+ *  a home with a raw byte tap injects instead of {@link quietActivity}. Both homes
+ *  use this one builder (the `pulam` daemon over its per-host tracker; kolu-server
+ *  over the tracker its `watchTerminalAwareness` taps feed), so the served
+ *  `activity` stream is assembled ONE way, never re-derived per home. Re-yields the
+ *  whole live set whenever a terminal lights up or goes quiet; `sameActivitySet`
+ *  suppresses the redundant yield when a timer re-arm left the set unchanged. The
+ *  `source` thunk is re-invoked per subscription, so the single shared tracker
+ *  carries no per-subscriber state. */
+export function liveActivity(tracker: ActivityTracker): ActivityStreamDeps {
+  return {
+    source: (_input, signal) =>
+      pollOnEvent<TerminalId[]>({
+        // `tracker.snapshot()` is a pure in-memory sort over the live Set — it
+        // touches no I/O, so it cannot fail: `onReadError` is unreachable,
+        // intentionally empty (not a swallowed error). Mirrors `quietActivity`.
+        read: async () => tracker.snapshot(),
+        isEqual: sameActivitySet,
+        install: (onEvent) => tracker.onChange(onEvent),
+        signal,
+        onReadError: () => {},
+      }),
+  };
+}
 
 /** Assemble the FULL `terminalWorkspaceSurface` server deps (minus `channel`,
  *  which each home supplies). The `version` cell and the fs/git procedures +

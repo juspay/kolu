@@ -2,11 +2,12 @@
  * The library's per-terminal `AwarenessSink` — mutate the captured record, then
  * publish the whole `AwarenessValue` into the served `awareness` collection.
  *
- * This is the sink `createPulam` wires for each terminal: the home injects the
- * write target (`publish`) and the screen reader (`readScreenText`), and this
- * builds the {@link AwarenessSink} the sensors drive. It owns the *whole*
- * undivided value — no persisted/live fold (that fold is a kolu-side, remote-only
- * concern; the local in-process path never reseeds, so it never needs it).
+ * This is the plain sink the `pulam` daemon's loop injects into
+ * {@link watchTerminalAwareness} for each terminal: the home injects the write
+ * target (`publish`) and the screen reader (`readScreenText`), and this builds the
+ * {@link AwarenessSink} the sensors drive. It owns the *whole* undivided value — no
+ * persisted/live fold (that fold is kolu-server's, baked into its OWN sink; the
+ * daemon is ephemeral and never reseeds, so it never needs one).
  *
  * The load-bearing rule from {@link AwarenessSink}'s docstring: mutate
  * `record.meta` **synchronously** before publishing — the sensors read
@@ -25,8 +26,8 @@ export interface AwarenessSinkDeps {
    *  so the `record` argument each method also receives (for hosts whose write
    *  function isn't keyed by terminal) is ignored — this sink is per-terminal. */
   record: AwarenessRecord;
-  /** Publish the record's current value into the served collection. `createPulam`
-   *  binds this to `ctx.collections.awareness.upsert(id, …)`. */
+  /** Publish the record's current value into the served collection. The daemon's
+   *  loop binds this to `ctx.collections.awareness.upsert(id, …)`. */
   publish: (meta: AwarenessValue) => void;
   /** Read the terminal's rendered screen tail — kaval's `getScreenText`. Drives
    *  the agents' screen-scrape promotion (Claude's awaiting-user prompt). */
