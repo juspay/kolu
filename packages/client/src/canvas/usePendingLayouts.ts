@@ -33,13 +33,17 @@ const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 // keyed store) so the keyed/read-when-echoes-settle and the one-shot/
 // read-once-and-clear lifecycles don't complect.
 //
-// Race it bridges: `handleCreate` calls `setActiveSilently(newId)`
-// before the canvas `tileIds` effect fires, so by the time the effect
-// reads `store.activeId()` it is already the new tile (which has no
-// layout yet). The effect cannot read the previous active tile's size
-// from the store. So `handleCreate` writes the size before the create
-// RPC (the server push during the await triggers the placement effect),
-// and the effect reads-and-clears it for the new tile's layout.
+// Why a slot and not a read at placement time: the placement effect runs
+// later (driven by the server's tile-list push) and only knows "here is a
+// new tile with no layout" — it has no reliable handle on WHICH existing
+// tile to inherit from once a create is in flight (the active id may have
+// already moved to the new tile, and the previous active tile's visible
+// size may still be settling). `handleCreate` is the one place that knows
+// the source (active) tile at create time, so it snapshots the size into
+// this slot BEFORE starting the RPC; the effect reads-and-clears it for
+// the new tile's layout. Correctness depends only on that ordering
+// (armed before the server push, consumed when a new tile appears) — NOT
+// on the relative timing of `setActiveSilently` and the `tileIds` effect.
 const [nextDefaultSize, setNextDefaultSize] = createSignal<{
   w: number;
   h: number;
@@ -136,6 +140,11 @@ export function usePendingLayouts(): {
     },
     clear() {
       setPending(reconcile({}));
+      // The one-shot size slot is part of the same cleanup contract: a
+      // canvas unmount wipes the keyed pending AND any size armed but not
+      // yet consumed, so a remount can't have a stale create-time size
+      // leak into the next new tile.
+      setNextDefaultSize(null);
     },
     setNextDefaultSize(size) {
       setNextDefaultSize(size);

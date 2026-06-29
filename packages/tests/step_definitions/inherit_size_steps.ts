@@ -4,30 +4,6 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 
-/** Read a canvas tile's rendered dimensions by its 1-based index in
- *  creation order (tracked via `createdTerminalIds` in the world). */
-async function getTileDimensions(
-  world: KoluWorld,
-  index: number,
-): Promise<{ w: number; h: number }> {
-  const id = world.createdTerminalIds[index - 1];
-  assert.ok(id, `No terminal created at index ${index} in this scenario`);
-  return world.page.evaluate(
-    ({ sel, tileId }: { sel: string; tileId: string }) => {
-      const inner = document.querySelector(
-        `${sel} [data-terminal-id="${tileId}"]`,
-      );
-      const tile = inner?.closest("[style*='left']") as HTMLElement | null;
-      if (!tile) throw new Error(`Tile for ${tileId} not found`);
-      return {
-        w: parseFloat(tile.style.width),
-        h: parseFloat(tile.style.height),
-      };
-    },
-    { sel: CANVAS_SELECTOR, tileId: id },
-  );
-}
-
 /** Set a tile's canvas layout (position + size) via the server RPC. */
 async function setCanvasLayout(
   world: KoluWorld,
@@ -122,10 +98,36 @@ When(
 Then(
   "created terminal {int} should have width {int} and height {int}",
   async function (this: KoluWorld, index: number, w: number, h: number) {
-    const dims = await getTileDimensions(this, index);
-    assert.ok(
-      Math.abs(dims.w - w) < 1 && Math.abs(dims.h - h) < 1,
-      `Expected terminal ${index} to be ${w}×${h}, got ${dims.w}×${dims.h}`,
+    const id = this.createdTerminalIds[index - 1];
+    assert.ok(id, `No terminal created at index ${index} in this scenario`);
+    // Tile placement and metadata/pending-layout propagation are async, so
+    // poll the rendered size instead of reading the DOM once — a single
+    // read can race the settle on a slower runner even when the app
+    // settles correctly a frame later.
+    await this.page.waitForFunction(
+      ({
+        sel,
+        tileId,
+        wantW,
+        wantH,
+      }: {
+        sel: string;
+        tileId: string;
+        wantW: number;
+        wantH: number;
+      }) => {
+        const inner = document.querySelector(
+          `${sel} [data-terminal-id="${tileId}"]`,
+        );
+        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        if (!tile) return false;
+        return (
+          Math.abs(parseFloat(tile.style.width) - wantW) < 1 &&
+          Math.abs(parseFloat(tile.style.height) - wantH) < 1
+        );
+      },
+      { sel: CANVAS_SELECTOR, tileId: id, wantW: w, wantH: h },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

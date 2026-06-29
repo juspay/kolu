@@ -137,19 +137,30 @@ export const useTerminalCrud = createSharedRoot(() => {
     // canvas placement effect, which consumes the signal. If we set
     // after the await, the effect has already run with no size to inherit.
     //
-    // Only arm on the cascade-placed fresh-create path that actually
-    // consumes it: a create carrying `initial.canvasLayout` (session
-    // restore, #642) is server-seeded, so the placement effect's `newIds`
-    // excludes it and the slot would be set-but-never-consumed — and a
-    // stale set could then leak into a later create whose active tile
-    // momentarily lacks a layout. Gating on `!initial?.canvasLayout`
-    // keeps the slot scoped to the path that reads it.
-    const activeLayout = store.activeMeta()?.canvasLayout;
-    if (!initial?.canvasLayout && activeLayout)
-      pendingLayouts.setNextDefaultSize({
-        w: activeLayout.w,
-        h: activeLayout.h,
-      });
+    // Only the cascade-placed fresh-create path consumes the slot: a
+    // create carrying `initial.canvasLayout` (session restore, #642) is
+    // server-seeded, so the placement effect's `newIds` excludes it and a
+    // set would be never-consumed. So we touch the slot ONLY on the
+    // fresh-create path — but there we set it UNCONDITIONALLY (size, or
+    // `null` when there's no active tile to inherit from), so a fresh
+    // create always OWNS the slot value rather than leaving a stale size
+    // armed by an earlier create that no new tile ever consumed.
+    //
+    // Prefer the active tile's *pending* layout over its echoed metadata:
+    // a just-resized tile's visible size lives in `pendingLayouts.pending`
+    // until the server metadata echo catches up (`getLayout` reads only
+    // the echo). Reading the echo alone would inherit the pre-resize size
+    // when a create races the echo. `active()` bundles (id, meta) from one
+    // glitch-free read.
+    if (!initial?.canvasLayout) {
+      const { id: activeId, meta } = store.active();
+      const activeLayout =
+        (activeId ? pendingLayouts.pending[activeId] : undefined) ??
+        meta?.canvasLayout;
+      pendingLayouts.setNextDefaultSize(
+        activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
+      );
+    }
     const info = await client.terminal
       .create({
         cwd,
