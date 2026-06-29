@@ -19,10 +19,31 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { createSignal } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 const [pending, setPending] = createStore<Record<string, TileLayout>>({});
+
+// One-shot create-time geometry slot — a distinct lifecycle from the
+// keyed `pending` store above. `pending` is keyed by tile id (which
+// doesn't exist until the create RPC returns); this is the anonymous
+// "next tile" size the placement effect reads when assembling a brand-
+// new tile's default layout. Kept as its own field (NOT a mode on the
+// keyed store) so the keyed/read-when-echoes-settle and the one-shot/
+// read-once-and-clear lifecycles don't complect.
+//
+// Race it bridges: `handleCreate` calls `setActiveSilently(newId)`
+// before the canvas `tileIds` effect fires, so by the time the effect
+// reads `store.activeId()` it is already the new tile (which has no
+// layout yet). The effect cannot read the previous active tile's size
+// from the store. So `handleCreate` writes the size before the create
+// RPC (the server push during the await triggers the placement effect),
+// and the effect reads-and-clears it for the new tile's layout.
+const [nextDefaultSize, setNextDefaultSize] = createSignal<{
+  w: number;
+  h: number;
+} | null>(null);
 
 // E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
@@ -61,6 +82,15 @@ export function usePendingLayouts(): {
   /** Wipe all pending entries. Called on canvas unmount so a remount
    *  starts from a clean slate. */
   clear: () => void;
+  /** Arm the one-shot create-time size slot. Called by `handleCreate`
+   *  before the create RPC; `null` clears it (create failed → no server
+   *  push to consume it). Separate from the keyed store. */
+  setNextDefaultSize: (size: { w: number; h: number } | null) => void;
+  /** Read and clear the one-shot create-time size. Called by the canvas
+   *  placement effect when assigning a default layout to a new tile.
+   *  Returns null if none was armed (first terminal, or a create path
+   *  that didn't arm one). */
+  takeNextDefaultSize: () => { w: number; h: number } | null;
 } {
   return {
     get pending() {
@@ -106,6 +136,14 @@ export function usePendingLayouts(): {
     },
     clear() {
       setPending(reconcile({}));
+    },
+    setNextDefaultSize(size) {
+      setNextDefaultSize(size);
+    },
+    takeNextDefaultSize() {
+      const size = nextDefaultSize();
+      setNextDefaultSize(null);
+      return size;
     },
   };
 }

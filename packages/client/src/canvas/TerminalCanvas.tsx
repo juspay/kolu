@@ -45,7 +45,6 @@ import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
-import { consumeInheritSize } from "./inheritSize";
 import {
   DEFAULT_TILE_H,
   DEFAULT_TILE_W,
@@ -186,7 +185,8 @@ const TerminalCanvas: Component<{
         // layouts — a re-run with no new tiles (session restore, chunked
         // metadata) must not swallow the size pending for a later create.
         const newIds = ids.filter((id) => !layoutOf(id));
-        const inheritSize = newIds.length > 0 ? consumeInheritSize() : null;
+        const inheritSize =
+          newIds.length > 0 ? pendingLayouts.takeNextDefaultSize() : null;
 
         const placed: {
           id: TileId;

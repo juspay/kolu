@@ -15,7 +15,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { setInheritSize } from "../canvas/inheritSize";
+import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
@@ -32,6 +32,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const subPanel = useSubPanel();
   const terminalSearch = useTerminalSearch();
   const rightPanel = useRightPanel();
+  const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
 
   // --- Handlers ---
@@ -136,7 +137,11 @@ export const useTerminalCrud = createSharedRoot(() => {
     // canvas placement effect, which consumes the signal. If we set
     // after the await, the effect has already run with no size to inherit.
     const activeLayout = store.activeMeta()?.canvasLayout;
-    if (activeLayout) setInheritSize({ w: activeLayout.w, h: activeLayout.h });
+    if (activeLayout)
+      pendingLayouts.setNextDefaultSize({
+        w: activeLayout.w,
+        h: activeLayout.h,
+      });
     const info = await client.terminal
       .create({
         cwd,
@@ -152,7 +157,7 @@ export const useTerminalCrud = createSharedRoot(() => {
         // the pending size. Clear it here (not in a `finally`, which would
         // race the deferred effect on the success path) so a stale size can't
         // leak into a later create that has no active tile to overwrite it.
-        setInheritSize(null);
+        pendingLayouts.setNextDefaultSize(null);
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
