@@ -108,44 +108,16 @@ other captures on-screen behavior — so **run them concurrently**; don't wait f
 green before capturing.
 
 1. **Kick off `/ci` first, backgrounded** — start the pipeline so it churns while
-   you capture evidence. **Drive it through the odu MCP face, not a shelled-out
-   `nix run .#odu`:** when an odu MCP server is wired (the `mcp__odu__*` tools —
-   check before shelling out), every run *and every status/log check* goes through
-   it — `run` → `wait_for_settle` (fail-fast) → read the red node's log via
-   `ReadMcpResourceTool` on `surface://collections/logs/{id}` → `node_rerun`, per
-   the `/ci` skill. Reaching for `nix run .#odu -- run/status` while that server is
-   present is the fallback path, not the default. React to `failed`/`errored` nodes
-   the moment they land: fix→fmt→commit→retry on real failures, confirm green on
-   the final `HEAD`.
-   - **macOS (`aarch64-darwin`) CI host — pick by availability, in this order:
-     `nix-infra@rasam.tail12b27.ts.net`, then `sincereintent`.** Both are Apple-Silicon darwin builders;
-     `nix-infra@rasam.tail12b27.ts.net` is the primary and `sincereintent` the fallback. Before pinning the
-     darwin lane, probe them **in that order** — `tailscale status` (skip a host
-     shown `offline` / `last seen Nh ago`) plus a quick `ssh -o ConnectTimeout=8
-     <user>@<host> true` — and pin the **first that answers** in `mcp__odu__run
-     hosts=["aarch64-darwin=<user>@<host>", …]`, noting in the report which host
-     served the lane. An unreachable host is an infra fault, never a lane to park
-     or call green: if `nix-infra@rasam.tail12b27.ts.net` is down, fall through to `sincereintent` and run the
-     lane yourself; only if **neither** answers is the darwin lane genuinely
-     blocked (report it as blocked — never silently drop the platform or report
-     green on a lane that never ran; an unreachable host is the no-fallbacks rule's
-     "a caught error must surface"). This live availability order is what to apply
-     even where `.agency/do.md`'s steady-state note still reads "rasam, not
-     sincereintent / sincereintent retired": that line is the default pin, this
-     ordering supersedes it the moment the primary is dark.
-     - **The same `nix-infra@rasam.tail12b27.ts.net → sincereintent` order governs *every* darwin lane this
-       run starts — including a downstream/companion repo's CI** (e.g. the drishti
-       PR a `@kolu/surface` change requires per `surface.md`). A consuming repo's
-       own `hosts.json` may name a *different*, possibly-dark darwin host (drishti's
-       `zest`); when it's offline you fall through to the **same** working
-       fallback. But that repo's CI is the shelled-out `nix run … odu -- run`
-       path, not `mcp__odu__run`, so pin the override with **`--host
-       aarch64-darwin=srid@sincereintent`** (per the `/ci` skill) — **never** by
-       exporting inline JSON into `$ODU_HOSTS`, which odu reads as a *file path*,
-       not a value: an inline `$ODU_HOSTS='{…}'` is **silently ignored**, the lane
-       falls back to the repo's on-disk `zest`, and you burn a full CI run on the
-       dead host. If you must set `$ODU_HOSTS`, write a real hosts *file* and point
-       at it; otherwise reach for `--host`.
+   you capture evidence. **`.agency/do.md`'s CI section is the source of truth for
+   the run, and it supersedes anything here** — read it and follow it. The shape:
+   drive odu through the MCP face (`run` → `wait_for_settle` fail-fast → read the
+   red node's log → `node_rerun`), pin **both** lanes so the run is two-platform by
+   construction (the linux lane on a leased pool box, the darwin lane on rasam),
+   react to `failed`/`errored` nodes the instant they land (fix→fmt→commit→retry),
+   and **confirm the settled run actually carried both platforms before reporting
+   green** — a platform you didn't pin silently drops, and a single-platform green
+   is a false green. For a companion repo's lane (e.g. a `surface.md` drishti PR)
+   use `--host`, never inline `$ODU_HOSTS` — all of this lives in do.md.
 2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
    evidence`** section of `.agency/do.md` for the capture procedure, then post the
    result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior

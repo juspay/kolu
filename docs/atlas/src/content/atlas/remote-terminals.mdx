@@ -4,7 +4,7 @@ description: The skeleton plan for kolu#951 — remote terminals over SSH, as on
 parents: [feature]
 status: accepted
 maturity: budding
-updated: 2026-06-28
+updated: 2026-06-29
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -83,6 +83,10 @@ export const RemoteCanvas = () => (
 <RemoteCanvas />
 
 You switch hosts from the **ChromeBar** — *kinda like tmux sessions* — and a remote host's terminals sit on the canvas **beside** your local ones. A remote tile wears an `ssh` badge and carries the *same* live awareness a local tile does — git branch/dirty, PR status, agent state, and a **green dot** when it's moving bytes — and it survives a network blip or a kolu-server deploy with full scrollback. One local host is always present; remotes are added on demand, auto-detected from your ssh config.
+
+<Callout kind="note" title="SSH in as the user that runs kaval">
+A remote dial (`kaval-tui --host`, `pulam-tui --host`) runs the remote daemon **as the SSH user** — `ssh <host> kaval --stdio` / `pulam --stdio`. That user is the identity that reaches the kaval socket, and kaval's socket directory is **`0700`, owner-only** by design: the socket serves the *full* pty-host surface (write/kill/spawn/getScreenText), so anyone who can `connect()` has total control of every terminal on the box. There is no group-share knob — the gate rejects **any** group or other bit (`(mode & 0o077) === 0`), so a `0750` dir doesn't share the socket, it makes kaval **refuse to serve**. The consequence: the SSH user and the kaval owner must be the **same identity**. On a deployment that runs kaval as a dedicated service account (e.g. a `kolu` user), SSH in **as that account** (a restricted/forced-command key is the usual way) rather than as a separate login user. ([discussion #1620](https://github.com/juspay/kolu/discussions/1620))
+</Callout>
 
 ## Architecture-level changes
 

@@ -140,7 +140,7 @@ const TerminalCanvas: Component<{
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
-    return pendingLayouts.pending[id] ?? props.getLayout(id);
+    return pendingLayouts.resolveLayout(id, props.getLayout(id));
   }
 
   /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
@@ -175,8 +175,20 @@ const TerminalCanvas: Component<{
         const center = viewport.viewportCenter();
         // Container not mounted yet — defer placement; the effect re-runs when
         // the tile list next changes (post-mount, with real dimensions).
+        // Reading the center via `viewportCenter()` (not an inlined pan+size
+        // calc) keeps the unmounted-guard: a 0×0 viewport would otherwise
+        // collapse the center to the raw pan origin and place tiles top-left.
         if (!center) return;
         const { x: cx, y: cy } = center;
+
+        // Consume the inherited size only when there are new tiles that need
+        // layouts — a re-run with no new tiles (session restore, chunked
+        // metadata) must not swallow the size pending for a later create.
+        const hasNewTiles = ids.some((id) => !layoutOf(id));
+        const inheritSize = hasNewTiles
+          ? pendingLayouts.takeNextDefaultSize()
+          : null;
+
         const placed: {
           id: TileId;
           layout: TileLayout;
@@ -194,8 +206,8 @@ const TerminalCanvas: Component<{
               cy,
               placed.map((p) => p.layout),
             ),
-            w: DEFAULT_TILE_W,
-            h: DEFAULT_TILE_H,
+            w: inheritSize?.w ?? DEFAULT_TILE_W,
+            h: inheritSize?.h ?? DEFAULT_TILE_H,
           };
           setPendingLayout(id, defaultLayout);
           props.onLayoutChange(id, defaultLayout);
