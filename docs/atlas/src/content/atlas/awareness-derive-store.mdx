@@ -23,6 +23,16 @@ import homes from "../../diagrams/awareness-homes.svg?raw";
 This supersedes the createPulam / shared-leaf direction of the finale's R9·lib + R9.0, **and** the earlier "S1+S2 / seed-the-engine" draft of this very note. It is the converged outcome of a grounded, adversarial 3-agent design debate held to the perfection bar (the record: `debates/awareness-architecture/conclusion.md`). The forks the debate exposed are **decided** (below), not left open.
 </Callout>
 
+<Callout kind="warn" title="Round-5 hardening — the first-principles lens turned back on this plan">
+After the [`architecture-first-principles`](/architecture-first-principles) skill was distilled from this design, all three debate agents ran it back over the plan adversarially (`debates/awareness-architecture/05.*.md`). They independently converged on six places where a defect was still **expressible** — the plan's *prose* was stronger than its *types*. All six are folded in below; two **reverse** an earlier "decided" call (flagged where they appear):
+1. **The keystone leaked (P4, critical).** `arms = !!(d.cache || d.memory)` armed autosave on an **empty** `memory: {}` (truthy in JS) — so the agent firehose *did* reach disk, the one thing the design exists to stop. Fixed: arming rides a **change in the persisted projection**, never a patch's presence (and the honest claim is "by a value check," not "by type").
+2. **The clock-skew bug relocated number→boolean (P2·P3·P5).** `fromSnapshot` was a *producer-asserted* liveness flag kolu trusted for recency. Replaced by a **frame-level `snapshot|delta` discriminator kolu owns** — *reverses* "no explicit snapshot event kind."
+3. **Memory was still spellable onto the host collection (P4).** `KoluAwareness <: HostObservation` let `upsert(id, current)` type-check. Fixed by **nesting** the three authorities so the host slice is structurally memory-free.
+4. **The gap-promise had no mechanism (P3).** Re-added a per-subscription monotonic **`seq`** + an explicit `gap` frame — *reverses* "seq only if needed."
+5. **The mutable place survived in the shell (P1).** S2 now deletes the awareness **mutator APIs**, not only the sink.
+6. **The host key was prose (P3·P5).** Promoted to a branded **`HostTerminalKey`** type.
+</Callout>
+
 <Callout kind="note" title="Foundations — a fold over a stream, not shared mutable state">
 The shape of this design is a deliberate move off **shared mutable state** onto **an immutable fold over a stream of observations**. The vocabulary that makes it legible (and that a future reader should reason in):
 - **Observations are a log/stream.** The producer's interface is a stream of events ("observed git = X"), not a writable record. It is **memoryless** — *effectful but memoryless* (it runs watchers/timers), **not** a pure function.
@@ -64,9 +74,16 @@ type AwarenessMemory = { lastActivityAt: number; agentSession?: AgentSessionRef;
 
 // What a host PRODUCER may export. It literally cannot spell memory.
 type HostObservation = AwarenessCache & AwarenessLive;
+
+// kolu's folded state. The three authorities are NESTED, not intersected — so the
+// host slice published to the awareness collection is `current.cache`+`current.live`,
+// which structurally CANNOT carry a memory field. `KoluAwareness` is NOT a subtype
+// of `HostObservation`, so `awareness.upsert(id, current)` is a COMPILE error, not a
+// value that happens to be zod-stripped at runtime (round-5 P4 fix).
+type KoluAwareness = { cache: AwarenessCache; live: AwarenessLive; memory: AwarenessMemory };
 ```
 
-`HostObservation` is the load-bearing type: a producer — local or remote — **cannot express** `lastActivityAt` / `agentSession` / `lastAgentCommand`, so a remote snapshot **cannot clobber kolu's memory**, by the compiler, not a comment. The persisted/live partition (`schema.ts:139-176`) was too coarse; the right structure is **two orthogonal axes** (below).
+`HostObservation` is the load-bearing type: a producer — local or remote — **cannot express** `lastActivityAt` / `agentSession` / `lastAgentCommand`, so a remote snapshot **cannot clobber kolu's memory**, by the compiler, not a comment. The persisted/live partition (`schema.ts:139-176`) was too coarse; the right structure is **two orthogonal axes** (below). And `KoluAwareness` **nests** the three rather than intersecting them: an intersection (`HostObservation & AwarenessMemory`) is a structural *supertype* of `HostObservation`, so the host slice would type-check with memory riding along — the leak is only caught by a runtime zod strip. Nesting makes the host projection (`{ ...current.cache, ...current.live }`) carry no memory field *by construction*.
 
 <Callout kind="note" title="Three categories = two axes (refined from a follow-up debate)">
 The three categories aren't a flat partition — they're the intersection of **two orthogonal axes**:
@@ -90,7 +107,7 @@ type AwarenessObservation =
   | { kind: "git";        git: GitInfo | null }                       // fold derives recentRepo from this
   | { kind: "pr";         pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
-  | { kind: "agent";      agent: AgentInfo | null; fromSnapshot: boolean }  // already publish-if-changed
+  | { kind: "agent";      agent: AgentInfo | null }                  // already publish-if-changed
   | { kind: "commandRun"; command: string; replayed: boolean };      // fold derives recentAgent from this
 
 function startAwarenessEngine(
@@ -106,25 +123,29 @@ function startAwarenessEngine(
 ): () => void;
 ```
 
-The two carried flags are load-bearing and must be **required** fields (a flag-less event is a compile error, so they can't be dropped at a wire boundary): **`fromSnapshot`** distinguishes the producer's first-frame re-observation (on (re)start) from a genuine live change; **`replayed`** distinguishes a replayed command mark from a live one.
+**`replayed`** is the one provenance flag that stays on the observation, and it must be a **required** field (a flag-less event is a compile error, so it can't be dropped at a wire boundary). It is genuine *content* — kaval's tap (`sensors.ts:103-106`) reports whether a command mark is a replay or a live run; the producer does not guess it. **`fromSnapshot` is gone** (round-5 P2·P5 fix): "is this a first-frame re-observation or a live change" is **not a property of the event** — the *same* `agent = X` observation is a snapshot if it lands in kolu's initial burst and a delta if it lands later; only **kolu's** position relative to its own subscribe boundary differs. A producer-asserted boolean kolu *trusts* for recency is the wall-clock-skew defect relocated from a `number` to a `boolean` — a producer that mislabels it on a restart re-observation bumps recency spuriously. So liveness rides a **frame-level `snapshot|delta` discriminator kolu owns** (see [the wire](#the-wire-observations-not-whole-values)), never a per-event flag. *(codex's stronger variant — split `commandRun` into `commandRunLive | commandRunReplay` event kinds so the bad combination can't be written either — is compatible; `replayed`-as-content is the lighter call we take.)*
 
 **Deleted:** the `AwarenessSink` interface, *both* `makeAwarenessSink` impls, the `AwarenessRecord` type, the apply-and-publish read-back contract — and any `seed`. The git→PR channel and the adapter registry were always engine-internal and stay.
 
 ## S2 — kolu remembers; the fold owns the gates and the clock
 
-kolu — the **sole** owner of memory — seeds `current` from its durable record, folds each observation, and stamps recency with **kolu's** clock. The fold returns **typed patches by authority**; arm-autosave is *derived* from a non-empty cache/memory patch, never a hand-set boolean — so the `~150 ms` agent firehose cannot reach disk, *by type*.
+kolu — the **sole** owner of memory — seeds `current` from its durable record, folds each observation, and stamps recency with **kolu's** clock. The fold returns **typed patches by authority**; arm-autosave is *derived* from a **change in the persisted projection** (cache ∪ memory), never a patch's mere presence — so a no-op tick can't arm it and the `~150 ms` agent firehose cannot reach disk.
 
 ```ts
 type FoldDelta = {
-  cache?:  Partial<AwarenessCache>;    //  cwd · git          → arms autosave
-  memory?: Partial<AwarenessMemory>;   //  the 3 memory fields → arms autosave (lands on kolu.authored)
-  live?:   Partial<AwarenessLive>;     //  pr · agent · fg     → quiet
+  cache?:  Partial<AwarenessCache>;    //  cwd · git · pr    → persisted (arms autosave when a VALUE changes)
+  memory?: Partial<AwarenessMemory>;   //  the 3 mem fields  → persisted, lands on kolu.authored
+  live?:   Partial<AwarenessLive>;     //  agent · foreground → quiet (never persisted)
   recentRepo?: { root: string; name: string };   // fold-derived MRU side-effects
   recentAgent?: string;
 };
-const arms = (d: FoldDelta) => !!(d.cache || d.memory);   // misrouting a field (agent→memory) is a COMPILE error
 
-function fold(current: KoluAwareness, o: AwarenessObservation, now: () => number): FoldDelta {
+// Liveness + clock are kolu's, passed as VALUES, not a thunk the reducer may fire (round-5 P2):
+//   live  — derived from the FRAME PHASE kolu received (delta ⇒ true, snapshot ⇒ false), not a per-event flag
+//   at    — kolu samples its clock once, at intake, before calling the fold
+type FoldCtx = { live: boolean; at: number };
+
+function fold(current: KoluAwareness, o: AwarenessObservation, ctx: FoldCtx): FoldDelta {
   switch (o.kind) {
     case "cwd": return { cache: { cwd: o.cwd } };
     case "git": return { cache: { git: o.git },
@@ -133,20 +154,20 @@ function fold(current: KoluAwareness, o: AwarenessObservation, now: () => number
     case "foreground": return { live: { foreground: o.foreground } };
 
     case "agent": {
-      if (agentInfoEqual(current.agent, o.agent)) return { live: { agent: o.agent } };   // no redundant re-emit
+      if (agentInfoEqual(current.live.agent, o.agent)) return {};   // no redundant re-emit — empty, not { live }
       const memory: Partial<AwarenessMemory> = {};
       // RECENCY (decided: identity-only). Bump iff a LIVE identity change — the SAME trigger as session-persist.
-      // No `lastActivityAt` read, no restore-caveat heuristic: the `fromSnapshot` fact replaces it.
-      const identityChanged = current.agent?.kind !== o.agent?.kind
-                           || current.agent?.sessionId !== o.agent?.sessionId;
-      if (!o.fromSnapshot && identityChanged) memory.lastActivityAt = now();   // kolu's clock, never the host's
-      const session = agentSessionToPersist(current.agentSession, o.agent);    // #1495, unchanged pure fn
+      // No `lastActivityAt` read, no restore-caveat heuristic: the FRAME PHASE (ctx.live) replaces it.
+      const identityChanged = current.live.agent?.kind !== o.agent?.kind
+                           || current.live.agent?.sessionId !== o.agent?.sessionId;
+      if (ctx.live && identityChanged) memory.lastActivityAt = ctx.at;          // kolu's clock, never the host's
+      const session = agentSessionToPersist(current.memory.agentSession, o.agent);  // #1495, unchanged pure fn
       if (session) memory.agentSession = session;
       return { live: { agent: o.agent }, memory };
     }
 
     case "commandRun":
-      return current.lastAgentCommand === o.command
+      return current.memory.lastAgentCommand === o.command
         ? { recentAgent: o.replayed ? undefined : o.command }
         : { memory: { lastAgentCommand: o.command }, recentAgent: o.replayed ? undefined : o.command };
   }
@@ -154,36 +175,62 @@ function fold(current: KoluAwareness, o: AwarenessObservation, now: () => number
 ```
 
 ```ts
-// The host recipe. kolu is the ONLY home that folds memory. A producer (the daemon) runs a
-// memory-free `foldObservation` that returns ONLY HostObservation — it cannot return a memory patch.
-function watch(id: TerminalId, terminal): () => void {
+// The host recipe. kolu is the ONLY home that folds memory. A producer (the daemon) runs the
+// memoryless engine and serves HostObservation events — it cannot emit a memory patch at all.
+// `persisted` is the true-when-dead projection (cache ∪ memory); arming compares it across the
+// fold step, so an empty/no-op patch — e.g. an agent token tick that changes no memory field —
+// produces an EQUAL projection and DOES NOT arm. The firehose can't reach disk, by construction.
+const persisted = (a: KoluAwareness) => ({ ...a.cache, ...a.memory });
+
+function watch(key: HostTerminalKey, terminal): () => void {
   let current = seed(terminal);                 // kolu seeds from its durable record (the SAME join as adoptedAwareness)
-  const stop = startAwarenessEngine(id, { pid, cwd: current.cwd, signals, readScreenText, log }, (o) => {
-    const d = fold(current, o, () => Date.now());      // kolu's clock, always
-    current = apply(current, d);                       // {...current, ...cache, ...memory, ...live}; memory lands on authored
-    publish(current);                                  // awareness collection serves HostObservation; authored serves memory
-    if (arms(d)) armAutosave();                        // terminals:dirty — derived from patch class, never asserted
-    if (d.recentRepo)  trackRecentRepo(d.recentRepo.root, d.recentRepo.name);
-    if (d.recentAgent) trackRecentAgent(d.recentAgent);
+  const stop = subscribeAwareness(key, terminal, (frame) => {           // frame: snapshot | delta | gap (see the wire)
+    if (frame.phase === "gap") { current = reseed(key); return; }       // a detected gap re-snapshots — never a silent diverge
+    const ctx: FoldCtx = { live: frame.phase === "delta", at: Date.now() };  // kolu samples its clock ONCE, here
+    for (const o of frame.observations) {
+      const before = current;
+      const d = fold(current, o, ctx);
+      current = apply(current, d);              // nested merge: { cache:{...}, live:{...}, memory:{...} } — new value, no mutation
+      if (!shallowEqual(persisted(before), persisted(current))) armAutosave();  // VALUE change, not patch presence
+      if (d.recentRepo)  trackRecentRepo(d.recentRepo.root, d.recentRepo.name);
+      if (d.recentAgent) trackRecentAgent(d.recentAgent);
+    }
+    awareness.upsert(key, { ...current.cache, ...current.live });   // HostObservation — memory STRUCTURALLY absent
+    authored.updateMemory(key, current.memory);                    // the ONE memory writer (a narrowed mutator)
   });
   return () => { stop(); /* late events after stop are ignored — the post-teardown no-op guard */ };
 }
 ```
 
 <Callout kind="note" title="Why this is clobber-free, with no seed">
-The producer **cannot write memory** (`HostObservation` has no memory fields), so nothing it emits can overwrite a remembered value. kolu seeds `current` from its own durable record and folds; a memory field the engine hasn't re-observed is simply never in a patch, so it survives. The old "seed the engine + restore-caveat" machinery is gone: recency reads no prior `lastActivityAt`; the `fromSnapshot` flag — not a `lastActivityAt>0` heuristic — tells the fold a first-frame re-observation from a real change. (`shouldBumpRecencyForAgentChange`'s restore caveat at `agentRecency.ts:31` is **deleted**, not ported — and it fixes a latent bug: a genuinely-new agent started after a prior one finished is no longer wrongly suppressed.)
+The producer **cannot write memory** (`HostObservation` has no memory fields), so nothing it emits can overwrite a remembered value. kolu seeds `current` from its own durable record and folds; a memory field the engine hasn't re-observed is simply never in a patch, so it survives. The old "seed the engine + restore-caveat" machinery is gone: recency reads no prior `lastActivityAt`; the **frame phase** kolu received (`ctx.live` — a fact kolu owns, not a producer flag) — not a `lastActivityAt>0` heuristic — tells the fold a first-frame re-observation from a real change. (`shouldBumpRecencyForAgentChange`'s restore caveat at `agentRecency.ts:31` is **deleted**, not ported — and it fixes a latent bug: a genuinely-new agent started after a prior one finished is no longer wrongly suppressed.)
 </Callout>
 
-<Svg svg={foldflow} caption="S2 (R9.0), local. The memoryless producer emits per-field observations (no seed, no memory). kolu's fold seeds current from its durable record, folds each observation with kolu's clock into typed {cache, memory, live} patches, writes cache+live to the awareness collection (HostObservation) and memory to kolu.authored, and arms autosave iff a cache/memory patch is non-empty. A remembered lastAgentCommand the producer hasn't re-observed is never in a patch, so it survives. recency bumps only on a LIVE agent-identity change (kolu's clock). One way: observe → fold → store. No record handed back, no sink, no seed, no clobber." />
+<Svg svg={foldflow} caption="S2 (R9.0), local. The memoryless producer emits per-field observations (no seed, no memory). kolu's fold seeds current from its durable record, folds each framed observation with kolu's sampled clock into typed {cache, memory, live} patches, writes cache+live to the awareness collection (HostObservation, memory structurally absent) and memory to kolu.authored, and arms autosave iff the persisted projection (cache ∪ memory) actually CHANGES — an empty/no-op patch never arms, so the agent firehose can't reach disk. A remembered lastAgentCommand the producer hasn't re-observed is never in a patch, so it survives. recency bumps only on a LIVE (delta-frame) agent-identity change (kolu's clock). One way: observe → fold → store. No record handed back, no sink, no seed, no clobber." />
 
 ## The wire — observations, not whole values
 
-The collection serving a whole `AwarenessValue` (`surface.ts:119-124`) is **retired** as the awareness primitive. Producers serve an **ordered `awarenessEvents` stream** (host-scoped, snapshot-then-deltas, subscribe-before-serialize — the attach contract, `router.ts:162-169`, and the `streaming.md` rule) of `HostObservation` events. The wire carries the fold's *input*, not its lossy *output*: a whole value drops the `replayed`/`fromSnapshot` facts and the clock context. There is **no `observedAt`** on the wire (a clock-skew temptation) and **no explicit `snapshot` event kind** (the snapshot frame is just a burst of per-field events).
+The collection serving a whole `AwarenessValue` (`surface.ts:119-124`) is **retired** as the awareness primitive. Producers serve an **ordered `awarenessEvents` stream** (host-scoped, snapshot-then-deltas, subscribe-before-serialize — the attach contract, `router.ts:162-169`, and the `streaming.md` rule) of `HostObservation` events. The wire carries the fold's *input*, not its lossy *output*: a whole value drops the `replayed` fact and the clock context. There is **no `observedAt`** on the wire (a clock-skew temptation).
 
-The payoff: **kolu's fold is one function for local and remote, and `reconcileRemoteSnapshot` disappears.** kolu seeds `current` from its durable record, then folds the producer's events — whether they arrive **in-process** (localhost) or **over ssh** (remote). The snapshot frame meets a pre-seeded `current`; the `fromSnapshot` flag suppresses a spurious recency bump; the cache fields overwrite the cached ones. `adoptedAwareness` (`local.ts:340`), wake, remote-connect, and remote-reconnect are the **same** "seed from memory, then fold" — `orphanAwareness` (`local.ts:368`) is the degenerate zero-memory seed.
+The stream is **framed**, not a bare event flow — the frame is what carries provenance and order so the *observation* vocabulary can stay field-level (round-5 P3 fix, and the `streaming.md`-prescribed shape):
+
+```ts
+type AwarenessFrame =
+  | { phase: "snapshot"; observations: HostObservation[] }            // kolu folds these with ctx.live = false
+  | { phase: "delta";    seq: number; observations: HostObservation[] }  // ctx.live = true; seq is monotonic per subscription
+  | { phase: "gap";      afterSeq: number };                          // a detected coalescing/overflow gap → kolu re-snapshots
+```
+
+Two prior "decided" calls **reverse** here, because the lens showed each one re-admitted a defect the design forbids:
+- **An explicit `snapshot` frame kind** (was: "no explicit snapshot event kind"). The snapshot-vs-live fact is **kolu's** subscription-phase fact, not a per-event boolean a producer asserts and kolu trusts. Putting it on the *frame* lets kolu derive `ctx.live` from the frame it received — its own knowledge — and **deletes `fromSnapshot`**.
+- **A per-subscription monotonic `seq`** (was: "`seq` only if a stream needs explicit ordering"). This stream **drives memory**, and the coalescing rule below *promises* gap-signaling — a promise with no mechanism. `seq` is the distinguisher (precedent: `RepoChangePulse.seq`, `surface.ts:58-67`): kolu asserts contiguity, and a hole forces a `gap` frame → re-snapshot, instead of a silently divergent fold. A per-subscription counter is **not** a wall clock, so it imports nothing and the `observedAt` objection doesn't apply to it.
+
+kolu consumes this framed stream through one `subscribeAwareness(key, …)` seam regardless of transport: **locally** it wraps the in-process `startAwarenessEngine` (the initial emit burst becomes the `snapshot` frame, later emits become `delta`s); **remotely** it is the ssh stream verbatim. So the framing — not the engine — is where snapshot/live and `seq` live, and the engine stays a pure memoryless emitter.
+
+The payoff: **kolu's fold is one function for local and remote, and `reconcileRemoteSnapshot` disappears.** kolu seeds `current` from its durable record, then folds the producer's events — whether they arrive **in-process** (localhost) or **over ssh** (remote). The snapshot frame meets a pre-seeded `current`; because it arrives as `phase: "snapshot"`, kolu folds it with `ctx.live = false` and so suppresses a spurious recency bump; the cache fields overwrite the cached ones. `adoptedAwareness` (`local.ts:340`), wake, remote-connect, and remote-reconnect are the **same** "seed from memory, then fold" — `orphanAwareness` (`local.ts:368`) is the degenerate zero-memory seed.
 
 <Callout kind="warn" title="Scale + coalescing (decided)">
-Volume is tens–hundreds of small events/sec at realistic fleet sizes — the firehose is already coalesced at source by `agentInfoEqual` (`sensors.ts:516`), and it is the same count the browser already fans out. **Coalescing rule:** the latest-wins display fields (`agent` detail, `pr`, `foreground`) may coalesce; the **discrete marks may not** — `commandRun` (the `replayed` MRU bit), the agent **identity/state** transition (drives recency *and* the `awaiting_user` alert), and `git`/`cwd` MRU edges. Default: coalesce nothing beyond `agentInfoEqual`; if scale ever bites, split `agent` into a lossless `agentState` lane and a coalescible `agentDetail` lane. On buffer overflow: signal a gap and force a fresh snapshot — never silently collapse.
+Volume is tens–hundreds of small events/sec at realistic fleet sizes — the firehose is already coalesced at source by `agentInfoEqual` (`sensors.ts:516`), and it is the same count the browser already fans out. **Coalescing rule:** the latest-wins display fields (`agent` detail, `pr`, `foreground`) may coalesce; the **discrete marks may not** — `commandRun` (the `replayed` MRU bit), the agent **identity/state** transition (drives recency *and* the `awaiting_user` alert), and `git`/`cwd` MRU edges. Default: coalesce nothing beyond `agentInfoEqual`; if scale ever bites, split `agent` into a lossless `agentState` lane and a coalescible `agentDetail` lane. On buffer overflow the mechanism is now concrete (round-5 P3): the producer emits a `phase: "gap"` frame and kolu re-snapshots — the monotonic `seq` lets kolu *detect* the hole rather than fold a silently divergent stream.
 </Callout>
 
 ## How R9 collapses
@@ -215,23 +262,25 @@ export const PT = [
 
 - **The activity rule** (the one product judgment): a terminal's recency (`lastActivityAt`) bumps **only on a live agent-identity change** — it starts, finishes, or a new session appears — **not** on `thinking↔awaiting` state flips or token churn. Chosen as the simplest gate (recency shares its trigger with session-persistence and reads no prior memory). The "needs you" alert is unaffected — it rides live `agent.state`/urgency, not recency.
 - **`pr` re-files to cache** (follow-up refinement): `pr` is true-when-dead (a forge fact keyed by the branch, not the PTY), so it moves `AwarenessLive → AwarenessCache` and persists like `git` — deleting the frozen-`pr` special case (`local.ts:871`, the sleeping-arm `pr?`) and showing the badge immediately on restore. `agent`/`foreground` stay live (lie-when-dead).
-- **Memory home → `kolu.authored`** (so every awareness collection is `HostObservation`).
-- **Dashboards (pulam-tui / pulam-web) → urgency-only** — they drop recency-based fleet ordering (a secondary tiebreak) and need no fold; they read `HostObservation` + the urgency projection.
-- **Host-scoped aggregation key `(HostLocation, TerminalId)`** — a fleet view cannot alias two hosts' non-kolu-minted (orphan-adopted) PTY ids.
+- **Memory home → `kolu.authored`** (so every awareness collection is `HostObservation`). The fold is its **one** writer through a narrowed `authored.updateMemory(key, AwarenessMemory)` mutator (round-5 P3) — mirroring the existing narrowed `updateClientMetadata` (`metadata.ts:166`) — so "the fold writes only memory; client code never writes memory" is typed, not a convention the two writers must remember.
+- **Dashboards (pulam-tui / pulam-web) → urgency-only** — they drop recency-based fleet ordering (a secondary tiebreak) and need no fold; they read `HostObservation` + the urgency projection. Because `HostObservation` has no `lastActivityAt`, a dashboard that still imports recency **fails to compile** — the break is a compile gate, not a note (split `compareAgents` into `compareAgentUrgency` (host-safe) and a kolu-only recency tiebreak).
+- **Host-scoped aggregation key — a branded `HostTerminalKey` type** (round-5 P3·P5), not the prose pair `(HostLocation, TerminalId)`: kaval ids are opaque (`ptyHostSurface.ts:87`), so a bare `Map<TerminalId, …>` still *spells* the cross-host orphan collision. kolu intake pairs the host-local `TerminalId` with its `HostLocation` into `HostTerminalKey` **before** the fold can run; aggregate maps, fold state, and authored records are all keyed by it, so a fleet view cannot alias two hosts' non-kolu-minted PTY ids.
 
 ## Phasing & migration
 
-- **S1 → S2 → R9.** S1 (the memoryless producer) is the one real lift — rewriting the freshness-critical sensors from mutate-via-sink to emit-observations, with the existing sensor tests as the safety net; it *deletes* the sink ×2, the record, the read-back contract, the seed, and the clobber. S2 (kolu's fold + the memory→authored move + the `awarenessEvents` stream) follows. After both, R9·lib is gone, R9.0 is an ~8-line loop, and R9.3 is subscribe-and-fold.
-- **Hard cutover, no knobs** (the fail-fast rule). The write-fence is kept *by type* (the `{cache, memory, live}` patches), memory is single-writer *by type* (`HostObservation` can't spell it), and the clock is kolu's *by type* (the producer has no memory field to stamp).
+- **S1 → S2 → R9.** S1 (the memoryless producer) is the one real lift — rewriting the freshness-critical sensors from mutate-via-sink to emit-observations, with the existing sensor tests as the safety net; it *deletes* the sink ×2, the record, the read-back contract, the seed, and the clobber. S2 (kolu's fold + the memory→authored move + the framed `awarenessEvents` stream) follows, and **deletes the awareness *mutator* APIs too, not only the sink** (round-5 P1): `mutateAwarenessPersisted` / `mutateAwarenessLive` (`terminal-registry.ts:177-197`) and the `(m) => { m.x = … }` callbacks they feed (`metadata.ts:124-159`) are the surviving mutable *place* — the commit seam **replaces** the registry value (`entry.awareness = next`) instead of handing a caller a mutable object. After both, R9·lib is gone, R9.0 is an ~8-line loop, and R9.3 is subscribe-and-fold.
+- **Hard cutover, no knobs** (the fail-fast rule). Memory is single-writer *by type* (`HostObservation` can't spell it; `KoluAwareness` nests it so the host slice can't carry it), the clock is kolu's *by type* (the producer has no memory field to stamp) and a sampled *value* not a thunk the reducer may fire, and the autosave fence rides a **persisted-value change** — `arms` is honestly "by a value check," not "by type," since `Partial<T>` always admits `{}` (round-5 P4: the one place the design can't reach a pure type, made explicit rather than overclaimed).
 - **What it retires:** createPulam; the `AwarenessSink`; the seed and the restore-caveat heuristic; `reconcileRemoteSnapshot`; the "two homes, two assemblers" framing; and the fold-clobber as a *class*. #1614 stays dead for the right reason — the in-process producer can't clobber, so no local pulam *process* is needed.
 
 ## The one thing no type settles — and its containment
 
-Exactly one judgment is a product choice, not a type: **which agent transition counts as "activity."** It's decided (identity change, above) and lives in **one** tested function with **no bypass** (memory patches are constructable only via the gate). Everything else is unspellable by type. **Tests that make that real:**
+Exactly one judgment is a product choice, not a type: **which agent transition counts as "activity."** It's decided (identity change, above) and lives in **one** tested function with **no bypass** (memory patches are constructable only via the gate). Almost everything else is unspellable *by type*; the single honest exception is the autosave fence, which rides a **persisted-value change** because `Partial<T>` admits `{}` — so it gets a test, not a type. **Tests that make that real:**
 
-- *type* — a `HostObservation` cannot contain `lastActivityAt`/`agentSession`/`lastAgentCommand`; no `reconcileRemoteSnapshot(AwarenessValue, AwarenessValue)` API exists.
+- *type* — a `HostObservation` cannot contain `lastActivityAt`/`agentSession`/`lastAgentCommand`; `KoluAwareness` is not assignable to `HostObservation` (publishing `current` whole to the awareness collection is a compile error); no `reconcileRemoteSnapshot(AwarenessValue, AwarenessValue)` API exists.
+- *the headline fence* — an `agent` token tick that changes **no** persisted field (same identity, same session — the ~150 ms firehose) folds to an **equal** persisted projection and **does not** arm autosave. Remove the value-change check and this test fails (the firehose reaches disk).
 - a replayed `commandRun` updates `lastAgentCommand` but fires **no** recent-agent bump.
-- a `null→detected` agent as a **live** event bumps recency; the same in the **snapshot frame** (producer restart) does **not** — the `fromSnapshot` fact replaced the `lastActivityAt>0` heuristic.
-- a producer clock a year ahead never reorders kolu's recency.
-- the same id on two `HostLocation`s keeps two aggregate entries.
+- a `null→detected` agent in a **`delta`** frame bumps recency; the same in a **`snapshot`** frame (producer restart) does **not** — the frame phase kolu received, not a producer flag, decides; there is no `fromSnapshot` field to mislabel.
+- a producer clock a year ahead never reorders kolu's recency (kolu samples its own clock as a value at intake; the wire has no `observedAt`).
+- a dropped delta (a hole in `seq`) yields a `gap` frame and a re-snapshot — never a silently divergent fold.
+- the same id on two `HostLocation`s keeps two aggregate entries (a bare `TerminalId` can't index the fleet — `HostTerminalKey` is required).
 - debouncing a discrete `commandRun`/`cd` mark is a failing contract test — only display state may coalesce.

@@ -25,7 +25,7 @@
   <rect x="560" y="46" width="224" height="126" rx="9" fill="#fffdf6" stroke="#e7c98a" stroke-width="1.3"/>
   <text x="571" y="64" font-size="10.3" font-weight="700" fill="#8a5a12">AwarenessObservation</text>
   <text x="571" y="82" font-size="9.2" fill="#7a4f10">cwd · git · pr · foreground</text>
-  <text x="571" y="99" font-size="9.2" fill="#7a4f10">agent &#123; fromSnapshot &#125;</text>
+  <text x="571" y="99" font-size="9.2" fill="#7a4f10">agent  (snapshot|delta from frame)</text>
   <text x="571" y="116" font-size="9.2" fill="#7a4f10">commandRun &#123; replayed &#125;</text>
   <text x="571" y="135" font-size="9" font-style="italic" fill="#b07d2a">— no memory fields —</text>
   <text x="571" y="155" font-size="9" font-style="italic" fill="#b07d2a">recentRepo/Agent: fold-derived</text>
@@ -36,7 +36,7 @@
   <text x="408" y="220" text-anchor="middle" font-size="12.5" font-weight="700" fill="#14663a">kolu's fold</text>
   <text x="408" y="238" text-anchor="middle" font-size="9.8" fill="#14663a">typed &#123; cache, memory, live &#125; patches</text>
   <text x="408" y="255" text-anchor="middle" font-size="9.8" fill="#14663a">kolu's clock · identity-only recency</text>
-  <text x="408" y="272" text-anchor="middle" font-size="9.5" fill="#14663a">arm autosave = cache | memory non-empty</text>
+  <text x="408" y="272" text-anchor="middle" font-size="9.5" fill="#14663a">arm autosave = persisted projection changed</text>
   <line x1="408" y1="128" x2="408" y2="196" stroke="#b06d12" stroke-width="1.8" marker-end="url(#a)"/>
   <rect x="360" y="152" width="96" height="16" rx="3" fill="#fff"/>
   <text x="408" y="164" text-anchor="middle" font-size="9" font-weight="700" fill="#b06d12">observations</text>
