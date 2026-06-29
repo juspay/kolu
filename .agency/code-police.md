@@ -197,9 +197,10 @@ A synchronous resolver passed into a generic async primitive counts too: if
 `createDirFilenameWatcher`'s `resolveDir` (or any install hook) runs a blocking
 call, the "async" wrapper doesn't save you — the block happens inline on
 subscribe. Keep the blocking work off the loop, or hoist it into an already-async
-caller. Where a residual sync call is genuinely justified (a fast local stat),
-say so at the call site and lean on the event-loop watchdog
-(`eventLoopWatchdog.ts`) as the backstop — it is the net, not a license.
+caller. Where a residual sync call is genuinely justified (a fast, known-local
+one-shot stat — e.g. `hasGitDir`), say so at the call site: the carve-out is for
+*fast, local, one-shot* reads, never for a subprocess wait or a path that can be
+remote/slow.
 
 _Rationale_: a single synchronous `execSync('git rev-parse')` on the git-watcher
 install path froze the production server's event loop for **25 minutes** on
