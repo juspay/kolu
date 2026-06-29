@@ -95,7 +95,7 @@ The three slots below are real and stable; only their **names** are open. The sh
 | **churn** | — | shipped, 0 | ~63 refs · `Terminal` is free | ~63 + ~85 refs + `awareness` collection + pulam | large + a future lie |
 
 <Callout kind="warn" title="Name by role, not producer">
-Producer names (`PulamMeta`, `KavalMeta`) bake in **who** makes the data — but that producer is **volatile**: R9 swaps the awareness producer from local sensors to remote `pulam`, so `PulamMeta` becomes a lie the moment R9 lands. Role names (`Awareness`, `Observed`, `Authored`) name **what** the data is and survive the swap. That alone rules out the producer-named column.
+Producer names (`PulamMeta`, `KavalMeta`) bake in **who** makes the data — but that producer is **volatile**: R9 makes the awareness producer differ by host — local in-process sensors vs a remote `pulam` daemon — so `PulamMeta` would be a lie for every local terminal. Role names (`Awareness`, `Observed`, `Authored`) name **what** the data is and survive the swap. That alone rules out the producer-named column.
 </Callout>
 
 **Recommendation:** rename the **join** `TerminalMetadata` → **`Terminal`** (the name is free; ~63 refs) and leave the two halves as `AuthoredTerminal` / `AwarenessValue`. It buys the model sentence — *"a `Terminal` is its authored half joined with its observed half"* — for the lowest churn, without the cross-package `AwarenessValue` rename the symmetric column drags in.
@@ -111,22 +111,24 @@ The `terminalWorkspace.awareness` collection is served by **two homes** — kolu
 
 It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
 
-<Callout kind="warn" title="Correction (proposed) — the in-process home is the mis-step">
-The *kolu-in-process* home of this factory re-couples awareness into kolu — the thing [pulam](pulam.html) exists to decouple. The fix ([R9.0](remote-terminals-finale.html#r90)) makes kolu's awareness backing a **mirror of a local pulam**, so the backing is *always* a pulam mirror (local or remote) and **pulam is the one authority per host**. The reader-join and the injection seam stay; only the backing source changes.
+<Callout kind="note" title="Correction (proposed) — the in-process home is fine; the gap is the missing assembly">
+An earlier draft called the *kolu-in-process* home of this factory a re-coupling mis-step. On a closer read it isn't: `@kolu/terminal-workspace` is a **decoupled library** (its dependency arrow points out, six consumers), so kolu calling it in-process is not re-coupling — the library knows nothing of kolu. The real gap is upstream of this factory: the library exposes only *parts*, with **no single assembly**, so the pulam daemon and kolu each wire the sensors + sink + byte-tap up themselves, divergently. The fix ([R9·lib](remote-terminals-finale.html#r9lib)) gives the library one assembly entry point (createPulam) so the daemon and kolu's in-process consumer are **1:1**; [R9.0](remote-terminals-finale.html#r90) routes kolu's awareness backing through it in-process, and [R9.3](remote-terminals-finale.html#r93) backs a *remote* tile by mirroring the remote pulam daemon. The reader-join and this injection seam stay; only what feeds the `awareness` backing changes.
 </Callout>
 
-## Next — R9 (corrected: kolu consumes a pulam)
+## Next — R9 (corrected: one library, two transports)
 
-R8 did the hard part — the reader-join **and** the `serveTerminalWorkspace` backing-injection seam — *keep both*. But R8's choice to have kolu *serve awareness in-process* re-coupled awareness into kolu. The correction: **pulam is the single awareness authority per host; kolu's awareness backing is always a *pulam mirror*.**
+R8 did the hard part — the reader-join **and** the `serveTerminalWorkspace` backing-injection seam — *keep both*. The awareness library is **already decoupled**; what's missing is a single *assembly* so the pulam daemon and kolu's in-process consumer are **1:1**. The correction: give the library one assembly entry point (a working name, createPulam), and feed this `awareness` backing from it — **in-process** for a local tile, a **mirror of the remote pulam daemon** for a remote one.
 
 ```text
-R9.0  kolu's `awareness` backing:  in-process registry projection  →  a mirror of a
-      LOCAL pulam (retire the in-process sensors) · the local pulam owns `activity`
-R9.3  the SAME backing, pointed at a REMOTE pulam (over ssh) — local is a special case
-      UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
-                  (terminalWorkspaceSurface) · the authored half · disk persistence
+R9·lib  the library gets ONE assembly:  createPulam(kaval) → the served surface
+        (move the sink + the byte-tap into the library; the daemon wraps it trivially)
+R9.0    kolu's `awareness` backing = createPulam(itsOwnKaval) called IN-PROCESS
+        (drop kolu's hand-rolled sink + inline tap-bridge; no process, no socket, no fold)
+R9.3    the SAME surface, mirrored from a REMOTE pulam daemon (over ssh)
+        UNCHANGED:  the reader join (composeTerminalMetadata) · the contract
+                    (terminalWorkspaceSurface) · the authored half · disk persistence
 ```
 
-One sensor set per host (a pulam); every reader — kolu's Dock, pulam-web — mirrors it; the arrow always points **→ pulam**. The seam is the same `serveTerminalWorkspace` backing injection R8 built — R9.0 fills it with a local-pulam mirror, R9.3 with a remote one. Full plan: [the finale](remote-terminals-finale.html).
+One assembly, in the library; the pulam daemon and kolu's in-process consumer are two thin faces of it. The seam is the same `serveTerminalWorkspace` backing injection R8 built — R9.0 fills it in-process, R9.3 with a remote-daemon mirror. Full plan: [the finale](remote-terminals-finale.html).
 
-**Still open:** who owns the local pulam's lifecycle (recommend kolu's R2 daemon-supervisor) and migrating off R8's in-process backing — see the [finale](remote-terminals-finale.html#r90).
+**Still open (decided in [R9·lib](remote-terminals-finale.html#r9lib)):** where the in-process sink writes (kolu's registry vs the daemon's own store — an injected target), how much of the per-terminal lifecycle createPulam owns, and whether kolu's `activity` source goes live off the shared byte-tap or stays client-side.

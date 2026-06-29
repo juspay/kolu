@@ -1,6 +1,6 @@
 ---
 title: Remote terminals — the finale (R9–R10)
-description: The corrected R9–R10 plan. R8 shipped the right reader-join (keep it) but made kolu SERVE awareness in-process — re-coupling awareness into kolu, the exact thing pulam was built to decouple. The fix — kolu CONSUMES a pulam instead of serving awareness itself (a local pulam locally, a remote one remotely), so the arrow points to pulam with no cross-reach and the connectTerminalWorkspace mud never arises. R9.0 fixes the decoupling; collapsing to literally one pulam per host (pulam-web reading kolu's pulam too) is a separate optional phase, R9-converge. Phases — R9.0 decouple · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote awareness · R9.4 reconnect · R9.5 Code-tab fs/git · R9-converge (optional) · R10 canvas.
+description: The corrected R9–R10 plan. The awareness capability is ALREADY a decoupled library (@kolu/terminal-workspace — its dependency arrow points out, six consumers), and kolu already consumes it in-process. The earlier "kolu runs a local pulam process" correction (PR #1614) was a misdiagnosis and is CLOSED — it conflated a process boundary with code decoupling. The real gap is that there is no 1:1 between the library and the pulam daemon — the awareness ASSEMBLY (the sink, the byte-tap, the dial→sensors→serve orchestration) lives in the daemon and is re-implemented, divergently, inside kolu. The fix — one library assembly entry point (createPulam) the daemon wraps trivially and kolu consumes in-process; remote (R9.3) mirrors the remote pulam daemon's surface, identically. Phases — R9·lib consolidate · R9.0 in-process consume · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote awareness · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
@@ -15,32 +15,32 @@ import PhaseTree from "../../components/PhaseTree.astro";
 import Svg from "../../components/Svg.astro";
 import topology from "../../diagrams/r90-process-topology.svg?raw";
 
-**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. But R8 also made **kolu serve awareness *in-process*** (the registry-projection backing of `serveTerminalWorkspace`), which **re-coupled awareness into kolu** — the exact thing pulam ([R4](pulam.html)) exists to decouple. This note corrects course: **kolu *consumes* a pulam instead of serving awareness itself** — a supervised local pulam for the local box (R9.0), a remote pulam for a remote host (R9.3, the same mirror). The arrow points **→ pulam** and **neither side reaches into the other**, so the `connectTerminalWorkspace` mud never arises. (Collapsing to *literally one* pulam per host — pulam-web reading kolu's pulam too — is a separate, optional step: [R9-converge](#r9-converge).) The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; full model in [the terminal model](terminal-metadata-model.html).
+**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and the answer turns out to already be in the repo: the awareness capability is a **decoupled library** — `@kolu/terminal-workspace` — and kolu already consumes it **in-process**. The only real defect is that the library is a *bag of pieces* with **no single assembly**, so the daemon and kolu each wire those pieces up themselves, divergently. This note corrects course: give the library **one assembly entry point** (a working name: createPulam), make the pulam **daemon** a trivial wrapper over it, have kolu consume that **same** assembly **in-process** for the local box (R9.0) and **mirror the remote pulam daemon** for a remote host (R9.3). The decoupling is the **library boundary**, not a process boundary. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; full model in [the terminal model](terminal-metadata-model.html).
 
-<Callout kind="warn" title="The correction — why R9a is discarded">
-R8's "kolu serves its own awareness" left awareness with **two shapes** (kolu multiplexed vs pulam standalone) and **no single authority**. That forced R9a (<PrLink pr={1604} />) to teach pulam-web how to reach *into kolu* (a kolu-specific `connectTerminalWorkspace` slice) — composing an *intermediary*, not pulam. The root fix is upstream: **kolu consumes a pulam instead of serving awareness itself**, so neither side reaches into the other and the mud is gone. So **R9a is abandoned** — its *approach* (pulam-web reaching into kolu) is exactly the mud we're removing; its narrow localhost desync is split out to the optional [R9-converge](#r9-converge). The one real thing it surfaced — a `@kolu/surface` membership bug (`broadcastKeys`) — lands in its own PR.
+<Callout kind="warn" title="The earlier correction was itself a misdiagnosis — R9.0-as-a-process is CLOSED">
+The prior plan (and PR #1614) said R8's mistake was that kolu *serves awareness in-process*, and proposed kolu run a **local pulam process** it mirrors over a socket. That was wrong on the diagnosis and the cure. **Grounded in the code:** `@kolu/terminal-workspace` already points its dependency arrow **out** (it names no kolu-app package; its lone host coupling is an injected logger) and already has six consumers — it *is* the decoupling. kolu already consumes it in-process (`server/src/terminalEndpoint/local.ts` runs the library's `startAwareness` against kaval's taps). So "decouple awareness from kolu in code" was solved before R9.0. The local-pulam-**process** bought no decoupling and introduced a fold-clobber blocker that is intrinsic to mirroring an *ephemeral* local process across a socket. **PR #1614 is CLOSED (never merged); the process approach is rejected.** The pulam daemon is kept for the *remote* case, where a process boundary is real.
 </Callout>
 
-<Callout kind="note" title="The backing is ALWAYS a pulam mirror — local or remote">
-R8's **reader-join** and the `serveTerminalWorkspace` **awareness-backing injection seam** are kept. Only the *backing* changes: instead of kolu's in-process sensors, kolu's awareness backing is a **mirror of a pulam** — a **local** pulam for the local box (R9.0), a **remote** pulam for a remote host (R9.3), through the **same** mirror code path. The arrow always points **→ pulam** — kolu never serves awareness itself. (Bonus: the local pulam owns the kaval byte-tap, so the old "kolu has no live `activity`" gap closes for free.)
+<Callout kind="note" title="The real gap — no 1:1 between the library and the daemon">
+The library exposes the *parts* — the sensor engine (`startAwareness`) and the sink **interface** (`AwarenessSink`), the kaval-tap bridge (`bridgeKavalTaps`), the schema/seeds, the served-surface factory (`serveTerminalWorkspace`), the surface contract, the fs/git endpoint. It does **not** expose the *whole*: "given a dialed kaval, produce a live, served terminalWorkspace surface." That **assembly** lives in the pulam **daemon** (`pulam/src/daemon.ts`), along with two generic pieces stranded there — the per-terminal sink (`pulam/src/hooks.ts`) and the byte-tap activity tracker (`pulam/src/activity.ts`). kolu re-implements a *different* subset of the same assembly inside `local.ts`. So there are **two assemblers, assembled differently** — the root of the duplications and the local-vs-remote divergence. Closing the gap is R9·lib below.
 </Callout>
 
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "▶", c: "prog", l: "R9.0 · kolu consumes a local pulam (retire in-process awareness)", m: "the decouple · needs R8 · R4", h: "#r90" },
+  { d: 0, g: "▶", c: "prog", l: "R9·lib · consolidate the pulam-library — one assembly (createPulam), lib↔daemon 1:1", m: "the prerequisite · needs R6 · R4", h: "#r9lib" },
+  { d: 0, g: "○", c: "prog", l: "R9.0 · kolu consumes the pulam-library in-process (the decouple completes)", m: "needs R9·lib", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
-  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = the SAME mirror, a remote pulam", m: "needs R9.0 · R9.2 · R7", h: "#r93" },
+  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = mirror the remote pulam daemon", m: "needs R9.0 · R9.2 · R7", h: "#r93" },
   { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
   { d: 0, g: "○", c: "prog", l: "R9.5 · Code-tab fs/git → procedure + pulse", m: "needs R-pulamweb-4 · R9.3", h: "#r95" },
-  { d: 0, g: "◇", c: "prog", l: "R9-converge · (OPTIONAL, deferred) pulam-web reads kolu's pulam → one pulam/host", m: "off critical path · needs a transport generalization", h: "#r9-converge" },
   { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "needs R9.5", h: "#r10" },
 ];
 
 <PhaseTree title="FINALE — R9 (corrected) · R10" phases={PT} />
 
-**R9.0 is the new foundation** — it retires R8's in-process backing and removes R9a's *mud* (the narrow localhost single-instance desync is split out to the optional [R9-converge](#r9-converge)). **R9.1** shipped (it's the PTY-endpoint path, orthogonal to awareness — unaffected by the correction). Only **R9.5** is gated on [R-pulamweb-4](pulam-web.html#r-pulamweb-4).
+**R9·lib is the new foundation** — it makes the library own the whole awareness assembly so the daemon and kolu stop re-deriving it. **R9.0** then becomes small: kolu consumes that one assembly in-process. **R9.1** shipped (the PTY-endpoint path, orthogonal to awareness). **R9.3** is symmetric to R9.0 — the *same* surface, mirrored over the wire instead of called in-process. The earlier optional "R9-converge" phase is **dropped** (it presupposed a local pulam socket for pulam-web to dial; there is none in the in-process model, and pulam-web already keeps its own pulam).
 
 ## What R9 reuses — and what it must build
 
@@ -48,46 +48,78 @@ export const PT = [
 
 | seam | where | leg it serves |
 | --- | --- | --- |
-| `serveTerminalWorkspace` | `@kolu/terminal-workspace` | the awareness-backing **injection point** — now fed by a **pulam mirror**, not in-process sensors |
-| the pulam daemon | `@kolu/pulam` ([R4](pulam.html)) | the **one** sensor set per host; serves `terminalWorkspaceSurface` standalone |
-| the daemon-supervisor spine | `@kolu/surface-daemon-supervisor` ([R2](pty-daemon.html)) | `adoptOrEnsure` to bring up / adopt a local pulam, the same way it manages the kaval |
-| `frontDaemonOverStdio` | `@kolu/surface-daemon` | dial a **remote** kaval over ssh stdio → the remote PTY |
-| `getHostSession` | `@kolu/surface-nix-host` | a pooled, long-lived session to dial a **remote** pulam → the mirror |
-| `mirrorRemoteSurface` | `@kolu/surface` | the total dual (`{ procedures, done }`, R7) — mirror a pulam's surface into one local handle |
-| `HostLocation` remote arm · persisted `location` | `@kolu/common` | `{ kind:"remote", hostId }`, round-trips to disk |
+| serveTerminalWorkspace | @kolu/terminal-workspace | the surface-skeleton factory both homes already call — the awareness + activity **backing injection** point |
+| startAwareness · AwarenessSink · bridgeKavalTaps | @kolu/terminal-workspace | the transport-agnostic sensor engine, sink interface, and kaval-tap bridge — the pieces R9·lib assembles into one entry point |
+| the pulam daemon | pulam ([R4](pulam.html)) | the **one** sensor set per host; serves terminalWorkspaceSurface standalone — kept for the **remote** case |
+| frontDaemonOverStdio | @kolu/surface-daemon | dial a **remote** kaval over ssh stdio → the remote PTY |
+| getHostSession | @kolu/surface-nix-host | a pooled, long-lived session to dial a **remote** pulam → the mirror |
+| mirrorRemoteSurface | @kolu/surface | the total dual (`{ procedures, done }`, R7) — mirror a remote pulam's surface into one local handle |
+| HostLocation remote arm · persisted location | @kolu/common | `{ kind:"remote", hostId }`, round-trips to disk |
 
 **Must build:**
 
 | gap | today | the phase |
 | --- | --- | --- |
-| retire kolu's in-process awareness sensors; back kolu's awareness with a **local-pulam mirror** | R8 runs sensors in-process (registry-projection backing) | **R9.0** |
+| one library assembly entry point (createPulam) + move the sink and byte-tap into the library | the assembly + sink + tracker live in the pulam daemon; kolu re-implements a divergent subset | **R9·lib** |
+| kolu consumes that assembly in-process (drop kolu's hand-rolled sink + inline tap bridge) | kolu wires `startAwareness` itself in `local.ts` | **R9.0** |
 | the ssh **driver** (the remote PTY arm) | only `{kind:"local"}` exists | **R9.2** |
-| point the **same** mirror at a **remote** pulam | — | **R9.3** (trivial once R9.0 lands) |
+| mirror a **remote** pulam daemon's surface as kolu's remote awareness backing | — | **R9.3** |
 
 ## The sub-phases
 
-<a id="r90"></a>
+<a id="r9lib"></a>
 
-### R9.0 — kolu consumes a local pulam (retire in-process awareness) · *the decouple*
+### R9·lib — consolidate the pulam-library (one assembly, lib↔daemon 1:1) · *the prerequisite*
 
-<Phase id="R9.0" name="kolu consumes a local pulam; pulam is the awareness authority" status="todo" needs={["R8", "R4"]} />
+<Phase id="R9·lib" name="one library assembly entry point — createPulam; the daemon wraps it" status="todo" needs={["R6", "R4"]} />
 
-**The fault R8 left.** R8 made kolu run the awareness sensors **in-process** and serve them (the registry-projection backing). That re-coupled awareness into kolu and gave awareness two serving shapes (kolu multiplexed, pulam standalone) — the asymmetry R9a then papered over with a kolu-aware mirror.
+**The gap, grounded.** The library (`@kolu/terminal-workspace`) is genuinely decoupled — its dependency arrow points **out** (`package.json`: `@kolu/surface`, kaval, the agent/git integrations; no kolu-app dependency) and it has **six** consumers (kolu-server, pulam, pulam-web, pulam-tui, common, solid-statepip). But it exports *parts*, not a *whole*:
 
-**The fix.** Run **one local pulam** — it dials kolu's *own* kaval, runs the one sensor set, and serves `terminalWorkspaceSurface` **standalone**. kolu's awareness backing becomes a **mirror of that local pulam**, injected at the *same* `serveTerminalWorkspace` seam R9.3 uses for remote. kolu's Dock keeps the **reader-join unchanged**. **pulam-web keeps its own pulam** (its existing ssh dial) — it does *not* reach into kolu, so the `connectTerminalWorkspace` mud never arises and the arrow points **→ pulam** for both sides.
+- the sensor engine `startAwareness` and the **interface** `AwarenessSink` (`sensors.ts:849`, `sensors.ts:163`),
+- the kaval-tap bridge `bridgeKavalTaps` (`kavalChannels.ts:58`),
+- the surface-skeleton factory `serveTerminalWorkspace` + `quietActivity` (`serveTerminalWorkspace.ts:73`, `serveTerminalWorkspace.ts:53`),
+- the surface contract `terminalWorkspaceSurface` and the fs/git endpoint `createTerminalWorkspaceEndpoint`.
 
-This closes the **mud** — the architectural defect — by decoupling kolu, with neither side reaching into the other. It does **not** collapse the two pulam *instances* into one; that's the optional [R9-converge](#r9-converge). **The relaxed invariant for R9.0:** *kolu is decoupled, both kolu and pulam-web point at **a** pulam, with no cross-reach.*
+What it does **not** export is the assembly that turns *a dialed kaval* into *a live, served terminalWorkspace surface*. That assembly lives in the **pulam daemon** (`pulam/src/daemon.ts:114` `runPulamDaemon`): dial kaval → per-terminal `watchTerminal` (`daemon.ts:203`) wires `seedAwarenessValue` → its own `makeAwarenessSink` → `bridgeKavalTaps` → `startAwareness` → a raw-output activity tap → and `reconcile` (`daemon.ts:282`) keeps the set in step, all fed into `serveTerminalWorkspace`. Two generic pieces are stranded **in the daemon package**: the per-terminal sink `makeAwarenessSink` (`pulam/src/hooks.ts:39`) and the byte-tap `createActivityTracker` (`pulam/src/activity.ts:43`).
 
-<Svg svg={topology} caption="After R9.0, on the local box: kaval (owns the PTYs) and a local pulam (the one sensor set, R4) are each daemons on a unix socket, both spawned + supervised by kolu-server (R2 adoptOrEnsure). kolu-server dials kaval over a unix socket for PTY I/O, and mirrors the local pulam's terminalWorkspace.awareness over a unix socket as its awareness backing; the local pulam reads kaval's taps (unix socket) to run the sensors. The browser reads kolu-server over a websocket (/rpc/ws). pulam-web (if deployed) keeps its OWN pulam over ssh — neither side reaches into the other; collapsing those two pulam instances into one is the optional, deferred R9-converge. A remote host (R9.3) is the identical shape, reached over ssh stdio instead of unix sockets." />
+kolu re-implements a **divergent** subset of that same assembly:
 
-<Callout kind="note" title="Lifecycle — kaval survives, pulam is ephemeral">
-**kaval** owns the PTYs, so it must *survive* a kolu restart/redeploy: it's a detached daemon kolu **re-adopts** on boot (R2) — terminals untouched. **pulam** owns nothing irreplaceable (its awareness is *computed* from the kaval), so it is **ephemeral** — it dies with kolu, and a fresh one **re-derives** all awareness from the surviving kaval on boot. The only cost is a brief awareness gap during the restart; no work is lost. So `adoptOrEnsure` for the local pulam effectively always *ensures* (spawns fresh), never adopts.
+| piece | the library / daemon | kolu-server | the duplication |
+| --- | --- | --- | --- |
+| the sink | `pulam/src/hooks.ts:39` (publishes the whole value into the served collection) | `local.ts:278` (writes the registry projection · `trackRecentRepo`/`trackRecentAgent` · screen-scrape off the local handle) | two impls of one `AwarenessSink` interface |
+| the kaval-tap bridge | `bridgeKavalTaps` (`kavalChannels.ts:58`) | the four channels built **inline** (`local.ts:688-744`) | kolu reaches kaval over the same socket-backed `ptyHostClient` (`local.ts:11`), so its inline copy of `bridgeKavalTaps` is removable — the library's docstring (`kavalChannels.ts:5`) calls kolu's feed "in-process," which is now stale |
+| live activity | `createActivityTracker` (`pulam/src/activity.ts:43`), served live | `quietActivity` (`surface.ts:458`); the green dot comes from client-side `useTerminalActivity` | one byte-tap in the daemon, a second on the client; kolu's server-side activity is quiet |
+
+**The fix — one assembly, two trivial homes.** Lift the assembly into the library behind one entry point — a working name, createPulam(kavalClient) — that owns the per-terminal sensor lifecycle (seed → sink → tap-bridge → sensors → activity tap → reconcile) and returns the `serveTerminalWorkspace` deps, with the **sink's write target injected by the home** (the same shape `serveTerminalWorkspace` already uses to inject the awareness backing). Move `makeAwarenessSink` and `createActivityTracker` **into the library**. Then:
+
+- the **pulam daemon** collapses to a trivial shell — `serveOverSocket(createPulam(dialKaval()))`;
+- **kolu** calls `createPulam(itsOwnKavalClient)` in-process, injecting "write into the registry record" as the sink target — so its persisted/live fence and the reader-join are unchanged (R9.0).
+
+One assembler, in the library; the daemon and kolu are both thin. That is the 1:1 — **library ↔ daemon** — and it is what makes R9.0 (in-process) and R9.3 (mirror the daemon) two faces of the *same* surface.
+
+<Callout kind="note" title="Open design calls this phase pins (don't invent them mid-flight)">
+- **Where the in-process sink writes.** kolu's awareness must keep landing on its **registry** entry (so `composeTerminalMetadata`, the persisted/live fence, and session-restore hold). createPulam must take the sink's write target as an injected dep — registry-mutation for kolu, an owned store for the daemon — exactly the injection `serveTerminalWorkspace` already does for the `awareness` backing. No fold: in-process the sink mutates the restored record directly, with no socket reseed.
+- **The per-terminal lifecycle.** kolu's lifecycle is entangled with spawn/sleep/wake/adopt (`local.ts`, ~1100 lines); the daemon's is a plain poll-list reconcile. The *minimum* 1:1 is one sink + one tap-bridge + one activity tracker in the library, both homes assembling from those. Whether to also lift the whole watch/reconcile loop into createPulam (vs leave kolu's lifecycle as the caller of the shared pieces) is the scope call this phase makes.
+- **Activity.** Decide whether kolu's server-side activity source goes live off the shared byte-tap (retiring the client-side `useTerminalActivity`) or stays client-side. This phase only *moves the tracker into the library*; flipping kolu's source live is a follow-on, not a freebie.
+- **Rename.** terminal-workspace → pulam-library — the library *is* the pulam capability; the daemon is one deployment of it. The rename rides this phase (mechanical, ~6 consumers).
 </Callout>
 
-- **Decided — supervision:** kolu-server owns the local pulam's lifecycle via the [R2](pty-daemon.html) `adoptOrEnsure` spine (ephemeral, per the callout above) — boot brings up kaval → local pulam → mirror.
-- **Decided — migration:** a **hard cutover** — one PR deletes kolu's in-process sensors and points the awareness backing at the local-pulam mirror, with no flag and no fallback (the no-knobs rule; the worst case on the local awareness path is a briefly-stale badge, never lost work).
-- **Needs:** R8 (the reader-join + the injection seam) and R4 (the pulam daemon) — **both shipped**.
-- **Done:** kolu-server runs **no** in-process awareness sensors; its backing is a **mirror of its supervised local pulam**; `buildReServe` is lifted to a shared home (both kolu and pulam-web consume it); the arrow points **→ pulam** with **no cross-reach** (no `connectTerminalWorkspace`). *Out of scope* (→ [R9-converge](#r9-converge)): collapsing to one pulam *instance* / killing the localhost Dock-vs-pulam-web desync.
+- **Needs:** R6 (the library exists) and R4 (the pulam daemon) — **both shipped**.
+- **Done:** there is **one** assembly entry point in the library; the pulam daemon is a thin serve-wrapper over it (no awareness logic of its own); `makeAwarenessSink` and `createActivityTracker` no longer live in the pulam package; a differential test pins the daemon's assembly and kolu's in-process one as the **same** code path.
+
+<a id="r90"></a>
+
+### R9.0 — kolu consumes the pulam-library in-process · *the decouple completes*
+
+<Phase id="R9.0" name="kolu consumes the pulam-library in-process" status="todo" needs={["R9·lib"]} />
+
+**The point.** Once R9·lib gives the library one assembly entry point, kolu's local awareness is just `createPulam(itsOwnKavalClient)` called **in-process** — no daemon, no socket, no mirror, **no fold**. kolu deletes its hand-rolled sink (`local.ts:278`) and its inline tap-bridge (`local.ts:688-744`) and consumes the library's assembly instead, injecting "write into the registry record" as the sink target. The reader-join stays exactly as R8 shipped it: the browser still subscribes to `terminalWorkspace.awareness ⋈ kolu.authored` and joins via `composeTerminalMetadata`. The arrow points **into the library**, in-process — which is not re-coupling, because the library knows nothing of kolu (its dependency arrow points the other way).
+
+This is the in-process face of the **same** surface R9.3 mirrors remotely. It does not start a second process, and it does not change what the browser reads — only how kolu's awareness collection is *backed* (now one library assembly rather than a bespoke in-line wiring).
+
+- **Migration:** a **hard cutover** — one change deletes kolu's bespoke sink + inline bridge and routes through the library's assembly, no flag and no fallback (the no-knobs rule; the worst case on the local awareness path is a briefly-stale badge, never lost work).
+- **Needs:** R9·lib.
+- **Done:** kolu-server runs **no** bespoke awareness assembly — its local awareness is the library's createPulam assembly called in-process; the bespoke sink and inline tap-bridge in `local.ts` are gone; the reader-join and disk persistence are unchanged; a test pins kolu's in-process awareness equal to what the pulam daemon would serve for the same terminals.
 
 <a id="r91"></a>
 
@@ -110,14 +142,16 @@ Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **k
 
 <a id="r93"></a>
 
-### R9.3 — remote awareness = the same mirror, a remote pulam
+### R9.3 — remote awareness = mirror the remote pulam daemon
 
-<Phase id="R9.3" name="remote awareness — the same mirror, remote source" status="todo" needs={["R9.0", "R9.2", "R7"]} />
+<Phase id="R9.3" name="remote awareness — mirror the remote pulam daemon's surface" status="todo" needs={["R9.0", "R9.2", "R7"]} />
 
-Because **R9.0 already made kolu mirror a (local) pulam** for its awareness backing, a remote host is the *same backing* pointed at the **remote** host's pulam — dialed over a long-lived `getHostSession`, mirrored via R7's total dual. **Only the dial differs** (a local pulam in-process vs a remote pulam over ssh); the backing-injection, the reader-join, and disk persistence are identical. The remote tile gains the git/agent/PR badge + green dot; `activity` rides the mirror.
+A remote host runs the **pulam daemon** — which, after R9·lib, is the same library assembly wrapped as `serveOverSocket(createPulam(...))`. So kolu's remote awareness backing is just **a mirror of that daemon's served surface**, dialed over a long-lived `getHostSession` and mirrored via R7's total dual. It is the wire-side face of the **same** surface kolu consumes in-process locally (R9.0): the contract (terminalWorkspaceSurface), the reader-join, the authored half, and disk persistence are identical — **only the source differs** (an in-process call vs a mirror over ssh). The remote tile gains the git/agent/PR badge + green dot; `activity` rides the mirror.
 
-- **Needs:** R9.0 (the mirror backing exists), R9.2 (the remote PTY), R7 (the total dual).
-- **Done:** a remote tile shows live awareness mirrored from the remote pulam, via the **same code path** as local; a differential test pins it equal to the remote pulam's own `awareness`.
+This is also where the genuinely **remote-only** reconciliation lives: a restored remote tile's persisted awareness (git, lastActivityAt) must survive a fresh daemon re-deriving it across the wire. That fold belongs here, on the remote backing, **not** in the local in-process path (where there is no socket and no reseed).
+
+- **Needs:** R9.0 (the in-process consumer proves the surface), R9.2 (the remote PTY), R7 (the total dual).
+- **Done:** a remote tile shows live awareness mirrored from the remote pulam daemon, joined by the **same** reader-join as local; a differential test pins it equal to the remote pulam's own `awareness`.
 
 <a id="r94"></a>
 
@@ -150,22 +184,6 @@ The one **large client change**, and the only finale phase R-pulamweb-4 gates. T
 - **Needs:** **R-pulamweb-4** (proves the procedure + pulse remote leg over `websocketLink` + `surfaceClient`), R9.3.
 - **Done:** the Code tab shows live git status/diff for a **remote** tile via procedure + pulse; no `koluSurface` fs/git reads remain.
 
-<a id="r9-converge"></a>
-
-### R9-converge — one pulam per host (optional, deferred)
-
-<Phase id="R9-converge" name="pulam-web reads kolu's local pulam — one pulam instance per host" status="todo" needs={["R9.0"]} />
-
-After R9.0 the arrow already points **→ pulam** for both kolu and pulam-web, with no cross-reach — *the mud is gone*. What remains is two pulam **instances** on the local box (kolu's supervised one + pulam-web's own), which can drift: the narrow `working`-in-pulam-web vs `idle`-in-Dock desync. This phase collapses them to **one** by pointing pulam-web at kolu's supervised local pulam.
-
-**Why it's optional and off the critical path:**
-- **Narrow benefit.** The desync only appears when pulam-web is *deployed* **and** *pointed at `localhost`* (a fleet dashboard watching its own box). The usual deployments — kolu alone locally, or pulam-web watching *remote* fleets — never hit it.
-- **Chunky cost.** pulam-web is **ssh-locked**: its host registry, `HostSession`, and `pumpRemoteSurface` assume ssh-stdio reconnect (*"stdio links don't recover mid-stream"*). Dialing a local unix socket is **not** a config flip — it needs a **transport generalization** (a pluggable unix-socket | ssh session) inside `@kolu/surface-nix-host`.
-- **Blocks nothing.** R9.2–R9.5 and R10 don't need it, and R9.3's remote mirror reuses the *existing* ssh path — not this generalization. So it can land any time after R9.0, or never.
-
-- **Needs:** R9.0 (the local pulam exists) **+** the pulam-web transport generalization.
-- **Done:** under `localhost`, pulam-web reads kolu's supervised local pulam (not its own); one pulam instance per host; the Dock-vs-pulam-web differential passes **by construction** (one source).
-
 <a id="r10"></a>
 
 ### R10 — canvas multiplex + validate
@@ -177,13 +195,18 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 - **Needs:** R9 (all of it).
 - **Done:** the validated UX call, recorded.
 
+## The shape after R9.0
+
+<Svg svg={topology} caption="The corrected shape. ONE library (the pulam-library, today @kolu/terminal-workspace) owns the awareness assembly behind createPulam(kaval). LOCAL: kolu-server calls createPulam against its own kaval IN-PROCESS — no local pulam process, no awareness socket; the library reads kaval's taps over the unix socket kolu already dials for PTY I/O, runs the sensors, and writes the values straight into kolu's registry. The browser reads kolu-server over a websocket and joins authored ⋈ awareness at the reader (unchanged from R8). REMOTE (R9.3): the remote host runs the SAME library wrapped as the pulam daemon — serveOverSocket(createPulam(...)) — and kolu mirrors its served surface over ssh stdio. local is an in-process call; remote is a mirror of a daemon; the assembly is identical. The 1:1 is library ↔ daemon." />
+
 ## Open decisions
 
 Resolve each before the phase that needs it — so the implementer isn't choosing mid-flight.
 
 | decision | needed by | options |
 | --- | --- | --- |
-| ~~local pulam lifecycle~~ | R9.0 | **decided — kolu-server `adoptOrEnsure`s an *ephemeral* local pulam (R2 supervisor); it dies with kolu and re-derives on boot** |
-| ~~migration off R8's in-process backing~~ | R9.0 | **decided — hard cutover (no flag, no fallback)** |
-| rename the join `TerminalMetadata → Terminal` | cosmetic, any time | ride a mechanical pass (~63 refs), or leave it |
+| where the in-process sink writes (the injected write target) | **R9·lib** | registry-mutation for kolu vs an owned store for the daemon — the same injection `serveTerminalWorkspace` already does for the awareness backing |
+| how much of the per-terminal lifecycle createPulam owns | **R9·lib** | minimum (shared sink + tap-bridge + tracker, kolu keeps its lifecycle as caller) vs full (lift the watch/reconcile loop too) |
+| kolu's activity source after the tracker moves | **R9·lib** / R9.0 | go live off the shared byte-tap (retire client-side `useTerminalActivity`) vs keep it client-side |
+| rename terminal-workspace → pulam-library | **R9·lib** | mechanical (~6 consumers); the library is the capability, the daemon a deployment |
 | reconnect re-validation semantics | **R9.4** | what's compared (`location` vs the remote kaval's live `cwd`) + the fail-fast behavior |
