@@ -34,6 +34,23 @@ Track it across rounds until it has nowhere left to go.
 5. **Finish the blast radius** — not done until every dependent and downstream is carried to
    the same bar and verified against the final state.
 
+## Foundational invariants — the architecture lens
+
+When the change touches **how state is produced, stored, ordered, or typed**, reach for the
+`architecture-first-principles` lens (the state-and-time complement to `hickey` / `lowy`). It turns
+a vague "this feels wrong" into a named, grounded **invariant** and a concrete *make-it-unspellable*
+target:
+
+- name which principle a residual defect violates — *values not places* (P1), *pure core / effects
+  at the edge* (P2), *one authority on its own clock* (P3), *illegal states unrepresentable* (P4),
+  *guarantees at the knowing endpoint* (P5);
+- the "unspellable" fix is that principle's positive form — P4 → make it a type error; P3 → one
+  writer / the consumer's clock / a lawful merge; P1 → delete the mutable place; P2 → move the
+  effect to the edge; P5 → relocate the guarantee.
+
+This is how *"make the wrong thing impossible to write"* (above) gets a **structural** target
+rather than a one-line patch.
+
 ## Verify adversarially — use Workflow
 
 **Review with fresh context, separate from the author** — a reviewer carrying the author's
