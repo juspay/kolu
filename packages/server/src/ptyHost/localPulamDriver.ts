@@ -27,14 +27,14 @@
  * `--socket <socket>` (where pulam serves its awareness for kolu to mirror).
  */
 
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
 import {
   type DaemonDriver,
   ephemeralSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { resolveDaemonLaunch } from "./daemonLaunch.ts";
 
 /** The socket the local pulam serves and kolu-server mirrors, namespaced **per
  *  kolu-server instance by its listen port** (`$XDG_RUNTIME_DIR/pulam-<port>/
@@ -65,22 +65,13 @@ export function resolvePulamLaunch(
   pulamSocket: string,
   kavalSocket: string,
 ): { binPath: string; args: string[] } {
-  const daemonArgs = ["--kaval", kavalSocket, "--socket", pulamSocket];
-
-  const wrapper = process.env.KOLU_PULAM_BIN;
-  if (wrapper) return { binPath: wrapper, args: daemonArgs };
-
-  // Dev/e2e: no nix wrapper — reproduce its launcher from source. The loader is
-  // resolved via the package so the spawn doesn't depend on a hoisted .bin/tsx.
-  const require = createRequire(import.meta.url);
-  const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
-  const binTs = fileURLToPath(
-    new URL("../../../pulam/src/bin.ts", import.meta.url),
-  );
-  return {
-    binPath: process.execPath,
-    args: ["--import", tsxLoader, binTs, ...daemonArgs],
-  };
+  return resolveDaemonLaunch({
+    binEnvVar: "KOLU_PULAM_BIN",
+    sourceBinPath: fileURLToPath(
+      new URL("../../../pulam/src/bin.ts", import.meta.url),
+    ),
+    daemonArgs: ["--kaval", kavalSocket, "--socket", pulamSocket],
+  });
 }
 
 /** The daemon-operational env the local pulam needs. `XDG_RUNTIME_DIR` decides

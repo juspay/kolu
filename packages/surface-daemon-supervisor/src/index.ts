@@ -32,6 +32,10 @@ export {
 } from "./endpoint.ts";
 export { dialSocket } from "./dialSocket.ts";
 export {
+  dialDaemonConnection,
+  type DialDaemonConnectionOptions,
+} from "./dialDaemonConnection.ts";
+export {
   type DaemonDriver,
   type DaemonSpawnConfig,
   type EphemeralSpawnDeps,

@@ -5,15 +5,14 @@
  * "restart it", never an opaque deep-RPC error or an import-time throw), and
  * hands back a `DaemonConnection` the endpoint holds.
  *
- * It dials the socket *directly* (the supervisor's `dialSocket` + `stdioLink`)
- * rather than through `@kolu/surface`'s `unixSocketLink`, for one reason the
- * supervisor genuinely needs and that link doesn't expose: the socket's
- * **close event**. When kaval dies mid-session the supervisor must learn it
- * instantly (to flip the endpoint to `degraded`), without polling — so kolu
- * owns the socket here and forwards its `close` as `onClose`. The dial shares
- * `dialSocket` with the endpoint's readiness probe so the connect/error race
- * lives at one site; the framing and client wiring are otherwise identical to
- * `unixSocketLink`.
+ * It dials the socket *directly* (the supervisor's `dialDaemonConnection`, over
+ * `stdioLink`) rather than through `@kolu/surface`'s `unixSocketLink`, for one
+ * reason the supervisor genuinely needs and that link doesn't expose: the
+ * socket's **close event**. When kaval dies mid-session the supervisor must learn
+ * it instantly (to flip the endpoint to `degraded`), without polling. The shared
+ * `dialDaemonConnection` owns that dial → close-forwarding assembly (so the local
+ * pulam's `connect` reuses it); this file supplies only kaval's VALUES — the
+ * `stdioLink` client and the version handshake.
  */
 
 import { isContractVersionCompatible } from "@kolu/surface/define";
@@ -21,7 +20,7 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   type DaemonConnection,
   DaemonContractSkewError,
-  dialSocket,
+  dialDaemonConnection,
 } from "@kolu/surface-daemon-supervisor";
 import {
   PTY_HOST_CONTRACT_VERSION,
@@ -50,53 +49,43 @@ export type KavalConnection = DaemonConnection<
  *  survivor. The first two are possibly-transient and must not cost a survivor
  *  its live PTYs, so they stay plain errors the endpoint retries. (`ensure`'s
  *  fresh-boot path turns any of the three into `dead` regardless.) */
-export async function connectKaval(
-  socketPath: string,
-): Promise<KavalConnection> {
-  const socket = await dialSocket(socketPath);
-  const client = stdioLink<typeof ptyHostSurface.contract>({
-    read: socket,
-    write: socket,
-  }) as PtyHostClient;
-
-  let version: Awaited<
-    ReturnType<PtyHostClient["surface"]["system"]["version"]>
-  >;
-  try {
-    version = await client.surface.system.version({});
-  } catch (err) {
-    socket.destroy();
-    throw new Error(
-      `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
-    );
-  }
-  if (
-    !isContractVersionCompatible(
-      version.contractVersion,
-      PTY_HOST_CONTRACT_VERSION,
-    )
-  ) {
-    socket.destroy();
-    // The ONE failure that proves the survivor is incompatible — raise the typed
-    // skew error so `adoptOrEnsure` recycles it (retrying can't fix incompatible
-    // contracts). Every other reject above stays a plain Error (non-skew).
-    throw new DaemonContractSkewError(
-      `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
-    );
-  }
-
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-  });
-  return {
-    client,
-    identity: version.identity,
-    startedAt: version.startedAt,
-    dispose: () => socket.destroy(),
-    onClose: (cb) => {
-      if (closed) queueMicrotask(cb);
-      else socket.once("close", cb);
+export function connectKaval(socketPath: string): Promise<KavalConnection> {
+  return dialDaemonConnection<PtyHostClient, PtyHostIdentity | undefined>(
+    socketPath,
+    {
+      makeClient: (socket) =>
+        stdioLink<typeof ptyHostSurface.contract>({
+          read: socket,
+          write: socket,
+        }) as PtyHostClient,
+      // The handshake's throws (the shared dialer destroys the socket): an
+      // unreadable `system.version` → a plain `Error` (non-skew, the daemon is
+      // there but didn't answer); a genuine contract mismatch → the typed
+      // `DaemonContractSkewError`, the ONE failure `adoptOrEnsure` recycles on
+      // (retrying can't fix incompatible contracts).
+      handshake: async (client) => {
+        let version: Awaited<
+          ReturnType<PtyHostClient["surface"]["system"]["version"]>
+        >;
+        try {
+          version = await client.surface.system.version({});
+        } catch (err) {
+          throw new Error(
+            `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
+          );
+        }
+        if (
+          !isContractVersionCompatible(
+            version.contractVersion,
+            PTY_HOST_CONTRACT_VERSION,
+          )
+        ) {
+          throw new DaemonContractSkewError(
+            `pty-host contract skew: kaval speaks ${version.contractVersion}, server needs ${PTY_HOST_CONTRACT_VERSION}`,
+          );
+        }
+        return { identity: version.identity, startedAt: version.startedAt };
+      },
     },
-  };
+  );
 }

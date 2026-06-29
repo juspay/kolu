@@ -26,14 +26,14 @@
  * own heap-snapshot hooks under a kaval-private subdir.
  */
 
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { getPtyHostSocketPath, kavalNamespace } from "kaval";
 import {
   type DaemonDriver,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { resolveDaemonLaunch } from "./daemonLaunch.ts";
 
 /** The socket kaval serves and the server dials, namespaced **per kolu-server
  *  instance by its listen port** — `$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`.
@@ -80,22 +80,13 @@ export function resolveKavalLaunch(socketPath: string): {
   binPath: string;
   args: string[];
 } {
-  const socketArgs = ["--socket", socketPath];
-
-  const wrapper = process.env.KOLU_KAVAL_BIN;
-  if (wrapper) return { binPath: wrapper, args: socketArgs };
-
-  // Dev/e2e: no nix wrapper — reproduce its launcher from source. The loader is
-  // resolved via the package so the spawn doesn't depend on a hoisted .bin/tsx.
-  const require = createRequire(import.meta.url);
-  const tsxLoader = pathToFileURL(require.resolve("tsx")).href;
-  const binTs = fileURLToPath(
-    new URL("../../../kaval/src/bin.ts", import.meta.url),
-  );
-  return {
-    binPath: process.execPath,
-    args: ["--import", tsxLoader, binTs, ...socketArgs],
-  };
+  return resolveDaemonLaunch({
+    binEnvVar: "KOLU_KAVAL_BIN",
+    sourceBinPath: fileURLToPath(
+      new URL("../../../kaval/src/bin.ts", import.meta.url),
+    ),
+    daemonArgs: ["--socket", socketPath],
+  });
 }
 
 /** Strip dev-only flags from a `NODE_OPTIONS` string so the spawned kaval

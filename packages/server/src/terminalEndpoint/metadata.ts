@@ -183,11 +183,15 @@ export function applyMirroredAwareness(
   if (!prior) return; // no entry — drop (the mirror re-sends on the next change)
 
   // Fold pulam's frame over the entry, honoring the kolu-persisted vs
-  // pulam-derivable boundary. pulam re-derives cwd / pr / agent / foreground from
-  // the live kaval immediately, so those OVERWRITE. The PERSISTED fields are the
-  // subtle ones — the EPHEMERAL pulam re-derives from now and seeds them empty
-  // (lastActivityAt 0, git null, the rest absent), so a verbatim copy of its
-  // FIRST frame after a (re)start would clobber kolu's restored value:
+  // pulam-derivable boundary. The DEFAULT is to CARRY THROUGH every field from
+  // pulam's frame (the `...value` spread) — correct for a re-derivable fact (cwd /
+  // pr / agent / foreground), and the reason a FUTURE awareness field is mirrored
+  // rather than silently dropped (the optional fields would NOT fail the type if
+  // omitted from a hand-list, so the spread is what makes the field-set
+  // unspellable to under-handle). The OVERRIDES below are the bespoke exceptions —
+  // the PERSISTED fields the EPHEMERAL pulam re-derives from now and seeds empty
+  // (lastActivityAt 0, git null, the rest absent), so a verbatim copy of its FIRST
+  // frame after a (re)start would clobber kolu's restored value:
   //   - lastActivityAt: monotonic (max) — an idle terminal keeps T_saved while a
   //     real agent transition advances it;
   //   - lastAgentCommand / agentSession: keep kolu's restored value unless pulam
@@ -195,15 +199,13 @@ export function applyMirroredAwareness(
   //     — so a restored terminal's resume offer survives;
   //   - git: async-resolved, so pulam's first frame carries git:null before
   //     resolution. `foldMirroredGit` preserves the restored git WHILE the cwd is
-  //     still inside it (the resolution window) and clears it once the cwd has
-  //     LEFT the repo (a real departure) — so a restart can't clobber it, yet
-  //     leaving a repo still updates.
+  //     still inside it (the resolution window) and clears it once the cwd has LEFT
+  //     the repo (a real departure).
+  // A future PERSISTED-HISTORY field (the rare kind pulam can't re-derive) must
+  // add its own override here, exactly as these do.
   const folded: AwarenessValue = {
-    cwd: value.cwd,
+    ...value,
     git: foldMirroredGit(prior, value),
-    pr: value.pr,
-    agent: value.agent,
-    foreground: value.foreground,
     lastActivityAt: Math.max(prior.lastActivityAt, value.lastActivityAt),
     lastAgentCommand: value.lastAgentCommand ?? prior.lastAgentCommand,
     agentSession: value.agentSession ?? prior.agentSession,
