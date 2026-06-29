@@ -23,6 +23,17 @@ import homes from "../../diagrams/awareness-homes.svg?raw";
 This supersedes the createPulam / shared-leaf direction of the finale's R9·lib + R9.0, **and** the earlier "S1+S2 / seed-the-engine" draft of this very note. It is the converged outcome of a grounded, adversarial 3-agent design debate held to the perfection bar (the record: `debates/awareness-architecture/conclusion.md`). The forks the debate exposed are **decided** (below), not left open.
 </Callout>
 
+<Callout kind="note" title="Foundations — a fold over a stream, not shared mutable state">
+The shape of this design is a deliberate move off **shared mutable state** onto **an immutable fold over a stream of observations**. The vocabulary that makes it legible (and that a future reader should reason in):
+- **Observations are a log/stream.** The producer's interface is a stream of events ("observed git = X"), not a writable record. It is **memoryless** — *effectful but memoryless* (it runs watchers/timers), **not** a pure function.
+- **The fold is a pure reduce.** `fold(current, observation) → delta` is a reducer; the served state is a left-fold (scan) over the stream, and the gate functions (`shouldBumpRecencyForAgentChange`, `agentSessionToPersist`, …) are pure. The *fold* and the *diff* are duals — `fold : (state, event) → state'`, `diff : (state, state') → event`.
+- **Immutability.** The fold builds new values (`{ ...current, ...patch }`); it never mutates a shared record. That in-place mutation *was* the original complect (the knot below).
+- **A materialized read model (CQRS flavor).** The whole-value `awareness` collection is a derived projection of folding the stream — the stream is the input, the snapshot the output.
+- **One writer; consumer-owned clock.** Memory has a single writer (kolu's fold), and recency is stamped by the **consumer's** clock — a remote producer's wall clock is never imported as ordering truth (distributed-clock discipline).
+
+**Two honest limits, so the anchor doesn't over-reach:** (1) the producer is *memoryless and effectful* — "pure" applies to the **fold and gates**, not the producer; (2) this is **fold-to-state, not classic event sourcing** — we persist the derived *state* (on disk), not the event log. The stream is ephemeral; a reconnect re-folds from a snapshot frame. Borrow the *concepts* (reduce · immutability · materialized view · log), not the machinery (a durable, replayable log).
+</Callout>
+
 ## The knot today — observing is fused with remembering
 
 The sensor engine does **not** return awareness. It takes a host `AwarenessSink` + a per-terminal `AwarenessRecord`, **mutates `record.meta` through the sink**, and **reads `record.meta` back** as its own prior state. `sensors.ts:139-162` calls this the load-bearing *apply-and-publish* contract — a sink that publishes *without* mutating the record "would silently defeat every dedup/transition gate."
