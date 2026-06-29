@@ -79,7 +79,7 @@ const hostFlag = {
   host: {
     type: String,
     description:
-      "reach a kaval on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote PTYs survive the link (create on the host, attach to it later). Mutually exclusive with --socket. Goes AFTER the subcommand.",
+      "reach a kaval on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. kaval runs as the SSH user, so you reach the kaval owned by that user (its socket dir is 0700, owner-only); SSH in as the user that runs kaval. The remote PTYs survive the link (create on the host, attach to it later). Mutually exclusive with --socket. Goes AFTER the subcommand.",
   },
 } as const;
 

@@ -72,7 +72,7 @@ const endpointFlags = {
   host: {
     type: String,
     description:
-      "reach a pulam on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote pulam dials the remote kaval and recomputes awareness from now. Mutually exclusive with --socket.",
+      "reach a pulam on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote pulam runs as the SSH user, so that user must own the kaval it dials (the socket dir is 0700, owner-only); SSH in as the user that runs kaval. The remote pulam dials the remote kaval and recomputes awareness from now. Mutually exclusive with --socket.",
   },
   kaval: {
     type: String,
