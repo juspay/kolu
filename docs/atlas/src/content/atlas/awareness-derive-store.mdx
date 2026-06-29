@@ -34,6 +34,15 @@ import homes from "../../diagrams/awareness-homes.svg?raw";
 This supersedes the createPulam / shared-leaf direction of the finale's R9·lib + R9.0, the "seed-the-engine" draft of this note, **and** the earlier three-category (cache / live / memory) model from the debate. The shape held; the *count* shrank. A long review collapsed it to the simplest thing that still can't clobber: **one observation a host produces, two facts only kolu keeps.** The record of the debate is `debates/awareness-architecture/conclusion.md`; the first-principles hardening pass (`05.*.md`) supplied the frame discriminator, the per-subscription `seq`, the value-change autosave fence, the mutator deletion, and the branded key — all carried below. The forks are **decided** (the "Decided" sections), not left open.
 </Callout>
 
+<Callout kind="warn" title="Round 6 — the one-field collapse was tried and REJECTED (keep two memory fields)">
+A further simplification was proposed and stress-tested by the 3-agent debate (`06.*.md`): collapse `lastAgentCommand` into an *observed* `agentCommand` field too, leaving **one** memory field. All three agents rejected it on grounded code, and the claims were re-verified here:
+- **The launch line is NOT re-observable** — the killer fact. `record.currentAgent` holds only the agent **basename** (`agentNameFromCommand`, `sensors.ts:407-408`); the full invocation (`"claude --model sonnet"`) lives **only** in `lastAgentCommand` (`sensors.ts:410-413`). It's a discrete command mark kaval retains only as the *last* one — overwritten by any later non-agent command (`ls`) — so a still-live agent whose mark has rolled off **cannot** have its command re-observed. That is exactly what makes it **memory**, not observation.
+- **The exact flags are correctness, not polish** — `resumeFormFor` returns `null` (→ bare shell) when `lastAgentCommand` is absent; it does *not* fall back to a flagless `--resume <id>`. The wake test pins the full form `opencode --session <id> --model sonnet` (`sleepWake.test.ts:259`). Losing the tail changes model / permission-mode / config, not just cosmetics.
+- **`replayed` does NOT collapse into the frame phase** — it is a lower-tap fact (`kavalChannels.ts:93`) a restarted tap can replay into a *delta* even while kolu's subscription stays live; the code comment calls the flag "**load-bearing, NOT decorative**" (`inProcessPtyHost.ts:148-163`) precisely because recency stamps `Date.now()`. Keep it.
+
+**Verdict: two memory fields stay.** The collapse was a false economy — it moved the deleted field's job into an unsound snapshot-null rule and a larger, lie-laden disk payload. What the round *did* surface (folded in below): an explicit lawful representation for the async agent null, the `commandRun` agent-filter + dedup the fold had dropped, an authoritative-freeze caveat on the `agentSession` collapse, and the persistence-tier table.
+</Callout>
+
 <Callout kind="note" title="Foundations — a fold over a stream, not shared mutable state">
 The shape is a deliberate move off **shared mutable state** onto **an immutable fold over a stream of observations**. The vocabulary a future reader should reason in:
 - **Observations are a log/stream.** The producer's interface is a stream of events ("observed git = X"), not a writable record. It is **memoryless** — *effectful but memoryless* (it runs watchers/timers), **not** a pure function.
@@ -104,6 +113,8 @@ wake = frozen.observed.agent
 ```
 
 This is what collapses `agentSession`: the session id rides the frozen `agent`; `quit ⇒ agent: null ⇒ no restore` is the rule, not a special case. `lastAgentCommand` is read **only** when `frozen.agent` is non-null — to rebuild the exact invocation (flags + `--resume <id>`).
+
+**Caveat (round-6 — the freeze must be authoritative).** The collapse is only sound if the agent frozen at sleep is the *true live-at-sleep* value, not a lagging observation. Agent detection settles over ~1 s (`sensors.ts:486`), and `beginSleep` tears the sensors down *first* (`local.ts:854`) — so a sleep during the settle window could freeze a still-`unknown` agent and produce a **false bare shell** (or, symmetrically, an unobserved quit during a producer outage could strand a dead agent into a restore). The `Observed<>` rule above is what makes this lawful: sleep freezes the agent only from an `{ value }` (authoritative — resolved, or shell-idle null), never from `unknown`; if resolution is still pending, the freeze drains one final settle. This is the single guarantee the `agentSession` collapse rides on — without it, keep `agentSession` as an explicit kolu-only `resumeRef = { kind, sessionId }`.
 </Callout>
 
 <Callout kind="note" title="Decided — persisting the live agent is safe (the active/sleeping discriminant)">
@@ -115,12 +126,21 @@ Storing the last-seen `agent` (with its `state: "awaiting_user"`, token counts) 
 It owns transient *derivation* working state (the agent watcher, `latestInfo`, the last-emitted live mirror, `currentAgent`, the git→PR wire, the screen-scrape poll, the adapter registry — all re-seeded empty each start) and emits **per-field observations**. It takes **no seed** and touches no host store. The standing five build the `Observation`; `commandRun` is a discrete mark that feeds kolu's `lastAgentCommand` memory and the recent-agent MRU.
 
 ```ts
+// The agent is the one field that resolves ASYNCHRONOUSLY — the session file lands a beat after
+// the mark, over a settle window (`COMMAND_RUN_RECONCILE_DELAYS_MS = [0,75,300,1000]`, `sensors.ts:486`;
+// `SCREEN_SCRAPE_POLL_MS = 1000`, `:492`). So a bare `agent: null` is ambiguous — "no agent" or "not
+// resolved yet?" Make the null LAWFUL (round-6 fix): a producer mid-resolution emits `unknown` (kolu
+// KEEPS its last value); `{ value }` is authoritative (kolu APPLIES it, even when null). The authority
+// for `{ value: null }` is shell-idle — the foreground IS the shell (`sensors.ts:432,448`), i.e. the
+// session ended (`sensors.ts:640-644`); a value can't be both "agent live" and "shell idle."
+type Observed<T> = "unknown" | { value: T };
+
 type AwarenessObservation =
   | { kind: "cwd";        cwd: string }
   | { kind: "git";        git: GitInfo | null }                  // also drives the recentRepo MRU (kolu side)
   | { kind: "pr";         pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
-  | { kind: "agent";      agent: AgentInfo | null }              // already publish-if-changed at source
+  | { kind: "agent";      agent: Observed<AgentInfo | null> }    // async-resolved → lawful unknown/observed, never a bare null
   | { kind: "commandRun"; command: string; replayed: boolean };  // feeds lastAgentCommand + recentAgent MRU
 
 function startAwarenessEngine(
@@ -159,18 +179,22 @@ function fold(cur: KoluAwareness, o: AwarenessObservation, ctx: FoldCtx): KoluAw
     case "foreground": return obs({ foreground: o.foreground });
 
     case "agent": {
-      const next = obs({ agent: o.agent });                // last-write-wins, ALWAYS
+      if (o.agent === "unknown") return cur;               // not re-resolved yet → KEEP kolu's last value (no clobber)
+      const agent = o.agent.value;                          // authoritative (incl. a shell-idle null = session ended)
+      const next = obs({ agent });                          // last-write-wins
       // RECENCY (decided: identity-only): bump iff a LIVE agent-IDENTITY change — start / finish /
-      // new session. The frame phase (ctx.live), not a producer flag, says "live"; kolu's clock stamps it.
-      const idChanged = cur.observed.agent?.kind      !== o.agent?.kind
-                     || cur.observed.agent?.sessionId !== o.agent?.sessionId;
+      // new session. ctx.live (the frame phase), not a producer flag, says "live"; kolu's clock stamps it.
+      const idChanged = cur.observed.agent?.kind      !== agent?.kind
+                     || cur.observed.agent?.sessionId !== agent?.sessionId;
       return ctx.live && idChanged
         ? { ...next, memory: { ...next.memory, lastActivityAt: ctx.at } }
         : next;
     }
 
-    case "commandRun":                                     // remember the launch line (used at wake, with flags)
-      return { ...cur, memory: { ...cur.memory, lastAgentCommand: o.command } };
+    case "commandRun":                                     // the producer emits this ONLY for a recognized agent
+      return cur.memory.lastAgentCommand === o.command     //   command, already NORMALIZED (`sensors.ts:404-409`) — a
+        ? cur                                              //   non-agent `ls` yields no event, so it can't clobber.
+        : { ...cur, memory: { ...cur.memory, lastAgentCommand: o.command } };  // dedup (`sensors.ts:410`): a replay is a no-op
   }
 }
 ```
@@ -211,6 +235,18 @@ The producer **cannot construct memory** (`Observation` has no `lastActivityAt`/
 
 <Svg svg={foldflow} caption="S2 (R9.0), local. The memoryless producer emits per-field observations (no seed, no memory). kolu's fold seeds current from its durable record and folds each framed observation: the five observed fields are last-write-wins; lastActivityAt is stamped on a LIVE (delta-frame) agent-identity change with kolu's clock; lastAgentCommand is remembered from the commandRun mark. It publishes the observed half to the awareness collection (Observation — the two memory fields are absent by type) and the memory half to kolu.authored. Autosave arms only when the RESTORE-RELEVANT projection (cwd, git, pr, agent identity, the two memory fields) changes — agent detail and foreground churn never reach disk, so the firehose can't. One way: observe → fold → store. No record handed back, no sink, no seed, no clobber." />
 
+## Persistence tiers — what lives where
+
+The types say *who may write* a field; they don't yet say *where it survives*. Three tiers, and the disk/RAM line is — honestly — the old cache/live split wearing a new coat (round-6 confirmed it doesn't vanish; it moves from a field-typed split to the `restoreRelevant` projection):
+
+| tier | what | why |
+| --- | --- | --- |
+| **server disk** (survives kolu restart) | the `restoreRelevant` projection: `cwd` · `git` · `pr` · agent **identity** `{ kind, sessionId }` · `lastActivityAt` · `lastAgentCommand` | the minimum to re-seed and to honor model-B restore. Agent identity only — **not** the full `AgentInfo` (no lie-when-dead `state`/`tokens` on disk; the round-5 invariant survives the merge). Autosave arms on a *change* to this projection, so the ~150 ms firehose never reaches disk. |
+| **server RAM** (re-derived on (re)spawn) | the rest of `observed`: full `AgentInfo` detail (`state`, `summary`, `tokens`, `taskProgress`) · `foreground` | lie-when-dead and high-churn. A respawned PTY re-derives it in ~1 s; losing it on crash costs nothing, so it never earns a disk write. |
+| **browser localStorage** (per-device, never server) | client view-state — `attention`/unread (`useViewState.ts`), zoom/layout, per-device prefs (`persistedPref.ts`) | a *viewing* posture, not a fact about the terminal. It must not round-trip through the server (it's device-local), and the server must never treat it as awareness. |
+
+So the simplification deletes the **names** `cache`/`live` but not the underlying categories — it relocates them: cache→`restoreRelevant`, live→RAM-only. The honest claim is "persistence is the `restoreRelevant` projection," not "everything in `Observation` persists."
+
 ## The wire — observations, not whole values
 
 The collection serving a whole `AwarenessValue` (`surface.ts:119-124`) is **retired** as the awareness primitive. Producers serve an **ordered, framed `awarenessEvents` stream** (host-scoped, snapshot-then-deltas, subscribe-before-serialize — the attach contract, `router.ts:162-169`, and the `streaming.md` rule) of `Observation` events. The wire carries the fold's *input*, not its lossy *output*. There is **no `observedAt`** on the wire (a clock-skew temptation) — kolu samples its own clock at intake.
@@ -225,7 +261,7 @@ type AwarenessFrame =
 ```
 
 Two facts the frame owns that a per-event flag must not:
-- **snapshot vs delta** is **kolu's** subscription-phase fact, not a producer boolean. Putting it on the frame lets kolu derive `ctx.live` from the frame it received — its own knowledge — and **deletes `fromSnapshot`**. (It also distinguishes the two meanings of `agent: null`: a **delta** null is "the user quit" → apply it; a **snapshot** null is "the producer hasn't re-observed yet" → for a *remote* reconnect kolu keeps its last-known agent until the producer's snapshot completes, so a transient re-derivation null can't lose a still-live conversation.)
+- **snapshot vs delta** is **kolu's** subscription-phase fact, not a producer boolean. Putting it on the frame lets kolu derive `ctx.live` from the frame it received — its own knowledge — and **deletes `fromSnapshot`**. The frame decides **liveness only** (does this bump recency). It does **not** decide what a null *means* — round 6 showed that's a separate question (a snapshot null could be "no agent" *or* "not resolved yet"), and overloading the frame phase to answer it is the unsound rule the collapse died on. The meaning of an agent null rides the **`Observed<>` field** (`unknown` = keep, `{ value: null }` = authoritative absent), never the frame. (`replayed` likewise stays on the `commandRun` event — a restarted tap can replay a mark into a *delta*, so the frame phase can't stand in for it; `inProcessPtyHost.ts:148-163`.)
 - **a per-subscription monotonic `seq`** (precedent: `RepoChangePulse.seq`, `surface.ts:58-67`): kolu asserts contiguity; a hole forces a `gap` frame → re-snapshot, instead of a silently divergent fold. A counter is **not** a wall clock, so it imports nothing.
 
 kolu consumes the framed stream through one `subscribeAwareness(key, …)` seam regardless of transport: **locally** it wraps the in-process `startAwarenessEngine` (the initial emit burst is the `snapshot` frame, later emits are `delta`s); **remotely** it is the ssh stream verbatim. So the framing — not the engine — is where snapshot/live and `seq` live; the engine stays a pure memoryless emitter.
