@@ -120,6 +120,9 @@ export function createPulam(deps: PulamDeps): Pulam {
           isEqual: sameActivitySet,
           install: (onEvent) => activity.onChange(onEvent),
           signal,
+          // `activity.snapshot()` is a pure in-memory sort over the live Set —
+          // it touches no I/O, so it cannot fail: `onReadError` is unreachable,
+          // intentionally empty (not a swallowed error). Mirrors `quietActivity`.
           onReadError: () => {},
         }),
     },
@@ -174,7 +177,11 @@ export function createPulam(deps: PulamDeps): Pulam {
           sink.updateServerMetadata(record, (m) => {
             m.cwd = cwd;
           }),
-        onError: () => {},
+        // The cwd tap can drop (kaval link blip); surface it rather than freeze
+        // the persisted cwd silently — the git sensor still re-resolves off the
+        // fanned channel, but the displayed path may go stale until a re-tap.
+        onError: (err) =>
+          log.error({ err, terminal: id }, "pulam: cwd-persist tap error"),
       });
       const stopAwareness = startAwareness(record, id, signals, sink, log);
 
