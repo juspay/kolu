@@ -137,30 +137,26 @@ export const useTerminalCrud = createSharedRoot(() => {
     // after the await, the effect has already run with no size to inherit.
     const activeLayout = store.activeMeta()?.canvasLayout;
     if (activeLayout) setInheritSize({ w: activeLayout.w, h: activeLayout.h });
-    try {
-      const info = await client.terminal
-        .create({
-          cwd,
-          themeName: theme,
-          canvasLayout: initial?.canvasLayout,
-          subPanel: initial?.subPanel,
-          rightPanel: initial?.rightPanel,
-          lastActivityAt: initial?.lastActivityAt,
-          intent: initial?.intent,
-        })
-        .catch((err: Error) => {
-          toast.error(`Failed to create terminal: ${err.message}`);
-          throw err;
-        });
-      // `setActiveSilently`: the canvas's cascade-placement effect bumps
-      // the centering signal once the new tile's pending layout is set —
-      // calling `activate` here would race the layout and read undefined.
-      store.setActiveSilently(info.id);
-      showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
-      return info.id;
-    } finally {
-      setInheritSize(null);
-    }
+    const info = await client.terminal
+      .create({
+        cwd,
+        themeName: theme,
+        canvasLayout: initial?.canvasLayout,
+        subPanel: initial?.subPanel,
+        rightPanel: initial?.rightPanel,
+        lastActivityAt: initial?.lastActivityAt,
+        intent: initial?.intent,
+      })
+      .catch((err: Error) => {
+        toast.error(`Failed to create terminal: ${err.message}`);
+        throw err;
+      });
+    // `setActiveSilently`: the canvas's cascade-placement effect bumps
+    // the centering signal once the new tile's pending layout is set —
+    // calling `activate` here would race the layout and read undefined.
+    store.setActiveSilently(info.id);
+    showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
+    return info.id;
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
