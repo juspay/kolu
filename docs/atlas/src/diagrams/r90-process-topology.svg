@@ -56,7 +56,7 @@
   <!-- pulam daemon -->
   <rect x="560" y="110" width="260" height="150" rx="11" fill="#fdf3e3" stroke="#d98a1f" stroke-width="1.8"/>
   <text x="690" y="132" text-anchor="middle" font-size="13.5" font-weight="700" fill="#8a5a12">pulam daemon</text>
-  <text x="690" y="150" text-anchor="middle" font-size="9.5" font-style="italic" fill="#b07d2a">serveOverSocket(createPulam(…))</text>
+  <text x="690" y="150" text-anchor="middle" font-size="9.5" font-style="italic" fill="#b07d2a">serves createPulam(kaval) over a socket</text>
 
   <!-- pulam-library, wrapped by the daemon -->
   <rect x="578" y="166" width="224" height="80" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.5"/>

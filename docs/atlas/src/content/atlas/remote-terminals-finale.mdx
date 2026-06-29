@@ -87,13 +87,13 @@ kolu re-implements a **divergent** subset of that same assembly:
 | piece | the library / daemon | kolu-server | the duplication |
 | --- | --- | --- | --- |
 | the sink | `pulam/src/hooks.ts:39` (publishes the whole value into the served collection) | `local.ts:278` (writes the registry projection · `trackRecentRepo`/`trackRecentAgent` · screen-scrape off the local handle) | two impls of one `AwarenessSink` interface |
-| the kaval-tap bridge | `bridgeKavalTaps` (`kavalChannels.ts:58`) | the four channels built **inline** (`local.ts:688-744`) | kolu reaches kaval over the same socket-backed `ptyHostClient` (`local.ts:11`), so its inline copy of `bridgeKavalTaps` is removable — the library's docstring (`kavalChannels.ts:5`) calls kolu's feed "in-process," which is now stale |
+| the kaval-tap bridge | `bridgeKavalTaps` (`kavalChannels.ts:58`) | the four channels built **inline** (`local.ts:688-744`) | kolu reaches kaval over the same socket-backed `ptyHostClient` facade (`local.ts:4`), so its inline copy collapses onto `bridgeKavalTaps` — re-adding its own `signals.cwd` consumer for the persisted-cwd write (`local.ts:716`), exactly as the daemon does (`daemon.ts:237`); the library's docstring (`kavalChannels.ts:6`) still calls kolu's feed "in-process," now stale |
 | live activity | `createActivityTracker` (`pulam/src/activity.ts:43`), served live | `quietActivity` (`surface.ts:458`); the green dot comes from client-side `useTerminalActivity` | one byte-tap in the daemon, a second on the client; kolu's server-side activity is quiet |
 
 **The fix — one assembly, two trivial homes.** Lift the assembly into the library behind one entry point — a working name, createPulam(kavalClient) — that owns the per-terminal sensor lifecycle (seed → sink → tap-bridge → sensors → activity tap → reconcile) and returns the `serveTerminalWorkspace` deps, with the **sink's write target injected by the home** (the same shape `serveTerminalWorkspace` already uses to inject the awareness backing). Move `makeAwarenessSink` and `createActivityTracker` **into the library**. Then:
 
-- the **pulam daemon** collapses to a trivial shell — `serveOverSocket(createPulam(dialKaval()))`;
-- **kolu** calls `createPulam(itsOwnKavalClient)` in-process, injecting "write into the registry record" as the sink target — so its persisted/live fence and the reader-join are unchanged (R9.0).
+- the **pulam daemon** collapses to a trivial shell — it dials a kaval, builds createPulam(kaval), and serves the result over a unix socket (or stdio, for ssh);
+- **kolu** calls createPulam against its own kaval client, in-process, injecting "write into the registry record" as the sink target — so its persisted/live fence and the reader-join are unchanged (R9.0).
 
 One assembler, in the library; the daemon and kolu are both thin. That is the 1:1 — **library ↔ daemon** — and it is what makes R9.0 (in-process) and R9.3 (mirror the daemon) two faces of the *same* surface.
 
@@ -113,7 +113,7 @@ One assembler, in the library; the daemon and kolu are both thin. That is the 1:
 
 <Phase id="R9.0" name="kolu consumes the pulam-library in-process" status="todo" needs={["R9·lib"]} />
 
-**The point.** Once R9·lib gives the library one assembly entry point, kolu's local awareness is just `createPulam(itsOwnKavalClient)` called **in-process** — no daemon, no socket, no mirror, **no fold**. kolu deletes its hand-rolled sink (`local.ts:278`) and its inline tap-bridge (`local.ts:688-744`) and consumes the library's assembly instead, injecting "write into the registry record" as the sink target. The reader-join stays exactly as R8 shipped it: the browser still subscribes to `terminalWorkspace.awareness ⋈ kolu.authored` and joins via `composeTerminalMetadata`. The arrow points **into the library**, in-process — which is not re-coupling, because the library knows nothing of kolu (its dependency arrow points the other way).
+**The point.** Once R9·lib gives the library one assembly entry point, kolu's local awareness is just createPulam against its own kaval client, called **in-process** — no daemon, no socket, no mirror, **no fold**. kolu deletes its hand-rolled sink (`local.ts:278`) and its inline tap-bridge (`local.ts:688-744`) and consumes the library's assembly instead, injecting "write into the registry record" as the sink target. The reader-join stays exactly as R8 shipped it: the browser still subscribes to `terminalWorkspace.awareness ⋈ kolu.authored` and joins via `composeTerminalMetadata`. The arrow points **into the library**, in-process — which is not re-coupling, because the library knows nothing of kolu (its dependency arrow points the other way).
 
 This is the in-process face of the **same** surface R9.3 mirrors remotely. It does not start a second process, and it does not change what the browser reads — only how kolu's awareness collection is *backed* (now one library assembly rather than a bespoke in-line wiring).
 
@@ -146,7 +146,7 @@ Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **k
 
 <Phase id="R9.3" name="remote awareness — mirror the remote pulam daemon's surface" status="todo" needs={["R9.0", "R9.2", "R7"]} />
 
-A remote host runs the **pulam daemon** — which, after R9·lib, is the same library assembly wrapped as `serveOverSocket(createPulam(...))`. So kolu's remote awareness backing is just **a mirror of that daemon's served surface**, dialed over a long-lived `getHostSession` and mirrored via R7's total dual. It is the wire-side face of the **same** surface kolu consumes in-process locally (R9.0): the contract (terminalWorkspaceSurface), the reader-join, the authored half, and disk persistence are identical — **only the source differs** (an in-process call vs a mirror over ssh). The remote tile gains the git/agent/PR badge + green dot; `activity` rides the mirror.
+A remote host runs the **pulam daemon** — which, after R9·lib, is the same library assembly (createPulam) served over a socket. So kolu's remote awareness backing is just **a mirror of that daemon's served surface**, dialed over a long-lived `getHostSession` and mirrored via R7's total dual. It is the wire-side face of the **same** surface kolu consumes in-process locally (R9.0): the contract (terminalWorkspaceSurface), the reader-join, the authored half, and disk persistence are identical — **only the source differs** (an in-process call vs a mirror over ssh). The remote tile gains the git/agent/PR badge + green dot; `activity` rides the mirror.
 
 This is also where the genuinely **remote-only** reconciliation lives: a restored remote tile's persisted awareness (git, lastActivityAt) must survive a fresh daemon re-deriving it across the wire. That fold belongs here, on the remote backing, **not** in the local in-process path (where there is no socket and no reseed).
 
@@ -197,7 +197,7 @@ The UI: an active-kaval strip (local always present), a per-tile host hint, an s
 
 ## The shape after R9.0
 
-<Svg svg={topology} caption="The corrected shape. ONE library (the pulam-library, today @kolu/terminal-workspace) owns the awareness assembly behind createPulam(kaval). LOCAL: kolu-server calls createPulam against its own kaval IN-PROCESS — no local pulam process, no awareness socket; the library reads kaval's taps over the unix socket kolu already dials for PTY I/O, runs the sensors, and writes the values straight into kolu's registry. The browser reads kolu-server over a websocket and joins authored ⋈ awareness at the reader (unchanged from R8). REMOTE (R9.3): the remote host runs the SAME library wrapped as the pulam daemon — serveOverSocket(createPulam(...)) — and kolu mirrors its served surface over ssh stdio. local is an in-process call; remote is a mirror of a daemon; the assembly is identical. The 1:1 is library ↔ daemon." />
+<Svg svg={topology} caption="The corrected shape. ONE library (the pulam-library, today @kolu/terminal-workspace) owns the awareness assembly behind createPulam(kaval). LOCAL: kolu-server calls createPulam against its own kaval IN-PROCESS — no local pulam process, no awareness socket; the library reads kaval's taps over the unix socket kolu already dials for PTY I/O, runs the sensors, and writes the values straight into kolu's registry. The browser reads kolu-server over a websocket and joins authored ⋈ awareness at the reader (unchanged from R8). REMOTE (R9.3): the remote host runs the SAME library as the pulam daemon — createPulam(kaval) served over a socket — and kolu mirrors its served surface over ssh stdio. local is an in-process call; remote is a mirror of a daemon; the assembly is identical. The 1:1 is library ↔ daemon." />
 
 ## Open decisions
 
