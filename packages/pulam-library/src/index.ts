@@ -10,8 +10,9 @@
  *    (`createActivityTracker`), the kaval-tap bridge (`bridgeKavalTaps`) + the
  *    generic `AwarenessValue` schema they produce.
  *  - `./createPulam` — the ONE assembly that turns a dialed kaval into a live,
- *    served `terminalWorkspace` surface, wiring those primitives together. The
- *    `pulam` daemon and (R9.0) kolu-server both rest on it.
+ *    served `terminalWorkspace` surface, wiring those primitives together. Today
+ *    the `pulam` daemon rests on it (its one consumer); kolu-server converges on
+ *    it in R9.0.
  *  - `./serveTerminalWorkspace` — `serveTerminalWorkspace`, the surface-skeleton
  *    factory `createPulam` returns (awareness + activity backing injection).
  *  - `./schema` — the browser-safe `AwarenessValue` zod schema alone.

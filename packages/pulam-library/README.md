@@ -36,9 +36,12 @@ per-terminal lifecycle — seed → `makeAwarenessSink` (the publish sink) →
 raw-output `createActivityTracker` tap → reconcile — and returns the
 `serveTerminalWorkspace` deps, with the home injecting the awareness **write
 target** (an owned store for the `pulam` daemon, a registry projection for kolu).
-The daemon is a thin shell over it (dial → `createPulam` → serve); kolu-server
-adopts it in R9.0. So neither home hand-rolls a second assembler — the sink and
-the byte-tap live here, not stranded in a daemon package.
+The daemon is a thin shell over it (dial → `createPulam` → serve) and rests on it
+today as its one consumer; kolu-server still hand-rolls its own assembler
+in-process until its **R9.0** cutover onto `createPulam` — which cuts the
+cross-home seam (the sink fold + the record source) once `createPulam` grows a
+sink seam for kolu's richer sink. The sink and the byte-tap live here, behind that
+one assembly, not stranded in a daemon package.
 
 **fs/git.** `createTerminalWorkspaceEndpoint(log)` returns the thin wrapper over
 [`kolu-git`](../integrations/git) the Code tab reads — `listAll` · `readFile` ·
@@ -102,7 +105,7 @@ consumer:
 | Entry | Runtime | What |
 | --- | --- | --- |
 | `.` | Node | the assembly primitives — `startAwareness` (sensors), `makeAwarenessSink` (sink), `createActivityTracker` (live-output tracker), `bridgeKavalTaps` (tap feed) — + `AwarenessValue` |
-| `./createPulam` | Node | `createPulam` — the one assembly (kaval → served `terminalWorkspace` surface); the `pulam` daemon and (R9.0) kolu both rest on it |
+| `./createPulam` | Node | `createPulam` — the one assembly (kaval → served `terminalWorkspace` surface); the `pulam` daemon rests on it today (its one consumer), kolu converges on it in R9.0 |
 | `./serveTerminalWorkspace` | Node | `serveTerminalWorkspace` — the surface-skeleton factory `createPulam` returns (awareness/activity backing injection) |
 | `./schema` | browser-safe | the `AwarenessValue` zod schema alone |
 | `./surface` | browser-safe | `terminalWorkspaceSurface` — served by `pulam` (remote) and, since R8, by `kolu-server` in-process; kolu mirrors a remote host's in R9 |

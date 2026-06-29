@@ -7,11 +7,17 @@
  * sink → tap-bridge → sensors → cwd-persist → activity tap → reconcile — and owns
  * the live `activity` tracker.
  *
- * Two homes rest on it with no assembly of their own:
- *   - the `pulam` **daemon** (`packages/pulam`) — dial a kaval, `createPulam`,
- *     serve the result over a unix socket (or stdio, for ssh);
- *   - kolu-server **in-process** (R9.0) — `createPulam` against its own kaval
- *     client, injecting its registry as the awareness write target.
+ * Today it encapsulates the **daemon's** assembly — ONE consumer:
+ *   - the `pulam` **daemon** (`packages/pulam`) rests on it — dial a kaval,
+ *     `createPulam`, serve the result over a unix socket (or stdio, for ssh).
+ *
+ * kolu-server still hand-rolls its own assembler in-process (its richer
+ * persisted/live sink fold + `trackRecent`); it converges on `createPulam` in
+ * **R9.0**, dialing its own kaval client and injecting its registry as the
+ * awareness write target. That cutover is what cuts the cross-home seam — the
+ * sink fold + the record source — once `createPulam` grows a sink-injection seam
+ * to carry kolu's richer sink. Until then `createPulam` is the daemon's private
+ * assembly, not yet a two-home receptacle.
  *
  * The home injects the awareness **write target** (`awareness`, the same
  * `AwarenessCollectionDeps` shape `serveTerminalWorkspace` already takes — an
