@@ -1,6 +1,6 @@
 ---
 title: Remote terminals — the finale (R9–R10)
-description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering: a memoryless producer per host emits HostObservation events; kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead: the local-pulam-PROCESS (#1614, closed) and createPulam / "share the assembly" (superseded). So R9·lib dissolves. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote subscribe-and-fold · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
+description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits HostObservation events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote subscribe-and-fold · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
