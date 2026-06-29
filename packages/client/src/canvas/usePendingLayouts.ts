@@ -158,6 +158,8 @@ export function usePendingLayouts(): {
       setNextDefaultSize(null);
     },
     setNextDefaultSize(size) {
+      // Not recursion: object method shorthand has no self-binding, so this
+      // resolves to the module-level Solid signal setter captured above.
       setNextDefaultSize(size);
     },
     takeNextDefaultSize() {
