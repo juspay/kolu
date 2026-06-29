@@ -148,6 +148,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         intent: initial?.intent,
       })
       .catch((err: Error) => {
+        // Create failed → no server push, so the canvas effect won't consume
+        // the pending size. Clear it here (not in a `finally`, which would
+        // race the deferred effect on the success path) so a stale size can't
+        // leak into a later create that has no active tile to overwrite it.
+        setInheritSize(null);
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });

@@ -173,12 +173,18 @@ const TerminalCanvas: Component<{
     on(
       () => props.tileIds,
       (ids) => {
-        const { width, height } = viewport.viewportSize();
-        const zoom = viewport.zoom();
-        const cx = viewport.panX() + width / (2 * zoom);
-        const cy = viewport.panY() + height / (2 * zoom);
+        const center = viewport.viewportCenter();
+        // Container not mounted yet — defer placement; the effect re-runs when
+        // the tile list next changes (post-mount, with real dimensions).
+        // Reading the center via `viewportCenter()` (not an inlined pan+size
+        // calc) keeps the unmounted-guard: a 0×0 viewport would otherwise
+        // collapse the center to the raw pan origin and place tiles top-left.
+        if (!center) return;
+        const { x: cx, y: cy } = center;
 
-        // Check if there are any new tiles that need layouts
+        // Consume the inherited size only when there are new tiles that need
+        // layouts — a re-run with no new tiles (session restore, chunked
+        // metadata) must not swallow the size pending for a later create.
         const newIds = ids.filter((id) => !layoutOf(id));
         const inheritSize = newIds.length > 0 ? consumeInheritSize() : null;
 
@@ -212,7 +218,7 @@ const TerminalCanvas: Component<{
         // job here is bumping the centering signal once the new tile's
         // pending layout exists. Same mechanism the `focus.request`
         // effect below uses for every other system-driven activation.
-        const activeId = store.activeId();
+        const activeId = tileStore.activeId();
         if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
           tileStore.activate(activeId);
         }
