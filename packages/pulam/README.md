@@ -2,10 +2,10 @@
 
 **pulam** (Tamil புலம், _pulam_ — "field · domain", from the same root as _pulan_, "a sense"; a sibling to
 [`kaval`](../kaval), _watch/guard_, and `odu`, _run_) is the standalone
-**terminal-workspace daemon**. It dials a running `kaval`, runs the awareness
+**pulam-library daemon**. It dials a running `kaval`, runs the awareness
 sensors — git branch · PR + checks · AI-agent state · foreground process — for
 every PTY kaval owns, and serves the
-[`@kolu/terminal-workspace/surface`](../terminal-workspace) surface: the
+[`@kolu/pulam-library/surface`](../pulam-library) surface: the
 `awareness` collection + `version` cell + live `activity` stream, plus (added in
 R6) the Code tab's `fs.*` / `git.*` read procedures and their
 `subscribeRepoChange` / `subscribeFileChange` change-pulse watcher streams.
@@ -39,17 +39,19 @@ adoption. Every (re)start just re-runs the sensors and recomputes from now. It
 borrows kaval's inventory (a polled `terminal.list`) and starts/stops a sensor
 set per terminal as they come and go.
 
-## One sensor library, two homes
+## One assembly, two homes
 
-The sensor set lives in [`@kolu/terminal-workspace`](../terminal-workspace) and
-is **shared, not forked**: kolu-server runs it _in-process_ for local terminals
-(writing the **awareness store** directly); pulam runs the _same_ code as a
-separate process and publishes each terminal's `AwarenessValue` into the served
-collection. The only per-consumer code is the thin `AwarenessSink` — mutate the
-record, then publish — plus the `bridgeKavalTaps` adapter that feeds the sensors
-from a dialed kaval's taps. So there is one copy of the freshness-critical
-sensor computation, and proving it runs correctly as a separate, kaval-dialing
-process is exactly what this daemon retires.
+The whole awareness assembly — the sensor set, the per-terminal sink
+(`makeAwarenessSink`), the `bridgeKavalTaps` feed, the live-output tracker, and
+the reconcile loop — lives in [`@kolu/pulam-library`](../pulam-library) behind one
+entry point, `createPulam`, and is **shared, not forked**. Since R9·lib pulam is a
+thin shell over it: dial kaval → `createPulam(kaval)` → serve, injecting only a
+cache-backed `awareness` store as the sink's write target. kolu-server still
+hand-wires its own sink + inline bridge in-process against the same library
+primitives (writing the **awareness store** directly); its cutover onto
+`createPulam` is the next phase (R9.0). So there is one copy of the
+freshness-critical assembly, and proving it runs correctly as a separate,
+kaval-dialing process is exactly what this daemon retires.
 
 ## Running it
 

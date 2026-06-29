@@ -24,7 +24,7 @@ browser  ─WS oRPC─▶  pulam-web parent  ─stdio oRPC over ssh─▶  remot
 ## What it deliberately does NOT know
 
 - **How a host becomes a session, reconnects, or respawns.** That hard volatility (ssh subprocess lifecycle, Nix provisioning, backoff, the keyed host registry, the reconnect-mirror pump) is `@kolu/surface-nix-host`'s — pulam-web only supplies the surface-specific `makeSink` / `buildEntry` and reads the result. The dependency arrow points *out*.
-- **What the awareness surface contains.** The `terminalWorkspaceSurface` contract, its schemas, and `DEFAULT_VERSION` live in `@kolu/terminal-workspace` and are shared verbatim with `pulam`, `pulam-tui`, and the daemon. pulam-web re-serves it; it does not define it.
+- **What the awareness surface contains.** The `terminalWorkspaceSurface` contract, its schemas, and `DEFAULT_VERSION` live in `@kolu/pulam-library` and are shared verbatim with `pulam`, `pulam-tui`, and the daemon. pulam-web re-serves it; it does not define it.
 - **The freshness / PWA / origin-gate mechanics.** Static-bundle freshness (`installFreshStatic`), the dynamic manifest (`installPwaManifest`), the fetch-less notification worker (`registerServiceWorker`), the ws origin gate, the stale-tab gate, and the heartbeat are `@kolu/surface-app` / `@kolu/surface`; pulam-web *wires* them into an installable PWA (manifest + icons + worker, the kolu twin) — it does not reimplement them. It deliberately does NOT add the `surfaceApp()` Vite commit-stamp plugin: that feeds kolu's client-staleness update prompt, which pulam-web doesn't render.
 - **Git status and the drill-in** — the `git.*` procedures are forwarded but the dashboard doesn't consume them yet. The awareness `git` info carries only `repoName`/`branch` (no file counts), so the per-agent dirty/clean count and the changed-file drill-in — both needing `git.getStatus` — are R-pulamweb-4.
 
@@ -34,7 +34,7 @@ pulam-web sits downstream of these workspace packages and breaks if any of their
 
 | Package | What pulam-web depends on |
 | --- | --- |
-| `@kolu/terminal-workspace` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
+| `@kolu/pulam-library` | the `terminalWorkspaceSurface` contract + schemas re-served to the browser |
 | `@kolu/surface-nix-host` | `getHostSession`, `pumpRemoteSurface`, `buildHostRegistry`, `LiveSpawnHolder`, `ResolveDrvError` |
 | `@kolu/surface` / `@kolu/surface-app` | the mirror (`mirrorRemoteSurface`), the Solid client (`surfaceClient`), the server shell (static serving, gates, heartbeat) |
 | `@kolu/solid-statepip` | the shared `StatePip` component + `pipVariantFor`/`pipForPaintClass` the rows render, so a given agent state draws the identical pip as kolu's Dock |

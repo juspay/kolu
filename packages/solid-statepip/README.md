@@ -47,7 +47,7 @@ half of that contract.
 - **Agent-state semantics.** It never maps an `AgentInfo['state']` to a variant
   — each surface owns its own state→variant fold and hands in the result. The
   leaf is presentation-neutral (which is why it's *not* folded into
-  `@kolu/terminal-workspace`).
+  `@kolu/pulam-library`).
 - **The colour values.** Colours are the `@kolu/theme` tokens
   (`bg-alert` · `border-accent` · `text-moonlit`), resolved by whichever surface
   `@import`s the theme. The leaf carries the Tailwind class names, not hexes.

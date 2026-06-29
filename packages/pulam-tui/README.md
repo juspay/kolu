@@ -1,7 +1,7 @@
 # pulam-tui
 
 **pulam-tui** is the terminal-side client for [`pulam`](../pulam), the standalone
-terminal-workspace daemon. It dials pulam's unix socket and reads the
+pulam-library daemon. It dials pulam's unix socket and reads the
 `awareness` collection: what each terminal _is in_ — repo branch, the open PR and
 its checks, which AI agent and whether it's working / awaiting you / waiting, and
 the foreground process.

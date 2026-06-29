@@ -1,6 +1,6 @@
 ---
 description: The Dock ⇄ fleet-mirror contract — kolu's Dock and pulam-web render ONE agent-state UX from ONE shared projection; keep both in sync
-applyTo: "{packages/terminal-workspace/src/agentProjection.ts,packages/client/src/canvas/**,packages/pulam-web/**}"
+applyTo: "{packages/pulam-library/src/agentProjection.ts,packages/client/src/canvas/**,packages/pulam-web/**}"
 ---
 
 ## The Dock ⇄ fleet-mirror contract
@@ -9,7 +9,7 @@ kolu surfaces agent state in **two** places that are meant to read **identically
 
 (**`pulam-tui` is no longer a paint mirror.** It was reverted to a thin `status`/`watch`/`wait` CLI that renders an *uncoloured* awareness snapshot — no needs-you sort, no paint classes, no alert — so it carries none of the folds below. The rich, colour-coded fleet glance is pulam-web's; see `docs/atlas/src/content/atlas/pulam-tui.mdx`.)
 
-- **One source of truth.** The agent-state vocabulary — how `AgentInfo['state']` folds to a coarse class — lives **once** in **`@kolu/terminal-workspace/agentProjection`**, as `state satisfies never`-fenced folds: `agentUrgency` (needs-you ranking), `agentPaintClass` (pip/glyph colour), `alertClass` (notify membership). **Never re-derive any of these** in the Dock or the mirror with a hand-rolled switch over the state literals — import the fold. A new state literal must force one decision, in the fenced fold, not silently route through a copy.
+- **One source of truth.** The agent-state vocabulary — how `AgentInfo['state']` folds to a coarse class — lives **once** in **`@kolu/pulam-library/agentProjection`**, as `state satisfies never`-fenced folds: `agentUrgency` (needs-you ranking), `agentPaintClass` (pip/glyph colour), `alertClass` (notify membership). **Never re-derive any of these** in the Dock or the mirror with a hand-rolled switch over the state literals — import the fold. A new state literal must force one decision, in the fenced fold, not silently route through a copy.
 
 - **Keep both in sync.** When you change how the **Dock** treats an agent state — its rank, its pip paint, its alert — the change belongs in the shared fold, and the **mirror must move with it**: mirror it in `pulam-web` in the **same PR**, or file the deferred fill-in as a phase in `pulam-web.mdx` and say so explicitly. The reverse holds too — the mirror must not invent agent-state semantics the Dock doesn't have.
 
