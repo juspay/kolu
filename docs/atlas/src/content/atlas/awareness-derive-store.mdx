@@ -41,11 +41,12 @@ That fusion is the cause of everything downstream: **two assemblers** (`local.ts
 The debate's keystone. A terminal's awareness is not one bag — it is three categories with three owners:
 
 ```ts
-// ── Re-derivable from the host's taps + filesystem; persisted only to avoid a restore flash ──
-type AwarenessCache = { cwd: string; git: GitInfo | null };
+// ── Durable observation — TRUE-when-dead; survives the PTY, persisted to avoid a restore flash.
+//    pr re-files HERE: a forge fact keyed by the branch, NOT the PTY (true-when-dead, like git). ──
+type AwarenessCache = { cwd: string; git: GitInfo | null; pr: PrResult };
 
-// ── Live; never persisted ──
-type AwarenessLive  = { pr: PrResult; agent: AgentInfo | null; foreground: Foreground | null };
+// ── Live — LIE-when-dead; dies with the PTY process, so never persisted ──
+type AwarenessLive  = { agent: AgentInfo | null; foreground: Foreground | null };
 
 // ── kolu's DURABLE INTERPRETATION of what it observed — irrecoverable, kolu's alone ──
 type AwarenessMemory = { lastActivityAt: number; agentSession?: AgentSessionRef; lastAgentCommand?: string };
@@ -54,7 +55,15 @@ type AwarenessMemory = { lastActivityAt: number; agentSession?: AgentSessionRef;
 type HostObservation = AwarenessCache & AwarenessLive;
 ```
 
-`HostObservation` is the load-bearing type: a producer — local or remote — **cannot express** `lastActivityAt` / `agentSession` / `lastAgentCommand`, so a remote snapshot **cannot clobber kolu's memory**, by the compiler, not a comment. The persisted/live partition (`schema.ts:139-176`) was too coarse; this is its sharpening into *re-derivable cache* vs *irrecoverable memory*.
+`HostObservation` is the load-bearing type: a producer — local or remote — **cannot express** `lastActivityAt` / `agentSession` / `lastAgentCommand`, so a remote snapshot **cannot clobber kolu's memory**, by the compiler, not a comment. The persisted/live partition (`schema.ts:139-176`) was too coarse; the right structure is **two orthogonal axes** (below).
+
+<Callout kind="note" title="Three categories = two axes (refined from a follow-up debate)">
+The three categories aren't a flat partition — they're the intersection of **two orthogonal axes**:
+- **Authority** — *who may write it*: **host-producible** (`HostObservation` = cache ∪ live) vs **kolu-only** (memory). This is the **keystone** cut — the producer can't spell memory.
+- **Truth-when-dead** — *is the last value true after the PTY dies*: **true-when-dead** (cache, memory — persist as stale-but-real) vs **lie-when-dead** (live — drop; persisting it fabricates a referent). The cache/live line is a *sub-split inside `HostObservation`*, forced by the autosave firehose — it must be a **type** so a live patch can't arm autosave.
+
+So it's **2 primary + 1 sub-split** (a 2×2 with one empty cell: kolu-only ∩ lie-when-dead = ∅). That's why **"persist everything"** fails (1 category revives the firehose + a stale lie) and **"durable vs ephemeral"** fails (2 categories merge cache+memory, so the producer's type would contain memory → the keystone breaks). A field may move **cache↔live** freely (both are host-producible, same wire), but **nothing may cross `HostObservation ↔ Memory`**. `pr` is **true-when-dead** (a forge fact keyed by the branch, not the PTY), so it re-files to **cache** — which deletes the frozen-`pr` special case (`local.ts:871`, the sleeping-arm `pr?`). `agent`/`foreground` are **lie-when-dead** (their process dies with the PTY), so they stay live — persisting them is a lie *and* the agent firehose.
+</Callout>
 
 <Callout kind="note" title="Decided — memory rides kolu.authored">
 The three `AwarenessMemory` fields **move onto `kolu.authored`** (the record that already carries `location` · theme · the active/sleeping discriminant). Consequence: the `awareness` collection **everywhere** — kolu's own and every host producer's — carries only `HostObservation`. "Memory on an awareness collection" becomes globally unspellable; kolu's fold is the sole writer of memory, into the authored half. Cost: a schema move + `SCHEMA_VERSION` bump + a state migration; `composeTerminalMetadata` reads memory from the authored half. (Reader-join shape unchanged — still `authored ⋈ awareness` at the client and at disk.)
@@ -109,7 +118,7 @@ function fold(current: KoluAwareness, o: AwarenessObservation, now: () => number
     case "cwd": return { cache: { cwd: o.cwd } };
     case "git": return { cache: { git: o.git },
                          recentRepo: o.git ? { root: o.git.mainRepoRoot, name: o.git.repoName } : undefined };
-    case "pr":         return { live: { pr: o.pr } };
+    case "pr":         return { cache: { pr: o.pr } };   // pr is true-when-dead (like git) — persisted, not live
     case "foreground": return { live: { foreground: o.foreground } };
 
     case "agent": {
@@ -194,6 +203,7 @@ export const PT = [
 ## Decided — the forks the debate closed
 
 - **The activity rule** (the one product judgment): a terminal's recency (`lastActivityAt`) bumps **only on a live agent-identity change** — it starts, finishes, or a new session appears — **not** on `thinking↔awaiting` state flips or token churn. Chosen as the simplest gate (recency shares its trigger with session-persistence and reads no prior memory). The "needs you" alert is unaffected — it rides live `agent.state`/urgency, not recency.
+- **`pr` re-files to cache** (follow-up refinement): `pr` is true-when-dead (a forge fact keyed by the branch, not the PTY), so it moves `AwarenessLive → AwarenessCache` and persists like `git` — deleting the frozen-`pr` special case (`local.ts:871`, the sleeping-arm `pr?`) and showing the badge immediately on restore. `agent`/`foreground` stay live (lie-when-dead).
 - **Memory home → `kolu.authored`** (so every awareness collection is `HostObservation`).
 - **Dashboards (pulam-tui / pulam-web) → urgency-only** — they drop recency-based fleet ordering (a secondary tiebreak) and need no fold; they read `HostObservation` + the urgency projection.
 - **Host-scoped aggregation key `(HostLocation, TerminalId)`** — a fleet view cannot alias two hosts' non-kolu-minted (orphan-adopted) PTY ids.
