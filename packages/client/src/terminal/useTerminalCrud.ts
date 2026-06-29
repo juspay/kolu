@@ -154,9 +154,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     // glitch-free read.
     if (!initial?.canvasLayout) {
       const { id: activeId, meta } = store.active();
-      const activeLayout =
-        (activeId ? pendingLayouts.pending[activeId] : undefined) ??
-        meta?.canvasLayout;
+      const activeLayout = activeId
+        ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
+        : meta?.canvasLayout;
       pendingLayouts.setNextDefaultSize(
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );

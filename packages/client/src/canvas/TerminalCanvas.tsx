@@ -140,7 +140,7 @@ const TerminalCanvas: Component<{
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
-    return pendingLayouts.pending[id] ?? props.getLayout(id);
+    return pendingLayouts.resolveLayout(id, props.getLayout(id));
   }
 
   /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
@@ -184,9 +184,10 @@ const TerminalCanvas: Component<{
         // Consume the inherited size only when there are new tiles that need
         // layouts — a re-run with no new tiles (session restore, chunked
         // metadata) must not swallow the size pending for a later create.
-        const newIds = ids.filter((id) => !layoutOf(id));
-        const inheritSize =
-          newIds.length > 0 ? pendingLayouts.takeNextDefaultSize() : null;
+        const hasNewTiles = ids.some((id) => !layoutOf(id));
+        const inheritSize = hasNewTiles
+          ? pendingLayouts.takeNextDefaultSize()
+          : null;
 
         const placed: {
           id: TileId;

@@ -74,6 +74,14 @@ export function usePendingLayouts(): {
   pending: Record<string, TileLayout>;
   /** Set or update a single tile's pending override. */
   setOne: (id: TerminalId, layout: TileLayout) => void;
+  /** Effective layout for a tile: the pending override wins over the
+   *  echoed/saved layout. The single home for the "pending ⊕ saved"
+   *  precedence — both the canvas `layoutOf` and `handleCreate`'s
+   *  size-inheritance read go through this instead of re-deriving it. */
+  resolveLayout: (
+    id: TerminalId,
+    echoed: TileLayout | undefined,
+  ) => TileLayout | undefined;
   /** Bulk-apply pending overrides (used by arrange). */
   applyMany: (layouts: Map<TerminalId, TileLayout>) => void;
   /** Drop entries for tiles that are no longer alive OR whose saved
@@ -102,6 +110,9 @@ export function usePendingLayouts(): {
     },
     setOne(id, layout) {
       setPending(id, layout);
+    },
+    resolveLayout(id, echoed) {
+      return pending[id] ?? echoed;
     },
     applyMany(layouts) {
       setPending(
