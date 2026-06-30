@@ -308,21 +308,34 @@ function authoredFactsEqual(a: KoluAwareness, b: KoluAwareness): boolean {
   );
 }
 
+/** The restore-relevant OBSERVED field set — exactly what `PersistedObservationSchema`
+ *  persists to disk (cwd · git · pr). Read its keys ONCE (module scope) and drive the
+ *  autosave fence off them, so the fence and the persisted projection can't drift: add
+ *  a fourth persisted field to `PersistedObservationSchema` and the fence covers it
+ *  with no second edit here. */
+const PERSISTED_OBSERVED_KEYS = Object.keys(
+  PersistedObservationSchema.shape,
+) as (keyof Observation)[];
+
 /** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?
- *  A STRICT SUPERSET of `authoredFactsEqual` (it calls it), so "every authored-fact
- *  change is also a restore-relevant change" is a FACT OF THE CODE, not two
- *  independently-maintained field lists. On top of the authored facts it adds cwd ·
- *  git · pr; agent DETAIL and foreground are excluded, so the ~150 ms firehose folds
- *  to an equal projection and never arms autosave. `git`/`pr` compare by reference
- *  (the fold preserves the reference for an unchanged field — a non-git fold spreads
- *  the same object — pinned in `fold.test.ts`), which is exact for "did this
- *  restore-relevant value change". */
-function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
+ *  A STRICT SUPERSET of `authoredFactsEqual`, so "every authored-fact change is also a
+ *  restore-relevant change" is a FACT OF THE CODE, not two independently-maintained
+ *  field lists. On top of the authored facts it adds the persisted observed fields
+ *  (`PERSISTED_OBSERVED_KEYS`); agent DETAIL and foreground are excluded, so the
+ *  ~150 ms firehose folds to an equal projection and never arms autosave. Those
+ *  fields compare by reference (the fold preserves the reference for an unchanged
+ *  field — a non-git fold spreads the same object — pinned in `fold.test.ts`), which
+ *  is exact for "did this restore-relevant value change". The caller passes the
+ *  already-computed authored-fact delta (`authoredEqual`) so the firehose path doesn't
+ *  recompute it; it defaults to the standalone computation for any other caller. */
+function restoreRelevantEqual(
+  a: KoluAwareness,
+  b: KoluAwareness,
+  authoredEqual: boolean = authoredFactsEqual(a, b),
+): boolean {
   return (
-    authoredFactsEqual(a, b) &&
-    a.observed.cwd === b.observed.cwd &&
-    a.observed.git === b.observed.git &&
-    a.observed.pr === b.observed.pr
+    authoredEqual &&
+    PERSISTED_OBSERVED_KEYS.every((k) => a.observed[k] === b.observed[k])
   );
 }
 
@@ -766,9 +779,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       if (o.kind === "agent" && o.agent !== "unknown") {
         const next = o.agent.value;
         live = agentIdentityChanged(recencyBaseline, next);
-        recencyBaseline = next
-          ? { kind: next.kind, sessionId: next.sessionId }
-          : null;
+        // Only re-seat the baseline when the identity actually changed (`live`):
+        // a same-identity tick (the ~150 ms firehose) already matches the baseline,
+        // so re-allocating an identical `{ kind, sessionId }` every tick is wasted.
+        if (live)
+          recencyBaseline = next
+            ? { kind: next.kind, sessionId: next.sessionId }
+            : null;
       }
       const ctx: FoldCtx = { live, at: Date.now() };
       current = fold(current, o, ctx);
@@ -792,9 +809,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       //    seam — that fence lives here.
       if (current.observed !== before.observed)
         commitObservation(id, current.observed);
-      if (!authoredFactsEqual(before, current))
+      // Evaluate the authored-fact delta ONCE and feed it to the disk fence (a strict
+      // superset), so the firehose path doesn't recompute `authoredFactsEqual` —
+      // and its `restoreTargetOf` allocations — a second time inside it.
+      const authoredEqual = authoredFactsEqual(before, current);
+      if (!authoredEqual)
         updateMemory(id, current.memory, restoreTargetOf(current));
-      if (!restoreRelevantEqual(before, current)) emitTerminalsDirty();
+      if (!restoreRelevantEqual(before, current, authoredEqual))
+        emitTerminalsDirty();
     };
 
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the

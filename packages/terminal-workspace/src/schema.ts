@@ -211,17 +211,6 @@ export type AwarenessObservation =
   | { kind: "agent"; agent: Observed<AgentInfo | null> }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
-/** A framed batch of observations carrying kolu's subscription-phase provenance.
- *  `snapshot` is a re-observation (ctx.live = false — never bumps recency);
- *  `delta` is a live change (ctx.live = true); `gap` flags a detected hole so
- *  kolu re-snapshots rather than fold a divergent stream. In-process for R9.0:
- *  the local `subscribeAwareness` seam synthesizes these from the engine's emit
- *  sequence (the wire stream + cross-host `seq` are R9.3). */
-export type AwarenessFrame =
-  | { phase: "snapshot"; observations: AwarenessObservation[] }
-  | { phase: "delta"; seq: number; observations: AwarenessObservation[] }
-  | { phase: "gap"; afterSeq: number };
-
 /** A fresh terminal's initial `Observation`: spawn-time cwd, everything else at
  *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground).
  *  The fold fills it in from now. The ONE home for the observed-default set. */

@@ -33,8 +33,6 @@ import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
 import type { AgentIdentity, AgentKind, RestoreTarget } from "./schemas.ts";
 
-export type { AgentKind, RestoreTarget };
-
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
 const EXIT_FLAGS: ReadonlySet<string> = new Set([
