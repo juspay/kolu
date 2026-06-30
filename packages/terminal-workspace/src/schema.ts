@@ -1,28 +1,28 @@
 /**
- * The terminal-awareness vocabulary — the value a host PRODUCER emits and the
+ * The terminal-snapshot vocabulary — the value a host PRODUCER emits and the
  * value kolu's fold accumulates, owned where it is PRODUCED (the sensor set in
  * this package) rather than by any app.
  *
- * The de-entanglement (awareness-derive-store.mdx) splits OBSERVING from
+ * The de-entanglement (awareness-derive-store.mdx) splits SAMPLING from
  * REMEMBERING:
- *   - `Observation` is exactly the five fields a memoryless host can RE-OBSERVE:
+ *   - `TerminalSnapshot` is exactly the five fields a memoryless host can RE-SAMPLE:
  *     cwd · git context · forge PR · live agent · foreground process. Composed
  *     from the vendor-neutral leaf schemas (anyforge · kolu-git · kolu-github ·
  *     the per-agent packages) and naming NOTHING app-specific — no `location`
  *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
- *     `terminalWorkspace.awareness` collection.
- *   - `AgentMemory` is the two facts a host CANNOT re-observe — a clock reading
+ *     `terminalWorkspace.snapshots` collection.
+ *   - `AgentMemory` is the two facts a host CANNOT re-sample — a clock reading
  *     (`lastActivityAt`) and the launch line the user typed (`lastAgentCommand`).
- *     kolu remembers them; a producer's `Observation` cannot spell either.
- *   - `KoluAwareness = { observed, memory }` is kolu's fold accumulator, never on
- *     a wire (kolu folds in-process). `AwarenessObservation` is the per-field EMIT
+ *     kolu remembers them; a producer's `TerminalSnapshot` cannot spell either.
+ *   - `TerminalState = { snapshot, memory }` is kolu's fold accumulator, never on
+ *     a wire (kolu folds in-process). `TerminalEvent` is the per-field EMIT
  *     type a producer streams.
  *
  * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
  * GONE: the producer is memoryless and the emit type forbids a memory field, so no
- * observation can clobber a remembered fact — the fence is the TYPE, not a runtime
+ * snapshot can clobber a remembered fact — the fence is the TYPE, not a runtime
  * mutator. kolu recomposes its full `TerminalMetadata` at the CLIENT by JOINING
- * the served `Observation` with a SEPARATE authored record (the app-owned
+ * the served `TerminalSnapshot` with a SEPARATE authored record (the app-owned
  * `location` + memory + client-persisted UI fields). That separation is what lets
  * `pulam` (the standalone daemon) and `pulam-tui` (the viewer) reuse the sensors
  * with zero dependency on any kolu-app package.
@@ -130,23 +130,23 @@ export const ForegroundSchema = z.object({
   title: z.string().nullable(),
 });
 
-// ── The Observation — what a host PRODUCER emits ──────────────────────
+// ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
 // The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
-// `Observation` — exactly the five fields it can RE-OBSERVE — and nothing it
-// cannot. The two facts a host genuinely cannot re-observe (a clock reading and
+// `TerminalSnapshot` — exactly the five fields it can RE-SAMPLE — and nothing it
+// cannot. The two facts a host genuinely cannot re-sample (a clock reading and
 // the launch invocation) are `AgentMemory`, written by kolu's fold ALONE. The
 // old persisted/live write-fence is gone: the producer is memoryless and cannot
-// CONSTRUCT memory (the type forbids it), so no observation can clobber a
+// CONSTRUCT memory (the type forbids it), so no snapshot can clobber a
 // remembered fact — the fence is the EMIT TYPE, not a runtime mutator split.
 
-/** What a host PRODUCER emits — exactly the fields it can RE-OBSERVE. Local or
- *  remote, the SAME type. Served as-is on kolu's `terminalWorkspace.awareness`
+/** What a host PRODUCER emits — exactly the fields it can RE-SAMPLE. Local or
+ *  remote, the SAME type. Served as-is on kolu's `terminalWorkspace.snapshots`
  *  collection (kolu JOINS it with a separate authored record at the client).
- *  `pr` and `agent` ride here too — both re-observable; `pr` is restore-relevant
+ *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
  *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
  *  (lie-when-dead, re-derived on (re)spawn). */
-export const ObservationSchema = z.object({
+export const TerminalSnapshotSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   /** Forge PR resolution — discriminated union (see PrResultSchema). */
@@ -156,7 +156,7 @@ export const ObservationSchema = z.object({
   /** The live foreground process (vim, …) — detected via OSC 2 title events. */
   foreground: ForegroundSchema.nullable(),
 });
-export type Observation = z.infer<typeof ObservationSchema>;
+export type TerminalSnapshot = z.infer<typeof TerminalSnapshotSchema>;
 
 /** The agent IDENTITY kolu persists for restore (`kind` + native session
  *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
@@ -168,7 +168,7 @@ export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
 
 /** The two facts a host CANNOT observe — recency is a CLOCK reading, the launch
  *  line is what the user TYPED. Irrecoverable from a screen, so kolu remembers
- *  them; written by kolu's fold ALONE (a producer's `Observation` cannot spell
+ *  them; written by kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell
  *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
  *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
 export const AgentMemorySchema = z.object({
@@ -183,11 +183,11 @@ export const AgentMemorySchema = z.object({
 });
 export type AgentMemory = z.infer<typeof AgentMemorySchema>;
 
-/** kolu's stored value: the last-seen `Observation` + the two remembered facts.
- *  NESTED, not merged, so the half published to the awareness collection is
- *  `current.observed` — structurally WITHOUT the memory fields, not a runtime
+/** kolu's stored value: the last-seen `TerminalSnapshot` + the two remembered facts.
+ *  NESTED, not merged, so the half published to the snapshots collection is
+ *  `current.snapshot` — structurally WITHOUT the memory fields, not a runtime
  *  strip. The fold accumulator; never crosses a wire (kolu folds in-process). */
-export type KoluAwareness = { observed: Observation; memory: AgentMemory };
+export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
 
 /** The async resolution of the agent field made LAWFUL. The session file lands a
  *  beat after the command mark (over the settle window), so a bare `agent: null`
@@ -195,26 +195,26 @@ export type KoluAwareness = { observed: Observation; memory: AgentMemory };
  *  is mid-resolution (kolu KEEPS its last value, no clobber); `{ value }` is
  *  authoritative (kolu APPLIES it, even when `null` — a shell-idle null is the
  *  session genuinely ended). Never stored — only the resolved value is. */
-export type Observed<T> = "unknown" | { value: T };
+export type Known<T> = "unknown" | { value: T };
 
-/** A per-field observation a memoryless producer emits. The standing five build
- *  the `Observation`; `commandRun` is a discrete mark that feeds kolu's
+/** A per-field sample a memoryless producer emits. The standing five build
+ *  the `TerminalSnapshot`; `commandRun` is a discrete mark that feeds kolu's
  *  `lastAgentCommand` memory + the recent-agent MRU. The agent is the one field
- *  that resolves ASYNCHRONOUSLY, so it carries `Observed<>` rather than a bare
+ *  that resolves ASYNCHRONOUSLY, so it carries `Known<>` rather than a bare
  *  nullable. In-process for R9.0 (a plain TS union, no wire schema — the framed
- *  `awarenessEvents` stream that serializes these is R9.3). */
-export type AwarenessObservation =
+ *  `terminalEvents` stream that serializes these is R9.3). */
+export type TerminalEvent =
   | { kind: "cwd"; cwd: string }
   | { kind: "git"; git: GitInfo | null }
   | { kind: "pr"; pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
-  | { kind: "agent"; agent: Observed<AgentInfo | null> }
+  | { kind: "agent"; agent: Known<AgentInfo | null> }
   | { kind: "commandRun"; command: string; replayed: boolean };
 
-/** A fresh terminal's initial `Observation`: spawn-time cwd, everything else at
+/** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
  *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground).
- *  The fold fills it in from now. The ONE home for the observed-default set. */
-export function seedObservation(cwd: string): Observation {
+ *  The fold fills it in from now. The ONE home for the snapshot-default set. */
+export function seedSnapshot(cwd: string): TerminalSnapshot {
   return {
     cwd,
     git: null,

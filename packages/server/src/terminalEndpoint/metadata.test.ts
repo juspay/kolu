@@ -2,19 +2,19 @@
  * Publish-routing + type-fence tests for the awareness/metadata write seam.
  *
  * The firehose fence MOVED with the awareness-derive-store cutover. The fold's
- * two commit seams (`commitObservation`, `updateMemory`) NEVER fire
+ * two commit seams (`commitSnapshot`, `updateMemory`) NEVER fire
  * `terminals:dirty` — the fold's WATCH LOOP arms autosave itself, but only on a
- * restore-relevant VALUE change, so a bare observation/memory tick must stay
+ * restore-relevant VALUE change, so a bare snapshot/memory tick must stay
  * silent. The client/lifecycle seams (`updateClientMetadata`,
  * `publishTerminalState`) DO fire dirty. The type fences pin the structural
  * guarantee that the split has ONE writer per half:
- *   - an `Observation` commit can't carry a REMEMBERED memory field;
+ *   - an `TerminalSnapshot` commit can't carry a REMEMBERED memory field;
  *   - `updateMemory`'s `AgentMemory` can't carry an OBSERVED field;
- *   - `entry.meta` (now AUTHORED) names NO observed field — `entry.meta.cwd = x`
+ *   - `entry.meta` (now AUTHORED) names NO snapshot field — `entry.meta.cwd = x`
  *     is a compile error.
  */
 
-import { LOCAL_LOCATION, type Observation } from "kolu-common/surface";
+import { LOCAL_LOCATION, type TerminalSnapshot } from "kolu-common/surface";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import {
@@ -34,8 +34,8 @@ import {
   setWorkspaceSurfaceCtx,
 } from "../workspaceSurfaceCtx.ts";
 import {
-  commitObservation,
-  installAwareness,
+  commitSnapshot,
+  installSnapshot,
   publishTerminalState,
   updateClientMetadata,
   updateMemory,
@@ -43,15 +43,15 @@ import {
 
 const ID = "term-pub-test";
 
-/** A registry entry — AUTHORED half (`meta`, no observed field) + the OBSERVED
+/** A registry entry — AUTHORED half (`meta`, no snapshot field) + the OBSERVED
  *  half (`awareness`, the fold's whole-replace target), both on the one entry. */
 function fakeTerminal(): ActiveTerminalProcess {
   return {
     info: { id: ID, pid: 0 },
     // The authored record now carries memory FLAT, so `lastActivityAt` rides
-    // `meta` (it left the observation with the cutover).
+    // `meta` (it left the snapshot with the cutover).
     meta: { state: "active", location: LOCAL_LOCATION, lastActivityAt: 0 },
-    awareness: observation(),
+    snapshot: snapshot(),
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as ActiveTerminalProcess["handle"],
   };
@@ -59,7 +59,7 @@ function fakeTerminal(): ActiveTerminalProcess {
 
 /** The OBSERVED half — the producer's emit shape (no memory), rides the entry
  *  under the same id; the fold REPLACES it wholesale each frame. */
-function observation(): Observation {
+function snapshot(): TerminalSnapshot {
   return {
     cwd: "/tmp",
     git: null,
@@ -87,12 +87,12 @@ beforeEach(async () => {
   // collection) don't throw.
   setSurfaceCtx(noopSurfaceCtxForTest());
   setWorkspaceSurfaceCtx(noopWorkspaceSurfaceCtxForTest());
-  // The commit seams key on id and land on `entry.awareness` / `entry.meta`; the
+  // The commit seams key on id and land on `entry.snapshot` / `entry.meta`; the
   // wire publish reads the registry. Register the entry (carrying BOTH halves),
-  // then fan its observation out.
+  // then fan its snapshot out.
   const entry = fakeTerminal();
   registerTerminal(ID, entry);
-  installAwareness(ID, entry.awareness);
+  installSnapshot(ID, entry.snapshot);
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -113,11 +113,11 @@ afterEach(() => {
 });
 
 describe("metadata publish routing", () => {
-  it("commitObservation does NOT fire terminals:dirty even when cwd changes (the fold's watch loop owns the autosave fence)", async () => {
+  it("commitSnapshot does NOT fire terminals:dirty even when cwd changes (the fold's watch loop owns the autosave fence)", async () => {
     // `cwd` is restore-relevant, but the commit seam no longer arms autosave: the
     // fold's watch loop fires dirty on the restore-relevant VALUE change, so a
-    // bare observation commit must stay silent.
-    commitObservation(ID, { ...observation(), cwd: "/new/cwd" });
+    // bare snapshot commit must stay silent.
+    commitSnapshot(ID, { ...snapshot(), cwd: "/new/cwd" });
     await settle();
     expect(dirtyCount).toBe(0);
   });
@@ -131,9 +131,9 @@ describe("metadata publish routing", () => {
     expect(dirtyCount).toBe(1);
   });
 
-  it("commitObservation does NOT fire terminals:dirty (the live agent stream)", async () => {
-    commitObservation(ID, {
-      ...observation(),
+  it("commitSnapshot does NOT fire terminals:dirty (the live agent stream)", async () => {
+    commitSnapshot(ID, {
+      ...snapshot(),
       agent: {
         kind: "claude-code",
         state: "thinking",
@@ -150,10 +150,10 @@ describe("metadata publish routing", () => {
     expect(dirtyCount).toBe(0);
   });
 
-  it("commitObservation called repeatedly stays silent (the firehose case)", async () => {
+  it("commitSnapshot called repeatedly stays silent (the firehose case)", async () => {
     for (let i = 0; i < 50; i += 1) {
-      commitObservation(ID, {
-        ...observation(),
+      commitSnapshot(ID, {
+        ...snapshot(),
         foreground: { name: "claude", title: `tick ${i}` },
       });
     }
@@ -189,19 +189,19 @@ describe("metadata publish routing", () => {
   // back AND that each half has one writer. If any `@ts-expect-error` line starts
   // compiling, a fence is broken. Test runtime is irrelevant; the assertion is at
   // type check.
-  it("type fence: an Observation commit cannot carry a remembered memory field", () => {
-    commitObservation(ID, {
+  it("type fence: an TerminalSnapshot commit cannot carry a remembered memory field", () => {
+    commitSnapshot(ID, {
       cwd: "/tmp",
       git: null,
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
-      // @ts-expect-error — `lastActivityAt` is REMEMBERED memory, not observed.
+      // @ts-expect-error — `lastActivityAt` is REMEMBERED memory, not snapshot.
       lastActivityAt: 0,
     });
   });
 
-  it("type fence: updateMemory cannot write an observed field", () => {
+  it("type fence: updateMemory cannot write a snapshot field", () => {
     updateMemory(
       ID,
       {
@@ -213,9 +213,9 @@ describe("metadata publish routing", () => {
     );
   });
 
-  it("type fence: observed fields cannot be written through entry.meta (authored)", () => {
+  it("type fence: snapshot fields cannot be written through entry.meta (authored)", () => {
     const entry = getTerminal(ID) as ActiveTerminalProcess;
-    // @ts-expect-error — `cwd` lives on the observation; entry.meta is AUTHORED.
+    // @ts-expect-error — `cwd` lives on the snapshot; entry.meta is AUTHORED.
     entry.meta.cwd = "/x";
   });
 });
@@ -233,10 +233,10 @@ function throwingWorkspaceCtx(): ReturnType<
     ...base,
     collections: new Proxy({} as never, {
       get: (_t, name) =>
-        name === "awareness"
+        name === "snapshots"
           ? {
               upsert: () => {
-                throw new Error("awareness subscriber boom");
+                throw new Error("snapshot subscriber boom");
               },
               remove: () => {},
             }
@@ -263,17 +263,17 @@ function throwingAuthoredCtx(): ReturnType<typeof noopSurfaceCtxForTest> {
 }
 
 describe("commit seams guard the publish boundary (emit stays infallible)", () => {
-  it("commitObservation: a throwing awareness subscriber does NOT propagate, and the observation is still committed", () => {
+  it("commitSnapshot: a throwing snapshot subscriber does NOT propagate, and the snapshot is still committed", () => {
     // Swap the beforeEach no-op ctx for one whose awareness upsert throws.
     __resetWorkspaceSurfaceCtxForTest();
     setWorkspaceSurfaceCtx(throwingWorkspaceCtx());
-    const accepted = { ...observation(), cwd: "/accepted-despite-throw" };
+    const accepted = { ...snapshot(), cwd: "/accepted-despite-throw" };
     // The producer advanced its baseline before calling emit; if this threw, the
     // sensor loop would freeze AND the fold would desync. It must not throw —
-    expect(() => commitObservation(ID, accepted)).not.toThrow();
+    expect(() => commitSnapshot(ID, accepted)).not.toThrow();
     // — and the accepted value is on the entry (the fold's commit) even though the
-    // publish to subscribers failed (it self-heals on the next observation).
-    expect(getTerminal(ID)?.awareness.cwd).toBe("/accepted-despite-throw");
+    // publish to subscribers failed (it self-heals on the next snapshot).
+    expect(getTerminal(ID)?.snapshot.cwd).toBe("/accepted-despite-throw");
   });
 
   it("updateMemory: a throwing authored subscriber does NOT propagate, and the memory is still committed", () => {

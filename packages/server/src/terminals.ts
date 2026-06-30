@@ -70,7 +70,7 @@ export {
  *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
  *  persist is one of the join's two sites (the ephemeral client read is the
  *  other), so reusing the one join at both means the sleeping arm's restore-
- *  relevant projection — the live-half strip down to `PersistedObservation`
+ *  relevant projection — the live-half strip down to `PersistedSnapshot`
  *  (`cwd · git · pr`, `pr` riding the observation now, not a frozen authored
  *  field) — lives in exactly one place, so disk and the client read can never
  *  diverge. A new *persisted* field flows through untouched;
@@ -82,14 +82,14 @@ export function snapshotSession(): SessionSnapshot {
     // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
     // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
     // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
-    // names no observed field, so it never clobbers the observation. On the sleeping
+    // names no snapshot field, so it never clobbers the observation. On the sleeping
     // arm the saved discriminated union keeps only the restore-relevant projection
     // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
     // (agent detail + foreground) structurally, so a future live field can never
     // silently ride to disk.
     ([id, entry]): SavedTerminal =>
       SavedTerminalSchema.parse({
-        ...composeTerminalMetadata(entry.meta, entry.awareness),
+        ...composeTerminalMetadata(entry.meta, entry.snapshot),
         id,
       }),
   );

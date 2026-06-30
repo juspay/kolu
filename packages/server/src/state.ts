@@ -20,7 +20,7 @@ import Conf from "conf";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
-  backfillAwarenessCutover,
+  backfillSnapshotCutover,
   backfillLocation,
   backfillRemoteUrl,
   backfillTerminalState,
@@ -510,12 +510,12 @@ export const store = new Conf<PersistedState>({
     // "lastAgentCommand ⇒ resume most-recent" rule collapsed into one discriminated
     // `restoreTarget`. A pre-1.29 record lacks the now-required `pr` (it was a
     // never-persisted live field) and may carry the old `agentSession`, so
-    // `backfillAwarenessCutover` backfills `pr: { kind: "absent" }` (the live PR
+    // `backfillSnapshotCutover` backfills `pr: { kind: "absent" }` (the live PR
     // sensor re-resolves on restore) and synthesizes `restoreTarget` from what the
     // record remembered: `agentSession` + a command → `exact`, a command alone →
     // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
     "1.29.0": (store: Conf<PersistedState>) =>
-      mapSessionTerminals(store, backfillAwarenessCutover),
+      mapSessionTerminals(store, backfillSnapshotCutover),
   },
 });
 

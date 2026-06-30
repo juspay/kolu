@@ -204,7 +204,7 @@ export function agentKindFromCommand(command: string): AgentKind | null {
  * non-resumable `command` whose head names no agent — yields `null`; the caller maps
  * that to `none` (a bare shell) or, in the migration, `legacyMostRecent`, never a
  * silent wrong-agent resume. This is the ONE constructor both production sites (kolu's
- * fold `restoreTargetOf`, the `backfillAwarenessCutover` migration) go through, so the
+ * fold `restoreTargetOf`, the `backfillSnapshotCutover` migration) go through, so the
  * mismatched pair has a single point of refusal.
  */
 export function exactRestoreTarget(

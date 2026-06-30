@@ -13,7 +13,7 @@ import { ORPCError } from "@orpc/server";
 import type {
   AuthoredActiveTerminal,
   AuthoredSleepingTerminal,
-  Observation,
+  TerminalSnapshot,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
@@ -29,12 +29,12 @@ import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredActiveTerminal;
-  /** The terminal's last-seen `Observation` (cwd · git · pr · agent · foreground),
+  /** The terminal's last-seen `TerminalSnapshot` (cwd · git · pr · agent · foreground),
    *  born and dropped WITH the entry. A required field, so "a terminal exists" and
-   *  "its observation exists" are one fact the type makes inseparable — no second
+   *  "its snapshot exists" are one fact the type makes inseparable — no second
    *  Map to keep in lockstep. kolu's fold REPLACES it wholesale each frame
-   *  (`entry.awareness = next.observed`); there is no in-place mutator. */
-  awareness: Observation;
+   *  (`entry.snapshot = next.snapshot`); there is no in-place mutator. */
+  snapshot: TerminalSnapshot;
   handle: TerminalHandle;
 }
 
@@ -50,12 +50,12 @@ export interface ActiveTerminalProcess {
 export interface SleepingTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredSleepingTerminal;
-  /** The last-seen `Observation` rides the sleeping entry too (sleep does NOT drop
+  /** The last-seen `TerminalSnapshot` rides the sleeping entry too (sleep does NOT drop
    *  it) — the dormant tile recomposes its cwd/branch/pr off the restore-relevant
    *  projection, and wake reads the resume target (the frozen agent identity) back
    *  from here. The agent detail + foreground are dead data while sleeping (the
    *  client's join takes only the restore-relevant projection). */
-  awareness: Observation;
+  snapshot: TerminalSnapshot;
   handle?: never;
 }
 
@@ -109,7 +109,7 @@ export function listTerminals(): TerminalInfo[] {
 
 /** Project the registry into a `Map<id, V>` for a surface collection's `readAll`
  *  — one loop over the entries in canonical insertion order, with `pick` choosing
- *  the half. The `authored` and `terminalWorkspace.awareness` collections both
+ *  the half. The `authored` and `terminalWorkspace.snapshots` collections both
  *  read off the SAME registry entry (Design-S: the two halves share one backing),
  *  so this keeps the projection loop in one place instead of copied per
  *  collection. */
@@ -139,15 +139,15 @@ export const activeTerminalCount = (): number => {
 
 /** Number of ACTIVE terminals currently hosting a Claude Code session. The
  *  `agent` field lives on the entry's `awareness` (Design-S), so this reads
- *  `entry.awareness.agent` rather than `entry.meta`; the `state === "active"` gate
- *  stays, since a sleeping terminal's awareness keeps its frozen-stale live half
+ *  `entry.snapshot.agent` rather than `entry.meta`; the `state === "active"` gate
+ *  stays, since a sleeping terminal's snapshot keeps its frozen-stale live half
  *  (sleep does not reset it). Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {
     if (
       entry.meta.state === "active" &&
-      entry.awareness.agent?.kind === "claude-code"
+      entry.snapshot.agent?.kind === "claude-code"
     )
       n++;
   }
@@ -158,14 +158,14 @@ export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
 }
 
-/** The last-seen `Observation` for `id`, or `undefined` if no entry exists —
- *  projected off the registry entry (awareness is a required field, so it is born
+/** The last-seen `TerminalSnapshot` for `id`, or `undefined` if no entry exists —
+ *  projected off the registry entry (snapshot is a required field, so it is born
  *  and dropped WITH the entry; there is no separate store to fall out of lockstep).
- *  kolu's fold REPLACES `entry.awareness` wholesale each frame, so callers read it
+ *  kolu's fold REPLACES `entry.snapshot` wholesale each frame, so callers read it
  *  as an immutable snapshot — there is no in-place mutator (the old apply-and-read-
  *  back contract is gone with the sink). */
-export function awarenessFor(id: TerminalId): Observation | undefined {
-  return terminals.get(id)?.awareness;
+export function snapshotFor(id: TerminalId): TerminalSnapshot | undefined {
+  return terminals.get(id)?.snapshot;
 }
 
 /** Narrow a registry lookup to its ACTIVE arm — the entry only if it is a live

@@ -38,8 +38,8 @@ import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
   AgentKindSchema,
   AgentMemorySchema,
-  type Observation,
-  ObservationSchema,
+  type TerminalSnapshot,
+  TerminalSnapshotSchema,
   RestoreTargetSchema,
   seedMemory,
   TerminalIdSchema,
@@ -62,7 +62,7 @@ import { z } from "zod";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
-// The generic `Observation` (terminal identity, agent status, PR resolution,
+// The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
 // foreground) is OWNED by `@kolu/terminal-workspace/schema` now. kolu-common
 // EXTENDS that base — adding `location`, the client/UI fields, and kolu's
 // remembered `AgentMemory` below — and re-exports the moved symbols so existing
@@ -74,7 +74,7 @@ export {
   AgentKindSchema,
   AgentMemorySchema,
   ForegroundSchema,
-  ObservationSchema,
+  TerminalSnapshotSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,
@@ -91,7 +91,7 @@ export type {
   ClaudeCodeInfo,
   CodexInfo,
   Foreground,
-  Observation,
+  TerminalSnapshot,
   OpenCodeInfo,
   PrResult,
   PrUnavailableSource,
@@ -201,39 +201,39 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
 //
 // After the awareness-derive-store cutover (PR #1621) a terminal's metadata has
 // three sources, joined at the client by `composeTerminalMetadata`:
-//   - the OBSERVATION (`@kolu/terminal-workspace`'s `Observation`: cwd · git · pr
+//   - the OBSERVATION (`@kolu/terminal-workspace`'s `TerminalSnapshot`: cwd · git · pr
 //     · agent · foreground) — what a memoryless host re-observes, served on the
-//     `terminalWorkspace.awareness` collection and held in `entry.awareness`;
+//     `terminalWorkspace.snapshots` collection and held in `entry.snapshot`;
 //   - kolu's AUTHORED record (`entry.meta`): the kolu-owned `location`, the
 //     client/UI fields, the two REMEMBERED `AgentMemory` facts (`lastActivityAt`
 //     /`lastAgentCommand`, written ONLY by the fold's `updateMemory`), and the
 //     active|sleeping discriminant;
 //   - the discriminant `state`/`sleptAt`.
 //
-// The producer cannot CONSTRUCT memory (its emit type is `Observation`), so "two
+// The producer cannot CONSTRUCT memory (its emit type is `TerminalSnapshot`), so "two
 // writers of a remembered fact" is unrepresentable — the fence is the type, not a
 // runtime mutator split. Adding a field: an OBSERVABLE one belongs in
-// `Observation` (terminal-workspace); a kolu-REMEMBERED one in `AgentMemory`; a
+// `TerminalSnapshot` (terminal-workspace); a kolu-REMEMBERED one in `AgentMemory`; a
 // client-owned one in `ClientPersistedTerminalFieldsSchema` below.
 
-/** The PERSISTED (restore-relevant) projection of an `Observation` — what rides to
+/** The PERSISTED (restore-relevant) projection of an `TerminalSnapshot` — what rides to
  *  disk and what a DORMANT tile shows: `cwd · git · pr`. No churny `foreground`,
  *  and NO agent detail (lie-when-dead). `pr` is restore-relevant now (true-when-
  *  dead, persisted like `git`), so it survives on a dormant tile from HERE — the
  *  old frozen-`pr`-on-the-sleeping-arm special case is gone. The agent the terminal
  *  will RESUME rides the authored record's `restoreTarget` (the discriminated resume
  *  value, carrying the agent IDENTITY on its `exact` arm), not this projection — a
- *  full `Observation`'s live agent can't survive a server restart as anything but its
- *  identity, and that identity is the kolu-owned resume target, not an observed field.
+ *  full `TerminalSnapshot`'s live agent can't survive a server restart as anything but its
+ *  identity, and that identity is the kolu-owned resume target, not a snapshot field.
  *  `SavedTerminalSchema.parse` reduces a full
- *  `Observation` to this at the disk-persist seam (it drops agent + foreground
+ *  `TerminalSnapshot` to this at the disk-persist seam (it drops agent + foreground
  *  structurally). */
-export const PersistedObservationSchema = ObservationSchema.pick({
+export const PersistedSnapshotSchema = TerminalSnapshotSchema.pick({
   cwd: true,
   git: true,
   pr: true,
 });
-export type PersistedObservation = z.infer<typeof PersistedObservationSchema>;
+export type PersistedSnapshot = z.infer<typeof PersistedSnapshotSchema>;
 
 /**
  * Client-persisted fields — written by client RPCs (via
@@ -273,8 +273,8 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // ── The active | sleeping sum ─────────────────────────────────────────
 //
 // A terminal is a discriminated union on `state`. An ACTIVE terminal carries the
-// FULL live `Observation` (agent detail + foreground); a SLEEPING terminal carries
-// only the restore-relevant `PersistedObservation` (its PTY/xterm/agent released,
+// FULL live `TerminalSnapshot` (agent detail + foreground); a SLEEPING terminal carries
+// only the restore-relevant `PersistedSnapshot` (its PTY/xterm/agent released,
 // so the live detail is stale) plus `sleptAt`. Both arms carry the AUTHORED record
 // (location + memory + client fields).
 //
@@ -343,20 +343,20 @@ const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
 );
 
 /** The authored ACTIVE arm — `location` + memory + client fields + `state:
- *  "active"`. No observed field. */
+ *  "active"`. No snapshot field. */
 export const AuthoredActiveSchema = KoluAuthoredFieldsSchema.merge(
   ActiveDiscriminantSchema,
 );
 
 /** The authored SLEEPING arm — `location` + memory + client fields + `sleptAt`.
- *  No observed field, and no frozen `pr`: `pr` is restore-relevant now and rides
+ *  No snapshot field, and no frozen `pr`: `pr` is restore-relevant now and rides
  *  the persisted observation, so the dormant tile reads it from there. */
 export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
   SleepingDiscriminantSchema,
 );
 
 /** The authored terminal as a sum — `entry.meta`'s static type. Discriminated on
- *  `state`, naming no observed field. */
+ *  `state`, naming no snapshot field. */
 export const AuthoredTerminalSchema = z.discriminatedUnion("state", [
   AuthoredActiveSchema,
   AuthoredSleepingSchema,
@@ -366,30 +366,30 @@ export type AuthoredActiveTerminal = z.infer<typeof AuthoredActiveSchema>;
 export type AuthoredSleepingTerminal = z.infer<typeof AuthoredSleepingSchema>;
 export type AuthoredTerminal = z.infer<typeof AuthoredTerminalSchema>;
 
-/** An active terminal — the FULL live `Observation` joined with the authored
+/** An active terminal — the FULL live `TerminalSnapshot` joined with the authored
  *  active arm. The only live arm; narrowing `state === "active"` yields the full
  *  agent detail + foreground. */
 export const ActiveTerminalSchema =
-  ObservationSchema.merge(AuthoredActiveSchema);
+  TerminalSnapshotSchema.merge(AuthoredActiveSchema);
 
-/** A sleeping terminal — the restore-relevant `PersistedObservation` (agent
+/** A sleeping terminal — the restore-relevant `PersistedSnapshot` (agent
  *  identity, no foreground) joined with the authored sleeping arm. Its PTY/agent
  *  are released, so it carries only what survives the release. */
-export const SleepingTerminalSchema = PersistedObservationSchema.merge(
+export const SleepingTerminalSchema = PersistedSnapshotSchema.merge(
   AuthoredSleepingSchema,
 );
 
-/** The on-disk persisted core, both arms share — the `PersistedObservation` +
+/** The on-disk persisted core, both arms share — the `PersistedSnapshot` +
  *  the authored fields. The saved active arm adds `state: "active"`; the saved
  *  sleeping arm adds `sleptAt`. Both add `id`. */
-const SavedPersistedCoreSchema = PersistedObservationSchema.merge(
+const SavedPersistedCoreSchema = PersistedSnapshotSchema.merge(
   KoluAuthoredFieldsSchema,
 );
 
 /**
  * The terminal as a sum — `Terminal = active | sleeping`, discriminated on
  * `state`. The shape the CLIENT reconstructs by joining the AUTHORED record
- * (`kolu.authored`) with the AWARENESS value (`terminalWorkspace.awareness`) via
+ * (`kolu.authored`) with the AWARENESS value (`terminalWorkspace.snapshots`) via
  * `composeTerminalMetadata` — it is never a server-served collection of its own.
  * Presence reads the union; liveness narrows to the `active` arm. Code that only
  * needs one half should import the sub-schema so the dependency is explicit.
@@ -486,7 +486,7 @@ const SavedTerminalIdSchema = z.object({
 /** The active arm of the on-disk record (persisted-observation base + authored +
  *  `state: "active"` + id) — the shape restore/adoption produce. The agent is its
  *  IDENTITY only (no lie-when-dead detail) and foreground is absent: the
- *  restore-relevant projection, not the full live `Observation`. Exported so the
+ *  restore-relevant projection, not the full live `TerminalSnapshot`. Exported so the
  *  adoption round-trip test can assert it carries every persisted key. */
 export const SavedActiveTerminalSchema = SavedPersistedCoreSchema.merge(
   ActiveDiscriminantSchema,
@@ -852,7 +852,7 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 //   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
 //     session, terminalList; the per-terminal `authored` record; the git/fs
 //     streams; the terminalExit event). Served under the `kolu` key. The eight
-//     AWARENESS fields are NOT here — they ride `terminalWorkspace.awareness`,
+//     AWARENESS fields are NOT here — they ride `terminalWorkspace.snapshots`,
 //     and the client JOINS the two halves at read time (no fused record on the
 //     wire).
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
@@ -941,7 +941,7 @@ export const koluSurface = defineSurface({
      *  `location` + memory + the `restoreTarget` + client/UI chrome + the
      *  active|sleeping discriminant. The five OBSERVED awareness fields (cwd · git ·
      *  pr · agent · foreground) ride the GENERIC
-     *  `terminalWorkspace.awareness` collection, NOT here — the client JOINS the
+     *  `terminalWorkspace.snapshots` collection, NOT here — the client JOINS the
      *  two halves at read time via `composeTerminalMetadata`
      *  (`useTerminalMetadata`), so there is no server-side re-fusion and no fused
      *  record on the wire. Each terminal is independently observable; mutations
@@ -1011,7 +1011,7 @@ export const surfaces = {
   // procedures + watcher streams. `composeSurfaceContracts`
   // / `surfaceClients` / `implementSurfaces` pick it up from this one map, so it
   // is served at `surface.terminalWorkspace.*` automatically. Its value schema is
-  // the GENERIC `Observation` — no `location`, no kolu UI fields, no memory.
+  // the GENERIC `TerminalSnapshot` — no `location`, no kolu UI fields, no memory.
   terminalWorkspace: terminalWorkspaceSurface,
 } as const;
 
@@ -1076,7 +1076,7 @@ export function sleepingArm(
 /** Build a fresh AUTHORED active record for a newly-spawned terminal — the
  *  kolu-owned `location`, empty memory from the canonical `seedMemory` home
  *  (recency at 0, no command), and the active discriminant. The observation half is
- *  seeded SEPARATELY via `seedObservation`; this names none of it. The single seam
+ *  seeded SEPARATELY via `seedSnapshot`; this names none of it. The single seam
  *  every live terminal's authored record is born through (spawn / orphan adoption),
  *  and the memory default lives ONCE in `seedMemory`, so a future memory field is
  *  added there and rides here for free. */
@@ -1091,29 +1091,29 @@ export function createAuthoredActive(
  *  (`useTerminalMetadata`, ephemeral, recomputed per render) and DISK persist
  *  (`snapshotSession`, a save-time snapshot). It is NEVER served as a collection
  *  of its own: the wire carries the two halves separately (`kolu.authored` +
- *  `terminalWorkspace.awareness`) and the join lives at the reader. The authored
+ *  `terminalWorkspace.snapshots`) and the join lives at the reader. The authored
  *  record (`entry.meta`) carries location + memory + client fields + the
- *  discriminant; the observation carries the five observed fields. Reusing one
+ *  discriminant; the observation carries the five snapshot fields. Reusing one
  *  join at both the read and the persist site keeps disk and the client read from
  *  ever diverging.
  *
  *  Spread order is LOAD-BEARING: observation FIRST, authored LAST. The authored
- *  record names no observed field, so it never clobbers the observation. The
- *  active path takes the full `Observation` as-is: TS verifies the spread IS an
+ *  record names no snapshot field, so it never clobbers the observation. The
+ *  active path takes the full `TerminalSnapshot` as-is: TS verifies the spread IS an
  *  `ActiveTerminal` structurally, with no parse on the per-render hot path.
  *
  *  The sleeping path takes ONLY the restore-relevant projection — `foreground` is
- *  dropped and the agent reduced to its identity via `PersistedObservationSchema.
+ *  dropped and the agent reduced to its identity via `PersistedSnapshotSchema.
  *  parse`. `pr` rides that projection (restore-relevant now), so the dormant tile
  *  surfaces its last-known PR from there — no frozen-`pr` special case. */
 export function composeTerminalMetadata(
   authored: AuthoredTerminal,
-  observation: Observation,
+  observation: TerminalSnapshot,
 ): TerminalMetadata {
   return authored.state === "active"
     ? { ...observation, ...authored }
     : SleepingTerminalSchema.parse({
-        ...PersistedObservationSchema.parse(observation),
+        ...PersistedSnapshotSchema.parse(observation),
         ...authored,
       });
 }
@@ -1210,7 +1210,7 @@ export function backfillTerminalState(
  *       · no `lastAgentCommand` → no `restoreTarget` (absent ≡ `none`, a bare shell).
  *  `agentSession` is dropped either way. Idempotent and presence-keyed: a record
  *  that already has `pr` and a `restoreTarget` passes through untouched. */
-export function backfillAwarenessCutover(
+export function backfillSnapshotCutover(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
   const { agentSession, ...rest } = t;
@@ -1254,7 +1254,7 @@ export function backfillAwarenessCutover(
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillAwarenessCutover(
+  return backfillSnapshotCutover(
     backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
   );
 }

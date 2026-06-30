@@ -8,8 +8,11 @@
  * fleet-entry comparator adapter.
  */
 
-import { seedObservation } from "@kolu/terminal-workspace";
-import type { Observation, TerminalId } from "@kolu/terminal-workspace/surface";
+import { seedSnapshot } from "@kolu/terminal-workspace";
+import type {
+  TerminalSnapshot,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import {
   agentUrgency,
   fleetStateLabel,
@@ -32,20 +35,20 @@ import {
   URGENCY_LABELS,
 } from "./fleet.ts";
 
-/** Build an observation with a given agent state. Only `kind`/`state` are read
+/** Build a snapshot with a given agent state. Only `kind`/`state` are read
  *  by the projection, so a minimal cast keeps the test on the projection rather
- *  than reconstructing every agent field. The memoryless `Observation` carries
+ *  than reconstructing every agent field. The memoryless `TerminalSnapshot` carries
  *  no recency, so there is nothing to seed beyond the live agent. */
 function withAgent(
   state: string,
   opts: { kind?: string; cwd?: string } = {},
-): Observation {
+): TerminalSnapshot {
   return {
-    ...seedObservation(opts.cwd ?? "/work/repo"),
+    ...seedSnapshot(opts.cwd ?? "/work/repo"),
     agent: {
       kind: opts.kind ?? "claude-code",
       state,
-    } as Observation["agent"],
+    } as TerminalSnapshot["agent"],
   };
 }
 
@@ -72,11 +75,11 @@ describe("fleetStateLabel with the web URGENCY_LABELS", () => {
 describe("compareFleetEntries (needs-you-first, over fleet entries)", () => {
   const entry = (i: number, state: string | null): FleetEntry => ({
     id: id(i),
-    value: state === null ? seedObservation("/x") : withAgent(state),
+    value: state === null ? seedSnapshot("/x") : withAgent(state),
   });
 
   it("a blocked agent floats above a working agent (urgency beats the id tiebreak)", () => {
-    // pulam serves the memoryless `Observation` (no recency), so the only
+    // pulam serves the memoryless `TerminalSnapshot` (no recency), so the only
     // tiebreak left is id — and urgency still dominates it: `need` (the LARGER
     // id) outranks `work` (the smaller id) on urgency, not iteration order.
     const need = entry(2, "awaiting_user");
@@ -119,14 +122,14 @@ describe("terminalCategory", () => {
     expect(terminalCategory(withAgent("waiting"))).toBe("idle");
   });
   it("no agent but a foreground process → nonagent", () => {
-    const v: Observation = {
-      ...seedObservation("/x"),
+    const v: TerminalSnapshot = {
+      ...seedSnapshot("/x"),
       foreground: { name: "vim", title: null },
     };
     expect(terminalCategory(v)).toBe("nonagent");
   });
   it("no agent and no foreground → sleeping", () => {
-    expect(terminalCategory(seedObservation("/x"))).toBe("sleeping");
+    expect(terminalCategory(seedSnapshot("/x"))).toBe("sleeping");
   });
 });
 
@@ -162,17 +165,17 @@ describe("DEFAULT_FLEET_FILTERS (the full agent board out of the box)", () => {
 
 describe("locationText", () => {
   it("repo · branch when in a repo", () => {
-    const v: Observation = {
-      ...seedObservation("/work/kolu"),
+    const v: TerminalSnapshot = {
+      ...seedSnapshot("/work/kolu"),
       git: {
         repoName: "kolu",
         branch: "feat/dial-ssh",
-      } as Observation["git"],
+      } as TerminalSnapshot["git"],
     };
     expect(locationText(v)).toBe("kolu · feat/dial-ssh");
   });
   it("cwd basename when not in a repo", () => {
-    expect(locationText(seedObservation("/work/repo-a"))).toBe("repo-a");
+    expect(locationText(seedSnapshot("/work/repo-a"))).toBe("repo-a");
   });
 });
 
@@ -209,12 +212,12 @@ describe("pipVariantFor (the shared StatePip variant — fleet ≡ Dock)", () =>
   });
 
   it("no agent is the fleet's own overlay: foreground → idle, bare shell → sleeping", () => {
-    const withForeground: Observation = {
-      ...seedObservation("/x"),
+    const withForeground: TerminalSnapshot = {
+      ...seedSnapshot("/x"),
       foreground: { name: "vim", title: null },
     };
     expect(pipVariantFor(withForeground)).toBe("idle");
-    expect(pipVariantFor(seedObservation("/x"))).toBe("sleeping");
+    expect(pipVariantFor(seedSnapshot("/x"))).toBe("sleeping");
   });
 });
 
@@ -231,9 +234,9 @@ describe("fleetAlert (the per-row badge — fleet ≡ the Dock's alert membershi
     expect(fleetAlert(withAgent("running_background"))).toBe(false);
   });
   it("a terminal with no agent has nothing to notify about", () => {
-    expect(fleetAlert(seedObservation("/x"))).toBe(false);
-    const withForeground: Observation = {
-      ...seedObservation("/x"),
+    expect(fleetAlert(seedSnapshot("/x"))).toBe(false);
+    const withForeground: TerminalSnapshot = {
+      ...seedSnapshot("/x"),
       foreground: { name: "vim", title: null },
     };
     expect(fleetAlert(withForeground)).toBe(false);
@@ -253,7 +256,7 @@ describe("rowBackground (the per-row wash — working|live rows stand out)", () 
     // The green-ring `live` axis alone is enough — a quiet agent whose terminal
     // is moving bytes still reads as hot.
     expect(rowBackground(withAgent("waiting"), true)).toBe(ACCENT_WASH);
-    expect(rowBackground(seedObservation("/x"), true)).toBe(ACCENT_WASH);
+    expect(rowBackground(seedSnapshot("/x"), true)).toBe(ACCENT_WASH);
   });
 
   it("a needs-you agent keeps the alert (violet) wash — and it wins over work/live", () => {
@@ -264,6 +267,6 @@ describe("rowBackground (the per-row wash — working|live rows stand out)", () 
 
   it("an idle, quiet row stays bare (no wash)", () => {
     expect(rowBackground(withAgent("waiting"), false)).toBeUndefined();
-    expect(rowBackground(seedObservation("/x"), false)).toBeUndefined();
+    expect(rowBackground(seedSnapshot("/x"), false)).toBeUndefined();
   });
 });

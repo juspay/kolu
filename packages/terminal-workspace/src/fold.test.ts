@@ -3,15 +3,15 @@ import {
   agentIdentityChanged,
   fold,
   type FoldCtx,
-  foldObserved,
+  foldSnapshot,
   restoreTargetOf,
 } from "./fold.ts";
 import {
   type AgentInfo,
-  type AwarenessObservation,
-  type KoluAwareness,
+  type TerminalEvent,
+  type TerminalState,
   seedMemory,
-  seedObservation,
+  seedSnapshot,
 } from "./schema.ts";
 
 const gitInfo = (branch: string) => ({
@@ -38,27 +38,27 @@ function claude(sessionId: string, state: AgentInfo["state"]): AgentInfo {
   };
 }
 
-const seed = (): KoluAwareness => ({
-  observed: seedObservation("/work/repo"),
+const seed = (): TerminalState => ({
+  snapshot: seedSnapshot("/work/repo"),
   memory: seedMemory(),
 });
 
 const delta = (at: number): FoldCtx => ({ live: true, at });
 const snapshot = (at: number): FoldCtx => ({ live: false, at });
 
-const agentObs = (agent: AgentInfo | null): AwarenessObservation => ({
+const agentObs = (agent: AgentInfo | null): TerminalEvent => ({
   kind: "agent",
   agent: { value: agent },
 });
 
-describe("foldObserved — last-write-wins over the five observed fields", () => {
+describe("foldSnapshot — last-write-wins over the five snapshot fields", () => {
   it("applies cwd/git/pr/foreground edges", () => {
-    let o = seedObservation("/a");
-    o = foldObserved(o, { kind: "cwd", cwd: "/b" });
+    let o = seedSnapshot("/a");
+    o = foldSnapshot(o, { kind: "cwd", cwd: "/b" });
     expect(o.cwd).toBe("/b");
-    o = foldObserved(o, { kind: "pr", pr: { kind: "absent" } });
+    o = foldSnapshot(o, { kind: "pr", pr: { kind: "absent" } });
     expect(o.pr).toEqual({ kind: "absent" });
-    o = foldObserved(o, {
+    o = foldSnapshot(o, {
       kind: "foreground",
       foreground: { name: "vim", title: null },
     });
@@ -66,21 +66,21 @@ describe("foldObserved — last-write-wins over the five observed fields", () =>
   });
 
   it("KEEPS the prior agent on `unknown` (same reference — no clobber)", () => {
-    const o = { ...seedObservation("/a"), agent: claude("A", "thinking") };
-    const next = foldObserved(o, { kind: "agent", agent: "unknown" });
+    const o = { ...seedSnapshot("/a"), agent: claude("A", "thinking") };
+    const next = foldSnapshot(o, { kind: "agent", agent: "unknown" });
     expect(next).toBe(o); // identical reference → kolu detects "nothing changed"
   });
 
   it("APPLIES an authoritative `{ value }` agent, including a null (session ended)", () => {
-    const o = { ...seedObservation("/a"), agent: claude("A", "thinking") };
-    const next = foldObserved(o, { kind: "agent", agent: { value: null } });
+    const o = { ...seedSnapshot("/a"), agent: claude("A", "thinking") };
+    const next = foldSnapshot(o, { kind: "agent", agent: { value: null } });
     expect(next.agent).toBeNull();
   });
 
-  it("a commandRun leaves the observed half untouched (it is a memory mark)", () => {
-    const o = seedObservation("/a");
+  it("a commandRun leaves the snapshot half untouched (it is a memory mark)", () => {
+    const o = seedSnapshot("/a");
     expect(
-      foldObserved(o, {
+      foldSnapshot(o, {
         kind: "commandRun",
         command: "claude",
         replayed: false,
@@ -107,7 +107,7 @@ describe("agentIdentityChanged — identity-only (kind + sessionId)", () => {
 describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   it("bumps on a genuinely-new agent in a DELTA frame", () => {
     const next = fold(seed(), agentObs(claude("A", "thinking")), delta(1000));
-    expect(next.observed.agent?.sessionId).toBe("A");
+    expect(next.snapshot.agent?.sessionId).toBe("A");
     expect(next.memory.lastActivityAt).toBe(1000);
   });
 
@@ -119,23 +119,23 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
       agentObs(claude("A", "thinking")),
       snapshot(1000),
     );
-    expect(next.observed.agent?.sessionId).toBe("A");
+    expect(next.snapshot.agent?.sessionId).toBe("A");
     expect(next.memory.lastActivityAt).toBe(0); // untouched
   });
 
   it("does NOT bump on a same-identity state tick (firehose) — keeps prior recency", () => {
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 500 },
     };
     const next = fold(cur, agentObs(claude("A", "waiting")), delta(9999));
-    expect(next.observed.agent?.state).toBe("waiting");
+    expect(next.snapshot.agent?.state).toBe("waiting");
     expect(next.memory.lastActivityAt).toBe(500); // unchanged
   });
 
   it("bumps when a finished agent is followed by a genuinely-new one (the old-caveat bug)", () => {
-    let cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "waiting") },
+    let cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "waiting") },
       memory: { lastActivityAt: 500 },
     };
     cur = fold(cur, agentObs(null), delta(600)); // A finishes
@@ -145,8 +145,8 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
   });
 
   it("KEEPS kolu's value (and recency) on an `unknown` agent — mid-resolution never clobbers", () => {
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 500 },
     };
     const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
@@ -165,8 +165,8 @@ describe("fold — lastAgentCommand from commandRun (dedup; a non-agent ls never
   });
 
   it("dedups a repeated / replayed command to a no-op", () => {
-    const cur: KoluAwareness = {
-      observed: seedObservation("/a"),
+    const cur: TerminalState = {
+      snapshot: seedSnapshot("/a"),
       memory: { lastActivityAt: 0, lastAgentCommand: "claude --model sonnet" },
     };
     const next = fold(
@@ -180,8 +180,8 @@ describe("fold — lastAgentCommand from commandRun (dedup; a non-agent ls never
 
 describe("restoreTargetOf — the fold owns the discriminated resume target", () => {
   it("a LIVE agent + a remembered command → an `exact` target (resume by id)", () => {
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
     };
     expect(restoreTargetOf(cur)).toEqual({
@@ -192,8 +192,8 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   });
 
   it("a quit-to-shell (agent null) with a sticky command → `none` (bare shell, never most-recent)", () => {
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: null },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: null },
       memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
     };
     expect(restoreTargetOf(cur)).toEqual({ kind: "none" });
@@ -208,8 +208,8 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
     // while the producer has already observed a live `claude-code` agent. Pairing them
     // into `exact` would make `resumeAgentCommand` silently downgrade to opencode's
     // most-recent — the wrong-agent resume #2 makes unspellable. Refuse: a bare shell.
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: {
         lastActivityAt: 1,
         lastAgentCommand: "opencode --model sonnet",
@@ -219,15 +219,15 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
   });
 
   it("never produces `legacyMostRecent` — that arm is migration-only", () => {
-    const cur: KoluAwareness = {
-      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+    const cur: TerminalState = {
+      snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 1, lastAgentCommand: "claude" },
     };
     expect(restoreTargetOf(cur).kind).not.toBe("legacyMostRecent");
   });
 });
 
-describe("foldObserved — reference stability the autosave fence rides (#6 pin)", () => {
+describe("foldSnapshot — reference stability the autosave fence rides (#6 pin)", () => {
   it("PRESERVES the git/pr object reference when an UNRELATED field changes", () => {
     // `restoreRelevantEqual` (the disk fence in server/local.ts) compares git/pr by
     // reference, relying on a non-git/pr fold spreading the SAME object through. Pin
@@ -235,22 +235,22 @@ describe("foldObserved — reference stability the autosave fence rides (#6 pin)
     // stability is caught here, not as a silent spurious-autosave regression.
     const git = gitInfo("main");
     const pr = { kind: "ok" as const, value: { number: 1 } } as never;
-    const base = { ...seedObservation("/a"), git, pr };
-    const afterForeground = foldObserved(base, {
+    const base = { ...seedSnapshot("/a"), git, pr };
+    const afterForeground = foldSnapshot(base, {
       kind: "foreground",
       foreground: { name: "vim", title: null },
     });
     expect(afterForeground.git).toBe(git); // SAME reference — fence stays equal
     expect(afterForeground.pr).toBe(pr);
-    const afterCwd = foldObserved(base, { kind: "cwd", cwd: "/b" });
+    const afterCwd = foldSnapshot(base, { kind: "cwd", cwd: "/b" });
     expect(afterCwd.git).toBe(git);
     expect(afterCwd.pr).toBe(pr);
   });
 
   it("produces a NEW git reference on a genuine git change (the fence trips)", () => {
     const git = gitInfo("main");
-    const base = { ...seedObservation("/a"), git };
-    const next = foldObserved(base, { kind: "git", git: gitInfo("feature") });
+    const base = { ...seedSnapshot("/a"), git };
+    const next = foldSnapshot(base, { kind: "git", git: gitInfo("feature") });
     expect(next.git).not.toBe(git);
     expect(next.git?.branch).toBe("feature");
   });

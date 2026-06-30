@@ -55,7 +55,7 @@ const { lifecycle, serverProcessId, status } = createServerLifecycle({
   // rejects it with `STALE_PROCESS_CLOSE_CODE`. The lifecycle PUBLISHES the id via
   // this hook (the probe stays pure); `wire.ts` stashes it in the mutable its URL
   // thunk reads. Distinct from `serverProcessId()`, which is `undefined` on a
-  // stale-close — the echo must keep re-presenting the last *observed* (now dead)
+  // stale-close — the echo must keep re-presenting the last *snapshot* (now dead)
   // id so each reconnect is re-rejected.
   onProcessId: rememberServerProcessId,
   // A persistently-broken probe would otherwise silently leave the UI stuck in

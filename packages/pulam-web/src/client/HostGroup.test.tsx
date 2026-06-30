@@ -91,7 +91,7 @@ function mountHostGroup(): {
   const [keysErr, setKeysErr] = createSignal<Error | undefined>();
   h.app = {
     collections: {
-      awareness: {
+      snapshots: {
         use: () => ({
           keys: () => keys(),
           byKey: () => undefined,
@@ -127,7 +127,7 @@ function mountHostGroup(): {
       live: live() && conn().state === "connected",
       subs: [
         { name: "connection", pending: false, error: err() },
-        { name: "awareness.keys", pending: false, error: keysErr() },
+        { name: "snapshots.keys", pending: false, error: keysErr() },
         { name: "activity", pending: false, error: undefined },
       ],
     }),

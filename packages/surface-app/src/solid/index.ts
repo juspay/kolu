@@ -210,7 +210,7 @@ export function createServerLifecycle<
    *  next reconnect — without re-wrapping `probe` to carry a side-effect. It runs
    *  in a guarded block: a throwing consumer is reported via `onProbeError`, never
    *  unwinding the lifecycle transition. Distinct from `serverProcessId()`, which
-   *  is `undefined` on a stale-close restart; the echo needs the last *observed*
+   *  is `undefined` on a stale-close restart; the echo needs the last *snapshot*
    *  id, which this is. */
   onProcessId?: (processId: string) => void;
   /** Fired synchronously when a stale-close restart is decoded (the
@@ -640,7 +640,7 @@ export function SurfaceAppProvider<
       // lifecycle takes `heartbeat: false` so the socket isn't double-watched — it
       // mints no brand, so this is ownership coordination, not a blind signal.
       heartbeat: props.heartbeat,
-      // Forward the observed-id publisher so a turnkey caller can echo the `pid`
+      // Forward the snapshot-id publisher so a turnkey caller can echo the `pid`
       // handshake param from its own URL thunk without re-wrapping `probe`.
       onProcessId: props.onProcessId,
       // The turnkey source OWNS this socket, so it owns the teardown: on a

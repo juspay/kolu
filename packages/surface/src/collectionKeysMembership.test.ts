@@ -42,7 +42,7 @@ const surface = defineSurface({
  * `registry` Map the test mutates directly is the store, `readAll` projects it,
  * and `upsert`/`remove` are NO-OPS (the registry is the authority; the framework
  * call only fans out to subscribers). `add(k, v)` reproduces kolu's
- * `installAwareness` ordering: insert into the registry FIRST, THEN publish.
+ * `installSnapshot` ordering: insert into the registry FIRST, THEN publish.
  */
 function serveRegistryBacked(
   /** Keys ALREADY in the backing store at `implementSurface` time — preloaded
@@ -123,7 +123,7 @@ describe("served collection keys-stream — membership for a registry-backed pro
     expect(seen.at(-1)).toEqual([1]);
 
     // A SECOND terminal is born after the consumer subscribed — registry-first,
-    // then publish (kolu's `installAwareness` ordering). Without the fix the
+    // then publish (kolu's `installSnapshot` ordering). Without the fix the
     // keys-set delta is suppressed and the consumer is stuck at [1].
     kolu.add(2, "b");
     await flush();

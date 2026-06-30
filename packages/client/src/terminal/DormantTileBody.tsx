@@ -42,7 +42,7 @@ const DormantTileBody: Component<{
   // terminal whose wake brings back a bare shell, so the line stays honest.
   const resumableAgent = () => resumableCommand(arm()?.restoreTarget);
   // Last-known metadata, frozen at sleep. `cwd`, `git.branch`, and `pr` ALL ride the
-  // persisted restore-relevant base (the `PersistedObservation`) — there is no
+  // persisted restore-relevant base (the `PersistedSnapshot`) — there is no
   // frozen-`pr`-off-the-live-overlay special case; wake re-spawns and re-resolves the
   // live overlay. `prValue` projects the resolved PR (or null for a pending/absent/
   // unavailable snapshot — a dormant tile can't act on those, so only a resolved PR

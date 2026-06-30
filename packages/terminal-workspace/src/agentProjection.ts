@@ -34,7 +34,7 @@
  * the "needs you" labels.
  */
 
-import type { AgentInfo, Observation } from "./schema.ts";
+import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
 
 /** The em-dash sentinel for "no value / never observed" — the recency cell's
  *  empty state, spelled once here so every renderer (and any direct read) shares
@@ -179,7 +179,9 @@ export type Urgency = "need" | "work" | "idle";
  *  `AgentInfo | null` so a caller threading an optional-chained active arm
  *  (`activeArm(meta)?.agent`) needn't normalize `undefined`→`null` first — the
  *  truthiness check below treats both as "no agent". */
-export function agentUrgency(agent: Observation["agent"] | undefined): Urgency {
+export function agentUrgency(
+  agent: TerminalSnapshot["agent"] | undefined,
+): Urgency {
   if (!agent) return "idle";
   switch (agentBucket(agent.state)) {
     case "awaiting":
@@ -208,7 +210,7 @@ export const URGENCY_RANK: Record<Urgency, number> = {
  *  reads the idle label. The ONLY thing a renderer customizes is the label
  *  words — the three-way idle fork lives once, here. */
 export function fleetStateLabel(
-  agent: Observation["agent"],
+  agent: TerminalSnapshot["agent"],
   labels: Record<Urgency, string>,
 ): string {
   const urgency = agentUrgency(agent);
@@ -218,25 +220,25 @@ export function fleetStateLabel(
 }
 
 /** The needs-you urgency-rank delta — the host-safe axis every ordering shares.
- *  Reads only `Observation["agent"]` (the live state), never recency, so it
- *  composes on both a memoryless host's `Observation` and kolu's remembered
+ *  Reads only `TerminalSnapshot["agent"]` (the live state), never recency, so it
+ *  composes on both a memoryless host's `TerminalSnapshot` and kolu's remembered
  *  value. */
 function urgencyRankDelta(
-  a: Observation["agent"],
-  b: Observation["agent"],
+  a: TerminalSnapshot["agent"],
+  b: TerminalSnapshot["agent"],
 ): number {
   return URGENCY_RANK[agentUrgency(a)] - URGENCY_RANK[agentUrgency(b)];
 }
 
 /** Order two agents by urgency alone, then a stable id tiebreak — the HOST-SAFE
  *  ordering a dashboard (pulam-web / pulam-tui) uses. It reads only the
- *  `Observation` (no recency), so a memoryless host that serves `Observation` —
+ *  `TerminalSnapshot` (no recency), so a memoryless host that serves `TerminalSnapshot` —
  *  which has no `lastActivityAt` — can sort its fleet without a fold. The recency
  *  tiebreak is kolu's alone ({@link compareAgents}); a dashboard that reached for
  *  it would fail to compile (no `lastActivityAt` to supply). */
 export function compareAgentUrgency(
-  a: { agent: Observation["agent"]; id: string },
-  b: { agent: Observation["agent"]; id: string },
+  a: { agent: TerminalSnapshot["agent"]; id: string },
+  b: { agent: TerminalSnapshot["agent"]; id: string },
 ): number {
   return urgencyRankDelta(a.agent, b.agent) || a.id.localeCompare(b.id);
 }
@@ -245,11 +247,11 @@ export function compareAgentUrgency(
  *  then a stable id tiebreak. The kolu-only ordering — it adds the RECENCY
  *  tiebreak ({@link compareAgentUrgency} is the host-safe urgency-only sibling),
  *  which only kolu can supply because `lastActivityAt` is a remembered fact, not
- *  an observed one. The rank, recency, and tiebreak braided once so two scopes
+ *  a snapshot one. The rank, recency, and tiebreak braided once so two scopes
  *  can't fall back to iteration order. */
 export function compareAgents(
-  a: { agent: Observation["agent"]; lastActivityAt: number; id: string },
-  b: { agent: Observation["agent"]; lastActivityAt: number; id: string },
+  a: { agent: TerminalSnapshot["agent"]; lastActivityAt: number; id: string },
+  b: { agent: TerminalSnapshot["agent"]; lastActivityAt: number; id: string },
 ): number {
   return (
     urgencyRankDelta(a.agent, b.agent) ||

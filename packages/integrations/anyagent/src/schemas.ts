@@ -55,7 +55,7 @@ export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
  *     `command` but never captured the session id: resume the MOST-RECENT
  *     conversation in the cwd (the old behavior, kept for already-saved sessions).
  *     NAMED so it is never confused with `none`; the live fold never produces it,
- *     only `backfillAwarenessCutover` does.
+ *     only `backfillSnapshotCutover` does.
  *  Produced by kolu's fold (`restoreTargetOf`), persisted on the authored record,
  *  consumed by `resumeFormFor`. The previous shape — a bare optional `resumeAgent`
  *  identity read alongside `lastAgentCommand` — left `(command set, identity

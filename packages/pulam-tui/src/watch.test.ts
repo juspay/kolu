@@ -20,10 +20,10 @@ import {
   serveOverUnixSocket,
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
-import { seedObservation } from "@kolu/terminal-workspace/schema";
+import { seedSnapshot } from "@kolu/terminal-workspace/schema";
 import {
   DEFAULT_VERSION,
-  type Observation,
+  type TerminalSnapshot,
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   terminalWorkspaceSurface,
   type TerminalId,
@@ -39,8 +39,8 @@ import {
 
 const id = (s: string): TerminalId => s as TerminalId;
 
-function observation(over: Partial<Observation>): Observation {
-  return { ...seedObservation("/repo"), ...over };
+function snapshot(over: Partial<TerminalSnapshot>): TerminalSnapshot {
+  return { ...seedSnapshot("/repo"), ...over };
 }
 
 /** A single-consumer pushable `activity` source: yields the current live set as
@@ -93,9 +93,9 @@ function notInTest(name: string): never {
 
 let listener: UnixSocketListener;
 let socketPath: string;
-let cache: Map<TerminalId, Observation>;
+let cache: Map<TerminalId, TerminalSnapshot>;
 let activity: ReturnType<typeof makeActivity>;
-let publishUpsert: (id: TerminalId, v: Observation) => void;
+let publishUpsert: (id: TerminalId, v: TerminalSnapshot) => void;
 let publishRemove: (id: TerminalId) => void;
 
 beforeEach(async () => {
@@ -105,7 +105,7 @@ beforeEach(async () => {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
-      awareness: {
+      snapshots: {
         readAll: () => cache,
         upsert: (key, value) => {
           cache.set(key, value);
@@ -138,8 +138,8 @@ beforeEach(async () => {
   });
   // Publishing handle — writes the cache (the dep above) AND notifies subscribers.
   publishUpsert = (key, value) =>
-    fragment.ctx.collections.awareness.upsert(key, value);
-  publishRemove = (key) => fragment.ctx.collections.awareness.remove(key);
+    fragment.ctx.collections.snapshots.upsert(key, value);
+  publishRemove = (key) => fragment.ctx.collections.snapshots.remove(key);
 
   const router = implement(terminalWorkspaceSurface.contract).router(
     // biome-ignore lint/suspicious/noExplicitAny: the Lazy<Router> spread vs oRPC's Router<any,T> input — same cast the daemon + surface tests use; runtime shape is valid.
@@ -162,7 +162,7 @@ describe("status — one-shot snapshot over a real socket", () => {
   it("reads the seeded awareness collection and asserts a compatible contract", async () => {
     publishUpsert(
       id("a3f1aaaa-1111-4222-8333-444455556666"),
-      observation({ cwd: "/code/kolu" }),
+      snapshot({ cwd: "/code/kolu" }),
     );
     const conn = await connectPulam(socketPath);
     try {
@@ -183,7 +183,11 @@ describe("watch — live over a real socket", () => {
   let conn: Connection;
   let abort: AbortController;
   let done: Promise<void>;
-  let upserts: Array<{ id: TerminalId; value: Observation; live: boolean }>;
+  let upserts: Array<{
+    id: TerminalId;
+    value: TerminalSnapshot;
+    live: boolean;
+  }>;
   let removes: TerminalId[];
 
   beforeEach(async () => {
@@ -209,7 +213,7 @@ describe("watch — live over a real socket", () => {
 
   it("streams an upsert as it lands, then a removal", async () => {
     const tid = id("b7c20000-1111-4222-8333-444455556666");
-    publishUpsert(tid, observation({ cwd: "/code/drishti" }));
+    publishUpsert(tid, snapshot({ cwd: "/code/drishti" }));
     await waitFor(() => upserts.some((e) => e.id === tid));
     expect(upserts.find((e) => e.id === tid)?.value.cwd).toBe("/code/drishti");
 
@@ -224,7 +228,7 @@ describe("watch — live over a real socket", () => {
     // has reached the client's live set over the socket (deterministic-eventually,
     // no fixed sleep).
     await waitFor(() => {
-      publishUpsert(tid, observation({ cwd: "/code/kolu" }));
+      publishUpsert(tid, snapshot({ cwd: "/code/kolu" }));
       return upserts.some((e) => e.id === tid && e.live);
     });
   });
@@ -242,7 +246,7 @@ describe("watch — initial row carries the live dot from the activity snapshot"
     // Stage BOTH before watch opens: the terminal exists in awareness AND is
     // moving bytes. The keys-snapshot upsert and the activity snapshot now race
     // inside the mirror — the seed is what makes the first row deterministic.
-    publishUpsert(tid, observation({ cwd: "/code/kolu" }));
+    publishUpsert(tid, snapshot({ cwd: "/code/kolu" }));
     activity.set([tid]);
 
     const abort = new AbortController();
@@ -277,7 +281,7 @@ describe("watch — initial row carries the live dot from the activity snapshot"
 describe("settledSnapshot — waits for the daemon's sensors to resolve", () => {
   it("returns the RESOLVED value, not the seed published first", async () => {
     const tid = id("e1f60000-1111-4222-8333-444455556666");
-    publishUpsert(tid, observation({})); // the unresolved seed a fresh daemon emits
+    publishUpsert(tid, snapshot({})); // the unresolved seed a fresh daemon emits
     const conn = await connectPulam(socketPath);
     const snap = settledSnapshot(conn.client, { maxMs: 2000, graceMs: 80 });
     // The sensors resolve a beat later — here the foreground lands (a schema-valid
@@ -286,11 +290,11 @@ describe("settledSnapshot — waits for the daemon's sensors to resolve", () => 
       () =>
         publishUpsert(
           tid,
-          observation({
+          snapshot({
             foreground: {
               name: "node",
               title: null,
-            } as Observation["foreground"],
+            } as TerminalSnapshot["foreground"],
           }),
         ),
       120,
@@ -306,7 +310,7 @@ describe("settledSnapshot — waits for the daemon's sensors to resolve", () => 
 
   it("falls through at maxMs for a terminal that stays seed-shaped (no hang)", async () => {
     const tid = id("f2a70000-1111-4222-8333-444455556666");
-    publishUpsert(tid, observation({})); // never resolves — a bare shell, no repo
+    publishUpsert(tid, snapshot({})); // never resolves — a bare shell, no repo
     const conn = await connectPulam(socketPath);
     const t0 = Date.now();
     try {

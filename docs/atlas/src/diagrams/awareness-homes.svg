@@ -20,12 +20,12 @@
   <text x="201" y="181" text-anchor="middle" font-size="9" fill="#14663a">kolu's clock · seeds from its record</text>
 
   <rect x="66" y="216" width="270" height="44" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.7"/>
-  <text x="201" y="235" text-anchor="middle" font-size="10.5" font-weight="700" fill="#3a2bb8">awareness = Observation</text>
+  <text x="201" y="235" text-anchor="middle" font-size="10.5" font-weight="700" fill="#3a2bb8">snapshots = TerminalSnapshot</text>
   <text x="201" y="251" text-anchor="middle" font-size="9.3" fill="#352a7a">+ memory → kolu.authored</text>
 
   <rect x="66" y="300" width="270" height="42" rx="9" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.5"/>
   <text x="201" y="320" text-anchor="middle" font-size="10.5" font-weight="700" fill="#3a2bb8">browser</text>
-  <text x="201" y="335" text-anchor="middle" font-size="9" fill="#352a7a">authored ⋈ awareness</text>
+  <text x="201" y="335" text-anchor="middle" font-size="9" fill="#352a7a">authored ⋈ snapshots</text>
 
   <line x1="201" y1="118" x2="201" y2="146" stroke="#b06d12" stroke-width="1.6" marker-end="url(#g)"/>
   <line x1="201" y1="190" x2="201" y2="216" stroke="#15803d" stroke-width="1.6" marker-end="url(#g)"/>
@@ -41,8 +41,8 @@
   <text x="620" y="116" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">← remote kaval taps</text>
 
   <rect x="484" y="148" width="272" height="40" rx="9" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
-  <text x="620" y="166" text-anchor="middle" font-size="10.3" font-weight="700" fill="#334155">serve: awarenessEvents stream</text>
-  <text x="620" y="180" text-anchor="middle" font-size="9" fill="#475569">Observation · snapshot-then-deltas</text>
+  <text x="620" y="166" text-anchor="middle" font-size="10.3" font-weight="700" fill="#334155">serve: terminalEvents stream</text>
+  <text x="620" y="180" text-anchor="middle" font-size="9" fill="#475569">TerminalEvent · snapshot-then-deltas</text>
 
   <rect x="466" y="270" width="312" height="64" rx="9" fill="#eafaf0" stroke="#15803d" stroke-width="1.7"/>
   <text x="622" y="291" text-anchor="middle" font-size="10.8" font-weight="700" fill="#14663a">kolu: subscribe stream → the SAME fold</text>
@@ -61,5 +61,5 @@
 
   <!-- footnote -->
   <rect x="20" y="400" width="780" height="26" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="5 4"/>
-  <text x="410" y="417" text-anchor="middle" font-size="9.3" fill="#64748b">kolu seeds <tspan font-weight="700" fill="#475569">current</tspan> from its durable record either way, so the snapshot frame is the reconcile — one fold, two transports. Memory → <tspan font-weight="700" fill="#475569">kolu.authored</tspan>; awareness is Observation everywhere.</text>
+  <text x="410" y="417" text-anchor="middle" font-size="9.3" fill="#64748b">kolu seeds <tspan font-weight="700" fill="#475569">current</tspan> from its durable record either way, so the snapshot frame is the reconcile — one fold, two transports. Memory → <tspan font-weight="700" fill="#475569">kolu.authored</tspan>; the snapshots collection is TerminalSnapshot everywhere.</text>
 </svg>

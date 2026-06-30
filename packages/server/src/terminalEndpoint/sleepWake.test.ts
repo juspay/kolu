@@ -8,14 +8,14 @@
  *   - sleep flips the SAME registry entry to the AUTHORED sleeping arm in place;
  *     the resume inputs ride `entry.meta` (the authored record) — `lastAgentCommand`
  *     and the fold-derived `restoreTarget` (BUG-B stripped the agent so wake resumed
- *     nothing). The OBSERVATION (`cwd`/`git`/`pr`) rides `entry.awareness`, carried
+ *     nothing). The OBSERVATION (`cwd`/`git`/`pr`) rides `entry.snapshot`, carried
  *     over unchanged so the dormant tile recomposes cwd/branch/pr off it. `pr` is
- *     restore-relevant now and rides the observation, so the frozen-`pr`-on-the-
+ *     restore-relevant now and rides the snapshot, so the frozen-`pr`-on-the-
  *     sleeping-arm special case is GONE;
  *   - the slept terminal serializes through the SAVED sleeping arm: agent/foreground
  *     don't leak, but the restore-relevant `pr` + the authored memory + `restoreTarget`
  *     ride to disk;
- *   - wake RESETS the observation to `seedObservation(cwd)` (pr pending, agent +
+ *   - wake RESETS the snapshot to `seedSnapshot(cwd)` (pr pending, agent +
  *     foreground null), keeps the authored memory + `restoreTarget`, and flips the
  *     authored record back to active — so the resume form derives off `entry.meta`;
  *   - discard removes both halves of a sleeping record, never an active one.
@@ -32,7 +32,7 @@ import {
   type AgentIdentity,
   type AuthoredTerminal,
   LOCAL_LOCATION,
-  type Observation,
+  type TerminalSnapshot,
   type RestoreTarget,
   SavedTerminalSchema,
 } from "kolu-common/surface";
@@ -44,7 +44,7 @@ import {
 } from "../surfaceCtx.ts";
 import {
   type ActiveTerminalProcess,
-  awarenessFor,
+  snapshotFor,
   getTerminal,
   registerTerminal,
   unregisterTerminal,
@@ -61,7 +61,7 @@ import {
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./local.ts";
-import { installAwareness } from "./metadata.ts";
+import { installSnapshot } from "./metadata.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -104,7 +104,7 @@ function recordingSurfaceCtx(
               ...(inner as object),
               // Production upserts the AUTHORED record on a lifecycle flip; type
               // `value` as an `AuthoredTerminal` so the signature matches what it
-              // receives (the observation lives on the awareness collection).
+              // receives (the snapshot lives on the snapshots collection).
               upsert: (id: string, value: AuthoredTerminal) =>
                 sink.push({ id, state: value.state }),
             }
@@ -116,7 +116,7 @@ function recordingSurfaceCtx(
 
 /** An active registry entry — the AUTHORED half (location + client chrome + the
  *  remembered `AgentMemory` + the fold-derived `restoreTarget`) plus the
- *  OBSERVATION half on the one entry (defaulting to `observationActive()`).
+ *  OBSERVATION half on the one entry (defaulting to `snapshotActive()`).
  *  `restoreTarget` rides an options object so a test can pass `{ restoreTarget:
  *  { kind: "none" } }` for the quit-to-shell case (wake → bare shell) or a
  *  `legacyMostRecent` target — an options bag, not a defaulted scalar, since
@@ -137,15 +137,15 @@ function authoredActive(
       lastAgentCommand: "opencode --model sonnet",
       restoreTarget: opts.restoreTarget,
     },
-    awareness: observationActive(),
+    snapshot: snapshotActive(),
     handle: {} as ActiveTerminalProcess["handle"],
   };
 }
 
-/** The OBSERVATION half — the five observed fields a memoryless producer emits,
+/** The OBSERVATION half — the five snapshot fields a memoryless producer emits,
  *  with a RESOLVED live `pr` (so the wake-time reset back to `pending` is
  *  meaningful, and the sleep carry-over of the restore-relevant `pr` is visible). */
-function observationActive(): Observation {
+function snapshotActive(): TerminalSnapshot {
   return {
     cwd: "/work/repo",
     git: null,
@@ -170,7 +170,7 @@ function observationActive(): Observation {
 function seedActive(): void {
   const entry = authoredActive();
   registerTerminal(ID, entry);
-  installAwareness(ID, entry.awareness);
+  installSnapshot(ID, entry.snapshot);
 }
 
 beforeEach(() => {
@@ -186,7 +186,7 @@ afterEach(() => {
 });
 
 describe("beginSleep — flip active → sleeping in place", () => {
-  it("keeps the SAME id, rides the resume inputs on the authored arm, keeps the observation (incl. pr), releases the handle", () => {
+  it("keeps the SAME id, rides the resume inputs on the authored arm, keeps the snapshot (incl. pr), releases the handle", () => {
     seedActive();
     expect(beginSleepLocal(ID)).toBe(true);
 
@@ -206,7 +206,7 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(entry.meta.lastAgentCommand).toBe("opencode --model sonnet");
     expect(entry.meta.restoreTarget).toEqual(EXACT_TARGET);
 
-    // Authored names NO observed field — cwd/git/pr/agent are absent from entry.meta
+    // Authored names NO snapshot field — cwd/git/pr/agent are absent from entry.meta
     // (pr is restore-relevant now and rides the OBSERVATION, not a frozen arm field).
     const raw = entry.meta as Record<string, unknown>;
     expect(raw.cwd).toBeUndefined();
@@ -217,10 +217,10 @@ describe("beginSleep — flip active → sleeping in place", () => {
 
     // The OBSERVATION stays (sleep does not drop it) — cwd/git + the restore-relevant
     // `pr` ride through so the dormant tile recomposes cwd/branch/pr off it.
-    const aw = awarenessFor(ID);
+    const aw = snapshotFor(ID);
     expect(aw?.cwd).toBe("/work/repo");
     if (aw?.pr?.kind !== "ok") {
-      throw new Error("expected the resolved pr to ride the observation");
+      throw new Error("expected the resolved pr to ride the snapshot");
     }
     expect(aw.pr.value.number).toBe(42);
 
@@ -265,8 +265,8 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
   });
 });
 
-describe("wake — resets the observation, keeps the authored memory", () => {
-  it("re-seeds the observation to defaults, rides the resume inputs through on the authored record, and resumes the exact conversation", async () => {
+describe("wake — resets the snapshot, keeps the authored memory", () => {
+  it("re-seeds the snapshot to defaults, rides the resume inputs through on the authored record, and resumes the exact conversation", async () => {
     seedActive();
     expect(beginSleepLocal(ID)).toBe(true);
 
@@ -275,8 +275,8 @@ describe("wake — resets the observation, keeps the authored memory", () => {
     wakeLocalTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
-    const aw = awarenessFor(ID);
-    // Observation reset to `seedObservation(cwd)` — the frozen pr DISCARDED; the
+    const aw = snapshotFor(ID);
+    // TerminalSnapshot reset to `seedSnapshot(cwd)` — the frozen pr DISCARDED; the
     // re-spawned PTY's producer re-derives agent/foreground/pr.
     expect(aw?.pr).toEqual({ kind: "pending" });
     expect(aw?.agent).toBeNull();
@@ -308,7 +308,7 @@ describe("wake — resets the observation, keeps the authored memory", () => {
     // — `none` is read as a bare shell, never the most-recent fallback (model B).
     const entry = authoredActive({ restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
-    installAwareness(ID, entry.awareness);
+    installSnapshot(ID, entry.snapshot);
     expect(beginSleepLocal(ID)).toBe(true);
 
     wakeLocalTerminal(ID);
@@ -329,7 +329,7 @@ describe("wake — resets the observation, keeps the authored memory", () => {
       },
     });
     registerTerminal(ID, entry);
-    installAwareness(ID, entry.awareness);
+    installSnapshot(ID, entry.snapshot);
     expect(beginSleepLocal(ID)).toBe(true);
 
     wakeLocalTerminal(ID);
@@ -382,8 +382,8 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     // The resume input (the authored `lastAgentCommand`) rode through on the restored
     // sleeping arm — never dropped on a wake-spawn failure.
     expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
-    // The observation survives too (one backing store).
-    expect(awarenessFor(WAKE_ID)?.cwd).toBe("/work/repo");
+    // The snapshot survives too (one backing store).
+    expect(snapshotFor(WAKE_ID)?.cwd).toBe("/work/repo");
   });
 });
 
@@ -428,12 +428,12 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
 });
 
 describe("discardSleeping — removes only a sleeping record (both halves)", () => {
-  it("removes a sleeping record and its awareness", () => {
+  it("removes a sleeping record and its snapshot", () => {
     seedActive();
     beginSleepLocal(ID);
     expect(discardLocalSleeping(ID)).toBe(true);
     expect(getTerminal(ID)).toBeUndefined();
-    expect(awarenessFor(ID)).toBeUndefined();
+    expect(snapshotFor(ID)).toBeUndefined();
   });
 
   it("is a no-op on an active id (active terminals must be killed, not discarded)", () => {
@@ -472,7 +472,7 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     unregisterTerminal(SEED_ID);
   });
 
-  it("seeds both halves: authored sleeping in the registry (memory + restore target), observation in the entry", () => {
+  it("seeds both halves: authored sleeping in the registry (memory + restore target), snapshot in the entry", () => {
     expect(seedSleepingTerminal(validRecord())).toBe(true);
     const entry = getTerminal(SEED_ID);
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
@@ -488,17 +488,17 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
         sessionId: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
       },
     });
-    // The restore-relevant observation (cwd + the persisted pr) rode into the entry
+    // The restore-relevant snapshot (cwd + the persisted pr) rode into the entry
     // (the dormant tile reads cwd/pr off it).
-    expect(awarenessFor(SEED_ID)?.cwd).toBe("/work/repo");
-    expect(awarenessFor(SEED_ID)?.pr).toEqual({ kind: "absent" });
+    expect(snapshotFor(SEED_ID)?.cwd).toBe("/work/repo");
+    expect(snapshotFor(SEED_ID)?.pr).toEqual({ kind: "absent" });
   });
 
   it("DROPS a malformed record (missing sleptAt) without throwing or polluting the set", () => {
     const malformed = { ...validRecord(), sleptAt: undefined };
     expect(seedSleepingTerminal(malformed as never)).toBe(false);
     expect(getTerminal(SEED_ID)).toBeUndefined();
-    expect(awarenessFor(SEED_ID)).toBeUndefined();
+    expect(snapshotFor(SEED_ID)).toBeUndefined();
   });
 
   it("DROPS a record with a non-uuid id", () => {

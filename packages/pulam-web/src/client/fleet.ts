@@ -30,7 +30,10 @@ import {
   compareAgentUrgency,
   type Urgency,
 } from "@kolu/terminal-workspace/agentProjection";
-import type { Observation, TerminalId } from "@kolu/terminal-workspace/surface";
+import type {
+  TerminalSnapshot,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 
 /** The last path segment of `cwd` — the terminal's working dir at a glance. A
  *  trailing slash is trimmed first so `/a/b/` reads as `b`, not empty. */
@@ -79,7 +82,7 @@ export const URGENCY_LABELS: Record<Urgency, string> = {
  *  when nothing's running, a quiet idle dot when a foreground process is. There
  *  is no `attention` here — that loud unread variant is the Dock's alone (the
  *  fleet has no unread obligation to surface). */
-export function pipVariantFor(value: Observation): PipVariant {
+export function pipVariantFor(value: TerminalSnapshot): PipVariant {
   if (value.agent) return pipForPaintClass(agentPaintClass(value.agent.state));
   return value.foreground ? "idle" : "sleeping";
 }
@@ -93,7 +96,7 @@ export function pipVariantFor(value: Observation): PipVariant {
  *  Dock's `unread` (which outlives the state until you open the row), the fleet
  *  keeps no per-terminal read state, so the badge tracks the live notify-class
  *  membership directly. */
-export function fleetAlert(value: Observation): boolean {
+export function fleetAlert(value: TerminalSnapshot): boolean {
   return value.agent ? alertClass(value.agent.state) === "notify" : false;
 }
 
@@ -113,7 +116,7 @@ export const ACCENT_WASH =
  *  them. `need` wins over `work`/`live`: a blocked agent is the louder signal.
  *  Returns the bare `background` value (or `undefined` for no wash). */
 export function rowBackground(
-  value: Observation,
+  value: TerminalSnapshot,
   live: boolean,
 ): string | undefined {
   const urgency = agentUrgency(value.agent);
@@ -133,7 +136,7 @@ export const HOST_COLOR = "#a78bfa";
 
 /** `repo · branch` from the awareness git info, or the cwd basename when not in a
  *  repo. No dirty/clean count — that needs `git.getStatus` (R-pulamweb-4). */
-export function locationText(value: Observation): string {
+export function locationText(value: TerminalSnapshot): string {
   if (value.git) return `${value.git.repoName} · ${value.git.branch}`;
   return basename(value.cwd);
 }
@@ -141,12 +144,12 @@ export function locationText(value: Observation): string {
 /** One terminal as a fleet entry — its id and current awareness value. */
 export interface FleetEntry {
   id: TerminalId;
-  value: Observation;
+  value: TerminalSnapshot;
 }
 
 /** Order terminals within a host: needs-you first, then id (a stable tiebreak) —
  *  the shared HOST-SAFE `compareAgentUrgency` ordering over a fleet entry. pulam
- *  serves the memoryless `Observation`, which has no `lastActivityAt`, so the
+ *  serves the memoryless `TerminalSnapshot`, which has no `lastActivityAt`, so the
  *  fleet sorts by urgency alone — the recency tiebreak is kolu's, where recency is
  *  remembered. */
 export function compareFleetEntries(a: FleetEntry, b: FleetEntry): number {
@@ -167,7 +170,7 @@ export function compareFleetEntries(a: FleetEntry, b: FleetEntry): number {
  *  process. */
 export type TerminalCategory = "active" | "idle" | "nonagent" | "sleeping";
 
-export function terminalCategory(value: Observation): TerminalCategory {
+export function terminalCategory(value: TerminalSnapshot): TerminalCategory {
   if (value.agent) {
     return agentUrgency(value.agent) === "idle" ? "idle" : "active";
   }

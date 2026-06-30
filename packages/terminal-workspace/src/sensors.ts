@@ -2,24 +2,24 @@
  *  transient DERIVATION working state (the agent watchers, the last-emitted agent
  *  mirror, the recognized-agent basename, the git→PR wire, the screen-scrape poll,
  *  the adapter registry — all re-seeded empty each start) and EMITS per-field
- *  `AwarenessObservation`s through `emit`. It takes NO seed and touches no host
+ *  `TerminalEvent`s through `emit`. It takes NO seed and touches no host
  *  store: it cannot CONSTRUCT the two memory facts (`lastActivityAt` /
  *  `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
- *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`Observation`),
- *  not a runtime mutator split. kolu folds the stream into a `KoluAwareness`
- *  (`./fold.ts`); the daemon (pulam) folds the observed half only.
+ *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
+ *  not a runtime mutator split. kolu folds the stream into a `TerminalState`
+ *  (`./fold.ts`); the daemon (pulam) folds the snapshot half only.
  *
  *  Producer:
  *
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher        emit pr
  *                          emit git
  *    title:<id>        ─►  process observer                           emit foreground
- *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Observed<>)
+ *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>)
  *    commandRun:<id>   ─►  agent-command tracker                      emit commandRun
  *
  *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the git sensor
  *  emits. That channel is an internal sensor-to-sensor wire, NOT a host input —
- *  `startAwarenessEngine` constructs it itself and hands it to just those two
+ *  `startSensors` constructs it itself and hands it to just those two
  *  sensors, so hosts plug in only the four taps they actually drive.
  *
  *  ## Host contract
@@ -27,7 +27,7 @@
  *  `inputs.cwd` is the spawn-time cwd, read once at start and not re-read;
  *  subsequent cwd changes flow ONLY through `signals.cwd`. Hosts must publish
  *  every cwd change to that channel. Any host that satisfies the
- *  `AwarenessSignals` shape and publishes cwd will get correct agent / git
+ *  `SensorSignals` shape and publishes cwd will get correct agent / git
  *  resolution. The MRUs (recent repos / recent agents) and recency are kolu's
  *  fold-side concern now — the producer emits the raw `git` / `commandRun`
  *  observations and kolu decides what to remember.
@@ -59,7 +59,7 @@ import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import type {
   AgentInfo,
-  AwarenessObservation,
+  TerminalEvent,
   PrUnavailableSource,
   TerminalId,
 } from "./schema.ts";
@@ -91,7 +91,7 @@ export interface CommandRunSample {
  *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
-export interface AwarenessSignals {
+export interface SensorSignals {
   cwd: Channel<string>;
   title: Channel<string>;
   /** Preexec command marks. `replayed` distinguishes the snapshot-first frame
@@ -132,8 +132,8 @@ function processBasename(proc: string): string {
 
 function startForegroundSensor(
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  emit: (o: AwarenessObservation) => void,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
@@ -141,7 +141,7 @@ function startForegroundSensor(
   // value not four scattered bindings. The name is tracked from
   // `signals.foreground` (the pty-host tap) rather than read synchronously
   // off a handle — so this works when pty-host lives across a socket; the
-  // title is tracked from `signals.title`. `current` is what we've observed;
+  // title is tracked from `signals.title`. `current` is what we've snapshot;
   // `published` is what we last wrote, so `recompute` republishes only on a
   // real change.
   type FgState = { name: string | null; title: string | null };
@@ -192,9 +192,9 @@ function startForegroundSensor(
 function startGitSensor(
   cwd: string,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
+  signals: SensorSignals,
   gitChannel: Channel<GitInfo | null>,
-  emit: (o: AwarenessObservation) => void,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
@@ -272,7 +272,7 @@ const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
 function startPrSensor(
   terminalId: TerminalId,
   gitChannel: Channel<GitInfo | null>,
-  emit: (o: AwarenessObservation) => void,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
@@ -322,8 +322,8 @@ function startPrSensor(
 function startAgentCommandSensor(
   agentState: AgentEngineState,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  emit: (o: AwarenessObservation) => void,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
@@ -442,7 +442,7 @@ function isNotFoundError(err: unknown): boolean {
  *  producer's concern. */
 function emitAgentValue(
   agentState: AgentEngineState,
-  emit: (o: AwarenessObservation) => void,
+  emit: (o: TerminalEvent) => void,
   nextAgent: AgentInfo | null,
 ): void {
   if (agentInfoEqual(agentState.mirror, nextAgent)) return;
@@ -456,9 +456,9 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   pid: number,
   spawnCwd: string,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
+  signals: SensorSignals,
   readScreenText: ReadScreenText | undefined,
-  emit: (o: AwarenessObservation) => void,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
@@ -754,29 +754,29 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
  *  cwd), the four taps, the optional screen reader (#905), and a logger (the lone
  *  coupling injected, not imported, so this package names no host). NO seed, no
  *  store: the producer cannot remember, so a host hands it only what it observes. */
-export interface AwarenessEngineInputs {
+export interface SensorInputs {
   /** OS pid of the PTY's shell — constant for the terminal's life, known at spawn.
    *  The agent detectors compare it to the foreground pid to decide "shell idle"
    *  (foreground IS the shell). */
   pid: number;
   /** Spawn-time cwd — read once at start; later cwd changes flow via `signals.cwd`. */
   cwd: string;
-  signals: AwarenessSignals;
+  signals: SensorSignals;
   readScreenText?: ReadScreenText;
   log: Logger;
 }
 
 /** Start the memoryless per-terminal awareness PRODUCER. It emits per-field
- *  `AwarenessObservation`s through `emit`; kolu folds the stream into a
- *  `KoluAwareness`. Returns a stop fn. The engine owns transient working state
+ *  `TerminalEvent`s through `emit`; kolu folds the stream into a
+ *  `TerminalState`. Returns a stop fn. The engine owns transient working state
  *  (`AgentEngineState` — the agent mirror + recognized basename, shared across the
  *  detectors + the command tracker), re-seeded empty here each start. Sensor order
  *  matters only for the agent-command tracker — it must come first so the
  *  recognized basename is set before the detectors reconcile. */
-export function startAwarenessEngine(
+export function startSensors(
   terminalId: TerminalId,
-  inputs: AwarenessEngineInputs,
-  emit: (o: AwarenessObservation) => void,
+  inputs: SensorInputs,
+  emit: (o: TerminalEvent) => void,
 ): () => void {
   const { pid, cwd, signals, readScreenText, log } = inputs;
   // Transient working state — re-seeded empty each start (a producer is memoryless).
@@ -787,7 +787,7 @@ export function startAwarenessEngine(
   // it, so a throw escaping `emit` would both freeze the raising sensor's `consume`
   // loop AND desync the host fold from the now-advanced baseline (a later equal value
   // deduped → lost forever). So error handling lives where the fallible work actually
-  // is — the host's publish boundary (kolu's `commitObservation` / `updateMemory` /
+  // is — the host's publish boundary (kolu's `commitSnapshot` / `updateMemory` /
   // `emitTerminalsDirty`, and pulam's `upsert`, each fold-ACCEPT then guard their own
   // publish), NOT a funnel wrapper here that would sit at the wrong seam (after the
   // baseline advanced) and merely log a lost observation. With the publish guarded at

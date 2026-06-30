@@ -1002,7 +1002,7 @@ export function liveOutstandingTasks(
 
 /** Project the live workflow `tasks` (already filtered by `liveOutstandingTasks`)
  *  to the shared `LiveRun` shape the watcher's promotion path consumes, dropping
- *  non-workflow tasks (runId null) and any whose anchor can't be observed. The
+ *  non-workflow tasks (runId null) and any whose anchor can't be snapshot. The
  *  workflow producer behind the `nextStaleDeadline` receptacle — the `/fork`
  *  producer (`outstandingForkRuns`) returns `LiveRun` directly. Reuses the same
  *  `observeWorkflowRun` anchor as the gate so the two never disagree. */

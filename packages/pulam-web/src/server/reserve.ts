@@ -49,7 +49,7 @@ import type {
 import { observableHolder, seedConnectionCell } from "@kolu/surface-nix-host";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import type {
-  Observation,
+  TerminalSnapshot,
   TerminalId,
   TerminalWorkspaceSpec,
   Version,
@@ -140,7 +140,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const connection = seedConnectionCell();
   // The awareness cache — the R4.8a render payload. The mirror's sink upserts /
   // removes per key; the browser-facing collection reads the whole map.
-  const awarenessCache = new Map<TerminalId, Observation>();
+  const awarenessCache = new Map<TerminalId, TerminalSnapshot>();
   // A local bus the mirror's `activity` sink republishes each remote frame onto,
   // so the browser-facing `activity` source forwards the same data without
   // re-subscribing to the remote. `activityLatest` caches the most-recent frame
@@ -173,7 +173,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
       connection,
     },
     collections: {
-      awareness: {
+      snapshots: {
         readAll: () => awarenessCache,
         // The framework's wrapped upsert/remove call these deps then publish
         // through the keyed channels — the single in-process write seam the
@@ -281,10 +281,10 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
         },
       },
       collections: {
-        awareness: {
+        snapshots: {
           upsert: (key, value) =>
-            fragment.ctx.collections.awareness.upsert(key, value),
-          remove: (key) => fragment.ctx.collections.awareness.remove(key),
+            fragment.ctx.collections.snapshots.upsert(key, value),
+          remove: (key) => fragment.ctx.collections.snapshots.remove(key),
         },
       },
       streams: {
@@ -323,7 +323,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   // empty frame for ones subscribed across the reconnect.
   const resetRemoteFold = (): void => {
     for (const key of [...awarenessCache.keys()]) {
-      fragment.ctx.collections.awareness.remove(key);
+      fragment.ctx.collections.snapshots.remove(key);
     }
     activityLatest = [];
     activityBus.publish([]);

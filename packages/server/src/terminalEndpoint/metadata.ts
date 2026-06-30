@@ -3,16 +3,16 @@
  * (observation + memory), the client-field mutator, and the lifecycle publish.
  *
  * A terminal's record is two halves, BOTH carried by the one registry entry: the
- * last-seen `Observation` rides `entry.awareness` (kolu's fold REPLACES it
+ * last-seen `TerminalSnapshot` rides `entry.snapshot` (kolu's fold REPLACES it
  * wholesale each frame), and the AUTHORED record (location + memory + client fields
  * + discriminant) rides `entry.meta`. This module publishes each half on its OWN
- * collection — the observation onto `terminalWorkspace.awareness`, the authored
+ * collection — the observation onto `terminalWorkspace.snapshots`, the authored
  * record onto `kolu.authored` — and the CLIENT joins them at read time
  * (`useTerminalMetadata` → `composeTerminalMetadata`). There is NO server-side
  * re-fusion here.
  *
  * The write seams:
- *   - `commitObservation(id, observation)` — replace `entry.awareness` and publish
+ *   - `commitSnapshot(id, observation)` — replace `entry.snapshot` and publish
  *     it. Does NOT fire `terminals:dirty`: the ~150 ms agent-detail/foreground
  *     firehose touches only the observation, so it must never arm autosave. The
  *     fold's watch loop fires dirty ITSELF, but only on a restore-relevant VALUE
@@ -29,7 +29,7 @@
 import { prValue } from "anyforge/schemas";
 import {
   type AgentMemory,
-  type Observation,
+  type TerminalSnapshot,
   prUnavailableReason,
   type RestoreTarget,
   type TerminalClientMetadata,
@@ -40,12 +40,12 @@ import { surfaceCtx } from "../surfaceCtx.ts";
 import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
-/** Push an `Observation` snapshot onto the `terminalWorkspace` surface's
- *  `awareness` collection — the SOLE channel an observation change reaches the
+/** Push an `TerminalSnapshot` snapshot onto the `terminalWorkspace` surface's
+ *  `snapshots` collection — the SOLE channel an observation change reaches the
  *  client (kolu's own client reads this collection and joins each value with the
  *  matching `authored` record). Shallow-clones so the collection stores an
  *  independent snapshot rather than aliasing the registry object. */
-function publishAwareness(terminalId: string, obs: Observation): void {
+function publishSnapshot(terminalId: string, obs: TerminalSnapshot): void {
   const pr = prValue(obs.pr);
   const prUnavailable = prUnavailableReason(obs.pr);
   log.debug(
@@ -61,9 +61,9 @@ function publishAwareness(terminalId: string, obs: Observation): void {
       ...(obs.agent && { agent: `${obs.agent.kind}:${obs.agent.state}` }),
       ...(obs.foreground && { foreground: obs.foreground.name }),
     },
-    "awareness publish",
+    "snapshot publish",
   );
-  workspaceSurfaceCtx.collections.awareness.upsert(terminalId, { ...obs });
+  workspaceSurfaceCtx.collections.snapshots.upsert(terminalId, { ...obs });
 }
 
 /** Push a terminal's AUTHORED record onto the `kolu` surface's `authored`
@@ -80,36 +80,39 @@ function publishAuthored(terminalId: string, entry: TerminalProcess): void {
   surfaceCtx.collections.authored.upsert(terminalId, { ...entry.meta });
 }
 
-/** Fan a terminal's awareness snapshot out onto the `awareness` collection. The
+/** Fan a terminal's snapshot out onto the `snapshots` collection. The
  *  awareness VALUE itself now rides the registry entry (a required field set when
  *  the entry is registered), so this no longer writes any backing store — it only
  *  publishes the snapshot to subscribers. Called by the endpoint AFTER
  *  `registerTerminal` on spawn / adopt / orphan / wake / cold-restore; the
  *  caller's `publishTerminalState` publishes the matching authored record, so the
  *  client's join has both halves. */
-export function installAwareness(terminalId: string, value: Observation): void {
-  publishAwareness(terminalId, value);
+export function installSnapshot(
+  terminalId: string,
+  value: TerminalSnapshot,
+): void {
+  publishSnapshot(terminalId, value);
 }
 
-/** Fan a terminal's awareness REMOVAL out onto the `awareness` collection. The
+/** Fan a terminal's REMOVAL out onto the `snapshots` collection. The
  *  awareness value was already dropped with the entry by `unregisterTerminal`
  *  (it is a field on the entry), so this only tells subscribers it is gone.
  *  Called by the endpoint's `finalizeRemoval` (and `killAll`) on exit / kill /
  *  discard. */
-export function dropAwareness(terminalId: string): void {
-  workspaceSurfaceCtx.collections.awareness.remove(terminalId);
+export function dropSnapshot(terminalId: string): void {
+  workspaceSurfaceCtx.collections.snapshots.remove(terminalId);
 }
 
-/** Commit a folded `Observation` — REPLACE `entry.awareness` wholesale (the fold
+/** Commit a folded `TerminalSnapshot` — REPLACE `entry.snapshot` wholesale (the fold
  *  built a new value; nothing is mutated in place) and publish it. Does NOT fire
  *  `terminals:dirty`: the ~150 ms agent-detail/foreground firehose touches only the
  *  observation, so it must never arm autosave; the fold's watch loop fires dirty
  *  itself, but only on a restore-relevant VALUE change. A no-op if `id` has no
  *  entry (a late commit after removal — sensors are torn down before the entry is
  *  removed, so this "never" fires; logged so a teardown bug is observable). */
-export function commitObservation(
+export function commitSnapshot(
   terminalId: string,
-  observation: Observation,
+  observation: TerminalSnapshot,
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
@@ -127,13 +130,13 @@ export function commitObservation(
   // where the producer already advanced its dedup baseline (the fold has accepted
   // `observation` above, so the registry stays in sync regardless; a lost publish
   // self-heals on the next observation). This is what makes `emit` infallible.
-  entry.awareness = observation;
+  entry.snapshot = observation;
   try {
-    publishAwareness(terminalId, observation);
+    publishSnapshot(terminalId, observation);
   } catch (err) {
     log.error(
       { err, terminal: terminalId },
-      "awareness publish threw (observation committed; will re-publish on next change)",
+      "snapshot publish threw (observation committed; will re-publish on next change)",
     );
   }
 }
@@ -155,14 +158,14 @@ export function updateMemory(
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
-    // As in `commitObservation`: a memory write after the entry is gone signals a
+    // As in `commitSnapshot`: a memory write after the entry is gone signals a
     // teardown-ordering bug (a producer outlived its entry), not an expected miss —
     // `warn` so it surfaces in prod.
     log.warn({ terminal: terminalId }, "memory write after removal");
     return;
   }
   // Apply the fold's memory facts to the registry FIRST (accepted), THEN publish —
-  // and guard the publish at this boundary (as `commitObservation` does), so a
+  // and guard the publish at this boundary (as `commitSnapshot` does), so a
   // throwing authored-collection subscriber can't propagate into the sensor loop or
   // be swallowed after the producer baseline advanced. The registry stays in sync;
   // a lost publish self-heals on the next authored-fact change.

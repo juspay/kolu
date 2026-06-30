@@ -6,7 +6,7 @@
  * (websocketLink → surfaceClient → Solid reconcile) works against a re-served
  * mirror of a remote `terminalWorkspaceSurface`. This test pins that leg with
  * the transport collapsed to `directLink` (in-process), so the only thing under
- * test is the FOLD: does an awareness delta on the agent flow through
+ * test is the FOLD: does a snapshots delta on the agent flow through
  * `mirrorRemoteSurface` → `buildReServe`'s sink → the re-serve fragment → a
  * Solid `surfaceClient` collection subscription, and does that subscription
  * RE-NOTIFY?
@@ -14,7 +14,7 @@
  * The pipe, left to right:
  *
  *   1. A REAL agent surface (`implementSurface(terminalWorkspaceSurface, …)`),
- *      its awareness collection backed by a Map the test mutates. Seeded with
+ *      its snapshots collection backed by a Map the test mutates. Seeded with
  *      terminal "A".
  *   2. An agent client over `directLink`.
  *   3. `mirrorRemoteSurface(surface, agentClient, makeSink(), {})` —
@@ -22,7 +22,7 @@
  *      design exposes for exactly this: `makeSink` builds the sink directly, no
  *      client argument — forwarding reaches the live client via the holder).
  *   4. A SECOND client over `directLink` to the re-serve router, wrapped in a
- *      Solid `surfaceClient`, its `awareness.use({})` read inside `createRoot`.
+ *      Solid `surfaceClient`, its `snapshots.use({})` read inside `createRoot`.
  *
  * ASSERT #1: after the first snapshot, the browser store has key "A".
  * ASSERT #2: upsert "B" + remove "A" on the agent → the Solid subscription
@@ -38,11 +38,11 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
-import { seedObservation } from "@kolu/terminal-workspace";
+import { seedSnapshot } from "@kolu/terminal-workspace";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   DEFAULT_VERSION,
-  type Observation,
+  type TerminalSnapshot,
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
@@ -67,8 +67,8 @@ function browserLink(router: unknown) {
 }
 
 /** Stand up a REAL `terminalWorkspaceSurface` agent over `directLink`. The
- *  awareness collection is backed by the returned `cache` Map and driven through
- *  the returned `ctx` — pushing a delta is `ctx.collections.awareness.upsert(...)`
+ *  snapshots collection is backed by the returned `cache` Map and driven through
+ *  the returned `ctx` — pushing a delta is `ctx.collections.snapshots.upsert(...)`
  *  / `.remove(...)`, exactly what the daemon's sensors do. Every other primitive
  *  is implemented minimally (it must be: `implementSurface` fail-fast THROWS on
  *  any unimplemented one) — they're never exercised by this test, but their
@@ -76,8 +76,8 @@ function browserLink(router: unknown) {
 function standUpAgent(
   opts: { activityFeed?: AsyncIterable<TerminalId[]> } = {},
 ) {
-  const cache = new Map<TerminalId, Observation>();
-  cache.set(TERM_A, seedObservation("/work/repo-a"));
+  const cache = new Map<TerminalId, TerminalSnapshot>();
+  cache.set(TERM_A, seedSnapshot("/work/repo-a"));
 
   // The agent serves the BASE surface (connection-free) — link health is the
   // PARENT's, added only at the re-serve seam via `mirroredSurface`.
@@ -85,7 +85,7 @@ function standUpAgent(
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore({ ...DEFAULT_VERSION }) } },
     collections: {
-      awareness: {
+      snapshots: {
         readAll: () => cache,
         upsert: (key, value) => {
           cache.set(key, value);
@@ -239,8 +239,8 @@ describe("buildReServe — the mirror's connection health reaches the browser", 
     await waitFor(() => connNow()?.state === "connecting");
 
     // The session gives up. The parent writes the terminal `failed` state. NO
-    // awareness keys are present: the down state must reach the browser ON ITS
-    // OWN, not be inferred from — or hidden behind — an empty awareness set.
+    // snapshots keys are present: the down state must reach the browser ON ITS
+    // OWN, not be inferred from — or hidden behind — an empty snapshots set.
     reServe.setConnection({
       state: "failed",
       lastError: "exited with code 1",
@@ -280,7 +280,7 @@ describe("buildReServe — the mirror's connection health reaches the browser", 
     expect(routes).not.toContain("/surface/connection/set");
     // Sanity: the base primitives route at the right depth (no double-prefix).
     expect(routes).toContain("/surface/version/get");
-    expect(routes).toContain("/surface/awareness/keys");
+    expect(routes).toContain("/surface/snapshots/keys");
   });
 });
 
@@ -320,15 +320,15 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
     });
 
     // 4. A SECOND client to the RE-SERVE router, wrapped in a Solid client, with
-    //    its awareness collection read inside a reactive root.
+    //    its snapshots collection read inside a reactive root.
     const browserClient = browserLink(reServe.router);
 
     let keysNow: () => TerminalId[] = () => [];
     createRoot((dispose) => {
       disposers.push(dispose);
       const app = surfaceClient(pulamSurface, browserClient);
-      const awareness = app.collections.awareness.use({});
-      keysNow = () => awareness.keys();
+      const snapshots = app.collections.snapshots.use({});
+      keysNow = () => snapshots.keys();
     });
 
     // ASSERT #1: after the first snapshot folds through, the browser store has A.
@@ -339,11 +339,11 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
     // upsert/remove publish through its keyed channels → the mirror's sink folds
     // them into the re-serve cache → the re-serve's keyed channels push to the
     // browser client → the Solid subscription re-runs.
-    agent.ctx.collections.awareness.upsert(
+    agent.ctx.collections.snapshots.upsert(
       TERM_B,
-      seedObservation("/work/repo-b"),
+      seedSnapshot("/work/repo-b"),
     );
-    agent.ctx.collections.awareness.remove(TERM_A);
+    agent.ctx.collections.snapshots.remove(TERM_A);
 
     // ASSERT #2: the Solid store RE-NOTIFIES — keys become {B}. This is the
     // proof: the delta crossed agent → mirror → re-serve → browser-store.
@@ -609,14 +609,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
   /**
    * F1 regression: a quiet terminal must NOT paint live before a real activity
    * frame arrives. The re-serve's `activity` snapshot is the last frame the mirror
-   * folded (`[]` before any) — NOT the awareness key set. A previous cut yielded
+   * folded (`[]` before any) — NOT the snapshots key set. A previous cut yielded
    * `[...awarenessCache.keys()]` as the snapshot, so a terminal that merely EXISTS
-   * (TERM_A is in the awareness cache) painted its dot live until the next byte
+   * (TERM_A is in the snapshots cache) painted its dot live until the next byte
    * moved — the green dot is the byte-tap, orthogonal to a terminal existing.
    *
    * The bug is a SNAPSHOT bug, so the test must subscribe to `activity` only AFTER
-   * the re-serve's awareness cache is fully populated — otherwise an empty cache at
-   * subscribe time would mask it. We first stand up an awareness subscription and
+   * the re-serve's snapshots cache is fully populated — otherwise an empty cache at
+   * subscribe time would mask it. We first stand up a snapshots subscription and
    * wait until TERM_A has folded into the re-serve, THEN open a fresh `activity`
    * subscription (its snapshot reads the cache at THAT moment): the dot must still
    * read `false`, because no byte has moved. Pushing a real `[TERM_A]` frame then
@@ -624,7 +624,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
    */
   it("does NOT paint a quiet terminal live before an activity frame (F1)", async () => {
     // A feed that never pushes a frame — the host is quiet (no bytes moving), but
-    // TERM_A is in the awareness cache (seeded by `standUpAgent`).
+    // TERM_A is in the snapshots cache (seeded by `standUpAgent`).
     const feed = makeFeed<TerminalId[]>();
     const agent = standUpAgent({ activityFeed: feed.iterable });
 
@@ -648,7 +648,7 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
 
     const browserClient = browserLink(reServe.router);
 
-    // First: an awareness subscription, so we can wait until TERM_A has folded
+    // First: a snapshots subscription, so we can wait until TERM_A has folded
     // into the re-serve's cache. This makes the `activity` subscribe below land
     // AFTER the cache is populated — the only timing under which the old snapshot
     // bug (`yield [...awarenessCache.keys()]`) would surface.
@@ -656,8 +656,8 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
     createRoot((dispose) => {
       disposers.push(dispose);
       const app = surfaceClient(pulamSurface, browserClient);
-      const awareness = app.collections.awareness.use({});
-      keys = () => awareness.keys();
+      const snapshots = app.collections.snapshots.use({});
+      keys = () => snapshots.keys();
     });
     await waitFor(() => keys().includes(TERM_A));
 
@@ -703,14 +703,14 @@ describe("buildReServe — activity stream re-notifies on a same-shape live-set 
 });
 
 /**
- * Issue #1549 — a stale awareness row must NOT survive an ssh-link respawn.
+ * Issue #1549 — a stale snapshots row must NOT survive an ssh-link respawn.
  *
- * pulam-web's awareness cache is built ONCE per host session (`buildReServe`)
+ * pulam-web's snapshots cache is built ONCE per host session (`buildReServe`)
  * and closed over by every (re)spawn's sink, while each fresh mirror's per-key
  * `open` set starts EMPTY. So a key that left the remote while the link was down
  * is absent from the new snapshot AND unknown to the new mirror — its `onRemove`
  * never fires, and the cache pins a phantom row indefinitely (the Dock, reading
- * kolu's in-process awareness, correctly shows it gone). The pump fires
+ * kolu's in-process snapshots, correctly shows it gone). The pump fires
  * `onLinkDown` on each link death; the re-serve answers with `resetRemoteFold()`,
  * dropping the fold so the NEXT spawn rebuilds from the remote's authoritative
  * snapshot. One reset collapses both flavors: a finished agent's `working` is
@@ -738,8 +738,8 @@ describe("buildReServe — resets the remote-derived fold on link death (#1549)"
     createRoot((dispose) => {
       disposers.push(dispose);
       const app = surfaceClient(pulamSurface, browserClient);
-      const awareness = app.collections.awareness.use({});
-      keysNow = () => awareness.keys();
+      const snapshots = app.collections.snapshots.use({});
+      keysNow = () => snapshots.keys();
     });
 
     // ── Spawn #1: terminal A is present. ──

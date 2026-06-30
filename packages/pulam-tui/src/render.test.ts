@@ -1,5 +1,8 @@
 import { agentStatusLabel } from "@kolu/terminal-workspace/agentProjection";
-import type { Observation, TerminalId } from "@kolu/terminal-workspace/surface";
+import type {
+  TerminalSnapshot,
+  TerminalId,
+} from "@kolu/terminal-workspace/surface";
 import { describe, expect, it } from "vitest";
 import {
   agentMatchesUntil,
@@ -15,10 +18,10 @@ import {
   shortId,
 } from "./render.ts";
 
-/** A seed observation; `over` patches the fields a case cares about. The
+/** A seed snapshot; `over` patches the fields a case cares about. The
  *  git/pr/agent sub-shapes are cast — render only reads a few fields of each,
  *  and these tests exercise rendering, not schema validity. */
-function val(over: Partial<Observation>): Observation {
+function val(over: Partial<TerminalSnapshot>): TerminalSnapshot {
   return {
     cwd: "/repo",
     git: null,
@@ -26,14 +29,14 @@ function val(over: Partial<Observation>): Observation {
     agent: null,
     foreground: null,
     ...over,
-  } as Observation;
+  } as TerminalSnapshot;
 }
 
-const agentVal = (state: string): Observation["agent"] =>
-  ({ kind: "claude-code", state }) as Observation["agent"];
+const agentVal = (state: string): TerminalSnapshot["agent"] =>
+  ({ kind: "claude-code", state }) as TerminalSnapshot["agent"];
 
-const gitVal = (repoName: string, branch: string): Observation["git"] =>
-  ({ repoName, branch, repoRoot: `/r/${repoName}` }) as Observation["git"];
+const gitVal = (repoName: string, branch: string): TerminalSnapshot["git"] =>
+  ({ repoName, branch, repoRoot: `/r/${repoName}` }) as TerminalSnapshot["git"];
 
 const id = (s: string): TerminalId => s as TerminalId;
 const NOW = 1_700_000_000_000;
@@ -94,7 +97,7 @@ describe("formatStatus", () => {
         val({
           git: gitVal("drishti", "master"),
           agent: agentVal("awaiting_user"),
-          foreground: { name: "codex" } as Observation["foreground"],
+          foreground: { name: "codex" } as TerminalSnapshot["foreground"],
         }),
       ],
       [
@@ -104,9 +107,9 @@ describe("formatStatus", () => {
           pr: {
             kind: "ok",
             value: { number: 1412, state: "open", checks: "pass" },
-          } as Observation["pr"],
+          } as TerminalSnapshot["pr"],
           agent: agentVal("tool_use"),
-          foreground: { name: "node" } as Observation["foreground"],
+          foreground: { name: "node" } as TerminalSnapshot["foreground"],
         }),
       ],
     ]);
@@ -241,7 +244,7 @@ describe("formatWaitMet", () => {
   it("names the short id, the bucket it reached, and the agent's state", () => {
     const line = formatWaitMet(
       id("a3f1aaaa-1111"),
-      agentVal("awaiting_user") as NonNullable<Observation["agent"]>,
+      agentVal("awaiting_user") as NonNullable<TerminalSnapshot["agent"]>,
     );
     expect(line).toContain("a3f1aaaa");
     expect(line).toContain("awaiting");
