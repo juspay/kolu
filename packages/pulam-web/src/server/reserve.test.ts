@@ -125,12 +125,21 @@ function standUpAgent(
         },
       },
     },
-    // Minimal fs/git — canned, schema-valid, never called by this test.
+    // Minimal fs/git + the R9.5 byte primitives — canned, schema-valid, never
+    // called by this test (they exist so `implementSurface` doesn't fail-fast on
+    // an unimplemented procedure).
     procedures: {
       fs: {
         listAll: () => ({ paths: [] }),
         readFile: () => ({ content: "", truncated: false }),
         statFileMtimeMs: () => 0,
+        previewRead: () => ({ status: 200, headers: {}, bodyBase64: "" }),
+      },
+      scratch: {
+        write: () => ({ path: "" }),
+      },
+      transcript: {
+        read: () => ({ content: "" }),
       },
       git: {
         getStatus: ({ input }) =>

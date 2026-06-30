@@ -240,6 +240,16 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
         readFile: ({ input }) => liveProcs(liveProcedures).fs.readFile(input),
         statFileMtimeMs: ({ input }) =>
           liveProcs(liveProcedures).fs.statFileMtimeMs(input),
+        previewRead: ({ input }) =>
+          liveProcs(liveProcedures).fs.previewRead(input),
+      },
+      // The R9.5 byte primitives (PR-2) — pure forwards too; the browser board
+      // doesn't consume them, it just relays to the live remote.
+      scratch: {
+        write: ({ input }) => liveProcs(liveProcedures).scratch.write(input),
+      },
+      transcript: {
+        read: ({ input }) => liveProcs(liveProcedures).transcript.read(input),
       },
       git: {
         getStatus: ({ input }) =>

@@ -42,8 +42,11 @@ import {
   startSensors,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
+import { writeScratchFile } from "@kolu/terminal-workspace/scratch";
 import { serveTerminalWorkspace } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostListEntry,
@@ -154,6 +157,11 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   // not per-terminal, so it rides outside the per-terminal sensor loop below.
   const workspace = createTerminalWorkspaceEndpoint(log);
 
+  // pulam's own scratch root for the `scratch.write` paste/upload sink — its host
+  // is the producing host for a REMOTE tile (F-REMOTE), so paste-to-host lands
+  // here. Ephemeral like pulam itself: a per-process tmp dir, no durable home.
+  const scratchRoot = join(tmpdir(), `pulam-scratch-${process.pid}`);
+
   // ── The served workspace surface — awareness collection + version cell +
   //    activity, plus the fs/git procedures + watcher streams (R6) — assembled by
   //    the ONE shared `serveTerminalWorkspace` factory that kolu-server also calls.
@@ -186,6 +194,11 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
           }),
       },
       endpoint: workspace,
+      // The live arm of `scratch.write` on pulam's host — same shared primitive
+      // kolu-server binds to `koluScratchDir`, here bound to pulam's tmp root.
+      scratchWrite: ({ terminalId, name, dataBase64 }) => ({
+        path: writeScratchFile(scratchRoot, terminalId, name, dataBase64),
+      }),
       log,
     }),
   });

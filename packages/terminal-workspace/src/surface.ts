@@ -51,8 +51,15 @@ import { TerminalSnapshotSchema, TerminalIdSchema } from "./schema.ts";
  *  `1.0` viewer's parse would reject a `2.0` value's shape — a breaking major.
  *  `2.0 → 3.0` RENAMES the collection key `awareness` → `snapshots` (the type-naming
  *  cleanup): the wire path a viewer subscribes to changes, so a `2.0` viewer can't
- *  find the renamed collection — a breaking major. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.0";
+ *  find the renamed collection — a breaking major.
+ *  `3.0 → 3.1` ADDS three host-scoped byte primitives (additive minor): the
+ *  range-capable `fs.previewRead`, the `scratch.write` paste/upload sink, and the
+ *  `transcript.read` arbitrary-host-path source read (PR-2 of the remote-terminals
+ *  finale). A `3.0` daemon a `3.1` viewer dials reads as `skew` (it can't serve the
+ *  new procedures), exactly the gate's job; a `3.1` daemon still serves a `3.0`
+ *  viewer (the new procedures are simply unused), which is what an additive minor
+ *  means. No existing primitive changed shape. */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.1";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -94,6 +101,69 @@ export const FsReadFileTextOutputSchema = z.object({
   content: z.string(),
   truncated: z.boolean(),
 });
+
+/** Input for the range-capable `fs.previewRead` — a repo-relative file plus the
+ *  verbatim HTTP `Range` request header to honor (`null` for a full read). The
+ *  producing host parses the range and re-enforces the realpath/traversal guard;
+ *  no `terminalId`/`location` rides here (the surface is already host-scoped). */
+export const PreviewReadInputSchema = z.object({
+  repoPath: z.string(),
+  filePath: z.string(),
+  /** The verbatim HTTP `Range` header (e.g. `bytes=0-1023`), or null for the
+   *  whole file. Parsed on the producing host by `@kolu/serve-dir`. */
+  range: z.string().nullable(),
+});
+
+/** Output of `fs.previewRead` — the producing host's byte response, faithfully
+ *  reassembled into a Fetch `Response` by the caller. Mirrors `@kolu/serve-dir`'s
+ *  `ServeResult`: the HTTP status (200/206 on success, 403/404/416/400/500 on a
+ *  guard/range failure), the response headers (content-type, content-range,
+ *  accept-ranges, …), and the body base64-encoded so binary bytes survive the
+ *  JSON wire (on an error status the body carries the plain-text reason). */
+export const PreviewReadOutputSchema = z.object({
+  status: z.number().int(),
+  headers: z.record(z.string(), z.string()),
+  bodyBase64: z.string(),
+});
+export type PreviewReadInput = z.infer<typeof PreviewReadInputSchema>;
+export type PreviewReadOutput = z.infer<typeof PreviewReadOutputSchema>;
+
+/** Input for `scratch.write` — a per-terminal paste/upload sink. `name` is a
+ *  suggested filename (sanitized to a basename on the producing host); the bytes
+ *  ride base64-encoded. Carries `terminalId` because the scratch dir is
+ *  per-terminal (not `location` — host-scoping stays implicit in the surface). */
+export const ScratchWriteInputSchema = z.object({
+  terminalId: TerminalIdSchema,
+  name: z.string(),
+  dataBase64: z.string(),
+});
+
+/** Output of `scratch.write` — the absolute on-disk path on the producing host,
+ *  bracketed-pasted into that host's PTY so an agent can read the dropped file. */
+export const ScratchWriteOutputSchema = z.object({
+  path: z.string(),
+});
+export type ScratchWriteInput = z.infer<typeof ScratchWriteInputSchema>;
+export type ScratchWriteOutput = z.infer<typeof ScratchWriteOutputSchema>;
+
+/** Input for `transcript.read` — a guarded read of an arbitrary host path (an
+ *  agent's session-transcript source). `root` is the allowed base on the
+ *  producing host (the agent's store root); `path` is relative to it. The read
+ *  is fenced under `root` (lexical + realpath/symlink-escape) exactly as the repo
+ *  reads are, so a `..`/symlink can't escape the store root on the host. */
+export const TranscriptReadInputSchema = z.object({
+  root: z.string(),
+  path: z.string(),
+});
+
+/** Output of `transcript.read` — the full UTF-8 source. Unlike `fs.readFile`
+ *  (size-capped for the Code-tab body) a transcript is read WHOLE; the consuming
+ *  loader parses it. */
+export const TranscriptReadOutputSchema = z.object({
+  content: z.string(),
+});
+export type TranscriptReadInput = z.infer<typeof TranscriptReadInputSchema>;
+export type TranscriptReadOutput = z.infer<typeof TranscriptReadOutputSchema>;
 
 /** The terminal-workspace surface — PULAM's home today. R6 ships one fs/git
  *  IMPL (`createTerminalWorkspaceEndpoint`) with two homes, NOT one surface both
@@ -172,6 +242,33 @@ export const terminalWorkspaceSurface = defineSurface({
       },
       /** A file's mtime in ms — the cache key the binary-preview path needs. */
       statFileMtimeMs: { input: FsFileInputSchema, output: z.number() },
+      /** Range-capable byte read for the iframe/image/PDF/video preview — bytes +
+       *  content-type + content-range, the realpath/traversal guard re-enforced on
+       *  the producing host. A remote tile's preview byte route forwards through
+       *  this (R9.5 / F-REMOTE); the local byte route reads its own disk directly. */
+      previewRead: {
+        input: PreviewReadInputSchema,
+        output: PreviewReadOutputSchema,
+      },
+    },
+    /** Paste/upload sink — the surface fs is read-only otherwise. Writes a dropped
+     *  file into the terminal's per-host scratch dir and returns its on-disk path
+     *  (bracketed-pasted into the host's PTY). */
+    scratch: {
+      write: {
+        input: ScratchWriteInputSchema,
+        output: ScratchWriteOutputSchema,
+      },
+    },
+    /** Agent session-transcript source reads, scoped to the serving host. */
+    transcript: {
+      /** Read a transcript's raw source from an arbitrary host path, fenced under
+       *  the given store root (lexical + realpath). The host-side primitive a
+       *  remote tile's transcript export reads through (F-REMOTE). */
+      read: {
+        input: TranscriptReadInputSchema,
+        output: TranscriptReadOutputSchema,
+      },
     },
     /** Git reads scoped to a repo on the serving host. */
     git: {

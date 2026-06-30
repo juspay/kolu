@@ -13,6 +13,7 @@
     "./agentProjection": "./src/agentProjection.ts",
     "./surface": "./src/surface.ts",
     "./endpoint": "./src/endpoint.ts",
+    "./scratch": "./src/scratch.ts",
     "./serveFsGit": "./src/serveFsGit.ts",
     "./serveTerminalWorkspace": "./src/serveTerminalWorkspace.ts",
     "./socket": "./src/socket.ts"
@@ -22,6 +23,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/server": "^1.13.13",
     "anyagent": "workspace:*",

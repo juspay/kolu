@@ -72,6 +72,7 @@ import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
+import { saveTerminalFile } from "./terminalScratch.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
 import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
@@ -457,6 +458,13 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // known to be moving". R9 injects a live source here instead.
         activity: quietActivity,
         endpoint: localEndpoint,
+        // The local arm of `scratch.write` — kolu-server's existing
+        // `saveTerminalFile` (its `koluScratchDir`) verbatim. A REMOTE tile's
+        // paste/upload routes to its host's pulam instead (F-REMOTE); the local
+        // router paste handlers still call `saveTerminalFile` directly.
+        scratchWrite: ({ terminalId, name, dataBase64 }) => ({
+          path: saveTerminalFile(terminalId, name, dataBase64),
+        }),
         log,
       }),
     },

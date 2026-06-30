@@ -30,13 +30,26 @@ describe("terminal-workspace surface", () => {
     expect(seed.pr).toEqual({ kind: "pending" });
   });
 
-  it("declares the R6 fs/git procedures and watcher streams", () => {
+  it("declares the R6 fs/git procedures, the R9.5 byte primitives, and the watcher streams", () => {
     const spec = terminalWorkspaceSurface.spec;
     expect(Object.keys(spec.procedures?.fs ?? {})).toEqual(
-      expect.arrayContaining(["listAll", "readFile", "statFileMtimeMs"]),
+      expect.arrayContaining([
+        "listAll",
+        "readFile",
+        "statFileMtimeMs",
+        // R9.5 (PR-2) additive: the range-capable preview byte read.
+        "previewRead",
+      ]),
     );
     expect(Object.keys(spec.procedures?.git ?? {})).toEqual(
       expect.arrayContaining(["getStatus", "getDiff"]),
+    );
+    // R9.5 (PR-2) additive byte primitives: paste/upload + transcript-source read.
+    expect(Object.keys(spec.procedures?.scratch ?? {})).toEqual(
+      expect.arrayContaining(["write"]),
+    );
+    expect(Object.keys(spec.procedures?.transcript ?? {})).toEqual(
+      expect.arrayContaining(["read"]),
     );
     expect(Object.keys(spec.streams ?? {})).toEqual(
       expect.arrayContaining([
@@ -47,16 +60,18 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("bumped the contract to 3.0 — the BREAKING collection rename (snapshots), skew in BOTH directions vs 2.0", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("3.0");
-    // 2.0 → 3.0 RENAMES the collection key `awareness` → `snapshots` (the type-naming
-    // cleanup). The wire path a viewer subscribes to changes, so a 2.0 viewer can't
-    // find the renamed collection — NOT additive. The gate must mark the two mutually
-    // incompatible, both directions:
+  it("bumped the contract to 3.1 — the ADDITIVE-MINOR byte primitives, skew only one direction vs 3.0", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("3.1");
+    // 3.0 → 3.1 ADDS the three host-scoped byte primitives (fs.previewRead,
+    // scratch.write, transcript.read) and changes no existing primitive's shape —
+    // an additive minor. So a 3.1 daemon still serves a 3.0 viewer (the new
+    // procedures simply go unused), but a 3.0 daemon a 3.1 viewer dials reads as
+    // `skew` (it can't serve them) — compatible in exactly one direction:
+    expect(isContractVersionCompatible("3.1", "3.0")).toBe(true);
+    expect(isContractVersionCompatible("3.0", "3.1")).toBe(false);
+    // The 2.0 → 3.0 collection rename stays mutually incompatible, both directions.
     expect(isContractVersionCompatible("3.0", "2.0")).toBe(false);
     expect(isContractVersionCompatible("2.0", "3.0")).toBe(false);
-    // A newer-minor 3.x daemon (a future additive bump) still serves a 3.0 viewer.
-    expect(isContractVersionCompatible("3.1", "3.0")).toBe(true);
   });
 
   it("the base surface carries NO `connection` cell — link health lives only at the mirror seam", () => {

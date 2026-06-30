@@ -27,10 +27,12 @@ const stubSnapshots: SnapshotCollectionDeps = {
 
 describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () => {
   it("assembles the full deps: version cell + fs/git procedures + watcher streams, with the backings injected verbatim", () => {
+    const scratchWrite = () => ({ path: "/scratch/x" });
     const deps = serveTerminalWorkspace({
       snapshots: stubSnapshots,
       activity: quietActivity,
       endpoint: stubEndpoint,
+      scratchWrite,
       log: stubLog,
     });
 
@@ -41,6 +43,9 @@ describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () =>
     expect(deps.streams?.subscribeFileChange).toBeDefined();
     expect(deps.procedures?.fs).toBeDefined();
     expect(deps.procedures?.git).toBeDefined();
+    // The R9.5 byte primitives: endpoint-backed `transcript` + injected `scratch`.
+    expect(deps.procedures?.transcript).toBeDefined();
+    expect(deps.procedures?.scratch?.write).toBeDefined();
     // `channel` is the one dep each home supplies itself — the factory omits it.
     expect("channel" in deps).toBe(false);
 

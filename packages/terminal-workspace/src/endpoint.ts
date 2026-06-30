@@ -13,13 +13,17 @@
  * composite `TerminalEndpoint` imports them as types.
  */
 
+import { readFile as nodeReadFile } from "node:fs/promises";
 import { ORPCError } from "@orpc/server";
+import { serveFile } from "@kolu/serve-dir";
 import {
+  assertRealpathUnder,
   getDiff,
   getStatus,
   type GitResult,
   listAll,
   readFile,
+  resolveExistingUnder,
   statFileMtimeMs,
   subscribeFileChange,
   subscribeRepoChange,
@@ -33,6 +37,17 @@ import type {
 import type { Logger } from "pino";
 import { match } from "ts-pattern";
 
+/** The byte response of {@link TerminalEndpointFs.previewRead} — the producing
+ *  host's `@kolu/serve-dir` `ServeResult` reshaped for the wire: the HTTP status,
+ *  the response headers, and the body base64-encoded (binary bytes on a 2xx, the
+ *  plain-text reason on an error status). The caller rebuilds a Fetch `Response`
+ *  from it. */
+export interface PreviewReadResult {
+  status: number;
+  headers: Record<string, string>;
+  bodyBase64: string;
+}
+
 /** Filesystem operations scoped to an endpoint's host machine. Returns
  *  already-unwrapped values; implementations throw `ORPCError` on failure so
  *  consumers don't repeat error-unwrapping at every call site. Covers BOTH
@@ -45,6 +60,22 @@ export interface TerminalEndpointFs {
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
   statFileMtimeMs(repoPath: string, filePath: string): Promise<number>;
+  /** Range-capable byte read for the iframe/image/PDF/video preview — reuses
+   *  `@kolu/serve-dir`'s `serveFile` so range parsing, content-type sniffing, the
+   *  lexical `..`/`%2f` guard AND the realpath/symlink-escape guard are enforced
+   *  here on the producing host, exactly as the kolu-server byte route does. */
+  previewRead(
+    repoPath: string,
+    filePath: string,
+    range: string | null,
+  ): Promise<PreviewReadResult>;
+  /** Full UTF-8 read of an agent transcript's source at `path` (relative to the
+   *  store `root`), fenced under `root` (lexical + realpath/symlink-escape) like
+   *  the repo reads. Untruncated — a transcript is read whole. */
+  readTranscriptSource(
+    root: string,
+    path: string,
+  ): Promise<{ content: string }>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
   subscribeFileChange(
     repoPath: string,
@@ -130,6 +161,39 @@ export function createTerminalWorkspaceEndpoint(
     },
     async statFileMtimeMs(repoPath, filePath) {
       return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));
+    },
+    async previewRead(repoPath, filePath, range) {
+      // Encode the repo-relative path back into a URL tail so `serveFile` runs
+      // its single decode-then-split lexical guard over it (correct for
+      // `%`-bearing names), then drives the SAME range/content-type/realpath
+      // machinery the kolu-server byte route uses. The realpath guard wrapped
+      // here is `previewRealpathGuard`'s twin — rejects a repo-local symlink
+      // whose real target escapes the root, 403, before any byte is read.
+      const tail = filePath
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/");
+      const r = await serveFile(
+        repoPath,
+        tail,
+        range,
+        async (abs) => (await assertRealpathUnder(repoPath, abs, log)).ok,
+      );
+      const bodyBuf =
+        typeof r.body === "string"
+          ? Buffer.from(r.body, "utf8")
+          : Buffer.from(await new Response(r.body).arrayBuffer());
+      return {
+        status: r.status,
+        headers: r.headers,
+        bodyBase64: bodyBuf.toString("base64"),
+      };
+    },
+    async readTranscriptSource(root, filePath) {
+      const resolved = unwrapGit(
+        await resolveExistingUnder(root, filePath, log),
+      );
+      return { content: await nodeReadFile(resolved.abs, "utf8") };
     },
     subscribeRepoChange(repoPath, onChange) {
       return subscribeRepoChange(repoPath, onChange, log);

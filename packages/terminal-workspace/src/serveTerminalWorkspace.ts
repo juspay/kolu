@@ -29,9 +29,23 @@ import type { Logger } from "pino";
 import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import type { TerminalId } from "./schema.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
-import { DEFAULT_VERSION, type terminalWorkspaceSurface } from "./surface.ts";
+import {
+  DEFAULT_VERSION,
+  type ScratchWriteInput,
+  type ScratchWriteOutput,
+  type terminalWorkspaceSurface,
+} from "./surface.ts";
 
 type WorkspaceDeps = ImplementSurfaceDeps<typeof terminalWorkspaceSurface.spec>;
+
+/** The `scratch.write` backing a home injects — write a pasted/uploaded file to
+ *  THIS host's per-terminal scratch dir and return its on-disk path. The scratch
+ *  root is a per-home volatility (kolu-server's `koluScratchDir`, pulam's own), so
+ *  unlike the endpoint-backed reads it is injected, not assembled in the factory.
+ *  kolu-server passes its existing `saveTerminalFile` here verbatim. */
+export type ScratchWriteFn = (
+  input: ScratchWriteInput,
+) => ScratchWriteOutput | Promise<ScratchWriteOutput>;
 
 /** The `snapshots` collection backing a home injects — kolu-server's
  *  registry projection or `pulam`'s own store. */
@@ -74,6 +88,7 @@ export function serveTerminalWorkspace(deps: {
   snapshots: SnapshotCollectionDeps;
   activity: ActivityStreamDeps;
   endpoint: TerminalWorkspaceEndpoint;
+  scratchWrite: ScratchWriteFn;
   log: Logger;
 }): Omit<WorkspaceDeps, "channel"> {
   const fsGit = fsGitSurfaceDeps(deps.endpoint, deps.log);
@@ -81,6 +96,9 @@ export function serveTerminalWorkspace(deps: {
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: { snapshots: deps.snapshots },
     streams: { activity: deps.activity, ...fsGit.streams },
-    procedures: fsGit.procedures,
+    procedures: {
+      ...fsGit.procedures,
+      scratch: { write: ({ input }) => deps.scratchWrite(input) },
+    },
   };
 }

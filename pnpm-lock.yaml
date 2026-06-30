@@ -1512,6 +1512,9 @@ importers:
 
   packages/terminal-workspace:
     dependencies:
+      '@kolu/serve-dir':
+        specifier: workspace:*
+        version: link:../serve-dir
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

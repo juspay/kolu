@@ -1,11 +1,9 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { directLink } from "@kolu/surface/links/direct";
-import {
-  implementSurface,
-  inMemoryChannelByName,
-  inMemoryStore,
-} from "@kolu/surface/server";
+import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -14,14 +12,16 @@ import {
   type TerminalEndpointGit,
 } from "./endpoint.ts";
 import { makeTempRepo } from "./gitRepo.testlib.ts";
+import { writeScratchFile } from "./scratch.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
 import {
-  DEFAULT_VERSION,
-  type RepoChangePulse,
-  terminalWorkspaceSurface,
-} from "./surface.ts";
+  quietActivity,
+  serveTerminalWorkspace,
+} from "./serveTerminalWorkspace.ts";
+import { type RepoChangePulse, terminalWorkspaceSurface } from "./surface.ts";
 
 const log = pino({ level: "silent" });
+const TERM_ID = "11111111-1111-4111-8111-111111111111";
 
 /** The `{ source }` arm of a watcher stream's dep (we always build that arm). */
 type PulseSource = {
@@ -91,44 +91,50 @@ describe("fsGitSurfaceDeps watcher pulses", () => {
 });
 
 // ── The served surface end-to-end over an in-process directLink, with the REAL
-//    endpoint against a temp git repo.
-function makeClient() {
-  const deps = fsGitSurfaceDeps(createTerminalWorkspaceEndpoint(log), log);
+//    factory + endpoint against a temp git repo (the same assembly kolu-server
+//    and pulam use), so the byte primitives are exercised through the actual
+//    serve path, not just the endpoint method.
+function makeClient(scratchRoot: string) {
   const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
-    cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
-    collections: {
+    ...serveTerminalWorkspace({
       snapshots: {
         readAll: () => new Map(),
         upsert: () => {},
         remove: () => {},
       },
-    },
-    streams: {
-      activity: {
-        source: async function* (): AsyncGenerator<never> {},
-      },
-      ...deps.streams,
-    },
-    procedures: deps.procedures,
+      activity: quietActivity,
+      endpoint: createTerminalWorkspaceEndpoint(log),
+      scratchWrite: ({ terminalId, name, dataBase64 }) => ({
+        path: writeScratchFile(scratchRoot, terminalId, name, dataBase64),
+      }),
+      log,
+    }),
   });
   return directLink<typeof terminalWorkspaceSurface.contract>(router);
 }
 
 describe("terminalWorkspaceSurface served over directLink", () => {
   let repo: string;
+  let scratchRoot: string;
   beforeEach(() => {
     repo = makeTempRepo();
+    scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-scratch-"));
   });
-  afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  });
 
   it("forwards fs.listAll", async () => {
-    const { paths } = await makeClient().surface.fs.listAll({ repoPath: repo });
+    const { paths } = await makeClient(scratchRoot).surface.fs.listAll({
+      repoPath: repo,
+    });
     expect(paths).toContain("a.txt");
   });
 
   it("forwards git.getStatus", async () => {
-    const out = await makeClient().surface.git.getStatus({
+    const out = await makeClient(scratchRoot).surface.git.getStatus({
       repoPath: repo,
       mode: "local",
     });
@@ -137,8 +143,48 @@ describe("terminalWorkspaceSurface served over directLink", () => {
 
   it("the repo-change watcher's first frame is the {seq:0} snapshot", async () => {
     const first = await firstFrameOrUndefined(
-      await makeClient().surface.subscribeRepoChange.get({ repoPath: repo }),
+      await makeClient(scratchRoot).surface.subscribeRepoChange.get({
+        repoPath: repo,
+      }),
     );
     expect(first).toEqual({ seq: 0 });
+  });
+
+  // ── The R9.5 byte primitives, served in-process over the real assembly ──
+  it("serves fs.previewRead — bytes + content-type for a repo file", async () => {
+    const r = await makeClient(scratchRoot).surface.fs.previewRead({
+      repoPath: repo,
+      filePath: "a.txt",
+      range: null,
+    });
+    expect(r.status).toBe(200);
+    expect(Buffer.from(r.bodyBase64, "base64").toString("utf8")).toBe(
+      "one\ntwo\n",
+    );
+    expect(r.headers["Content-Type"]).toContain("text/plain");
+  });
+
+  it("serves scratch.write — writes the dropped file and returns its path", async () => {
+    const out = await makeClient(scratchRoot).surface.scratch.write({
+      terminalId: TERM_ID,
+      name: "drop.txt",
+      dataBase64: Buffer.from("dropped").toString("base64"),
+    });
+    expect(out.path).toBe(path.join(scratchRoot, TERM_ID, "drop.txt"));
+    expect(fs.readFileSync(out.path, "utf8")).toBe("dropped");
+  });
+
+  it("serves transcript.read — the full source under a store root", async () => {
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-store-"));
+    fs.writeFileSync(path.join(store, "s.jsonl"), '{"x":1}\n');
+    try {
+      const out = await makeClient(scratchRoot).surface.transcript.read({
+        root: store,
+        path: "s.jsonl",
+      });
+      expect(out.content).toBe('{"x":1}\n');
+    } finally {
+      fs.rmSync(store, { recursive: true, force: true });
+    }
   });
 });

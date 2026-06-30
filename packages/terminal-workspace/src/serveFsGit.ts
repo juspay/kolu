@@ -55,7 +55,13 @@ export function fsGitSurfaceDeps(
   fsGit: TerminalWorkspaceEndpoint,
   log: Logger,
 ): {
-  procedures: NonNullable<WorkspaceDeps["procedures"]>;
+  // The endpoint-backed procedures (fs · git · transcript). `scratch.write` is a
+  // host-injected backing (its scratch root is a per-home volatility), so it is
+  // wired by `serveTerminalWorkspace`, not here.
+  procedures: Pick<
+    NonNullable<WorkspaceDeps["procedures"]>,
+    "fs" | "git" | "transcript"
+  >;
   streams: Pick<
     NonNullable<WorkspaceDeps["streams"]>,
     "subscribeRepoChange" | "subscribeFileChange"
@@ -69,6 +75,8 @@ export function fsGitSurfaceDeps(
           fsGit.fs.readFile(input.repoPath, input.filePath),
         statFileMtimeMs: ({ input }) =>
           fsGit.fs.statFileMtimeMs(input.repoPath, input.filePath),
+        previewRead: ({ input }) =>
+          fsGit.fs.previewRead(input.repoPath, input.filePath, input.range),
       },
       git: {
         getStatus: ({ input }) =>
@@ -80,6 +88,10 @@ export function fsGitSurfaceDeps(
             input.mode,
             input.oldPath,
           ),
+      },
+      transcript: {
+        read: ({ input }) =>
+          fsGit.fs.readTranscriptSource(input.root, input.path),
       },
     },
     streams: {
