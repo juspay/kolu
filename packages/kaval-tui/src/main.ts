@@ -574,9 +574,12 @@ async function cmdWait(
   }
   if (outcome.kind === "timeout") {
     // Distinct exit code (2) so a driving script tells a timeout — the output
-    // never settled — from a usage/link error (1).
+    // never settled — from a usage/link error (1). Report `outcome.elapsedMs`
+    // (always populated by the data layer) rather than `opts.timeoutMs` (which
+    // is `number | undefined`, so a future non-timer `timeout` route couldn't
+    // silently print "undefinedms").
     process.stderr.write(
-      `kaval-tui: timed out after ${opts.timeoutMs}ms waiting for ${shortId(id)} (output never met the condition).\n`,
+      `kaval-tui: timed out after ${outcome.elapsedMs}ms waiting for ${shortId(id)} (output never met the condition).\n`,
     );
     process.exit(2);
   }

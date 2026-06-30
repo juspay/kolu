@@ -171,13 +171,16 @@ export function waitResultJson(
  *  newest output) is never lost to the trim. */
 const MATCH_BUFFER_CAP = 1 << 16;
 
-/** A control sequence (CSI, the common form) and `\r`, stripped so a `matchedLine`
- *  reads cleanly in the human/JSON output. The match itself runs against the raw
- *  bytes (so an escape between two letters can't hide a sentinel from the regex);
- *  this only tidies the REPORTED line. */
+/** Strip VT control sequences (OSC + CSI) and `\r` so a `matchedLine` reads
+ *  cleanly in the human/JSON output. The match itself runs against the raw bytes
+ *  (so an escape between two letters can't hide a sentinel from the regex); this
+ *  only tidies the REPORTED line. OSC is stripped too because a shell prompt's
+ *  title-set (`\x1b]0;…\x07`/ST-terminated) routinely leads a line, and a
+ *  CSI-only strip would leave those bytes raw in the JSON output. */
 function cleanLine(s: string): string {
   return s
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC … (BEL- or ST-terminated)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI
     .replace(/\r/g, "")
     .trim();
 }
@@ -359,8 +362,15 @@ export async function awaitOutputCondition(
         settle({ kind: "gone", elapsedMs: elapsed() });
         return;
       }
-    } catch (err) {
-      if (!abort.signal.aborted) upstreamError ??= errMessage(err);
+    } catch {
+      // The exit stream is the PRECISE "child exited → gone" signal, but losing
+      // it is NOT fatal, so — unlike consumeOutput — we deliberately neither
+      // settle nor disarm here. A real exit ALSO ends the terminalAttach feed →
+      // settleOnLostFeed → gone, so consumeOutput is the backstop; meanwhile a
+      // healthy output feed keeps idle/match/timeout working. (An abort — our own
+      // settle or Ctrl+C — is likewise the expected end.) We do not record this
+      // into upstreamError: it would only ever surface through the `closed` path,
+      // and that path is reached via consumeOutput, which records its OWN error.
     }
   };
 
@@ -373,6 +383,10 @@ export async function awaitOutputCondition(
     disarmIdle();
   }
 
+  // A settled `outcome` is the normal result. The fallback covers the case where
+  // both consumers ended without one — which is a caller abort (consumeOutput's
+  // own end-of-feed path otherwise always settles): a Ctrl+C is `interrupted`,
+  // and anything else is a defensive `closed`.
   return (
     outcome ??
     (opts.signal?.aborted
