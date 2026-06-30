@@ -283,7 +283,7 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold — last-write-wins + 2 kolu-only fields · kolu's clock · memory→authored", m: "shipped #1626", h: "#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — nothing to assemble; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#how-r9-collapses" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots", m: "shipped #1626 (foundation assessed transport-agnostic)", h: "#how-r9-collapses" },
-  { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#r93-the-remote-build" },
+  { d: 0, g: "◐", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "PR #1638 (draft) · ∥ PR-1 PR-2", h: "#r93-the-remote-build" },
   { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — folds the remote terminalEvents through the SAME fold (+ PTY · fs/git · restore · …)", m: "needs PR-1 PR-2 PR-3 · R7", h: "remote-terminals-finale.html#fremote" },
   { d: 0, g: "○", c: "last", l: "PR-1 · PR-2 · R10 (lifecycle · fs/git · host-picker UX)", m: "→ finale", h: "remote-terminals-finale.html#prep" },
 ];
@@ -354,10 +354,12 @@ So the prep **moves** the durable-baseline identity check out of the local emit 
 phase/seq; kolu's arm carries the baseline; `fold` stays verbatim. Pin the adopt case with a differential test.
 </Callout>
 
-**Order:** **PR-3** (this awareness producer-prep) lands in parallel with PR-1 (lifecycle) and PR-2
-(fs/git) — all three pure local no-ops — then **F-REMOTE** subscribes the remote `terminalEvents` on the
-pulam mirror it already holds for fs/git and folds it through the same fold, lighting remote awareness as
-part of the one complete-everything tile. See [the finale](remote-terminals-finale.html#prep).
+**Order:** **PR-3** (this awareness producer-prep) — open as <PrLink pr={1638} /> (draft) — lands in
+parallel with PR-1 (lifecycle) and PR-2 (fs/git), all three pure local no-ops; it ships items 1–3 (the
+framer, the consumer arm, the zod-schema'd `terminalEvents` wire pulam serves + pulam-web forwards),
+landing the contract at `3.1`. Then **F-REMOTE** subscribes the remote `terminalEvents` on the pulam
+mirror it already holds for fs/git and folds it through the same fold, lighting remote awareness as part
+of the one complete-everything tile. See [the finale](remote-terminals-finale.html#prep).
 
 ## Decided — the forks closed
 
