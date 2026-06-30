@@ -152,12 +152,27 @@ export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
 export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
 
 /** Build the per-terminal file-route URL for a repo-relative path (no cache
- *  key). The server's `buildIframePreviewUrl` appends `?v=<mtime>` for the
- *  iframe surface; the client uses the bare URL to point a rendered-Markdown
- *  image at the actual repo file it references. */
+ *  key). `buildIframePreviewUrl` appends `?v=<mtime>` for the iframe/image/video
+ *  surface; the bare URL points a rendered-Markdown image at the actual repo
+ *  file it references. */
 export function buildTerminalFileUrl(
   terminalId: string,
   repoRelPath: string,
 ): string {
   return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodePreviewPath(repoRelPath)}`;
+}
+
+/** The iframe/image/video preview URL — the per-terminal file route plus a
+ *  `?v=<mtime>` cache key, so a re-read after a save yields a NEW url and the
+ *  preview reloads through the same subscription path (the `url`-equality dedup
+ *  the Code tab relies on). `Math.floor(mtimeMs)` is the cache key; keep it
+ *  exact — the live-refresh tests pin the `src` changing on an mtime bump. Lives
+ *  here (browser-safe) so the CLIENT mints it: the Code tab now does the
+ *  binary-preview orchestration that kolu-server's `fsReadFile` stream used to. */
+export function buildIframePreviewUrl(
+  terminalId: string,
+  filePath: string,
+  mtimeMs: number,
+): string {
+  return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
 }

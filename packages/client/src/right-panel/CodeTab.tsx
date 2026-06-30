@@ -64,9 +64,10 @@ import {
 } from "../ui/pierreTheme";
 import { realSizes } from "../ui/corvuResizable";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
-import { app } from "../wire";
+import { client, workspace } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
+import { createPolledQuery } from "./createPolledQuery";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
@@ -311,11 +312,32 @@ const CodeTab: Component<{
   // later `git fetch` would never revive it because the failed initial server
   // read tore the stream down before its repo-change watcher was installed
   // (server.ts `pollOnEvent`).
-  const localStatus = app.streams.gitStatus.use(
+  // The Code tab now reads the SHARED `terminalWorkspace` surface (procedure +
+  // `{seq}` pulse) instead of `koluSurface`'s value-bearing streams (R9.5): one
+  // `subscribeRepoChange` pulse drives every repo-keyed re-query — git status
+  // (local/branch/active), the file list, and the diff all re-read on it, exactly
+  // as the old streams' watcher install was `subscribeRepoChange`. `createPolledQuery`
+  // turns each (procedure, shared pulse) pair back into the same `Subscription`
+  // shape (callable value + `.pending()` + `.error()`) so the #818 selection-
+  // stability guard below reads `pending()` unchanged. Behavior is byte-identical
+  // on local; a REMOTE tile reads ITS host's mirror behind the same client (F-REMOTE).
+  const repoPulse = workspace.streams.subscribeRepoChange.use(
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p } : null;
+    },
+    {
+      onError: (err) => toast.error(`Repo watcher: ${err.message}`),
+    },
+  );
+
+  const localStatus = createPolledQuery(
     () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
+    (input) => client.surface.terminalWorkspace.git.getStatus(input),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
@@ -325,11 +347,13 @@ const CodeTab: Component<{
   // case is *expected* here (the badge just reads no count / the overlay falls
   // back to the local layer), so it's swallowed; any *other* failure
   // (GIT_FAILED, permission, transport) is a real fault and still toasts.
-  const branchStatus = app.streams.gitStatus.use(
+  const branchStatus = createPolledQuery(
     () => {
       const p = repoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
+    (input) => client.surface.terminalWorkspace.git.getStatus(input),
+    repoPulse,
     {
       onError: (err) => {
         if (isUnfetchedBase(err)) return;
@@ -346,12 +370,14 @@ const CodeTab: Component<{
   // actively in this mode, so even the un-fetched-base case is actionable —
   // "run git fetch"). `status`/`statusPending`/`statusError` preserve the shape
   // the rest of the component consumed off the old single subscription.
-  const activeStatus = app.streams.gitStatus.use(
+  const activeStatus = createPolledQuery(
     () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
+    (input) => client.surface.terminalWorkspace.git.getStatus(input),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
@@ -360,17 +386,19 @@ const CodeTab: Component<{
   const statusPending = () => activeStatus.pending();
   const statusError = () => activeStatus.error();
 
-  const allPaths = app.streams.fsListAll.use(
+  const allPaths = createPolledQuery(
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
+    (input) => client.surface.terminalWorkspace.fs.listAll(input),
+    repoPulse,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
     },
   );
 
-  const diff = app.streams.gitDiff.use(
+  const diff = createPolledQuery(
     () => {
       const p = repoPath();
       const s = selectedPath();
@@ -380,6 +408,8 @@ const CodeTab: Component<{
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
+    (input) => client.surface.terminalWorkspace.git.getDiff(input),
+    repoPulse,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
     },

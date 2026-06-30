@@ -42,6 +42,7 @@ import {
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import { localOnly } from "./terminalEndpoint/localOnly.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
@@ -206,7 +207,13 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, "image.png", input.data);
+      // The scratch file lands on the terminal's HOST so the bracketed-pasted
+      // path resolves where the PTY runs (R9.5 / PR-2). LOCAL = today's
+      // `saveTerminalFile` (`koluScratchDir`); a REMOTE tile routes to its host's
+      // `scratch.write` — F-REMOTE lights that arm.
+      const path = localOnly(entry.meta.location, "paste image", () =>
+        saveTerminalFile(input.id, "image.png", input.data),
+      );
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
@@ -218,7 +225,9 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, input.name, input.data);
+      const path = localOnly(entry.meta.location, "upload file", () =>
+        saveTerminalFile(input.id, input.name, input.data),
+      );
       bracketedPastePath(entry, path);
       log.info(
         { terminal: input.id, name: input.name, bytes, path },
@@ -273,70 +282,76 @@ export const appRouter = t.router({
         // agent + cwd + git + pr fields are read straight off `entry.snapshot` —
         // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
         // lockstep bug.
-        const { snapshot: aw } = requireActiveTerminal(input.id);
-        const agent = aw.agent;
-        if (!agent) {
-          throw new ORPCError("PRECONDITION_FAILED", {
-            message:
-              "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
-          });
-        }
-        const cwd = aw.cwd;
-        const repoName = aw.git?.repoName ?? null;
-        const prInfo = prValue(aw.pr);
-        const pr: TranscriptPr | null = prInfo
-          ? { number: prInfo.number, url: prInfo.url }
-          : null;
-        const transcript = match<typeof agent, Transcript | null>(agent)
-          .with({ kind: "claude-code" }, (a) =>
-            loadClaudeCodeTranscript({
-              sessionId: a.sessionId,
-              cwd,
-              title: a.summary,
-              repoName,
-              model: a.model,
-              contextTokens: a.contextTokens,
-              pr,
-            }),
-          )
-          .with({ kind: "opencode" }, (a) =>
-            loadOpenCodeTranscript(
-              {
+        const entry = requireActiveTerminal(input.id);
+        // The transcript SOURCE lives on the terminal's HOST (R9.5 / PR-2). LOCAL
+        // reads kolu-server's own stores (the loaders, verbatim); a REMOTE tile
+        // reads its host's source via `transcript.read` — F-REMOTE lights it.
+        return localOnly(entry.meta.location, "transcript export", async () => {
+          const aw = entry.snapshot;
+          const agent = aw.agent;
+          if (!agent) {
+            throw new ORPCError("PRECONDITION_FAILED", {
+              message:
+                "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
+            });
+          }
+          const cwd = aw.cwd;
+          const repoName = aw.git?.repoName ?? null;
+          const prInfo = prValue(aw.pr);
+          const pr: TranscriptPr | null = prInfo
+            ? { number: prInfo.number, url: prInfo.url }
+            : null;
+          const transcript = match<typeof agent, Transcript | null>(agent)
+            .with({ kind: "claude-code" }, (a) =>
+              loadClaudeCodeTranscript({
                 sessionId: a.sessionId,
+                cwd,
                 title: a.summary,
                 repoName,
-                cwd,
                 model: a.model,
                 contextTokens: a.contextTokens,
                 pr,
-              },
-              log,
-            ),
-          )
-          .with({ kind: "codex" }, (a) =>
-            loadCodexTranscript(
-              {
-                sessionId: a.sessionId,
-                title: a.summary,
-                repoName,
-                cwd,
-                model: a.model,
-                contextTokens: a.contextTokens,
-                pr,
-              },
-              log,
-            ),
-          )
-          .exhaustive();
-        if (!transcript) {
-          throw new ORPCError("NOT_FOUND", {
-            message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
-          });
-        }
-        const html = await transcriptToHtml(transcript, { mode: input.mode });
-        const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
-        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}-${input.mode}.html`;
-        return { html, filename };
+              }),
+            )
+            .with({ kind: "opencode" }, (a) =>
+              loadOpenCodeTranscript(
+                {
+                  sessionId: a.sessionId,
+                  title: a.summary,
+                  repoName,
+                  cwd,
+                  model: a.model,
+                  contextTokens: a.contextTokens,
+                  pr,
+                },
+                log,
+              ),
+            )
+            .with({ kind: "codex" }, (a) =>
+              loadCodexTranscript(
+                {
+                  sessionId: a.sessionId,
+                  title: a.summary,
+                  repoName,
+                  cwd,
+                  model: a.model,
+                  contextTokens: a.contextTokens,
+                  pr,
+                },
+                log,
+              ),
+            )
+            .exhaustive();
+          if (!transcript) {
+            throw new ORPCError("NOT_FOUND", {
+              message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
+            });
+          }
+          const html = await transcriptToHtml(transcript, { mode: input.mode });
+          const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
+          const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}-${input.mode}.html`;
+          return { html, filename };
+        });
       },
     ),
   },

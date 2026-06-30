@@ -48,16 +48,6 @@ import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
 import { exactRestoreTarget } from "anyagent/cli";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
-import {
-  FsListAllInputSchema,
-  FsListAllOutputSchema,
-  FsReadFileInputSchema,
-  FsReadFileOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-} from "kolu-git/schemas";
 import { z } from "zod";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
@@ -964,28 +954,11 @@ export const koluSurface = defineSurface({
       verbs: ["keys", "get"],
     },
   },
-  streams: {
-    /** Live changed-files list for the Code-view's Local/Branch modes. */
-    gitStatus: {
-      inputSchema: GitStatusInputSchema,
-      outputSchema: GitStatusOutputSchema,
-    },
-    /** Live unified diff for one file. */
-    gitDiff: {
-      inputSchema: GitDiffInputSchema,
-      outputSchema: GitDiffOutputSchema,
-    },
-    /** Live repo-relative path list (tracked + untracked-but-not-ignored). */
-    fsListAll: {
-      inputSchema: FsListAllInputSchema,
-      outputSchema: FsListAllOutputSchema,
-    },
-    /** Live UTF-8 content for a single file in the Code-view's All-mode body. */
-    fsReadFile: {
-      inputSchema: FsReadFileInputSchema,
-      outputSchema: FsReadFileOutputSchema,
-    },
-  },
+  // NOTE: no fs/git `stream`s here. The Code tab's fs/git reads (status · diff ·
+  // file list · file content) moved OFF `koluSurface`'s value-bearing streams ONTO
+  // the SHARED `terminalWorkspaceSurface`'s procedure + `{seq}` pulse (R9.5 / PR-2),
+  // so a remote tile's Code tab reads ITS host's mirror behind the same client.
+  // kolu's own surface keeps only the cells/collections/events below.
   events: {
     /** Terminal process exited — fires once per terminal lifetime with the
      *  exit code. Drives the exit toast and the active-terminal auto-switch

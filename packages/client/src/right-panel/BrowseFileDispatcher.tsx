@@ -39,12 +39,15 @@ import { MarkdownRenderer } from "@kolu/solid-fileview/renderers/markdown";
 import { VideoRenderer } from "@kolu/solid-fileview/renderers/video";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import {
+  buildIframePreviewUrl,
+  isBinaryPreviewable,
   isMarkdown,
   isRasterImage,
   isSandboxPreviewable,
   isVideo,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
+import type { FsReadFileOutput } from "kolu-git/schemas";
 import {
   type Component,
   createMemo,
@@ -61,9 +64,10 @@ import { resolveWikilink } from "@kolu/solid-markdown";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { OptionMenu } from "../ui/OptionMenu";
-import { app } from "../wire";
+import { client, workspace } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
+import { createPolledQuery } from "./createPolledQuery";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
@@ -114,15 +118,43 @@ export type BrowseFileDispatcherProps = {
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
-  const fileContent = app.streams.fsReadFile.use(
+  // The file's content — read off the SHARED `terminalWorkspace` surface
+  // (procedure + `{seq}` pulse). The binary-preview/iframe-URL orchestration is
+  // done HERE on the client now (it used to be kolu-server's `fsReadFile`
+  // value-bearing stream): a previewable file (image/PDF/HTML/SVG/video) yields a
+  // `?v=<mtime>` URL the renderer points an <img>/<video>/<iframe> at, everything
+  // else yields raw text. Re-queried on each `subscribeFileChange` pulse so a save
+  // live-refreshes the preview (the mtime bump mints a fresh url) — the same
+  // {kind:"text"|"binary"} shape `textFile()`/`binaryFile()` consume below.
+  const filePulse = workspace.streams.subscribeFileChange.use(
+    () => ({ repoPath: props.repoPath, filePath: props.filePath }),
+    { onError: (err) => toast.error(`File content stream: ${err.message}`) },
+  );
+  const fileContent = createPolledQuery<
+    { terminalId: TerminalId; repoPath: string; filePath: string },
+    FsReadFileOutput
+  >(
     () => ({
       terminalId: props.terminalId,
       repoPath: props.repoPath,
       filePath: props.filePath,
     }),
-    {
-      onError: (err) => toast.error(`File content stream: ${err.message}`),
+    async (input): Promise<FsReadFileOutput> => {
+      const fsInput = { repoPath: input.repoPath, filePath: input.filePath };
+      if (isBinaryPreviewable(input.filePath)) {
+        const mtimeMs =
+          await client.surface.terminalWorkspace.fs.statFileMtimeMs(fsInput);
+        return {
+          kind: "binary",
+          url: buildIframePreviewUrl(input.terminalId, input.filePath, mtimeMs),
+        };
+      }
+      const { content, truncated } =
+        await client.surface.terminalWorkspace.fs.readFile(fsInput);
+      return { kind: "text", content, truncated };
     },
+    filePulse,
+    { onError: (err) => toast.error(`File content stream: ${err.message}`) },
   );
 
   // ── Wikilink navigation ────────────────────────────────────────────

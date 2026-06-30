@@ -81,7 +81,10 @@ function makeInProcessPulamClient(
         listAll: () => unusedInProbe("fs.listAll"),
         readFile: () => unusedInProbe("fs.readFile"),
         statFileMtimeMs: () => unusedInProbe("fs.statFileMtimeMs"),
+        previewRead: () => unusedInProbe("fs.previewRead"),
       },
+      scratch: { write: () => unusedInProbe("scratch.write") },
+      transcript: { read: () => unusedInProbe("transcript.read") },
       git: {
         getStatus: () => unusedInProbe("git.getStatus"),
         getDiff: () => unusedInProbe("git.getDiff"),

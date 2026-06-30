@@ -1,36 +1,24 @@
-/** Kolu glue for the iframe-preview file surface
- *  (`FsReadFileOutput.kind === "binary"`). The actual file serving (range,
+/** Kolu glue for the iframe-preview file ROUTE (`/api/terminals/:id/file/*`,
+ *  served to a `kind: "binary"` preview). The actual file serving (range,
  *  content-type, lexical guard) is the agnostic `@kolu/serve-dir`; this module
  *  owns the kolu-specific bits the consumer injects into it:
- *    - the per-terminal preview URL shape (the `?v=<mtime>` cache key +
- *      route-shape constants), shared with the client (which builds the same
- *      URLs to resolve repo-relative Markdown image srcs);
  *    - the realpath/symlink-escape guard kolu wires into `createDirServer`
  *      (`previewRealpathGuard`), defined once here so `index.ts` and its test
- *      use the SAME shipped adapter rather than each re-deriving it. */
+ *      use the SAME shipped adapter rather than each re-deriving it;
+ *    - the raw-request-target selection + prefix slice the guard depends on
+ *      (`rawTargetFromContext` / `previewTailFromRawUrl`).
+ *  The preview URL SHAPE (`buildIframePreviewUrl`, the `?v=<mtime>` cache key)
+ *  is now browser-safe in `kolu-common/preview` — the CLIENT mints it (the Code
+ *  tab does the binary-preview orchestration the `fsReadFile` stream used to). */
 
 import type { HttpBindings } from "@hono/node-server";
 import { rawPathname, type RealpathGuard } from "@kolu/serve-dir";
 import type { Context } from "hono";
 import {
-  buildTerminalFileUrl,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
 import { assertRealpathUnder } from "kolu-git";
-
-/** Canonical URL shape for the iframe-served file route, used in
- *  `FsReadFileOutput.kind === "binary"` and matched by the Hono route in
- *  `index.ts`. `mtimeMs` is rounded down so a stable file always produces the
- *  same URL (the browser caches the iframe content per URL; an mtime bump mints
- *  a fresh URL → fresh fetch). */
-export function buildIframePreviewUrl(
-  terminalId: string,
-  filePath: string,
-  mtimeMs: number,
-): string {
-  return `${buildTerminalFileUrl(terminalId, filePath)}?v=${Math.floor(mtimeMs)}`;
-}
 
 /** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
  *  resolved here so the selection lives in ONE place the route and its test both

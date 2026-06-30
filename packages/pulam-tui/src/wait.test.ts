@@ -142,7 +142,10 @@ beforeEach(async () => {
         listAll: () => notInTest("fs.listAll"),
         readFile: () => notInTest("fs.readFile"),
         statFileMtimeMs: () => notInTest("fs.statFileMtimeMs"),
+        previewRead: () => notInTest("fs.previewRead"),
       },
+      scratch: { write: () => notInTest("scratch.write") },
+      transcript: { read: () => notInTest("transcript.read") },
       git: {
         getStatus: () => notInTest("git.getStatus"),
         getDiff: () => notInTest("git.getDiff"),

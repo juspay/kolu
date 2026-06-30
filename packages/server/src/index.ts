@@ -53,7 +53,8 @@ import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { snapshotFor } from "./terminal-registry.ts";
+import { getTerminal } from "./terminal-registry.ts";
+import { localOnly } from "./terminalEndpoint/localOnly.ts";
 import {
   activeTerminalCount,
   countActiveClaudeSessions,
@@ -235,49 +236,58 @@ mountArtifactSdk(app, {
 // shadow this route with `serveStatic`'s `/*` matcher.
 app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   const terminalId = c.req.param("terminalId");
-  // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
-  // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
-  // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
-  // last is built by @hono/node-server as `new URL(...).href`, which has ALREADY
-  // run WHATWG path normalization — collapsing `foo/../secret` and `foo/%2e%2e/`
-  // to `secret` BEFORE the handler sees it, defeating serve-dir's `..` guard. The
-  // Node `IncomingMessage.url` (`c.env.incoming.url`) is the raw, un-normalized
-  // request target (origin-form `/path?query`); that's what serve-dir must see.
-  // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
-  // names + `%2f` traversal defense) and is unit-tested in
-  // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
-  // selection (`incoming.url`) as one shipped adapter the integration test
-  // drives too, so the two halves of this guard can't drift. It reads `c.env`
-  // as `Partial<HttpBindings>` so the @hono/node-server binding doesn't leak
-  // into the other mounts' `Hono<BlankEnv>` expectations. When `incoming` is
-  // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent
-  // fallback to the WHATWG-normalized `c.req.raw.url` that would defeat the `..`
-  // guard. Kolu's only production adapter (@hono/node-server) always supplies
-  // `incoming`, so this arm signals a genuinely broken host, not a degraded one.
-  const rawTarget = rawTargetFromContext(c);
-  if (rawTarget === undefined)
-    return c.text("raw request target unavailable", 500);
-  const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
+  // The byte source resolves to the terminal's HOST (R9.5 / PR-2). Missing
+  // terminal → the same 404 the prior `snapshotFor(...)?.git?.repoRoot` miss
+  // produced (a stale tab requesting a closed terminal's preview).
+  const terminal = getTerminal(terminalId);
+  if (!terminal) return c.text("terminal has no repo", 404);
+  return localOnly(terminal.meta.location, "preview byte route", () => {
+    // LOCAL arm — today's path, verbatim: serve from kolu-server's own fs.
+    //
+    // Slice the tail off the RAW request target — NOT `c.req.path`
+    // (`decodeURI`d), `c.req.param("*")` (`decodeURIComponent`d), OR
+    // `c.req.raw.url`. The first two decode the tail before `@kolu/serve-dir`
+    // decodes again (double-decode). The last is built by @hono/node-server as
+    // `new URL(...).href`, which has ALREADY run WHATWG path normalization —
+    // collapsing `foo/../secret` and `foo/%2e%2e/` to `secret` BEFORE the
+    // handler sees it, defeating serve-dir's `..` guard. The Node
+    // `IncomingMessage.url` (`c.env.incoming.url`) is the raw, un-normalized
+    // request target (origin-form `/path?query`); that's what serve-dir must
+    // see. `previewTailFromRawUrl` documents the rest (correctness for
+    // `%`-bearing names + `%2f` traversal defense) and is unit-tested in
+    // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
+    // selection (`incoming.url`) as one shipped adapter the integration test
+    // drives too, so the two halves of this guard can't drift. When `incoming`
+    // is absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent
+    // fallback to the WHATWG-normalized `c.req.raw.url` that would defeat the
+    // `..` guard. Kolu's only production adapter (@hono/node-server) always
+    // supplies `incoming`, so this arm signals a genuinely broken host.
+    const rawTarget = rawTargetFromContext(c);
+    if (rawTarget === undefined)
+      return c.text("raw request target unavailable", 500);
+    const rawTail = previewTailFromRawUrl(rawTarget, terminalId);
 
-  // The one kolu binding: which directory this terminal serves. Kept as the
-  // git repo root for now (behavior-preserving — the browse tree, git-status
-  // decoration, and diff are all repo-relative); switching the injected root
-  // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
-  // because it's a browse-model/decoration product decision, not this refactor.
-  const root = snapshotFor(terminalId)?.git?.repoRoot;
-  if (!root) return c.text("terminal has no repo", 404);
+    // The one kolu binding: which directory this terminal serves. Kept as the
+    // git repo root for now (behavior-preserving — the browse tree, git-status
+    // decoration, and diff are all repo-relative).
+    const root = terminal.snapshot.git?.repoRoot;
+    if (!root) return c.text("terminal has no repo", 404);
 
-  // The agnostic receptacle owns range/content-type/the lexical guard and
-  // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
-  // above) rewrites it downstream for text/html. Range header is read from the
-  // request inside. We inject kolu's realpath guard (`previewRealpathGuard`)
-  // so a repo-local symlink escaping the root (`leak.html -> /etc/passwd`) is
-  // rejected with 403 before any byte is read — the stage the lexical guard
-  // inside `@kolu/serve-dir` can't cover.
-  return createDirServer(root, previewRealpathGuard(root)).fetch(
-    rawTail,
-    c.req.raw,
-  );
+    // The agnostic receptacle owns range/content-type/the lexical guard and
+    // returns a Fetch `Response`; the artifact-sdk HTML decorator (mounted
+    // above) rewrites it downstream for text/html. Range header is read from
+    // the request inside. We inject kolu's realpath guard
+    // (`previewRealpathGuard`) so a repo-local symlink escaping the root
+    // (`leak.html -> /etc/passwd`) is rejected with 403 before any byte is
+    // read — the stage the lexical guard inside `@kolu/serve-dir` can't cover.
+    return createDirServer(root, previewRealpathGuard(root)).fetch(
+      rawTail,
+      c.req.raw,
+    );
+    // REMOTE arm (F-REMOTE) forwards the request (Range + path) to the host's
+    // pulam mirror via `fs.previewRead` and rebuilds the Response from the
+    // returned {status, headers, bytes}; `localOnly` throws until then.
+  });
 });
 
 // --- Dynamic PWA manifest (includes hostname) ---
