@@ -506,12 +506,14 @@ export const store = new Conf<PersistedState>({
     // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
     "1.28.0": () => {},
     // The awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
-    // (restore-relevant) field, and the sticky `agentSession` ref became the
-    // fold-derived `resumeAgent` restore target. A pre-1.29 record lacks the
-    // now-required `pr` (it was a never-persisted live field) and may carry the old
-    // `agentSession`, so `backfillAwarenessCutover` backfills `pr: { kind: "absent" }`
-    // (the live PR sensor re-resolves on restore) and maps `agentSession { kind, id }`
-    // → `resumeAgent { kind, sessionId: id }`, dropping `agentSession`.
+    // (restore-relevant) field, and the sticky `agentSession` ref + the implicit
+    // "lastAgentCommand ⇒ resume most-recent" rule collapsed into one discriminated
+    // `restoreTarget`. A pre-1.29 record lacks the now-required `pr` (it was a
+    // never-persisted live field) and may carry the old `agentSession`, so
+    // `backfillAwarenessCutover` backfills `pr: { kind: "absent" }` (the live PR
+    // sensor re-resolves on restore) and synthesizes `restoreTarget` from what the
+    // record remembered: `agentSession` + a command → `exact`, a command alone →
+    // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
     "1.29.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillAwarenessCutover),
   },

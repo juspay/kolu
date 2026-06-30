@@ -4,6 +4,7 @@ import {
   fold,
   type FoldCtx,
   foldObserved,
+  restoreTargetOf,
 } from "./fold.ts";
 import {
   type AgentInfo,
@@ -12,6 +13,16 @@ import {
   seedMemory,
   seedObservation,
 } from "./schema.ts";
+
+const gitInfo = (branch: string) => ({
+  repoRoot: "/r",
+  repoName: "r",
+  worktreePath: "/r",
+  branch,
+  isWorktree: false,
+  mainRepoRoot: "/r",
+  remoteUrl: null,
+});
 
 function claude(sessionId: string, state: AgentInfo["state"]): AgentInfo {
   return {
@@ -164,5 +175,68 @@ describe("fold — lastAgentCommand from commandRun (dedup; a non-agent ls never
       delta(1),
     );
     expect(next).toBe(cur);
+  });
+});
+
+describe("restoreTargetOf — the fold owns the discriminated resume target", () => {
+  it("a LIVE agent + a remembered command → an `exact` target (resume by id)", () => {
+    const cur: KoluAwareness = {
+      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+      memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+    };
+    expect(restoreTargetOf(cur)).toEqual({
+      kind: "exact",
+      command: "claude --model sonnet",
+      agent: { kind: "claude-code", sessionId: "A" },
+    });
+  });
+
+  it("a quit-to-shell (agent null) with a sticky command → `none` (bare shell, never most-recent)", () => {
+    const cur: KoluAwareness = {
+      observed: { ...seedObservation("/a"), agent: null },
+      memory: { lastActivityAt: 1, lastAgentCommand: "claude --model sonnet" },
+    };
+    expect(restoreTargetOf(cur)).toEqual({ kind: "none" });
+  });
+
+  it("a never-launched terminal (no command) → `none`", () => {
+    expect(restoreTargetOf(seed())).toEqual({ kind: "none" });
+  });
+
+  it("never produces `legacyMostRecent` — that arm is migration-only", () => {
+    const cur: KoluAwareness = {
+      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+      memory: { lastActivityAt: 1, lastAgentCommand: "claude" },
+    };
+    expect(restoreTargetOf(cur).kind).not.toBe("legacyMostRecent");
+  });
+});
+
+describe("foldObserved — reference stability the autosave fence rides (#6 pin)", () => {
+  it("PRESERVES the git/pr object reference when an UNRELATED field changes", () => {
+    // `restoreRelevantEqual` (the disk fence in server/local.ts) compares git/pr by
+    // reference, relying on a non-git/pr fold spreading the SAME object through. Pin
+    // that so a future fold change (a copy / structuredClone) that breaks ref
+    // stability is caught here, not as a silent spurious-autosave regression.
+    const git = gitInfo("main");
+    const pr = { kind: "ok" as const, value: { number: 1 } } as never;
+    const base = { ...seedObservation("/a"), git, pr };
+    const afterForeground = foldObserved(base, {
+      kind: "foreground",
+      foreground: { name: "vim", title: null },
+    });
+    expect(afterForeground.git).toBe(git); // SAME reference — fence stays equal
+    expect(afterForeground.pr).toBe(pr);
+    const afterCwd = foldObserved(base, { kind: "cwd", cwd: "/b" });
+    expect(afterCwd.git).toBe(git);
+    expect(afterCwd.pr).toBe(pr);
+  });
+
+  it("produces a NEW git reference on a genuine git change (the fence trips)", () => {
+    const git = gitInfo("main");
+    const base = { ...seedObservation("/a"), git };
+    const next = foldObserved(base, { kind: "git", git: gitInfo("feature") });
+    expect(next.git).not.toBe(git);
+    expect(next.git?.branch).toBe("feature");
   });
 });

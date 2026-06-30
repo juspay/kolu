@@ -28,10 +28,10 @@
 
 import { prValue } from "anyforge/schemas";
 import {
-  type AgentIdentity,
   type AgentMemory,
   type Observation,
   prUnavailableReason,
+  type RestoreTarget,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
 import { log } from "../log.ts";
@@ -121,17 +121,19 @@ export function commitObservation(
 }
 
 /** Write the fold's three restore-relevant AUTHORED facts — the two remembered
- *  `AgentMemory` fields (`lastActivityAt`, `lastAgentCommand`) and the derived
- *  `resumeAgent` identity — onto `entry.meta`, then publish the authored record.
- *  The ONE writer of these (the fold's), so no other code path can spell them — the
- *  typed mirror of `updateClientMetadata`. Does NOT fire `terminals:dirty`: these
- *  ARE restore-relevant, but the fold's watch loop already fires dirty on the
- *  restore-relevant value change, so firing here too would double-arm. A no-op if
- *  `id` has no entry. */
+ *  `AgentMemory` fields (`lastActivityAt`, `lastAgentCommand`) and the fold-derived
+ *  `restoreTarget` — onto `entry.meta`, then publish the authored record. The ONE
+ *  writer of these (the fold's), so no other code path can spell them — the typed
+ *  mirror of `updateClientMetadata`. Does NOT fire `terminals:dirty`: these ARE
+ *  restore-relevant, but the fold's watch loop already fires dirty on the
+ *  restore-relevant value change, so firing here too would double-arm. The CALLER
+ *  (the emit loop) invokes this only when an authored fact actually CHANGED, so the
+ *  authored collection never re-publishes on the ~150 ms observation firehose. A
+ *  no-op if `id` has no entry. */
 export function updateMemory(
   terminalId: string,
   memory: AgentMemory,
-  resumeAgent: AgentIdentity | undefined,
+  restoreTarget: RestoreTarget,
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
@@ -140,7 +142,7 @@ export function updateMemory(
   }
   entry.meta.lastActivityAt = memory.lastActivityAt;
   entry.meta.lastAgentCommand = memory.lastAgentCommand;
-  entry.meta.resumeAgent = resumeAgent;
+  entry.meta.restoreTarget = restoreTarget;
   publishAuthored(terminalId, entry);
 }
 

@@ -85,15 +85,14 @@ describe("parseSavedSession", () => {
     });
   });
 
-  it("maps a pre-cutover agentSession to resumeAgent (keying id → sessionId)", () => {
-    // The awareness-derive-store cutover (PR #1621) replaced the sticky
-    // `agentSession: { kind, id }` resume ref with the fold-derived
-    // `resumeAgent: { kind, sessionId }` restore target (the EXACT conversation
-    // wake resumes, #1495). A pre-cutover export still carries `agentSession`;
-    // the import backfill maps it across — renaming the inner key `id` →
-    // `sessionId` to match the agent's own field — and drops `agentSession`, so
-    // the recovery hatch recovers a backup that still resumes the right session.
-    // The same record predates persisted `pr`, so it is backfilled `absent` too.
+  it("maps a pre-cutover agentSession + command to an `exact` restoreTarget (keying id → sessionId)", () => {
+    // The awareness-derive-store cutover (PR #1621) collapsed the sticky
+    // `agentSession: { kind, id }` resume ref and the implicit "lastAgentCommand ⇒
+    // most-recent" rule into the fold-derived discriminated `restoreTarget`. A
+    // pre-cutover export that carries BOTH an `agentSession` and a launch command
+    // maps to an `exact` target (the EXACT conversation wake resumes by id, #1495) —
+    // the inner key `id` → `sessionId` to match the agent's own field, `agentSession`
+    // dropped. The same record predates persisted `pr`, so it is backfilled `absent`.
     const legacy = {
       terminals: [
         {
@@ -103,6 +102,7 @@ describe("parseSavedSession", () => {
           git: null,
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
+          lastAgentCommand: "claude --model sonnet",
           agentSession: { kind: "claude-code", id: "sess-123" },
         },
       ],
@@ -119,8 +119,53 @@ describe("parseSavedSession", () => {
           git: null,
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
+          lastAgentCommand: "claude --model sonnet",
           pr: { kind: "absent" },
-          resumeAgent: { kind: "claude-code", sessionId: "sess-123" },
+          restoreTarget: {
+            kind: "exact",
+            command: "claude --model sonnet",
+            agent: { kind: "claude-code", sessionId: "sess-123" },
+          },
+        },
+      ],
+    });
+  });
+
+  it("maps a pre-cutover command WITHOUT an agentSession to a `legacyMostRecent` target", () => {
+    // A record that remembered a launch command but never captured the session id
+    // (no `agentSession`) preserves the OLD most-recent behavior — but as a NAMED
+    // `legacyMostRecent` value, never confused with a quit-to-shell `none`.
+    const legacy = {
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          lastAgentCommand: "opencode --model sonnet",
+        },
+      ],
+      activeTerminalId: "t1",
+      savedAt: 1_700_000_000_000,
+    };
+    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+      ...legacy,
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          lastAgentCommand: "opencode --model sonnet",
+          pr: { kind: "absent" },
+          restoreTarget: {
+            kind: "legacyMostRecent",
+            command: "opencode --model sonnet",
+          },
         },
       ],
     });

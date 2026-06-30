@@ -7,7 +7,9 @@ import {
   agentKindFromCommand,
   parseAgentCommand,
   resumeAgentCommand,
+  resumeFormFor,
 } from "./agent-cli.ts";
+import type { RestoreTarget } from "./schemas.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -442,6 +444,46 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
         id: CLAUDE_ID,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resumeFormFor — switches on the discriminated RestoreTarget", () => {
+  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+
+  it("an absent target → null (a bare shell, by construction)", () => {
+    expect(resumeFormFor(undefined)).toBeNull();
+  });
+
+  it("`none` → null (quit-to-shell never reads as most-recent)", () => {
+    expect(resumeFormFor({ kind: "none" })).toBeNull();
+  });
+
+  it("`exact` → resume the EXACT conversation by id (#1495)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "opencode --model sonnet",
+      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+    };
+    expect(resumeFormFor(target)).toBe(
+      `opencode --session ${OPENCODE_ID} --model sonnet`,
+    );
+  });
+
+  it("`exact` with an id that FAILS its shape gate → null (a bare shell, never the wrong conversation)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+  });
+
+  it("`legacyMostRecent` → the most-recent marker (migrated pre-1.29 records)", () => {
+    const target: RestoreTarget = {
+      kind: "legacyMostRecent",
+      command: "claude --model sonnet",
+    };
+    expect(resumeFormFor(target)).toBe("claude -c --model sonnet");
   });
 });
 

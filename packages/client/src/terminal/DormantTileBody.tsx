@@ -35,11 +35,15 @@ const DormantTileBody: Component<{
     const a = arm();
     return a ? formatTimeAgo(a.sleptAt) : "";
   };
-  // The agent line wake will RESUME — the OBSERVED `lastAgentCommand` (it rides
-  // the persisted base, so it's present on the sleeping arm). Null when the OSC
-  // 633;E command tap never captured an agent launch, in which case wake brings
-  // back a bare shell.
-  const resumableAgent = () => arm()?.lastAgentCommand ?? null;
+  // The agent line wake will RESUME — read off the fold-derived `restoreTarget`
+  // (it rides the authored sleeping arm), so it shows the command ONLY when wake
+  // will actually relaunch an agent: `exact` (the exact conversation) or
+  // `legacyMostRecent`. Null for `none`/absent — a quit-to-shell or never-launched
+  // terminal whose wake brings back a bare shell, so the line stays honest.
+  const resumableAgent = () => {
+    const t = arm()?.restoreTarget;
+    return t && t.kind !== "none" ? t.command : null;
+  };
   // Last-known metadata, frozen at sleep. `cwd` + `git.branch` ride the persisted
   // base; `pr` is the snapshot the sleeping arm froze off the live overlay (wake
   // discards it and re-resolves). `prValue` projects the resolved PR (or null for

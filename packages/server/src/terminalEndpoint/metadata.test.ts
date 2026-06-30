@@ -168,7 +168,11 @@ describe("metadata publish routing", () => {
     updateMemory(
       ID,
       { lastActivityAt: 123, lastAgentCommand: "claude" },
-      { kind: "claude-code", sessionId: "sess-A" },
+      {
+        kind: "exact",
+        command: "claude",
+        agent: { kind: "claude-code", sessionId: "sess-A" },
+      },
     );
     await settle();
     expect(dirtyCount).toBe(0);
@@ -205,7 +209,7 @@ describe("metadata publish routing", () => {
         // @ts-expect-error — `cwd` is OBSERVED, not remembered.
         cwd: "/tmp",
       },
-      undefined,
+      { kind: "none" },
     );
   });
 

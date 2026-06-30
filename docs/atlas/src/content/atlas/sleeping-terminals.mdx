@@ -253,8 +253,9 @@ selection, and id with **zero swap**.
 
 **Wake is session-restore-of-one — literally the path a reboot runs.** kolu already
 rehydrates terminals on server restart: it re-spawns the PTY in the saved cwd and
-resumes the agent with `resumeAgentCommand`. With the persisted `resumeAgent` identity
-(juspay/kolu#1495) that resume targets the **exact** conversation that was running on
+resumes the agent with `resumeAgentCommand`. With the fold-derived `restoreTarget` —
+its `exact` arm carrying the agent identity (juspay/kolu#1495) — that resume targets the
+**exact** conversation that was running on
 this terminal — `claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`
 — and falls back to the cwd-most-recent form (claude `-c` &c.) only when no session
 was ever captured. Wake flips the record back to `active` and replays that **same**
@@ -386,10 +387,12 @@ structure finally fits the thing.
   runs).
 - **Wake resumes the *exact* conversation that was running — resolved in juspay/kolu#1495.**
   Originally wake reused only the cwd-scoped `resumeAgentCommand` (claude `-c` &c.), so a
-  cwd with two conversations could wake on the wrong one. The follow-on persisted the
-  agent's native session identity (`resumeAgent` = `{ kind, sessionId }`, derived by
-  kolu's fold from the live `agent`) and resumes by it (`claude --resume <id>` &c.), falling back to
-  cwd-most-recent only when no session was ever captured. Exactly the **shared**
+  cwd with two conversations could wake on the wrong one. The follow-on derives a
+  discriminated `restoreTarget` from the fold's state — its `exact` arm carries the
+  agent's native session identity (`{ kind, sessionId }`) and resumes by it
+  (`claude --resume <id>` &c.); a quit-to-shell is `none` (a bare shell, model B), and a
+  migrated pre-1.29 record with no captured session is the named `legacyMostRecent`
+  (cwd-most-recent). Exactly the **shared**
   improvement to the one restore path this caveat anticipated — it benefits reboot and
   wake together, never a wake-only fork.
 - **Wake lands a clean resumed session — no repainted scrollback.** Identical to a

@@ -164,8 +164,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                   fallback={
                                     <Show
                                       when={
-                                        resumeAgents() && t.lastAgentCommand
-                                          ? t.lastAgentCommand
+                                        resumeAgents() &&
+                                        t.restoreTarget &&
+                                        t.restoreTarget.kind !== "none"
+                                          ? t.restoreTarget.command
                                           : undefined
                                       }
                                     >

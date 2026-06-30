@@ -28,8 +28,8 @@ function liveEntry(over: Partial<PtyHostListEntry> = {}): PtyHostListEntry {
 // (exactly how #1275 dropped `parentId` and `lastAgentCommand`). lastActivityAt
 // is a real, non-zero epoch so a drop-to-default can't pass by coincidence. Post
 // the awareness cutover the persisted set carries `pr` (restore-relevant now) and
-// `resumeAgent` (the agent IDENTITY the survivor resumes — it replaced the old
-// `agentSession` sticky field).
+// `restoreTarget` (the fold-derived discriminated resume value the survivor resumes
+// — it replaced the old `agentSession` sticky field + bare `resumeAgent`).
 const sentinel: SavedActiveTerminal = {
   id: "term-sentinel",
   state: "active",
@@ -61,9 +61,13 @@ const sentinel: SavedActiveTerminal = {
     },
   },
   lastAgentCommand: "claude --model sonnet",
-  resumeAgent: {
-    kind: "claude-code",
-    sessionId: "edb66a3b-9f17-4c39-9050-3b77904c313a",
+  restoreTarget: {
+    kind: "exact",
+    command: "claude --model sonnet",
+    agent: {
+      kind: "claude-code",
+      sessionId: "edb66a3b-9f17-4c39-9050-3b77904c313a",
+    },
   },
   lastActivityAt: 1_718_000_000_000,
   themeName: "Dracula",
@@ -101,7 +105,7 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     }
   });
 
-  it("adoptedAuthored carries location + memory + resumeAgent + client chrome + the active discriminant", () => {
+  it("adoptedAuthored carries location + memory + restoreTarget + client chrome + the active discriminant", () => {
     const authored = adoptedAuthored(sentinel);
     for (const key of Object.keys(AuthoredActiveSchema.shape)) {
       expect(authored[key as keyof typeof authored]).toEqual(

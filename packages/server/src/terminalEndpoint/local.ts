@@ -24,12 +24,14 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
+  agentIdentityChanged,
   type AwarenessObservation,
   type AwarenessSignals,
   type CommandRunSample,
   fold,
   type FoldCtx,
   type KoluAwareness,
+  restoreTargetOf,
   seedObservation,
   startAwarenessEngine,
 } from "@kolu/terminal-workspace";
@@ -287,19 +289,14 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
   return entry.handle.getScreenText(undefined, undefined, tailLines);
 }
 
-/** How long the fold treats the initial re-observation burst as a SNAPSHOT
- *  (`ctx.live = false`, no recency bump) before flipping to live DELTAs. Sized to
- *  cover the producer's agent settle window (the command-run reconcile schedule +
- *  the screen-scrape poll), so an adopt / resuming-wake re-resolution lands inside
- *  it and keeps its saved recency. Only a re-observation start (adopt / resuming
- *  wake) uses it; a fresh spawn starts live, so its first agent bumps at once. */
-const AWARENESS_SNAPSHOT_WINDOW_MS = 1500;
-
-/** Are two folds' RESTORE-RELEVANT projections equal — the autosave fence? Compares
- *  cwd · git · pr · agent IDENTITY · the two memory fields; agent DETAIL and
- *  foreground are excluded, so the ~150 ms firehose folds to an equal projection and
- *  never arms autosave. `git`/`pr` compare by reference (the fold preserves the
- *  reference for an unchanged field — a non-git fold spreads the same object), which
+/** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?
+ *  Compares cwd · git · pr · agent IDENTITY · the two memory fields; agent DETAIL
+ *  and foreground are excluded, so the ~150 ms firehose folds to an equal projection
+ *  and never arms autosave. This also covers the `restoreTarget` change implicitly:
+ *  it is a pure function of `lastAgentCommand` + the agent identity, both compared
+ *  here, so a target flip (exact→none on quit) always coincides with an inequality.
+ *  `git`/`pr` compare by reference (the fold preserves the reference for an unchanged
+ *  field — a non-git fold spreads the same object — pinned in `fold.test.ts`), which
  *  is exact for "did this restore-relevant value change". */
 function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
   return (
@@ -313,8 +310,24 @@ function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
   );
 }
 
+/** Did any AUTHORED fact the fold writes change — the two memory fields plus the
+ *  derived `restoreTarget` identity? (`restoreTargetOf` is a pure function of
+ *  `lastAgentCommand` + the agent identity, so comparing those four primitives is
+ *  exactly "did the restore target move".) The AUTHORED-publish fence: a pure
+ *  agent-detail / foreground tick leaves all of these equal, so the `kolu.authored`
+ *  collection is NOT re-published on the ~150 ms observation firehose — only
+ *  `commitObservation` (the awareness collection) sees that churn. */
+function authoredFactsEqual(a: KoluAwareness, b: KoluAwareness): boolean {
+  return (
+    a.memory.lastActivityAt === b.memory.lastActivityAt &&
+    a.memory.lastAgentCommand === b.memory.lastAgentCommand &&
+    a.observed.agent?.kind === b.observed.agent?.kind &&
+    a.observed.agent?.sessionId === b.observed.agent?.sessionId
+  );
+}
+
 /** Everything needed to stop one terminal's producer + tap bridges: abort the
- *  tap-stream subscriptions and stop the producer + the snapshot-window timer. */
+ *  tap-stream subscriptions and stop the producer. */
 interface TerminalLifecycle {
   abort: AbortController;
   stopAwareness: () => void;
@@ -338,8 +351,8 @@ function liveForeground(
  *  restore-relevant observed fields (`cwd`/`git`/`pr`, parsed WHOLE through
  *  `PersistedObservationSchema`), with the live agent re-seeded to `null` and the
  *  foreground to the live daemon snapshot — the producer re-derives the live agent
- *  against the surviving taps. The agent the survivor will resume is its identity
- *  (`resumeAgent`), which rides the AUTHORED half (`adoptedAuthored`), not here.
+ *  against the surviving taps. The agent the survivor will resume rides the AUTHORED
+ *  half's `restoreTarget` (`adoptedAuthored`), not here.
  *
  *  The LIVE daemon snapshot (`liveEntry`) is the authority for `cwd` and
  *  `foreground` (F2): kaval's `cwd`/`title` taps do NOT replay a snapshot on
@@ -360,9 +373,9 @@ export function adoptedAwareness(
 }
 
 /** The AUTHORED half of an adopted survivor — its `location` + memory + the
- *  `resumeAgent` restore target + client chrome + active discriminant, parsed off
- *  the saved record WHOLE (so a new authored field rides the parse too). The
- *  observation half rides `adoptedAwareness`. */
+ *  `restoreTarget` + client chrome + active discriminant, parsed off the saved
+ *  record WHOLE (so a new authored field rides the parse too). The observation half
+ *  rides `adoptedAwareness`. */
 export function adoptedAuthored(
   record: SavedActiveTerminal,
 ): AuthoredActiveTerminal {
@@ -509,10 +522,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     proxy.markReady(liveEntry.pid);
     try {
       // Adoption RE-OBSERVES a survivor: the producer re-resolves the live agent
-      // from the surviving (replayed) taps. That re-observation must NOT bump
-      // recency (the saved value is the truth), so the fold starts in the SNAPSHOT
-      // phase — `initialLive: false`.
-      this.startAwarenessSensors(id, liveEntry.pid, liveEntry.cwd, false);
+      // from the surviving (replayed) taps. That re-observation must NOT bump recency
+      // (the saved value is the truth) — the recency baseline is seeded from the saved
+      // restore target, so a re-resolve of the SAME session matches it and is silent.
+      this.startAwarenessSensors(id, liveEntry.pid, liveEntry.cwd);
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
@@ -610,16 +623,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // a failure here must KILL the child (not just unregister the entry), or
     // we leak an orphaned PTY with no server-side record.
     try {
-      // A fresh spawn (and a bare-shell wake) start LIVE — the first agent the user
-      // launches is genuinely new activity. A RESUMING wake re-observes its prior
-      // agent (`opts.resumeCommand` set), so it starts in the SNAPSHOT phase to keep
-      // the saved recency.
-      this.startAwarenessSensors(
-        id,
-        res.pid,
-        res.cwd,
-        opts.resumeCommand === undefined,
-      );
+      // The recency baseline is seeded from the durable restore target inside
+      // `startAwarenessSensors`: a fresh spawn has no target (null baseline) so its
+      // first agent bumps; a RESUMING wake's `exact` target makes the re-resolved
+      // session match the baseline and stay silent — no `initialLive` flag needed.
+      this.startAwarenessSensors(id, res.pid, res.cwd);
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -705,20 +713,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  (the freshness guarantee). kolu seeds `current` from the entry's durable
    *  observation + memory and folds each emitted observation: the five observed
    *  fields are last-write-wins; `lastActivityAt` is stamped on a LIVE agent-identity
-   *  change with kolu's clock; `lastAgentCommand` + the `resumeAgent` restore target
-   *  are kolu's to remember. It publishes the observed half to the `awareness`
-   *  collection and the memory half to `kolu.authored`, and arms the session autosave
-   *  ONLY when the RESTORE-RELEVANT projection changes — so the ~150 ms agent-detail /
-   *  foreground firehose never reaches disk.
-   *
-   *  `initialLive` is the frame phase: `false` for an adopt / resuming-wake
-   *  re-observation (the SNAPSHOT phase, which must not bump recency until it
-   *  settles), `true` for a fresh spawn (every observed agent is genuinely new). */
+   *  change with kolu's clock; `lastAgentCommand` + the derived `restoreTarget`
+   *  are kolu's to remember. It commits the observed half to the `awareness`
+   *  collection, the memory half + the `restoreTarget` to `kolu.authored`, and arms
+   *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
+   *  agent-detail / foreground firehose reaches NONE of disk, the authored
+   *  collection, or (beyond a single observed publish) the wire. */
   private startAwarenessSensors(
     id: TerminalId,
     pid: number,
     cwd: string,
-    initialLive: boolean,
   ): void {
     const abort = new AbortController();
     const { signal } = abort;
@@ -742,35 +746,44 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     };
 
-    // Frame phase: the initial re-observation burst is a SNAPSHOT (ctx.live = false,
-    // no recency bump); after a bounded settle window it flips to DELTA. A fresh
-    // spawn starts live (no re-observation to suppress); an adopt / resuming wake
-    // starts in snapshot so the survivor's re-resolved agent keeps its saved recency.
-    let live = initialLive;
-    const snapshotTimer = initialLive
-      ? null
-      : setTimeout(() => {
-          live = true;
-        }, AWARENESS_SNAPSHOT_WINDOW_MS);
+    // Recency frame phase, decided BY VALUE — no wall-clock window. The bump fires
+    // only when a re-resolved agent IDENTITY differs from the one we last knew,
+    // seeded from the durable restore target: an adopt / resuming-wake re-resolves
+    // the SAME session (`exact` target) → matches the baseline → no bump → the saved
+    // recency stands across the restart; a fresh spawn seeds `null`, so its first
+    // agent is genuinely new and bumps. This replaces the old 1.5 s timer whose race
+    // (a slow settle landing after it fired) could restamp saved recency.
+    const seededTarget = seedEntry.meta.restoreTarget;
+    let recencyBaseline: AgentIdentity | null =
+      seededTarget?.kind === "exact" ? seededTarget.agent : null;
 
     const emit = (o: AwarenessObservation): void => {
       const before = current;
+      // The frame phase is a VALUE comparison on the agent's identity: a re-resolved
+      // identity equal to the baseline is a re-observation (not live); a different
+      // one is new activity. The baseline then tracks the latest authoritative agent.
+      let live = false;
+      if (o.kind === "agent" && o.agent !== "unknown") {
+        const next = o.agent.value;
+        live = agentIdentityChanged(recencyBaseline, next);
+        recencyBaseline = next
+          ? { kind: next.kind, sessionId: next.sessionId }
+          : null;
+      }
       const ctx: FoldCtx = { live, at: Date.now() };
       current = fold(current, o, ctx);
       if (current === before) return; // an `unknown` / dedup no-op — nothing changed
-      // Commit the observed half (whole replace + publish; no dirty) and the memory
-      // half + the derived resume target (publish authored; no dirty).
-      commitObservation(id, current.observed);
-      const resumeAgent: AgentIdentity | undefined = current.observed.agent
-        ? {
-            kind: current.observed.agent.kind,
-            sessionId: current.observed.agent.sessionId,
-          }
-        : undefined;
-      updateMemory(id, current.memory, resumeAgent);
-      // Arm the session autosave ONLY on a RESTORE-RELEVANT value change — the
-      // firehose fence: agent detail + foreground churn fold to an equal projection
-      // and never reach disk.
+      // Three effect arms, each gated by ITS OWN delta — no firehose on any:
+      //  - the OBSERVED half → the `awareness` collection, on an observed change;
+      //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
+      //    authored-fact change (so pure agent-detail churn never re-publishes it);
+      //  - the session AUTOSAVE, on a restore-relevant VALUE change (off disk for the
+      //    firehose). None of the three fires `terminals:dirty` from its own commit
+      //    seam — that fence lives here.
+      if (current.observed !== before.observed)
+        commitObservation(id, current.observed);
+      if (!authoredFactsEqual(before, current))
+        updateMemory(id, current.memory, restoreTargetOf(current));
       if (!restoreRelevantEqual(before, current)) emitTerminalsDirty();
       // Cross-terminal MRUs (kolu's, fold-side): a git context tracks the recent
       // repo; a LIVE (non-replayed) agent command tracks the recent agent.
@@ -810,7 +823,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           foregroundPid: msg.foregroundPid,
         }),
     );
-    const stopEngine = startAwarenessEngine(
+    const stopAwareness = startAwarenessEngine(
       id,
       {
         pid,
@@ -821,10 +834,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
       emit,
     );
-    const stopAwareness = (): void => {
-      if (snapshotTimer) clearTimeout(snapshotTimer);
-      stopEngine();
-    };
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
@@ -935,14 +944,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!entry) return false;
     this.teardownSensors(id);
     // Flip the AUTHORED entry to the sleeping arm IN PLACE. `entry.meta` (location +
-    // memory + the `resumeAgent` restore target + client chrome) rides the
-    // `...entry.meta` spread — the fold already set `resumeAgent` to the live agent's
-    // identity during the active session (a quit-to-shell cleared it), so the freeze
-    // needs no special capture: wake reads the restore target straight off `meta`.
-    // The frozen-`pr` special case is GONE — `pr` is restore-relevant now and rides
-    // the entry's observation, which `beginSleep` carries over so the dormant tile
-    // recomposes its cwd / branch / pr off it. Sensors went down FIRST so no
-    // in-flight observation re-publishes the active meta over the flip.
+    // memory + the `restoreTarget` + client chrome) rides the `...entry.meta` spread
+    // — the fold already set `restoreTarget` during the active session (a live agent
+    // → `exact`, a quit-to-shell → `none`), so the freeze needs no special capture:
+    // wake reads the target straight off `meta`. The frozen-`pr` special case is GONE
+    // — `pr` is restore-relevant now and rides the entry's observation, which
+    // `beginSleep` carries over so the dormant tile recomposes its cwd / branch / pr
+    // off it. Sensors went down FIRST so no in-flight observation re-publishes the
+    // active meta over the flip.
+    //
+    // DEFERRED (R9.0): `beginSleep` does NOT drain a final settle before freezing.
+    // The freeze takes whatever `restoreTarget` the fold last wrote; it does NOT hold
+    // "the last AUTHORITATIVE agent" by construction. So a launch-then-sleep INSIDE
+    // the agent settle window (commandRun seen, agent not yet resolved → target still
+    // `none`) freezes `none` and wakes to a FALSE bare shell. Narrow + self-correcting
+    // (re-launch fixes it); the active drain is an async-`beginSleep` follow-up.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: AuthoredSleepingSchema.parse({
@@ -981,22 +997,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
   /** Wake a SLEEPING terminal: flip it back to the active arm and re-spawn its
    *  PTY on the SAME id in its saved cwd, replaying the resume form derived from the
-   *  remembered `lastAgentCommand` + the `resumeAgent` restore target (via
-   *  `resumeFormFor`, or null for a quit-to-shell / never-observed / non-resumable
-   *  agent) so the conversation comes back — session-restore-of-one. The authored
-   *  record rides through WHOLE (theme/layout/intent/memory/resumeAgent); the
-   *  observation is reset and re-derived by the producer. Returns the active info,
-   *  or undefined when `id` is not a sleeping terminal. */
+   *  authored `restoreTarget` (via `resumeFormFor`) so the conversation comes back —
+   *  session-restore-of-one. The authored record rides through WHOLE
+   *  (theme/layout/intent/memory/restoreTarget); the observation is reset and
+   *  re-derived by the producer. Returns the active info, or undefined when `id` is
+   *  not a sleeping terminal. */
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // The resume FORM reads the remembered `lastAgentCommand` + the `resumeAgent`
-    // restore target straight off the authored `meta`: with the agent identity it
-    // resumes the EXACT conversation that was live at sleep (juspay/kolu#1495);
-    // without it (quit to shell, or no id) the most-recent marker (claude `-c`,
-    // codex `resume --last`, opencode `--continue`); null for a never-observed /
-    // non-resumable agent — a bare shell (juspay/kolu#1492).
-    const resumeCommand = resumeFormFor(entry.meta);
+    // The resume FORM switches on the authored `restoreTarget`: `exact` resumes the
+    // EXACT conversation that was live at sleep by id (juspay/kolu#1495);
+    // `legacyMostRecent` (migrated pre-1.29 records) the most-recent marker (claude
+    // `-c`, codex `resume --last`, opencode `--continue`); `none` / absent / a
+    // non-resumable agent → null, a bare shell (juspay/kolu#1492).
+    const resumeCommand = resumeFormFor(entry.meta.restoreTarget);
     // Reset the OBSERVATION (pr/agent/foreground re-derived by the re-spawned PTY's
     // producer), keeping the saved cwd. The authored memory + resume target ride the
     // active entry built in `registerActiveAndSpawn`.
@@ -1104,8 +1118,8 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
   return localEndpointImpl.releaseSleptPty(id);
 }
 
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, self-deriving
- *  the resume form from the persisted `lastAgentCommand` (the observed agent launch). */
+/** Wake a sleeping terminal: flip to active + re-spawn on the same id, deriving the
+ *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
 export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
   return localEndpointImpl.wake(id);
 }
@@ -1146,10 +1160,10 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   const parsed = recordParsed.data;
   // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
   // live agent + foreground reset — the client's join recomposes the dormant tile's
-  // cwd / branch / pr off it. The agent the terminal will resume is its identity
-  // (`resumeAgent`), which rides the AUTHORED sleeping record below (no full-agent
-  // reconstruction needed across a cold restart). The observation rides the sleeping
-  // entry's `awareness` field (no separate store), then fans out.
+  // cwd / branch / pr off it. The agent the terminal will resume rides the AUTHORED
+  // sleeping record's `restoreTarget` below (its `exact` arm keeps only the identity —
+  // no full-agent reconstruction needed across a cold restart). The observation rides
+  // the sleeping entry's `awareness` field (no separate store), then fans out.
   const awareness: Observation = {
     ...PersistedObservationSchema.parse(parsed),
     agent: null,

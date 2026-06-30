@@ -128,8 +128,9 @@ already showing simply changes state, so the tile keeps its slot, dock order,
 selection, and id with <strong>zero swap</strong>.</p>
 <p><strong>Wake is session-restore-of-one — literally the path a reboot runs.</strong> kolu already
 rehydrates terminals on server restart: it re-spawns the PTY in the saved cwd and
-resumes the agent with <code>resumeAgentCommand</code>. With the persisted <code>resumeAgent</code> identity
-(juspay/kolu#1495) that resume targets the <strong>exact</strong> conversation that was running on
+resumes the agent with <code>resumeAgentCommand</code>. With the fold-derived <code>restoreTarget</code> —
+its <code>exact</code> arm carrying the agent identity (juspay/kolu#1495) — that resume targets the
+<strong>exact</strong> conversation that was running on
 this terminal — <code>claude --resume &lt;id&gt;</code>, <code>codex resume &lt;id&gt;</code>, <code>opencode --session &lt;id&gt;</code>
 — and falls back to the cwd-most-recent form (claude <code>-c</code> &amp;c.) only when no session
 was ever captured. Wake flips the record back to <code>active</code> and replays that <strong>same</strong>
@@ -251,10 +252,12 @@ need boot-hydration surgery (it doesn’t — wake replays the path reboot alrea
 runs).</li>
 <li><strong>Wake resumes the <em>exact</em> conversation that was running — resolved in juspay/kolu#1495.</strong>
 Originally wake reused only the cwd-scoped <code>resumeAgentCommand</code> (claude <code>-c</code> &amp;c.), so a
-cwd with two conversations could wake on the wrong one. The follow-on persisted the
-agent’s native session identity (<code>resumeAgent</code> = <code>{ kind, sessionId }</code>, derived by
-kolu’s fold from the live <code>agent</code>) and resumes by it (<code>claude --resume &lt;id&gt;</code> &amp;c.), falling back to
-cwd-most-recent only when no session was ever captured. Exactly the <strong>shared</strong>
+cwd with two conversations could wake on the wrong one. The follow-on derives a
+discriminated <code>restoreTarget</code> from the fold’s state — its <code>exact</code> arm carries the
+agent’s native session identity (<code>{ kind, sessionId }</code>) and resumes by it
+(<code>claude --resume &lt;id&gt;</code> &amp;c.); a quit-to-shell is <code>none</code> (a bare shell, model B), and a
+migrated pre-1.29 record with no captured session is the named <code>legacyMostRecent</code>
+(cwd-most-recent). Exactly the <strong>shared</strong>
 improvement to the one restore path this caveat anticipated — it benefits reboot and
 wake together, never a wake-only fork.</li>
 <li><strong>Wake lands a clean resumed session — no repainted scrollback.</strong> Identical to a

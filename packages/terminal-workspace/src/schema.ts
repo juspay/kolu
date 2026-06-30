@@ -1,33 +1,39 @@
 /**
- * The generic terminal-awareness value — the server-derived slice of a
- * terminal's metadata, owned where it is PRODUCED (the sensor set in this
- * package) rather than by any app.
+ * The terminal-awareness vocabulary — the value a host PRODUCER emits and the
+ * value kolu's fold accumulates, owned where it is PRODUCED (the sensor set in
+ * this package) rather than by any app.
  *
- * `AwarenessValue` is exactly the fields the sensors compute: a terminal's
- * cwd · git context · last agent command · activity recency (the persisted
- * half) plus its forge PR · agent status · foreground process (the live half).
- * It is composed from the vendor-neutral leaf schemas (anyforge · kolu-git ·
- * kolu-github · the per-agent packages) and names NOTHING app-specific — no
- * `location` endpoint discriminator, no client/UI fields.
+ * The de-entanglement (awareness-derive-store.mdx) splits OBSERVING from
+ * REMEMBERING:
+ *   - `Observation` is exactly the five fields a memoryless host can RE-OBSERVE:
+ *     cwd · git context · forge PR · live agent · foreground process. Composed
+ *     from the vendor-neutral leaf schemas (anyforge · kolu-git · kolu-github ·
+ *     the per-agent packages) and naming NOTHING app-specific — no `location`
+ *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
+ *     `terminalWorkspace.awareness` collection.
+ *   - `AgentMemory` is the two facts a host CANNOT re-observe — a clock reading
+ *     (`lastActivityAt`) and the launch line the user typed (`lastAgentCommand`).
+ *     kolu remembers them; a producer's `Observation` cannot spell either.
+ *   - `KoluAwareness = { observed, memory }` is kolu's fold accumulator, never on
+ *     a wire (kolu folds in-process). `AwarenessObservation` is the per-field EMIT
+ *     type a producer streams.
  *
- * kolu does NOT build a record ON TOP of this. It serves this generic
- * `AwarenessValue` UNCHANGED on its `terminalWorkspace.awareness` collection, and
- * recomposes its full `TerminalMetadata` at the CLIENT by JOINING that value with
- * a SEPARATE authored record — the app-owned `location` (the local/remote endpoint
- * discriminator) plus the client-persisted UI fields (themeName / parentId /
- * canvasLayout / …). So awareness is a SIBLING of kolu's authored record, not a
- * base kolu's record extends. That separation is what lets `pulam` (the standalone
- * daemon) and `pulam-tui` (the viewer) reuse the sensors with zero dependency on
- * any kolu-app package.
- *
- * The persisted-vs-live partition is the same write fence the sensors honor
- * through `AwarenessSink` (and that kolu's `metadata.ts` enforces): persisted
- * fields flow through the autosave-arming mutator, live fields through the
- * quiet one. The two halves are kept as distinct sub-schemas so a hook's
- * mutator type can be narrowed to exactly one half.
+ * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
+ * GONE: the producer is memoryless and the emit type forbids a memory field, so no
+ * observation can clobber a remembered fact — the fence is the TYPE, not a runtime
+ * mutator. kolu recomposes its full `TerminalMetadata` at the CLIENT by JOINING
+ * the served `Observation` with a SEPARATE authored record (the app-owned
+ * `location` + memory + client-persisted UI fields). That separation is what lets
+ * `pulam` (the standalone daemon) and `pulam-tui` (the viewer) reuse the sensors
+ * with zero dependency on any kolu-app package.
  */
 
-import { AgentKindSchema, AgentSessionRefSchema } from "anyagent/schemas";
+import {
+  AgentIdentitySchema,
+  AgentKindSchema,
+  AgentSessionRefSchema,
+  RestoreTargetSchema,
+} from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
@@ -44,12 +50,18 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-// `AgentKindSchema` + `AgentSessionRefSchema` are OWNED by anyagent/schemas
+// `AgentKindSchema` + `AgentSessionRefSchema` + the resume vocabulary
+// (`AgentIdentitySchema`, `RestoreTargetSchema`) are OWNED by anyagent/schemas
 // (the lower layer that owns the `AgentKind` vocabulary and the
-// `resumeAgentCommand` receptacle consuming the ref). Re-exported here so the
-// wake/restore path (`anyagent`'s `resumeFormFor`) and kolu-common/surface keep
-// resolving them from this schema home — one declaration, validated once.
-export { AgentKindSchema, AgentSessionRefSchema };
+// `resumeAgentCommand`/`resumeFormFor` receptacles consuming them). Re-exported
+// here so the wake/restore path and kolu-common/surface keep resolving them from
+// this schema home — one declaration, validated once.
+export {
+  AgentIdentitySchema,
+  AgentKindSchema,
+  AgentSessionRefSchema,
+  RestoreTargetSchema,
+};
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
@@ -151,16 +163,13 @@ export const ObservationSchema = z.object({
 });
 export type Observation = z.infer<typeof ObservationSchema>;
 
-/** The agent IDENTITY kolu persists for restore — the agent `kind` + native
- *  session `id` (`sessionId`), reduced from the frozen live `agent` (NOT the full
- *  `AgentInfo`: no lie-when-dead `state`/`tokens` ride to disk). Restore resumes
- *  the EXACT conversation that was live at sleep (#1495); a quit-to-shell freezes
- *  a null agent, so there is no identity and wake lands on a bare shell (#1492). */
-export const AgentIdentitySchema = z.object({
-  kind: AgentKindSchema,
-  sessionId: z.string(),
-});
+/** The agent IDENTITY kolu persists for restore (`kind` + native session
+ *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
+ *  both OWNED by anyagent/schemas (the resume vocabulary layer), re-exported here
+ *  as the schema home kolu-common/surface and the fold resolve them through. The
+ *  fold's `restoreTargetOf` PRODUCES the target; `resumeFormFor` CONSUMES it. */
 export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
+export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
 
 /** The two facts a host CANNOT observe — recency is a CLOCK reading, the launch
  *  line is what the user TYPED. Irrecoverable from a screen, so kolu remembers

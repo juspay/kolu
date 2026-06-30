@@ -18,18 +18,10 @@ import { describe, expect, it, vi } from "vitest";
 // drives the join.
 type TestMeta = Partial<TerminalMetadata>;
 const bag = vi.hoisted(() => {
-  // The eight AWARENESS fields ride `terminalWorkspace.awareness`; everything else
-  // is the AUTHORED half. Split a flat test meta the way the two collections do.
-  const AWARENESS = new Set([
-    "cwd",
-    "git",
-    "lastActivityAt",
-    "lastAgentCommand",
-    "agentSession",
-    "pr",
-    "agent",
-    "foreground",
-  ]);
+  // The five OBSERVED awareness fields ride `terminalWorkspace.awareness`;
+  // everything else (location, memory, `restoreTarget`, client chrome) is the
+  // AUTHORED half. Split a flat test meta the way the two collections do.
+  const AWARENESS = new Set(["cwd", "git", "pr", "agent", "foreground"]);
   return {
     // Late-bound to module-scope signals once solid-js is imported (below). The
     // mock reads through these so the memo tracks them as reactive sources.

@@ -36,10 +36,10 @@ import {
 } from "@kolu/surface-app/surface";
 import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
-  AgentIdentitySchema,
   AgentMemorySchema,
   type Observation,
   ObservationSchema,
+  RestoreTargetSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
@@ -77,6 +77,7 @@ export {
   prUnavailableReason,
   prUnavailableSource,
   reasonForSource,
+  RestoreTargetSchema,
 } from "@kolu/terminal-workspace/schema";
 export type {
   AgentIdentity,
@@ -90,6 +91,7 @@ export type {
   OpenCodeInfo,
   PrResult,
   PrUnavailableSource,
+  RestoreTarget,
   TerminalId,
 } from "@kolu/terminal-workspace/schema";
 export { TerminalIdSchema };
@@ -215,10 +217,11 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
  *  and NO agent detail (lie-when-dead). `pr` is restore-relevant now (true-when-
  *  dead, persisted like `git`), so it survives on a dormant tile from HERE — the
  *  old frozen-`pr`-on-the-sleeping-arm special case is gone. The agent the terminal
- *  will RESUME rides the authored record's `resumeAgent` (its IDENTITY only), not
- *  this projection — a full `Observation`'s live agent can't survive a server
- *  restart as anything but its identity, and that identity is the kolu-owned resume
- *  target, not an observed field. `SavedTerminalSchema.parse` reduces a full
+ *  will RESUME rides the authored record's `restoreTarget` (the discriminated resume
+ *  value, carrying the agent IDENTITY on its `exact` arm), not this projection — a
+ *  full `Observation`'s live agent can't survive a server restart as anything but its
+ *  identity, and that identity is the kolu-owned resume target, not an observed field.
+ *  `SavedTerminalSchema.parse` reduces a full
  *  `Observation` to this at the disk-persist seam (it drops agent + foreground
  *  structurally). */
 export const PersistedObservationSchema = ObservationSchema.pick({
@@ -304,10 +307,10 @@ const SleepingDiscriminantSchema = z.object({
 // disk persist) via `composeTerminalMetadata` (below).
 
 /** kolu's server-written authored fields — `location` (set once at spawn), the two
- *  remembered `AgentMemory` facts, and the `resumeAgent` restore target (all
- *  written by the fold's `updateMemory`). Memory is FLAT here, so the on-disk JSON
- *  path is unchanged and `composeTerminalMetadata` spreads it straight onto the
- *  joined record. */
+ *  remembered `AgentMemory` facts, and the `restoreTarget` (all written by the
+ *  fold's `updateMemory`). Memory is FLAT here, so the on-disk JSON path is
+ *  unchanged and `composeTerminalMetadata` spreads it straight onto the joined
+ *  record. */
 const KoluAuthoredServerFieldsSchema = z
   .object({
     /** Where this terminal's endpoint lives — `{ kind: "local" }` for an in-process
@@ -317,15 +320,17 @@ const KoluAuthoredServerFieldsSchema = z
      *  name its host (a dropped location is a compile error, not a silent local
      *  respawn against the wrong machine). Set once at spawn, never mutated. */
     location: HostLocationSchema,
-    /** The agent IDENTITY (`kind` + `sessionId`) the terminal will RESUME on wake /
-     *  cold-restore — the EXACT conversation that was live (#1495). Derived LIVE by
-     *  the fold from the observed agent (`observed.agent ? identity : undefined`), so
-     *  a quit-to-shell clears it and wake lands on a bare shell (#1492). It rides the
-     *  AUTHORED record (not the observation) because a server restart keeps only the
-     *  agent's identity, never its lie-when-dead detail — and that identity is the
-     *  kolu-owned resume target, the one fact `resumeFormFor` reads alongside
-     *  `lastAgentCommand`. Absent for a terminal with no agent. */
-    resumeAgent: AgentIdentitySchema.optional(),
+    /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
+     *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
+     *  EXACT conversation that was live by id (#1495), `none` wakes to a bare shell
+     *  (#1492), `legacyMostRecent` resumes most-recent for migrated pre-1.29 records.
+     *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
+     *  rides the AUTHORED record (not the observation) because a server restart keeps
+     *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
+     *  `none` (a fresh terminal with no agent), never as "resume something" — the
+     *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
+     *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
+    restoreTarget: RestoreTargetSchema.optional(),
   })
   .merge(AgentMemorySchema);
 
@@ -929,9 +934,9 @@ export const koluSurface = defineSurface({
   },
   collections: {
     /** Per-terminal AUTHORED record — the kolu-owned half of a terminal:
-     *  `location` + client/UI chrome + the active|sleeping discriminant. The
-     *  eight AWARENESS fields (cwd · git · pr · agent · foreground ·
-     *  lastAgentCommand · lastActivityAt · agentSession) ride the GENERIC
+     *  `location` + memory + the `restoreTarget` + client/UI chrome + the
+     *  active|sleeping discriminant. The five OBSERVED awareness fields (cwd · git ·
+     *  pr · agent · foreground) ride the GENERIC
      *  `terminalWorkspace.awareness` collection, NOT here — the client JOINS the
      *  two halves at read time via `composeTerminalMetadata`
      *  (`useTerminalMetadata`), so there is no server-side re-fusion and no fused
@@ -1184,32 +1189,49 @@ export function backfillTerminalState(
 }
 
 /** Backfill the awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
- *  (restore-relevant) field, and the separate sticky `agentSession` ref became the
- *  fold-derived `resumeAgent` restore target (its agent IDENTITY). A pre-cutover
- *  record:
+ *  (restore-relevant) field, and the old sticky `agentSession` ref + the implicit
+ *  "`lastAgentCommand` ⇒ resume most-recent" rule collapsed into one discriminated
+ *  `restoreTarget` (`{@link RestoreTargetSchema}`). A pre-cutover record:
  *   - lacks `pr` (it was a never-persisted live field) → backfill `{ kind: "absent"
  *     }` so the now-persisted field parses; the live PR sensor re-resolves on
  *     restore. A frozen sleeping-arm `pr` already satisfies it and passes through;
- *   - may carry `agentSession: { kind, id }` → map it to `resumeAgent: { kind,
- *     sessionId: id }` (the inner key renamed from `id` to `sessionId`, matching the
- *     agent's own field) and drop `agentSession`.
- *  Idempotent and presence-keyed: a record that already has `pr` (and no
- *  `agentSession`) passes through untouched. */
+ *   - is given a `restoreTarget` from what it remembered, so the OLD resume behavior
+ *     is preserved as a NAMED value rather than re-derived from field absence:
+ *       · `agentSession { kind, id }` + a `lastAgentCommand` → `{ kind: "exact",
+ *         command, agent: { kind, sessionId: id } }` (the EXACT conversation, #1495);
+ *       · a `lastAgentCommand` but no `agentSession` → `{ kind: "legacyMostRecent",
+ *         command }` (the old most-recent fallback, kept for already-saved sessions);
+ *       · no `lastAgentCommand` → no `restoreTarget` (absent ≡ `none`, a bare shell).
+ *  `agentSession` is dropped either way. Idempotent and presence-keyed: a record
+ *  that already has `pr` and a `restoreTarget` passes through untouched. */
 export function backfillAwarenessCutover(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
   const { agentSession, ...rest } = t;
   const next: Record<string, unknown> = { ...rest };
   if (!("pr" in next)) next.pr = { kind: "absent" };
-  if (
-    !("resumeAgent" in next) &&
-    agentSession &&
-    typeof agentSession === "object" &&
-    "kind" in agentSession &&
-    "id" in agentSession
-  ) {
-    const ref = agentSession as { kind: unknown; id: unknown };
-    next.resumeAgent = { kind: ref.kind, sessionId: ref.id };
+  if (!("restoreTarget" in next)) {
+    const command =
+      typeof next.lastAgentCommand === "string"
+        ? next.lastAgentCommand
+        : undefined;
+    if (command !== undefined) {
+      const hasRef =
+        agentSession &&
+        typeof agentSession === "object" &&
+        "kind" in agentSession &&
+        "id" in agentSession;
+      if (hasRef) {
+        const ref = agentSession as { kind: unknown; id: unknown };
+        next.restoreTarget = {
+          kind: "exact",
+          command,
+          agent: { kind: ref.kind, sessionId: ref.id },
+        };
+      } else {
+        next.restoreTarget = { kind: "legacyMostRecent", command };
+      }
+    }
   }
   return next;
 }

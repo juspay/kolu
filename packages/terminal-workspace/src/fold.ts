@@ -15,10 +15,11 @@
  */
 
 import type {
-  AgentInfo,
+  AgentIdentity,
   AwarenessObservation,
   KoluAwareness,
   Observation,
+  RestoreTarget,
 } from "./schema.ts";
 
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
@@ -62,10 +63,31 @@ export function foldObserved(
  *  carried: a genuinely-new agent started after a prior one finished is no longer
  *  wrongly suppressed. */
 export function agentIdentityChanged(
-  prev: AgentInfo | null,
-  next: AgentInfo | null,
+  prev: AgentIdentity | null,
+  next: AgentIdentity | null,
 ): boolean {
   return prev?.kind !== next?.kind || prev?.sessionId !== next?.sessionId;
+}
+
+/** kolu's RESTORE TARGET, derived from the folded state — the fold OWNS this
+ *  projection rather than the shell assembling it. The discriminant is decided by
+ *  the agent the fold just observed paired with the remembered launch line:
+ *   - a LIVE `agent` + a remembered `lastAgentCommand` → `exact` (wake resumes
+ *     THAT conversation by id, #1495);
+ *   - otherwise → `none` (a quit-to-shell drops the live agent, a never-launched
+ *     terminal never had one — either way wake lands on a BARE SHELL, #1492).
+ *  Absence is decided HERE as `none`; it is never read downstream as "resume
+ *  most-recent". The live fold never produces `legacyMostRecent` — that arm exists
+ *  only for migrated pre-1.29 records (`backfillAwarenessCutover`). */
+export function restoreTargetOf(aw: KoluAwareness): RestoreTarget {
+  const command = aw.memory.lastAgentCommand;
+  const agent = aw.observed.agent;
+  if (command === undefined || agent === null) return { kind: "none" };
+  return {
+    kind: "exact",
+    command,
+    agent: { kind: agent.kind, sessionId: agent.sessionId },
+  };
 }
 
 /** Liveness + clock, kolu's own facts passed as VALUES (never a thunk the reducer

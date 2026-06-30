@@ -336,9 +336,14 @@ Then(
 Given(
   "terminal {int} has captured agent command {string}",
   async function (this: KoluWorld, index: number, command: string) {
-    // Idempotent edit to the saved session's `lastAgentCommand` field for
-    // the matching terminal. Relies on an earlier
-    // "a saved session with N terminals" step seeding ids "0", "1", … and
+    // Idempotent edit to the saved session's remembered agent fields for the
+    // matching terminal. Sets `lastAgentCommand` AND a discriminated
+    // `restoreTarget` — the restore card + the resumable count read the target now,
+    // not a bare `lastAgentCommand`. A `legacyMostRecent` target carries the command
+    // (so the card shows it) and counts as resumable (so the "resume N agents"
+    // suffix appears), resuming the most-recent conversation — exactly the offer
+    // this scenario asserts, with no synthetic session id to fabricate. Relies on an
+    // earlier "a saved session with N terminals" step seeding ids "0", "1", … and
     // stashing the payload on `this.savedSessionTerminals`.
     const id = String(index);
     const terminals =
@@ -349,7 +354,13 @@ Given(
         git: null,
       }));
     const updated: SavedTerminal[] = terminals.map((t) =>
-      t.id === id ? { ...t, lastAgentCommand: command } : t,
+      t.id === id
+        ? {
+            ...t,
+            lastAgentCommand: command,
+            restoreTarget: { kind: "legacyMostRecent", command },
+          }
+        : t,
     );
     this.savedSessionTerminals = updated;
     await postSavedSessionPayload(this, updated);
