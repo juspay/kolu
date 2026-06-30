@@ -28,7 +28,7 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "shipped #1626 (foundation assessed transport-agnostic for R9.3)", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
   { d: 0, g: "○", c: "prog", l: "PR-1 · lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption (prep · local no-op)", m: "needs R9.1 · ∥ PR-2 PR-3", h: "#pr1" },
-  { d: 0, g: "○", c: "prog", l: "PR-2 · fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives (prep · local no-op)", m: "needs R9.1 · ∥ PR-1 PR-3", h: "#pr2" },
+  { d: 0, g: "✓", c: "ship", l: "PR-2 · fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives (prep · local no-op)", m: "shipped #1639 · ∥ PR-1 PR-3", h: "#pr2" },
   { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#pr3" },
   { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — PTY · fs/git · FULL awareness · restore · sleep/wake · paste/upload · transcript (nothing deferred)", m: "needs PR-1 PR-2 PR-3 · R7", h: "#fremote" },
   { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + host picker + validate", m: "needs F-REMOTE", h: "#r10" },
@@ -127,9 +127,9 @@ Thread `location` through every remaining lifecycle seam so the *terminal lifecy
 
 <a id="pr2"></a>
 
-### PR-2 — fs/git & file-IO ready for any host *(prep · local no-op)*
+### PR-2 — fs/git & file-IO ready for any host *(prep · local no-op)* — *shipped* <PrLink pr={1639} />
 
-<Phase id="PR-2" name="fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives" status="todo" needs={["R9.1"]} />
+<Phase id="PR-2" name="fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives" status="shipped" needs={["R9.1"]} links={[{ label: "#1639", href: "https://github.com/juspay/kolu/pull/1639" }]} />
 
 Make everything a terminal reads or writes on disk resolve to **its** host. Rewrite the Code tab off `koluSurface`'s **value-bearing** streams onto the shared surface's **procedure + `{seq}` pulse** (`CodeTab.tsx`; `wire.ts` already holds the `workspace` client; the two wire shapes are in [surface live data](surface-live-data.html)) — reproduce the `.use().pending()` selection-stability guard, relocate the binary-preview/iframe orchestration client-side. Resolve the server fs/git **per `entry.meta.location`** (a per-host re-served mirror; inputs stay bare `repoPath`/`filePath`), and make the preview **byte route** a per-location byte source. Add three byte primitives to `terminalWorkspaceSurface` (**`3.0 → 3.1`**, additive): a range-capable **preview-read** (bytes + content-type + content-range), a **scratch-write** (paste/upload), a **transcript-source read** — each re-enforcing the realpath/traversal guard **on the producing host**. Route paste/upload (`saveTerminalFile`) + transcript export per location. *(This is the old R9.5, pulled to prep — it no longer needs R-pulamweb-4 or awareness. Three serve sites: kolu-server local arm · pulam live arm · pulam-web **forwards** each. The remote arms are throwing stubs lit by F-REMOTE.)*
 
