@@ -375,8 +375,8 @@ function startPrSensor(
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
   plog.debug("started");
-  // The dispatcher routes each resolve to the forge picked from the remote;
-  // with one forge today that's always the gh adapter.
+  // The dispatcher routes each resolve to the forge picked from the remote:
+  // `github.com` → the gh adapter, every other remote → the `unsupported` arm.
   const watcher = subscribePr(
     dispatchingForgeAdapter,
     (pr) => {
