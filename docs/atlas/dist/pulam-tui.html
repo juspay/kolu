@@ -16,17 +16,17 @@
 <tbody>
 <tr>
 <td><code>pulam-tui status</code></td>
-<td><code>awareness</code> collection (one-shot)</td>
-<td>Print one row per terminal — <code>repo·branch · PR · agent · foreground · idle</code> — then exit. The awareness snapshot as a plain text table. (No working-tree <em>dirty</em> count: that needs <code>git.getStatus</code>, which the single-daemon snapshot deliberately doesn’t call — it’s pulam-web’s drill-in.)</td>
+<td><code>snapshots</code> collection (one-shot)</td>
+<td>Print one row per terminal — <code>repo·branch · PR · agent · foreground</code> — then exit. The awareness snapshot as a plain text table. (No recency/<code>idle</code> column: pulam serves the memoryless <code>TerminalSnapshot</code>, which has no <code>lastActivityAt</code> — recency is kolu’s remembered fact.) (No working-tree <em>dirty</em> count: that needs <code>git.getStatus</code>, which the single-daemon snapshot deliberately doesn’t call — it’s pulam-web’s drill-in.)</td>
 </tr>
 <tr>
 <td><code>pulam-tui status --json</code></td>
-<td><code>awareness</code> collection (one-shot)</td>
-<td>Emit the flat <code>[{ id, ...AwarenessValue }]</code> array and exit. The machine-readable face.</td>
+<td><code>snapshots</code> collection (one-shot)</td>
+<td>Emit the flat <code>[{ id, ...TerminalSnapshot }]</code> array and exit. The machine-readable face.</td>
 </tr>
 <tr>
 <td><code>pulam-tui watch</code></td>
-<td><code>awareness</code> collection + <code>activity</code> stream (subscribe)</td>
+<td><code>snapshots</code> collection + <code>activity</code> stream (subscribe)</td>
 <td>Follow <strong>every terminal</strong> on the daemon: print a line each time any terminal’s awareness changes (agent state, branch, foreground), with a trailing <code>●</code> when it’s moving bytes right now, until <code>Ctrl+C</code>.</td>
 </tr>
 <tr>
@@ -41,7 +41,7 @@
 </tr>
 <tr>
 <td><code>pulam-tui wait &lt;id&gt; --until &lt;state&gt;</code></td>
-<td><code>awareness</code> collection (subscribe, one terminal)</td>
+<td><code>snapshots</code> collection (subscribe, one terminal)</td>
 <td>Block until that terminal’s agent enters a target bucket — <code>working</code> / <code>awaiting</code> / <code>waiting</code> (the shared <code>agentBucket</code> fold; <code>awaiting,waiting</code> = its turn ended), then exit. The done-signal for scripting an agent that drives another agent. <code>--timeout &lt;ms&gt;</code> caps it (fails loud, exit 2); <code>--json</code> emits <code>{ id, agent }</code>.</td>
 </tr>
 </tbody>
@@ -214,8 +214,8 @@
 <p>The steps:</p>
 <ol>
 <li><strong>Strip the viewer.</strong> Remove <code>@opentui/*</code>, the <code>render.ts</code> OpenTUI tree, the live clock, and the <code>fleet</code> subcommand from <code>packages/pulam-tui</code>. Drop the Bun manifest (<code>bun.lock</code> / <code>bun.nix</code> / the Zig closure) and the pnpm-workspace exclusion; repoint <code>package.json</code>’s <code>start</code> to <code>tsx src/bin.ts</code>.</li>
-<li><strong>Keep the dial, rename the snapshot.</strong> The existing single-endpoint awareness consume (today rendered by the OpenTUI list, dumped by <code>--json</code>) becomes <code>status</code> / <code>status --json</code> over <code>--socket</code> | <code>--host</code> (<code>dialAgentOnce</code>). No surface change — <code>status</code> is a one-shot read of the <code>awareness</code> collection the daemon already serves.</li>
-<li><strong>Add <code>watch</code>.</strong> Subscribe to the <code>awareness</code> collection plus the <code>activity</code> stream and print each update — a line in default mode, one JSON object per line under <code>--json</code> — until <code>Ctrl+C</code>. Bare <code>watch</code> follows every terminal; an optional <code>&lt;id&gt;</code> filters to one. A pure consumer; no contract bump.</li>
+<li><strong>Keep the dial, rename the snapshot.</strong> The existing single-endpoint awareness consume (today rendered by the OpenTUI list, dumped by <code>--json</code>) becomes <code>status</code> / <code>status --json</code> over <code>--socket</code> | <code>--host</code> (<code>dialAgentOnce</code>). No surface change — <code>status</code> is a one-shot read of the <code>snapshots</code> collection the daemon already serves.</li>
+<li><strong>Add <code>watch</code>.</strong> Subscribe to the <code>snapshots</code> collection plus the <code>activity</code> stream and print each update — a line in default mode, one JSON object per line under <code>--json</code> — until <code>Ctrl+C</code>. Bare <code>watch</code> follows every terminal; an optional <code>&lt;id&gt;</code> filters to one. A pure consumer; no contract bump.</li>
 <li><strong>Repackage like kaval-tui.</strong> The Nix derivation drops <code>bun2nix</code> for the plain Node packaging <code>packages/kaval-tui</code> uses; <code>nix run …#pulam-tui</code> and the dev recipe follow kaval-tui’s wholesale.</li>
 </ol>
 <aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Consequence — pulam-tui leaves the three-surface paint mirror</p><div class="callout-body" data-astro-cid-q2ml7llr><p>The <code>dock-fleet-mirror</code> instruction pins a three-surface agent-state contract — kolu’s Dock, <code>pulam-tui</code>, and <code>pulam-web</code> all painting from the shared <code>@kolu/terminal-workspace/agentProjection</code> fold. Dropping the TUI’s fleet render takes <code>pulam-tui</code> out of that set: the contract becomes <strong>Dock + pulam-web</strong> (the two surfaces that still render sorted, colour-coded agent state). The <code>status</code> table can still read awareness, but it is an unsorted snapshot — the needs-you-first sort, the paint classes, and the breathing alert are pulam-web’s. Update the <code>dock-fleet-mirror</code> rule to a two-surface contract as part of this change.</p></div></aside>

@@ -21,13 +21,13 @@ import {
   URGENCY_RANK,
   type Urgency,
 } from "./agentProjection.ts";
-import type { AgentInfo, AwarenessValue } from "./schema.ts";
+import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
 
 /** A minimal agent for the projection (it reads only `kind`/`state`). */
 const agentVal = (
   state: AgentInfo["state"],
   kind = "claude-code",
-): AwarenessValue["agent"] => ({ kind, state }) as AwarenessValue["agent"];
+): TerminalSnapshot["agent"] => ({ kind, state }) as TerminalSnapshot["agent"];
 
 describe("agentBucket", () => {
   it("maps the working states", () => {

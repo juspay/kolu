@@ -40,7 +40,7 @@ import { retireSocket } from "./lifecycle";
 export { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS };
 
 /** The `pid` handshake echo: the client's record of the last server `processId`
- *  it observed, threaded back as the `pid` query param on every (re)connect so a
+ *  it snapshot, threaded back as the `pid` query param on every (re)connect so a
  *  RESTARTED server can recognize and reject a stale tab at the handshake. One
  *  echo per app — kolu has a single socket so it owns one implicitly; drishti
  *  shares ONE echo across its per-host + admin sockets, all fed by the admin

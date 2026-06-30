@@ -2,7 +2,8 @@
  * `@kolu/terminal-workspace/surface` — the ONE `@kolu/surface` the `pulam`
  * daemon serves, `pulam-tui` reads, and (in R8) a remote kolu-server mirrors.
  * It is the consume-facing dual of the host-side workspace the library owns: a
- * keyed `AwarenessValue` collection (one entry per terminal a kaval owns), the
+ * keyed `snapshots` collection of `TerminalSnapshot`s (one entry per terminal a
+ * kaval owns), the
  * `version` handshake cell, the `activity` flow stream, and — added in R6 — the
  * Code tab's fs/git reads (procedures) plus their live change-pulses (watcher
  * streams).
@@ -26,7 +27,7 @@ import {
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
 import { z } from "zod";
-import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
+import { TerminalSnapshotSchema, TerminalIdSchema } from "./schema.ts";
 
 /** The wire-shape `major.minor` of the workspace surface this build serves and
  *  expects. Bumped only when `terminalWorkspaceSurface` itself changes shape —
@@ -42,8 +43,16 @@ import { AwarenessValueSchema, TerminalIdSchema } from "./schema.ts";
  *  BREAKING change — a `0.3` viewer's schema requires `base` in every mode, so a
  *  `1.0` daemon's `local` result would fail its parse — hence the major bump, not
  *  a minor: the gate marks `0.3` and `1.0` mutually incompatible in BOTH
- *  directions, which is honest (the local arm changed shape, not merely grew). */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "1.0";
+ *  directions, which is honest (the local arm changed shape, not merely grew).
+ *  `1.0 → 2.0` RESHAPES the collection value from the old fused awareness value
+ *  (persisted ∪ live) to the producer's `TerminalSnapshot` — the awareness-derive-
+ *  store cutover (PR #1621): the two memory fields (`lastActivityAt` /
+ *  `lastAgentCommand`) leave the served value (they are kolu's to remember), so a
+ *  `1.0` viewer's parse would reject a `2.0` value's shape — a breaking major.
+ *  `2.0 → 3.0` RENAMES the collection key `awareness` → `snapshots` (the type-naming
+ *  cleanup): the wire path a viewer subscribes to changes, so a `2.0` viewer can't
+ *  find the renamed collection — a breaking major. */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.0";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -94,19 +103,21 @@ export const FsReadFileTextOutputSchema = z.object({
  *  procedures rather than streaming full diffs over the wire); the single shared
  *  surface both homes serve is closed in R8 when kolu mirrors this surface whole
  *  (via R7's total mirror). The primitives differ only in KIND:
- *   - the `awareness` collection (keyed current state) + `version` cell (a
+ *   - the `snapshots` collection (keyed current state) + `version` cell (a
  *     single current value) are the STATEFUL primitives;
  *   - `activity` is the FLOW primitive — the live "bytes moving right now" the
  *     Dock paints as a green dot, derived from kaval's raw byte tap (distinct
- *     from `AwarenessValue.lastActivityAt`, the slow agent staleness clock), so
- *     it can't be a collection field;
+ *     from the slow agent staleness clock `lastActivityAt`, which is now kolu's
+ *     remembered `AgentMemory`, not a served snapshot field), so it can't be a
+ *     collection field;
  *   - the `fs.*` / `git.*` PROCEDURES are the Code tab's raw reads (request →
  *     response, never persisted), and `subscribeRepoChange` /
  *     `subscribeFileChange` are WATCHER STREAMS that pulse on each live change.
  *
- *  The value schema is the GENERIC `AwarenessValue` — no `location`, no kolu UI
- *  fields; kolu's own record is built on top of this, never the other way
- *  round. */
+ *  The value schema is the GENERIC `TerminalSnapshot` — no `location`, no kolu UI
+ *  fields, no memory; kolu's own record is built on top of this (it folds the
+ *  `TerminalEvent` stream and JOINS the result with its authored record), never the
+ *  other way round. */
 export const terminalWorkspaceSurface = defineSurface({
   cells: {
     version: { schema: VersionSchema, default: DEFAULT_VERSION },
@@ -117,9 +128,9 @@ export const terminalWorkspaceSurface = defineSurface({
     // daemon serves a connection-free surface.
   },
   collections: {
-    awareness: {
+    snapshots: {
       keySchema: TerminalIdSchema,
-      schema: AwarenessValueSchema,
+      schema: TerminalSnapshotSchema,
     },
   },
   streams: {
@@ -183,17 +194,16 @@ type SF = SurfaceTypes<typeof terminalWorkspaceSurface.spec>;
 export type TerminalWorkspaceSpec = (typeof terminalWorkspaceSurface)["spec"];
 
 /** The collection's key — a terminal id (same `TerminalId` the sensors use). */
-export type AwarenessKey = SF["collections"]["awareness"]["Key"];
+export type SnapshotKey = SF["collections"]["snapshots"]["Key"];
 
 /** The `activity` stream frame — the set of terminal ids producing output right
  *  now (the whole current live set, snapshot-then-deltas). */
 export type ActivitySet = SF["streams"]["activity"]["Output"];
 
-// The collection's value is exactly `@kolu/terminal-workspace`'s `AwarenessValue`
-// (both are `z.infer<typeof AwarenessValueSchema>`). Re-export the canonical
-// names so a consumer of the surface has one import for the surface AND its
-// value/key shapes.
-export type { AwarenessValue, TerminalId } from "./schema.ts";
+// The collection's value is exactly `@kolu/terminal-workspace`'s `TerminalSnapshot`
+// (both are `z.infer<typeof TerminalSnapshotSchema>`). Re-export the canonical names so
+// a consumer of the surface has one import for the surface AND its value/key shapes.
+export type { TerminalSnapshot, TerminalId } from "./schema.ts";
 
 // The git-status shapes `git.getStatus` returns — re-exported so a viewer or
 // remote-kolu consumer reads the surface AND the types its procedures return

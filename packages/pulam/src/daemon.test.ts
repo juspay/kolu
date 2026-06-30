@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   terminalWorkspaceSurface,
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import {
@@ -86,9 +86,9 @@ class SurfaceNotReadyError extends Error {
  *  and each present key's `get` yields its current value, so this never hangs. */
 async function snapshot(
   client: AwarenessClient,
-): Promise<Map<TerminalId, AwarenessValue>> {
+): Promise<Map<TerminalId, TerminalSnapshot>> {
   const abort = new AbortController();
-  const out = new Map<TerminalId, AwarenessValue>();
+  const out = new Map<TerminalId, TerminalSnapshot>();
   try {
     // `snapshot` is the SINGLE place that understands the live, reconciling
     // collection, so it owns the entire transient/real distinction — `waitFor`
@@ -107,7 +107,7 @@ async function snapshot(
     //      carries the original cause rather than a bare timeout.
     let keys: readonly TerminalId[];
     try {
-      keys = (await firstValue(await client.surface.awareness.keys({}))) ?? [];
+      keys = (await firstValue(await client.surface.snapshots.keys({}))) ?? [];
     } catch (e) {
       throw new SurfaceNotReadyError(e); // surface not ready — no keys yet
     }
@@ -122,12 +122,12 @@ async function snapshot(
       //      so we re-check membership rather than match on it.
       try {
         const v = await firstValue(
-          await client.surface.awareness.get({ key }, { signal: abort.signal }),
+          await client.surface.snapshots.get({ key }, { signal: abort.signal }),
         );
         if (v) out.set(key, v);
       } catch (e) {
         const stillListed =
-          (await firstValue(await client.surface.awareness.keys({})))?.includes(
+          (await firstValue(await client.surface.snapshots.keys({})))?.includes(
             key,
           ) ?? false;
         if (stillListed) throw e; // a real failure on a present key

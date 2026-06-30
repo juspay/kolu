@@ -4,9 +4,11 @@
  * `main.ts` is the thin glue that reads the surface and prints these.
  *
  * pulam-tui shows what each terminal *is in* — repo·branch · PR + checks · agent
- * state · foreground · recency — where kaval-tui shows what's *running*. The
+ * state · foreground — where kaval-tui shows what's *running*. (No recency: pulam
+ * serves the memoryless `TerminalSnapshot`; `lastActivityAt` is kolu's remembered
+ * fact.) The
  * compact one-row-per-terminal `status` table is the human view; `--json` dumps
- * the full raw `AwarenessValue` (every deep field) for scripts. `watch` prints
+ * the full raw `TerminalSnapshot` (every deep field) for scripts. `watch` prints
  * one line per awareness change as it streams.
  */
 
@@ -15,10 +17,9 @@ import {
   agentShortName,
   agentStatusLabel,
   DASH,
-  relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import type {
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import columnify from "columnify";
@@ -117,7 +118,7 @@ export function parseUntilStates(
  *  is never a match; otherwise its `state` folds through the shared `agentBucket`
  *  and is tested for membership. */
 export function agentMatchesUntil(
-  agent: AwarenessValue["agent"],
+  agent: TerminalSnapshot["agent"],
   targets: ReadonlySet<string>,
 ): boolean {
   return agent !== null && targets.has(agentBucket(agent.state));
@@ -148,7 +149,7 @@ function repoBranchText(
 }
 
 /** The agent · state cell — `claude · working`, or a dash when no agent runs. */
-function agentValue(agent: AwarenessValue["agent"]): string {
+function agentValue(agent: TerminalSnapshot["agent"]): string {
   if (!agent) return DASH;
   return `${agentShortName(agent.kind)} · ${agentStatusLabel(agent.state)}`;
 }
@@ -158,7 +159,7 @@ function agentValue(agent: AwarenessValue["agent"]): string {
  *  to the `ok` arm; the exhaustive switch forces a decision on a new checks
  *  state. */
 function prChecks(
-  checks: Extract<AwarenessValue["pr"], { kind: "ok" }>["value"]["checks"],
+  checks: Extract<TerminalSnapshot["pr"], { kind: "ok" }>["value"]["checks"],
 ): "pass" | "fail" | "pending" {
   switch (checks) {
     case "pass":
@@ -177,7 +178,7 @@ function prChecks(
 
 /** The PR resolution, every arm: `#<n> <state> <✓/✗/·>` when resolved, the
  *  pending/absent/unavailable kind (with the failure code) otherwise. */
-function prValueText(pr: AwarenessValue["pr"]): string {
+function prValueText(pr: TerminalSnapshot["pr"]): string {
   switch (pr.kind) {
     case "ok": {
       const { number, state } = pr.value;
@@ -203,8 +204,7 @@ function prValueText(pr: AwarenessValue["pr"]): string {
  *  `list` uses). Sorted by id for a stable display. Empty inventory gets an
  *  honest one-liner, not a bare header. */
 export function formatStatus(
-  entries: Array<[TerminalId, AwarenessValue]>,
-  opts: { now: number },
+  entries: Array<[TerminalId, TerminalSnapshot]>,
 ): string {
   if (entries.length === 0) return "no terminals.";
   const rows = [...entries]
@@ -218,13 +218,13 @@ export function formatStatus(
       PR: prValueText(v.pr),
       AGENT: agentValue(v.agent),
       FOREGROUND: orDash(v.foreground?.name),
-      IDLE: relativeTime(v.lastActivityAt, opts.now),
     }));
   return (
+    // No recency (IDLE) column: pulam serves the memoryless `TerminalSnapshot`, which
+    // has no `lastActivityAt` — recency is kolu's remembered fact.
     columnify(rows, {
-      columns: ["ID", "REPO·BRANCH", "PR", "AGENT", "FOREGROUND", "IDLE"],
+      columns: ["ID", "REPO·BRANCH", "PR", "AGENT", "FOREGROUND"],
       columnSplitter: "  ",
-      config: { IDLE: { align: "right" } },
     })
       // columnify right-pads every column including the last; drop the trailing
       // run so piped/asserted output has no dangling whitespace.
@@ -238,7 +238,7 @@ export function formatStatus(
  *  full ids, controls JSON-escaped (so `jq '.[]'` works). The complete raw
  *  awareness value, including the deep fields the table doesn't break out. */
 export function formatAwarenessJson(
-  entries: Array<[TerminalId, AwarenessValue]>,
+  entries: Array<[TerminalId, TerminalSnapshot]>,
 ): string {
   return JSON.stringify(
     entries.map(([id, value]) => ({ id, ...value })),
@@ -253,7 +253,7 @@ export function formatAwarenessJson(
  *  the full `{ id, agent }` instead. */
 export function formatWaitMet(
   id: TerminalId,
-  agent: NonNullable<AwarenessValue["agent"]>,
+  agent: NonNullable<TerminalSnapshot["agent"]>,
 ): string {
   return `${shortId(id)} reached ${agentBucket(agent.state)} · ${agentShortName(agent.kind)} ${agentStatusLabel(agent.state)}`;
 }
@@ -270,7 +270,7 @@ function clockTime(ms: number): string {
  *  is annotation, not its own event (see `watchAwareness`). */
 export function formatWatchEvent(
   id: TerminalId,
-  v: AwarenessValue,
+  v: TerminalSnapshot,
   opts: { now: number; live: boolean },
 ): string {
   const where = repoBranchText(v.git?.repoName ?? null, v.git?.branch ?? null);
@@ -293,7 +293,7 @@ export function formatWatchRemoval(
  *  both streams. A removal emits `{ id, removed: true }`. */
 export function formatWatchJson(
   id: TerminalId,
-  v: AwarenessValue,
+  v: TerminalSnapshot,
   opts: { live: boolean },
 ): string {
   return JSON.stringify({ id, live: opts.live, ...v });

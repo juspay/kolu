@@ -98,7 +98,7 @@ function makeClient() {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
-      awareness: {
+      snapshots: {
         readAll: () => new Map(),
         upsert: () => {},
         remove: () => {},

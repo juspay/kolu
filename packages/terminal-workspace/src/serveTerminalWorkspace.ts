@@ -6,8 +6,8 @@
  * watcher streams (off {@link fsGitSurfaceDeps}) spread beside `activity` — lives
  * HERE, once. Each home injects only the two volatile backings:
  *
- *   - `awareness` — the collection's read/write source. kolu-server PROJECTS it
- *     off its registry (`.awareness` per entry); `pulam` reads its own store.
+ *   - `snapshots` — the collection's read/write source. kolu-server PROJECTS it
+ *     off its registry (`.snapshot` per entry); `pulam` reads its own store.
  *   - `activity` — the live "bytes moving now" source. kolu-server has no raw
  *     byte tap yet, so it passes {@link quietActivity} (R9 turns it live); `pulam`
  *     passes a live source over its activity tracker.
@@ -33,11 +33,11 @@ import { DEFAULT_VERSION, type terminalWorkspaceSurface } from "./surface.ts";
 
 type WorkspaceDeps = ImplementSurfaceDeps<typeof terminalWorkspaceSurface.spec>;
 
-/** The `awareness` collection backing a home injects — kolu-server's
+/** The `snapshots` collection backing a home injects — kolu-server's
  *  registry projection or `pulam`'s own store. */
-export type AwarenessCollectionDeps = NonNullable<
+export type SnapshotCollectionDeps = NonNullable<
   WorkspaceDeps["collections"]
->["awareness"];
+>["snapshots"];
 
 /** The live-`activity` stream backing a home injects. */
 export type ActivityStreamDeps = NonNullable<
@@ -67,11 +67,11 @@ export const quietActivity: ActivityStreamDeps = {
 /** Assemble the FULL `terminalWorkspaceSurface` server deps (minus `channel`,
  *  which each home supplies). The `version` cell and the fs/git procedures +
  *  watcher streams are built HERE off the injected `endpoint`; the caller injects
- *  only the `awareness` collection and the `activity` source. Spread the result
+ *  only the `snapshots` collection and the `activity` source. Spread the result
  *  into `implementSurface(...)` (`pulam`) or hand it as the `terminalWorkspace`
  *  sibling deps (kolu-server). */
 export function serveTerminalWorkspace(deps: {
-  awareness: AwarenessCollectionDeps;
+  snapshots: SnapshotCollectionDeps;
   activity: ActivityStreamDeps;
   endpoint: TerminalWorkspaceEndpoint;
   log: Logger;
@@ -79,7 +79,7 @@ export function serveTerminalWorkspace(deps: {
   const fsGit = fsGitSurfaceDeps(deps.endpoint, deps.log);
   return {
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
-    collections: { awareness: deps.awareness },
+    collections: { snapshots: deps.snapshots },
     streams: { activity: deps.activity, ...fsGit.streams },
     procedures: fsGit.procedures,
   };

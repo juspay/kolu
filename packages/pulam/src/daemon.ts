@@ -1,6 +1,6 @@
 /**
  * The `pulam` daemon — dial a kaval, run the terminal-awareness sensors for
- * every PTY kaval owns, and serve the result as one `awareness` collection.
+ * every PTY kaval owns, and serve the result as one `snapshots` collection.
  *
  * `pulam` is *ephemeral* by design: awareness is always re-derivable from live
  * taps + the current host fs, so unlike kaval it sheds all the durability
@@ -12,12 +12,11 @@
  *
  *   dial kaval ─► per terminal: bridge taps → startAwareness → publish slice
  *                                                       │
- *                                          serve `awareness` collection
+ *                                          serve `snapshots` collection
  *                                          (local socket, or stdio for ssh)
  */
 
 import {
-  type AwarenessValue,
   terminalWorkspaceSurface,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
@@ -36,10 +35,11 @@ import {
 } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
-  type AwarenessRecord,
   bridgeKavalTaps,
-  seedAwarenessValue,
-  startAwareness,
+  foldSnapshot,
+  type TerminalSnapshot,
+  seedSnapshot,
+  startSensors,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { serveTerminalWorkspace } from "@kolu/terminal-workspace/serveTerminalWorkspace";
@@ -52,7 +52,6 @@ import {
 } from "kaval";
 import type { Logger } from "pino";
 import { createActivityTracker, sameActivitySet } from "./activity.ts";
-import { makeAwarenessSink } from "./hooks.ts";
 
 /** How pulam exposes the awareness surface. `socket` binds a unix socket (the
  *  default, the local case); `stdio` serves over stdin/stdout — what an ssh
@@ -158,13 +157,13 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   // ── The served workspace surface — awareness collection + version cell +
   //    activity, plus the fs/git procedures + watcher streams (R6) — assembled by
   //    the ONE shared `serveTerminalWorkspace` factory that kolu-server also calls.
-  //    pulam injects only its volatile backings: the cache-backed `awareness`
+  //    pulam injects only its volatile backings: the cache-backed `snapshots`
   //    store and a LIVE `activity` source over its tracker. ──
-  const cache = new Map<TerminalId, AwarenessValue>();
+  const cache = new Map<TerminalId, TerminalSnapshot>();
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     ...serveTerminalWorkspace({
-      awareness: {
+      snapshots: {
         readAll: () => cache,
         upsert: (key, value) => {
           cache.set(key, value);
@@ -198,50 +197,59 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   // ── Per-terminal sensors, started on first sight, stopped on departure ──
   const watched = new Map<TerminalId, () => void>();
 
-  /** Start the awareness sensor set for one terminal, publishing each update
-   *  into the collection. Returns a stop fn (sensors + tap bridge). */
+  /** Run the memoryless awareness PRODUCER for one terminal and accumulate its
+   *  observation stream into the served `TerminalSnapshot`, publishing each update into
+   *  the collection. pulam is a DASHBOARD: it remembers nothing (no recency, no
+   *  resume target), so it folds only the OBSERVED half (`foldSnapshot`) — the same
+   *  last-write-wins kolu's fold uses, minus the memory. Returns a stop fn. */
   const watchTerminal = (
     id: TerminalId,
     entry: PtyHostListEntry,
   ): (() => void) => {
     const abort = new AbortController();
-    const record: AwarenessRecord = {
-      pid: entry.pid,
-      meta: seedAwarenessValue(entry.cwd),
-      currentAgent: null,
+    // The accumulated observation — seeded from the spawn-time cwd, then folded by
+    // each emitted observation. Shallow-clone on publish so the collection stores an
+    // independent snapshot rather than aliasing the live value.
+    let snapshot: TerminalSnapshot = seedSnapshot(entry.cwd);
+    // Guard the upsert at the publish boundary: the emit below folds (`snapshot =
+    // next`) BEFORE publishing, so a throwing awareness subscriber must not propagate
+    // back into the producer's sensor loop (it would freeze the sensor) — the accepted
+    // `snapshot` stays in sync regardless, and the next fold re-publishes. This keeps
+    // the producer's `emit` infallible (see `startSensors`).
+    const publish = (): void => {
+      try {
+        fragment.ctx.collections.snapshots.upsert(id, { ...snapshot });
+      } catch (err) {
+        log.error({ err, terminal: id }, "pulam awareness upsert threw");
+      }
     };
-    // Shallow-clone on publish: the sensors mutate `record.meta` in place (each
-    // mutator replaces a whole field), so the collection must store an
-    // independent snapshot per upsert rather than alias the live record.
-    const publish = (meta: AwarenessValue): void =>
-      fragment.ctx.collections.awareness.upsert(id, { ...meta });
-    const sink = makeAwarenessSink({
-      record,
-      publish,
-      readScreenText: async (tailLines) =>
-        (
-          await kaval.client.surface.terminal.getScreenText({
-            id,
-            extent: { kind: "tail", lines: tailLines },
-          })
-        ).text,
-    });
-    // Seed the collection immediately so a subscriber sees the terminal before
-    // any tap fires.
-    publish(record.meta);
+    // Seed the collection immediately so a subscriber sees the terminal before any
+    // tap fires.
+    publish();
 
     const signals = bridgeKavalTaps(kaval.client, id, abort.signal, log);
-    // Persist cwd changes into the published value — a host concern, mirroring
-    // kolu-server's local endpoint (whose cwd bridge writes `m.cwd`). The
-    // channel fans out, so the git sensor still re-resolves off the same taps.
-    signals.cwd.consume({
-      onEvent: (cwd) =>
-        sink.updateServerMetadata(record, (m) => {
-          m.cwd = cwd;
-        }),
-      onError: () => {},
-    });
-    const stopAwareness = startAwareness(record, id, signals, sink, log);
+    const stopAwareness = startSensors(
+      id,
+      {
+        pid: entry.pid,
+        cwd: entry.cwd,
+        signals,
+        readScreenText: async (tailLines) =>
+          (
+            await kaval.client.surface.terminal.getScreenText({
+              id,
+              extent: { kind: "tail", lines: tailLines },
+            })
+          ).text,
+        log,
+      },
+      (o) => {
+        const next = foldSnapshot(snapshot, o);
+        if (next === snapshot) return; // an `unknown` / memory-mark no-op
+        snapshot = next;
+        publish();
+      },
+    );
 
     // Tap raw output to drive the live-activity set (the green dot). We want only
     // the *fact* of new bytes, never the bytes themselves: skip the snapshot frame
@@ -303,7 +311,7 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
       log.debug({ terminal: id }, "pulam: terminal departed");
       stop();
       watched.delete(id);
-      fragment.ctx.collections.awareness.remove(id);
+      fragment.ctx.collections.snapshots.remove(id);
     }
   };
 

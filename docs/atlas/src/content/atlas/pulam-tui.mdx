@@ -29,12 +29,12 @@ The surface mapping — each command is a thin read over the `terminalWorkspaceS
 
 | Subcommand | Surface read | Behaviour |
 | --- | --- | --- |
-| `pulam-tui status` | `awareness` collection (one-shot) | Print one row per terminal — `repo·branch · PR · agent · foreground · idle` — then exit. The awareness snapshot as a plain text table. (No working-tree *dirty* count: that needs `git.getStatus`, which the single-daemon snapshot deliberately doesn't call — it's pulam-web's drill-in.) |
-| `pulam-tui status --json` | `awareness` collection (one-shot) | Emit the flat `[{ id, ...AwarenessValue }]` array and exit. The machine-readable face. |
-| `pulam-tui watch` | `awareness` collection + `activity` stream (subscribe) | Follow **every terminal** on the daemon: print a line each time any terminal's awareness changes (agent state, branch, foreground), with a trailing `●` when it's moving bytes right now, until `Ctrl+C`. |
+| `pulam-tui status` | `snapshots` collection (one-shot) | Print one row per terminal — `repo·branch · PR · agent · foreground` — then exit. The awareness snapshot as a plain text table. (No recency/`idle` column: pulam serves the memoryless `TerminalSnapshot`, which has no `lastActivityAt` — recency is kolu's remembered fact.) (No working-tree *dirty* count: that needs `git.getStatus`, which the single-daemon snapshot deliberately doesn't call — it's pulam-web's drill-in.) |
+| `pulam-tui status --json` | `snapshots` collection (one-shot) | Emit the flat `[{ id, ...TerminalSnapshot }]` array and exit. The machine-readable face. |
+| `pulam-tui watch` | `snapshots` collection + `activity` stream (subscribe) | Follow **every terminal** on the daemon: print a line each time any terminal's awareness changes (agent state, branch, foreground), with a trailing `●` when it's moving bytes right now, until `Ctrl+C`. |
 | `pulam-tui watch --json` | same | One JSON object per line (newline-delimited) per update, across all terminals — the streaming scriptable feed. |
 | `pulam-tui watch <id>` | same, filtered to one id | The same live follow, narrowed to a single terminal. `--json` likewise. |
-| `pulam-tui wait <id> --until <state>` | `awareness` collection (subscribe, one terminal) | Block until that terminal's agent enters a target bucket — `working` / `awaiting` / `waiting` (the shared `agentBucket` fold; `awaiting,waiting` = its turn ended), then exit. The done-signal for scripting an agent that drives another agent. `--timeout <ms>` caps it (fails loud, exit 2); `--json` emits `{ id, agent }`. |
+| `pulam-tui wait <id> --until <state>` | `snapshots` collection (subscribe, one terminal) | Block until that terminal's agent enters a target bucket — `working` / `awaiting` / `waiting` (the shared `agentBucket` fold; `awaiting,waiting` = its turn ended), then exit. The done-signal for scripting an agent that drives another agent. `--timeout <ms>` caps it (fails loud, exit 2); `--json` emits `{ id, agent }`. |
 
 Flags mirror kaval-tui exactly: `--socket <path>` points at a local daemon (default `$XDG_RUNTIME_DIR/pulam/awareness.sock`); `--host <ssh>` dials and Nix-provisions a single remote pulam over ssh. The two are mutually exclusive, and there is **no multi-host mode** — one invocation, one daemon. (Watching the whole *fleet* across hosts is what you open [pulam-web](pulam-web.html) for.)
 
@@ -143,8 +143,8 @@ A subtractive change, mostly: delete the viewer, keep the dial, rename the snaps
 The steps:
 
 1. **Strip the viewer.** Remove `@opentui/*`, the `render.ts` OpenTUI tree, the live clock, and the `fleet` subcommand from `packages/pulam-tui`. Drop the Bun manifest (`bun.lock` / `bun.nix` / the Zig closure) and the pnpm-workspace exclusion; repoint `package.json`'s `start` to `tsx src/bin.ts`.
-2. **Keep the dial, rename the snapshot.** The existing single-endpoint awareness consume (today rendered by the OpenTUI list, dumped by `--json`) becomes `status` / `status --json` over `--socket` | `--host` (`dialAgentOnce`). No surface change — `status` is a one-shot read of the `awareness` collection the daemon already serves.
-3. **Add `watch`.** Subscribe to the `awareness` collection plus the `activity` stream and print each update — a line in default mode, one JSON object per line under `--json` — until `Ctrl+C`. Bare `watch` follows every terminal; an optional `<id>` filters to one. A pure consumer; no contract bump.
+2. **Keep the dial, rename the snapshot.** The existing single-endpoint awareness consume (today rendered by the OpenTUI list, dumped by `--json`) becomes `status` / `status --json` over `--socket` | `--host` (`dialAgentOnce`). No surface change — `status` is a one-shot read of the `snapshots` collection the daemon already serves.
+3. **Add `watch`.** Subscribe to the `snapshots` collection plus the `activity` stream and print each update — a line in default mode, one JSON object per line under `--json` — until `Ctrl+C`. Bare `watch` follows every terminal; an optional `<id>` filters to one. A pure consumer; no contract bump.
 4. **Repackage like kaval-tui.** The Nix derivation drops `bun2nix` for the plain Node packaging `packages/kaval-tui` uses; `nix run …#pulam-tui` and the dev recipe follow kaval-tui's wholesale.
 
 <Callout kind="warn" title="Consequence — pulam-tui leaves the three-surface paint mirror">

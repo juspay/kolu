@@ -31,9 +31,7 @@
 
 import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
-import type { AgentKind, AgentSessionRef } from "./schemas.ts";
-
-export type { AgentKind, AgentSessionRef };
+import type { AgentIdentity, AgentKind, RestoreTarget } from "./schemas.ts";
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
@@ -192,6 +190,33 @@ export function agentKindFromCommand(command: string): AgentKind | null {
 }
 
 /**
+ * Build an `exact` restore target — but ONLY when `command` invokes the SAME agent
+ * kind as `agent`. The invariant an `exact` target must carry is that its command's
+ * agent kind agrees with its identity's kind, so that `resumeFormFor` →
+ * `resumeAgentCommand` always takes the SAME-agent path (resume the exact conversation
+ * by id, or refuse on a malformed id) and NEVER the most-recent *downgrade*
+ * `resumeAgentCommand` applies to a different-agent ref. Without this gate,
+ * `{ command: "opencode …", agent: { kind: "claude-code", … } }` would render as
+ * opencode's most-recent resume — the wrong-agent defect #2 exists to make
+ * unspellable, relocated inside the `exact` arm.
+ *
+ * A kind mismatch (a stale-command/new-agent race, or corrupt/edited state) — or a
+ * non-resumable `command` whose head names no agent — yields `null`; the caller maps
+ * that to `none` (a bare shell) or, in the migration, `legacyMostRecent`, never a
+ * silent wrong-agent resume. This is the ONE constructor both production sites (kolu's
+ * fold `restoreTargetOf`, the `backfillSnapshotCutover` migration) go through, so the
+ * mismatched pair has a single point of refusal.
+ */
+export function exactRestoreTarget(
+  command: string,
+  agent: AgentIdentity,
+): RestoreTarget | null {
+  return agentKindFromCommand(command) === agent.kind
+    ? { kind: "exact", command, agent }
+    : null;
+}
+
+/**
  * Extract the agent binary basename (the head token) from a command line —
  * typically the normalized output of `parseAgentCommand`. Tokenizes with
  * `shellSplit` (the exact inverse of the `shellJoin` that produced the
@@ -280,7 +305,7 @@ export function parseAgentCommand(raw: string): string | null {
  */
 export function resumeAgentCommand(
   normalized: string,
-  session?: AgentSessionRef,
+  session?: AgentIdentity,
 ): string | null {
   const trimmed = normalized.trim();
   // The agent basename is always a safe bare word, so `shellSplit` reads the
@@ -307,8 +332,8 @@ export function resumeAgentCommand(
     // a no-op for a gate-passing id, but it keeps the "data, not shell text"
     // intent explicit. A malformed id is a broken claim → refuse to resume
     // (return null) rather than fall back to the most-recent (wrong) conversation.
-    if (!policy.idPattern.test(session.id)) return null;
-    marker = policy.byId(shellJoin([session.id]));
+    if (!policy.idPattern.test(session.sessionId)) return null;
+    marker = policy.byId(shellJoin([session.sessionId]));
   } else {
     // No ref, or a ref for a different agent: most-recent fallback (no id to aim).
     marker = policy.last;
@@ -318,21 +343,29 @@ export function resumeAgentCommand(
 }
 
 /**
- * Derive the resume FORM for a terminal's persisted base — the one composition
- * `wake()` (and the client's session-restore path) feeds into a fresh spawn:
- * render the persisted `lastAgentCommand` via `resumeAgentCommand`, passing the
- * persisted `agentSession` ref so it targets the EXACT conversation that ran on
- * this terminal (juspay/kolu#1495); `null` when no agent command was ever
- * observed, or when the observed command is not resumable.
- *
- * One home for the `lastAgentCommand` + `agentSession` → resume-form mapping, so
- * the wake path and its tests can't drift from each other.
+ * Render a terminal's fold-derived {@link RestoreTarget} into the resume FORM
+ * `wake()` (and the client's session-restore path) feeds a fresh spawn — the ONE
+ * place a restore target becomes a command line, so the wake path and its tests
+ * can't drift. It SWITCHES on the discriminated target and can no longer infer
+ * "resume most-recent" from a missing field:
+ *   - `none` (or an absent target) → `null`: wake lands on a BARE SHELL, by
+ *     construction (juspay/kolu#1492). A quit-to-shell produces `none`, so there
+ *     is nothing to read wrong.
+ *   - `exact` → resume THAT conversation by id (juspay/kolu#1495): the captured
+ *     `agent` identity is passed STRAIGHT to `resumeAgentCommand`, which splices it
+ *     (or refuses with `null` if the id fails its shape gate — a bare shell, never
+ *     the wrong conversation).
+ *   - `legacyMostRecent` → the most-recent-marker resume (`claude -c`, …): the
+ *     compatibility path for migrated pre-1.29 records that remembered a launch
+ *     `command` but no session id. Reaches `resumeAgentCommand` with no ref, so it
+ *     never aims an id at the wrong CLI.
  */
-export function resumeFormFor(meta: {
-  lastAgentCommand?: string;
-  agentSession?: AgentSessionRef;
-}): string | null {
-  return meta.lastAgentCommand
-    ? resumeAgentCommand(meta.lastAgentCommand, meta.agentSession)
-    : null;
+export function resumeFormFor(
+  target: RestoreTarget | undefined,
+): string | null {
+  if (!target || target.kind === "none") return null;
+  if (target.kind === "legacyMostRecent")
+    return resumeAgentCommand(target.command, undefined);
+  // `exact`: the agent that was LIVE at sleep — re-target its native session id.
+  return resumeAgentCommand(target.command, target.agent);
 }

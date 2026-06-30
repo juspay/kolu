@@ -1,7 +1,11 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
 import type { PwaInstall } from "@kolu/solid-pwa-install";
-import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import {
+  resumableCommand,
+  type SavedSession,
+  type SavedTerminal,
+} from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { resumableTerminalIds } from "./restoreModel";
@@ -164,8 +168,8 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                   fallback={
                                     <Show
                                       when={
-                                        resumeAgents() && t.lastAgentCommand
-                                          ? t.lastAgentCommand
+                                        resumeAgents()
+                                          ? resumableCommand(t.restoreTarget)
                                           : undefined
                                       }
                                     >

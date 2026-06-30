@@ -20,6 +20,7 @@ import Conf from "conf";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
+  backfillSnapshotCutover,
   backfillLocation,
   backfillRemoteUrl,
   backfillTerminalState,
@@ -113,7 +114,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.28.0";
+const SCHEMA_VERSION = "1.29.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -504,6 +505,17 @@ export const store = new Conf<PersistedState>({
     // backfill, no validation failure. The bump + this entry exist only to honor
     // the "persisted-shape change ⇒ migration ladder step" rule (.claude/rules/state.md).
     "1.28.0": () => {},
+    // The awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
+    // (restore-relevant) field, and the sticky `agentSession` ref + the implicit
+    // "lastAgentCommand ⇒ resume most-recent" rule collapsed into one discriminated
+    // `restoreTarget`. A pre-1.29 record lacks the now-required `pr` (it was a
+    // never-persisted live field) and may carry the old `agentSession`, so
+    // `backfillSnapshotCutover` backfills `pr: { kind: "absent" }` (the live PR
+    // sensor re-resolves on restore) and synthesizes `restoreTarget` from what the
+    // record remembered: `agentSession` + a command → `exact`, a command alone →
+    // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
+    "1.29.0": (store: Conf<PersistedState>) =>
+      mapSessionTerminals(store, backfillSnapshotCutover),
   },
 });
 
