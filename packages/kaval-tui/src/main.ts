@@ -58,6 +58,7 @@ import {
   awaitOutputCondition,
   parseUntil,
   type WaitCondition,
+  waitResultJson,
 } from "./wait.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
@@ -223,7 +224,7 @@ const argv = cli({
       parameters: ["<id>"],
       help: {
         description:
-          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints `{ id, fired, elapsedMs, matchedLine? }`. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `pulam-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
+          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `pulam-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
       },
       flags: {
         ...endpointFlags,
@@ -240,7 +241,7 @@ const argv = cli({
         json: {
           type: Boolean,
           description:
-            "machine-readable JSON output ({ id, fired, elapsedMs, matchedLine? })",
+            "machine-readable JSON output — one result frame per outcome: { id, result, … } (result: met / timeout / gone / interrupted / closed)",
           default: false,
         },
       },
@@ -548,25 +549,17 @@ async function cmdWait(
     signal: abort.signal,
   });
 
+  // One machine-readable frame for EVERY outcome (the full id, 2-space indented
+  // like `create`/`send --json`), serialized from the single `waitResultJson`
+  // source of truth and emitted before the exit-code branches below — so a
+  // `--json` driver gets a structured `result` for met / timeout / gone /
+  // interrupted / closed alike, never just a bare exit code.
+  if (opts.json) {
+    await writeOut(`${JSON.stringify(waitResultJson(id, outcome), null, 2)}\n`);
+  }
+
   if (outcome.kind === "met") {
-    if (opts.json) {
-      // The full id (for scripts), 2-space indented like `create`/`send --json`.
-      // `matchedLine` only rides along for a `match` fire — omitted for `idle`.
-      await writeOut(
-        `${JSON.stringify(
-          {
-            id,
-            fired: outcome.fired,
-            elapsedMs: outcome.elapsedMs,
-            ...(outcome.matchedLine !== undefined
-              ? { matchedLine: outcome.matchedLine }
-              : {}),
-          },
-          null,
-          2,
-        )}\n`,
-      );
-    } else {
+    if (!opts.json) {
       const detail =
         outcome.fired === "match" && outcome.matchedLine !== undefined
           ? `matched ${JSON.stringify(outcome.matchedLine)}`
@@ -578,13 +571,6 @@ async function cmdWait(
     return;
   }
   if (outcome.kind === "timeout") {
-    // Print the JSON timeout frame (the contract's `fired: "timeout"`) before
-    // the loud-fail exit so a `--json` driver still gets a structured result.
-    if (opts.json) {
-      await writeOut(
-        `${JSON.stringify({ id, fired: "timeout", elapsedMs: outcome.elapsedMs }, null, 2)}\n`,
-      );
-    }
     // Distinct exit code (2) so a driving script tells a timeout — the output
     // never settled — from a usage/link error (1).
     process.stderr.write(

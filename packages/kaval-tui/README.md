@@ -121,10 +121,13 @@ kaval-tui snapshot a1b2 --viewport                      # read the reply
 
 Exit codes mirror a blocking read: **0** the condition was met · **2** the
 timeout elapsed · **3** the terminal **exited** before the condition (the agent
-you were driving died) · **130** interrupted (Ctrl+C). `--json` prints
-`{ id, fired, elapsedMs, matchedLine? }` (`fired` is `idle` / `match` /
-`timeout`). Like every subcommand, `wait` takes `--socket` / `--host` to target
-a running kolu or a remote daemon — a remote PTY's quiescence is observed at the
+you were driving died) · **130** interrupted (Ctrl+C). `--json` prints **one
+result frame per outcome** — `{ id, result, … }`, where `result` is `met` /
+`timeout` / `gone` / `interrupted` / `closed` (a `met` frame adds `fired` —
+`idle` / `match` —, `elapsedMs`, and `matchedLine` on a match). Every outcome
+emits a frame, so a `--json` driver never falls back to parsing the exit code
+alone. Like every subcommand, `wait` takes `--socket` / `--host` to target a
+running kolu or a remote daemon — a remote PTY's quiescence is observed at the
 remote daemon.
 
 > Idle means "output stopped", not "the answer is right": the turn may have

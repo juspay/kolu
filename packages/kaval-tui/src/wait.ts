@@ -103,6 +103,43 @@ export type WaitOutcome =
   | { kind: "interrupted" }
   | { kind: "closed"; error?: string };
 
+/** Serialize a {@link WaitOutcome} to the stable `--json` wire frame — the ONE
+ *  home for the driver-facing contract, so the shape lives beside the type it
+ *  mirrors instead of being reassembled per branch in `cmdWait`. The `result`
+ *  discriminant is derived from `outcome.kind` (NOT from `fired`, which is a
+ *  success *detail* of the `met` case), so EVERY outcome — `gone` /
+ *  `interrupted` / `closed` included — emits a uniform frame and a `--json`
+ *  driver never has to fall back to parsing the exit code alone. */
+export function waitResultJson(
+  id: string,
+  outcome: WaitOutcome,
+): Record<string, unknown> {
+  switch (outcome.kind) {
+    case "met":
+      return {
+        id,
+        result: "met",
+        fired: outcome.fired,
+        elapsedMs: outcome.elapsedMs,
+        ...(outcome.matchedLine !== undefined
+          ? { matchedLine: outcome.matchedLine }
+          : {}),
+      };
+    case "timeout":
+      return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
+    case "gone":
+      return { id, result: "gone", elapsedMs: outcome.elapsedMs };
+    case "interrupted":
+      return { id, result: "interrupted" };
+    case "closed":
+      return {
+        id,
+        result: "closed",
+        ...(outcome.error !== undefined ? { error: outcome.error } : {}),
+      };
+  }
+}
+
 /** Cap the accumulated match buffer so a long-running `match` wait against a
  *  chatty terminal can't grow it unbounded. Far larger than any realistic
  *  sentinel/marker, so a match near the tail (the normal case — the marker is the
