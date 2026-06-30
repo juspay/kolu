@@ -41,19 +41,21 @@ async function postSavedSessionPayload(
     savedAt: number;
     activeTerminalId?: string;
   } = {
-    // Stamp the now-required `location` (local) and `state` (active) discriminant
-    // here so the call sites stay focused on what they test
+    // Stamp the now-required `location` (local), `state` (active) discriminant, and
+    // `pr` here so the call sites stay focused on what they test
     // (cwd/themeName/lastAgentCommand) and never re-spell them. Unlike
-    // `lastActivityAt` — which the server backfills from its Zod `.default(0)`
-    // when it validates this payload — neither `location` nor the `state`
-    // discriminant has a schema default (a required host / a discriminant has no
-    // honest one), so the helper must supply them; this package is
-    // transpiled-not-typechecked, so this runtime stamp, not the compiler, is
-    // what enforces it. A terminal that sets its own `location`/`state` (a future
-    // remote or sleeping case) wins via the spread.
+    // `lastActivityAt` — which the server backfills from its Zod `.default(0)` when
+    // it validates this payload — none of `location`, the `state` discriminant, or
+    // `pr` has a schema default (a required host / a discriminant / a restore-relevant
+    // `PrResult` have no honest one), so the helper must supply them; this package is
+    // transpiled-not-typechecked, so this runtime stamp, not the compiler, is what
+    // enforces it. `pr: { kind: "absent" }` mirrors a real saved record (the live PR
+    // sensor re-resolves on restore). A terminal that sets its own
+    // `location`/`state`/`pr` (a future remote or sleeping case) wins via the spread.
     terminals: terminals.map((t) => ({
       location: LOCAL_LOCATION,
       state: "active",
+      pr: { kind: "absent" },
       ...t,
     })),
     savedAt: world.savedSessionSavedAt,
