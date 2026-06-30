@@ -63,6 +63,14 @@ the bucket can never land — `wait` also fails loud (exit code `3`) rather than
 waiting on a terminal that's gone. `--json` prints `{ id, agent }` so the driver
 reads the new state without a second call.
 
+> **Agent state needs HOOKED terminals.** It keys on the OSC marks a kolu-hooked
+> shell emits, so a raw `kaval-tui create`'d agent (a plain `$SHELL`, no hooks —
+> as in the example above) often isn't detected and `pulam-tui wait` just times
+> out. `pulam-tui wait` is for terminals a **kolu-server** spawned (point
+> `kaval-tui --socket $XDG_RUNTIME_DIR/kolu/pty-host.sock` at them). For a raw
+> `kaval-tui create` loop, use **`kaval-tui wait --until idle:<ms>`** — it keys
+> on raw output quiescence, so it needs no hooks.
+
 > **Mind the stale-state race.** Right after `send`, the agent may still report
 > the *previous* turn's `waiting`/`awaiting` for a beat before it picks up. For a
 > robust loop, wait for the pickup first, then the turn-end: `pulam-tui wait $id

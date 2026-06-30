@@ -4,8 +4,9 @@ description: >-
   Drive one AI agent from another through kolu's terminals: spawn a Claude
   Code / Codex / opencode session in a PTY, prompt it, watch the screen for its
   reply, read it, and prompt again — a create→send→snapshot loop run with the
-  `kaval-tui` CLI directly (no MCP). `kaval-tui` writes input and reads
-  scrollback; `pulam-tui` adds a precise agent-state done-signal when you drive
+  `kaval-tui` CLI directly (no MCP). `kaval-tui` writes input, reads scrollback,
+  and provides a hook-free done-signal (`wait --until idle:<ms>` on raw PTY
+  output); `pulam-tui` adds a precise agent-state done-signal when you drive
   hooked terminals. Triggers on "drive another agent", "send a prompt to a
   terminal agent", "have one agent prompt another", "agent drives agent",
   "orchestrate agents in terminals", "make Claude drive Codex", "prompt the
@@ -21,9 +22,12 @@ until it's done, read what it said, type the next prompt. The whole toolkit is
 **`kaval-tui`** — write input, read the screen, spawn, kill. The driver runs it
 directly; there's no server to stand up and no MCP layer.
 
-`pulam-tui` adds a *precise* done-signal (`wait --until <state>`) — but only for
-**hooked** terminals (see the last section). For a raw `kaval-tui`-spawned
-terminal, the done-signal is **watching the screen settle**, below.
+For a raw `kaval-tui`-spawned terminal, the done-signal is **`kaval-tui wait
+--until idle:<ms>`** — it blocks in the daemon on the raw PTY output and returns
+the moment the agent stops streaming, with no shell hooks (below). `pulam-tui`
+adds a *precise agent-state* done-signal (`wait --until <state>`), but only for
+**hooked** terminals (the last section); for raw terminals, reach for
+`kaval-tui wait`.
 
 ## The loop
 
@@ -31,14 +35,15 @@ terminal, the done-signal is **watching the screen settle**, below.
 id=$(kaval-tui create --json -- claude | jq -r .id)            # spawn the inner agent
 kaval-tui send  "$id" "refactor the parser to use a lexer"     # 1. TYPE the prompt
 kaval-tui send  "$id" --key Enter                              # 2. SUBMIT it (its own step)
-wait_until_settled "$id"                                       # 3. let its turn finish (below)
+kaval-tui wait  "$id" --until idle:800 --timeout 600000        # 3. let its turn finish (below)
 kaval-tui snapshot "$id" --viewport                            # 4. read the screen
 kaval-tui send  "$id" "now add tests for it"; kaval-tui send "$id" --key Enter   # loop
 ```
 
 Leaf commands, all `kaval-tui`: **create** (spawn) · **send** (type) ·
-**send --key Enter** (submit) · **snapshot** (read) · **kill**. **Typing and
-submitting are two separate `send`s** — that is load-bearing, see below.
+**send --key Enter** (submit) · **wait** (block until the turn ends) ·
+**snapshot** (read) · **kill**. **Typing and submitting are two separate
+`send`s** — that is load-bearing, see below.
 
 > **Read with `snapshot --viewport`, not `| tail`.** A bare `snapshot` prints the
 > **whole scrollback** — thousands of lines on a long-running or compacted agent —
@@ -91,38 +96,68 @@ kaval-tui send "$id" --key Escape          # stop Claude Code mid-stream
 kaval-tui send "$id" --key C-c             # SIGINT whatever's running
 ```
 
-## The done-signal — watch the screen settle
+## The done-signal — `kaval-tui wait --until idle:<ms>`
 
 After you submit, you need to know when the turn ends. For a raw
-`kaval-tui`-spawned terminal there's no agent-state feed, so use the screen
-itself: **poll `snapshot` until it stops changing.** A working agent streams
-output, so a screen that's held still for a couple of polls means the turn ended
-— it finished, *or* it's blocked asking you something (both mean "your move").
-Then read the snapshot to see which, and respond.
+`kaval-tui`-spawned terminal there's no agent-state feed — but the daemon already
+sees every output byte, so **`kaval-tui wait`** blocks on that raw stream and
+returns the instant the agent goes quiet, with **no shell hooks** and no
+busy-word guessing:
 
 ```sh
-# Block until <id>'s screen is unchanged across 2 polls, capped at a deadline so
-# a wedged agent can't hang the loop forever (the manual equivalent of a timeout).
-wait_until_settled() {
-  local id=$1 deadline=$(( $(date +%s) + 600 )) prev="" cur stable=0
-  while [ "$stable" -lt 2 ] && [ "$(date +%s)" -lt "$deadline" ]; do
-    sleep 3
-    cur=$(kaval-tui snapshot "$id" --viewport)   # diff the live screen, not the whole scrollback
-    if [ "$cur" = "$prev" ]; then stable=$((stable + 1)); else stable=0; fi
-    prev=$cur
-  done
-}
+kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn ends
 ```
 
-Poll **`--viewport`**, not a bare `snapshot`: a settle test diffs two reads, and
-diffing two full-scrollback dumps is slow and noisy (any scrollback churn reads
-as "still moving"), while two screenfuls compare cleanly.
+- **`--until idle:<ms>`** resolves once no output byte has arrived for `<ms>` —
+  the agent-agnostic "turn ended / awaiting input" signal, and the common case.
+  `800` is a good default; raise it for an agent that pauses mid-thought, lower
+  it for a snappier loop. It works identically for `claude`/`codex`/`grok`/
+  `opencode` because it keys on bytes, not on any agent's rendering.
+- **`--until match:'<regex>'`** resolves once *new* output matches — use it for a
+  completion marker or a returned-prompt sentinel (e.g. `--until match:'\$ $'`).
+- **`--timeout <ms>`** caps the wait and **fails loud (exit 2)** so a wedged agent
+  can't hang the loop. If the terminal **exits** before the condition fires,
+  `wait` exits **3** (the agent you were driving died). Met → exit **0**.
+- **`--json`** → `{ id, fired, elapsedMs, matchedLine? }` (`fired` is
+  `idle`/`match`/`timeout`).
 
-Tune `sleep`/deadline to the work. It's coarser than `pulam-tui wait` (a busy
-agent that pauses mid-thought can read as settled), so after it returns,
-**confirm the reply is actually present** in the snapshot before moving on.
+Quiescence ≠ "the reply is correct": idle fires whether the agent **finished** or
+is **blocked asking you something** (both mean "your move"). So after `wait`
+returns, **`snapshot --viewport` and read** what's on screen before responding.
 
-## `pulam-tui wait` — the precise done-signal (hooked terminals only)
+> **Fallback — screen-settle polling (only for an old daemon).** If you're
+> driving a kaval that predates `wait` (it errors "unhandled command"), fall back
+> to polling `snapshot --viewport` until the screen holds still across two reads,
+> capped by a deadline. It's coarser and laggier (a busy agent that pauses
+> mid-thought can read as settled, and the poll lags the real settle), so prefer
+> `kaval-tui wait` whenever the daemon has it.
+>
+> ```sh
+> wait_until_settled() {   # fallback only — kaval-tui wait is preferred
+>   local id=$1 deadline=$(( $(date +%s) + 600 )) prev="" cur stable=0
+>   while [ "$stable" -lt 2 ] && [ "$(date +%s)" -lt "$deadline" ]; do
+>     sleep 3
+>     cur=$(kaval-tui snapshot "$id" --viewport)   # the live screen, not full scrollback
+>     if [ "$cur" = "$prev" ]; then stable=$((stable + 1)); else stable=0; fi
+>     prev=$cur
+>   done
+> }
+> ```
+
+## `pulam-tui wait` vs `kaval-tui wait` — two done-signals
+
+They are not rivals; they read different things:
+
+- **`kaval-tui wait`** keys on **raw output quiescence/match** — works on **any**
+  terminal, **no hooks**. This is the one to reach for when driving a raw
+  `kaval-tui create` agent (above). It can't tell "finished" from "blocked asking
+  you" — both are quiescence — so read the snapshot after.
+- **`pulam-tui wait`** keys on **agent-state buckets** (working/awaiting/waiting)
+  — more precise (it *distinguishes* awaiting-you from finished), but only on
+  **hooked** terminals. Use it when you're driving terminals a kolu-server
+  spawned (below).
+
+### `pulam-tui wait` — the precise done-signal (hooked terminals only)
 
 When you *do* have agent-state detection, `pulam-tui wait <id> --until <buckets>`
 is the exact done-signal — it blocks until the agent reaches a coarse state, then
@@ -158,8 +193,8 @@ fails loud too (exit 3 — the agent you were driving died); `--json` →
 > you spawn that way often isn't detected, and `wait` will just time out. `wait`
 > is reliable when you drive **already-hooked** terminals: the ones a running
 > **kolu-server** spawned (point `kaval-tui --socket $XDG_RUNTIME_DIR/kolu/pty-host.sock`
-> at them), or a future `kolu-tui`. For a raw `kaval-tui create` loop, use the
-> screen-settle done-signal above.
+> at them), or a future `kolu-tui`. For a raw `kaval-tui create` loop, use
+> **`kaval-tui wait --until idle:<ms>`** above — it needs no hooks.
 
 ## Reach — which daemon you're driving
 
@@ -181,8 +216,9 @@ Before calling a driven turn done:
   not `send "text" --key Enter` in one call) — a prompt left staged on the `❯`
   line is the #1 failure here.
 - The inner agent's **reply is actually in the `snapshot`** — not an empty box or
-  a half-rendered stream. The screen-settle wait is coarse; verify the content.
-- Your wait had a **deadline / `--timeout`** so a wedged agent fails instead of
-  hanging the loop.
+  a half-rendered stream. `wait --until idle` means "output stopped", not "the
+  answer is right"; verify the content.
+- Your wait had a **`--timeout`** (or deadline) so a wedged agent fails loud
+  (exit 2) instead of hanging the loop.
 - If the screen settled on a **question** (the agent is awaiting you), you **read
   it and answered** — you didn't send the next task on top of a blocked prompt.
