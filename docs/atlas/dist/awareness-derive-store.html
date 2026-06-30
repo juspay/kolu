@@ -310,7 +310,7 @@
 <li><strong>snapshot vs delta</strong> is <strong>kolu’s</strong> subscription-phase fact, not a producer boolean. Putting it on the frame lets kolu derive <code>ctx.live</code> from the frame it received — its own knowledge — and <strong>deletes <code>fromSnapshot</code></strong>. The frame decides <strong>liveness only</strong> (does this bump recency). It does <strong>not</strong> decide what a null <em>means</em> — round 6 showed that’s a separate question (a snapshot null could be “no agent” <em>or</em> “not resolved yet”), and overloading the frame phase to answer it is the unsound rule the collapse died on. The meaning of an agent null rides the <strong><code>Known&lt;&gt;</code> field</strong> (<code>unknown</code> = keep, <code>{ value: null }</code> = authoritative absent), never the frame. (<code>replayed</code> likewise stays on the <code>commandRun</code> event — a restarted tap can replay a mark into a <em>delta</em>, so the frame phase can’t stand in for it; <code>inProcessPtyHost.ts:148-163</code>.)</li>
 <li><strong>a per-subscription monotonic <code>seq</code></strong> (precedent: <code>RepoChangePulse.seq</code>, <code>surface.ts:58-67</code>): kolu asserts contiguity; a hole forces a <code>gap</code> frame → re-snapshot, instead of a silently divergent fold. A counter is <strong>not</strong> a wall clock, so it imports nothing.</li>
 </ul>
-<p>kolu consumes the framed stream through one <code>subscribeSnapshots(key, …)</code> seam regardless of transport: <strong>locally</strong> it wraps the in-process <code>startSensors</code> (the initial emit burst is the <code>snapshot</code> frame, later emits are <code>delta</code>s); <strong>remotely</strong> it is the ssh stream verbatim. So the framing — not the engine — is where snapshot/live and <code>seq</code> live; the engine stays a pure memoryless emitter.</p>
+<p>kolu consumes the framed stream through one <code>subscribeSnapshots(key, …)</code> seam regardless of transport: <strong>locally</strong> it wraps the in-process <code>startSensors</code> (the initial emit burst is the <code>snapshot</code> frame, later emits are <code>delta</code>s); <strong>remotely</strong> it is the ssh stream verbatim. So the framing — not the engine — carries <code>phase</code>/<code>seq</code>, and the engine stays a pure memoryless emitter. But <strong><code>ctx.live</code> is not the frame phase alone</strong>: it is <code>(phase === &quot;delta&quot;)</code> <strong>AND</strong> kolu’s durable agent-identity baseline check, derived in kolu’s <em>consumer arm</em>. A snapshot re-observation is never live; and a <code>delta</code> that merely re-resolves the <em>adopted</em> agent — which seeds <code>null</code>, the resume identity riding the authored <code>restoreTarget</code>, not the snapshot — must not bump recency either. The framer alone can’t decide liveness; only kolu, holding the durable record, can. <em>(Settled by the R9.2/R9.3 debate, <code>debates/r92-r93/</code>.)</em></p>
 <p>The payoff: <strong>kolu’s fold is one function for local and remote, and <code>reconcileRemoteSnapshot</code> disappears.</strong> The snapshot frame meets a pre-seeded <code>current</code> and folds with <code>ctx.live = false</code> (no spurious recency bump). <code>adoptedAwareness</code> (<code>local.ts:340</code>), wake, remote-connect, and remote-reconnect are the <strong>same</strong> “seed from memory, then fold” — <code>orphanAwareness</code> (<code>local.ts:368</code>) is the degenerate zero-memory seed.</p>
 <aside class="callout callout-warn" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Scale + coalescing (decided)</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Volume is tens–hundreds of small events/sec at realistic fleet sizes — the firehose is already coalesced at source by <code>agentInfoEqual</code> (<code>sensors.ts:516</code>), the same count the browser already fans out. <strong>Coalescing rule:</strong> latest-wins display fields (<code>agent</code> detail, <code>pr</code>, <code>foreground</code>) may coalesce; <strong>discrete marks may not</strong> — <code>commandRun</code> (the <code>replayed</code> bit), the agent <strong>identity</strong> transition (drives recency), and <code>git</code>/<code>cwd</code> edges. Default: coalesce nothing beyond <code>agentInfoEqual</code>; if scale ever bites, split <code>agent</code> into a lossless identity lane and a coalescible detail lane. On buffer overflow the mechanism is concrete: a <code>phase: &quot;gap&quot;</code> frame + the monotonic <code>seq</code> let kolu <em>detect</em> the hole and re-snapshot rather than fold a silently divergent stream.</p></div></aside>
 <h2 id="how-r9-collapses">How R9 collapses</h2>
@@ -428,32 +428,42 @@ daemon — a remote daemon calls it with its own inputs and serves the <code>emi
 frame <em>is</em> the reconcile; the value-based recency baseline (the R9.0 substitute for the deleted
 <code>AWARENESS_SNAPSHOT_WINDOW_MS</code> timer) suppresses the re-observation bump.</li>
 </ul>
-<p>So R9.3 is an <strong>additive transport arm</strong>, not a refactor. The work-list, given R9.0’s actual structure:</p>
+<p>So R9.3 is an <strong>additive transport arm</strong>, not a refactor — and the debate (<code>debates/r92-r93/</code>) split it into <strong>three independently-shippable sub-PRs</strong> (R9.3a framer + local-prep · R9.3b wire + pulam-serves · R9.3c kolu-subscribe + key). The work-list, given R9.0’s actual structure:</p>
 <ol>
 <li><strong>Build the <code>TerminalFrame</code> type</strong> (designed above — <code>snapshot | delta(seq) | gap</code>). R9.0 has only
-<code>TerminalEvent</code>; the framed stream was deferred here, by design.</li>
+<code>TerminalEvent</code>; the framed stream was deferred here, by design. <em>(R9.3a)</em></li>
 <li><strong>A framer</strong> that turns the producer’s <code>emit</code> sequence into frames — <em>wraps</em> the producer (which
-stays a pure emitter), assigns <code>phase</code>/<code>seq</code>, and is the one place <code>ctx.live</code> is derived.</li>
+stays a pure emitter) and assigns <strong><code>phase</code>/<code>seq</code> only</strong>. It is <strong>not</strong> where <code>ctx.live</code> is decided:
+liveness is <code>(phase === &quot;delta&quot;)</code> <strong>AND</strong> kolu’s durable agent-identity baseline check, in kolu’s
+<em>consumer arm</em> (the framer can’t see kolu’s <code>restoreTarget</code>; the remote framer runs in pulam, which
+has no kolu memory). Deleting the baseline would spuriously bump recency on every restart — adopt
+re-seeds <code>agent: null</code> and the agent re-resolves <em>asynchronously as a delta</em>. <em>(R9.3a — pin the adopt
+case with a differential test.)</em></li>
 <li><strong>Pulam serves the framed <em>event</em> stream — not just its snapshot cache.</strong> ⚠️ The sharp,
 non-obvious requirement (the debate’s headline): pulam today folds each <code>TerminalEvent</code> into a
 <code>TerminalSnapshot</code> cache and serves <em>that</em> (perfect for pulam-tui/pulam-web, which need no recency).
 But that cache is <strong>insufficient</strong> for kolu-as-remote-consumer, because <code>commandRun</code> is a <strong>memory
 mark</strong> that <code>foldSnapshot</code> drops — so the remote daemon must serve the <strong>raw event stream</strong> (a new
-<code>terminalEvents</code> stream beside the <code>snapshots</code> collection), and <strong>kolu must not rebuild memory from
-the served <code>snapshots</code></strong>.</li>
-<li><strong>kolu’s remote subscribe-and-fold arm</strong> — subscribe the remote <code>terminalEvents</code> over a long-lived
-<code>getHostSession</code> (mirrored via <strong>R7</strong>’s total dual), seed <code>current</code> from kolu’s durable record, fold
-exactly as local; on a missing <code>seq</code>, force a <code>gap</code> → re-snapshot.</li>
-<li><strong>Host-scoped keys</strong> — the branded <code>HostTerminalKey</code> (designed in “Decided”) lands here, where two
-hosts’ opaque PTY ids can actually collide.</li>
+<code>terminalEvents</code> stream beside the <code>snapshots</code> collection, contract bump <code>3.0 → 3.1</code>, additive), and
+<strong>kolu must not rebuild memory from the served <code>snapshots</code></strong>. <em>(R9.3b)</em></li>
+<li><strong>kolu’s remote subscribe-and-fold arm</strong> — dial the remote <strong>pulam</strong> (it serves the terminal-workspace
+surface — kaval serves only PTY; <code>getHostSession({binary:&quot;pulam&quot;})</code>, the <code>pulam-tui</code> precedent, bake
+<code>PULAM_AGENT_DRVS_JSON</code>), mirror the <code>terminalEvents</code> over <strong>R7</strong>’s total dual, seed <code>current</code> from
+kolu’s durable record, fold exactly as local; on a missing <code>seq</code>, force a <code>gap</code> → re-snapshot. <em>(R9.3c)</em></li>
+<li><strong>Host-scoped keys</strong> — the branded <code>HostTerminalKey</code> (designed in “Decided”), <strong>kolu-intake-only</strong>
+(the wire stays bare <code>TerminalId</code>), lands here, where two hosts’ opaque PTY ids can actually collide.
+<em>(R9.3c)</em></li>
 </ol>
-<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>R9.3 prep — route the LOCAL path through the framer too (one phase-seam, not two)</p><div class="callout-body" data-astro-cid-q2ml7llr><p>R9.0 decides snapshot-vs-delta <strong>inline</strong> in the local emit closure (the value-based recency baseline).
-It’s correct and <strong>localized</strong> — the fold doesn’t see it, so it’s not debt — but a naive R9.3 would end
-with <strong>two</strong> phase-logics (a local value-hack vs the remote <code>frame.phase</code>) and two paths feeding the fold.
-When building R9.3, <strong>route the in-process path through the <em>same</em> framer</strong> (even a trivial one: the
-initial burst = a <code>snapshot</code> frame, <code>live=false</code>; thereafter <code>delta</code>s). Then “subscribe-and-fold” is
-<em>the</em> seam — only the <strong>source of frames</strong> differs (in-process framer vs ssh wire) — and the plan’s
-“only the transport differs” becomes literally true.</p></div></aside>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>R9.3 prep — route the LOCAL path through the framer too (one phase-seam, not two)</p><div class="callout-body" data-astro-cid-q2ml7llr><p>R9.0 decides snapshot-vs-delta <strong>inline</strong> in the local emit closure (the value-based recency baseline,
+<code>local.ts:773-795</code>). When building R9.3, route the in-process path through the <em>same</em> framer so
+“subscribe-and-fold” is <em>the</em> one seam — only the <strong>source of frames</strong> differs (in-process framer vs ssh
+wire). <strong>But this is not a pure no-op, and the framer does not subsume the baseline.</strong> The debate
+(<code>debates/r92-r93/</code>) verified that replacing the baseline with <code>live = (phase === &quot;delta&quot;)</code> <em>spuriously
+bumps recency on every restart</em>: adopt re-seeds <code>agent: null</code> (the resume identity rides the authored
+<code>restoreTarget</code>), the agent re-resolves <strong>async as a delta</strong>, so <code>agentIdentityChanged(null, A) = true</code>.
+So the prep <strong>moves</strong> the durable-baseline identity check out of the local emit closure into kolu’s
+<strong>consumer arm</strong> (uniform for local and remote), where it ANDs with the frame phase. The framer carries
+phase/seq; kolu’s arm carries the baseline; <code>fold</code> stays verbatim. Pin the adopt case with a differential test.</p></div></aside>
 <p><strong>Order:</strong> <strong>R9.2</strong> (the ssh kaval driver → a remote PTY tile) is the next PR — it’s unblocked (needs
 only the shipped R9.1) and is a prerequisite for R9.3. Then R9.3 (needs R9.2 + R7) lights up remote
 awareness on the same fold.</p>

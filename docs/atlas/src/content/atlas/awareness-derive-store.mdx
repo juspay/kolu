@@ -266,7 +266,7 @@ Two facts the frame owns that a per-event flag must not:
 - **snapshot vs delta** is **kolu's** subscription-phase fact, not a producer boolean. Putting it on the frame lets kolu derive `ctx.live` from the frame it received — its own knowledge — and **deletes `fromSnapshot`**. The frame decides **liveness only** (does this bump recency). It does **not** decide what a null *means* — round 6 showed that's a separate question (a snapshot null could be "no agent" *or* "not resolved yet"), and overloading the frame phase to answer it is the unsound rule the collapse died on. The meaning of an agent null rides the **`Known<>` field** (`unknown` = keep, `{ value: null }` = authoritative absent), never the frame. (`replayed` likewise stays on the `commandRun` event — a restarted tap can replay a mark into a *delta*, so the frame phase can't stand in for it; `inProcessPtyHost.ts:148-163`.)
 - **a per-subscription monotonic `seq`** (precedent: `RepoChangePulse.seq`, `surface.ts:58-67`): kolu asserts contiguity; a hole forces a `gap` frame → re-snapshot, instead of a silently divergent fold. A counter is **not** a wall clock, so it imports nothing.
 
-kolu consumes the framed stream through one `subscribeSnapshots(key, …)` seam regardless of transport: **locally** it wraps the in-process `startSensors` (the initial emit burst is the `snapshot` frame, later emits are `delta`s); **remotely** it is the ssh stream verbatim. So the framing — not the engine — is where snapshot/live and `seq` live; the engine stays a pure memoryless emitter.
+kolu consumes the framed stream through one `subscribeSnapshots(key, …)` seam regardless of transport: **locally** it wraps the in-process `startSensors` (the initial emit burst is the `snapshot` frame, later emits are `delta`s); **remotely** it is the ssh stream verbatim. So the framing — not the engine — carries `phase`/`seq`, and the engine stays a pure memoryless emitter. But **`ctx.live` is not the frame phase alone**: it is `(phase === "delta")` **AND** kolu's durable agent-identity baseline check, derived in kolu's *consumer arm*. A snapshot re-observation is never live; and a `delta` that merely re-resolves the *adopted* agent — which seeds `null`, the resume identity riding the authored `restoreTarget`, not the snapshot — must not bump recency either. The framer alone can't decide liveness; only kolu, holding the durable record, can. *(Settled by the R9.2/R9.3 debate, `debates/r92-r93/`.)*
 
 The payoff: **kolu's fold is one function for local and remote, and `reconcileRemoteSnapshot` disappears.** The snapshot frame meets a pre-seeded `current` and folds with `ctx.live = false` (no spurious recency bump). `adoptedAwareness` (`local.ts:340`), wake, remote-connect, and remote-reconnect are the **same** "seed from memory, then fold" — `orphanAwareness` (`local.ts:368`) is the degenerate zero-memory seed.
 
@@ -315,33 +315,43 @@ nothing in R9.0 must be undone for R9.3. Verified against the merged diff:
   frame *is* the reconcile; the value-based recency baseline (the R9.0 substitute for the deleted
   `AWARENESS_SNAPSHOT_WINDOW_MS` timer) suppresses the re-observation bump.
 
-So R9.3 is an **additive transport arm**, not a refactor. The work-list, given R9.0's actual structure:
+So R9.3 is an **additive transport arm**, not a refactor — and the debate (`debates/r92-r93/`) split it into **three independently-shippable sub-PRs** (R9.3a framer + local-prep · R9.3b wire + pulam-serves · R9.3c kolu-subscribe + key). The work-list, given R9.0's actual structure:
 
 1. **Build the `TerminalFrame` type** (designed above — `snapshot | delta(seq) | gap`). R9.0 has only
-   `TerminalEvent`; the framed stream was deferred here, by design.
+   `TerminalEvent`; the framed stream was deferred here, by design. *(R9.3a)*
 2. **A framer** that turns the producer's `emit` sequence into frames — *wraps* the producer (which
-   stays a pure emitter), assigns `phase`/`seq`, and is the one place `ctx.live` is derived.
+   stays a pure emitter) and assigns **`phase`/`seq` only**. It is **not** where `ctx.live` is decided:
+   liveness is `(phase === "delta")` **AND** kolu's durable agent-identity baseline check, in kolu's
+   *consumer arm* (the framer can't see kolu's `restoreTarget`; the remote framer runs in pulam, which
+   has no kolu memory). Deleting the baseline would spuriously bump recency on every restart — adopt
+   re-seeds `agent: null` and the agent re-resolves *asynchronously as a delta*. *(R9.3a — pin the adopt
+   case with a differential test.)*
 3. **Pulam serves the framed *event* stream — not just its snapshot cache.** ⚠️ The sharp,
    non-obvious requirement (the debate's headline): pulam today folds each `TerminalEvent` into a
    `TerminalSnapshot` cache and serves *that* (perfect for pulam-tui/pulam-web, which need no recency).
    But that cache is **insufficient** for kolu-as-remote-consumer, because `commandRun` is a **memory
    mark** that `foldSnapshot` drops — so the remote daemon must serve the **raw event stream** (a new
-   `terminalEvents` stream beside the `snapshots` collection), and **kolu must not rebuild memory from
-   the served `snapshots`**.
-4. **kolu's remote subscribe-and-fold arm** — subscribe the remote `terminalEvents` over a long-lived
-   `getHostSession` (mirrored via **R7**'s total dual), seed `current` from kolu's durable record, fold
-   exactly as local; on a missing `seq`, force a `gap` → re-snapshot.
-5. **Host-scoped keys** — the branded `HostTerminalKey` (designed in "Decided") lands here, where two
-   hosts' opaque PTY ids can actually collide.
+   `terminalEvents` stream beside the `snapshots` collection, contract bump `3.0 → 3.1`, additive), and
+   **kolu must not rebuild memory from the served `snapshots`**. *(R9.3b)*
+4. **kolu's remote subscribe-and-fold arm** — dial the remote **pulam** (it serves the terminal-workspace
+   surface — kaval serves only PTY; `getHostSession({binary:"pulam"})`, the `pulam-tui` precedent, bake
+   `PULAM_AGENT_DRVS_JSON`), mirror the `terminalEvents` over **R7**'s total dual, seed `current` from
+   kolu's durable record, fold exactly as local; on a missing `seq`, force a `gap` → re-snapshot. *(R9.3c)*
+5. **Host-scoped keys** — the branded `HostTerminalKey` (designed in "Decided"), **kolu-intake-only**
+   (the wire stays bare `TerminalId`), lands here, where two hosts' opaque PTY ids can actually collide.
+   *(R9.3c)*
 
 <Callout kind="note" title="R9.3 prep — route the LOCAL path through the framer too (one phase-seam, not two)">
-R9.0 decides snapshot-vs-delta **inline** in the local emit closure (the value-based recency baseline).
-It's correct and **localized** — the fold doesn't see it, so it's not debt — but a naive R9.3 would end
-with **two** phase-logics (a local value-hack vs the remote `frame.phase`) and two paths feeding the fold.
-When building R9.3, **route the in-process path through the *same* framer** (even a trivial one: the
-initial burst = a `snapshot` frame, `live=false`; thereafter `delta`s). Then "subscribe-and-fold" is
-*the* seam — only the **source of frames** differs (in-process framer vs ssh wire) — and the plan's
-"only the transport differs" becomes literally true.
+R9.0 decides snapshot-vs-delta **inline** in the local emit closure (the value-based recency baseline,
+`local.ts:773-795`). When building R9.3, route the in-process path through the *same* framer so
+"subscribe-and-fold" is *the* one seam — only the **source of frames** differs (in-process framer vs ssh
+wire). **But this is not a pure no-op, and the framer does not subsume the baseline.** The debate
+(`debates/r92-r93/`) verified that replacing the baseline with `live = (phase === "delta")` *spuriously
+bumps recency on every restart*: adopt re-seeds `agent: null` (the resume identity rides the authored
+`restoreTarget`), the agent re-resolves **async as a delta**, so `agentIdentityChanged(null, A) = true`.
+So the prep **moves** the durable-baseline identity check out of the local emit closure into kolu's
+**consumer arm** (uniform for local and remote), where it ANDs with the frame phase. The framer carries
+phase/seq; kolu's arm carries the baseline; `fold` stays verbatim. Pin the adopt case with a differential test.
 </Callout>
 
 **Order:** **R9.2** (the ssh kaval driver → a remote PTY tile) is the next PR — it's unblocked (needs

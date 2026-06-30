@@ -103,14 +103,18 @@ The PTY-endpoint path — **orthogonal to awareness**, so the redesign doesn't t
 
 <a id="r92"></a>
 
-### R9.2 — ssh kaval driver → a remote PTY tile
+### R9.2 — ssh kaval driver → a remote PTY tile (+ a minimal create knob)
 
-<Phase id="R9.2" name="ssh kaval driver — remote PTY" status="todo" needs={["R9.1"]} />
+<Phase id="R9.2" name="ssh kaval driver — remote PTY + minimal create knob" status="todo" needs={["R9.1"]} />
 
-Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **kaval** over `frontDaemonOverStdio` (the same `ssh <host> kaval --stdio` relay `kaval-tui --host` uses) → a remote PTY on the canvas, **PTY only** (no awareness badge yet). Persist `location = {kind:"remote",hostId}`. Adoption reuses the local boot's `adoptOrEnsure` spine + the pid-gate's atomic `link(2)` (a dial *joins* a host's kaval, never races to kill it).
+Fill the `{kind:"remote",hostId}` arm of the resolver: a **long-lived** `getHostSession` dial (**not** the one-shot `dialAgentOnce`) to the remote host's **kaval** over `ssh <host> kaval --stdio` (the relay `kaval-tui --host` uses) → a `RemoteTerminalEndpoint` (the *same* `TerminalEndpoint` shape, remote transport) → a remote PTY on the canvas, **PTY only** (no awareness badge yet). The prose "one-`case` addition" undersells: the seam is one `.with()` arm, the work is **~6 pieces** — the long-lived dialer + the `server → @kolu/surface-nix-host` dep; remote spawn-env composed from the remote daemon's `system.info` (inverting the local `cleanEnv()`-wins layering); `location` plumbed into the *create* path (today hard-pinned local); a remote-`hostId` `daemonStatus` writer; the `ssh` badge; and **fail-fast throwing stubs** for the remote `fs`/`git` (the Code tab fails *loudly* until R9.5, never silently empty).
+
+**The create knob (a real user-facing control — settled by the R9.2/R9.3 debate, `debates/r92-r93/`):** a command-palette entry under the existing "New terminal" group — **"On SSH host…"** — takes a free-typed ssh destination (reusing the palette's free-text input) and threads `location = {kind:"remote",hostId}` into the one create chokepoint; the tile renders an `ssh` badge. A free-typed target works because the kaval drv-map is **arch-keyed, not host-keyed** (`dialAgentOnce` probes the host's arch and ships the matching kaval), so any ssh-reachable, Nix-provisionable host works — exactly like `kaval-tui --host`. Only the **curated** host picker / ssh-config browser / canvas host-strip defers to R10. *(Rule: ship a user-facing knob, not test-only plumbing.)*
+
+**R9.2 ↔ R9.4 line:** blip-survival is **free** — `getHostSession` reconnects with backoff and the durable `kaval --stdio` daemon keeps the PTY alive across the link, so a re-attach reaches the same PTY. R9.4 owns kolu-server-**restart** re-adoption + the typed adopt/recycle/degrade matrix + reconnect re-validation.
 
 - **Needs:** R9.1.
-- **Done:** dial a host, spawn a PTY, see an `ssh`-badged remote tile that echoes; it survives a network blip via re-attach. e2e: a remote PTY round-trips over ssh.
+- **Done:** create a remote tile via "On SSH host…"; spawn a PTY; see an `ssh`-badged tile that echoes; `location` persists; it survives a network blip via re-attach; remote fs/git throw loudly. e2e: a remote PTY round-trips over ssh.
 
 <a id="r93"></a>
 
@@ -118,17 +122,15 @@ Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **k
 
 <Phase id="R9.3" name="remote awareness — subscribe the remote producer's event stream" status="todo" needs={["R9.2", "R7"]} />
 
-A remote host runs the **same memoryless producer** (in its pulam daemon), serving an ordered `terminalEvents` stream. kolu subscribes over a long-lived `getHostSession` (mirrored via R7's total dual) and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical. The R9.0 foundation was **assessed transport-agnostic** for exactly this (`debates/r93-foundation/`): the fold and producer reuse verbatim, so R9.3 is an **additive transport arm**, not a refactor.
+A remote host runs the **same memoryless producer** in its **pulam** daemon, serving an ordered `terminalEvents` stream. kolu dials the remote **pulam** (which serves the terminal-workspace surface — kaval serves only PTY) over a long-lived `getHostSession`, mirrors it via R7's total dual, and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical. The R9.0 foundation was **assessed transport-agnostic** for exactly this (`debates/r93-foundation/`): the fold and producer reuse verbatim, so R9.3 is an **additive transport arm**, not a refactor. So a remote host runs **two** kolu-dialed daemons: kaval (R9.2, the PTY) + pulam (R9.3, awareness).
 
-**Work-list** (the build, given R9.0's actual structure — full version in [the awareness design](awareness-derive-store.html#r93-the-remote-build)):
-1. Build the `TerminalFrame` type (`snapshot | delta(seq) | gap`) — deferred from R9.0 by design.
-2. A **framer** that turns the producer's `emit` into frames (wraps the pure emitter; the one place `ctx.live` is derived).
-3. **Pulam serves the framed *event* stream, not just its snapshot cache.** ⚠️ Pulam's `snapshots` cache is sufficient for pulam-tui/pulam-web but **not** for kolu-as-remote-consumer — `commandRun` is a memory mark `foldSnapshot` drops. The daemon must serve the raw `terminalEvents` beside the cache; kolu must **not** rebuild memory from the served `snapshots`.
-4. kolu's **remote subscribe-and-fold arm** over R7's total dual; on a missing `seq` → `gap` → re-snapshot.
-5. The branded `HostTerminalKey` lands here (two hosts' opaque PTY ids can collide).
-6. **Prep:** route the *local* path through the same framer so there is **one** phase-seam (in-process framer vs ssh wire), not two parallel phase-logics — makes "only the transport differs" literally true.
+**Split into three sub-PRs** (settled by the R9.2/R9.3 debate, `debates/r92-r93/` — each independently shippable, CI-green, no lying stubs):
 
-- **Needs:** R9.2 (the remote PTY), R7 (the total dual). *(S2 shipped in #1626.)*
+- **R9.3a — framer + local-through-framer prep.** Build `TerminalFrame` (`snapshot | delta(seq) | gap`); route the local path through the framer. The framer assigns **phase/seq only** — *not* `ctx.live`. ⚠️ **`ctx.live` = `(phase === "delta")` AND the durable agent-identity baseline check, in kolu's *consumer arm*** (the common caller of `fold`, local and remote). Deleting the baseline would spuriously bump recency on every restart, because adopt re-seeds `agent: null` (RAM-only; the resume identity rides the authored `restoreTarget`) and the agent re-resolves *asynchronously as a delta* — so phase-alone makes the fold see `agentIdentityChanged(null, A) = true`. The baseline lives in the consumer arm (not the framer — the remote framer runs in pulam with no kolu memory; not in `fold` — verbatim). *Done:* a differential test pins local fold output (esp. `lastActivityAt`) equal pre/post for fresh-spawn, sleep/wake, and **adopt**.
+- **R9.3b — wire schema + pulam serves events.** Add `TerminalEventSchema` + `TerminalFrameSchema` (zod; none today), the `terminalEvents` stream on `terminalWorkspaceSurface`, contract bump **`3.0 → 3.1`** (additive — a new stream). Pulam serves the framed events beside its `snapshots` cache (kolu can't rebuild memory from the cache — `commandRun` is a mark `foldSnapshot` drops). *Done:* a subscriber gets snapshot-then-deltas **including a `commandRun` mark**; pulam-tui/pulam-web unchanged.
+- **R9.3c — kolu's remote subscribe-and-fold arm + `HostTerminalKey`.** Dial the remote pulam (`getHostSession({binary:"pulam"})` — the `pulam-tui` precedent; bake `PULAM_AGENT_DRVS_JSON`), mirror via R7, fold with the consumer-arm rule; `gap → re-snapshot`. `HostTerminalKey` is **kolu-intake-only** (pairs `TerminalId` + `HostLocation` before the aggregate; the wire stays bare `TerminalId`). *Done:* a remote tile shows live awareness via the **same** fold; a differential pins it equal to the producer's state.
+
+- **Needs:** R9.2 (the remote PTY) for R9.3c; R7 (the total dual). *(S2 shipped in #1626; R9.3a/b have no remote blocker.)*
 - **Done:** a remote tile shows live awareness folded from the remote producer's stream, via the **same** fold as local; a differential test pins it equal to the producer's snapshot state.
 
 <a id="r94"></a>
