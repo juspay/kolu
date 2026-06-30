@@ -160,4 +160,60 @@ describe("createPolledQuery", () => {
       dispose();
     });
   });
+
+  it("does NOT cancel an in-flight re-read when a sibling-dep update fires a skip", async () => {
+    // The diff query's `inputFn` reads a sibling query's value (status); when the
+    // sibling settles on the SAME pulse, the effect re-runs to SKIP (same key) —
+    // that skip must not cancel the in-flight re-read, or the live diff/preview
+    // update is dropped mid-flight (the bug the e2e caught).
+    await createRoot(async (dispose) => {
+      const pulse = makePulse();
+      pulse.deliver(0);
+      const [sibling, setSibling] = createSignal(0);
+      const second = deferred<string>();
+      let n = 0;
+      const q = createPolledQuery(
+        () => {
+          sibling(); // an input dep that changes WITHOUT changing the input value
+          return { k: "a" };
+        },
+        () => {
+          n++;
+          return n === 1 ? Promise.resolve("v1") : second.promise;
+        },
+        pulse.sub,
+      );
+      await tick();
+      expect(q()).toBe("v1");
+      pulse.deliver(1); // delta → re-read R2 (in-flight)
+      await tick();
+      expect(n).toBe(2);
+      expect(q.pending()).toBe(true);
+      setSibling(1); // sibling settles → effect re-runs to SKIP (same key)
+      await tick();
+      second.resolve("v2"); // R2 resolves — must be applied, not dropped
+      await tick();
+      expect(q()).toBe("v2");
+      dispose();
+    });
+  });
+
+  it("with isEqual, a pulse re-read of an equal value keeps the SAME reference (no churn)", async () => {
+    await createRoot(async (dispose) => {
+      const pulse = makePulse();
+      pulse.deliver(0);
+      const q = createPolledQuery(
+        () => ({ k: "a" }),
+        async () => ({ files: ["x"] }), // equal content, fresh ref each read
+        pulse.sub,
+        { isEqual: (a, b) => JSON.stringify(a) === JSON.stringify(b) },
+      );
+      await tick();
+      const ref1 = q();
+      pulse.deliver(1); // re-read yields an EQUAL value
+      await tick();
+      expect(q()).toBe(ref1); // dedup'd to the same reference, no churn
+      dispose();
+    });
+  });
 });

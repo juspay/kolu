@@ -47,6 +47,7 @@ import {
   isVideo,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
+import { fsReadFileOutputEqual } from "kolu-git/equals";
 import type { FsReadFileOutput } from "kolu-git/schemas";
 import {
   type Component,
@@ -154,7 +155,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       return { kind: "text", content, truncated };
     },
     filePulse,
-    { onError: (err) => toast.error(`File content stream: ${err.message}`) },
+    {
+      onError: (err) => toast.error(`File content stream: ${err.message}`),
+      isEqual: fsReadFileOutputEqual,
+    },
   );
 
   // ── Wikilink navigation ────────────────────────────────────────────

@@ -25,6 +25,11 @@ import {
   type TerminalMetadata,
   viewLabel,
 } from "kolu-common/surface";
+import {
+  fsListAllOutputEqual,
+  gitDiffOutputEqual,
+  gitStatusOutputEqual,
+} from "kolu-git/equals";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
@@ -340,6 +345,7 @@ const CodeTab: Component<{
     repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
+      isEqual: gitStatusOutputEqual,
     },
   );
   // Passive branch status — feeds the Branch badge/count, branch base/ref, and
@@ -359,6 +365,7 @@ const CodeTab: Component<{
         if (isUnfetchedBase(err)) return;
         toast.error(`Git status stream: ${err.message}`);
       },
+      isEqual: gitStatusOutputEqual,
     },
   );
 
@@ -380,6 +387,7 @@ const CodeTab: Component<{
     repoPulse,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
+      isEqual: gitStatusOutputEqual,
     },
   );
   const status = () => activeStatus();
@@ -395,6 +403,7 @@ const CodeTab: Component<{
     repoPulse,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
+      isEqual: fsListAllOutputEqual,
     },
   );
 
@@ -412,6 +421,7 @@ const CodeTab: Component<{
     repoPulse,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
+      isEqual: gitDiffOutputEqual,
     },
   );
 

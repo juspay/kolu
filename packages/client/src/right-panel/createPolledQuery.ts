@@ -44,7 +44,13 @@ export function createPolledQuery<I, T>(
   /** The shared `{seq}` pulse driving re-queries (a `subscribeRepoChange` /
    *  `subscribeFileChange` `.use(...)` subscription). */
   pulse: Subscription<SeqPulse>,
-  opts?: { onError?: (err: Error) => void },
+  opts?: {
+    onError?: (err: Error) => void;
+    /** Drop a re-read result equal to the current value — the value-bearing
+     *  stream's `isEqual` dedup, so a pulse that re-reads an UNCHANGED repo emits
+     *  no fresh reference and the tree/filter/selection don't churn. */
+    isEqual?: (a: T, b: T) => boolean;
+  },
 ): Subscription<T> {
   const [value, setValue] = createSignal<T | undefined>(undefined);
   const [loading, setLoading] = createSignal(false);
@@ -56,6 +62,15 @@ export function createPolledQuery<I, T>(
   // `{seq:0}` frame into ONE read (the value-bearing stream did one server read);
   // a real delta (`{seq>0}`) or a new input still re-queries.
   let lastReadKey: string | undefined;
+  // A monotonic generation: bumped ONLY when a new read is issued (and on
+  // dispose), so an in-flight read is invalidated solely by a NEWER read — never
+  // by the effect re-running to SKIP. The skip path (a sibling query's value
+  // updating an input dep this query then dedups) must NOT cancel the in-flight
+  // read, or a live re-query (diff/preview) would be dropped mid-flight.
+  let generation = 0;
+  onCleanup(() => {
+    generation++;
+  });
 
   createEffect(
     on(
@@ -67,6 +82,7 @@ export function createPolledQuery<I, T>(
       (cur, prev) => {
         if (cur === null) {
           lastReadKey = undefined;
+          generation++;
           batch(() => {
             setValue(undefined);
             setError(undefined);
@@ -78,6 +94,7 @@ export function createPolledQuery<I, T>(
         const key = `${inputJson}::${cur.seq}`;
         if (key === lastReadKey) return;
         lastReadKey = key;
+        const myGen = ++generation;
         // Reset to `undefined` (pending) only when the INPUT itself changed (a
         // new repo / file / mode) — a resubscribe. A pulse-only bump keeps the
         // current value on screen while it re-reads, matching the value-bearing
@@ -85,21 +102,22 @@ export function createPolledQuery<I, T>(
         const inputChanged = !prev || JSON.stringify(prev.input) !== inputJson;
         if (inputChanged) setValue(undefined);
         setLoading(true);
-        let cancelled = false;
-        onCleanup(() => {
-          cancelled = true;
-        });
         read(cur.input).then(
           (v) => {
-            if (cancelled) return;
+            if (myGen !== generation) return;
             batch(() => {
-              setValue(() => v);
+              // `isEqual` dedup: keep the current reference when the re-read is
+              // value-identical, so an unchanged repo's pulse doesn't churn the
+              // tree (but `loading`/`pending` still settle below).
+              const cur = value();
+              if (!(opts?.isEqual && cur !== undefined && opts.isEqual(cur, v)))
+                setValue(() => v);
               setError(undefined);
               setLoading(false);
             });
           },
           (e: unknown) => {
-            if (cancelled) return;
+            if (myGen !== generation) return;
             const err = e instanceof Error ? e : new Error(String(e));
             batch(() => {
               setError(err);
