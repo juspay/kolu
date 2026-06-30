@@ -36,6 +36,7 @@ import {
 } from "@kolu/surface-app/surface";
 import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
+  AgentKindSchema,
   AgentMemorySchema,
   type Observation,
   ObservationSchema,
@@ -1220,21 +1221,25 @@ export function backfillAwarenessCutover(
         ? next.lastAgentCommand
         : undefined;
     if (command !== undefined) {
-      const hasRef =
-        agentSession &&
-        typeof agentSession === "object" &&
-        "kind" in agentSession &&
-        "id" in agentSession;
-      if (hasRef) {
-        const ref = agentSession as { kind: unknown; id: unknown };
-        next.restoreTarget = {
-          kind: "exact",
-          command,
-          agent: { kind: ref.kind, sessionId: ref.id },
-        };
-      } else {
-        next.restoreTarget = { kind: "legacyMostRecent", command };
-      }
+      // Validate the captured ref's VALUE types, not just key presence: a corrupt
+      // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
+      // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
+      // terminal at the read boundary. A bad ref falls to `legacyMostRecent` (resume
+      // most-recent — still valid, the same degraded behavior the pre-cutover record
+      // already had).
+      const ref =
+        agentSession && typeof agentSession === "object"
+          ? (agentSession as Record<string, unknown>)
+          : null;
+      const kind = ref ? AgentKindSchema.safeParse(ref.kind) : null;
+      next.restoreTarget =
+        ref && kind?.success && typeof ref.id === "string"
+          ? {
+              kind: "exact",
+              command,
+              agent: { kind: kind.data, sessionId: ref.id },
+            }
+          : { kind: "legacyMostRecent", command };
     }
   }
   return next;
