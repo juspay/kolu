@@ -40,6 +40,11 @@ const commands = [
     what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Sends exactly the text (and any --key) you pass — no implicit Enter; submit as a separate step with `send <id> --key Enter`. Multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key also sends control keys (Escape, C-c, Up…) after the text. --json emits { id, bytes, paste, keys }.",
   },
   {
+    cmd: "kaval-tui wait <id> --until <cond>",
+    flags: "--timeout <ms> · --json",
+    what: "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another. --until idle:<ms> resolves once no output byte has arrived for <ms> (the turn ended / it's awaiting you — the common case); --until match:<regex> resolves once new output matches (a completion marker or returned-prompt sentinel). --timeout fails loud (exit 2) so a wedged agent can't hang the loop; a terminal that exits first exits 3. Keyed on raw PTY bytes, so it needs no shell hooks and works for any terminal — unlike pulam-tui wait, which reads agent state on hooked terminals.",
+  },
+  {
     cmd: "kaval-tui kill <id>",
     flags: "",
     what: "End a terminal the daemon owns — the PTY is torn down, so it drops out of list and any attached client sees the shell exit. <id> is the short id or any unique prefix, like snapshot/attach; an id that matches nothing fails loud rather than silently doing nothing. Exits 0 on success.",
