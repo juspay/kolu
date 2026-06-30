@@ -31,6 +31,7 @@ import {
   fold,
   type FoldCtx,
   type KoluAwareness,
+  restoreTargetEqual,
   restoreTargetOf,
   seedObservation,
   startAwarenessEngine,
@@ -289,40 +290,39 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
   return entry.handle.getScreenText(undefined, undefined, tailLines);
 }
 
-/** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?
- *  Compares cwd · git · pr · agent IDENTITY · the two memory fields; agent DETAIL
- *  and foreground are excluded, so the ~150 ms firehose folds to an equal projection
- *  and never arms autosave. This also covers the `restoreTarget` change implicitly:
- *  it is a pure function of `lastAgentCommand` + the agent identity, both compared
- *  here, so a target flip (exact→none on quit) always coincides with an inequality.
- *  `git`/`pr` compare by reference (the fold preserves the reference for an unchanged
- *  field — a non-git fold spreads the same object — pinned in `fold.test.ts`), which
- *  is exact for "did this restore-relevant value change". */
-function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
-  return (
-    a.observed.cwd === b.observed.cwd &&
-    a.observed.git === b.observed.git &&
-    a.observed.pr === b.observed.pr &&
-    a.observed.agent?.kind === b.observed.agent?.kind &&
-    a.observed.agent?.sessionId === b.observed.agent?.sessionId &&
-    a.memory.lastActivityAt === b.memory.lastActivityAt &&
-    a.memory.lastAgentCommand === b.memory.lastAgentCommand
-  );
-}
-
-/** Did any AUTHORED fact the fold writes change — the two memory fields plus the
- *  derived `restoreTarget` identity? (`restoreTargetOf` is a pure function of
- *  `lastAgentCommand` + the agent identity, so comparing those four primitives is
- *  exactly "did the restore target move".) The AUTHORED-publish fence: a pure
- *  agent-detail / foreground tick leaves all of these equal, so the `kolu.authored`
- *  collection is NOT re-published on the ~150 ms observation firehose — only
- *  `commitObservation` (the awareness collection) sees that churn. */
+/** Did any AUTHORED fact the fold writes change — the two memory fields the
+ *  authored record stores (`lastActivityAt`, `lastAgentCommand`) plus the
+ *  fold-derived `restoreTarget`? Compares the restore target BY VALUE
+ *  (`restoreTargetEqual` over `restoreTargetOf`) rather than re-deriving the move
+ *  from the target's raw inputs, so this fence can never desync from the projection
+ *  it gates on — fold another input into `restoreTargetOf` and this stays correct.
+ *  The AUTHORED-publish fence: a pure agent-detail / foreground tick leaves all of
+ *  these equal, so the `kolu.authored` collection is NOT re-published on the ~150 ms
+ *  observation firehose — only `commitObservation` (the awareness collection) sees
+ *  that churn. */
 function authoredFactsEqual(a: KoluAwareness, b: KoluAwareness): boolean {
   return (
     a.memory.lastActivityAt === b.memory.lastActivityAt &&
     a.memory.lastAgentCommand === b.memory.lastAgentCommand &&
-    a.observed.agent?.kind === b.observed.agent?.kind &&
-    a.observed.agent?.sessionId === b.observed.agent?.sessionId
+    restoreTargetEqual(restoreTargetOf(a), restoreTargetOf(b))
+  );
+}
+
+/** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?
+ *  A STRICT SUPERSET of `authoredFactsEqual` (it calls it), so "every authored-fact
+ *  change is also a restore-relevant change" is a FACT OF THE CODE, not two
+ *  independently-maintained field lists. On top of the authored facts it adds cwd ·
+ *  git · pr; agent DETAIL and foreground are excluded, so the ~150 ms firehose folds
+ *  to an equal projection and never arms autosave. `git`/`pr` compare by reference
+ *  (the fold preserves the reference for an unchanged field — a non-git fold spreads
+ *  the same object — pinned in `fold.test.ts`), which is exact for "did this
+ *  restore-relevant value change". */
+function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
+  return (
+    authoredFactsEqual(a, b) &&
+    a.observed.cwd === b.observed.cwd &&
+    a.observed.git === b.observed.git &&
+    a.observed.pr === b.observed.pr
   );
 }
 

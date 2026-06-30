@@ -90,6 +90,32 @@ export function restoreTargetOf(aw: KoluAwareness): RestoreTarget {
   };
 }
 
+/** Structural equality of two RESTORE TARGETS, BY VALUE. Lets an emit fence gate
+ *  on the projection {@link restoreTargetOf} produces rather than re-deriving "did
+ *  the target move" from its raw inputs (the agent identity + `lastAgentCommand`):
+ *  fold in another input here and every consumer stays correct for free. Switches
+ *  on the discriminant — a future arm is a compile error (no path returns) — and is
+ *  hand-written rather than `node:util` `isDeepStrictEqual` so the fold stays
+ *  browser-safe (it runs in the client bundle). */
+export function restoreTargetEqual(
+  a: RestoreTarget,
+  b: RestoreTarget,
+): boolean {
+  switch (a.kind) {
+    case "none":
+      return b.kind === "none";
+    case "legacyMostRecent":
+      return b.kind === "legacyMostRecent" && a.command === b.command;
+    case "exact":
+      return (
+        b.kind === "exact" &&
+        a.command === b.command &&
+        a.agent.kind === b.agent.kind &&
+        a.agent.sessionId === b.agent.sessionId
+      );
+  }
+}
+
 /** Liveness + clock, kolu's own facts passed as VALUES (never a thunk the reducer
  *  may fire): `live` — true iff this came in a DELTA frame (a snapshot
  *  re-observation is not "new activity", so it never bumps recency); `at` — kolu
