@@ -182,9 +182,9 @@ export function getActiveTerminal(
 }
 
 /** `getActiveTerminal` or throw the typed not-found fault — for handlers where a
- *  missing terminal must surface LOUDLY (attach, screen reads, pasteImage,
- *  uploadFile, create's parentId check). A sleeping or absent id is "not found" to
- *  them by the same code, since neither can take the operation. NOTE: the
+ *  missing terminal must surface LOUDLY (e.g. attach, screen reads, file uploads).
+ *  A sleeping or absent id is "not found" to them by the same code, since neither
+ *  can take the operation. NOTE: the
  *  fire-and-forget stream ops (`resize`, `sendInput`) deliberately do NOT use this —
  *  a late call landing just after a kill is an expected race, so they take the
  *  quiet `getActiveTerminal(input.id)?.handle.x()` path and drop it (#1628). */
