@@ -297,13 +297,10 @@ function startGitSensor(
 
 // ── PR watcher ────────────────────────────────────────────────────────
 
-/** The "no adapter for this remote" arm — `detectForge`'s default. Routes any
- *  remote that isn't `github.com` to the honest `unsupported` PrResult WITHOUT
- *  spawning `gh` — so the decision is made at the knowing endpoint (the remote
- *  host), never guessed downstream from `gh`'s stderr. A trivial leaf, not a
- *  forge: it hides no volatility, so it lives here next to the dispatch policy
- *  rather than in the anyforge kernel. When a real adapter for a forge lands, it
- *  adds a `detectForge` `case` arm pointing at its own kind. */
+/** The "no adapter for this remote" arm — `detectForge`'s default (see there
+ *  for the routing policy). A trivial leaf, not a forge: it hides no volatility,
+ *  so it lives here next to the dispatch policy rather than in the anyforge
+ *  kernel. */
 const unsupportedForgeAdapter = {
   kind: "unsupported" as const,
   resolve: (): Promise<PrResult<PrUnavailableSource>> =>
@@ -356,13 +353,13 @@ export function detectForge(remoteUrl: string | null): ForgeKind {
   }
 }
 
-/** A `ForgeAdapter` that routes each resolve to the forge `detectForge` picks
- *  from the git context's remote. Keeps `subscribePr`'s one-adapter contract
- *  intact while supporting per-resolve forge selection: the remote can change
+/** A `ForgeAdapter` that routes each resolve through `detectForge` (see there
+ *  for the routing policy). Keeps `subscribePr`'s one-adapter contract intact
+ *  while supporting per-resolve forge selection: the remote can change
  *  mid-session (`git remote set-url`), and consulting the registry on every
- *  resolve re-routes without tearing the watcher down — so editing a remote from
- *  `github.com` to a Codeberg URL flips the same terminal from the gh adapter to
- *  the `unsupported` arm on the next poll, no rebuild. */
+ *  resolve re-routes without tearing the watcher down — so editing a remote
+ *  from `github.com` to a Codeberg URL flips the same terminal to a different
+ *  adapter on the next poll, no rebuild. */
 export const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
   kind: "forge-dispatch",
   resolve: (git, log) =>
