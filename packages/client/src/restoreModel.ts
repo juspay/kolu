@@ -13,7 +13,7 @@
  *  here even if its target would resume. Sub-terminals (parented) never resume
  *  independently. */
 
-import type { SavedTerminal } from "kolu-common/surface";
+import { resumableCommand, type SavedTerminal } from "kolu-common/surface";
 
 export function resumableTerminalIds(
   terminals: readonly SavedTerminal[],
@@ -23,8 +23,7 @@ export function resumableTerminalIds(
       (t) =>
         !t.parentId &&
         t.state !== "sleeping" &&
-        (t.restoreTarget?.kind === "exact" ||
-          t.restoreTarget?.kind === "legacyMostRecent"),
+        resumableCommand(t.restoreTarget) !== null,
     )
     .map((t) => t.id);
 }

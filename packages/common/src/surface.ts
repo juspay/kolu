@@ -77,6 +77,7 @@ export {
   prUnavailableReason,
   prUnavailableSource,
   reasonForSource,
+  resumableCommand,
   RestoreTargetSchema,
 } from "@kolu/terminal-workspace/schema";
 export type {

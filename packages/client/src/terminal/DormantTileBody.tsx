@@ -13,7 +13,7 @@
  *  swap between this and the live `Terminal` tree lives in `TerminalContent`. */
 
 import { prValue } from "anyforge/schemas";
-import { sleepingArm } from "kolu-common/surface";
+import { resumableCommand, sleepingArm } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { GitBranchIcon, PrStateIcon } from "../ui/Icons";
@@ -40,10 +40,7 @@ const DormantTileBody: Component<{
   // will actually relaunch an agent: `exact` (the exact conversation) or
   // `legacyMostRecent`. Null for `none`/absent — a quit-to-shell or never-launched
   // terminal whose wake brings back a bare shell, so the line stays honest.
-  const resumableAgent = () => {
-    const t = arm()?.restoreTarget;
-    return t && t.kind !== "none" ? t.command : null;
-  };
+  const resumableAgent = () => resumableCommand(arm()?.restoreTarget);
   // Last-known metadata, frozen at sleep. `cwd` + `git.branch` ride the persisted
   // base; `pr` is the snapshot the sleeping arm froze off the live overlay (wake
   // discards it and re-resolves). `prValue` projects the resolved PR (or null for

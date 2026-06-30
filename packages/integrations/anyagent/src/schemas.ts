@@ -70,3 +70,28 @@ export const RestoreTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("legacyMostRecent"), command: z.string() }),
 ]);
 export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
+
+/** The command line waking this terminal will RELAUNCH, or `null` when wake lands
+ *  on a bare shell — the ONE projection of "does this restore target resume, and
+ *  with what command?" that the count/display sites share (the restore card,
+ *  `EmptyState`, `DormantTileBody`), so the question is spelled once instead of
+ *  re-hand-rolled per consumer. EXHAUSTIVE over the discriminant, so a future
+ *  non-resuming arm is a COMPILE ERROR here — never a `!== "none"` that silently
+ *  counts it as resumable:
+ *   - absent / `none` → `null` (a quit-to-shell or never-launched terminal);
+ *   - `exact` / `legacyMostRecent` → the launch `command` wake resumes.
+ *  Distinct from `resumeFormFor` (anyagent/cli), which renders the actual resume
+ *  INVOCATION (`claude -c`, `--resume <id>`); this is the raw command line a tile
+ *  DISPLAYS and the restore card COUNTS. */
+export function resumableCommand(
+  target: RestoreTarget | undefined,
+): string | null {
+  if (target === undefined) return null;
+  switch (target.kind) {
+    case "none":
+      return null;
+    case "exact":
+    case "legacyMostRecent":
+      return target.command;
+  }
+}

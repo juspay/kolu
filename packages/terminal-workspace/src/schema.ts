@@ -31,6 +31,7 @@
 import {
   AgentIdentitySchema,
   AgentKindSchema,
+  resumableCommand,
   RestoreTargetSchema,
 } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
@@ -50,12 +51,17 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 // ── Agent status ──────────────────────────────────────────────────────
 
 // `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,
-// `RestoreTargetSchema`) are OWNED by anyagent/schemas (the lower layer that owns
-// the `AgentKind` vocabulary and the `resumeAgentCommand`/`resumeFormFor`
-// receptacles consuming them). Re-exported here so the wake/restore path and
-// kolu-common/surface keep resolving them from this schema home — one
-// declaration, validated once.
-export { AgentIdentitySchema, AgentKindSchema, RestoreTargetSchema };
+// `RestoreTargetSchema`, and the `resumableCommand` projection) are OWNED by
+// anyagent/schemas (the lower layer that owns the `AgentKind` vocabulary and the
+// `resumeAgentCommand`/`resumeFormFor` receptacles consuming them). Re-exported
+// here so the wake/restore path and kolu-common/surface keep resolving them from
+// this schema home — one declaration, validated once.
+export {
+  AgentIdentitySchema,
+  AgentKindSchema,
+  resumableCommand,
+  RestoreTargetSchema,
+};
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
