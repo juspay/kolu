@@ -93,7 +93,7 @@ logical clocks → **P3** · CQRS / event-sourcing → the composite.
 ## How to use it
 
 A **lens, not a checklist** — five diagnostic questions held as a *covering set* (no fixed order;
-together they cover the space of state/data-flow defects). Two modes:
+together they cover the space of state/data-flow defects). Three modes:
 
 - **Designing:** ask all five *before* committing a state/data-flow decision; prefer the composite
   (a fold over a log) and justify any departure.
@@ -102,6 +102,14 @@ together they cover the space of state/data-flow defects). Two modes:
   under a *no-defer* disposition: each is *fix now* or *no-op* — "acceptable for scope" is not a
   pass. Treat each principle as a **proof obligation**: either cite the structural mechanism that
   enforces it, or construct the concrete defect that is still expressible.
+- **Diagnosing a reported defect** (a bug report / failing symptom / "what's the root cause of X"):
+  **reproduce it first.** Every principle here can be argued from reading code alone — which is
+  exactly how a confident, *hallucinated* root cause ships. Glean the facts from an actual
+  reproduction (or a test that fails for the real reason), *then* name the principle the evidence
+  implicates; never assert a root cause you have only reasoned to, and don't wait to be told to
+  reproduce. State the conclusion in **plain words** — the lens's rigor lives in the analysis, the
+  answer the human reads stays a plain sentence (`conventions` → "Answer in plain words", which
+  holds even when this lens's vocabulary is dense).
 
 It owns **state, data-flow, and time**, and **delegates**: "is this boundary in the right place?" →
 `/lowy`; "are these concerns braided / fragmented?" → `/hickey`; "is the code idiomatic?" →
