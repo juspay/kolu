@@ -561,7 +561,7 @@ async function cmdWait(
   if (outcome.kind === "met") {
     if (!opts.json) {
       const detail =
-        outcome.fired === "match" && outcome.matchedLine !== undefined
+        outcome.fired === "match"
           ? `matched ${JSON.stringify(outcome.matchedLine)}`
           : "output idle";
       process.stderr.write(

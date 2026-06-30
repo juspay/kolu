@@ -92,12 +92,8 @@ export function parseUntil(spec: string): ParsedUntil {
  *  from `opts.signal`, so the outcome alone carries the full result and `cmdWait`
  *  never re-derives it from a side channel. */
 export type WaitOutcome =
-  | {
-      kind: "met";
-      fired: "idle" | "match";
-      elapsedMs: number;
-      matchedLine?: string;
-    }
+  | { kind: "met"; fired: "idle"; elapsedMs: number }
+  | { kind: "met"; fired: "match"; elapsedMs: number; matchedLine: string }
   | { kind: "timeout"; elapsedMs: number }
   | { kind: "gone"; elapsedMs: number }
   | { kind: "interrupted" }
@@ -116,15 +112,18 @@ export function waitResultJson(
 ): Record<string, unknown> {
   switch (outcome.kind) {
     case "met":
-      return {
-        id,
-        result: "met",
-        fired: outcome.fired,
-        elapsedMs: outcome.elapsedMs,
-        ...(outcome.matchedLine !== undefined
-          ? { matchedLine: outcome.matchedLine }
-          : {}),
-      };
+      // The split union guarantees `matchedLine` exactly when `fired ===
+      // "match"`, so the projection follows the discriminant with no presence
+      // guard — an idle frame can't carry a line, a match frame can't omit one.
+      return outcome.fired === "match"
+        ? {
+            id,
+            result: "met",
+            fired: "match",
+            elapsedMs: outcome.elapsedMs,
+            matchedLine: outcome.matchedLine,
+          }
+        : { id, result: "met", fired: "idle", elapsedMs: outcome.elapsedMs };
     case "timeout":
       return { id, result: "timeout", elapsedMs: outcome.elapsedMs };
     case "gone":

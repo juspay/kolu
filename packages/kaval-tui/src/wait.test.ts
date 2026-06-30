@@ -200,7 +200,11 @@ describe("awaitOutputCondition — match, exit, and interrupt", () => {
     expect(outcome.kind).toBe("met");
     if (outcome.kind === "met") {
       expect(outcome.fired).toBe("match");
-      expect(outcome.matchedLine).toContain("KAVAL-WAIT-MARK");
+      // Narrow on the discriminant the assertion above just proved, so reading
+      // `matchedLine` needs no presence guard (the split union ties it to
+      // `fired === "match"`).
+      if (outcome.fired === "match")
+        expect(outcome.matchedLine).toContain("KAVAL-WAIT-MARK");
     }
   });
 
