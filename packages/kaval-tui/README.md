@@ -15,6 +15,7 @@ kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd �
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
 kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
+kaval-tui wait <id> --until <cond>  block until the terminal's output goes idle (or matches), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```
@@ -93,6 +94,48 @@ Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
 so pair it with `snapshot` to look before (or after) you write. `--json` prints
 `{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes
 to stderr, so stdout stays empty unless you ask for JSON.
+
+## Waiting for a turn to end
+
+When you drive an agent, you need to know when its turn is over before you read
+the reply and send the next prompt. `wait` blocks until the terminal's **raw
+output** meets a condition, then exits — no shell hooks, no busy-word guessing.
+It reads the same byte stream the daemon serves to `attach`/`snapshot`, so "the
+agent went quiet" is exact and works the same for `claude` / `codex` / `grok` /
+`opencode`:
+
+```sh
+kaval-tui send a1b2 "refactor the parser"; kaval-tui send a1b2 --key Enter
+kaval-tui wait a1b2 --until idle:800 --timeout 600000   # block until the turn ends
+kaval-tui snapshot a1b2 --viewport                      # read the reply
+```
+
+- **`--until idle:<ms>`** resolves once no output byte has arrived for `<ms>` —
+  the agent-agnostic "turn ended / awaiting input" signal, and the common case.
+  `800` is a sensible default; raise it for an agent that pauses mid-thought.
+- **`--until match:'<regex>'`** resolves once **new** output matches — for a
+  completion marker or a returned-prompt sentinel (e.g. `--until match:'\$ $'`).
+- **`--timeout <ms>`** caps the wait and **fails loud (exit 2)** so a wedged
+  agent can't hang the loop. Default: wait indefinitely until the condition, a
+  terminal exit, a link drop, or Ctrl+C.
+
+Exit codes mirror a blocking read: **0** the condition was met · **2** the
+timeout elapsed · **3** the terminal **exited** before the condition (the agent
+you were driving died) · **130** interrupted (Ctrl+C). `--json` prints **one
+result frame per outcome** — `{ id, result, … }`, where `result` is `met` /
+`timeout` / `gone` / `interrupted` / `closed` (a `met` frame adds `fired` —
+`idle` / `match` —, `elapsedMs`, and `matchedLine` on a match). Every outcome
+emits a frame, so a `--json` driver never falls back to parsing the exit code
+alone. Like every subcommand, `wait` takes `--socket` / `--host` to target a
+running kolu or a remote daemon — a remote PTY's quiescence is observed at the
+remote daemon.
+
+> Idle means "output stopped", not "the answer is right": the turn may have
+> **finished** or be **blocked asking you something** — both are quiescence. So
+> read the `snapshot` after `wait` returns. (For terminals a kolu-server spawned
+> — which carry shell hooks — `pulam-tui wait --until <state>` is a more precise,
+> agent-state done-signal; `kaval-tui wait` is the hook-free one for any
+> terminal.)
 
 ## Reading the screen
 

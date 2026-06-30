@@ -9,6 +9,7 @@
  *   kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
  *   kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
  *   kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
+ *   kaval-tui wait <id> --until <cond>  block until output goes idle / matches, then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *   kaval-tui kill <id>         end a terminal the daemon owns (id or prefix)
  *
@@ -53,6 +54,14 @@ import { isValidEscapeChar } from "./escape.ts";
 import { connectPtyHostViaHost } from "./hostConnect.ts";
 import { runKill } from "./kill.ts";
 import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
+import {
+  awaitOutputCondition,
+  isValidTimerMs,
+  MAX_TIMER_MS,
+  parseUntil,
+  type WaitCondition,
+  waitResultJson,
+} from "./wait.ts";
 import { shellQuoteArg } from "@kolu/shell-quote";
 import {
   formatList,
@@ -208,6 +217,33 @@ const argv = cli({
           type: Boolean,
           description:
             "machine-readable JSON output ({ id, bytes, paste, keys })",
+          default: false,
+        },
+      },
+    }),
+    command({
+      name: "wait",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another agent. `--until idle:<ms>` resolves once no output byte has arrived for <ms> (the agent's turn ended / it's awaiting input — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout <ms>` caps the wait and fails loud (exit 2); a terminal that exits first fails loud too (exit 3). `--json` prints one result frame per outcome — `{ id, result, … }`, where `result` is met / timeout / gone / interrupted / closed (a met frame adds `fired` — idle / match —, elapsedMs, and matchedLine on a match), so a driver never falls back to the exit code alone. Keyed on raw PTY bytes, so it needs NO shell hooks and works for any terminal (vs `pulam-tui wait`, which needs hooked terminals). <id> is the short id from `list` or any unique prefix.",
+      },
+      flags: {
+        ...endpointFlags,
+        until: {
+          type: String,
+          description:
+            "the condition to wait for: idle:<ms> (no output for <ms> — turn ended) or match:<regex> (new output matches)",
+        },
+        timeout: {
+          type: Number,
+          description:
+            "milliseconds to wait before failing loud (exit 2); default: wait indefinitely until the condition, the terminal exits, the link drops, or Ctrl+C",
+        },
+        json: {
+          type: Boolean,
+          description:
+            "machine-readable JSON output — one result frame per outcome: { id, result, … } (result: met / timeout / gone / interrupted / closed)",
           default: false,
         },
       },
@@ -480,6 +516,95 @@ async function cmdSend(
   process.stderr.write(`— ${formatSend(result)}\n`);
 }
 
+/** An `AbortController` that fires on the process's stop signals — so a Ctrl+C
+ *  (or an external kill) unwinds a blocking `wait` and exits with the
+ *  conventional 130 instead of hanging on the daemon stream. */
+function abortOnShutdownSignals(): AbortController {
+  const abort = new AbortController();
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => abort.abort());
+  }
+  return abort;
+}
+
+/** Block until terminal `id`'s raw output meets `condition`, then map the
+ *  outcome to output + exit code — the thin glue over `awaitOutputCondition`
+ *  (the pure, testable data layer). Exit codes mirror `pulam-tui wait`: 0 met ·
+ *  2 timeout · 3 the terminal exited first · 130 interrupted · 1 link/usage
+ *  error. */
+async function cmdWait(
+  conn: Connection,
+  id: string,
+  condition: WaitCondition,
+  opts: { json: boolean; timeoutMs?: number },
+): Promise<void> {
+  // Ctrl+C aborts the wait → the streams unwind → the outcome reads
+  // `abort.signal.aborted` to tell an interrupt from a link drop. The link is
+  // disposed by `main`'s finally on the `met` return; the `process.exit` paths
+  // (timeout/gone/interrupted) let the OS reclaim it on exit — the same one-shot
+  // teardown discipline `cmdAttach` uses.
+  const abort = abortOnShutdownSignals();
+  const outcome = await awaitOutputCondition(conn.client, {
+    id,
+    condition,
+    timeoutMs: opts.timeoutMs,
+    signal: abort.signal,
+  });
+
+  // One machine-readable frame for EVERY outcome (the full id, 2-space indented
+  // like `create`/`send --json`), serialized from the single `waitResultJson`
+  // source of truth and emitted before the exit-code branches below — so a
+  // `--json` driver gets a structured `result` for met / timeout / gone /
+  // interrupted / closed alike, never just a bare exit code.
+  if (opts.json) {
+    await writeOut(`${JSON.stringify(waitResultJson(id, outcome), null, 2)}\n`);
+  }
+
+  if (outcome.kind === "met") {
+    if (!opts.json) {
+      const detail =
+        outcome.fired === "match"
+          ? `matched ${JSON.stringify(outcome.matchedLine)}`
+          : "output idle";
+      process.stderr.write(
+        `— ${shortId(id)} ${detail} after ${outcome.elapsedMs}ms\n`,
+      );
+    }
+    return;
+  }
+  if (outcome.kind === "timeout") {
+    // Distinct exit code (2) so a driving script tells a timeout — the output
+    // never settled — from a usage/link error (1). Report `outcome.elapsedMs`
+    // (always populated by the data layer) rather than `opts.timeoutMs` (which
+    // is `number | undefined`, so a future non-timer `timeout` route couldn't
+    // silently print "undefinedms").
+    process.stderr.write(
+      `kaval-tui: timed out after ${outcome.elapsedMs}ms waiting for ${shortId(id)} (output never met the condition).\n`,
+    );
+    process.exit(2);
+  }
+  if (outcome.kind === "gone") {
+    // The terminal exited before the condition could fire — it can never land
+    // now. Distinct exit code (3) so a driver tells "the agent I was driving
+    // died" from a timeout (2, still alive but stuck) or a link/usage error (1).
+    process.stderr.write(
+      `kaval-tui: ${shortId(id)} exited before the condition was met — its terminal is gone.\n`,
+    );
+    process.exit(3);
+  }
+  if (outcome.kind === "interrupted") {
+    // A user interrupt (Ctrl+C) exits cleanly with the conventional 130.
+    process.stderr.write(`— interrupted; ${shortId(id)} left running\n`);
+    process.exit(130);
+  }
+  // closed: the link dropped before the condition landed — a failure, not a
+  // clean stop.
+  fail(
+    outcome.error ??
+      "the kaval link closed — the daemon stopped or the connection dropped. Is `kaval` still running?",
+  );
+}
+
 async function cmdAttach(
   conn: Connection,
   id: string,
@@ -654,6 +779,43 @@ async function main(): Promise<void> {
       "--host and --socket are mutually exclusive: --host reaches a remote kaval over ssh, --socket dials a local one. Pass just one.",
     );
   }
+
+  // `wait`'s flag checks are pure (no daemon), so validate them BEFORE the dial:
+  // a bad `--until`/`--timeout` fails fast with no connection to tear down and,
+  // under --host, no Nix provisioning of a daemon we'd just drop. `waitCall`
+  // captures the WHOLE validated wait invocation (condition + its output opts)
+  // and is non-null exactly when the command is `wait` — so the dispatch below
+  // keys off it directly, "wait implies a parsed condition" carried as a value
+  // rather than re-derived by a "can't happen" guard at the use site.
+  let waitCall: {
+    condition: WaitCondition;
+    json: boolean;
+    timeoutMs: number | undefined;
+  } | null = null;
+  if (argv.command === "wait") {
+    if (argv.flags.until === undefined) {
+      fail(
+        "--until is required — e.g. `kaval-tui wait <id> --until idle:800` or `--until match:'DONE'`.",
+      );
+    }
+    const parsed = parseUntil(argv.flags.until);
+    if (parsed.kind === "error") fail(parsed.message);
+    if (
+      argv.flags.timeout !== undefined &&
+      !isValidTimerMs(argv.flags.timeout)
+    ) {
+      // Cap at the setTimeout ceiling (~24.8 days): a larger timeout would
+      // overflow and fire near-instantly, so reject it rather than coerce.
+      fail(
+        `--timeout must be a positive number of milliseconds ≤ ${MAX_TIMER_MS} (~24.8 days).`,
+      );
+    }
+    waitCall = {
+      condition: parsed,
+      json: argv.flags.json,
+      timeoutMs: argv.flags.timeout,
+    };
+  }
   // The endpoint this command targets — its transport AND the suffix that
   // re-targets a later `attach` at the same daemon (see `endpointHint`).
   const endpoint: Endpoint =
@@ -718,6 +880,21 @@ async function main(): Promise<void> {
         paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
         key: argv.flags.key,
       });
+    } else if (waitCall !== null) {
+      // `waitCall` is non-null exactly when the command is `wait` (parsed +
+      // validated pre-dial above), so keying the branch off it — rather than
+      // re-checking `argv.command === "wait"` and re-narrowing with an internal
+      // "can't happen" guard — carries the validated invocation straight through
+      // (mirrors pulam-tui's `waitTargets !== null` dispatch).
+      await cmdWait(
+        conn,
+        await resolveOne(conn, argv._.id),
+        waitCall.condition,
+        {
+          json: waitCall.json,
+          timeoutMs: waitCall.timeoutMs,
+        },
+      );
     } else if (argv.command === "attach")
       await cmdAttach(
         conn,

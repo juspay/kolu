@@ -1,41 +1,36 @@
-/** Per-terminal sensor set, parameterized over `AwarenessSink` +
- *  `AwarenessSignals` + `AwarenessRecord` so the host is the only thing
- *  that varies. kolu-server's local endpoint instantiates it,
- *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
- *  remote ssh pty-host serves the same taps in #951 R-2 — same sensor set, different
- *  transport.
+/** The per-terminal awareness PRODUCER — memoryless and effectful. It owns
+ *  transient DERIVATION working state (the agent watchers, the last-emitted agent
+ *  mirror, the recognized-agent basename, the git→PR wire, the screen-scrape poll,
+ *  the adapter registry — all re-seeded empty each start) and EMITS per-field
+ *  `TerminalEvent`s through `emit`. It takes NO seed and touches no host
+ *  store: it cannot CONSTRUCT the two memory facts (`lastActivityAt` /
+ *  `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
+ *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
+ *  not a runtime mutator split. kolu folds the stream into a `TerminalState`
+ *  (`./fold.ts`); the daemon (pulam) folds the snapshot half only.
  *
- *  Sensor set:
+ *  Producer:
  *
- *    cwd:<id>          ─►  git watcher           ─►  PR watcher
- *                                                    (lives on m.pr)
- *    title:<id>        ─►  process observer      (lives on m.foreground)
- *    title/cwd/cmd     ─►  agent detector ×3     (lives on m.agent;
- *                                                 persists m.agentSession)
- *    commandRun:<id>   ─►  agent-command tracker (lives on m.lastAgentCommand)
+ *    cwd:<id>          ─►  git watcher           ─►  PR watcher        emit pr
+ *                          emit git
+ *    title:<id>        ─►  process observer                           emit foreground
+ *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>)
+ *    commandRun:<id>   ─►  agent-command tracker                      emit commandRun
  *
- *  Metadata writes funnel through `sink.update*Metadata` so the
- *  sensors don't need to know how their host persists state;
- *  activity-feed notifications (`trackRecentRepo` / `trackRecentAgent`)
- *  are optional so non-parent hosts can opt out.
- *
- *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the
- *  git sensor publishes. That channel is an internal sensor-to-sensor
- *  wire, NOT a host input — `startAwareness` constructs it itself and
- *  hands it to just those two sensors, so hosts plug in only the four
- *  taps they actually drive.
+ *  Note on the git→PR pipe: the PR sensor chains off the `GitInfo` the git sensor
+ *  emits. That channel is an internal sensor-to-sensor wire, NOT a host input —
+ *  `startSensors` constructs it itself and hands it to just those two
+ *  sensors, so hosts plug in only the four taps they actually drive.
  *
  *  ## Host contract
  *
- *  `record.meta.cwd` is read once at sensor start (the spawn-time
- *  cwd) and is not re-read afterwards; subsequent cwd changes flow
- *  ONLY through `signals.cwd`. Hosts must publish every cwd change to
- *  that channel — they are NOT required to keep `record.meta.cwd` in
- *  sync, though the agent happens to (its cwd bridge writes through
- *  `sink.updateServerMetadata` so the persisted+published metadata
- *  stays current for clients). Any host that satisfies the
- *  `AwarenessSignals`/`AwarenessSink` shape and publishes cwd to the
- *  channel will get correct agent / git resolution.
+ *  `inputs.cwd` is the spawn-time cwd, read once at start and not re-read;
+ *  subsequent cwd changes flow ONLY through `signals.cwd`. Hosts must publish
+ *  every cwd change to that channel. Any host that satisfies the
+ *  `SensorSignals` shape and publishes cwd will get correct agent / git
+ *  resolution. The MRUs (recent repos / recent agents) and recency are kolu's
+ *  fold-side concern now — the producer emits the raw `git` / `commandRun`
+ *  observations and kolu decides what to remember.
  */
 
 import path from "node:path";
@@ -62,38 +57,25 @@ import { opencodeAdapter } from "kolu-opencode";
 import type { ForegroundSample } from "kaval";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
-import { agentSessionToPersist } from "./agentSession.ts";
 import type {
   AgentInfo,
-  AwarenessLiveFields,
-  AwarenessPersistedFields,
-  AwarenessValue,
+  TerminalEvent,
   PrUnavailableSource,
   TerminalId,
 } from "./schema.ts";
 
-/** Minimal "terminal record" shape the sensor set needs. The host
- *  constructs one per terminal; the sensors only touch `pid` + `meta` +
- *  `currentAgent` from here. `meta` is `AwarenessValue` — the canonical
- *  `AwarenessPersistedFields ∪ AwarenessLiveFields` union (the same write-fence
- *  partition the sink enforces). kolu holds each terminal's `AwarenessValue` in
- *  its single-writer awareness store — a SIBLING of the app-owned authored record
- *  (location + UI fields), not a base that record extends — and passes that value
- *  here directly. */
-export interface AwarenessRecord {
-  /** OS pid of the PTY's shell — constant for the terminal's life, known at
-   *  spawn. The agent detectors compare it to the foreground pid to decide
-   *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
-   *  live reads (process name + foreground pid) that used to come off the
-   *  handle synchronously now arrive over `signals.foreground`, so the sensor set
-   *  has zero sync dependency on the PTY host — which is what lets it run on
-   *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
-  pid: number;
-  meta: AwarenessValue;
-  /** Ephemeral basename of the agent binary at the foreground right
-   *  now; written by the agent-command tracker, read by the agent
-   *  detectors. Null when the shell is idle. */
+/** The engine's transient agent working state — the last-emitted agent value (the
+ *  mirror that replaces the old `record.meta.agent` read-back) and the recognized
+ *  agent basename at the foreground right now. Re-seeded empty each start (a
+ *  producer is memoryless); shared across the three adapter detectors + the
+ *  agent-command tracker so they coordinate one agent field without a host store. */
+interface AgentEngineState {
+  /** The last agent value the engine EMITTED — the publish-if-changed baseline and
+   *  the cross-adapter ownership narrow (which adapter, if any, owns the tile). */
+  mirror: AgentInfo | null;
+  /** Basename of the recognized agent binary at the foreground (e.g. "claude"),
+   *  set by the agent-command tracker, read by the detectors. Null when no
+   *  recognized agent command is in flight (shell idle / non-agent command). */
   currentAgent: string | null;
 }
 
@@ -109,7 +91,7 @@ export interface CommandRunSample {
  *  local endpoint, or `pulam`) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
  *  pty-host serves the same taps. */
-export interface AwarenessSignals {
+export interface SensorSignals {
   cwd: Channel<string>;
   title: Channel<string>;
   /** Preexec command marks. `replayed` distinguishes the snapshot-first frame
@@ -126,73 +108,21 @@ export interface AwarenessSignals {
   foreground: Channel<ForegroundSample>;
 }
 
-/** Host sink — the sensors call its methods to update metadata + emit
- *  side effects. The mutator parameter types are narrowed to the two
- *  halves of the persisted-vs-live partition (the same fence the host
- *  enforces): writing `m.agent` through
- *  `updateServerMetadata` is a compile error, so the
- *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  sensor. kolu-server's local endpoint (`makeAwarenessSink`) wires these
- *  straight to its metadata + activity surfaces; the same fence
- *  applies there.
+/** Read the terminal's current rendered screen as VT-resolved plain text — the
+ *  one optional host input the producer takes (besides the taps). Provided by
+ *  hosts that can reach the PTY screen buffer (kolu's local endpoint and pulam,
+ *  via pty-host's `getScreenText`). Async + host-supplied, so the producer keeps
+ *  its zero *synchronous* dependency on the PTY host. Drives
+ *  `AgentAdapter.screenScrape` promotion (Claude's `AskUserQuestion` /
+ *  `ExitPlanMode` — #905); without it, screen scrape is simply inactive.
  *
- *  ## Apply-and-publish contract (load-bearing)
- *
- *  `updateServerMetadata` / `updateServerLiveMetadata` MUST apply `mutate`
- *  to `record.meta` **synchronously** before they return — not only publish
- *  the result elsewhere. The sensors read `record.meta` back as their own
- *  prior state: the agent-command tracker dedups on `record.meta.lastAgentCommand`,
- *  `publishAgentField` skips a redundant write via `agentInfoEqual(record.meta.agent, …)`
- *  and decides recency off `record.meta.lastActivityAt`, and the foreground
- *  sensor's own `published` mirror assumes the write landed. A sink that
- *  type-checks but publishes to a collection WITHOUT mutating `record.meta`
- *  (a plausible mistake for an extracted-package consumer like `pulam`) would
- *  silently defeat every one of those dedup/transition gates — repeated
- *  commands re-published, agent state re-emitted each tick, recency
- *  double-bumped. kolu-server's `makeAwarenessSink` satisfies this because its
- *  `updateServer*Metadata` mutate `entry.meta`, which IS `record.meta` (same
- *  object). Honor it: mutate the record, THEN persist/publish the result.
- *
- *  `record` is passed to every method so a host whose update function isn't
- *  already keyed by terminal id (e.g. one with a global publish surface)
- *  can look the record up in its own registry to dispatch the write. A host
- *  whose closure already captures the record (like kolu-server's local
- *  endpoint, which has the entry + id captured in `makeAwarenessSink`'s
- *  per-terminal closure) ignores the argument and prefixes it `_record` at
- *  the call site. */
-export interface AwarenessSink {
-  updateServerMetadata: (
-    record: AwarenessRecord,
-    mutate: (meta: AwarenessPersistedFields) => void,
-  ) => void;
-  updateServerLiveMetadata: (
-    record: AwarenessRecord,
-    mutate: (meta: AwarenessLiveFields) => void,
-  ) => void;
-  /** Optional — activity-feed signals into kolu-server's cross-terminal MRUs
-   *  (recent-repos / recent-agents); a host with no activity feed omits them. */
-  trackRecentRepo?: (root: string, name: string) => void;
-  trackRecentAgent?: (cmd: string) => void;
-  /** Optional — read the terminal's current rendered screen as VT-resolved
-   *  plain text. Provided by hosts that can reach the PTY screen buffer (the
-   *  local endpoint, via pty-host's `getScreenText`); omitted by hosts that
-   *  can't. Async + host-supplied, so the sensor set keeps its zero *synchronous*
-   *  dependency on the PTY host — a remote ssh pty-host serves the same read
-   *  over the wire. Drives `AgentAdapter.screenScrape` promotion (Claude's
-   *  `AskUserQuestion` / `ExitPlanMode` — #905); without it, screen scrape is
-   *  simply inactive.
-   *
-   *  `tailLines` reads only the last N rendered lines: the screen-scrape
-   *  detector inspects just the screen bottom, so the poll asks for exactly
-   *  its tail (`screenScrape.tailLines`) rather than the whole buffer — a long
-   *  scrollback (the configured 50k lines) isn't allocated, joined, shipped,
-   *  and discarded once a second while a session waits. Required, not optional:
-   *  the only caller is the screen-scrape poll, which always passes its
-   *  detector's `screenScrape.tailLines` (a `number`). Leaving it optional would
-   *  let a host map an omitted count to a `tail`-with-no-`lines` request the
-   *  pty-host wire schema rejects — an impossible state we forbid in the type. */
-  readScreenText?: (tailLines: number) => Promise<string>;
-}
+ *  `tailLines` reads only the last N rendered lines: the screen-scrape detector
+ *  inspects just the screen bottom, so the poll asks for exactly its tail rather
+ *  than the whole (up to 50k-line) buffer. Required, not optional, on the type:
+ *  the only caller always passes its detector's `tailLines` (a `number`); leaving
+ *  it optional would let a host map an omitted count to a `tail`-with-no-`lines`
+ *  request the pty-host wire schema rejects. */
+type ReadScreenText = (tailLines: number) => Promise<string>;
 
 // ── Foreground process observer ──────────────────────────────────────
 
@@ -201,10 +131,9 @@ function processBasename(proc: string): string {
 }
 
 function startForegroundSensor(
-  record: AwarenessRecord,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  sink: AwarenessSink,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
@@ -212,7 +141,7 @@ function startForegroundSensor(
   // value not four scattered bindings. The name is tracked from
   // `signals.foreground` (the pty-host tap) rather than read synchronously
   // off a handle — so this works when pty-host lives across a socket; the
-  // title is tracked from `signals.title`. `current` is what we've observed;
+  // title is tracked from `signals.title`. `current` is what we've snapshot;
   // `published` is what we last wrote, so `recompute` republishes only on a
   // real change.
   type FgState = { name: string | null; title: string | null };
@@ -228,11 +157,12 @@ function startForegroundSensor(
       "foreground changed",
     );
     published = { ...current };
-    sink.updateServerLiveMetadata(record, (m) => {
-      m.foreground =
+    emit({
+      kind: "foreground",
+      foreground:
         current.name === null
           ? null
-          : { name: current.name, title: current.title };
+          : { name: current.name, title: current.title },
     });
   }
 
@@ -260,22 +190,21 @@ function startForegroundSensor(
 // ── Git watcher ───────────────────────────────────────────────────────
 
 function startGitSensor(
-  record: AwarenessRecord,
+  cwd: string,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
+  signals: SensorSignals,
   gitChannel: Channel<GitInfo | null>,
-  sink: AwarenessSink,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
-  plog.debug({ cwd: record.meta.cwd }, "started");
+  plog.debug({ cwd }, "started");
   const watcher = subscribeGitInfo(
-    record.meta.cwd,
+    cwd,
     (git) => {
-      if (git) sink.trackRecentRepo?.(git.mainRepoRoot, git.repoName);
-      sink.updateServerMetadata(record, (m) => {
-        m.git = git;
-      });
+      // Emit the raw `git` observation; kolu's fold owns the recent-repo MRU
+      // (`trackRecentRepo`) now — a memoryless producer remembers nothing.
+      emit({ kind: "git", git });
       gitChannel.publish(git);
       plog.debug(
         { repo: git?.repoName, branch: git?.branch },
@@ -367,10 +296,9 @@ export const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
 };
 
 function startPrSensor(
-  record: AwarenessRecord,
   terminalId: TerminalId,
   gitChannel: Channel<GitInfo | null>,
-  sink: AwarenessSink,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: "pr", terminal: terminalId });
@@ -380,9 +308,7 @@ function startPrSensor(
   const watcher = subscribePr(
     dispatchingForgeAdapter,
     (pr) => {
-      sink.updateServerLiveMetadata(record, (m) => {
-        m.pr = pr;
-      });
+      emit({ kind: "pr", pr });
       plog.debug(
         pr.kind === "ok"
           ? {
@@ -420,29 +346,30 @@ function startPrSensor(
 // ── Agent-command tracker ─────────────────────────────────────────────
 
 function startAgentCommandSensor(
-  record: AwarenessRecord,
+  agentState: AgentEngineState,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  sink: AwarenessSink,
+  signals: SensorSignals,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
     onEvent: ({ command: raw, replayed }) => {
       const normalized = parseAgentCommand(raw);
-      record.currentAgent = normalized
+      agentState.currentAgent = normalized
         ? agentNameFromCommand(normalized)
         : null;
       if (normalized) {
-        if (record.meta.lastAgentCommand !== normalized) {
-          sink.updateServerMetadata(record, (m) => {
-            m.lastAgentCommand = normalized;
-          });
-        }
-        // Recent-agent recency stamps `Date.now()` — a LIVE-only effect. A
-        // replayed snapshot (a late/restarted sensor catching up) must seed
-        // detection above WITHOUT re-bumping the MRU as if the command just
-        // ran, or a reconnect would reorder recent-agents spuriously.
-        if (!replayed) sink.trackRecentAgent?.(normalized);
+        // Emit the recognized, normalized command mark. kolu's fold owns the
+        // dedup (`lastAgentCommand === command`) and the recent-agent MRU
+        // (live-only, on `!replayed`) — a memoryless producer can't dedup
+        // against a value it doesn't keep.
+        emit({ kind: "commandRun", command: normalized, replayed });
+        // An agent is LAUNCHING from a clean state (no agent owns the tile yet):
+        // emit `unknown` so the session file landing a beat later is read as
+        // "still resolving" (kolu KEEPS its value), never an ambiguous null. Once
+        // an adapter resolves it, the authoritative `{ value }` supersedes this.
+        if (agentState.mirror === null)
+          emit({ kind: "agent", agent: "unknown" });
       }
     },
     onError: (err) =>
@@ -531,49 +458,33 @@ function isNotFoundError(err: unknown): boolean {
   );
 }
 
-function publishAgentField(
-  record: AwarenessRecord,
-  sink: AwarenessSink,
+/** Emit an authoritative agent value `{ value: nextAgent }` (incl. an
+ *  authoritative null = session ended), with the publish-if-changed dedup against
+ *  the engine's last-emitted MIRROR — the one gate for "did kolu already reflect
+ *  this?", so every publisher (watcher + screen-scrape poll + the session-ended
+ *  branch) funnels through one equality check. The mirror REPLACES the old
+ *  `record.meta.agent` read-back; recency (kolu's fold, on identity change) and
+ *  the agent-session ref (collapsed into the frozen agent) are no longer the
+ *  producer's concern. */
+function emitAgentValue(
+  agentState: AgentEngineState,
+  emit: (o: TerminalEvent) => void,
   nextAgent: AgentInfo | null,
 ): void {
-  // Publish-if-changed: the canonical AgentInfo comparator is the one gate for
-  // "did the published state already reflect this?", so every publisher —
-  // watcher and screen-scrape poll alike — funnels through one equality check.
-  if (agentInfoEqual(record.meta.agent, nextAgent)) return;
-  const bump = shouldBumpRecencyForAgentChange(
-    record.meta.agent,
-    nextAgent,
-    record.meta.lastActivityAt,
-  );
-  // The EXACT conversation ref to persist for wake/restore resume — non-null only
-  // when the conversation identity (kind+sessionId) is genuinely new, so a same-
-  // session state/summary tick on the agent firehose never re-arms autosave here
-  // (juspay/kolu#1495). Captured BEFORE the live write so it reads the prior ref.
-  const nextSession = agentSessionToPersist(
-    record.meta.agentSession,
-    nextAgent,
-  );
-  sink.updateServerLiveMetadata(record, (m) => {
-    m.agent = nextAgent;
-  });
-  if (bump) {
-    sink.updateServerMetadata(record, (m) => {
-      m.lastActivityAt = Date.now();
-    });
-  }
-  if (nextSession) {
-    sink.updateServerMetadata(record, (m) => {
-      m.agentSession = nextSession;
-    });
-  }
+  if (agentInfoEqual(agentState.mirror, nextAgent)) return;
+  agentState.mirror = nextAgent;
+  emit({ kind: "agent", agent: { value: nextAgent } });
 }
 
 function startAgentSensor<Session, Info extends AgentInfoShape>(
   adapter: AgentAdapter<Session, Info>,
-  record: AwarenessRecord,
+  agentState: AgentEngineState,
+  pid: number,
+  spawnCwd: string,
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  sink: AwarenessSink,
+  signals: SensorSignals,
+  readScreenText: ReadScreenText | undefined,
+  emit: (o: TerminalEvent) => void,
   log: Logger,
 ): () => void {
   const plog = log.child({ provider: adapter.kind, terminal: terminalId });
@@ -586,30 +497,24 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
   let latestInfo: Info | null = null;
-  // The published agent metadata, but only when it's this adapter's own —
-  // i.e. the `published?.kind === adapter.kind` narrowing, defined once and
-  // shared by both writers that ask "has the published state diverged from
-  // this candidate?": the watcher callback (to *skip* the raw publish the
-  // poll owns) and the poll tick (to *do* the republish). Returns null when
-  // nothing is published yet, or when a different adapter owns the tile, so
-  // a caller can read the divergence test declaratively off the result.
+  // The last-emitted agent, but only when it's this adapter's own — i.e. the
+  // `mirror?.kind === adapter.kind` narrowing, defined once and shared by both
+  // writers that ask "has the emitted state diverged from this candidate?": the
+  // watcher callback (to *skip* the raw emit the poll owns) and the poll tick (to
+  // *do* the re-emit). Returns null when nothing is emitted yet, or when a
+  // different adapter owns the tile, so a caller reads the divergence test
+  // declaratively off the result. Reads the ENGINE MIRROR (not a host store).
   const publishedAgent = (): AgentInfo | null => {
-    const published = record.meta.agent;
+    const published = agentState.mirror;
     return published?.kind === adapter.kind ? published : null;
   };
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
-  // CWD source-of-truth for this adapter's lifetime: seeded once from
-  // `record.meta.cwd` (the spawn-time cwd a host writes before calling
-  // `startAwareness`) and updated only via the `cwd` channel. Reading
-  // `record.meta.cwd` inside `reconcile()` would make agent detection
-  // depend on the host mutating `record.meta` synchronously before each
-  // channel publish — a hidden contract the agent happens to honor (its
-  // cwd bridge writes `record.meta.cwd` then publishes `signals.cwd`) but
-  // a future host on the same `AwarenessSignals`/`AwarenessSink` shape
-  // could not be expected to know about.
-  let currentCwd = record.meta.cwd;
+  // CWD source-of-truth for this adapter's lifetime: seeded once from `spawnCwd`
+  // (the spawn-time cwd the host passes in `inputs.cwd`) and updated only via the
+  // `cwd` channel — so agent detection depends on no host store, just the taps.
+  let currentCwd = spawnCwd;
   // Foreground source-of-truth for this adapter, tracked from
   // `signals.foreground` (seeded empty → "shell idle" until the first
   // sample arrives). Same rationale as `currentCwd`: read it from the
@@ -636,9 +541,9 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   function reconcileInner() {
     const state = snapshotSignals(
       currentForeground,
-      record.pid,
+      pid,
       currentCwd,
-      record.currentAgent,
+      agentState.currentAgent,
     );
     if (!registeredForExternal && adapter.externalChanges?.isPresent(state)) {
       const activation = getActivation(adapter.kind);
@@ -665,8 +570,12 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
     destroyCurrent();
     if (!next || !nextKey) {
       if (hadCurrent) plog.debug("agent session ended");
-      if (record.meta.agent?.kind === adapter.kind) {
-        publishAgentField(record, sink, null);
+      // Authoritative session-ended null — ONLY when THIS adapter owns the
+      // emitted tile (the mirror narrow). When no adapter owns it (a launch
+      // mid-resolution), nothing is emitted, so kolu keeps its value rather than
+      // seeing an ambiguous null.
+      if (agentState.mirror?.kind === adapter.kind) {
+        emitAgentValue(agentState, emit, null);
       }
       return;
     }
@@ -705,13 +614,13 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
           // state transition publishes immediately.
           if (
             scrape &&
-            sink.readScreenText &&
+            readScreenText &&
             scrape.isPollable(info) &&
             published?.state === "awaiting_user"
           ) {
             return;
           }
-          publishAgentField(record, sink, info as unknown as AgentInfo);
+          emitAgentValue(agentState, emit, info as unknown as AgentInfo);
         },
         plog,
       ),
@@ -743,7 +652,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
    *  `setTimeout` (not `setInterval`) so a slow screen read can't overlap. */
   function startScreenScrapePoll(): () => void {
     const scrape = adapter.screenScrape;
-    const readScreen = sink.readScreenText;
+    const readScreen = readScreenText;
     if (!scrape || !readScreen) return () => {};
     let pollStopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -769,7 +678,7 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
         const desired = scrape.promote(info, text);
         const published = publishedAgent();
         if (published && !isDeepStrictEqual(published, desired)) {
-          publishAgentField(record, sink, desired as unknown as AgentInfo);
+          emitAgentValue(agentState, emit, desired as unknown as AgentInfo);
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between
@@ -867,71 +776,101 @@ function startAgentSensor<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal sensor for one terminal. A host calls this with
- *  its signals + sink + a logger (the lone coupling injected, not imported,
- *  so this package names no host). Sensor order matters only for the
- *  agent-command tracker — it must come first so its stash is populated before
- *  agent detectors reconcile. */
-export function startAwareness(
-  record: AwarenessRecord,
+/** The host inputs the memoryless producer needs — the spawn-time identity (pid +
+ *  cwd), the four taps, the optional screen reader (#905), and a logger (the lone
+ *  coupling injected, not imported, so this package names no host). NO seed, no
+ *  store: the producer cannot remember, so a host hands it only what it observes. */
+export interface SensorInputs {
+  /** OS pid of the PTY's shell — constant for the terminal's life, known at spawn.
+   *  The agent detectors compare it to the foreground pid to decide "shell idle"
+   *  (foreground IS the shell). */
+  pid: number;
+  /** Spawn-time cwd — read once at start; later cwd changes flow via `signals.cwd`. */
+  cwd: string;
+  signals: SensorSignals;
+  readScreenText?: ReadScreenText;
+  log: Logger;
+}
+
+/** Start the memoryless per-terminal awareness PRODUCER. It emits per-field
+ *  `TerminalEvent`s through `emit`; kolu folds the stream into a
+ *  `TerminalState`. Returns a stop fn. The engine owns transient working state
+ *  (`AgentEngineState` — the agent mirror + recognized basename, shared across the
+ *  detectors + the command tracker), re-seeded empty here each start. Sensor order
+ *  matters only for the agent-command tracker — it must come first so the
+ *  recognized basename is set before the detectors reconcile. */
+export function startSensors(
   terminalId: TerminalId,
-  signals: AwarenessSignals,
-  sink: AwarenessSink,
-  log: Logger,
+  inputs: SensorInputs,
+  emit: (o: TerminalEvent) => void,
 ): () => void {
+  const { pid, cwd, signals, readScreenText, log } = inputs;
+  // Transient working state — re-seeded empty each start (a producer is memoryless).
+  const agentState: AgentEngineState = { mirror: null, currentAgent: null };
+
+  // `emit` is the host's contract and must be INFALLIBLE. The producer (and the
+  // upstream git/pr/agent watchers) advance their own dedup baselines BEFORE calling
+  // it, so a throw escaping `emit` would both freeze the raising sensor's `consume`
+  // loop AND desync the host fold from the now-advanced baseline (a later equal value
+  // deduped → lost forever). So error handling lives where the fallible work actually
+  // is — the host's publish boundary (kolu's `commitSnapshot` / `updateMemory` /
+  // `emitTerminalsDirty`, and pulam's `upsert`, each fold-ACCEPT then guard their own
+  // publish), NOT a funnel wrapper here that would sit at the wrong seam (after the
+  // baseline advanced) and merely log a lost observation. With the publish guarded at
+  // its boundary, `emit` is infallible and passed straight through to each sensor.
+
+  // Emit each cwd CHANGE as its own observation. The spawn-time `cwd` is already in
+  // kolu's seeded fold state, so only deltas need emitting; the git sensor consumes
+  // the same channel to re-resolve git (channels fan out to every subscriber).
+  const stopCwd = signals.cwd.consume({
+    onEvent: (next) => emit({ kind: "cwd", cwd: next }),
+    onError: (err) =>
+      log.error(
+        { err, terminal: terminalId, channel: "cwd" },
+        "cwd subscription failed",
+      ),
+  });
+
   const stopAgentCommand = startAgentCommandSensor(
-    record,
+    agentState,
     terminalId,
     signals,
-    sink,
+    emit,
     log,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
-  // git sensor publishes `GitInfo` to it and the PR sensor consumes it to
-  // re-resolve the PR. `startAwareness` owns it so hosts plug in only the four
-  // taps they actually drive (`AwarenessSignals`).
+  // git sensor emits `GitInfo` to it and the PR sensor consumes it to re-resolve
+  // the PR. The engine owns it so hosts plug in only the four taps they drive.
   const gitChannel = inMemoryChannel<GitInfo | null>();
   const stopGit = startGitSensor(
-    record,
+    cwd,
     terminalId,
     signals,
     gitChannel,
-    sink,
+    emit,
     log,
   );
-  const stopPr = startPrSensor(record, terminalId, gitChannel, sink, log);
-  const stopClaude = startAgentSensor(
-    claudeCodeAdapter,
-    record,
-    terminalId,
-    signals,
-    sink,
-    log,
-  );
-  const stopCodex = startAgentSensor(
-    codexAdapter,
-    record,
-    terminalId,
-    signals,
-    sink,
-    log,
-  );
-  const stopOpenCode = startAgentSensor(
-    opencodeAdapter,
-    record,
-    terminalId,
-    signals,
-    sink,
-    log,
-  );
-  const stopProcess = startForegroundSensor(
-    record,
-    terminalId,
-    signals,
-    sink,
-    log,
-  );
+  const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
+  const startAgent = <Session, Info extends AgentInfoShape>(
+    adapter: AgentAdapter<Session, Info>,
+  ) =>
+    startAgentSensor(
+      adapter,
+      agentState,
+      pid,
+      cwd,
+      terminalId,
+      signals,
+      readScreenText,
+      emit,
+      log,
+    );
+  const stopClaude = startAgent(claudeCodeAdapter);
+  const stopCodex = startAgent(codexAdapter);
+  const stopOpenCode = startAgent(opencodeAdapter);
+  const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   return () => {
+    stopCwd();
     stopAgentCommand();
     stopGit();
     stopPr();

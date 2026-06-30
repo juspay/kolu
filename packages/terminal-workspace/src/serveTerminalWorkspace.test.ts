@@ -10,7 +10,7 @@ import pino from "pino";
 import { describe, expect, it } from "vitest";
 import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import {
-  type AwarenessCollectionDeps,
+  type SnapshotCollectionDeps,
   quietActivity,
   serveTerminalWorkspace,
 } from "./serveTerminalWorkspace.ts";
@@ -19,7 +19,7 @@ import {
 // so a bare endpoint stub suffices for the structural assertions below.
 const stubEndpoint = {} as TerminalWorkspaceEndpoint;
 const stubLog = pino({ level: "silent" });
-const stubAwareness: AwarenessCollectionDeps = {
+const stubSnapshots: SnapshotCollectionDeps = {
   readAll: () => new Map(),
   upsert: () => {},
   remove: () => {},
@@ -28,7 +28,7 @@ const stubAwareness: AwarenessCollectionDeps = {
 describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () => {
   it("assembles the full deps: version cell + fs/git procedures + watcher streams, with the backings injected verbatim", () => {
     const deps = serveTerminalWorkspace({
-      awareness: stubAwareness,
+      snapshots: stubSnapshots,
       activity: quietActivity,
       endpoint: stubEndpoint,
       log: stubLog,
@@ -45,7 +45,7 @@ describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () =>
     expect("channel" in deps).toBe(false);
 
     // The VOLATILE backings are injected through verbatim (identity):
-    expect(deps.collections?.awareness).toBe(stubAwareness);
+    expect(deps.collections?.snapshots).toBe(stubSnapshots);
     expect(deps.streams?.activity).toBe(quietActivity);
   });
 });

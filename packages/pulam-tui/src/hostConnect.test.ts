@@ -11,7 +11,7 @@
  * flows back unchanged.
  */
 import {
-  type AwarenessValue,
+  type TerminalSnapshot,
   terminalWorkspaceSurface,
   DEFAULT_VERSION,
   type TerminalId,
@@ -43,13 +43,13 @@ function unusedInProbe(name: string): never {
  *  Mirrors the daemon's served fragment (daemon.ts) without dialing kaval, so
  *  the probe exercises a real `terminalWorkspaceSurface` round-trip in place of the ssh wire. */
 function makeInProcessPulamClient(
-  cache = new Map<TerminalId, AwarenessValue>(),
+  cache = new Map<TerminalId, TerminalSnapshot>(),
 ) {
   const { router } = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: {
-      awareness: {
+      snapshots: {
         readAll: () => cache,
         upsert: (key, value) => {
           cache.set(key, value);

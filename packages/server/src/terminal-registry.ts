@@ -13,9 +13,7 @@ import { ORPCError } from "@orpc/server";
 import type {
   AuthoredActiveTerminal,
   AuthoredSleepingTerminal,
-  AwarenessLiveFields,
-  AwarenessPersistedFields,
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
@@ -31,12 +29,12 @@ import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredActiveTerminal;
-  /** The terminal's AWARENESS value (cwd · git · agent · pr · …), born and dropped
-   *  WITH the entry. A required field, so "a terminal exists" and "its awareness
-   *  exists" are one fact the type makes inseparable — there is no second Map to
-   *  keep in lockstep. The sensor sink mutates it in place through the two narrowed
-   *  mutators below. */
-  awareness: AwarenessValue;
+  /** The terminal's last-seen `TerminalSnapshot` (cwd · git · pr · agent · foreground),
+   *  born and dropped WITH the entry. A required field, so "a terminal exists" and
+   *  "its snapshot exists" are one fact the type makes inseparable — no second
+   *  Map to keep in lockstep. kolu's fold REPLACES it wholesale each frame
+   *  (`entry.snapshot = next.snapshot`); there is no in-place mutator. */
+  snapshot: TerminalSnapshot;
   handle: TerminalHandle;
 }
 
@@ -52,11 +50,12 @@ export interface ActiveTerminalProcess {
 export interface SleepingTerminalProcess {
   info: TerminalInfo;
   meta: AuthoredSleepingTerminal;
-  /** Awareness rides the sleeping entry too (sleep does NOT drop it) — the dormant
-   *  tile recomposes its cwd/branch off the persisted half, and wake reads the
-   *  resume inputs back from here. The live half is dead data while sleeping (the
-   *  client's join takes only the persisted half + the authored frozen `pr`). */
-  awareness: AwarenessValue;
+  /** The last-seen `TerminalSnapshot` rides the sleeping entry too (sleep does NOT drop
+   *  it) — the dormant tile recomposes its cwd/branch/pr off the restore-relevant
+   *  projection, and wake reads the resume target (the frozen agent identity) back
+   *  from here. The agent detail + foreground are dead data while sleeping (the
+   *  client's join takes only the restore-relevant projection). */
+  snapshot: TerminalSnapshot;
   handle?: never;
 }
 
@@ -110,7 +109,7 @@ export function listTerminals(): TerminalInfo[] {
 
 /** Project the registry into a `Map<id, V>` for a surface collection's `readAll`
  *  — one loop over the entries in canonical insertion order, with `pick` choosing
- *  the half. The `authored` and `terminalWorkspace.awareness` collections both
+ *  the half. The `authored` and `terminalWorkspace.snapshots` collections both
  *  read off the SAME registry entry (Design-S: the two halves share one backing),
  *  so this keeps the projection loop in one place instead of copied per
  *  collection. */
@@ -140,15 +139,15 @@ export const activeTerminalCount = (): number => {
 
 /** Number of ACTIVE terminals currently hosting a Claude Code session. The
  *  `agent` field lives on the entry's `awareness` (Design-S), so this reads
- *  `entry.awareness.agent` rather than `entry.meta`; the `state === "active"` gate
- *  stays, since a sleeping terminal's awareness keeps its frozen-stale live half
+ *  `entry.snapshot.agent` rather than `entry.meta`; the `state === "active"` gate
+ *  stays, since a sleeping terminal's snapshot keeps its frozen-stale live half
  *  (sleep does not reset it). Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {
     if (
       entry.meta.state === "active" &&
-      entry.awareness.agent?.kind === "claude-code"
+      entry.snapshot.agent?.kind === "claude-code"
     )
       n++;
   }
@@ -159,41 +158,14 @@ export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
 }
 
-/** The LIVE mutable awareness value for `id`, or `undefined` if no entry exists —
- *  projected off the registry entry (awareness is a required field, so it is born
+/** The last-seen `TerminalSnapshot` for `id`, or `undefined` if no entry exists —
+ *  projected off the registry entry (snapshot is a required field, so it is born
  *  and dropped WITH the entry; there is no separate store to fall out of lockstep).
- *  The returned object is the one the sensor sink mutates in place (and that
- *  `record.meta` aliases inside `startAwarenessSensors`), so callers must treat it
- *  READ-ONLY — mutate only through the two narrowed mutators below. */
-export function awarenessFor(id: TerminalId): AwarenessValue | undefined {
-  return terminals.get(id)?.awareness;
-}
-
-/** Mutate the PERSISTED half of a terminal's awareness IN PLACE and return the
- *  (same) value, or `undefined` if the terminal has no entry (a late write after
- *  removal — the apply-and-read-back contract drops it). The mutator is narrowed to
- *  `AwarenessPersistedFields`, half the write fence: writing
- *  `m.agent`/`m.pr`/`m.foreground` through it is a COMPILE error. */
-export function mutateAwarenessPersisted(
-  id: TerminalId,
-  mutate: (m: AwarenessPersistedFields) => void,
-): AwarenessValue | undefined {
-  const aw = terminals.get(id)?.awareness;
-  if (aw) mutate(aw);
-  return aw;
-}
-
-/** Mutate the LIVE half of a terminal's awareness IN PLACE and return the (same)
- *  value, or `undefined` if absent. The mutator is narrowed to
- *  `AwarenessLiveFields`, the other half of the fence: writing
- *  `m.cwd`/`m.lastActivityAt`/… through it is a COMPILE error. */
-export function mutateAwarenessLive(
-  id: TerminalId,
-  mutate: (m: AwarenessLiveFields) => void,
-): AwarenessValue | undefined {
-  const aw = terminals.get(id)?.awareness;
-  if (aw) mutate(aw);
-  return aw;
+ *  kolu's fold REPLACES `entry.snapshot` wholesale each frame, so callers read it
+ *  as an immutable snapshot — there is no in-place mutator (the old apply-and-read-
+ *  back contract is gone with the sink). */
+export function snapshotFor(id: TerminalId): TerminalSnapshot | undefined {
+  return terminals.get(id)?.snapshot;
 }
 
 /** Narrow a registry lookup to its ACTIVE arm — the entry only if it is a live

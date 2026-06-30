@@ -53,7 +53,7 @@ import { adoptSurvivingSession } from "./terminalEndpoint/reattach.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { awarenessFor } from "./terminal-registry.ts";
+import { snapshotFor } from "./terminal-registry.ts";
 import {
   activeTerminalCount,
   countActiveClaudeSessions,
@@ -264,7 +264,7 @@ app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
   // decoration, and diff are all repo-relative); switching the injected root
   // to the terminal's `$PWD` (`meta.cwd`) is a one-line change here, deferred
   // because it's a browse-model/decoration product decision, not this refactor.
-  const root = awarenessFor(terminalId)?.git?.repoRoot;
+  const root = snapshotFor(terminalId)?.git?.repoRoot;
   if (!root) return c.text("terminal has no repo", 404);
 
   // The agnostic receptacle owns range/content-type/the lexical guard and

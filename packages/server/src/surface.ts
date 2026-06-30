@@ -243,7 +243,7 @@ const koluDeps: Omit<
       // Design-S: kolu serves the AUTHORED half (location + client chrome + the
       // active|sleeping discriminant) straight off the registry — NO awareness,
       // NO compose. The AWARENESS half rides the sibling
-      // `terminalWorkspace.awareness` collection below, and the client joins the
+      // `terminalWorkspace.snapshots` collection below, and the client joins the
       // two at read time (`useTerminalMetadata`). There is no server-side
       // re-fusion: the wire never carries a single fused record.
       readAll: () => registryMap((t) => t.meta),
@@ -440,15 +440,15 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
       // against `terminalWorkspaceSurface.spec`, so this needs no cast.
       terminalWorkspace: serveTerminalWorkspace({
-        // Project the awareness half straight off the registry — `.awareness`
+        // Project the awareness half straight off the registry — `.snapshot`
         // exactly as `authored` projects `.meta` (the two halves share one
         // backing entry). Writes go through the sink's
-        // `installAwareness`/`updateServer*Metadata` (which call
-        // `workspaceSurfaceCtx.collections.awareness.upsert`), so the framework's
+        // `installSnapshot`/`updateServer*Metadata` (which call
+        // `workspaceSurfaceCtx.collections.snapshots.upsert`), so the framework's
         // `upsert`/`remove` are no-ops (the registry is the authority).
-        awareness: {
-          readAll: () => registryMap((t) => t.awareness),
-          readOne: (key) => getTerminal(key as string)?.awareness,
+        snapshots: {
+          readAll: () => registryMap((t) => t.snapshot),
+          readOne: (key) => getTerminal(key as string)?.snapshot,
           upsert: () => {},
           remove: () => {},
         },

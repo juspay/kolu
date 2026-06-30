@@ -17,8 +17,16 @@ function term(id: string): SavedTerminal {
     state: "active",
     cwd: "/x",
     git: null,
+    pr: { kind: "absent" }, // pr is restore-relevant (persisted) post-cutover
     location: LOCAL_LOCATION,
     lastActivityAt: 0,
+    // The fold-derived `restoreTarget` — must ride through whole-record adoption
+    // (#1275), replacing the deleted sticky `agentSession` + bare `resumeAgent`.
+    restoreTarget: {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: `${id}-sess` },
+    },
   };
 }
 function sleepingTerm(id: string): SavedTerminal {
@@ -28,8 +36,14 @@ function sleepingTerm(id: string): SavedTerminal {
     sleptAt: 1,
     cwd: "/x",
     git: null,
+    pr: { kind: "absent" }, // pr rides the persisted observation now (no frozen-pr special case)
     location: LOCAL_LOCATION,
     lastActivityAt: 0,
+    restoreTarget: {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: `${id}-sess` },
+    },
   };
 }
 function saved(...terminals: SavedTerminal[]): SavedSession {
