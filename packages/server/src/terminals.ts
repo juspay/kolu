@@ -15,8 +15,11 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
+import { ORPCError } from "@orpc/server";
 import {
   composeTerminalMetadata,
+  type HostLocation,
+  hostLocationsEqual,
   type InitialTerminalMetadata,
   LOCAL_LOCATION,
   type RightPanelPerTerminalState,
@@ -26,20 +29,15 @@ import {
   type TerminalInfo,
 } from "kolu-common/surface";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
-// before `terminalEndpoint/local.ts` is what makes the surface cycle
-// converge with `localTerminalEndpoint` already initialized by the time
-// the top-level `localEndpoint` reference below reads it. Reversing these
-// two (biome's alphabetical preference) puts the cycle entry-point at the
-// deeper `activity.ts → surface.ts` branch and trips a TDZ on
-// `localTerminalEndpoint`.
+// before `terminalEndpoint/resolve.ts` (which pulls in `local.ts`) is what makes
+// the surface cycle converge with `localTerminalEndpoint` already initialized by
+// the time the top-level `localEndpoint` reference below reads it. Letting biome's
+// alphabetical preference put `resolve.ts` first would move the cycle entry-point
+// to the deeper `activity.ts → surface.ts` branch and trip a TDZ on
+// `localTerminalEndpoint`. (`local.ts` is no longer imported directly here —
+// every lifecycle op routes through `resolveTerminalEndpoint`.)
 // biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
-import {
-  beginSleepLocal,
-  releaseSleptLocalPty,
-} from "./terminalEndpoint/local.ts";
-// `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
-// to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -96,21 +94,45 @@ export function snapshotSession(): SessionSnapshot {
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
-/** Create a new terminal. The endpoint owns PTY spawn, provider
- *  startup, and registry insert; this wrapper just mints an id and
- *  forwards. `initial` seeds client-owned
- *  metadata before providers run — see #642 (avoids racing post-hoc
- *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the
- *  client's canvas-cascade effect). */
+/** Resolve the host a fresh terminal is created on. A top-level terminal uses the
+ *  requested `location` (default `LOCAL_LOCATION` — the only host today). A
+ *  sub-terminal INHERITS its parent's host (one PTY tree, one kaval): an explicit
+ *  child `location` that disagrees is a client bug — reject loudly (`BAD_REQUEST`)
+ *  rather than silently spawn the child on the wrong host. Pure (the router resolves
+ *  the parent's location and hands it in), so the inherit/reject rule is unit-tested
+ *  without the router. */
+export function resolveCreateLocation(
+  requested: HostLocation | undefined,
+  parentLocation: HostLocation | undefined,
+): HostLocation {
+  if (parentLocation === undefined) return requested ?? LOCAL_LOCATION;
+  if (
+    requested !== undefined &&
+    !hostLocationsEqual(requested, parentLocation)
+  ) {
+    throw new ORPCError("BAD_REQUEST", {
+      message:
+        "a sub-terminal must share its parent's host — drop the explicit location or match the parent's",
+    });
+  }
+  return parentLocation;
+}
+
+/** Create a new terminal on `location`'s endpoint (default the local host). The
+ *  endpoint owns PTY spawn, provider startup, and registry insert; this wrapper
+ *  just mints an id and routes through `resolveTerminalEndpoint(location)` — the
+ *  same `HostLocation` seam kill/attach use — so a remote tile (R9.2) spawns on its
+ *  host with no change here. `initial` seeds client-owned metadata before providers
+ *  run — see #642 (avoids racing post-hoc `setCanvasLayout` / `setTheme` /
+ *  `setSubPanel` RPCs against the client's canvas-cascade effect). */
 export function createTerminal(
   cwd?: string,
   parentId?: string,
   initial?: InitialTerminalMetadata,
+  location: HostLocation = LOCAL_LOCATION,
 ): TerminalInfo {
   const id = crypto.randomUUID();
-  // P3 will select the endpoint per create — e.g. a sub-terminal
-  // inheriting its parent's endpoint; today every terminal is local.
-  return localEndpoint.spawnPty(id, {
+  return resolveTerminalEndpoint(location).spawnPty(id, {
     cwd,
     parentId,
     initialMetadata: initial,
@@ -139,9 +161,16 @@ export async function killTerminal(
  *  reconcile reaps any briefly-surviving PTY (adopt-or-reap). A no-op if `id`
  *  is not an active terminal. */
 export async function sleepTerminal(id: TerminalId): Promise<void> {
-  if (!beginSleepLocal(id)) return;
+  // Route by the terminal's OWN location so a remote tile sleeps on its host
+  // (R9.2), exactly as `killTerminal` routes — `sleep` flips the dormant arm,
+  // the session persists durably, THEN `releaseSleptPty` kills the PTY
+  // (persist-before-kill). A no-op when `id` is not active (`sleep` returns false).
+  const entry = getTerminal(id);
+  if (!entry) return;
+  const endpoint = resolveTerminalEndpoint(entry.meta.location);
+  if (!endpoint.sleep(id)) return;
   saveSession(snapshotSession());
-  await releaseSleptLocalPty(id);
+  await endpoint.releaseSleptPty(id);
 }
 
 /** Set or clear a terminal's parent relationship. */

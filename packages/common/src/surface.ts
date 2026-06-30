@@ -197,6 +197,16 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
   kind: "local",
 } as const);
 
+/** Structural equality for two `HostLocation`s — the single source of truth for
+ *  "same host" so call sites don't re-spell the discriminant comparison (the
+ *  create-time parent/child host check, the boot-adoption per-host narrow). Two
+ *  remote locations match iff their `hostId`s match; a local matches only a
+ *  local. */
+export function hostLocationsEqual(a: HostLocation, b: HostLocation): boolean {
+  if (a.kind === "local") return b.kind === "local";
+  return b.kind === "remote" && a.hostId === b.hostId;
+}
+
 // ── Terminal metadata fields, organized by who OBSERVES vs who REMEMBERS ──
 //
 // After the awareness-derive-store cutover (PR #1621) a terminal's metadata has

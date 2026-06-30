@@ -34,10 +34,10 @@
  */
 
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
-import { TerminalIdSchema } from "kolu-common/surface";
+import { type HostLocation, TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
+import { hostPtyClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
 import { getTerminal } from "../terminal-registry.ts";
@@ -57,16 +57,32 @@ import {
  *  PTYs kolu has no registry entry for is a fail-closed condition — the boot
  *  recycles it rather than leaving hidden live PTYs behind a stale restore card.
  *  Every per-terminal adoption failure is contained (it reaps just that PTY), so
- *  the only throw is the all-or-nothing `list`. */
-export async function adoptSurvivingSession(): Promise<void> {
+ *  the only throw is the all-or-nothing `list`.
+ *
+ *  Parameterized per host: `hostId` keys the daemon (its client facade, adopted-
+ *  count, status), `location` keys the terminal records (the per-host reconcile
+ *  narrow + the orphan-adopt). One local pair today
+ *  (`LOCAL_HOST_ID`/`LOCAL_LOCATION`); F-REMOTE reconciles each dialed host with
+ *  its own pair. The sleeping-seed + the session converge below stay session-global
+ *  (multi-host converge is F-REMOTE's boot re-dial-re-adopt), so on the single
+ *  local host this is byte-identical. */
+export async function adoptSurvivingSession(
+  hostId: string,
+  location: HostLocation,
+): Promise<void> {
+  const client = hostPtyClient(hostId);
   // Fail CLOSED on a list failure (F3): re-throw so the boot recycles the
   // survivor. Returning here would leave the endpoint connected to a daemon
   // whose PTYs kolu never registered — invisible live terminals behind a stale
   // restore card, and a duplicate-terminal hazard if the user restored it.
-  const live = (await ptyHostClient.surface.terminal.list({})).entries;
+  const live = (await client.surface.terminal.list({})).entries;
 
   const saved = getSavedSession();
-  const { adopt, adoptOrphans, reapSleeping } = reconcile(live, saved);
+  const { adopt, adoptOrphans, reapSleeping } = reconcile(
+    live,
+    saved,
+    location,
+  );
 
   // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides
   // its whole record through (`adoptLocalTerminal`); a survivor with NO saved
@@ -96,7 +112,7 @@ export async function adoptSurvivingSession(): Promise<void> {
       reapUnrepresentablePty(orphan.id);
       continue;
     }
-    adoptLocalOrphan(parsed.data, orphan);
+    adoptLocalOrphan(parsed.data, orphan, location);
     orphansAdopted += 1;
   }
 
@@ -118,7 +134,7 @@ export async function adoptSurvivingSession(): Promise<void> {
       { terminal: orphan.id },
       "reaping a sleeping terminal's crash-surviving PTY",
     );
-    void ptyHostClient.surface.terminal
+    void client.surface.terminal
       .kill({ id: orphan.id })
       .catch((err) =>
         log.error({ err, terminal: orphan.id }, "reap of sleeping PTY failed"),
@@ -137,7 +153,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   saveSession(snapshotSession());
 
   if (adoptedCount > 0) {
-    setAdoptedCount(LOCAL_HOST_ID, adoptedCount);
+    setAdoptedCount(hostId, adoptedCount);
     log.info(
       { adopted: adopt.length, orphansAdopted },
       "adopted surviving terminals after restart",
@@ -153,7 +169,7 @@ export async function adoptSurvivingSession(): Promise<void> {
   // build-skew VM gate) can read "running X, would spawn Y" in the journal. The
   // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
   // client's `kavalStale`; this is observability, not a second source of truth.
-  const status = readDaemonStatus(LOCAL_HOST_ID);
+  const status = readDaemonStatus(hostId);
   const running = status?.identity?.staleKey ?? "";
   const expected = expectedKavalIdentity().staleKey;
   // By the time adoption runs the endpoint has already reported `connected` WITH

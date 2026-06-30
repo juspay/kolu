@@ -152,6 +152,26 @@ export interface TerminalEndpoint {
     signal: AbortSignal | undefined,
   ): Promise<TerminalAttachment>;
 
+  /** Flip an ACTIVE terminal to the dormant (sleeping) arm IN PLACE (same id),
+   *  stopping its providers but leaving the PTY alive. The lifecycle façade
+   *  persists the session durably, THEN calls `releaseSleptPty` to kill the PTY
+   *  (persist-before-kill). Returns false — a no-op — when `id` is not an active
+   *  terminal. Routed per `entry.meta.location` exactly like `killTerminal`, so a
+   *  remote tile sleeps on its own host (R9.2). */
+  sleep(id: TerminalId): boolean;
+
+  /** Kill the now-detached PTY of a terminal `sleep` already flipped to sleeping,
+   *  scrubbing its scratch. The registry entry stays (dormant). A kill failure is
+   *  contained, not thrown — the record is sleeping regardless and boot reconcile
+   *  reaps any survivor. */
+  releaseSleptPty(id: TerminalId): Promise<void>;
+
+  /** Wake a SLEEPING terminal: flip it back to active and re-spawn its PTY on the
+   *  SAME id in its saved cwd, replaying the resume form derived from the persisted
+   *  `restoreTarget` (session-restore-of-one). Returns the woken active info, or
+   *  undefined when `id` is not a sleeping terminal. */
+  wake(id: TerminalId): TerminalInfo | undefined;
+
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
 }

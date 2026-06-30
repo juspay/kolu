@@ -26,6 +26,7 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
+import { LOCAL_LOCATION } from "kolu-common/surface";
 import { configureNixShellEnv } from "kolu-pty";
 import { type WebSocket, WebSocketServer } from "ws";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
@@ -343,7 +344,11 @@ const { host, port } = argv.flags;
 await ensureLocalEndpoint({
   port,
   onStatus: publishDaemonStatus,
-  onAdopted: adoptSurvivingSession,
+  // Reconcile the LOCAL host's surviving PTYs. `adoptSurvivingSession` is
+  // host-keyed (R9.2 scaffold); `ensureLocalEndpoint` owns the local host, so it
+  // hands its own (daemon hostId, terminal location) pair. F-REMOTE adds the
+  // remote hosts' boot reconcile.
+  onAdopted: () => adoptSurvivingSession(LOCAL_HOST_ID, LOCAL_LOCATION),
   // Subscribe to the daemon's inventory feed so a terminal created out-of-band
   // (a `kaval-tui create` against this server's kaval) shows up as a tile while
   // kolu runs — not only after the next restart's boot adoption (B3.5). Runs

@@ -42,6 +42,7 @@ import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
   AgentIdentity,
   AuthoredActiveTerminal,
+  HostLocation,
   TerminalSnapshot,
   SavedActiveTerminal,
   SavedSleepingTerminal,
@@ -579,7 +580,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  failure — the caller (`spawnAndWire`) unwinds the shadow.
    *
    *  The check is by IDENTITY (`getActiveTerminal(id) === expected`), not mere
-   *  presence (F1): a `beginSleep` that flipped the entry to sleeping mid-spawn
+   *  presence (F1): a `sleep` that flipped the entry to sleeping mid-spawn
    *  leaves a DIFFERENT entry under the same id, so a bare presence check would
    *  pass and the tail would wire sensors + republish active metadata over the
    *  sleeping flip — leaking a hidden live PTY the registry believes is dormant.
@@ -969,8 +970,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  go down FIRST so no in-flight tap can re-publish the active meta over the
    *  flip (the sink closes over the active entry) and the later kill can't reach
    *  `handleExit` (which would unregister our sleeping entry). Returns false — a
-   *  no-op — when `id` is not an active terminal (already sleeping / absent). */
-  beginSleep(id: TerminalId): boolean {
+   *  no-op — when `id` is not an active terminal (already sleeping / absent).
+   *
+   *  This is the LOCAL arm of `TerminalEndpoint.sleep` — `sleepTerminal`
+   *  (terminals.ts) reaches it through `resolveTerminalEndpoint(entry.meta.location)`,
+   *  exactly as kill/attach route, so a remote tile sleeps on its own host (R9.2). */
+  sleep(id: TerminalId): boolean {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
@@ -1131,26 +1136,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 const localEndpointImpl = new LocalTerminalEndpoint();
 export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
 
-// ── Sleep / wake / discard (local-only today, like adoption) ────────────
+// ── Sleep / wake / discard ──────────────────────────────────────────────
 //
-// Exposed as standalone entries rather than on the shared `TerminalEndpoint`
-// interface — sleep/wake is local-only for now (manual, single-host). P3's
-// remote-host sleep is an additive sibling, not a retrofit of the interface.
+// Sleep/wake now ride the shared `TerminalEndpoint` interface (`sleep` /
+// `releaseSleptPty` / `wake`), so `sleepTerminal`/`wake` route by
+// `entry.meta.location` exactly as kill/attach do — a remote tile sleeps/wakes
+// on its own host (R9.2). `beginSleepLocal` / `wakeLocalTerminal` remain as
+// direct handles onto the LOCAL endpoint for the pty-host-free state-machine
+// tests (`sleepWake.test.ts`), which exercise the transitions without routing.
+// `discard` stays a standalone local entry (not yet on the interface).
 
-/** Flip an active terminal to the sleeping arm IN PLACE (PTY left alive). The
- *  facade persists the session durably, THEN calls `releaseSleptLocalPty` to kill
- *  the PTY (persist-before-kill). Returns false if `id` is not active. */
+/** Flip an active terminal to the sleeping arm IN PLACE (PTY left alive) on the
+ *  LOCAL endpoint. The local arm of `TerminalEndpoint.sleep`; the facade persists
+ *  the session durably, THEN releases the PTY (persist-before-kill). False if `id`
+ *  is not active. */
 export function beginSleepLocal(id: TerminalId): boolean {
-  return localEndpointImpl.beginSleep(id);
+  return localEndpointImpl.sleep(id);
 }
 
-/** Kill the PTY of an already-flipped sleeping terminal. */
-export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
-  return localEndpointImpl.releaseSleptPty(id);
-}
-
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, deriving the
- *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
+/** Wake a sleeping terminal on the LOCAL endpoint: flip to active + re-spawn on the
+ *  same id, deriving the resume form from the persisted `restoreTarget` (the
+ *  fold-decided resume value). The local arm of `TerminalEndpoint.wake`. */
 export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
   return localEndpointImpl.wake(id);
 }
@@ -1233,14 +1239,20 @@ export function adoptLocalTerminal(
  *  (`orphanSnapshot`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
  *  case the reconcile partition surfaces separately. `id` is an ALREADY-VALIDATED
  *  `TerminalId` — the caller (the boot reconcile or the inventory boundary) parsed
- *  it against `TerminalIdSchema`, so this no longer re-casts a raw wire string. */
+ *  it against `TerminalIdSchema`, so this no longer re-casts a raw wire string.
+ *
+ *  `location` is the host the surviving daemon belongs to — an orphan carries no
+ *  saved record, so its location can't be read back (matched survivors preserve
+ *  it via `adoptedAuthored`); the caller (parameterized per host) supplies it.
+ *  `LOCAL_LOCATION` today on the one local daemon. */
 export function adoptLocalOrphan(
   id: TerminalId,
   liveEntry: PtyHostListEntry,
+  location: HostLocation,
 ): void {
   localEndpointImpl.adoptTerminal(
     id,
-    createAuthoredActive(LOCAL_LOCATION),
+    createAuthoredActive(location),
     orphanSnapshot(liveEntry),
     liveEntry,
   );
@@ -1263,7 +1275,8 @@ export function adoptLocalInventoryOrphan(
 ): void {
   // Identical orphan adoption to the boot path, plus the autosave arming — so it
   // composes `adoptLocalOrphan` rather than repeating `adoptTerminal(orphanSnapshot…)`.
-  adoptLocalOrphan(id, liveEntry);
+  // The inventory feed is the LOCAL daemon's, so the discovered orphan is local.
+  adoptLocalOrphan(id, liveEntry, LOCAL_LOCATION);
   emitTerminalsDirty();
 }
 

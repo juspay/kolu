@@ -3,7 +3,11 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import type {
+  HostLocation,
+  InitialTerminalMetadata,
+  TerminalId,
+} from "kolu-common/surface";
 import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
@@ -102,6 +106,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    location?: HostLocation,
   ): Promise<TerminalId> {
     // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
     // "New terminal", the Dock `+`, worktree ops, and session restore's
@@ -166,6 +171,10 @@ export const useTerminalCrud = createSharedRoot(() => {
     const info = await client.terminal
       .create({
         cwd,
+        // The host the terminal lives on — forwarded by session restore so a saved
+        // terminal re-spawns on its own host (undefined ⟹ LOCAL_LOCATION, the only
+        // host today, so a fresh create is unchanged).
+        location,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,

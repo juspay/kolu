@@ -51,28 +51,53 @@ type Identity = PtyHostIdentity | undefined;
  *  local endpoint carries `{ kind: "local" }`, not this string. */
 export const LOCAL_HOST_ID = "local";
 
-let endpoint: Endpoint<PtyHostClient, Identity> | undefined;
+/** One pty-host daemon kolu is a client of: its supervised endpoint plus the
+ *  serialized restart trigger bound to it. The trigger is held WITH the endpoint
+ *  (not rebuilt per call) so its coalescing state is shared — concurrent restart
+ *  requests ride one in-flight recycle. */
+interface PtyHost {
+  endpoint: Endpoint<PtyHostClient, Identity>;
+  triggerRestart: <Ctx>(
+    steps: RestartSteps<PtyHostClient, Identity, Ctx>,
+  ) => Promise<void>;
+}
 
-/** The serialized, emit-guarded restart trigger, bound to the live endpoint by
- *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
- *  state is shared: concurrent restart requests ride one in-flight recycle. The
- *  soul's restart steps reach it through `restartLocalEndpoint`. */
-let triggerRestart:
-  | (<Ctx>(steps: RestartSteps<PtyHostClient, Identity, Ctx>) => Promise<void>)
-  | undefined;
+/** The pty-host daemons kolu drives, keyed by daemon host id. One `"local"` entry
+ *  today (`ensureLocalEndpoint`); F-REMOTE adds a `remote` entry per dialed kaval.
+ *  A map (not a singleton) so the boot-adoption orchestration is host-keyed by
+ *  construction — but PR-1 dials no remote, so the single local entry keeps every
+ *  resolution byte-identical. */
+const ptyHosts = new Map<string, PtyHost>();
 
-/** The live socket client, or a thrown error if the endpoint isn't connected
- *  (before `ensureLocalEndpoint()`, or while the daemon is down — `degraded`).
- *  The facade resolves THIS on every call, so a reconnect (B3) is transparent
- *  to every holder. */
-function liveClient(): PtyHostClient {
-  const conn = endpoint?.current();
+/** The live socket client for `hostId`, or a thrown error if its endpoint isn't
+ *  connected (before `ensureLocalEndpoint()`, or while the daemon is down —
+ *  `degraded`). The facade resolves THIS on every call, so a reconnect (B3) is
+ *  transparent to every holder. */
+function liveClientFor(hostId: string): PtyHostClient {
+  const conn = ptyHosts.get(hostId)?.endpoint.current();
   if (!conn) {
     throw new Error(
-      "pty-host endpoint is not connected — the kaval daemon is starting or down",
+      `pty-host endpoint "${hostId}" is not connected — the kaval daemon is starting or down`,
     );
   }
   return conn.client;
+}
+
+/** Stable forwarding facades, one per host — memoized so a captured reference
+ *  never goes stale across that host's daemon recycles (the facade resolves the
+ *  live client at call time). */
+const hostClientFacades = new Map<string, PtyHostClient>();
+
+/** The stable pty-host client facade for `hostId` — forwards every call to that
+ *  host's current daemon connection. The boot-adoption path resolves the host it
+ *  reconciles through here; `ptyHostClient` below is the local one every
+ *  in-process consumer already holds. */
+export function hostPtyClient(hostId: string): PtyHostClient {
+  const existing = hostClientFacades.get(hostId);
+  if (existing) return existing;
+  const facade = makeForwardingClient(() => liveClientFor(hostId));
+  hostClientFacades.set(hostId, facade);
+  return facade;
 }
 
 /** Build a stable object that forwards every nested call to whatever the
@@ -104,9 +129,10 @@ function makeForwardingClient(getRoot: () => PtyHostClient): PtyHostClient {
   return build([]) as PtyHostClient;
 }
 
-/** The pty-host client `LocalTerminalEndpoint` (and this module) consume — a
- *  stable facade over the endpoint's current daemon connection. */
-export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
+/** The pty-host client `LocalTerminalEndpoint` (and this module) consume — the
+ *  LOCAL host's stable facade over its current daemon connection. The single host
+ *  today; F-REMOTE reaches other hosts through `hostPtyClient(hostId)`. */
+export const ptyHostClient: PtyHostClient = hostPtyClient(LOCAL_HOST_ID);
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
  *  Resolves whether or not the daemon came up — a boot failure reports `dead`
@@ -148,8 +174,10 @@ export async function ensureLocalEndpoint(opts: {
     log,
     onStatus: opts.onStatus,
   });
-  endpoint = ep;
-  triggerRestart = serializeRestart(ep);
+  ptyHosts.set(LOCAL_HOST_ID, {
+    endpoint: ep,
+    triggerRestart: serializeRestart(ep),
+  });
   try {
     // The boot, B3.3: adopt-or-recycle. A surviving daemon (a redeploy that did
     // not change kaval's source) is ADOPTED — its PTYs preserved — and the
@@ -197,10 +225,11 @@ export async function ensureLocalEndpoint(opts: {
 export function restartLocalEndpoint<Ctx>(
   steps: RestartSteps<PtyHostClient, Identity, Ctx>,
 ): Promise<void> {
-  if (!triggerRestart) {
+  const host = ptyHosts.get(LOCAL_HOST_ID);
+  if (!host) {
     throw new Error("kaval endpoint not initialized — cannot restart");
   }
-  return triggerRestart(steps);
+  return host.triggerRestart(steps);
 }
 
 // ── Spawn policy (kolu's soul) — unchanged from the in-process inversion,

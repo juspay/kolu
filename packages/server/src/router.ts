@@ -40,7 +40,6 @@ import {
 import {
   discardLocalSleeping,
   seedSleepingTerminal,
-  wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -48,6 +47,7 @@ import {
   createTerminal,
   killAllTerminals,
   killTerminal,
+  resolveCreateLocation,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -100,15 +100,30 @@ export const appRouter = t.router({
       // live PTY with no visible home. `requireActiveTerminal` is the same
       // live-PTY narrow every per-terminal handler uses; a sleeping/absent id is
       // "not found" to it by the same code.
-      if (input.parentId !== undefined) requireActiveTerminal(input.parentId);
-      return createTerminal(input.cwd, input.parentId, {
-        themeName: input.themeName,
-        canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
-        rightPanel: input.rightPanel,
-        lastActivityAt: input.lastActivityAt,
-        intent: input.intent,
-      });
+      // Resolve the host: a sub-terminal inherits its (live) parent's location, a
+      // top-level terminal uses the requested location (default LOCAL_LOCATION).
+      // `requireActiveTerminal` doubles as the live-parent gate above AND hands the
+      // parent entry to the location resolver, which rejects an explicit child
+      // location that disagrees with the parent (BAD_REQUEST). Today every host is
+      // local, so this always resolves to LOCAL_LOCATION.
+      const parentLocation =
+        input.parentId !== undefined
+          ? requireActiveTerminal(input.parentId).meta.location
+          : undefined;
+      const location = resolveCreateLocation(input.location, parentLocation);
+      return createTerminal(
+        input.cwd,
+        input.parentId,
+        {
+          themeName: input.themeName,
+          canvasLayout: input.canvasLayout,
+          subPanel: input.subPanel,
+          rightPanel: input.rightPanel,
+          lastActivityAt: input.lastActivityAt,
+          intent: input.intent,
+        },
+        location,
+      );
     }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
@@ -239,7 +254,14 @@ export const appRouter = t.router({
 
     wake: t.terminal.wake.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "wake");
-      const info = wakeLocalTerminal(input.id);
+      // Route by the sleeping terminal's OWN location so a remote tile wakes on its
+      // host (R9.2) — exactly as kill/attach/sleep route. A sleeping entry is in the
+      // registry (`getTerminal`, not the active-only narrow); an absent id is "not
+      // found" by the same fall-through as the local helper returned undefined.
+      const entry = getTerminal(input.id);
+      const info = entry
+        ? resolveTerminalEndpoint(entry.meta.location).wake(input.id)
+        : undefined;
       if (!info) throw terminalNotFound(input.id);
       return info;
     }),

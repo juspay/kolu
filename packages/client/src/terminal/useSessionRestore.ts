@@ -2,6 +2,7 @@
 
 import { resumeFormFor } from "anyagent/cli";
 import type {
+  HostLocation,
   InitialTerminalMetadata,
   SavedSession,
   TerminalId,
@@ -30,6 +31,7 @@ export function useSessionRestore(deps: {
   handleCreate: (
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    location?: HostLocation,
   ) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
@@ -256,22 +258,25 @@ export function useSessionRestore(deps: {
           }
           continue;
         }
-        // `t.location` is deliberately NOT forwarded: the create seam carries
-        // only client-owned `InitialTerminalMetadata`, and the *endpoint* owns
-        // location — so each terminal re-spawns at `LOCAL_LOCATION`. That is
-        // correct while every terminal is local, but it means restore here is
-        // read-record-and-respawn, not "dial the saved host + adopt". P3
-        // replaces this loop with dial+adopt; until then a remote terminal
-        // would silently restore locally, so remote terminals must not ship
-        // before P3 lands.
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          rightPanel: t.rightPanel,
-          lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
-        });
+        // Forward the saved `location` so the terminal re-spawns on its OWN host
+        // (the create seam resolves the endpoint by location; `resolveTerminalEndpoint`
+        // picks it). Today every saved record is local, so this resolves to
+        // `LOCAL_LOCATION` and restore is unchanged. This loop is still
+        // read-record-and-respawn, not "dial the saved host + adopt" — F-REMOTE
+        // replaces it with the boot dial+adopt loop, which is what a remote terminal
+        // needs to survive a reload; until then a remote terminal can't be created.
+        const newId = await deps.handleCreate(
+          t.cwd,
+          {
+            themeName: t.themeName,
+            canvasLayout: t.canvasLayout,
+            subPanel: t.subPanel,
+            rightPanel: t.rightPanel,
+            lastActivityAt: t.lastActivityAt,
+            intent: t.intent,
+          },
+          t.location,
+        );
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.
