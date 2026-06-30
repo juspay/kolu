@@ -176,7 +176,7 @@ function prChecks(
 }
 
 /** The PR resolution, every arm: `#<n> <state> <✓/✗/·>` when resolved, the
- *  pending/absent/unavailable kind (with the failure code) otherwise. */
+ *  pending/absent/unsupported/unavailable kind (with the failure code) otherwise. */
 function prValueText(pr: AwarenessValue["pr"]): string {
   switch (pr.kind) {
     case "ok": {
@@ -189,6 +189,8 @@ function prValueText(pr: AwarenessValue["pr"]): string {
       return "pending";
     case "absent":
       return DASH;
+    case "unsupported":
+      return "unsupported";
     case "unavailable":
       return `unavailable: ${pr.source.code}`;
     default: {

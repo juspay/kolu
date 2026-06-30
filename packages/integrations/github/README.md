@@ -14,7 +14,7 @@ The **neutral** wire shapes (`PrInfoSchema`, the generic `PrResult<S>`) and the 
 
 ## Server integration
 
-`startPrSensor` (`packages/terminal-workspace/src/sensors.ts`) wires anyforge's `subscribePr` to a dispatching `ForgeAdapter` that routes each resolve through the `FORGE_ADAPTERS` registry keyed by `detectForge(remoteUrl)`; today the sole entry is `githubForgeAdapter`, so every host resolves here. `KOLU_GH_BIN` is pinned by Nix in `nix/env.nix` and read lazily by `resolve.ts` (first call, not module load). A second forge (kolu#1240 phase 1) adds a `FORGE_ADAPTERS` entry and a `detectForge` arm; this adapter is unchanged.
+`startPrSensor` (`packages/terminal-workspace/src/sensors.ts`) wires anyforge's `subscribePr` to a dispatching `ForgeAdapter` that routes each resolve through the `FORGE_ADAPTERS` registry keyed by `detectForge(remoteUrl)`. Most hosts resolve here (`gh` handles github.com and GitHub Enterprise), but a recognized non-GitHub forge — `codeberg.org` today — maps to the `unsupported` arm instead, so it never reaches `gh` (a Forgejo repo can't have a GitHub PR; asking `gh` only produces log noise, kolu#1627). `KOLU_GH_BIN` is pinned by Nix in `nix/env.nix` and read lazily by `resolve.ts` (first call, not module load). A second forge (kolu#1240 phase 1) adds a `FORGE_ADAPTERS` entry and re-points the `detectForge` arm from `unsupported` to its adapter; this adapter is unchanged.
 
 ## Stderr fragility
 

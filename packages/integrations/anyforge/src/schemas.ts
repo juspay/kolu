@@ -86,6 +86,14 @@ export type PrUnavailableSourceBase = { provider: string; code: string };
  *    pending     — resolver is running (or stale after a branch change)
  *    ok          — resolver succeeded; a PR exists for this branch
  *    absent      — resolver succeeded; no PR for this branch (expected case)
+ *    unsupported — the repo's forge has no adapter yet, so no resolver ran.
+ *                  A distinct state, NOT `absent`: "no adapter for this forge"
+ *                  and "this branch has no PR" are different facts, and folding
+ *                  the forge case onto `absent` would make them indistinguishable
+ *                  (and let a non-GitHub remote be misread as a `gh` failure).
+ *                  Renders nothing, like `absent` — but honestly, by a dispatch
+ *                  decision at the knowing endpoint rather than a guessed
+ *                  classification of a tool's stderr.
  *    unavailable — resolver couldn't run; `source` carries the provider +
  *                  typed failure code, and the display reason is derived in
  *                  the app (kolu-common's `reasonForSource`).
@@ -110,6 +118,7 @@ export type PrResult<
   | { kind: "pending" }
   | { kind: "ok"; value: PrInfo }
   | { kind: "absent" }
+  | { kind: "unsupported" }
   | { kind: "unavailable"; source: S };
 
 /** Extract the `PrInfo` when `kind === "ok"`, else `null`.
@@ -163,9 +172,9 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
         const bs = (b as Extract<PrResult<S>, { kind: "unavailable" }>).source;
         return a.source.provider === bs.provider && a.source.code === bs.code;
       })
-      // "pending" and "absent" have no payload — kind equality (already checked)
-      // is enough.
-      .with({ kind: P.union("pending", "absent") }, () => true)
+      // "pending", "absent", and "unsupported" have no payload — kind equality
+      // (already checked) is enough.
+      .with({ kind: P.union("pending", "absent", "unsupported") }, () => true)
       .exhaustive()
   );
 }

@@ -86,6 +86,7 @@ export const PrResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pending") }),
   z.object({ kind: z.literal("ok"), value: PrInfoSchema }),
   z.object({ kind: z.literal("absent") }),
+  z.object({ kind: z.literal("unsupported") }),
   z.object({
     kind: z.literal("unavailable"),
     source: PrUnavailableSourceSchema,

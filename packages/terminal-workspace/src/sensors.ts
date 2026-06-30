@@ -51,7 +51,7 @@ import {
   agentNameFromCommand,
   parseAgentCommand,
 } from "anyagent";
-import type { ForgeAdapter } from "anyforge";
+import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
@@ -297,15 +297,31 @@ function startGitSensor(
 
 // ── PR watcher ────────────────────────────────────────────────────────
 
-/** The forges kolu can resolve a PR from. One today; a second forge adds an
- *  arm here plus an entry in `FORGE_ADAPTERS` and a host match in `detectForge`
- *  — nothing else in the watcher path changes.
+/** The "no adapter for this forge yet" arm. Routes a recognized non-GitHub
+ *  remote to the honest `unsupported` PrResult WITHOUT spawning `gh` — so the
+ *  decision is made at the knowing endpoint (the remote host), never guessed
+ *  downstream from `gh`'s stderr. A trivial leaf, not a forge: it hides no
+ *  volatility, so it lives here next to the dispatch policy rather than in the
+ *  anyforge kernel. When a real adapter for a forge lands, swap its host match
+ *  in `detectForge` from `"unsupported"` to that adapter's kind. */
+const unsupportedForgeAdapter = {
+  kind: "unsupported" as const,
+  resolve: (): Promise<PrResult<PrUnavailableSource>> =>
+    Promise.resolve({ kind: "unsupported" }),
+} satisfies ForgeAdapter<PrUnavailableSource>;
+
+/** The forges kolu can resolve a PR from, plus the `unsupported` pseudo-forge
+ *  for recognized hosts with no adapter yet. A real second forge adds an arm
+ *  here plus an entry in `FORGE_ADAPTERS` and a host match in `detectForge` —
+ *  nothing else in the watcher path changes.
  *
- *  Derived from the adapter's own `kind` literal (not a hand-written
- *  `"github"`) so the registry key and the adapter agree by construction: a
- *  phase-1 forge that adds an adapter must add the matching `FORGE_ADAPTERS` key
- *  or the `Record<ForgeKind, …>` below stops type-checking. */
-type ForgeKind = (typeof githubForgeAdapter)["kind"];
+ *  Each member is an adapter's own `kind` literal (not a hand-written string)
+ *  so the registry key and the adapter agree by construction: a phase-1 forge
+ *  that adds an adapter must add the matching `FORGE_ADAPTERS` key or the
+ *  `Record<ForgeKind, …>` below stops type-checking. */
+type ForgeKind =
+  | (typeof githubForgeAdapter)["kind"]
+  | (typeof unsupportedForgeAdapter)["kind"];
 
 /** Forge adapter per kind. Typed at the closed `PrUnavailableSource` union:
  *  each adapter's concrete source is a member, so a `ForgeAdapter<GhUnavailable…>`
@@ -313,15 +329,23 @@ type ForgeKind = (typeof githubForgeAdapter)["kind"];
  *  metadata `PrResult` directly. */
 const FORGE_ADAPTERS: Record<ForgeKind, ForgeAdapter<PrUnavailableSource>> = {
   github: githubForgeAdapter,
+  unsupported: unsupportedForgeAdapter,
 };
 
-/** Map a repo's `origin` remote URL to the forge that resolves its PRs. Every
- *  host → github today: `gh` handles github.com and GitHub Enterprise, and
- *  post-#1256 it degrades to a silent `absent` on hosts it doesn't know. A
- *  second forge adds a host match here (e.g. `parseRemoteHost(remoteUrl) ===
- *  "codeberg.org"` → forgejo); detection stays sync and pure — no network probe. */
-function detectForge(remoteUrl: string | null): ForgeKind {
+/** Map a repo's `origin` remote URL to the forge that resolves its PRs.
+ *  `gh` handles github.com and GitHub Enterprise, so every host defaults to
+ *  github. A recognized non-GitHub forge — Codeberg, the public Forgejo — maps
+ *  to `unsupported` so it never reaches `gh`: a Forgejo repo cannot have a
+ *  GitHub PR, and asking `gh` only produces error-level log noise and a scary
+ *  popover (juspay/kolu#1627). Detection is by host, sync and pure — no network
+ *  probe. Self-hosted Forgejo/Gitea on arbitrary hosts can't be recognized from
+ *  the URL alone; those still route to `gh` until the real Forgejo adapter lands
+ *  (the anyforge plan's phase 1). A real adapter swaps its host match below from
+ *  `"unsupported"` to that adapter's kind. */
+export function detectForge(remoteUrl: string | null): ForgeKind {
   switch (parseRemoteHost(remoteUrl)) {
+    case "codeberg.org":
+      return "unsupported";
     default:
       return "github";
   }
@@ -334,7 +358,7 @@ function detectForge(remoteUrl: string | null): ForgeKind {
  *  resolve re-routes without tearing the watcher down. With one forge it always
  *  resolves to `githubForgeAdapter`, so behavior is identical to injecting it
  *  directly. */
-const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
+export const dispatchingForgeAdapter: ForgeAdapter<PrUnavailableSource> = {
   kind: "forge-dispatch",
   resolve: (git, log) =>
     FORGE_ADAPTERS[detectForge(git.remoteUrl)].resolve(git, log),

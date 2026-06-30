@@ -299,6 +299,7 @@ function prSearchFields(pr: PrResult | undefined): string[] {
       return [pr.kind, pr.source.provider, pr.source.code];
     case "absent":
     case "pending":
+    case "unsupported":
       return [pr.kind];
   }
 }
