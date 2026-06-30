@@ -47,7 +47,9 @@ import type {
   TerminalEndpointGit,
 } from "@kolu/terminal-workspace/endpoint";
 import type {
+  HostLocation,
   InitialTerminalMetadata,
+  SavedSleepingTerminal,
   TerminalId,
   TerminalInfo,
 } from "./surface.ts";
@@ -74,6 +76,12 @@ export interface TerminalAttachment {
 export interface PtySpawnOpts {
   cwd?: string;
   parentId?: string;
+  /** The host this terminal lives on — the value the lifecycle façade resolved
+   *  this very endpoint from (`resolveTerminalEndpoint(location)`), handed back so
+   *  the endpoint stamps `meta.location` from the façade's decision rather than a
+   *  hardcoded host literal of its own. An endpoint therefore cannot stamp a
+   *  location that disagrees with the one it was resolved for. */
+  location: HostLocation;
   initialMetadata?: InitialTerminalMetadata;
   /** A ready-to-run agent resume invocation (the output of `resumeAgentCommand`,
    *  e.g. `claude -c`), written into the fresh PTY as type-ahead once its sensors
@@ -137,10 +145,6 @@ export interface TerminalEndpoint {
    *  orphan — so unregistering is not a promise that the child is gone. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
-  /** Drain and dispose every terminal owned by this endpoint. Used by
-   *  the e2e harness between scenarios. */
-  killAllTerminals(): Promise<void>;
-
   /** Attach to a terminal's output: a screen-state snapshot plus the live
    *  delta stream from exactly that point forward. The snapshot is taken
    *  and the delta stream subscribed atomically, so the boundary between
@@ -151,6 +155,38 @@ export interface TerminalEndpoint {
     id: TerminalId,
     signal: AbortSignal | undefined,
   ): Promise<TerminalAttachment>;
+
+  /** Flip an ACTIVE terminal to the dormant (sleeping) arm IN PLACE (same id),
+   *  stopping its providers but leaving the PTY alive. The lifecycle façade
+   *  persists the session durably, THEN calls `releaseSleptPty` to kill the PTY
+   *  (persist-before-kill). Returns false — a no-op — when `id` is not an active
+   *  terminal. Routed per `entry.meta.location` exactly like `killTerminal`, so a
+   *  remote tile sleeps on its own host. */
+  sleep(id: TerminalId): boolean;
+
+  /** Kill the now-detached PTY of a terminal `sleep` already flipped to sleeping,
+   *  scrubbing its scratch. The registry entry stays (dormant). A kill failure is
+   *  contained, not thrown — the record is sleeping regardless and boot reconcile
+   *  reaps any survivor. */
+  releaseSleptPty(id: TerminalId): Promise<void>;
+
+  /** Wake a SLEEPING terminal: flip it back to active and re-spawn its PTY on the
+   *  SAME id in its saved cwd, replaying the resume form derived from the persisted
+   *  `restoreTarget` (session-restore-of-one). Returns the woken active info, or
+   *  undefined when `id` is not a sleeping terminal. */
+  wake(id: TerminalId): TerminalInfo | undefined;
+
+  /** Discard a SLEEPING terminal's record — there is no PTY to kill (`sleep`
+   *  already released it), so this scrubs any leftover scratch, unregisters, and
+   *  arms the autosave. Returns false when `id` is not a sleeping terminal. */
+  discardSleeping(id: TerminalId): boolean;
+
+  /** Seed a SLEEPING terminal into the registry from its saved record — the dormant
+   *  analogue of adoption (no PTY to re-wire). Tolerates a malformed record by
+   *  DROPPING it (returns false, never throws); idempotent (re-seeding a present id
+   *  is a no-op). The record carries its own `location`, so the façade routes it to
+   *  the matching host's endpoint, never the local one by default. */
+  seedSleeping(record: SavedSleepingTerminal): boolean;
 
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;

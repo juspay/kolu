@@ -22,6 +22,7 @@ import {
 import { z } from "zod";
 import {
   CanvasLayoutSchema,
+  HostLocationSchema,
   InitialTerminalMetadataSchema,
   RightPanelPerTerminalStateSchema,
   SavedSleepingTerminalSchema,
@@ -41,6 +42,11 @@ export const TerminalCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
+    /** The host this terminal lives on. Optional on the wire — absent means the
+     *  local host (`LOCAL_LOCATION`), the only host today. The server resolves a
+     *  sub-terminal's host from its parent and rejects an explicit child location
+     *  that disagrees (BAD_REQUEST). */
+    location: HostLocationSchema.optional(),
   })
   .merge(InitialTerminalMetadataSchema);
 

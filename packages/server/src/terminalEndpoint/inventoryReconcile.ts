@@ -13,8 +13,9 @@
  * authority that drifts.
  *
  *   - **snapshot / created** — a PTY kolu does not track is adopted as an orphan
- *     (`adoptLocalOrphan`: metadata seeded from the live daemon snapshot, the
- *     provider DAG re-run against the surviving taps). A `created` for an id kolu
+ *     (the host endpoint's `adoptInventoryOrphan`: metadata seeded from the live
+ *     daemon snapshot, the provider DAG re-run against the surviving taps). A
+ *     `created` for an id kolu
  *     ALREADY has is its own spawn echoing back — `spawnPty` registers
  *     synchronously before the daemon's `created` arrives — so the registry
  *     guard makes it a no-op: no double-register, no double-wire.
@@ -32,13 +33,9 @@
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import { log } from "../log.ts";
-import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import {
-  adoptLocalInventoryOrphan,
-  bridgeStream,
-  reapUnrepresentablePty,
-} from "./local.ts";
+import { bridgeStream, type ServerTerminalEndpoint } from "./local.ts";
+import { type HostScope, hostScopes, serverEndpointFor } from "./resolve.ts";
 
 /** Delay before re-subscribing after the inventory stream ends (daemon recycle
  *  / reconnect). Long enough not to hot-loop while the daemon is down — its
@@ -46,15 +43,23 @@ import {
  *  discovery resumes promptly once it returns. */
 const RESUBSCRIBE_DELAY_MS = 2_000;
 
-/** Start the live inventory reconciler for the process lifetime. Re-subscribes
- *  across daemon recycles until `signal` aborts. Fire-and-forget — the loop owns
- *  its own failures (a dropped stream re-subscribes; a per-event failure is
- *  fenced), so nothing here rejects to the caller. */
+/** Start the live inventory reconciler for the process lifetime — one per registered
+ *  host (one local today). Each re-subscribes across daemon recycles until `signal`
+ *  aborts. Fire-and-forget — the loop owns its own failures (a dropped stream
+ *  re-subscribes; a per-event failure is fenced), so nothing here rejects to the
+ *  caller. */
 export function startInventoryReconciler(signal: AbortSignal): void {
-  void runReconciler(signal);
+  for (const scope of hostScopes()) void runReconciler(scope, signal);
 }
 
-async function runReconciler(signal: AbortSignal): Promise<void> {
+async function runReconciler(
+  scope: HostScope,
+  signal: AbortSignal,
+): Promise<void> {
+  // The host this reconciler follows — its inventory feed and its adopt ops both
+  // route through its own endpoint, so an out-of-band PTY is adopted ON the host
+  // whose daemon surfaced it, never the local one by default.
+  const endpoint = serverEndpointFor(scope);
   // The ONLY new mechanism here is the re-subscribe loop across daemon recycles
   // (a B3.2 restart, a supervisor reconnect): per-PTY taps die with their PTY
   // and never re-subscribe, so this loop is genuinely new. The inner consume —
@@ -65,17 +70,15 @@ async function runReconciler(signal: AbortSignal): Promise<void> {
   // ends or aborts; a non-abort end is a daemon drop, so we delay and re-subscribe.
   while (!signal.aborted) {
     try {
-      // The forwarding facade calls `liveClient()` EAGERLY, so `inventory.get`
-      // THROWS synchronously when the daemon isn't connected (a dead-on-boot or
-      // mid-recycle endpoint) — before `bridgeStream` ever runs, so its internal
-      // fence can't catch it. This try owns exactly that pre-subscribe throw (a
-      // distinct failure from the stream draining, which `bridgeStream` resolves
-      // and never rejects); without it the throw escapes to `unhandledRejection`
-      // and exits the server on the honest dead-daemon path. Treat it as a drop.
-      await bridgeStream(
-        ptyHostClient.surface.inventory.get({}, { signal }),
-        signal,
-        applyEvent,
+      // The forwarding facade resolves the live client EAGERLY, so
+      // `subscribeInventory` THROWS synchronously when the daemon isn't connected (a
+      // dead-on-boot or mid-recycle endpoint) — before `bridgeStream` ever runs, so
+      // its internal fence can't catch it. This try owns exactly that pre-subscribe
+      // throw (a distinct failure from the stream draining, which `bridgeStream`
+      // resolves and never rejects); without it the throw escapes to
+      // `unhandledRejection` and exits the server on the honest dead-daemon path.
+      await bridgeStream(endpoint.subscribeInventory(signal), signal, (ev) =>
+        applyEvent(scope, endpoint, ev),
       );
     } catch (err) {
       if (signal.aborted) return;
@@ -99,7 +102,7 @@ export interface InventoryAdoption {
  *  supplies `isTracked` (the registry lookup), `onInvalid` (drop-logging), and
  *  does the adopting — so the routing is unit-testable without the registry or
  *  the daemon. This is the boundary the contract doc names: a raw inventory id is
- *  validated against `TerminalIdSchema` here, so `isTracked` / `adoptLocalOrphan`
+ *  validated against `TerminalIdSchema` here, so `isTracked` / `adoptInventoryOrphan`
  *  downstream receive an already-branded `TerminalId` rather than re-casting a
  *  raw string. A malformed (non-UUID) out-of-band id is routed to `onInvalid`
  *  (which fails closed — kills the unrepresentable PTY — F1), never adopted.
@@ -160,20 +163,26 @@ function assertNever(x: never): never {
   throw new Error(`unexpected inventory event: ${JSON.stringify(x)}`);
 }
 
-/** Apply one inventory frame against the LIVE wiring: adopt every untracked PTY
- *  it contributes through the persisting `adoptLocalInventoryOrphan`. The actual
- *  routing is `dispatchInventoryFrame` (pure in its dependencies, so the
- *  "every adoption persists" guarantee is unit-testable with a spy and no
- *  daemon); this binds it to the registry + adoption + drop wiring. The per-event
- *  fence (a single failed adoption must not end the subscription and silence
- *  discovery for every later PTY) lives in `bridgeStream`, the same receptacle
- *  the per-terminal taps plug into — not re-derived here. */
-function applyEvent(ev: PtyHostInventoryEvent): void {
+/** Apply one inventory frame against the LIVE wiring: adopt every untracked PTY it
+ *  contributes through the host endpoint's persisting `adoptInventoryOrphan` (stamped
+ *  with the host's location). The actual routing is `dispatchInventoryFrame` (pure in
+ *  its dependencies, so the "every adoption persists" guarantee is unit-testable with
+ *  a spy and no daemon); this binds it to the registry lookup + the host endpoint's
+ *  adopt/drop ops. The per-event fence (a single failed adoption must not end the
+ *  subscription and silence discovery for every later PTY) lives in `bridgeStream`,
+ *  the same receptacle the per-terminal taps plug into — not re-derived here. */
+function applyEvent(
+  scope: HostScope,
+  endpoint: ServerTerminalEndpoint,
+  ev: PtyHostInventoryEvent,
+): void {
   dispatchInventoryFrame(
     ev,
     isTrackedById,
-    onInvalidId,
-    adoptLocalInventoryOrphan,
+    // A malformed (non-UUID) out-of-band id FAILS CLOSED — the host endpoint kills
+    // the unrepresentable PTY rather than leaving a live process kolu can't show.
+    (rawId) => endpoint.reapUnrepresentablePty(rawId),
+    (id, entry) => endpoint.adoptInventoryOrphan(id, entry, scope.location),
   );
 }
 
@@ -181,15 +190,14 @@ function applyEvent(ev: PtyHostInventoryEvent): void {
  *  registry lookup, the drop policy, and the adoption fn are all injected), so a
  *  test can assert the routing deterministically: every `created`/`snapshot`
  *  untracked entry reaches `adopt` exactly once, malformed ids reach `onInvalid`,
- *  and `exited` adopts nothing. The production `adopt` is
- *  `adoptLocalInventoryOrphan` — which adopts AND arms the session autosave (F2):
- *  unlike the boot path (which converges + `saveSession`s explicitly after
- *  adopting every survivor), a single tile appearing mid-session has no explicit
- *  save, so the adopt fn must schedule the debounced snapshot itself. This is the
- *  seam that pins it: a regression that swapped back to the non-persisting
- *  `adoptLocalOrphan` would still call `adopt`, so the autosave-arming is asserted
- *  on `adoptLocalInventoryOrphan` directly in `local.ts`'s tests; here we pin that
- *  exactly the untracked entries are dispatched.
+ *  and `exited` adopts nothing. The production `adopt` is the host endpoint's
+ *  `adoptInventoryOrphan` — which adopts AND arms the session autosave (F2): unlike
+ *  the boot path (which converges + `saveSession`s explicitly after adopting every
+ *  survivor), a single tile appearing mid-session has no explicit save, so the adopt
+ *  fn must schedule the debounced snapshot itself. This is the seam that pins it: a
+ *  regression that swapped back to the non-persisting `adoptOrphan` would still call
+ *  `adopt`, so the autosave-arming is asserted on `adoptInventoryOrphan` directly in
+ *  `local.ts`'s tests; here we pin that exactly the untracked entries are dispatched.
  *
  *  A live out-of-band adoption deliberately does NOT call `setAdoptedCount` (the
  *  boot path does — reattach.ts): the "N reattached" toast is a one-shot RESTART
@@ -215,15 +223,6 @@ export function dispatchInventoryFrame(
 
 const isTrackedById = (id: TerminalId): boolean =>
   getTerminal(id) !== undefined;
-
-/** A malformed (non-UUID) out-of-band id never reaches the registry or
- *  `adoptLocalOrphan`: the inventory boundary validates against `TerminalIdSchema`
- *  rather than branding an unvalidated string (the contract doc's "consumer
- *  validates at its boundary"). But it does NOT merely log-and-drop (F1) — a
- *  dropped id is a live PTY kolu can neither show nor kill, a hidden process. So
- *  it FAILS CLOSED through the shared policy: kill the unrepresentable PTY, the
- *  same kolu's-domain-cannot-hold-this answer the boot reconcile gives. */
-const onInvalidId = (rawId: string): void => reapUnrepresentablePty(rawId);
 
 /** Resolve after `ms`, or early if `signal` aborts — so a shutdown during the
  *  re-subscribe gap ends the loop promptly instead of after the full delay. */

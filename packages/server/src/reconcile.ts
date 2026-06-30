@@ -35,7 +35,13 @@
  */
 
 import type { PtyHostListEntry } from "kaval";
-import type { SavedActiveTerminal, SavedSession } from "kolu-common/surface";
+import {
+  type HostLocation,
+  hostLocationsEqual,
+  LOCAL_LOCATION,
+  type SavedActiveTerminal,
+  type SavedSession,
+} from "kolu-common/surface";
 
 /** A saved terminal whose PTY is still alive, paired with that live PTY. The
  *  join lives here (not the caller), so adoption never re-derives it: the
@@ -64,13 +70,25 @@ export interface ReconcileResult {
 
 /** Join a surviving daemon's live PTYs against the saved session on terminal
  *  `id`. A saved terminal that is not live is an exited shell — dropped (in
- *  neither returned list). See the module doc for the full partition. */
+ *  neither returned list). See the module doc for the full partition.
+ *
+ *  `location` is the host whose daemon produced `live` — only the saved records on
+ *  THAT host are joined against it (a remote host's records aren't reaped by the
+ *  local reconcile, and vice versa). Defaults to `LOCAL_LOCATION`: today every saved
+ *  record is local and `live` is the local daemon's, so the narrow keeps the whole
+ *  session and the partition is unchanged. F-REMOTE reconciles each dialed host with
+ *  its own location — this filter is the destructive remote-prep seam (an unfiltered
+ *  join would `reapSleeping` the OTHER host's sleeping survivors and drop its actives
+ *  as exited). */
 export function reconcile(
   live: PtyHostListEntry[],
   saved: SavedSession | null,
+  location: HostLocation = LOCAL_LOCATION,
 ): ReconcileResult {
   const liveById = new Map(live.map((entry) => [entry.id, entry]));
-  const savedTerminals = saved?.terminals ?? [];
+  const savedTerminals = (saved?.terminals ?? []).filter((terminal) =>
+    hostLocationsEqual(terminal.location, location),
+  );
   const savedIds = new Set(savedTerminals.map((terminal) => terminal.id));
   const sleepingIds = new Set(
     savedTerminals

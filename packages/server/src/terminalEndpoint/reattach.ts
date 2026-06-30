@@ -3,164 +3,161 @@
  *
  * When `ensureLocalEndpoint` ADOPTS a surviving kaval daemon (a redeploy that did
  * not change kaval's source — `adoptOrEnsure` returned `true`), the daemon's PTYs
- * are still alive. This orchestrates the reconciliation that the spine cannot
- * (the endpoint adopts a *connection*; kolu reconciles its *contents*):
+ * are still alive. This orchestrates the reconciliation that the spine cannot (the
+ * endpoint adopts a *connection*; kolu reconciles its *contents*), split into two
+ * structurally-distinct phases so the round-1 "save the session on PARTIAL host
+ * info" bug is impossible by type:
  *
- *   1. List the surviving daemon's live PTYs and `reconcile` them against the
- *      saved session. A failure to list is a FAILED adoption, not a quiet skip
- *      (F3): it throws, and the boot recycles the daemon so it never leaves a
- *      connected survivor holding PTYs kolu has no registry entry for.
- *   2. **Adopt every representable live PTY**, both kinds (never reap a
- *      survivor just because the debounced autosave lagged the daemon — F1):
- *        - survivors WITH a saved record → whole-record (`adoptLocalTerminal`),
- *          live `cwd`/`foreground` from the daemon snapshot (F2);
- *        - survivors with NO saved record (a create that never reached the
- *          debounced autosave) → live-snapshot defaults (`adoptLocalOrphan`).
- *      Either way the provider DAG re-runs against the surviving taps. The ONE
- *      survivor kolu does NOT adopt is one whose wire id is not a UUID — kolu's
- *      registry cannot represent it, so it is killed (`reapUnrepresentablePty`)
- *      rather than left running hidden; fail-closed, not fail-open.
- *   3. **Converge** the saved session to exactly the adopted set: exited shells
- *      (saved but no longer live) drop out so no stale restore card lingers, and
- *      the active marker is preserved iff its terminal survived. An all-exited
- *      survivor clears the session (no restore card for shells that genuinely
- *      ended — exactly `handleExit`'s behavior).
- *   4. **Surface the count** so the client shows its one-shot "N reattached"
- *      confirmation.
+ *   - `adoptSurvivingHost(scope)` reconciles + adopts ONE host and RETURNS its
+ *     `HostAdoptionResult`. It has NO `saveSession` in scope and does NOT seed the
+ *     sleeping records — it cannot converge the session, because it only knows about
+ *     its own host. (Per host: list the daemon's live PTYs, join against the saved
+ *     session FILTERED to this host's location, adopt every representable survivor,
+ *     reap the crash-window sleeping PTYs, surface the "N reattached" count.)
+ *   - `commitBootAdoption(sweep)` is the ONLY place that seeds the sleeping records
+ *     and saves the session — and it requires a branded `CompleteHostSweep`, which
+ *     only `completeSweep([...all host results])` can mint. Committing one host's
+ *     result is a TYPE ERROR, so the session can never be saved on a subset of hosts.
  *
- * Runs ONLY for a daemon that survived. A fresh / recycled boot has no survivors,
- * so the existing restore-card path (the client reads the saved session and
- * offers to re-spawn it) is left untouched — B2 behavior, unchanged.
+ * `adoptSurvivingSession` is the orchestrator index.ts wires as `onAdopted`: sweep
+ * every registered host, then commit the complete sweep. One local host today, so
+ * this is byte-identical to the pre-split single-pass adoption.
+ *
+ * Runs ONLY for a daemon that survived. A fresh / recycled boot has no survivors, so
+ * the existing restore-card path is left untouched — B2 behavior, unchanged.
  */
 
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
-import { TerminalIdSchema } from "kolu-common/surface";
+import {
+  type SavedSession,
+  type SavedSleepingTerminal,
+  TerminalIdSchema,
+} from "kolu-common/surface";
 import { log } from "../log.ts";
 import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { LOCAL_HOST_ID, ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../reconcile.ts";
 import { getSavedSession, saveSession } from "../session.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
 import {
-  adoptLocalOrphan,
-  adoptLocalTerminal,
-  reapUnrepresentablePty,
-  seedSleepingTerminal,
-} from "./local.ts";
+  restoreActiveTerminalId,
+  restoreSleepingTerminal,
+  snapshotSession,
+} from "../terminals.ts";
+import { type HostScope, hostScopes, serverEndpointFor } from "./resolve.ts";
 
-/** Reconcile a SURVIVING kaval daemon's live PTYs against the saved session and
- *  adopt the survivors. See the module doc. Called from `ensureLocalEndpoint`
- *  only when the boot adopted a surviving daemon.
+/** What reconciling ONE host's survivors yielded — everything the session-wide
+ *  commit needs from this host, and NOTHING that lets this function converge the
+ *  session on its own. `sleepingRecords` are this host's saved sleeping terminals
+ *  (no PTY to adopt) for `commitBootAdoption` to seed once EVERY host is in. */
+export interface HostAdoptionResult {
+  readonly scope: HostScope;
+  readonly adoptedCount: number;
+  readonly sleepingRecords: readonly SavedSleepingTerminal[];
+}
+
+declare const completeSweepBrand: unique symbol;
+
+/** Every host's `HostAdoptionResult`, gathered — the branded token that proves the
+ *  sweep is COMPLETE. Only `completeSweep` mints it (from a full result list), so a
+ *  caller cannot hand `commitBootAdoption` a single host's result: that is a TYPE
+ *  error, which is what makes "save the session on partial host info" unspellable. */
+export interface CompleteHostSweep {
+  readonly [completeSweepBrand]: true;
+  readonly results: readonly HostAdoptionResult[];
+  readonly saved: SavedSession | null;
+}
+
+/** Mint a `CompleteHostSweep` from the results of sweeping EVERY host. The one
+ *  construction site of the brand — the orchestrator calls it after the per-host
+ *  loop, so by type the session is committed only with all hosts accounted for. */
+export function completeSweep(
+  results: readonly HostAdoptionResult[],
+  saved: SavedSession | null,
+): CompleteHostSweep {
+  return { results, saved } as CompleteHostSweep;
+}
+
+/** Reconcile a SURVIVING host's live PTYs against the saved session and adopt the
+ *  survivors — for ONE host. Returns its `HostAdoptionResult`; does NOT seed sleeping
+ *  records, restore the active marker, or save the session (that is the complete
+ *  sweep's job).
  *
- *  THROWS if it cannot list the survivor's PTYs (F3): a connected daemon holding
- *  PTYs kolu has no registry entry for is a fail-closed condition — the boot
- *  recycles it rather than leaving hidden live PTYs behind a stale restore card.
- *  Every per-terminal adoption failure is contained (it reaps just that PTY), so
- *  the only throw is the all-or-nothing `list`. */
-export async function adoptSurvivingSession(): Promise<void> {
-  // Fail CLOSED on a list failure (F3): re-throw so the boot recycles the
-  // survivor. Returning here would leave the endpoint connected to a daemon
-  // whose PTYs kolu never registered — invisible live terminals behind a stale
-  // restore card, and a duplicate-terminal hazard if the user restored it.
-  const live = (await ptyHostClient.surface.terminal.list({})).entries;
+ *  THROWS if it cannot list the survivor's PTYs (F3): a connected daemon holding PTYs
+ *  kolu has no registry entry for is a fail-closed condition — the boot recycles it
+ *  rather than leaving hidden live PTYs behind a stale restore card. Every per-terminal
+ *  adoption failure is contained (it reaps just that PTY), so the only throw is the
+ *  all-or-nothing `list`. */
+export async function adoptSurvivingHost(
+  scope: HostScope,
+): Promise<HostAdoptionResult> {
+  const endpoint = serverEndpointFor(scope);
+  // Fail CLOSED on a list failure (F3): re-throw so the boot recycles the survivor.
+  const live = await endpoint.listLivePtys();
 
   const saved = getSavedSession();
-  const { adopt, adoptOrphans, reapSleeping } = reconcile(live, saved);
+  // Reconcile against the saved records on THIS host's location only — a remote
+  // host's records aren't reaped by another host's reconcile (the destructive
+  // remote-prep filter inside `reconcile`).
+  const { adopt, adoptOrphans, reapSleeping } = reconcile(
+    live,
+    saved,
+    scope.location,
+  );
 
-  // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides
-  // its whole record through (`adoptLocalTerminal`); a survivor with NO saved
-  // record (a create that never reached the debounced autosave) is adopted from
-  // the live daemon snapshot (`adoptLocalOrphan`). Killing the latter merely
-  // because the debounced session lagged the daemon would break the headline
-  // "terminals survive a kolu update" guarantee. `reconcile` already paired each
-  // adopted record with its live PTY, so there is no join to redo here.
-  for (const pair of adopt) adoptLocalTerminal(pair.record, pair.live);
-  // Validate each orphan's wire id against `TerminalIdSchema` at this boundary
-  // (the contract doc assigns id validation to kolu-server — ptyHostSurface.ts:36)
-  // so `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw
-  // string. A malformed (non-UUID) id is FAIL-CLOSED — the live PTY is killed
-  // (`reapUnrepresentablePty`), never left running hidden (F1).
+  // Adopt every live PTY — never reap (F1). A survivor WITH a saved record rides its
+  // whole record through (`adopt`); a survivor with NO saved record (a create that
+  // never reached the debounced autosave) is adopted from the live daemon snapshot
+  // (`adoptOrphan`), stamped with this host's location.
+  for (const pair of adopt) endpoint.adopt(pair.record, pair.live);
+  // Validate each orphan's wire id against `TerminalIdSchema` at this boundary so the
+  // adopt receives a branded `TerminalId`, not a raw string. A malformed (non-UUID)
+  // id is FAIL-CLOSED — the live PTY is killed, never left running hidden (F1).
   let orphansAdopted = 0;
   for (const orphan of adoptOrphans) {
     const parsed = TerminalIdSchema.safeParse(orphan.id);
     if (!parsed.success) {
-      // Fail CLOSED on an id kolu cannot represent (F1): every real client
-      // mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike),
-      // so a non-UUID PTY is an anomaly outside kolu's domain. We cannot register
-      // it (the registry is keyed on `TerminalId`), and leaving it alive would be
-      // a hidden live process behind a stale restore card — exactly the fail-open
-      // the boot recycle (index.ts) guards against. So KILL it rather than drop
-      // and forget: kolu's domain genuinely cannot hold it, and the contract's
-      // kill RPC takes the opaque wire string.
-      reapUnrepresentablePty(orphan.id);
+      endpoint.reapUnrepresentablePty(orphan.id);
       continue;
     }
-    adoptLocalOrphan(parsed.data, orphan);
+    endpoint.adoptOrphan(parsed.data, orphan, scope.location);
     orphansAdopted += 1;
   }
 
   const adoptedCount = adopt.length + orphansAdopted;
 
-  // Seed every SLEEPING saved record dormant — they have no PTY to adopt, so they
-  // would otherwise be absent from the registry and wiped by the converge below.
-  // Seeding here makes a slept terminal survive a server restart and ride the wire
-  // as ☾ (the reboot-then-wake journey). A malformed record drops itself (tolerant).
-  for (const record of saved?.terminals ?? []) {
-    if (record.state === "sleeping") seedSleepingTerminal(record);
-  }
   // Adopt-or-REAP the crash-window survivors: a sleep that persisted the dormant
   // record but crashed before the PTY kill completed leaves a PTY whose id is a
-  // sleeping saved id. The record is sleeping, so REAP the orphan (never re-wake) —
-  // the cold path converges with no orphan PTY (the reboot-mid-sleep journey).
+  // sleeping saved id. The record is sleeping, so REAP the orphan (never re-wake).
   for (const orphan of reapSleeping) {
     log.info(
       { terminal: orphan.id },
       "reaping a sleeping terminal's crash-surviving PTY",
     );
-    void ptyHostClient.surface.terminal
-      .kill({ id: orphan.id })
-      .catch((err) =>
-        log.error({ err, terminal: orphan.id }, "reap of sleeping PTY failed"),
-      );
+    endpoint.reapDaemonPty(orphan.id);
   }
 
-  // Converge the saved session to exactly what is now live or dormant: exited
-  // terminals drop out (no stale restore card), and the active marker is kept iff
-  // its terminal is still present (adopted active OR seeded sleeping). An empty
-  // registry clears the session (`saveSession` empty→null).
-  restoreActiveTerminalId(
-    saved?.activeTerminalId && getTerminal(saved.activeTerminalId)
-      ? saved.activeTerminalId
-      : null,
+  // This host's sleeping saved records (no PTY to adopt) — handed to the complete
+  // sweep to seed AFTER every host is reconciled, so the converge can't wipe a
+  // not-yet-reconciled host's terminals.
+  const sleepingRecords = (saved?.terminals ?? []).filter(
+    (record): record is SavedSleepingTerminal => record.state === "sleeping",
   );
-  saveSession(snapshotSession());
 
   if (adoptedCount > 0) {
-    setAdoptedCount(LOCAL_HOST_ID, adoptedCount);
+    setAdoptedCount(scope.hostId, adoptedCount);
     log.info(
-      { adopted: adopt.length, orphansAdopted },
+      { host: scope.hostId, adopted: adopt.length, orphansAdopted },
       "adopted surviving terminals after restart",
     );
   }
 
-  // Currency diagnostic (B3.4): the adopted daemon's REPORTED build vs the kaval
-  // this server WOULD spawn (its own baked `KAVAL_BUILD_ID`). When they differ
-  // the survivor is a build behind — adoption (B3.3) kept a wire-compatible-but-
-  // older daemon alive, so the rail's read-site `kavalStale` nudge fires ("update
-  // pending") and a restart picks up the new build. Logged here — the one place
-  // adoption is confirmed — as the two RAW staleKeys, so operators (and the
-  // build-skew VM gate) can read "running X, would spawn Y" in the journal. The
-  // nudge PREDICATE (the connected-gate + empty-guard comparison) lives in the
-  // client's `kavalStale`; this is observability, not a second source of truth.
-  const status = readDaemonStatus(LOCAL_HOST_ID);
+  // Currency diagnostic (B3.4): the adopted daemon's REPORTED build vs the kaval this
+  // server WOULD spawn. When they differ the survivor is a build behind, so the rail's
+  // read-site `kavalStale` nudge fires. Logged here — the one place adoption is
+  // confirmed — as the two RAW staleKeys.
+  const status = readDaemonStatus(scope.hostId);
   const running = status?.identity?.staleKey ?? "";
   const expected = expectedKavalIdentity().staleKey;
-  // By the time adoption runs the endpoint has already reported `connected` WITH
-  // an identity, so a present-status-but-missing-staleKey here is an anomaly (a
-  // status-propagation bug) — distinct from the benign off-nix empty, where
-  // `expected` is also "". Surface it rather than let `running=""` masquerade as
-  // current (which would read as "up to date" against an equally-empty expected).
   if (status && !running && expected) {
     log.warn(
       { status },
@@ -168,7 +165,47 @@ export async function adoptSurvivingSession(): Promise<void> {
     );
   }
   log.info(
-    { running, expected },
+    { host: scope.hostId, running, expected },
     `kaval currency on adopt: running=${running} expected=${expected}`,
   );
+
+  return { scope, adoptedCount, sleepingRecords };
+}
+
+/** Seed every host's sleeping records and CONVERGE the session — the ONLY place that
+ *  writes the sleeping records to the registry and saves the session, gated on a
+ *  branded `CompleteHostSweep` so it can only run with every host accounted for.
+ *
+ *  Seeds the sleeping records dormant (routed to each record's own host via the
+ *  façade), then keeps the active marker iff its terminal survived (adopted active OR
+ *  seeded sleeping) and persists the converged session — exited terminals drop out (no
+ *  stale restore card); an empty registry clears the session (`saveSession` empty→null). */
+export function commitBootAdoption(sweep: CompleteHostSweep): void {
+  // Seed every SLEEPING saved record dormant BEFORE the converge — they have no PTY to
+  // adopt, so without seeding they would be absent from the registry and wiped by the
+  // converge below. Routed to each record's own host through the façade.
+  for (const result of sweep.results) {
+    for (const record of result.sleepingRecords)
+      restoreSleepingTerminal(record);
+  }
+
+  const saved = sweep.saved;
+  restoreActiveTerminalId(
+    saved?.activeTerminalId && getTerminal(saved.activeTerminalId)
+      ? saved.activeTerminalId
+      : null,
+  );
+  saveSession(snapshotSession());
+}
+
+/** Reconcile EVERY surviving host, then commit the complete sweep — the orchestrator
+ *  `ensureLocalEndpoint` runs as `onAdopted`. Sweeping each host independently and
+ *  committing only the gathered whole is what forecloses the partial-save bug. One
+ *  local host today; F-REMOTE's dialed hosts join the loop with no change here. */
+export async function adoptSurvivingSession(): Promise<void> {
+  const results: HostAdoptionResult[] = [];
+  for (const scope of hostScopes()) {
+    results.push(await adoptSurvivingHost(scope));
+  }
+  commitBootAdoption(completeSweep(results, getSavedSession()));
 }

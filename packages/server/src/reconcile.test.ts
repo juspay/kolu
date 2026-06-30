@@ -1,5 +1,6 @@
 import type { PtyHostListEntry } from "kaval";
 import {
+  type HostLocation,
   LOCAL_LOCATION,
   type SavedSession,
   type SavedTerminal,
@@ -139,5 +140,65 @@ describe("reconcile — boot-time adoption partition (B3.3)", () => {
     expect(adopt.map((p) => p.record.id)).toEqual(["a"]);
     expect(adoptOrphans).toEqual([]);
     expect(reapSleeping.map((e) => e.id)).toEqual(["s"]);
+  });
+});
+
+describe("reconcile — the per-host location filter (PR-0 remote-prep)", () => {
+  // The destructive seam F-REMOTE depends on, previously untested: each host's boot
+  // reconciles against ITS daemon's live list joined with ONLY the saved records on
+  // ITS location. An UNFILTERED join is silently destructive across hosts — a remote
+  // active with no LOCAL live PTY reads as an exited shell and the converge DROPS it;
+  // a remote sleeping record's id can land in the local `reapSleeping`.
+  const REMOTE: HostLocation = { kind: "remote", hostId: "build-box" };
+
+  function remoteTerm(id: string): SavedTerminal {
+    return { ...term(id), location: REMOTE };
+  }
+  function remoteSleeping(id: string): SavedTerminal {
+    return { ...sleepingTerm(id), location: REMOTE };
+  }
+
+  it("the LOCAL reconcile joins ONLY local saved records — a remote active is neither dropped nor adopted here", () => {
+    // The local daemon's live list holds only the LOCAL PTY (a); the saved session
+    // has BOTH a local active (a) and a remote active (r). Scoped to the local
+    // location, the remote record is invisible to THIS reconcile (the remote host's
+    // own reconcile owns it) — so `r` never becomes a phantom orphan, and the converge
+    // never drops it as an exited shell.
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [live("a")],
+      saved(term("a"), remoteTerm("r")),
+      LOCAL_LOCATION,
+    );
+    expect(adopt.map((p) => p.record.id)).toEqual(["a"]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping).toEqual([]);
+  });
+
+  it("the LOCAL reconcile does NOT reap a remote host's sleeping record", () => {
+    // A remote sleeping record (r) must never enter the local `reapSleeping`: the
+    // filter drops it from the local `sleepingIds`, so the local boot can't kill the
+    // remote host's dormant terminal.
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [live("a")],
+      saved(term("a"), remoteSleeping("r")),
+      LOCAL_LOCATION,
+    );
+    expect(adopt.map((p) => p.record.id)).toEqual(["a"]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping).toEqual([]);
+  });
+
+  it("the REMOTE reconcile joins ONLY that host's records against its own daemon's list", () => {
+    // The remote host's reconcile sees ITS daemon's live list (r) and joins only the
+    // remote saved records — the local active (a) is filtered out, never mistaken for
+    // an exited remote shell.
+    const { adopt, adoptOrphans, reapSleeping } = reconcile(
+      [live("r")],
+      saved(term("a"), remoteTerm("r")),
+      REMOTE,
+    );
+    expect(adopt.map((p) => p.record.id)).toEqual(["r"]);
+    expect(adoptOrphans).toEqual([]);
+    expect(reapSleeping).toEqual([]);
   });
 });

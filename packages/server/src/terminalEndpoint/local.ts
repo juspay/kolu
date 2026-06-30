@@ -38,10 +38,16 @@ import {
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { resumeFormFor } from "anyagent/cli";
-import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
+import type {
+  ForegroundSample,
+  PtyHostClient,
+  PtyHostInventoryEvent,
+  PtyHostListEntry,
+} from "kaval";
 import type {
   AgentIdentity,
   AuthoredActiveTerminal,
+  HostLocation,
   TerminalSnapshot,
   SavedActiveTerminal,
   SavedSleepingTerminal,
@@ -52,7 +58,6 @@ import {
   AuthoredActiveSchema,
   AuthoredSleepingSchema,
   createAuthoredActive,
-  LOCAL_LOCATION,
   PersistedSnapshotSchema,
   SavedSleepingTerminalSchema,
   TerminalIdSchema,
@@ -407,8 +412,9 @@ export function adoptedAuthored(
  *  owns with NO saved record (F1). A create that never reached the 500ms-debounced
  *  autosave before the restart is the common case — so the PTY is ADOPTED (never
  *  reaped), seeded entirely from the live daemon snapshot. Its authored half is a
- *  bare `createAuthoredActive(LOCAL_LOCATION)` (client chrome that never made it to
- *  disk is gone, but the live shell + scrollback survive — the headline guarantee). */
+ *  bare `createAuthoredActive(location)` for the adopting host (client chrome that never
+ *  made it to disk is gone, but the live shell + scrollback survive — the headline
+ *  guarantee). */
 export function orphanSnapshot(liveEntry: PtyHostListEntry): TerminalSnapshot {
   return {
     ...seedSnapshot(liveEntry.cwd),
@@ -418,7 +424,70 @@ export function orphanSnapshot(liveEntry: PtyHostListEntry): TerminalSnapshot {
 
 // ── Endpoint implementation ────────────────────────────────────────────
 
-class LocalTerminalEndpoint implements TerminalEndpoint {
+/** The SERVER-side terminal endpoint — the common per-terminal `TerminalEndpoint`
+ *  (the id-keyed lifecycle the façade routes) PLUS the host-scoped operations only
+ *  the boot/inventory adoption and the killAll drain reach. These extra ops are
+ *  deliberately NOT on the common interface: they take kaval daemon types
+ *  (`PtyHostListEntry`) and act per HOST, not per terminal, so they are reachable
+ *  ONLY through the package-private host registry (`forEachHost` / `serverEndpointFor`),
+ *  never via the façade's `resolveTerminalEndpoint` (which returns the narrower
+ *  `TerminalEndpoint`). That is what makes "killAll on only the local host" and
+ *  "adopt against one host's daemon from a per-terminal seam" unspellable from a
+ *  caller. */
+export interface ServerTerminalEndpoint extends TerminalEndpoint {
+  /** Drain and dispose every terminal owned by this endpoint. Reached only via the
+   *  host registry's `forEachHost`, so a caller cannot drain a single hard-pinned
+   *  host. Used by the e2e harness between scenarios. */
+  killAllTerminals(): Promise<void>;
+
+  /** Adopt a SURVIVING PTY (B3.3) that HAS a saved record — its persisted chrome
+   *  rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live daemon
+   *  snapshot the authority for `cwd`/`foreground`. */
+  adopt(record: SavedActiveTerminal, liveEntry: PtyHostListEntry): void;
+
+  /** Adopt a SURVIVING PTY (B3.3) with NO saved record — a create that never reached
+   *  the debounced autosave. Seeded from the live daemon snapshot, stamped with the
+   *  `location` of the host whose daemon produced it (an orphan carries no saved
+   *  record to read it back from). */
+  adoptOrphan(
+    id: TerminalId,
+    liveEntry: PtyHostListEntry,
+    location: HostLocation,
+  ): void;
+
+  /** Adopt an out-of-band PTY discovered LIVE on the inventory feed (B3.5) on
+   *  `location`, AND arm the session autosave — a single tile appearing mid-session
+   *  has no explicit boot converge, so the adopt must schedule the debounced save. */
+  adoptInventoryOrphan(
+    id: TerminalId,
+    liveEntry: PtyHostListEntry,
+    location: HostLocation,
+  ): void;
+
+  /** Fail CLOSED on a live PTY whose wire id kolu cannot represent (non-UUID) —
+   *  kill it rather than leave a hidden live process kolu can neither show nor kill. */
+  reapUnrepresentablePty(rawId: string): void;
+
+  /** List THIS host's daemon's live PTYs — the boot reconcile joins them against the
+   *  saved session. THROWS on a list failure (the boot fails closed and recycles the
+   *  survivor). The host's own daemon transport, so the boot adoption never reaches a
+   *  daemon-client singleton directly. */
+  listLivePtys(): Promise<PtyHostListEntry[]>;
+
+  /** Kill a PTY on THIS host's daemon by raw wire id, fire-and-forget (a kill failure
+   *  is logged, not thrown). Reaps a sleeping record's crash-surviving PTY at boot. */
+  reapDaemonPty(id: string): void;
+
+  /** Subscribe to THIS host's daemon inventory feed (B3.5) — the live membership
+   *  stream the inventory reconciler consumes to adopt out-of-band PTYs. Throws
+   *  synchronously if the daemon isn't connected (the reconciler treats that as a
+   *  drop and re-subscribes). */
+  subscribeInventory(
+    signal: AbortSignal,
+  ): PromiseLike<AsyncIterable<PtyHostInventoryEvent>>;
+}
+
+class LocalTerminalEndpoint implements ServerTerminalEndpoint {
   readonly fs = localFs;
   readonly git = localGit;
 
@@ -445,11 +514,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const aw = seedSnapshot(cwd);
 
     // The AUTHORED half — location + memory + the client-owned chrome seeded before
-    // providers run (#642). `lastActivityAt` is the one memory field a caller seeds:
-    // session restore threads the saved recency through so it survives restart (it
-    // lives on the authored record now, the fold's `updateMemory` rewrites it live).
+    // providers run (#642). The `location` is the one the lifecycle façade resolved
+    // THIS endpoint from and handed back via `opts.location`, so the endpoint stamps
+    // the façade's decision — never a host literal of its own (a remote endpoint
+    // stamps remote, the local one local, neither can stamp the wrong host).
+    // `lastActivityAt` is the one memory field a caller seeds: session restore threads
+    // the saved recency through so it survives restart (it lives on the authored
+    // record now, the fold's `updateMemory` rewrites it live).
     const meta: AuthoredActiveTerminal = {
-      ...createAuthoredActive(LOCAL_LOCATION),
+      ...createAuthoredActive(opts.location),
     };
     if (opts.initialMetadata?.lastActivityAt !== undefined)
       meta.lastActivityAt = opts.initialMetadata.lastActivityAt;
@@ -579,7 +652,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  failure — the caller (`spawnAndWire`) unwinds the shadow.
    *
    *  The check is by IDENTITY (`getActiveTerminal(id) === expected`), not mere
-   *  presence (F1): a `beginSleep` that flipped the entry to sleeping mid-spawn
+   *  presence (F1): a `sleep` that flipped the entry to sleeping mid-spawn
    *  leaves a DIFFERENT entry under the same id, so a bare presence check would
    *  pass and the tail would wire sensors + republish active metadata over the
    *  sleeping flip — leaking a hidden live PTY the registry believes is dormant.
@@ -673,7 +746,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   /** Unwind the active sync-shadow `entry` whose async spawn/wiring failed.
    *
    *  Identity-gated: acts ONLY while the registry still holds OUR `entry`. A
-   *  `beginSleep` / re-spawn that raced in mid-spawn replaced it with a different
+   *  `sleep` / re-spawn that raced in mid-spawn replaced it with a different
    *  entry under the same id, and that newer entry is authoritative — clobbering
    *  it here would re-introduce the F1/F2 loss (drop the sleeping flip, or evict
    *  a fresh re-spawn). When we DO still own the slot, RESTORE a `prior` sleeping
@@ -969,8 +1042,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  go down FIRST so no in-flight tap can re-publish the active meta over the
    *  flip (the sink closes over the active entry) and the later kill can't reach
    *  `handleExit` (which would unregister our sleeping entry). Returns false — a
-   *  no-op — when `id` is not an active terminal (already sleeping / absent). */
-  beginSleep(id: TerminalId): boolean {
+   *  no-op — when `id` is not an active terminal (already sleeping / absent).
+   *
+   *  The local arm of `TerminalEndpoint.sleep` — `sleepTerminal` (terminals.ts)
+   *  reaches it through `resolveTerminalEndpoint(entry.meta.location)`, exactly as
+   *  kill/attach route, so a remote tile sleeps on its own host. */
+  sleep(id: TerminalId): boolean {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
@@ -980,16 +1057,16 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // → `exact`, a quit-to-shell → `none`), so the freeze needs no special capture:
     // wake reads the target straight off `meta`. The frozen-`pr` special case is GONE
     // — `pr` is restore-relevant now and rides the entry's observation, which
-    // `beginSleep` carries over so the dormant tile recomposes its cwd / branch / pr
+    // `sleep` carries over so the dormant tile recomposes its cwd / branch / pr
     // off it. Sensors went down FIRST so no in-flight observation re-publishes the
     // active meta over the flip.
     //
-    // DEFERRED (R9.0): `beginSleep` does NOT drain a final settle before freezing.
+    // DEFERRED (R9.0): `sleep` does NOT drain a final settle before freezing.
     // The freeze takes whatever `restoreTarget` the fold last wrote; it does NOT hold
     // "the last AUTHORITATIVE agent" by construction. So a launch-then-sleep INSIDE
     // the agent settle window (commandRun seen, agent not yet resolved → target still
     // `none`) freezes `none` and wakes to a FALSE bare shell. Narrow + self-correcting
-    // (re-launch fixes it); the active drain is an async-`beginSleep` follow-up.
+    // (re-launch fixes it); the active drain is an async-`sleep` follow-up.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: AuthoredSleepingSchema.parse({
@@ -1008,7 +1085,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return true;
   }
 
-  /** Release the PTY of a terminal `beginSleep` already flipped to sleeping: kill
+  /** Release the PTY of a terminal `sleep` already flipped to sleeping: kill
    *  the now-detached PTY and scrub its scratch. The registry entry STAYS (as
    *  sleeping). A kill failure is logged, not thrown — the record is sleeping
    *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
@@ -1054,6 +1131,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     return this.registerActiveAndSpawn(id, meta, wokenAwareness, {
       cwd: wokenAwareness.cwd,
       parentId: meta.parentId,
+      // Wake re-spawns on the SAME id, so the terminal keeps its OWN host — preserve
+      // the location off the dormant record rather than re-deriving a default.
+      location: meta.location,
       resumeCommand: resumeCommand ?? undefined,
     });
   }
@@ -1068,6 +1148,150 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.finalizeRemoval(id);
     log.child({ terminal: id }).info("discarded sleeping terminal");
     return true;
+  }
+
+  /** Seed a SLEEPING terminal into the registry from its saved record — the dormant
+   *  analogue of adoption (there is no PTY to re-wire). Used by BOTH boot paths: the
+   *  boot-adoption commit (`commitBootAdoption`) and the cold-boot restore
+   *  (`terminal.restoreSleeping`), so a slept terminal reappears as ☾ on any restart.
+   *
+   *  Tolerates a malformed record by DROPPING it (returns false, never throws) so one
+   *  corrupt entry — a base truncated by a crash mid-write, hand-edited, or left by an
+   *  older build — can't break the load for every other terminal (the
+   *  `persisted-schema-stays-tolerant` policy). Idempotent: re-seeding a present id is
+   *  a no-op.
+   *
+   *  Fires only `emitTerminalListChanged` (the wire), NEVER the autosave dirty: on
+   *  cold boot the active records are not yet restored, so a snapshot-and-save here
+   *  would persist a set missing them and wipe the saved session. Persistence is the
+   *  caller's job — the boot commit's explicit converge, or the restore loop's active
+   *  spawns. */
+  seedSleeping(record: SavedSleepingTerminal): boolean {
+    const idParsed = TerminalIdSchema.safeParse(record.id);
+    const recordParsed = SavedSleepingTerminalSchema.safeParse(record);
+    if (!idParsed.success || !recordParsed.success) {
+      log.warn(
+        { id: record.id },
+        "dropping malformed sleeping record at the read boundary",
+      );
+      return false;
+    }
+    const id = idParsed.data;
+    if (getTerminal(id)) return false;
+    const parsed = recordParsed.data;
+    // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
+    // live agent + foreground reset — the client's join recomposes the dormant tile's
+    // cwd / branch / pr off it. The agent the terminal will resume rides the AUTHORED
+    // sleeping record's `restoreTarget` (its `exact` arm keeps only the identity). The
+    // observation rides the sleeping entry's `snapshot` field (no separate store).
+    const snapshot: TerminalSnapshot = {
+      ...PersistedSnapshotSchema.parse(parsed),
+      agent: null,
+      foreground: null,
+    };
+    registerAndInstall(id, {
+      info: { id, pid: 0 },
+      meta: AuthoredSleepingSchema.parse(parsed),
+      snapshot,
+    });
+    emitTerminalListChanged();
+    return true;
+  }
+
+  /** Adopt a surviving PTY at boot (B3.3) that HAS a saved record — its persisted
+   *  chrome rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live
+   *  daemon snapshot the authority for `cwd`/`foreground`. The matched-survivor arm of
+   *  the host's boot reconcile. */
+  adopt(record: SavedActiveTerminal, liveEntry: PtyHostListEntry): void {
+    this.adoptTerminal(
+      record.id as TerminalId,
+      adoptedAuthored(record),
+      adoptedSnapshot(record, liveEntry),
+      liveEntry,
+    );
+  }
+
+  /** Adopt a surviving PTY at boot (B3.3) that has NO saved record (F1) — a create
+   *  that never reached the debounced autosave. The live shell is adopted (never
+   *  reaped), seeded entirely from the daemon snapshot (`orphanSnapshot`). An orphan
+   *  carries no saved record, so its `location` can't be read back — the caller (the
+   *  per-host reconcile) supplies the host's location. */
+  adoptOrphan(
+    id: TerminalId,
+    liveEntry: PtyHostListEntry,
+    location: HostLocation,
+  ): void {
+    this.adoptTerminal(
+      id,
+      createAuthoredActive(location),
+      orphanSnapshot(liveEntry),
+      liveEntry,
+    );
+  }
+
+  /** Adopt a PTY discovered LIVE on the inventory feed (B3.5) — a `kaval-tui create`
+   *  against the daemon kolu is already a client of. Same orphan adoption as
+   *  `adoptOrphan`, but it ALSO arms the session autosave (F2): the boot path converges
+   *  + persists the session EXPLICITLY after adopting all survivors, but a single tile
+   *  appearing mid-session has no such explicit save, so without arming the autosave the
+   *  out-of-band terminal would render yet never enter the saved session until some later
+   *  dirtying event. Emitting `terminalsDirty` schedules the same debounced save a fresh
+   *  spawn does. */
+  adoptInventoryOrphan(
+    id: TerminalId,
+    liveEntry: PtyHostListEntry,
+    location: HostLocation,
+  ): void {
+    this.adoptOrphan(id, liveEntry, location);
+    emitTerminalsDirty();
+  }
+
+  /** Fail CLOSED on a live PTY whose wire id kolu cannot represent (F1) — a non-UUID
+   *  id (kolu's registry is keyed on `TerminalId` = `z.string().uuid()`). Every real
+   *  client mints a UUID, so this is an anomaly outside kolu's domain: it cannot be
+   *  registered (no tile, no exit tap, no way to surface or kill it through kolu), and
+   *  leaving it alive is a hidden live process — so KILL it. A kill failure is logged,
+   *  not thrown — there is nothing else kolu can do, and a throw would abort the boot
+   *  adoption / inventory subscription for every later PTY. */
+  reapUnrepresentablePty(rawId: string): void {
+    log.warn(
+      { rawId },
+      "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
+    );
+    void ptyHostClient.surface.terminal
+      .kill({ id: rawId })
+      .catch((err) =>
+        log.error(
+          { err, rawId },
+          "kill of unrepresentable PTY failed; it remains live on the daemon",
+        ),
+      );
+  }
+
+  /** List this host's daemon's live PTYs. Re-throws a list failure so the boot fails
+   *  CLOSED (recycle the survivor) rather than leaving the endpoint connected to a
+   *  daemon whose PTYs kolu never registered (F3). */
+  async listLivePtys(): Promise<PtyHostListEntry[]> {
+    return (await ptyHostClient.surface.terminal.list({})).entries;
+  }
+
+  /** Kill a daemon PTY by raw wire id, fire-and-forget (a kill failure is logged, not
+   *  thrown — boot reconcile reaps any survivor regardless). */
+  reapDaemonPty(id: string): void {
+    void ptyHostClient.surface.terminal
+      .kill({ id })
+      .catch((err) =>
+        log.error({ err, terminal: id }, "reap of daemon PTY failed"),
+      );
+  }
+
+  /** Subscribe to this host's daemon inventory feed — the forwarding facade resolves
+   *  the live client EAGERLY, so this throws synchronously when the daemon isn't
+   *  connected (the reconciler owns that as a drop-and-re-subscribe). */
+  subscribeInventory(
+    signal: AbortSignal,
+  ): PromiseLike<AsyncIterable<PtyHostInventoryEvent>> {
+    return ptyHostClient.surface.inventory.get({}, { signal });
   }
 
   async killAllTerminals(): Promise<void> {
@@ -1128,169 +1352,18 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 }
 
-const localEndpointImpl = new LocalTerminalEndpoint();
-export const localTerminalEndpoint: TerminalEndpoint = localEndpointImpl;
-
-// ── Sleep / wake / discard (local-only today, like adoption) ────────────
+// ── The local endpoint instance — PACKAGE-PRIVATE to the host registry ───────
 //
-// Exposed as standalone entries rather than on the shared `TerminalEndpoint`
-// interface — sleep/wake is local-only for now (manual, single-host). P3's
-// remote-host sleep is an additive sibling, not a retrofit of the interface.
-
-/** Flip an active terminal to the sleeping arm IN PLACE (PTY left alive). The
- *  facade persists the session durably, THEN calls `releaseSleptLocalPty` to kill
- *  the PTY (persist-before-kill). Returns false if `id` is not active. */
-export function beginSleepLocal(id: TerminalId): boolean {
-  return localEndpointImpl.beginSleep(id);
-}
-
-/** Kill the PTY of an already-flipped sleeping terminal. */
-export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
-  return localEndpointImpl.releaseSleptPty(id);
-}
-
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, deriving the
- *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
-export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
-  return localEndpointImpl.wake(id);
-}
-
-/** Discard a sleeping terminal's record (no PTY to kill). */
-export function discardLocalSleeping(id: TerminalId): boolean {
-  return localEndpointImpl.discardSleeping(id);
-}
-
-/** Seed a SLEEPING terminal into the registry from its saved record — the dormant
- *  analogue of adoption (there is no PTY to re-wire). Used by BOTH boot paths: the
- *  surviving-daemon reconcile (`adoptSurvivingSession`) and the cold-boot restore
- *  (`terminal.restoreSleeping`), so a slept terminal reappears as ☾ on any restart.
- *
- *  Tolerates a malformed record by DROPPING it (returns false, never throws) so one
- *  corrupt entry — a base truncated by a crash mid-write, hand-edited, or left by an
- *  older build — can't break the load for every other terminal (the
- *  `persisted-schema-stays-tolerant` policy). Idempotent: re-seeding a present id is
- *  a no-op.
- *
- *  Fires only `emitTerminalListChanged` (the wire), NEVER the autosave dirty: on
- *  cold boot the active records are not yet restored, so a snapshot-and-save here
- *  would persist a set missing them and wipe the saved session. Persistence is the
- *  caller's job — the survivor path's explicit converge, or the restore loop's
- *  active spawns. */
-export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
-  const idParsed = TerminalIdSchema.safeParse(record.id);
-  const recordParsed = SavedSleepingTerminalSchema.safeParse(record);
-  if (!idParsed.success || !recordParsed.success) {
-    log.warn(
-      { id: record.id },
-      "dropping malformed sleeping record at the read boundary",
-    );
-    return false;
-  }
-  const id = idParsed.data;
-  if (getTerminal(id)) return false;
-  const parsed = recordParsed.data;
-  // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
-  // live agent + foreground reset — the client's join recomposes the dormant tile's
-  // cwd / branch / pr off it. The agent the terminal will resume rides the AUTHORED
-  // sleeping record's `restoreTarget` below (its `exact` arm keeps only the identity —
-  // no full-agent reconstruction needed across a cold restart). The observation rides
-  // the sleeping entry's `snapshot` field (no separate store), then fans out.
-  const snapshot: TerminalSnapshot = {
-    ...PersistedSnapshotSchema.parse(parsed),
-    agent: null,
-    foreground: null,
-  };
-  registerAndInstall(id, {
-    info: { id, pid: 0 },
-    meta: AuthoredSleepingSchema.parse(parsed),
-    snapshot,
-  });
-  emitTerminalListChanged();
-  return true;
-}
-
-/** Adopt a surviving local PTY at boot (B3.3) that HAS a saved record — its
- *  persisted chrome rides through whole (`adoptedAuthored`/`adoptedSnapshot`), with the live daemon
- *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
- *  rather than on the shared `TerminalEndpoint` interface because adoption
- *  is local-only today — P3's remote-host adoption is an additive sibling, not
- *  a retrofit of the shared interface. */
-export function adoptLocalTerminal(
-  record: SavedActiveTerminal,
-  liveEntry: PtyHostListEntry,
-): void {
-  localEndpointImpl.adoptTerminal(
-    record.id as TerminalId,
-    adoptedAuthored(record),
-    adoptedSnapshot(record, liveEntry),
-    liveEntry,
-  );
-}
-
-/** Adopt a surviving local PTY at boot (B3.3) that has NO saved record (F1) — a
- *  create that never reached the debounced autosave before the restart. The live
- *  shell is adopted (never reaped), seeded entirely from the daemon snapshot
- *  (`orphanSnapshot`). The sibling of `adoptLocalTerminal` for the unmatched-survivor
- *  case the reconcile partition surfaces separately. `id` is an ALREADY-VALIDATED
- *  `TerminalId` — the caller (the boot reconcile or the inventory boundary) parsed
- *  it against `TerminalIdSchema`, so this no longer re-casts a raw wire string. */
-export function adoptLocalOrphan(
-  id: TerminalId,
-  liveEntry: PtyHostListEntry,
-): void {
-  localEndpointImpl.adoptTerminal(
-    id,
-    createAuthoredActive(LOCAL_LOCATION),
-    orphanSnapshot(liveEntry),
-    liveEntry,
-  );
-}
-
-/** Adopt a PTY discovered LIVE on the inventory feed (B3.5) — a `kaval-tui create`
- *  against the daemon kolu is already a client of. Same orphan adoption as
- *  `adoptLocalOrphan`, but it ALSO arms the session autosave (F2): the boot path
- *  converges + persists the session EXPLICITLY after adopting all survivors, so
- *  `adoptTerminal` is deliberately silent there — but a single tile appearing
- *  mid-session has no such explicit save, so without arming the autosave the
- *  out-of-band terminal would render yet never enter the saved session until some
- *  LATER dirtying event (a metadata change, an exit) happened to fire. A
- *  kolu-server restart in that window would lose it. Emitting `terminalsDirty`
- *  here schedules the same debounced `saveSession(snapshot())` a fresh spawn does,
- *  so the adopted tile is persisted on the next 500ms tick. */
-export function adoptLocalInventoryOrphan(
-  id: TerminalId,
-  liveEntry: PtyHostListEntry,
-): void {
-  // Identical orphan adoption to the boot path, plus the autosave arming — so it
-  // composes `adoptLocalOrphan` rather than repeating `adoptTerminal(orphanSnapshot…)`.
-  adoptLocalOrphan(id, liveEntry);
-  emitTerminalsDirty();
-}
-
-/** Fail CLOSED on a live PTY whose wire id kolu cannot represent (F1) — a
- *  non-UUID id (kolu's registry is keyed on `TerminalId` = `z.string().uuid()`).
- *  Every real client mints a UUID (`crypto.randomUUID()`: kolu-server, kaval-tui),
- *  so this is an anomaly outside kolu's domain rather than valid state to keep:
- *  it cannot be registered (no tile, no exit tap, no way to surface or kill it
- *  through kolu), and leaving it alive is a hidden live process — the same
- *  fail-open the boot recycle guards against. So KILL it rather than log-and-drop;
- *  the contract's `kill` RPC takes the opaque wire string. A kill failure is
- *  logged, not thrown — there is nothing else kolu can do, and a throw here would
- *  end the inventory subscription / abort the boot adoption for every later PTY.
- *  Shared by the boot reconcile (`reattach.ts`) and the live inventory boundary
- *  (`inventoryReconcile.ts`) so the "unrepresentable id" policy lives in one
- *  place. */
-export function reapUnrepresentablePty(rawId: string): void {
-  log.warn(
-    { rawId },
-    "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
-  );
-  void ptyHostClient.surface.terminal
-    .kill({ id: rawId })
-    .catch((err) =>
-      log.error(
-        { err, rawId },
-        "kill of unrepresentable PTY failed; it remains live on the daemon",
-      ),
-    );
-}
+// The single `{ kind: "local" }` arm of the `TerminalEndpoint` resolver. This is
+// the ONE entry point onto the in-process endpoint, and it is imported by exactly
+// ONE module — the host registry (`resolve.ts`) — which is the only thing allowed
+// to map a `HostLocation` onto it. No `*Local*` standalone per-terminal helper is
+// exported any more: the disease was a caller importing `beginSleepLocal(id)` /
+// `discardLocalSleeping(id)` to reach the local impl WITHOUT routing through
+// `HostLocation`. Every lifecycle op is now a method on the endpoint, reached only
+// through the id-keyed façade (`terminals.ts`) → `resolveTerminalEndpoint(location)`
+// → here. A future missed seam is therefore a COMPILE error, not a reviewer's hunt:
+// there is no symbol a caller can import to hard-pin local. The `sealed-dispatch`
+// guard test pins that this stays the registry's sole import.
+export const localTerminalEndpoint: ServerTerminalEndpoint =
+  new LocalTerminalEndpoint();

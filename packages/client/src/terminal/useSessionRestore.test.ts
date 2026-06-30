@@ -1,4 +1,9 @@
-import type { TerminalId, TerminalInfo } from "kolu-common/surface";
+import type {
+  SavedActiveTerminal,
+  SavedSession,
+  TerminalId,
+  TerminalInfo,
+} from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
@@ -103,6 +108,48 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
       const session = mount();
 
       expect(session.isLoading()).toBe(false);
+
+      dispose();
+    });
+  });
+});
+
+describe("useSessionRestore — restore forwards a saved terminal's host (PR-0)", () => {
+  /** A saved ACTIVE terminal pinned to a non-local host, so the forwarded value is
+   *  distinguishable from a `{ kind: "local" }` default. */
+  function savedRemoteSession(): SavedSession {
+    const term: SavedActiveTerminal = {
+      id: "old-id",
+      state: "active",
+      cwd: "/work/repo",
+      git: null,
+      pr: { kind: "absent" },
+      location: { kind: "remote", hostId: "build-box" },
+      lastActivityAt: 0,
+      restoreTarget: { kind: "none" },
+    };
+    return { terminals: [term], activeTerminalId: "old-id", savedAt: 1 };
+  }
+
+  it("passes the saved `location` as the third handleCreate arg (no longer dropped)", async () => {
+    await createRoot(async (dispose) => {
+      const handleCreate = vi.fn().mockResolvedValue("new-id" as TerminalId);
+      const restore = useSessionRestore({
+        store: makeStore(),
+        handleCreate,
+        handleCreateSubTerminal: vi.fn(),
+      });
+
+      await restore.handleRestoreSession({ session: savedRemoteSession() });
+
+      expect(handleCreate).toHaveBeenCalledTimes(1);
+      // The create→restore round-trip's restore half: `t.location` rides through
+      // handleCreate (the deliberate drop in useSessionRestore.ts is gone), so a
+      // restored terminal re-spawns on its OWN host, not silently the local one.
+      expect(handleCreate.mock.calls[0]?.[2]).toEqual({
+        kind: "remote",
+        hostId: "build-box",
+      });
 
       dispose();
     });

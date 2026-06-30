@@ -37,17 +37,15 @@ import {
   terminalNotFound,
   type TerminalProcess,
 } from "./terminal-registry.ts";
-import {
-  discardLocalSleeping,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
-} from "./terminalEndpoint/local.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
+  attachTerminal,
   createTerminal,
+  discardSleepingTerminal,
   killAllTerminals,
   killTerminal,
+  resolveCreateLocation,
+  restoreSleepingTerminal,
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
@@ -56,6 +54,7 @@ import {
   setTerminalParent,
   setTerminalTheme,
   sleepTerminal,
+  wakeTerminal,
 } from "./terminals.ts";
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
@@ -100,15 +99,30 @@ export const appRouter = t.router({
       // live PTY with no visible home. `requireActiveTerminal` is the same
       // live-PTY narrow every per-terminal handler uses; a sleeping/absent id is
       // "not found" to it by the same code.
-      if (input.parentId !== undefined) requireActiveTerminal(input.parentId);
-      return createTerminal(input.cwd, input.parentId, {
-        themeName: input.themeName,
-        canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
-        rightPanel: input.rightPanel,
-        lastActivityAt: input.lastActivityAt,
-        intent: input.intent,
-      });
+      // Resolve the host: a sub-terminal inherits its (live) parent's location, a
+      // top-level terminal uses the requested location (default LOCAL_LOCATION).
+      // `requireActiveTerminal` doubles as the live-parent gate AND hands the parent
+      // entry to the location resolver, which rejects an explicit child location that
+      // disagrees with the parent (BAD_REQUEST). Today every host is local, so this
+      // always resolves to LOCAL_LOCATION.
+      const parentLocation =
+        input.parentId !== undefined
+          ? requireActiveTerminal(input.parentId).meta.location
+          : undefined;
+      const location = resolveCreateLocation(input.location, parentLocation);
+      return createTerminal(
+        input.cwd,
+        input.parentId,
+        {
+          themeName: input.themeName,
+          canvasLayout: input.canvasLayout,
+          subPanel: input.subPanel,
+          rightPanel: input.rightPanel,
+          lastActivityAt: input.lastActivityAt,
+          intent: input.intent,
+        },
+        location,
+      );
     }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
@@ -178,12 +192,10 @@ export const appRouter = t.router({
      * output is `z.string()` — and a no-op `term.write("")` for xterm.)
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      // Resolve the endpoint by the terminal's OWN location so a remote tile's
-      // attach reaches its host (R9.2) with no change here. Local today.
-      const entry = requireActiveTerminal(input.id);
-      const { snapshot, deltas } = await resolveTerminalEndpoint(
-        entry.meta.location,
-      ).attach(input.id, signal);
+      // The façade narrows to the active arm and resolves the endpoint by the
+      // terminal's OWN location, so a remote tile's attach reaches its host with no
+      // change here. Local today.
+      const { snapshot, deltas } = await attachTerminal(input.id, signal);
       yield snapshot;
       for await (const data of deltas) yield data;
     }),
@@ -239,18 +251,21 @@ export const appRouter = t.router({
 
     wake: t.terminal.wake.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "wake");
-      const info = wakeLocalTerminal(input.id);
+      // The façade routes by the sleeping terminal's OWN location so a remote tile
+      // wakes on its host; an absent id is "not found" by the same fall-through the
+      // local arm gave (undefined).
+      const info = wakeTerminal(input.id);
       if (!info) throw terminalNotFound(input.id);
       return info;
     }),
 
     discardSleeping: t.terminal.discardSleeping.handler(async ({ input }) => {
       log.info({ terminal: input.id }, "discard sleeping");
-      discardLocalSleeping(input.id);
+      discardSleepingTerminal(input.id);
     }),
 
     restoreSleeping: t.terminal.restoreSleeping.handler(async ({ input }) => {
-      seedSleepingTerminal(input);
+      restoreSleepingTerminal(input);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

@@ -55,13 +55,14 @@ import {
   noopWorkspaceSurfaceCtxForTest,
   setWorkspaceSurfaceCtx,
 } from "../workspaceSurfaceCtx.ts";
-import {
-  beginSleepLocal,
-  discardLocalSleeping,
-  seedSleepingTerminal,
-  wakeLocalTerminal,
-} from "./local.ts";
 import { installSnapshot } from "./metadata.ts";
+import { resolveTerminalEndpoint } from "./resolve.ts";
+
+// The sleep/wake/discard/seed state machine is exercised through the SEALED resolver
+// (the same seam the lifecycle façade routes through), NOT the deleted `*Local*`
+// direct handles — these are pty-host-free transition tests, so they call the
+// endpoint's sync methods straight (no save / release / routing side effects).
+const endpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -188,7 +189,7 @@ afterEach(() => {
 describe("beginSleep — flip active → sleeping in place", () => {
   it("keeps the SAME id, rides the resume inputs on the authored arm, keeps the snapshot (incl. pr), releases the handle", () => {
     seedActive();
-    expect(beginSleepLocal(ID)).toBe(true);
+    expect(endpoint.sleep(ID)).toBe(true);
 
     const entry = getTerminal(ID);
     expect(entry).toBeDefined();
@@ -230,13 +231,13 @@ describe("beginSleep — flip active → sleeping in place", () => {
   });
 
   it("is a no-op (returns false) on an absent id", () => {
-    expect(beginSleepLocal(ID)).toBe(false);
+    expect(endpoint.sleep(ID)).toBe(false);
   });
 
   it("is a no-op on an already-sleeping id (idempotent)", () => {
     seedActive();
-    expect(beginSleepLocal(ID)).toBe(true);
-    expect(beginSleepLocal(ID)).toBe(false);
+    expect(endpoint.sleep(ID)).toBe(true);
+    expect(endpoint.sleep(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
   });
 });
@@ -244,7 +245,7 @@ describe("beginSleep — flip active → sleeping in place", () => {
 describe("snapshotSession — a slept terminal serializes through the sleeping arm", () => {
   it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + lastAgentCommand + restoreTarget", () => {
     seedActive();
-    beginSleepLocal(ID);
+    endpoint.sleep(ID);
 
     const saved = snapshotSession().terminals.find((t) => t.id === ID);
     expect(saved).toBeDefined();
@@ -268,11 +269,11 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
 describe("wake — resets the snapshot, keeps the authored memory", () => {
   it("re-seeds the snapshot to defaults, rides the resume inputs through on the authored record, and resumes the exact conversation", async () => {
     seedActive();
-    expect(beginSleepLocal(ID)).toBe(true);
+    expect(endpoint.sleep(ID)).toBe(true);
 
     // Wake registers the active sync-shadow synchronously (the spawn tail fails on
     // a later microtask — no kaval); assert the store at that sync point.
-    wakeLocalTerminal(ID);
+    endpoint.wake(ID);
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
     const aw = snapshotFor(ID);
@@ -309,9 +310,9 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     const entry = authoredActive({ restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
     installSnapshot(ID, entry.snapshot);
-    expect(beginSleepLocal(ID)).toBe(true);
+    expect(endpoint.sleep(ID)).toBe(true);
 
-    wakeLocalTerminal(ID);
+    endpoint.wake(ID);
     expect(resumeFormFor(getTerminal(ID)?.meta.restoreTarget)).toBeNull();
 
     await new Promise((r) => setTimeout(r, 0));
@@ -330,9 +331,9 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     });
     registerTerminal(ID, entry);
     installSnapshot(ID, entry.snapshot);
-    expect(beginSleepLocal(ID)).toBe(true);
+    expect(endpoint.sleep(ID)).toBe(true);
 
-    wakeLocalTerminal(ID);
+    endpoint.wake(ID);
     const resumeCommand = resumeFormFor(getTerminal(ID)?.meta.restoreTarget);
     expect(resumeCommand).toBe("opencode --continue --model sonnet");
 
@@ -361,11 +362,11 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
   });
 
   it("restores the sleeping entry when the wake spawn fails", async () => {
-    expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
+    expect(endpoint.seedSleeping(sleepingRecord())).toBe(true);
 
     // Wake returns synchronously after registering the active sync-shadow; the
     // spawn tail fails on a later microtask. The shadow IS active right after.
-    wakeLocalTerminal(WAKE_ID);
+    endpoint.wake(WAKE_ID);
     expect(getTerminal(WAKE_ID)?.meta.state).toBe("active");
 
     // Let the rejected spawn RPC propagate through `spawnAndWire`'s catch.
@@ -417,11 +418,11 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
   });
 
   it("pushes the active snapshot on wake, not just a dirty signal", () => {
-    expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
+    expect(endpoint.seedSleeping(sleepingRecord())).toBe(true);
     // The seed itself doesn't publish the wire; start from a clean slate.
     upserts.length = 0;
 
-    wakeLocalTerminal(PUB_ID);
+    endpoint.wake(PUB_ID);
     expect(getTerminal(PUB_ID)?.meta.state).toBe("active");
     expect(upserts).toContainEqual({ id: PUB_ID, state: "active" });
   });
@@ -430,20 +431,20 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
 describe("discardSleeping — removes only a sleeping record (both halves)", () => {
   it("removes a sleeping record and its snapshot", () => {
     seedActive();
-    beginSleepLocal(ID);
-    expect(discardLocalSleeping(ID)).toBe(true);
+    endpoint.sleep(ID);
+    expect(endpoint.discardSleeping(ID)).toBe(true);
     expect(getTerminal(ID)).toBeUndefined();
     expect(snapshotFor(ID)).toBeUndefined();
   });
 
   it("is a no-op on an active id (active terminals must be killed, not discarded)", () => {
     seedActive();
-    expect(discardLocalSleeping(ID)).toBe(false);
+    expect(endpoint.discardSleeping(ID)).toBe(false);
     expect(getTerminal(ID)?.meta.state).toBe("active");
   });
 });
 
-describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
+describe("seedSleeping — boot seed with per-record tolerance", () => {
   const SEED_ID = "22222222-2222-4222-8222-222222222222";
   const validRecord = () => ({
     id: SEED_ID,
@@ -473,7 +474,7 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
   });
 
   it("seeds both halves: authored sleeping in the registry (memory + restore target), snapshot in the entry", () => {
-    expect(seedSleepingTerminal(validRecord())).toBe(true);
+    expect(endpoint.seedSleeping(validRecord())).toBe(true);
     const entry = getTerminal(SEED_ID);
     if (entry?.meta.state !== "sleeping") throw new Error("expected sleeping");
     expect(entry.meta.sleptAt).toBe(111);
@@ -496,19 +497,19 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
 
   it("DROPS a malformed record (missing sleptAt) without throwing or polluting the set", () => {
     const malformed = { ...validRecord(), sleptAt: undefined };
-    expect(seedSleepingTerminal(malformed as never)).toBe(false);
+    expect(endpoint.seedSleeping(malformed as never)).toBe(false);
     expect(getTerminal(SEED_ID)).toBeUndefined();
     expect(snapshotFor(SEED_ID)).toBeUndefined();
   });
 
   it("DROPS a record with a non-uuid id", () => {
     const bad = { ...validRecord(), id: "not-a-uuid" };
-    expect(seedSleepingTerminal(bad as never)).toBe(false);
+    expect(endpoint.seedSleeping(bad as never)).toBe(false);
   });
 
   it("is idempotent — re-seeding a present id is a no-op", () => {
-    expect(seedSleepingTerminal(validRecord())).toBe(true);
-    expect(seedSleepingTerminal(validRecord())).toBe(false);
+    expect(endpoint.seedSleeping(validRecord())).toBe(true);
+    expect(endpoint.seedSleeping(validRecord())).toBe(false);
     expect(getTerminal(SEED_ID)?.meta.state).toBe("sleeping");
   });
 });

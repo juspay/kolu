@@ -56,7 +56,6 @@ import type {
 import {
   bytesToWholeMB,
   type koluSurface,
-  LOCAL_LOCATION,
   surfaces,
 } from "kolu-common/surface";
 import {
@@ -85,17 +84,21 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
+import { localFsGitEndpoint } from "./terminalEndpoint/resolve.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
 // *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
-// Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
-// exactly as the prior direct reference was — the late-bound surface ctx
-// (#1005) is what keeps that read TDZ-safe across ESM load orders.
-const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
+// The LOCAL host's fs/git surfaces, through the host registry's SEALED accessor —
+// narrowed to `{ fs, git }` (`TerminalWorkspaceEndpoint`), NOT the lifecycle endpoint,
+// so deleting the public `localEndpoint` alias keeps the Code-tab's server fs/git
+// access alive without re-exposing a kill/sleep hatch surface.ts could hard-pin.
+// Eager at module-eval, exactly as the prior alias was — the late-bound surface ctx
+// (#1005) is what keeps that read TDZ-safe across ESM load orders. PR-2 builds
+// per-location fs/git on top; today it's local.
+const localFsGit = localFsGitEndpoint();
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -268,40 +271,40 @@ const koluDeps: Omit<
   },
 
   streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint. For now
-    // they read the LOCAL endpoint off the `localEndpoint` alias
-    // (`resolveTerminalEndpoint(LOCAL_LOCATION)`); R9.5's Code-tab rewrite makes
-    // them resolve per-terminal so a remote tile's fs/git dials its host behind
-    // the same TerminalEndpointFs / TerminalEndpointGit seam.
+    // fs/git streams are per-host one-shot ops bound to this endpoint. For now they
+    // read the LOCAL host's fs/git off the sealed `localFsGit` accessor
+    // (`localFsGitEndpoint()`); PR-2's Code-tab rewrite makes them resolve
+    // per-terminal so a remote tile's fs/git dials its host behind the same
+    // TerminalEndpointFs / TerminalEndpointGit seam.
     gitStatus: {
       read: async (input) =>
-        localEndpoint.git.getStatus(input.repoPath, input.mode),
+        localFsGit.git.getStatus(input.repoPath, input.mode),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        localFsGit.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitStatusOutputEqual,
     },
     gitDiff: {
       read: async (input) =>
-        localEndpoint.git.getDiff(
+        localFsGit.git.getDiff(
           input.repoPath,
           input.filePath,
           input.mode,
           input.oldPath,
         ),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        localFsGit.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: gitDiffOutputEqual,
     },
     fsListAll: {
-      read: async (input) => localEndpoint.fs.listAll(input.repoPath),
+      read: async (input) => localFsGit.fs.listAll(input.repoPath),
       install: (input, cb) =>
-        localEndpoint.fs.subscribeRepoChange(input.repoPath, cb),
+        localFsGit.fs.subscribeRepoChange(input.repoPath, cb),
       isEqual: fsListAllOutputEqual,
     },
     fsReadFile: {
       read: async (input): Promise<FsReadFileOutput> => {
         if (isBinaryPreviewable(input.filePath)) {
-          const mtimeMs = await localEndpoint.fs.statFileMtimeMs(
+          const mtimeMs = await localFsGit.fs.statFileMtimeMs(
             input.repoPath,
             input.filePath,
           );
@@ -314,18 +317,14 @@ const koluDeps: Omit<
             ),
           };
         }
-        const { content, truncated } = await localEndpoint.fs.readFile(
+        const { content, truncated } = await localFsGit.fs.readFile(
           input.repoPath,
           input.filePath,
         );
         return { kind: "text", content, truncated };
       },
       install: (input, cb) =>
-        localEndpoint.fs.subscribeFileChange(
-          input.repoPath,
-          input.filePath,
-          cb,
-        ),
+        localFsGit.fs.subscribeFileChange(input.repoPath, input.filePath, cb),
       isEqual: fsReadFileOutputEqual,
     },
   },
@@ -456,7 +455,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // truthfully yields the empty live set — not a lie, the honest "nothing
         // known to be moving". R9 injects a live source here instead.
         activity: quietActivity,
-        endpoint: localEndpoint,
+        endpoint: localFsGit,
         log,
       }),
     },
