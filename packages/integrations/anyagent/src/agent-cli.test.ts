@@ -357,28 +357,32 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   it.each([
     [
       "claude",
-      { kind: "claude-code", id: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID}`,
     ],
     [
       "claude --model sonnet",
-      { kind: "claude-code", id: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID} --model sonnet`,
     ],
-    ["codex", { kind: "codex", id: CODEX_ID }, `codex resume ${CODEX_ID}`],
+    [
+      "codex",
+      { kind: "codex", sessionId: CODEX_ID },
+      `codex resume ${CODEX_ID}`,
+    ],
     [
       "codex --yolo",
-      { kind: "codex", id: CODEX_ID },
+      { kind: "codex", sessionId: CODEX_ID },
       `codex resume ${CODEX_ID} --yolo`,
     ],
     [
       "opencode",
-      { kind: "opencode", id: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID}`,
     ],
     [
       "opencode --agent build --pure",
-      { kind: "opencode", id: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID} --agent build --pure`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
@@ -391,7 +395,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     expect(
       resumeAgentCommand(`claude --settings '{"ultracode": true}'`, {
         kind: "claude-code",
-        id: CLAUDE_ID,
+        sessionId: CLAUDE_ID,
       }),
     ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"ultracode": true}'`);
   });
@@ -399,9 +403,9 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // Fallback policy (locked): a ref naming a DIFFERENT agent than the command is
   // never aimed at this CLI — fall back to the most-recent marker.
   it("falls back to most-recent when the ref names a different agent", () => {
-    expect(resumeAgentCommand("claude", { kind: "codex", id: CODEX_ID })).toBe(
-      "claude -c",
-    );
+    expect(
+      resumeAgentCommand("claude", { kind: "codex", sessionId: CODEX_ID }),
+    ).toBe("claude -c");
   });
 
   // A SAME-agent ref whose id fails its per-agent shape gate (would-be shell
@@ -410,18 +414,18 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // conversation either. `resumeAgentCommand` returns null so the terminal wakes
   // to a bare shell rather than landing in a stranger's conversation.
   it.each([
-    ["claude", { kind: "claude-code", id: "not-a-uuid" }],
-    ["claude", { kind: "claude-code", id: "" }],
+    ["claude", { kind: "claude-code", sessionId: "not-a-uuid" }],
+    ["claude", { kind: "claude-code", sessionId: "" }],
     [
       // a hostile id carrying shell metacharacters never reaches the command
       "claude",
-      { kind: "claude-code", id: "$(rm -rf ~)" },
+      { kind: "claude-code", sessionId: "$(rm -rf ~)" },
     ],
-    ["codex", { kind: "codex", id: "ses_wrongshape" }],
+    ["codex", { kind: "codex", sessionId: "ses_wrongshape" }],
     [
       // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
       "opencode",
-      { kind: "opencode", id: "11111111-2222-3333-4444-555555555555" },
+      { kind: "opencode", sessionId: "11111111-2222-3333-4444-555555555555" },
     ],
   ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
     expect(resumeAgentCommand(normalized, session)).toBeNull();
@@ -441,7 +445,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     expect(
       resumeAgentCommand("aider", {
         kind: "claude-code",
-        id: CLAUDE_ID,
+        sessionId: CLAUDE_ID,
       }),
     ).toBeNull();
   });

@@ -31,7 +31,6 @@
 import {
   AgentIdentitySchema,
   AgentKindSchema,
-  AgentSessionRefSchema,
   RestoreTargetSchema,
 } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
@@ -50,29 +49,19 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-// `AgentKindSchema` + `AgentSessionRefSchema` + the resume vocabulary
-// (`AgentIdentitySchema`, `RestoreTargetSchema`) are OWNED by anyagent/schemas
-// (the lower layer that owns the `AgentKind` vocabulary and the
-// `resumeAgentCommand`/`resumeFormFor` receptacles consuming them). Re-exported
-// here so the wake/restore path and kolu-common/surface keep resolving them from
-// this schema home — one declaration, validated once.
-export {
-  AgentIdentitySchema,
-  AgentKindSchema,
-  AgentSessionRefSchema,
-  RestoreTargetSchema,
-};
+// `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,
+// `RestoreTargetSchema`) are OWNED by anyagent/schemas (the lower layer that owns
+// the `AgentKind` vocabulary and the `resumeAgentCommand`/`resumeFormFor`
+// receptacles consuming them). Re-exported here so the wake/restore path and
+// kolu-common/surface keep resolving them from this schema home — one
+// declaration, validated once.
+export { AgentIdentitySchema, AgentKindSchema, RestoreTargetSchema };
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
 ]);
-
-// `AgentSessionRef` (the conversation-identity ref `resumeAgentCommand` consumes
-// to target the EXACT conversation on wake/restore) — re-export the inferred type
-// from the anyagent-owned schema so kolu-common/surface keeps resolving it here.
-export type AgentSessionRef = z.infer<typeof AgentSessionRefSchema>;
 
 // ── PR resolution — closed forge union + wire result ──────────────────
 //

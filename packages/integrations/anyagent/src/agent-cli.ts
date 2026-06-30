@@ -31,9 +31,9 @@
 
 import { shellJoin, shellSplit } from "@kolu/shell-quote";
 import { parseArgsStringToArgv } from "string-argv";
-import type { AgentKind, AgentSessionRef, RestoreTarget } from "./schemas.ts";
+import type { AgentIdentity, AgentKind, RestoreTarget } from "./schemas.ts";
 
-export type { AgentKind, AgentSessionRef, RestoreTarget };
+export type { AgentKind, RestoreTarget };
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
@@ -280,7 +280,7 @@ export function parseAgentCommand(raw: string): string | null {
  */
 export function resumeAgentCommand(
   normalized: string,
-  session?: AgentSessionRef,
+  session?: AgentIdentity,
 ): string | null {
   const trimmed = normalized.trim();
   // The agent basename is always a safe bare word, so `shellSplit` reads the
@@ -307,8 +307,8 @@ export function resumeAgentCommand(
     // a no-op for a gate-passing id, but it keeps the "data, not shell text"
     // intent explicit. A malformed id is a broken claim → refuse to resume
     // (return null) rather than fall back to the most-recent (wrong) conversation.
-    if (!policy.idPattern.test(session.id)) return null;
-    marker = policy.byId(shellJoin([session.id]));
+    if (!policy.idPattern.test(session.sessionId)) return null;
+    marker = policy.byId(shellJoin([session.sessionId]));
   } else {
     // No ref, or a ref for a different agent: most-recent fallback (no id to aim).
     marker = policy.last;
@@ -327,9 +327,9 @@ export function resumeAgentCommand(
  *     construction (juspay/kolu#1492). A quit-to-shell produces `none`, so there
  *     is nothing to read wrong.
  *   - `exact` → resume THAT conversation by id (juspay/kolu#1495): the captured
- *     `agent` identity is mapped `sessionId → id` for `resumeAgentCommand`, which
- *     splices it (or refuses with `null` if the id fails its shape gate — a bare
- *     shell, never the wrong conversation).
+ *     `agent` identity is passed STRAIGHT to `resumeAgentCommand`, which splices it
+ *     (or refuses with `null` if the id fails its shape gate — a bare shell, never
+ *     the wrong conversation).
  *   - `legacyMostRecent` → the most-recent-marker resume (`claude -c`, …): the
  *     compatibility path for migrated pre-1.29 records that remembered a launch
  *     `command` but no session id. Reaches `resumeAgentCommand` with no ref, so it
@@ -342,8 +342,5 @@ export function resumeFormFor(
   if (target.kind === "legacyMostRecent")
     return resumeAgentCommand(target.command, undefined);
   // `exact`: the agent that was LIVE at sleep — re-target its native session id.
-  return resumeAgentCommand(target.command, {
-    kind: target.agent.kind,
-    id: target.agent.sessionId,
-  });
+  return resumeAgentCommand(target.command, target.agent);
 }
