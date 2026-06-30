@@ -27,7 +27,7 @@ export const PT = [
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — createPulam unneeded; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#r9lib" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "shipped #1626 (foundation assessed transport-agnostic for R9.3)", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
-  { d: 0, g: "○", c: "prog", l: "PR-1 · lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption (prep · local no-op)", m: "needs R9.1 · ∥ PR-2 PR-3", h: "#pr1" },
+  { d: 0, g: "◑", c: "prog", l: "PR-1 · lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption (prep · local no-op)", m: "in PR #1637 · ∥ PR-2 PR-3", h: "#pr1" },
   { d: 0, g: "○", c: "prog", l: "PR-2 · fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives (prep · local no-op)", m: "needs R9.1 · ∥ PR-1 PR-3", h: "#pr2" },
   { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#pr3" },
   { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — PTY · fs/git · FULL awareness · restore · sleep/wake · paste/upload · transcript (nothing deferred)", m: "needs PR-1 PR-2 PR-3 · R7", h: "#fremote" },
@@ -117,7 +117,7 @@ The original `R9.2 → R9.3 → R9.4 → R9.5` order shipped a remote tile **in 
 
 ### PR-1 — lifecycle honors `HostLocation` *(prep · local no-op)*
 
-<Phase id="PR-1" name="lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption" status="todo" needs={["R9.1"]} />
+<Phase id="PR-1" name="lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption" status="next" needs={["R9.1"]} links={[{ label: "#1637", href: "https://github.com/juspay/kolu/pull/1637" }]} />
 
 Thread `location` through every remaining lifecycle seam so the *terminal lifecycle* resolves through `HostLocation` (finishing what R9.1 started): **create** (`createTerminal` / the create RPC / `handleCreate`, default `LOCAL_LOCATION`, spawn via `resolveTerminalEndpoint(location)`); **restore** (stop dropping `t.location`, `useSessionRestore.ts`); **sleep/wake** — extend `TerminalEndpoint` with `sleep`/`releaseSleptPty`/`wake` (local arm = today's helpers verbatim) and route `sleepTerminal`/`wake` by `entry.meta.location`, exactly as kill/attach already do; **boot-adoption** — host-key the `ptyHost` singletons into a map (one `local` entry today; parameterize `adoptSurvivingSession`/`reconcile` per host, location-parameterize the orphan-adopt).
 
