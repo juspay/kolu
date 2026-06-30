@@ -45,6 +45,16 @@ export type ParsedUntil = WaitCondition | { kind: "error"; message: string };
  *  guard, not a silent coercion. */
 export const MAX_TIMER_MS = 2_147_483_647;
 
+/** Is `ms` a delay `setTimeout` can honor as written — positive, finite, and
+ *  within the 32-bit overflow ceiling? Both `--until idle:<ms>` and `--timeout
+ *  <ms>` flow into `setTimeout`, so the timer-range rule lives ONCE here rather
+ *  than diverging across the two call sites. (Whole-number-ness is the `idle:`
+ *  STRING grammar's job — the digit regex in `parseUntil` — not this numeric
+ *  range check, so a fractional `--timeout` is accepted exactly as before.) */
+export function isValidTimerMs(ms: number): boolean {
+  return Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMER_MS;
+}
+
 /** Parse the `--until` value into a {@link WaitCondition}. Two forms only —
  *  `idle:<ms>` (a positive whole number of milliseconds) and `match:<regex>` (a
  *  non-empty, valid JS regex). Anything else is a loud error, never a silent
@@ -54,22 +64,22 @@ export function parseUntil(spec: string): ParsedUntil {
   const match = "match:";
   if (spec.startsWith(idle)) {
     const raw = spec.slice(idle.length);
-    // Digits only + > 0: rejects "", "0", "-5", "8.5", "8e2", " 8" — a count of
-    // milliseconds is a positive integer, so anything else fails loud at the
-    // boundary rather than being coerced by Number() into a surprising window.
-    if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
+    // Digits only: a count of milliseconds is a whole number, so reject "",
+    // "-5", "8.5", "8e2", " 8" at the boundary rather than coercing via Number().
+    if (!/^\d+$/.test(raw)) {
       return {
         kind: "error",
         message: `--until idle:<ms> needs a positive whole number of milliseconds, got ${JSON.stringify(raw)} (e.g. idle:800).`,
       };
     }
     const ms = Number(raw);
-    // Reject above the setTimeout ceiling: a larger window would overflow and
-    // fire near-instantly (a FALSE "idle"), so crash loud rather than coerce.
-    if (ms > MAX_TIMER_MS) {
+    // 0 never settles, and a window above the setTimeout ceiling overflows and
+    // fires near-instantly (a FALSE "idle") — both fail the shared timer-range
+    // rule, so crash loud rather than coerce.
+    if (!isValidTimerMs(ms)) {
       return {
         kind: "error",
-        message: `--until idle:<ms> must be ≤ ${MAX_TIMER_MS} (~24.8 days): a larger window overflows the timer and would fire almost immediately, got ${JSON.stringify(raw)}.`,
+        message: `--until idle:<ms> must be between 1 and ${MAX_TIMER_MS} (~24.8 days): 0 never settles and a larger window overflows the timer, got ${JSON.stringify(raw)}.`,
       };
     }
     return { kind: "idle", ms };
@@ -357,8 +367,10 @@ export async function awaitOutputCondition(
   try {
     await Promise.all([consumeOutput(), consumeExit()]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    // `clearTimeout(undefined)` is a documented no-op, so the no-timeout case
+    // needs no guard; `disarmIdle` is the one home for the idle-timer teardown.
+    clearTimeout(timer);
+    disarmIdle();
   }
 
   return (

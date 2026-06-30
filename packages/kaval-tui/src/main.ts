@@ -56,6 +56,7 @@ import { runKill } from "./kill.ts";
 import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
 import {
   awaitOutputCondition,
+  isValidTimerMs,
   MAX_TIMER_MS,
   parseUntil,
   type WaitCondition,
@@ -798,11 +799,7 @@ async function main(): Promise<void> {
     if (parsed.kind === "error") fail(parsed.message);
     if (
       argv.flags.timeout !== undefined &&
-      !(
-        Number.isFinite(argv.flags.timeout) &&
-        argv.flags.timeout > 0 &&
-        argv.flags.timeout <= MAX_TIMER_MS
-      )
+      !isValidTimerMs(argv.flags.timeout)
     ) {
       // Cap at the setTimeout ceiling (~24.8 days): a larger timeout would
       // overflow and fire near-instantly, so reject it rather than coerce.
