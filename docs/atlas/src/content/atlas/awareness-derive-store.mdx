@@ -13,7 +13,7 @@ description: >-
   Lie-when-dead is handled by the active/sleeping discriminant, not by dropping fields. This note
   pins the types, the API, and the flows.
 parents: [remote-terminals-finale]
-status: proposed
+status: implemented
 maturity: budding
 updated: 2026-06-29
 ---
@@ -29,6 +29,8 @@ import foldflow from "../../diagrams/awareness-foldflow.svg?raw";
 import homes from "../../diagrams/awareness-homes.svg?raw";
 
 **The de-entanglement that makes R9 mostly evaporate.** Every hard thing in [the finale](remote-terminals-finale.html) — the two assemblers, the createPulam boundary, the fold-clobber — traces to **one** complect: the sensor engine *derives* awareness by *mutating a host record it also reads back as memory*. Split **observing** from **remembering** and it dissolves. This note pins the **types, the API, and the flows** so the boundary can be evaluated before any code; every claim cites the code it restructures.
+
+**Landed** (S1 + S2 → R9.0): <PrLink pr={1626} />. Two refinements were taken as documented in the PR — the resume target rides the authored record as a fold-derived `resumeAgent` (the round-6 fallback, because a cold-restored sleeping terminal can't rebuild a full `AgentInfo` from a saved identity), and the active drain-at-sleep + strict quit→bare-shell are deferred (the freeze invariant holds by construction).
 
 <Callout kind="note" title="Provenance — a settled design, simplified in review">
 This supersedes the createPulam / shared-leaf direction of the finale's R9·lib + R9.0, the "seed-the-engine" draft of this note, **and** the earlier three-category (cache / live / memory) model from the debate. The shape held; the *count* shrank. A long review collapsed it to the simplest thing that still can't clobber: **one observation a host produces, two facts only kolu keeps.** The record of the debate is `debates/awareness-architecture/conclusion.md`; the first-principles hardening pass (`05.*.md`) supplied the frame discriminator, the per-subscription `seq`, the value-change autosave fence, the mutator deletion, and the branded key — all carried below. The forks are **decided** (the "Decided" sections), not left open.
