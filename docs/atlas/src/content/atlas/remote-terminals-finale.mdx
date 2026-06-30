@@ -1,6 +1,6 @@
 ---
 title: Remote terminals — the finale (R9–R10)
-description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits TerminalSnapshot events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote subscribe-and-fold · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
+description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits TerminalSnapshot events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. The remaining work is re-sequenced under a hard constraint (a remote tile must be as complete as a local tile, nothing deferred) into three parallel local-preserving prep PRs then one feature. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (all shipped) · PR-1 lifecycle · PR-2 fs/git · PR-3 awareness · F-REMOTE the complete remote tile · R10 canvas.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
@@ -27,16 +27,16 @@ export const PT = [
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — createPulam unneeded; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#r9lib" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "shipped #1626 (foundation assessed transport-agnostic for R9.3)", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
-  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile — NEXT (unblocked)", m: "needs R9.1 (shipped)", h: "#r92" },
-  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote terminalEvents stream + the SAME fold", m: "needs R9.2 · R7", h: "#r93" },
-  { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
-  { d: 0, g: "○", c: "prog", l: "R9.5 · Code-tab fs/git → procedure + pulse", m: "needs R-pulamweb-4 · R9.3", h: "#r95" },
-  { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "needs R9.5", h: "#r10" },
+  { d: 0, g: "○", c: "prog", l: "PR-1 · lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption (prep · local no-op)", m: "needs R9.1 · ∥ PR-2 PR-3", h: "#pr1" },
+  { d: 0, g: "○", c: "prog", l: "PR-2 · fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives (prep · local no-op)", m: "needs R9.1 · ∥ PR-1 PR-3", h: "#pr2" },
+  { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#pr3" },
+  { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — PTY · fs/git · FULL awareness · restore · sleep/wake · paste/upload · transcript (nothing deferred)", m: "needs PR-1 PR-2 PR-3 · R7", h: "#fremote" },
+  { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + host picker + validate", m: "needs F-REMOTE", h: "#r10" },
 ];
 
 <PhaseTree title="FINALE — R9 (converged) · R10" phases={PT} />
 
-**S1 + S2 are the foundation** — the memoryless producer and kolu's fold. Once they land, **R9·lib dissolves** (nothing to assemble), **R9.0** is kolu running the producer in-process and folding, and **R9.3** is kolu subscribing a *remote* producer's event stream into the **same** fold — no separate reconcile. **R9.1** shipped (the PTY-endpoint path, orthogonal to awareness). The PTY/transport phases (R9.2 · R9.4 · R9.5 · R10) are unchanged by the awareness redesign.
+**S1 + S2 + R9.0 + R9.1 shipped** (#1626, #1603) — the memoryless producer, kolu's fold, the in-process local awareness, and the `HostLocation` resolver. What remains (the rows below R9.1) was **re-sequenced** under a hard constraint — *a remote tile must be as complete as a local tile, nothing deferred* — into **three parallel local-preserving prep PRs** (PR-1 lifecycle · PR-2 fs/git · PR-3 awareness) → **F-REMOTE** (the one complete-everything feature) → **R10** (host-picker UX). The old `R9.2/R9.3/R9.4/R9.5` rows dissolved into that shape — see [R9 re-sequenced](#prep) below. *(Full debate record + the adversarial-verification pass: `debates/r92-r93/`.)*
 
 ## What R9 reuses — and what it must build
 
@@ -59,12 +59,14 @@ export const PT = [
 | make the sensors a **memoryless producer** (observations, no seed, `TerminalSnapshot`) | the engine mutates a host record + reads it back (`sensors.ts:139-162`) | **S1** |
 | **kolu's fold** owns the gates + the clock; memory moves to `kolu.authored`; a `terminalEvents` stream | kolu/daemon each hand-roll a sink that writes the store | **S2** |
 | kolu runs the producer in-process and folds | kolu wires `startAwareness` against a registry-aliased record | **R9.0** |
-| the ssh **driver** (the remote PTY arm) | only `{kind:"local"}` exists | **R9.2** |
-| subscribe a **remote** producer's event stream into kolu's fold | — | **R9.3** |
+| lifecycle (create · restore · sleep/wake · boot-adoption) resolves through `HostLocation` | hard-pinned local at those seams | **PR-1** |
+| fs/git + file-IO (Code tab · byte preview · paste/upload · transcript) host-aware | `koluSurface` value-streams off `localEndpoint`; preview byte route reads kolu-server's local fs | **PR-2** |
+| awareness host-ready (framer + `terminalEvents` wire) so a remote stream folds through the same fold | events consumed in-process, never on the wire | **PR-3** |
+| the remote tile itself — the ssh driver + every remote arm lit | only `{kind:"local"}` exists | **F-REMOTE** |
 
 ## The sub-phases
 
-The **awareness** phases (S1 · S2 · R9.0 · R9.3) are specified in full — types, API, interaction diagrams — in **[the awareness design](awareness-derive-store.html)**; their one-liners are below. The **PTY/transport** phases (R9.1 · R9.2 · R9.4 · R9.5 · R10) are detailed here.
+The **awareness** types, API, and interaction diagrams are specified in full in **[the awareness design](awareness-derive-store.html)** — the awareness internals (the framer, the fold, the consumer-arm recency rule, `HostTerminalKey`) that PR-3 and F-REMOTE wire up. The **shipped** phases (S1 · S2 · R9.0 · R9.1) and the **re-sequenced remaining** phases (PR-1 · PR-2 · PR-3 · F-REMOTE · R10) are detailed here.
 
 <a id="s1"></a><a id="s2"></a><a id="r9lib"></a>
 
@@ -101,84 +103,86 @@ kolu's local awareness is the **memoryless producer called in-process** (no daem
 
 The PTY-endpoint path — **orthogonal to awareness**, so the redesign doesn't touch it. `resolveTerminalEndpoint` is the one `HostLocation`-keyed seam mapping a terminal to its kaval endpoint; the `{kind:"remote"}` arm fails loudly until R9.2 fills it (`.exhaustive()` forces a deliberate arm). Per-terminal ops resolve off `entry.meta.location`, so R9.2 is a one-`case` addition.
 
-<a id="r92"></a>
+<a id="prep"></a>
 
-### R9.2 — ssh kaval driver → a remote PTY tile (+ a minimal create knob)
+## R9 re-sequenced — prep-first, F-REMOTE complete-everything
 
-<Phase id="R9.2" name="ssh kaval driver — remote PTY + minimal create knob" status="todo" needs={["R9.1"]} />
+The original `R9.2 → R9.3 → R9.4 → R9.5` order shipped a remote tile **in pieces** (PTY first; Code tab, restore, awareness bolted on later) — which violates the **hard constraint** settled across the `debates/r92-r93/` rounds and ratified by an adversarial-verification workflow: *no PR may break existing functionality, and a remote tile must be **as complete as a local tile** the moment a user can create one — nothing deferred.* So R9 re-sequences into **three parallel, local-preserving prep PRs** (each makes one *concern* host-aware as a no-op on local) → **F-REMOTE** (the one PR that lights up a complete remote tile) → **R10** (host-picker UX). R9.2/R9.3/R9.4 dissolve into this shape; R9.5 becomes prep (PR-2); R-pulamweb-4 leaves kolu's critical path (kolu mirrors the remote pulam server-side via R7, not the pulam-web browser leg).
 
-Fill the `{kind:"remote",hostId}` arm of the resolver: a **long-lived** `getHostSession` dial (**not** the one-shot `dialAgentOnce`) to the remote host's **kaval** over `ssh <host> kaval --stdio` (the relay `kaval-tui --host` uses) → a `RemoteTerminalEndpoint` (the *same* `TerminalEndpoint` shape, remote transport) → a remote PTY on the canvas, **PTY only** (no awareness badge yet). The prose "one-`case` addition" undersells: the seam is one `.with()` arm, the work is **~6 pieces** — the long-lived dialer + the `server → @kolu/surface-nix-host` dep; remote spawn-env composed from the remote daemon's `system.info` (inverting the local `cleanEnv()`-wins layering); `location` plumbed into the *create* path (today hard-pinned local); a remote-`hostId` `daemonStatus` writer; the `ssh` badge; and **fail-fast throwing stubs** for the remote `fs`/`git` (the Code tab fails *loudly* until R9.5, never silently empty).
+<Callout kind="note" title="Why three prep PRs, not six (decompose by concern, not by seam)">
+`HostLocation` is already the source of truth for "which host" (R9.1) — so completing it is **one idea per concern** (the *lifecycle*, *fs/git + file-IO*, *awareness*), not one PR per file touched. Each prep PR is a pure local no-op; all three are **logically independent → fully parallel** — PR-2 *reads* the already-persisted `entry.meta.location`, it does not need PR-1 to *set* it. The only coordination is a surface-version rebase between PR-2 and PR-3 (both bump `TERMINAL_WORKSPACE_CONTRACT_VERSION`). The adversarial pass also recovered **three first-class capabilities silently pinned to the local host** — sleep/wake, paste/upload, transcript export — now first-class in the prep + F-REMOTE (each routed to its host, never silently wrong-host).
+</Callout>
 
-**The create knob (a real user-facing control — settled by the R9.2/R9.3 debate, `debates/r92-r93/`):** a command-palette entry under the existing "New terminal" group — **"On SSH host…"** — takes a free-typed ssh destination (reusing the palette's free-text input) and threads `location = {kind:"remote",hostId}` into the one create chokepoint; the tile renders an `ssh` badge. A free-typed target works because the kaval drv-map is **arch-keyed, not host-keyed** (`dialAgentOnce` probes the host's arch and ships the matching kaval), so any ssh-reachable, Nix-provisionable host works — exactly like `kaval-tui --host`. Only the **curated** host picker / ssh-config browser / canvas host-strip defers to R10. *(Rule: ship a user-facing knob, not test-only plumbing.)*
+<a id="pr1"></a>
 
-**R9.2 ↔ R9.4 line:** blip-survival is **free** — `getHostSession` reconnects with backoff and the durable `kaval --stdio` daemon keeps the PTY alive across the link, so a re-attach reaches the same PTY. R9.4 owns kolu-server-**restart** re-adoption + the typed adopt/recycle/degrade matrix + reconnect re-validation.
+### PR-1 — lifecycle honors `HostLocation` *(prep · local no-op)*
 
-- **Needs:** R9.1.
-- **Done:** create a remote tile via "On SSH host…"; spawn a PTY; see an `ssh`-badged tile that echoes; `location` persists; it survives a network blip via re-attach; remote fs/git throw loudly. e2e: a remote PTY round-trips over ssh.
+<Phase id="PR-1" name="lifecycle honors HostLocation — create · restore · sleep/wake · boot-adoption" status="todo" needs={["R9.1"]} />
 
-<a id="r93"></a>
+Thread `location` through every remaining lifecycle seam so the *terminal lifecycle* resolves through `HostLocation` (finishing what R9.1 started): **create** (`createTerminal` / the create RPC / `handleCreate`, default `LOCAL_LOCATION`, spawn via `resolveTerminalEndpoint(location)`); **restore** (stop dropping `t.location`, `useSessionRestore.ts`); **sleep/wake** — extend `TerminalEndpoint` with `sleep`/`releaseSleptPty`/`wake` (local arm = today's helpers verbatim) and route `sleepTerminal`/`wake` by `entry.meta.location`, exactly as kill/attach already do; **boot-adoption** — host-key the `ptyHost` singletons into a map (one `local` entry today; parameterize `adoptSurvivingSession`/`reconcile` per host, location-parameterize the orphan-adopt).
 
-### R9.3 — remote awareness = subscribe the remote event stream + the same fold
+- **Why whole:** every record is `{kind:"local"}` today → every resolve returns `localTerminalEndpoint` → create / restore / sleep / wake / adoption are byte-identical. **No user-facing change.**
+- **Needs:** R9.1. **Parallel** with PR-2 · PR-3.
+- **Done:** `sleepWake.test.ts` + restore + boot-adoption green unchanged; a saved `location` round-trips create→restore.
 
-<Phase id="R9.3" name="remote awareness — subscribe the remote producer's event stream" status="todo" needs={["R9.2", "R7"]} />
+<a id="pr2"></a>
 
-A remote host runs the **same memoryless producer** in its **pulam** daemon, serving an ordered `terminalEvents` stream. kolu dials the remote **pulam** (which serves the terminal-workspace surface — kaval serves only PTY) over a long-lived `getHostSession`, mirrors it via R7's total dual, and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical. The R9.0 foundation was **assessed transport-agnostic** for exactly this (`debates/r93-foundation/`): the fold and producer reuse verbatim, so R9.3 is an **additive transport arm**, not a refactor. So a remote host runs **two** kolu-dialed daemons: kaval (R9.2, the PTY) + pulam (R9.3, awareness).
+### PR-2 — fs/git & file-IO ready for any host *(prep · local no-op)*
 
-**Split into three sub-PRs** (settled by the R9.2/R9.3 debate, `debates/r92-r93/` — each independently shippable, CI-green, no lying stubs):
+<Phase id="PR-2" name="fs/git + file-IO host-aware — Code-tab procedure+pulse · byte primitives" status="todo" needs={["R9.1"]} />
 
-- **R9.3a — framer + local-through-framer prep.** Build `TerminalFrame` (`snapshot | delta(seq) | gap`); route the local path through the framer. The framer assigns **phase/seq only** — *not* `ctx.live`. ⚠️ **`ctx.live` = `(phase === "delta")` AND the durable agent-identity baseline check, in kolu's *consumer arm*** (the common caller of `fold`, local and remote). Deleting the baseline would spuriously bump recency on every restart, because adopt re-seeds `agent: null` (RAM-only; the resume identity rides the authored `restoreTarget`) and the agent re-resolves *asynchronously as a delta* — so phase-alone makes the fold see `agentIdentityChanged(null, A) = true`. The baseline lives in the consumer arm (not the framer — the remote framer runs in pulam with no kolu memory; not in `fold` — verbatim). *Done:* a differential test pins local fold output (esp. `lastActivityAt`) equal pre/post for fresh-spawn, sleep/wake, and **adopt**.
-- **R9.3b — wire schema + pulam serves events.** Add `TerminalEventSchema` + `TerminalFrameSchema` (zod; none today), the `terminalEvents` stream on `terminalWorkspaceSurface`, contract bump **`3.0 → 3.1`** (additive — a new stream). Pulam serves the framed events beside its `snapshots` cache (kolu can't rebuild memory from the cache — `commandRun` is a mark `foldSnapshot` drops). *Done:* a subscriber gets snapshot-then-deltas **including a `commandRun` mark**; pulam-tui/pulam-web unchanged.
-- **R9.3c — kolu's remote subscribe-and-fold arm + `HostTerminalKey`.** Dial the remote pulam (`getHostSession({binary:"pulam"})` — the `pulam-tui` precedent; bake `PULAM_AGENT_DRVS_JSON`), mirror via R7, fold with the consumer-arm rule; `gap → re-snapshot`. `HostTerminalKey` is **kolu-intake-only** (pairs `TerminalId` + `HostLocation` before the aggregate; the wire stays bare `TerminalId`). *Done:* a remote tile shows live awareness via the **same** fold; a differential pins it equal to the producer's state.
+Make everything a terminal reads or writes on disk resolve to **its** host. Rewrite the Code tab off `koluSurface`'s **value-bearing** streams onto the shared surface's **procedure + `{seq}` pulse** (`CodeTab.tsx`; `wire.ts` already holds the `workspace` client; the two wire shapes are in [surface live data](surface-live-data.html)) — reproduce the `.use().pending()` selection-stability guard, relocate the binary-preview/iframe orchestration client-side. Resolve the server fs/git **per `entry.meta.location`** (a per-host re-served mirror; inputs stay bare `repoPath`/`filePath`), and make the preview **byte route** a per-location byte source. Add three byte primitives to `terminalWorkspaceSurface` (**`3.0 → 3.1`**, additive): a range-capable **preview-read** (bytes + content-type + content-range), a **scratch-write** (paste/upload), a **transcript-source read** — each re-enforcing the realpath/traversal guard **on the producing host**. Route paste/upload (`saveTerminalFile`) + transcript export per location. *(This is the old R9.5, pulled to prep — it no longer needs R-pulamweb-4 or awareness. Three serve sites: kolu-server local arm · pulam live arm · pulam-web **forwards** each. The remote arms are throwing stubs lit by F-REMOTE.)*
 
-- **Needs:** R9.2 (the remote PTY) for R9.3c; R7 (the total dual). *(S2 shipped in #1626; R9.3a/b have no remote blocker.)*
-- **Done:** a remote tile shows live awareness folded from the remote producer's stream, via the **same** fold as local; a differential test pins it equal to the producer's snapshot state.
+- **Why whole:** every git mode, diff, file read, image/PDF/HTML preview (incl. the `..`/`%2f`/symlink-escape 403) behaves as today; the new byte procedures serve in-process locally. **No user-facing change** (Code tab byte-identical).
+- **Needs:** R9.1. **Parallel** with PR-1 · PR-3 (shares a surface-version rebase with PR-3).
+- **Done:** Code tab byte-identical incl. preview; the three byte procedures serve locally; `surface.test.ts` pinned at `3.1`.
 
-<a id="r94"></a>
+<a id="pr3"></a>
 
-### R9.4 — persisted location, reconnect, adoption
+### PR-3 — awareness ready for any host *(prep · local no-op)*
 
-<Phase id="R9.4" name="persisted location + reconnect + adoption" status="todo" needs={["R9.2"]} />
+<Phase id="PR-3" name="awareness host-ready — framer + terminalEvents wire" status="todo" needs={["S2"]} />
 
-Harden the remote lifecycle: re-validate the persisted `location` on reconnect, and cover the adoption/reconcile cases.
+Get awareness into the right **shape** + a **pipe** so a remote host's sensors can feed kolu's *same* fold. Build a `TerminalFrame` type + framer (deriving **phase/seq only**; it stamps every local emission `phase:"delta"`); route kolu's local producer through it. The `live` decision — `(phase === "delta") && agentIdentityChanged(baseline, value)`, skip `"unknown"` — and the durable `recencyBaseline` live **in kolu's consumer arm** (NOT the framer, NOT `fold` — `fold.ts` verbatim), extracted as a **shared, re-seedable unit** F-REMOTE reuses. Add `TerminalEventSchema` + `TerminalFrameSchema` (zod) + the `terminalEvents` stream on `terminalWorkspaceSurface` (**`3.1 → 3.2`**, additive); pulam serves it live beside its `snapshots` cache (emitting the `commandRun` marks the cache drops); kolu-server **quiet-defaults** it (its local in-process fold untouched); pulam-web **forwards** it.
 
-| the remote kaval is… | kolu does |
-| --- | --- |
-| absent | provision + spawn fresh (`adoptOrEnsure` → ensure) |
-| live · wire-compatible | **adopt** — connect, never kill; its PTYs reconcile in |
-| live · a build behind | adopt **+** an "update pending" nudge |
-| live · contract-skewed | recycle (kill → respawn) — only on a typed `DaemonContractSkewError` |
-| unreachable | bounded retry, then **degraded — never killed** |
+- **Why whole:** a differential test pins local fold output (esp. `lastActivityAt`) equal pre/post **and asserts the fresh-spawn recency bump is preserved** + no-bump on adopt/sleep-wake (the adopt guard — `adoptedSnapshot` seeds `agent:null`, so only the seeded baseline's `live=false` prevents a spurious bump). A served-but-unconsumed `terminalEvents` is real, tested producer capability. **No user-facing change.**
+- **Needs:** S2 (shipped). **Parallel** with PR-1 · PR-2.
+- **Done:** local awareness byte-identical; a `terminalEvents` subscriber gets snapshot-then-`commandRun`-delta; pulam-tui/web unaffected; `surface.test.ts` pinned at `3.2`.
 
-- **Open (decide here):** *what* is re-validated on reconnect and the fail behavior. `location` is the host discriminator (`kolu.authored`); `cwd` is a snapshot field — different homes. Spell out the comparison and the fail-fast (crash loudly vs re-derive); don't invent it at implementation time.
-- **Needs:** R9.2.
-- **Done:** a kolu-server restart re-adopts remote PTYs; each adoption-table row has a test.
+<a id="fremote"></a>
 
-<a id="r95"></a>
+### F-REMOTE — the complete remote tile *(the one user-visible feature; nothing deferred)*
 
-### R9.5 — the Code-tab fs/git rewrite (procedure + pulse)
+<Phase id="F-REMOTE" name="remote terminal — PTY · fs/git · full awareness · restore · sleep/wake · paste/upload · transcript" status="todo" needs={["PR-1", "PR-2", "PR-3", "R7"]} />
 
-<Phase id="R9.5" name="Code-tab fs/git → procedure + pulse" status="todo" needs={["R-pulamweb-4", "R9.3"]} />
+`RemoteTerminalEndpoint` fills `resolveTerminalEndpoint`'s `{kind:"remote",hostId}` arm and **lights every remote arm the prep created**, on the ONE remote-pulam mirror it already needs. A remote tile becomes a **full peer to a local one**:
 
-The one **large client change**, and the only finale phase R-pulamweb-4 gates. The Code tab reads `koluSurface`'s **value-bearing** streams today (`CodeTab.tsx` — `app.streams.gitStatus/fsListAll/gitDiff.use`). Rewrite it to the shared surface's **procedure + `{seq}` pulse**: call the procedure once, re-query on each pulse (the two wire shapes are in [surface live data](surface-live-data.html)). This deletes the last `koluSurface` fs/git reads and works for local and remote tiles alike.
+- **PTY** over the remote **kaval** (`getHostSession({binary:"kaval"})`; remote spawn-env from the host's `system.info`, inverting the local `cleanEnv()`-wins layering).
+- **Real fs/git Code tab** + the host-aware **binary-preview byte route** over the remote **pulam** (R7 mirror; PR-2's byte primitives; realpath/traversal guards re-enforced on the host; the HTML-artifact decorator fed remote bytes).
+- **Full awareness** — subscribe `terminalEvents` on the same mirror, run **PR-3's shared consumer arm**, fold via the **same** `fold`, keyed by a branded `HostTerminalKey` **before** kolu's aggregate (the wire stays bare `TerminalId`). Agent badge + recency + restore-target.
+- **Session restore incl. boot re-dial-re-adopt** — a *new* F-REMOTE loop reads saved remote `hostId`s, dials each host's kaval **and** pulam at boot, reconciles per host; the client restore loop **dials+adopts, not respawns** (closes the respawn-vs-surviving-PTY race). Blip-survival is free from `HostSession`'s reconnect + the durable `kaval --stdio` daemon.
+- **kill/attach** (already location-routed); **sleep/wake on the host**; **paste/upload to the host** (PR-2's scratch-write); **transcript from the host** (PR-2's transcript-read).
+- The **create knob** ("On SSH host…" free-text → `location:{kind:"remote",hostId}`; works because the drv-map is **arch-keyed**, so any ssh-reachable, Nix-provisionable host dials like `kaval-tui --host`), the **`ssh` badge** + a discoverability tip, the remote-`hostId` `daemonStatus` writer, and the Nix wiring (`@kolu/surface-nix-host` + both drv maps).
 
-- **Needs:** **R-pulamweb-4** (proves the procedure + pulse remote leg over `websocketLink` + `surfaceClient`), R9.3.
-- **Done:** the Code tab shows live git status/diff for a **remote** tile via procedure + pulse; no `koluSurface` fs/git reads remain.
+- **Why whole:** a remote tile matches a local tile on **every** axis — nothing deferred, nothing wrong-host. Every prep was a local no-op, so all local e2e stay green. *(Optional UI-only split: complete-but-invisible endpoint → then the create knob.)*
+- **Needs:** PR-1 · PR-2 · PR-3 · R9.1 · R7. **Not** R-pulamweb-4; **not** any further contract bump.
+- **Done:** an e2e creates a remote tile and asserts EVERY local-tile axis — PTY echo; Code-tab git/diff/tree + binary preview over real remote fs/git; live agent/recency/restore badges folded via the same `fold`; kill/attach; sleep/wake, paste/upload, transcript **on the host**; kolu-restart re-adopt; reload re-dial+adopt. All local e2e green.
 
 <a id="r10"></a>
 
 ### R10 — canvas multiplex + validate
 
-<Phase id="R10" name="canvas multiplex + validate" status="todo" needs={["R9.5"]} />
+<Phase id="R10" name="canvas multiplex + validate" status="todo" needs={["F-REMOTE"]} />
 
-The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. The granularity call lands here, validated, not up front.
+The UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. The granularity call lands here, validated, not up front. *(F-REMOTE's create knob is the minimal "type a host"; R10 is the curated picker + multiplex.)*
 
-- **Needs:** R9 (all of it).
+- **Needs:** F-REMOTE.
 - **Done:** the validated UX call, recorded.
 
 ## Open decisions
 
-The awareness forks the debate raised are **decided** (recorded in [the awareness design](awareness-derive-store.html)): memory home = `kolu.authored`; recency = identity-only (the restore-caveat heuristic deleted); dashboards = urgency-only; aggregation key = `(HostLocation, TerminalId)`; the activity-definition predicate is fixed in one tested function. The only finale decision still open:
+The awareness forks the debate raised are **decided** (recorded in [the awareness design](awareness-derive-store.html)): memory home = `kolu.authored`; recency = identity-only (the restore-caveat heuristic deleted); dashboards = urgency-only; aggregation key = `(HostLocation, TerminalId)`; the activity-definition predicate is fixed in one tested function. The phasing forks are decided (`debates/r92-r93/`): three parallel prep PRs → F-REMOTE → R10; R-pulamweb-4 cut from kolu's path; sleep/wake · paste/upload · transcript routed per host (not silently local). The only implementation decision still open:
 
 | decision | needed by | options |
 | --- | --- | --- |
-| reconnect re-validation semantics | **R9.4** | what's compared (`location` vs the remote kaval's live `cwd`) + the fail-fast behavior |
+| reconnect re-validation semantics (folded into F-REMOTE's boot re-dial-re-adopt) | **F-REMOTE** | what's compared (`location` vs the remote kaval's live `cwd`) + the fail-fast behavior |

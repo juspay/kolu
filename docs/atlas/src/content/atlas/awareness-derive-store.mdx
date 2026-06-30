@@ -283,9 +283,9 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold — last-write-wins + 2 kolu-only fields · kolu's clock · memory→authored", m: "shipped #1626", h: "#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — nothing to assemble; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#how-r9-collapses" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots", m: "shipped #1626 (foundation assessed transport-agnostic)", h: "#how-r9-collapses" },
-  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → remote PTY — NEXT (unblocked)", m: "needs R9.1 (shipped)", h: "remote-terminals-finale.html#r92" },
-  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote terminalEvents stream + the SAME fold", m: "needs R9.2 · R7", h: "#r93-the-remote-build" },
-  { d: 0, g: "○", c: "last", l: "R9.4 · R9.5 · R10 (unchanged)", m: "→ finale", h: "remote-terminals-finale.html" },
+  { d: 0, g: "○", c: "prog", l: "PR-3 · awareness host-ready — framer + terminalEvents wire (prep · local no-op)", m: "needs S2 · ∥ PR-1 PR-2", h: "#r93-the-remote-build" },
+  { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete remote tile — folds the remote terminalEvents through the SAME fold (+ PTY · fs/git · restore · …)", m: "needs PR-1 PR-2 PR-3 · R7", h: "remote-terminals-finale.html#fremote" },
+  { d: 0, g: "○", c: "last", l: "PR-1 · PR-2 · R10 (lifecycle · fs/git · host-picker UX)", m: "→ finale", h: "remote-terminals-finale.html#prep" },
 ];
 
 <PhaseTree title="S1 · S2 → R9 collapses" phases={PT} />
@@ -294,18 +294,18 @@ export const PT = [
 | --- | --- | --- |
 | **R9·lib** | share a daemon-shaped assembly (createPulam) | **dissolved** — producer + fold are pure leaves; each host's loop is ~8 lines |
 | **R9.0** | kolu cuts over its sink/loop; clobber risk | **✓ shipped** (<PrLink pr={1626} />) — producer in-process, folds onto authored+snapshots; clobber-free by type |
-| **R9.3** | unbuilt; "the remote-only fold" | the next awareness build — subscribe the remote `terminalEvents` stream → the **same** fold. No `reconcileRemoteSnapshot`. Work-list above. |
-| R9.2 / R9.4 / R9.5 / R10 | — | R9.2 (ssh PTY) is the next PR; R9.4/R9.5/R10 unchanged |
+| **remote awareness** | unbuilt; "the remote-only fold" | re-sequenced (`debates/r92-r93/`): the producer-side prep is **PR-3** (framer + the `terminalEvents` wire, a local no-op), and **F-REMOTE** subscribes the remote stream → the **same** fold. No `reconcileRemoteSnapshot`. Work-list below. |
+| the rest | — | **PR-1** (lifecycle) · **PR-2** (fs/git) prep in parallel; **F-REMOTE** lights the complete tile; **R10** the host-picker UX — see [the finale](remote-terminals-finale.html#prep) |
 
-<Svg svg={homes} caption="Local (R9.0) vs remote (R9.3) — the SAME memoryless producer and the SAME fold, two transports. LOCAL: kolu runs the producer in-process; its observations feed kolu's fold directly. REMOTE: the producer runs in the pulam daemon and serves an ordered TerminalSnapshot event stream over ssh; kolu subscribes and folds with ITS clock. Either way kolu seeds current from its durable record, so the snapshot frame is the reconcile — there is no separate reconcileRemoteSnapshot. The two memory fields land on kolu.authored; the snapshots collection is TerminalSnapshot everywhere. Reader-join (authored ⋈ snapshots) unchanged." />
+<Svg svg={homes} caption="Local (R9.0, in-process) vs remote (F-REMOTE) — the SAME memoryless producer and the SAME fold, two transports. LOCAL: kolu runs the producer in-process; its observations feed kolu's fold directly. REMOTE: the producer runs in the pulam daemon and serves an ordered TerminalSnapshot event stream over ssh; kolu subscribes and folds with ITS clock. Either way kolu seeds current from its durable record, so the snapshot frame is the reconcile — there is no separate reconcileRemoteSnapshot. The two memory fields land on kolu.authored; the snapshots collection is TerminalSnapshot everywhere. Reader-join (authored ⋈ snapshots) unchanged." />
 
 <a id="r93-the-remote-build"></a>
 
-## R9.3 — the remote build
+## Remote awareness — the build (PR-3 prep + F-REMOTE consume)
 
-R9.0 shipped (<PrLink pr={1626} />). Before starting R9.3 it was **assessed by a 4-reviewer
+R9.0 shipped (<PrLink pr={1626} />). Before building remote awareness it was **assessed by a 4-reviewer
 foundation debate** (`debates/r93-foundation/`): the verdict is **clean / transport-agnostic** —
-nothing in R9.0 must be undone for R9.3. Verified against the merged diff:
+nothing in R9.0 must be undone. Verified against the merged diff:
 
 - the **fold** is reused **verbatim** — `fold(state, event, ctx:{live, at})` injects clock + liveness
   as values; it knows no transport;
@@ -315,16 +315,16 @@ nothing in R9.0 must be undone for R9.3. Verified against the merged diff:
   frame *is* the reconcile; the value-based recency baseline (the R9.0 substitute for the deleted
   `AWARENESS_SNAPSHOT_WINDOW_MS` timer) suppresses the re-observation bump.
 
-So R9.3 is an **additive transport arm**, not a refactor — and the debate (`debates/r92-r93/`) split it into **three independently-shippable sub-PRs** (R9.3a framer + local-prep · R9.3b wire + pulam-serves · R9.3c kolu-subscribe + key). The work-list, given R9.0's actual structure:
+So remote awareness is an **additive transport arm**, not a refactor — and the re-sequence (`debates/r92-r93/`) places the **producer-side prep in PR-3** (a pure local no-op) and the **consume in F-REMOTE** (sharing the pulam dial F-REMOTE already holds for fs/git). Mapping the work-list below: items 1–3 are **PR-3** (the framer, the wire, pulam serving events); items 4–5 are **F-REMOTE** (kolu subscribes + folds, `HostTerminalKey`). The work-list, given R9.0's actual structure:
 
 1. **Build the `TerminalFrame` type** (designed above — `snapshot | delta(seq) | gap`). R9.0 has only
-   `TerminalEvent`; the framed stream was deferred here, by design. *(R9.3a)*
+   `TerminalEvent`; the framed stream was deferred here, by design. *(PR-3)*
 2. **A framer** that turns the producer's `emit` sequence into frames — *wraps* the producer (which
    stays a pure emitter) and assigns **`phase`/`seq` only**. It is **not** where `ctx.live` is decided:
    liveness is `(phase === "delta")` **AND** kolu's durable agent-identity baseline check, in kolu's
    *consumer arm* (the framer can't see kolu's `restoreTarget`; the remote framer runs in pulam, which
    has no kolu memory). Deleting the baseline would spuriously bump recency on every restart — adopt
-   re-seeds `agent: null` and the agent re-resolves *asynchronously as a delta*. *(R9.3a — pin the adopt
+   re-seeds `agent: null` and the agent re-resolves *asynchronously as a delta*. *(PR-3 — pin the adopt
    case with a differential test.)*
 3. **Pulam serves the framed *event* stream — not just its snapshot cache.** ⚠️ The sharp,
    non-obvious requirement (the debate's headline): pulam today folds each `TerminalEvent` into a
@@ -332,18 +332,18 @@ So R9.3 is an **additive transport arm**, not a refactor — and the debate (`de
    But that cache is **insufficient** for kolu-as-remote-consumer, because `commandRun` is a **memory
    mark** that `foldSnapshot` drops — so the remote daemon must serve the **raw event stream** (a new
    `terminalEvents` stream beside the `snapshots` collection, contract bump `3.0 → 3.1`, additive), and
-   **kolu must not rebuild memory from the served `snapshots`**. *(R9.3b)*
+   **kolu must not rebuild memory from the served `snapshots`**. *(PR-3)*
 4. **kolu's remote subscribe-and-fold arm** — dial the remote **pulam** (it serves the terminal-workspace
    surface — kaval serves only PTY; `getHostSession({binary:"pulam"})`, the `pulam-tui` precedent, bake
    `PULAM_AGENT_DRVS_JSON`), mirror the `terminalEvents` over **R7**'s total dual, seed `current` from
-   kolu's durable record, fold exactly as local; on a missing `seq`, force a `gap` → re-snapshot. *(R9.3c)*
+   kolu's durable record, fold exactly as local; on a missing `seq`, force a `gap` → re-snapshot. *(F-REMOTE)*
 5. **Host-scoped keys** — the branded `HostTerminalKey` (designed in "Decided"), **kolu-intake-only**
    (the wire stays bare `TerminalId`), lands here, where two hosts' opaque PTY ids can actually collide.
-   *(R9.3c)*
+   *(F-REMOTE)*
 
-<Callout kind="note" title="R9.3 prep — route the LOCAL path through the framer too (one phase-seam, not two)">
+<Callout kind="note" title="PR-3 prep — route the LOCAL path through the framer too (one phase-seam, not two)">
 R9.0 decides snapshot-vs-delta **inline** in the local emit closure (the value-based recency baseline,
-`local.ts:773-795`). When building R9.3, route the in-process path through the *same* framer so
+`local.ts:773-795`). When building PR-3, route the in-process path through the *same* framer so
 "subscribe-and-fold" is *the* one seam — only the **source of frames** differs (in-process framer vs ssh
 wire). **But this is not a pure no-op, and the framer does not subsume the baseline.** The debate
 (`debates/r92-r93/`) verified that replacing the baseline with `live = (phase === "delta")` *spuriously
@@ -354,9 +354,10 @@ So the prep **moves** the durable-baseline identity check out of the local emit 
 phase/seq; kolu's arm carries the baseline; `fold` stays verbatim. Pin the adopt case with a differential test.
 </Callout>
 
-**Order:** **R9.2** (the ssh kaval driver → a remote PTY tile) is the next PR — it's unblocked (needs
-only the shipped R9.1) and is a prerequisite for R9.3. Then R9.3 (needs R9.2 + R7) lights up remote
-awareness on the same fold.
+**Order:** **PR-3** (this awareness producer-prep) lands in parallel with PR-1 (lifecycle) and PR-2
+(fs/git) — all three pure local no-ops — then **F-REMOTE** subscribes the remote `terminalEvents` on the
+pulam mirror it already holds for fs/git and folds it through the same fold, lighting remote awareness as
+part of the one complete-everything tile. See [the finale](remote-terminals-finale.html#prep).
 
 ## Decided — the forks closed
 
@@ -369,7 +370,7 @@ awareness on the same fold.
 
 ## Phasing & migration
 
-- **S1 → S2 → R9.** S1 (the memoryless producer) is the one real lift — rewriting the freshness-critical sensors from mutate-via-sink to emit-observations, with the existing sensor tests as the safety net; it *deletes* the sink ×2, the record, the read-back contract, the seed, and the clobber. S2 (kolu's fold + the two memory fields → authored + the framed `terminalEvents` stream) follows, and **deletes the awareness *mutator* APIs too, not only the sink**: `mutateAwarenessPersisted` / `mutateAwarenessLive` (`terminal-registry.ts:177-197`) and the `(m) => { m.x = … }` callbacks they feed (`metadata.ts:124-159`) are the surviving mutable *place* — the commit seam **replaces** the registry value (`entry.snapshot = next`) instead of handing a caller a mutable object. After both, R9·lib is gone, R9.0 is an ~8-line loop, and R9.3 is subscribe-and-fold.
+- **S1 → S2 → R9.** S1 (the memoryless producer) is the one real lift — rewriting the freshness-critical sensors from mutate-via-sink to emit-observations, with the existing sensor tests as the safety net; it *deletes* the sink ×2, the record, the read-back contract, the seed, and the clobber. S2 (kolu's fold + the two memory fields → authored + the framed `terminalEvents` stream) follows, and **deletes the awareness *mutator* APIs too, not only the sink**: `mutateAwarenessPersisted` / `mutateAwarenessLive` (`terminal-registry.ts:177-197`) and the `(m) => { m.x = … }` callbacks they feed (`metadata.ts:124-159`) are the surviving mutable *place* — the commit seam **replaces** the registry value (`entry.snapshot = next`) instead of handing a caller a mutable object. After both, R9·lib is gone, R9.0 is an ~8-line loop, and remote awareness (F-REMOTE) is subscribe-and-fold.
 - **Hard cutover, no knobs** (the fail-fast rule). The two remembered facts are single-writer *by type* (`TerminalSnapshot` can't spell them; `TerminalState` nests them so the published slice can't carry them), the clock is kolu's *by type* (the producer has no memory field to stamp) and a sampled *value* not a thunk, and the autosave fence rides a **restore-relevant value change** — honestly "by a value check," not "by type," since a `Partial<T>` always admits `{}` (the one place the design can't reach a pure type, made explicit rather than overclaimed).
 - **What it retires:** createPulam; the `AwarenessSink`; the seed and the restore-caveat heuristic; `reconcileRemoteSnapshot`; the separate `agentSession` field; the "two homes, two assemblers" framing; and the fold-clobber as a *class*. #1614 stays dead for the right reason — the in-process producer can't clobber, so no local pulam *process* is needed.
 
