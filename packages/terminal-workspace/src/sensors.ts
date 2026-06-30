@@ -782,11 +782,25 @@ export function startAwarenessEngine(
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
+  // Guard the host-supplied `emit` at the FUNNEL. It fans out to every sensor (cwd ·
+  // git · pr · agent ×3 · foreground · commandRun), each invoking it from its OWN
+  // `consume`/watcher loop. A throw escaping `emit` (e.g. a publish subscriber
+  // erroring) would otherwise reach that loop's `for await` and PERMANENTLY end the
+  // one sensor's subscription — freezing that field for the terminal's life. Wrapping
+  // once here means a bad emit is logged, not fatal, for whichever sensor raised it.
+  const guardedEmit = (o: AwarenessObservation): void => {
+    try {
+      emit(o);
+    } catch (err) {
+      log.error({ err, terminal: terminalId }, "awareness emit callback threw");
+    }
+  };
+
   // Emit each cwd CHANGE as its own observation. The spawn-time `cwd` is already in
   // kolu's seeded fold state, so only deltas need emitting; the git sensor consumes
   // the same channel to re-resolve git (channels fan out to every subscriber).
   const stopCwd = signals.cwd.consume({
-    onEvent: (next) => emit({ kind: "cwd", cwd: next }),
+    onEvent: (next) => guardedEmit({ kind: "cwd", cwd: next }),
     onError: (err) =>
       log.error(
         { err, terminal: terminalId, channel: "cwd" },
@@ -798,7 +812,7 @@ export function startAwarenessEngine(
     agentState,
     terminalId,
     signals,
-    emit,
+    guardedEmit,
     log,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
@@ -810,10 +824,10 @@ export function startAwarenessEngine(
     terminalId,
     signals,
     gitChannel,
-    emit,
+    guardedEmit,
     log,
   );
-  const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
+  const stopPr = startPrSensor(terminalId, gitChannel, guardedEmit, log);
   const startAgent = <Session, Info extends AgentInfoShape>(
     adapter: AgentAdapter<Session, Info>,
   ) =>
@@ -825,13 +839,18 @@ export function startAwarenessEngine(
       terminalId,
       signals,
       readScreenText,
-      emit,
+      guardedEmit,
       log,
     );
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);
-  const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
+  const stopProcess = startForegroundSensor(
+    terminalId,
+    signals,
+    guardedEmit,
+    log,
+  );
   return () => {
     stopCwd();
     stopAgentCommand();
