@@ -777,9 +777,16 @@ async function main(): Promise<void> {
 
   // `wait`'s flag checks are pure (no daemon), so validate them BEFORE the dial:
   // a bad `--until`/`--timeout` fails fast with no connection to tear down and,
-  // under --host, no Nix provisioning of a daemon we'd just drop. `waitCondition`
-  // is non-null exactly when the command is `wait`; it flows into cmdWait below.
-  let waitCondition: WaitCondition | null = null;
+  // under --host, no Nix provisioning of a daemon we'd just drop. `waitCall`
+  // captures the WHOLE validated wait invocation (condition + its output opts)
+  // and is non-null exactly when the command is `wait` — so the dispatch below
+  // keys off it directly, "wait implies a parsed condition" carried as a value
+  // rather than re-derived by a "can't happen" guard at the use site.
+  let waitCall: {
+    condition: WaitCondition;
+    json: boolean;
+    timeoutMs: number | undefined;
+  } | null = null;
   if (argv.command === "wait") {
     if (argv.flags.until === undefined) {
       fail(
@@ -794,7 +801,11 @@ async function main(): Promise<void> {
     ) {
       fail("--timeout must be a positive number of milliseconds.");
     }
-    waitCondition = parsed;
+    waitCall = {
+      condition: parsed,
+      json: argv.flags.json,
+      timeoutMs: argv.flags.timeout,
+    };
   }
   // The endpoint this command targets — its transport AND the suffix that
   // re-targets a later `attach` at the same daemon (see `endpointHint`).
@@ -860,17 +871,21 @@ async function main(): Promise<void> {
         paste: argv.flags.paste ? true : argv.flags.noPaste ? false : undefined,
         key: argv.flags.key,
       });
-    } else if (argv.command === "wait") {
-      // The command discriminant narrows `argv.flags` to the wait variant
-      // (until/timeout/json). `waitCondition` was parsed + validated pre-dial
-      // above and is non-null exactly here; the guard re-narrows it for the type
-      // (and would fail loud rather than silently skip if the invariant broke).
-      if (waitCondition === null)
-        fail("internal: wait reached dispatch without a parsed --until.");
-      await cmdWait(conn, await resolveOne(conn, argv._.id), waitCondition, {
-        json: argv.flags.json,
-        timeoutMs: argv.flags.timeout,
-      });
+    } else if (waitCall !== null) {
+      // `waitCall` is non-null exactly when the command is `wait` (parsed +
+      // validated pre-dial above), so keying the branch off it — rather than
+      // re-checking `argv.command === "wait"` and re-narrowing with an internal
+      // "can't happen" guard — carries the validated invocation straight through
+      // (mirrors pulam-tui's `waitTargets !== null` dispatch).
+      await cmdWait(
+        conn,
+        await resolveOne(conn, argv._.id),
+        waitCall.condition,
+        {
+          json: waitCall.json,
+          timeoutMs: waitCall.timeoutMs,
+        },
+      );
     } else if (argv.command === "attach")
       await cmdAttach(
         conn,
