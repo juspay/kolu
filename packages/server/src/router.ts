@@ -31,7 +31,7 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
-  activeTerminalForStreamOp,
+  getActiveTerminal,
   getTerminal,
   requireActiveTerminal,
   terminalNotFound,
@@ -115,19 +115,14 @@ export const appRouter = t.router({
       // Stream-fired op: a resize for an already-closed terminal is an EXPECTED race
       // (the client's resize observer can fire just after a kill), so drop it quietly
       // rather than throwing the NOT_FOUND that logs a misleading ERROR. (#1628)
-      activeTerminalForStreamOp(input.id, "resize")?.handle.resize(
-        input.cols,
-        input.rows,
-      );
+      getActiveTerminal(input.id)?.handle.resize(input.cols, input.rows);
     }),
 
     sendInput: t.terminal.sendInput.handler(async ({ input }) => {
       // Stream-fired op: xterm's `onData` fires fire-and-forget, so a late keystroke or
       // a focus-in/out report (`\e[I` / `\e[O`) can land just after the kill removed the
       // terminal. That benign race is an expected drop, not an ERROR. (#1628)
-      activeTerminalForStreamOp(input.id, "sendInput")?.handle.write(
-        input.data,
-      );
+      getActiveTerminal(input.id)?.handle.write(input.data);
     }),
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
