@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "happy-dom": "^15.11.7",
+    "happy-dom": "^20.8.9",
     "typescript": "^5.8.0",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.0"
