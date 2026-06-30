@@ -14,6 +14,7 @@
  * truth for "apply an observation to the observed state."
  */
 
+import { match, P } from "ts-pattern";
 import type {
   AgentIdentity,
   AwarenessObservation,
@@ -33,24 +34,26 @@ export function foldObserved(
   observed: Observation,
   o: AwarenessObservation,
 ): Observation {
-  switch (o.kind) {
-    case "cwd":
-      return { ...observed, cwd: o.cwd };
-    case "git":
-      return { ...observed, git: o.git };
-    case "pr":
-      return { ...observed, pr: o.pr };
-    case "foreground":
-      return { ...observed, foreground: o.foreground };
-    case "agent":
+  return (
+    match(o)
+      .with({ kind: "cwd" }, ({ cwd }) => ({ ...observed, cwd }))
+      .with({ kind: "git" }, ({ git }) => ({ ...observed, git }))
+      .with({ kind: "pr" }, ({ pr }) => ({ ...observed, pr }))
+      .with({ kind: "foreground" }, ({ foreground }) => ({
+        ...observed,
+        foreground,
+      }))
       // `unknown` returns the SAME reference (no clobber) — callers rely on the
       // identity to detect "nothing changed"; `{ value }` applies authoritatively.
-      return o.agent === "unknown"
-        ? observed
-        : { ...observed, agent: o.agent.value };
-    case "commandRun":
-      return observed;
-  }
+      .with({ kind: "agent", agent: "unknown" }, () => observed)
+      .with({ kind: "agent", agent: { value: P.any } }, ({ agent }) => ({
+        ...observed,
+        agent: agent.value,
+      }))
+      // A `commandRun` is a memory mark — the observed half is unchanged.
+      .with({ kind: "commandRun" }, () => observed)
+      .exhaustive()
+  );
 }
 
 /** Did the agent's conversation IDENTITY (`kind` + `sessionId`) change? The one
