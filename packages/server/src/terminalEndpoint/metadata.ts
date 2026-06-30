@@ -113,7 +113,10 @@ export function commitObservation(
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
-    log.debug({ terminal: terminalId }, "observation commit after removal");
+    // Sensors are torn down BEFORE the entry is removed, so a commit landing after
+    // removal "never" happens — if it does, a teardown-ordering bug let a producer
+    // outlive its entry. Log at `warn` so it's visible in prod without debug logging.
+    log.warn({ terminal: terminalId }, "observation commit after removal");
     return;
   }
   entry.awareness = observation;
@@ -137,7 +140,10 @@ export function updateMemory(
 ): void {
   const entry = getTerminal(terminalId);
   if (!entry) {
-    log.debug({ terminal: terminalId }, "memory write after removal");
+    // As in `commitObservation`: a memory write after the entry is gone signals a
+    // teardown-ordering bug (a producer outlived its entry), not an expected miss —
+    // `warn` so it surfaces in prod.
+    log.warn({ terminal: terminalId }, "memory write after removal");
     return;
   }
   entry.meta.lastActivityAt = memory.lastActivityAt;
