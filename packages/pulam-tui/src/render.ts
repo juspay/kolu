@@ -177,7 +177,7 @@ function prChecks(
 }
 
 /** The PR resolution, every arm: `#<n> <state> <✓/✗/·>` when resolved, the
- *  pending/absent/unavailable kind (with the failure code) otherwise. */
+ *  pending/absent/unsupported/unavailable kind (with the failure code) otherwise. */
 function prValueText(pr: TerminalSnapshot["pr"]): string {
   switch (pr.kind) {
     case "ok": {
@@ -188,7 +188,11 @@ function prValueText(pr: TerminalSnapshot["pr"]): string {
     }
     case "pending":
       return "pending";
+    // Both mean "no PR to show here" — a branch with no PR, or a remote kolu has
+    // no adapter for (anything but github.com). Same dash, like the dock shows
+    // nothing for either.
     case "absent":
+    case "unsupported":
       return DASH;
     case "unavailable":
       return `unavailable: ${pr.source.code}`;
