@@ -782,25 +782,22 @@ export function startAwarenessEngine(
   // Transient working state — re-seeded empty each start (a producer is memoryless).
   const agentState: AgentEngineState = { mirror: null, currentAgent: null };
 
-  // Guard the host-supplied `emit` at the FUNNEL. It fans out to every sensor (cwd ·
-  // git · pr · agent ×3 · foreground · commandRun), each invoking it from its OWN
-  // `consume`/watcher loop. A throw escaping `emit` (e.g. a publish subscriber
-  // erroring) would otherwise reach that loop's `for await` and PERMANENTLY end the
-  // one sensor's subscription — freezing that field for the terminal's life. Wrapping
-  // once here means a bad emit is logged, not fatal, for whichever sensor raised it.
-  const guardedEmit = (o: AwarenessObservation): void => {
-    try {
-      emit(o);
-    } catch (err) {
-      log.error({ err, terminal: terminalId }, "awareness emit callback threw");
-    }
-  };
+  // `emit` is the host's contract and must be INFALLIBLE. The producer (and the
+  // upstream git/pr/agent watchers) advance their own dedup baselines BEFORE calling
+  // it, so a throw escaping `emit` would both freeze the raising sensor's `consume`
+  // loop AND desync the host fold from the now-advanced baseline (a later equal value
+  // deduped → lost forever). So error handling lives where the fallible work actually
+  // is — the host's publish boundary (kolu's `commitObservation` / `updateMemory` /
+  // `emitTerminalsDirty`, and pulam's `upsert`, each fold-ACCEPT then guard their own
+  // publish), NOT a funnel wrapper here that would sit at the wrong seam (after the
+  // baseline advanced) and merely log a lost observation. With the publish guarded at
+  // its boundary, `emit` is infallible and passed straight through to each sensor.
 
   // Emit each cwd CHANGE as its own observation. The spawn-time `cwd` is already in
   // kolu's seeded fold state, so only deltas need emitting; the git sensor consumes
   // the same channel to re-resolve git (channels fan out to every subscriber).
   const stopCwd = signals.cwd.consume({
-    onEvent: (next) => guardedEmit({ kind: "cwd", cwd: next }),
+    onEvent: (next) => emit({ kind: "cwd", cwd: next }),
     onError: (err) =>
       log.error(
         { err, terminal: terminalId, channel: "cwd" },
@@ -812,7 +809,7 @@ export function startAwarenessEngine(
     agentState,
     terminalId,
     signals,
-    guardedEmit,
+    emit,
     log,
   );
   // The git→PR pipe is an internal sensor-to-sensor wire, not a host input: the
@@ -824,10 +821,10 @@ export function startAwarenessEngine(
     terminalId,
     signals,
     gitChannel,
-    guardedEmit,
+    emit,
     log,
   );
-  const stopPr = startPrSensor(terminalId, gitChannel, guardedEmit, log);
+  const stopPr = startPrSensor(terminalId, gitChannel, emit, log);
   const startAgent = <Session, Info extends AgentInfoShape>(
     adapter: AgentAdapter<Session, Info>,
   ) =>
@@ -839,18 +836,13 @@ export function startAwarenessEngine(
       terminalId,
       signals,
       readScreenText,
-      guardedEmit,
+      emit,
       log,
     );
   const stopClaude = startAgent(claudeCodeAdapter);
   const stopCodex = startAgent(codexAdapter);
   const stopOpenCode = startAgent(opencodeAdapter);
-  const stopProcess = startForegroundSensor(
-    terminalId,
-    signals,
-    guardedEmit,
-    log,
-  );
+  const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   return () => {
     stopCwd();
     stopAgentCommand();

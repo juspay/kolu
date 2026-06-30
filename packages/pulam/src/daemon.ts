@@ -211,8 +211,18 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
     // each emitted observation. Shallow-clone on publish so the collection stores an
     // independent snapshot rather than aliasing the live value.
     let observed: Observation = seedObservation(entry.cwd);
-    const publish = (): void =>
-      fragment.ctx.collections.awareness.upsert(id, { ...observed });
+    // Guard the upsert at the publish boundary: the emit below folds (`observed =
+    // next`) BEFORE publishing, so a throwing awareness subscriber must not propagate
+    // back into the producer's sensor loop (it would freeze the sensor) — the accepted
+    // `observed` stays in sync regardless, and the next fold re-publishes. This keeps
+    // the producer's `emit` infallible (see `startAwarenessEngine`).
+    const publish = (): void => {
+      try {
+        fragment.ctx.collections.awareness.upsert(id, { ...observed });
+      } catch (err) {
+        log.error({ err, terminal: id }, "pulam awareness upsert threw");
+      }
+    };
     // Seed the collection immediately so a subscriber sees the terminal before any
     // tap fires.
     publish();

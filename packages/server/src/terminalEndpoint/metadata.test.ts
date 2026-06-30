@@ -219,3 +219,75 @@ describe("metadata publish routing", () => {
     entry.meta.cwd = "/x";
   });
 });
+
+// A surface ctx whose ONE named collection's `upsert` THROWS — to prove the commit
+// seams guard the publish at the boundary: a throwing subscriber must not propagate
+// back into the producer's emit (which would freeze a sensor), and the accepted value
+// must still land on the registry entry (no desync). Built off the no-op ctx,
+// overriding only the offending collection's `upsert`.
+function throwingWorkspaceCtx(): ReturnType<
+  typeof noopWorkspaceSurfaceCtxForTest
+> {
+  const base = noopWorkspaceSurfaceCtxForTest();
+  return {
+    ...base,
+    collections: new Proxy({} as never, {
+      get: (_t, name) =>
+        name === "awareness"
+          ? {
+              upsert: () => {
+                throw new Error("awareness subscriber boom");
+              },
+              remove: () => {},
+            }
+          : (base.collections as Record<string, unknown>)[name as string],
+    }),
+  } as ReturnType<typeof noopWorkspaceSurfaceCtxForTest>;
+}
+
+function throwingAuthoredCtx(): ReturnType<typeof noopSurfaceCtxForTest> {
+  const base = noopSurfaceCtxForTest();
+  return {
+    ...base,
+    collections: new Proxy({} as never, {
+      get: (_t, name) =>
+        name === "authored"
+          ? {
+              upsert: () => {
+                throw new Error("authored subscriber boom");
+              },
+            }
+          : (base.collections as Record<string, unknown>)[name as string],
+    }),
+  } as ReturnType<typeof noopSurfaceCtxForTest>;
+}
+
+describe("commit seams guard the publish boundary (emit stays infallible)", () => {
+  it("commitObservation: a throwing awareness subscriber does NOT propagate, and the observation is still committed", () => {
+    // Swap the beforeEach no-op ctx for one whose awareness upsert throws.
+    __resetWorkspaceSurfaceCtxForTest();
+    setWorkspaceSurfaceCtx(throwingWorkspaceCtx());
+    const accepted = { ...observation(), cwd: "/accepted-despite-throw" };
+    // The producer advanced its baseline before calling emit; if this threw, the
+    // sensor loop would freeze AND the fold would desync. It must not throw —
+    expect(() => commitObservation(ID, accepted)).not.toThrow();
+    // — and the accepted value is on the entry (the fold's commit) even though the
+    // publish to subscribers failed (it self-heals on the next observation).
+    expect(getTerminal(ID)?.awareness.cwd).toBe("/accepted-despite-throw");
+  });
+
+  it("updateMemory: a throwing authored subscriber does NOT propagate, and the memory is still committed", () => {
+    __resetSurfaceCtxForTest();
+    setSurfaceCtx(throwingAuthoredCtx());
+    expect(() =>
+      updateMemory(
+        ID,
+        { lastActivityAt: 77, lastAgentCommand: "claude" },
+        { kind: "none" },
+      ),
+    ).not.toThrow();
+    const meta = getTerminal(ID)?.meta;
+    expect(meta?.lastActivityAt).toBe(77);
+    expect(meta?.lastAgentCommand).toBe("claude");
+  });
+});

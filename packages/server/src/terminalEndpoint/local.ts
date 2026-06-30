@@ -95,7 +95,15 @@ import {
  *  Distinct from the `terminalList` cell's content channel: this is the
  *  *trigger*, not the saved content. */
 function emitTerminalsDirty(): void {
-  terminalsDirtyChannel.publish({});
+  // Guard the publish at the boundary (like `commitObservation`/`updateMemory`): a
+  // throwing dirty-channel subscriber must not propagate back into the producer's
+  // emit (which would freeze a sensor). Logged, not fatal — the next restore-relevant
+  // change re-arms the autosave.
+  try {
+    terminalsDirtyChannel.publish({});
+  } catch (err) {
+    log.error({ err }, "terminals:dirty publish threw");
+  }
 }
 
 /** Republish the live `terminalList` cell. Endpoint lifecycle calls this on

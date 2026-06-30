@@ -119,8 +119,23 @@ export function commitObservation(
     log.warn({ terminal: terminalId }, "observation commit after removal");
     return;
   }
+  // Apply the fold's commit to the registry FIRST (the accepted value), THEN publish.
+  // The publish (a collection upsert that fans out to subscribers) is the only
+  // fallible step, so guard it HERE — at the publish boundary — not around the
+  // producer's emit funnel: a throwing subscriber must not propagate back into the
+  // sensor loop (it would freeze the sensor) and must not be swallowed at a seam
+  // where the producer already advanced its dedup baseline (the fold has accepted
+  // `observation` above, so the registry stays in sync regardless; a lost publish
+  // self-heals on the next observation). This is what makes `emit` infallible.
   entry.awareness = observation;
-  publishAwareness(terminalId, observation);
+  try {
+    publishAwareness(terminalId, observation);
+  } catch (err) {
+    log.error(
+      { err, terminal: terminalId },
+      "awareness publish threw (observation committed; will re-publish on next change)",
+    );
+  }
 }
 
 /** Write the fold's three restore-relevant AUTHORED facts — the two remembered
@@ -146,10 +161,22 @@ export function updateMemory(
     log.warn({ terminal: terminalId }, "memory write after removal");
     return;
   }
+  // Apply the fold's memory facts to the registry FIRST (accepted), THEN publish —
+  // and guard the publish at this boundary (as `commitObservation` does), so a
+  // throwing authored-collection subscriber can't propagate into the sensor loop or
+  // be swallowed after the producer baseline advanced. The registry stays in sync;
+  // a lost publish self-heals on the next authored-fact change.
   entry.meta.lastActivityAt = memory.lastActivityAt;
   entry.meta.lastAgentCommand = memory.lastAgentCommand;
   entry.meta.restoreTarget = restoreTarget;
-  publishAuthored(terminalId, entry);
+  try {
+    publishAuthored(terminalId, entry);
+  } catch (err) {
+    log.error(
+      { err, terminal: terminalId },
+      "authored publish threw (memory committed; will re-publish on next change)",
+    );
+  }
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,
