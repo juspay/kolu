@@ -15,7 +15,7 @@ kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd �
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
 kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
 kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
-kaval-tui wait <id> --until block until the terminal's output goes idle (or matches), then exit
+kaval-tui wait <id> --until <cond>  block until the terminal's output goes idle (or matches), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```

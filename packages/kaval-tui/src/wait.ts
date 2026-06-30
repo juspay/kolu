@@ -38,6 +38,13 @@ export type WaitCondition =
  *  should never provision a `--host` daemon we'd immediately drop). */
 export type ParsedUntil = WaitCondition | { kind: "error"; message: string };
 
+/** Node's `setTimeout` caps its delay at the signed 32-bit max (~24.8 days); a
+ *  larger delay does NOT wait longer — it silently CLAMPS to 1ms and fires
+ *  almost immediately. So an idle window (or `--timeout`) above this is rejected
+ *  loud at the boundary rather than "succeeding" in a millisecond: a fail-fast
+ *  guard, not a silent coercion. */
+export const MAX_TIMER_MS = 2_147_483_647;
+
 /** Parse the `--until` value into a {@link WaitCondition}. Two forms only —
  *  `idle:<ms>` (a positive whole number of milliseconds) and `match:<regex>` (a
  *  non-empty, valid JS regex). Anything else is a loud error, never a silent
@@ -56,7 +63,16 @@ export function parseUntil(spec: string): ParsedUntil {
         message: `--until idle:<ms> needs a positive whole number of milliseconds, got ${JSON.stringify(raw)} (e.g. idle:800).`,
       };
     }
-    return { kind: "idle", ms: Number(raw) };
+    const ms = Number(raw);
+    // Reject above the setTimeout ceiling: a larger window would overflow and
+    // fire near-instantly (a FALSE "idle"), so crash loud rather than coerce.
+    if (ms > MAX_TIMER_MS) {
+      return {
+        kind: "error",
+        message: `--until idle:<ms> must be ≤ ${MAX_TIMER_MS} (~24.8 days): a larger window overflows the timer and would fire almost immediately, got ${JSON.stringify(raw)}.`,
+      };
+    }
+    return { kind: "idle", ms };
   }
   if (spec.startsWith(match)) {
     const pattern = spec.slice(match.length);
@@ -229,12 +245,47 @@ export async function awaitOutputCondition(
   // The idle window: (re)armed on the snapshot and on every delta; if it elapses
   // with no further output, the terminal has been quiescent for `ms`.
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const disarmIdle = (): void => {
+    if (idleTimer !== undefined) {
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  };
   const armIdle = (ms: number): void => {
-    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    disarmIdle();
     idleTimer = setTimeout(
       () => settle({ kind: "met", fired: "idle", elapsedMs: elapsed() }),
       ms,
     );
+  };
+
+  // The output feed dropped before any outcome and without an abort WE caused.
+  // Two causes, told apart by the inventory — the SAME discrimination
+  // `runAttach` uses for an identical stream end: the PTY exited (the channel
+  // closed → `gone`), or it's still live and we were dropped as a slow
+  // subscriber / the daemon ended our attach (`Channel`'s drop-slow mode →
+  // `closed`, a dropped feed we can't honestly keep waiting on). Either way we
+  // must DISARM the idle timer first: leaving it armed would let it fire a FALSE
+  // `met` off the last delta even though we can no longer observe new output;
+  // and a `match` that simply stopped reading would otherwise hang to the
+  // timeout. So we settle loud here rather than going quiet.
+  const settleOnLostFeed = async (): Promise<void> => {
+    disarmIdle();
+    try {
+      const { entries } = await client.surface.terminal.list({});
+      if (!entries.some((e) => e.id === opts.id)) {
+        settle({ kind: "gone", elapsedMs: elapsed() });
+        return;
+      }
+    } catch (err) {
+      upstreamError ??= errMessage(err);
+    }
+    settle({
+      kind: "closed",
+      error:
+        upstreamError ??
+        `the daemon ended ${opts.id}'s output feed while its PTY was still live (a slow-consumer drop) — re-run \`kaval-tui wait\`.`,
+    });
   };
 
   const consumeOutput = async (): Promise<void> => {
@@ -271,10 +322,20 @@ export async function awaitOutputCondition(
         if (buffer.length > MATCH_BUFFER_CAP)
           buffer = buffer.slice(-MATCH_BUFFER_CAP);
       }
+      // The stream ENDED with no outcome and without an abort we caused — the
+      // feed is gone. (Our own met/timeout/Ctrl+C settle aborts the stream, so
+      // that end lands in the catch with `abort.signal.aborted` true, NOT here.)
+      if (outcome === undefined && !abort.signal.aborted)
+        await settleOnLostFeed();
     } catch (err) {
       // An abort (the condition fired elsewhere, a Ctrl+C, the timeout) is the
-      // expected end — don't record it as an upstream failure.
-      if (!abort.signal.aborted) upstreamError ??= errMessage(err);
+      // expected end — don't record it as an upstream failure. A non-abort error
+      // is a dropped feed: record it, then settle loud so the idle timer can't
+      // fire a false `met` and a `match` can't hang on a stream we stopped reading.
+      if (!abort.signal.aborted) {
+        upstreamError ??= errMessage(err);
+        await settleOnLostFeed();
+      }
     }
   };
 

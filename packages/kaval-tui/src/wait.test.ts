@@ -25,7 +25,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
-import { awaitOutputCondition, parseUntil } from "./wait.ts";
+import { awaitOutputCondition, parseUntil, waitResultJson } from "./wait.ts";
 
 const silentLog = {
   debug: () => {},
@@ -103,6 +103,18 @@ describe("parseUntil — the --until grammar (pure)", () => {
     }
   });
 
+  it("rejects an idle window above the setTimeout ceiling", () => {
+    // 2_147_483_648 = MAX_TIMER_MS + 1: a larger timer overflows and fires
+    // near-instantly, so it must fail loud rather than coerce to a false idle.
+    expect(parseUntil("idle:2147483648").kind).toBe("error");
+    expect(parseUntil("idle:99999999999999").kind).toBe("error");
+    // The boundary itself is still accepted.
+    expect(parseUntil("idle:2147483647")).toEqual({
+      kind: "idle",
+      ms: 2147483647,
+    });
+  });
+
   it("parses match:<regex> into a usable RegExp", () => {
     const r = parseUntil("match:DO[N]E");
     expect(r.kind).toBe("match");
@@ -117,6 +129,51 @@ describe("parseUntil — the --until grammar (pure)", () => {
   it("rejects an unknown --until form", () => {
     expect(parseUntil("settled").kind).toBe("error");
     expect(parseUntil("idle").kind).toBe("error"); // no colon
+  });
+});
+
+describe("waitResultJson — the --json frame the driver consumes (pure)", () => {
+  // Pins the public `--json` contract the kolu skill / README document: a
+  // uniform `result` discriminant for EVERY outcome (not just `met`), the
+  // success-only `fired` detail, and the conditional `matchedLine` / `error`.
+  it("emits a `result` discriminant for every outcome, with met-only details", () => {
+    expect(
+      waitResultJson("abc", { kind: "met", fired: "idle", elapsedMs: 42 }),
+    ).toEqual({ id: "abc", result: "met", fired: "idle", elapsedMs: 42 });
+    expect(
+      waitResultJson("abc", {
+        kind: "met",
+        fired: "match",
+        elapsedMs: 7,
+        matchedLine: "DONE",
+      }),
+    ).toEqual({
+      id: "abc",
+      result: "met",
+      fired: "match",
+      elapsedMs: 7,
+      matchedLine: "DONE",
+    });
+    expect(waitResultJson("abc", { kind: "timeout", elapsedMs: 1500 })).toEqual(
+      { id: "abc", result: "timeout", elapsedMs: 1500 },
+    );
+    expect(waitResultJson("abc", { kind: "gone", elapsedMs: 9 })).toEqual({
+      id: "abc",
+      result: "gone",
+      elapsedMs: 9,
+    });
+    expect(waitResultJson("abc", { kind: "interrupted" })).toEqual({
+      id: "abc",
+      result: "interrupted",
+    });
+    // `closed` carries `error` only when one was recorded — omitted otherwise.
+    expect(waitResultJson("abc", { kind: "closed" })).toEqual({
+      id: "abc",
+      result: "closed",
+    });
+    expect(
+      waitResultJson("abc", { kind: "closed", error: "link dropped" }),
+    ).toEqual({ id: "abc", result: "closed", error: "link dropped" });
   });
 });
 
@@ -189,13 +246,25 @@ describe("awaitOutputCondition — idle quiescence over a real socket", () => {
 describe("awaitOutputCondition — match, exit, and interrupt", () => {
   it("resolves `match` when new output matches the regex", async () => {
     const id = await spawnCat();
+    let resolved = false;
     const p = awaitOutputCondition(conn.client, {
       id,
       condition: { kind: "match", regex: /KAVAL-WAIT-MARK/ },
       timeoutMs: 5000,
     });
-    await sleep(100); // subscribe first, so the marker arrives as a delta
-    await write(id, "KAVAL-WAIT-MARK\n");
+    void p.finally(() => {
+      resolved = true;
+    });
+    // Re-emit the marker until the wait sees it — NOT a single write after a
+    // fixed sleep. `match` deliberately skips the snapshot, so a marker that
+    // lands BEFORE the attach subscription is live is lost to prior screen
+    // state; a one-shot write after a guessed delay would flake on a slow CI.
+    // Whichever write lands as the first post-subscribe delta matches, with no
+    // assumption about when the subscription settled.
+    while (!resolved) {
+      await write(id, "KAVAL-WAIT-MARK\n");
+      await sleep(25);
+    }
     const outcome = await p;
     expect(outcome.kind).toBe("met");
     if (outcome.kind === "met") {

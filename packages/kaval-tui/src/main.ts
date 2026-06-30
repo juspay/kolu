@@ -9,7 +9,7 @@
  *   kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
  *   kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
  *   kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
- *   kaval-tui wait <id> --until block until the terminal's output goes idle / matches, then exit
+ *   kaval-tui wait <id> --until <cond>  block until output goes idle / matches, then exit
  *   kaval-tui attach <id>       take over a terminal from the shell; `~.` detaches
  *   kaval-tui kill <id>         end a terminal the daemon owns (id or prefix)
  *
@@ -56,6 +56,7 @@ import { runKill } from "./kill.ts";
 import { ACCEPTED_KEY_NAMES, encodeKey, planSend } from "./send.ts";
 import {
   awaitOutputCondition,
+  MAX_TIMER_MS,
   parseUntil,
   type WaitCondition,
   waitResultJson,
@@ -797,9 +798,17 @@ async function main(): Promise<void> {
     if (parsed.kind === "error") fail(parsed.message);
     if (
       argv.flags.timeout !== undefined &&
-      !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
+      !(
+        Number.isFinite(argv.flags.timeout) &&
+        argv.flags.timeout > 0 &&
+        argv.flags.timeout <= MAX_TIMER_MS
+      )
     ) {
-      fail("--timeout must be a positive number of milliseconds.");
+      // Cap at the setTimeout ceiling (~24.8 days): a larger timeout would
+      // overflow and fire near-instantly, so reject it rather than coerce.
+      fail(
+        `--timeout must be a positive number of milliseconds ≤ ${MAX_TIMER_MS} (~24.8 days).`,
+      );
     }
     waitCall = {
       condition: parsed,

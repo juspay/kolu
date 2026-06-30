@@ -118,8 +118,10 @@ kaval-tui wait "$id" --until idle:800 --timeout 600000   # block until the turn 
 - **`--timeout <ms>`** caps the wait and **fails loud (exit 2)** so a wedged agent
   can't hang the loop. If the terminal **exits** before the condition fires,
   `wait` exits **3** (the agent you were driving died). Met → exit **0**.
-- **`--json`** → `{ id, fired, elapsedMs, matchedLine? }` (`fired` is
-  `idle`/`match`/`timeout`).
+- **`--json`** → one result frame per outcome: `{ id, result, … }`, where
+  `result` is `met`/`timeout`/`gone`/`interrupted`/`closed`. A `met` frame adds
+  `fired` (`idle`/`match`), `elapsedMs`, and `matchedLine` on a match — so a
+  driver reads the structured `result`, never just the exit code.
 
 Quiescence ≠ "the reply is correct": idle fires whether the agent **finished** or
 is **blocked asking you something** (both mean "your move"). So after `wait`
