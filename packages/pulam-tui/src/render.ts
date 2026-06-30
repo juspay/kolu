@@ -187,10 +187,12 @@ function prValueText(pr: AwarenessValue["pr"]): string {
     }
     case "pending":
       return "pending";
+    // Both mean "no PR to show here" — a branch with no PR, or a remote kolu has
+    // no adapter for (anything but github.com). Same dash, like the dock shows
+    // nothing for either.
     case "absent":
-      return DASH;
     case "unsupported":
-      return "unsupported";
+      return DASH;
     case "unavailable":
       return `unavailable: ${pr.source.code}`;
     default: {

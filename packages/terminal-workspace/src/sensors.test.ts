@@ -15,6 +15,24 @@ import { detectForge, dispatchingForgeAdapter } from "./sensors.ts";
 describe("detectForge", () => {
   it.each([
     {
+      label: "https github.com remote",
+      url: "https://github.com/owner/repo.git",
+    },
+    {
+      label: "scp-style github.com remote",
+      url: "git@github.com:owner/repo.git",
+    },
+    {
+      label: "mixed-case github.com host",
+      url: "https://GitHub.com/owner/repo.git",
+    },
+  ])("routes a $label to the gh adapter", ({ url }) => {
+    expect(detectForge(url)).toBe("github");
+  });
+
+  it.each([
+    // The reported bug: a Codeberg (Forgejo) remote.
+    {
       label: "https Codeberg remote",
       url: "https://codeberg.org/owner/repo.git",
     },
@@ -22,31 +40,21 @@ describe("detectForge", () => {
       label: "scp-style Codeberg remote",
       url: "git@codeberg.org:owner/repo.git",
     },
-    { label: "ssh Codeberg remote", url: "ssh://git@codeberg.org/owner/repo" },
+    // Only github.com is treated as GitHub. A GitHub Enterprise host is an
+    // arbitrary corporate domain we can't recognize from the URL — claiming it
+    // is GitHub would be a guess — so it routes to `unsupported` too (GHE is out
+    // of scope: no PR pill, reopened by per-host config / the real adapter, #1240).
     {
-      label: "mixed-case Codeberg host",
-      url: "https://Codeberg.org/owner/repo.git",
-    },
-  ])("routes a $label to the unsupported (non-gh) arm", ({ url }) => {
-    expect(detectForge(url)).toBe("unsupported");
-  });
-
-  it.each([
-    { label: "github.com", url: "https://github.com/owner/repo.git" },
-    {
-      label: "GitHub Enterprise host",
+      label: "a GitHub Enterprise host",
       url: "https://github.acme.example/owner/repo.git",
     },
-    // gh owns the "this host isn't one I serve" classification for any host we
-    // can't recognize from the URL alone (self-hosted Forgejo/Gitea included),
-    // so an unknown host defaults to github rather than being guessed here.
     {
       label: "an unknown self-hosted host",
       url: "https://git.example.com/owner/repo.git",
     },
     { label: "a null remote (no origin)", url: null },
-  ])("routes $label to github", ({ url }) => {
-    expect(detectForge(url)).toBe("github");
+  ])("routes $label to the unsupported (non-gh) arm", ({ url }) => {
+    expect(detectForge(url)).toBe("unsupported");
   });
 });
 

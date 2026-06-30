@@ -86,14 +86,15 @@ export type PrUnavailableSourceBase = { provider: string; code: string };
  *    pending     — resolver is running (or stale after a branch change)
  *    ok          — resolver succeeded; a PR exists for this branch
  *    absent      — resolver succeeded; no PR for this branch (expected case)
- *    unsupported — the repo's forge has no adapter yet, so no resolver ran.
- *                  A distinct state, NOT `absent`: "no adapter for this forge"
- *                  and "this branch has no PR" are different facts, and folding
- *                  the forge case onto `absent` would make them indistinguishable
- *                  (and let a non-GitHub remote be misread as a `gh` failure).
- *                  Renders nothing, like `absent` — but honestly, by a dispatch
- *                  decision at the knowing endpoint rather than a guessed
- *                  classification of a tool's stderr.
+ *    unsupported — kolu has no PR adapter for this repo's remote (a non-GitHub
+ *                  forge, an unrecognized host, or no remote at all), so no
+ *                  resolver ran. A distinct state, NOT `absent`: "no adapter for
+ *                  this remote" and "this branch has no PR" are different facts,
+ *                  and folding one onto the other would make them
+ *                  indistinguishable (and let a non-GitHub remote be misread as a
+ *                  `gh` failure). Renders nothing, like `absent` — but honestly,
+ *                  by a dispatch decision at the knowing endpoint rather than a
+ *                  guessed classification of a tool's stderr.
  *    unavailable — resolver couldn't run; `source` carries the provider +
  *                  typed failure code, and the display reason is derived in
  *                  the app (kolu-common's `reasonForSource`).
