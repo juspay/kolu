@@ -170,4 +170,47 @@ describe("parseSavedSession", () => {
       ],
     });
   });
+
+  it("maps a pre-cutover agentSession whose KIND disagrees with the command to `legacyMostRecent`, not a mismatched `exact`", () => {
+    // A corrupt / cross-agent pre-cutover record: the captured `agentSession` is a
+    // claude-code conversation but the remembered command launched opencode. Building
+    // an `exact` from that pair would silently resume the wrong agent — so the
+    // migration falls to `legacyMostRecent` (same kind-consistency gate the live fold
+    // enforces via `exactRestoreTarget`).
+    const legacy = {
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          lastAgentCommand: "opencode --model sonnet",
+          agentSession: { kind: "claude-code", id: "sess-mismatch" },
+        },
+      ],
+      activeTerminalId: "t1",
+      savedAt: 1_700_000_000_000,
+    };
+    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+      ...legacy,
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          lastAgentCommand: "opencode --model sonnet",
+          pr: { kind: "absent" },
+          restoreTarget: {
+            kind: "legacyMostRecent",
+            command: "opencode --model sonnet",
+          },
+        },
+      ],
+    });
+  });
 });

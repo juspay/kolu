@@ -45,6 +45,7 @@ import {
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import { exactRestoreTarget } from "anyagent/cli";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import {
@@ -1232,14 +1233,16 @@ export function backfillAwarenessCutover(
           ? (agentSession as Record<string, unknown>)
           : null;
       const kind = ref ? AgentKindSchema.safeParse(ref.kind) : null;
-      next.restoreTarget =
+      // Route through `exactRestoreTarget` so the SAME command/agent-kind consistency
+      // gate the live fold enforces also applies here: a migrated record whose old
+      // `agentSession.kind` disagrees with the remembered `lastAgentCommand`'s agent
+      // kind (corrupt / hand-edited / cross-agent) falls to `legacyMostRecent` rather
+      // than building a mismatched `exact` that would silently resume the wrong agent.
+      const exact =
         ref && kind?.success && typeof ref.id === "string"
-          ? {
-              kind: "exact",
-              command,
-              agent: { kind: kind.data, sessionId: ref.id },
-            }
-          : { kind: "legacyMostRecent", command };
+          ? exactRestoreTarget(command, { kind: kind.data, sessionId: ref.id })
+          : null;
+      next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };
     }
   }
   return next;

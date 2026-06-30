@@ -190,6 +190,33 @@ export function agentKindFromCommand(command: string): AgentKind | null {
 }
 
 /**
+ * Build an `exact` restore target — but ONLY when `command` invokes the SAME agent
+ * kind as `agent`. The invariant an `exact` target must carry is that its command's
+ * agent kind agrees with its identity's kind, so that `resumeFormFor` →
+ * `resumeAgentCommand` always takes the SAME-agent path (resume the exact conversation
+ * by id, or refuse on a malformed id) and NEVER the most-recent *downgrade*
+ * `resumeAgentCommand` applies to a different-agent ref. Without this gate,
+ * `{ command: "opencode …", agent: { kind: "claude-code", … } }` would render as
+ * opencode's most-recent resume — the wrong-agent defect #2 exists to make
+ * unspellable, relocated inside the `exact` arm.
+ *
+ * A kind mismatch (a stale-command/new-agent race, or corrupt/edited state) — or a
+ * non-resumable `command` whose head names no agent — yields `null`; the caller maps
+ * that to `none` (a bare shell) or, in the migration, `legacyMostRecent`, never a
+ * silent wrong-agent resume. This is the ONE constructor both production sites (kolu's
+ * fold `restoreTargetOf`, the `backfillAwarenessCutover` migration) go through, so the
+ * mismatched pair has a single point of refusal.
+ */
+export function exactRestoreTarget(
+  command: string,
+  agent: AgentIdentity,
+): RestoreTarget | null {
+  return agentKindFromCommand(command) === agent.kind
+    ? { kind: "exact", command, agent }
+    : null;
+}
+
+/**
  * Extract the agent binary basename (the head token) from a command line —
  * typically the normalized output of `parseAgentCommand`. Tokenizes with
  * `shellSplit` (the exact inverse of the `shellJoin` that produced the

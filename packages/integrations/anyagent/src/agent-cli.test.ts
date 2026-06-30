@@ -5,6 +5,7 @@ import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
   agentKindFromCommand,
+  exactRestoreTarget,
   parseAgentCommand,
   resumeAgentCommand,
   resumeFormFor,
@@ -489,6 +490,42 @@ describe("resumeFormFor — switches on the discriminated RestoreTarget", () => 
       command: "claude --model sonnet",
     };
     expect(resumeFormFor(target)).toBe("claude -c --model sonnet");
+  });
+});
+
+describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
+  const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
+
+  it("builds `exact` when the command's agent kind matches the identity", () => {
+    expect(
+      exactRestoreTarget("claude --model sonnet", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toEqual({
+      kind: "exact",
+      command: "claude --model sonnet",
+      agent: { kind: "claude-code", sessionId: CLAUDE_ID },
+    });
+  });
+
+  it("returns null on a kind MISMATCH (an `opencode` command paired with a claude identity)", () => {
+    // The wrong-agent pair that would otherwise downgrade to opencode's most-recent.
+    expect(
+      exactRestoreTarget("opencode --model sonnet", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the command names no known agent", () => {
+    expect(
+      exactRestoreTarget("ls -la", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toBeNull();
   });
 });
 

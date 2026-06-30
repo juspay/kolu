@@ -203,6 +203,21 @@ describe("restoreTargetOf — the fold owns the discriminated resume target", ()
     expect(restoreTargetOf(seed())).toEqual({ kind: "none" });
   });
 
+  it("a command/agent KIND MISMATCH → `none` (refuse — never the wrong-agent most-recent)", () => {
+    // The stale-command/new-agent race: memory still holds an `opencode` launch line
+    // while the producer has already observed a live `claude-code` agent. Pairing them
+    // into `exact` would make `resumeAgentCommand` silently downgrade to opencode's
+    // most-recent — the wrong-agent resume #2 makes unspellable. Refuse: a bare shell.
+    const cur: KoluAwareness = {
+      observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },
+      memory: {
+        lastActivityAt: 1,
+        lastAgentCommand: "opencode --model sonnet",
+      },
+    };
+    expect(restoreTargetOf(cur)).toEqual({ kind: "none" });
+  });
+
   it("never produces `legacyMostRecent` — that arm is migration-only", () => {
     const cur: KoluAwareness = {
       observed: { ...seedObservation("/a"), agent: claude("A", "thinking") },

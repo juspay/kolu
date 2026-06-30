@@ -14,6 +14,7 @@
  * truth for "apply an observation to the observed state."
  */
 
+import { exactRestoreTarget } from "anyagent/cli";
 import { match, P } from "ts-pattern";
 import type {
   AgentIdentity,
@@ -75,22 +76,29 @@ export function agentIdentityChanged(
 /** kolu's RESTORE TARGET, derived from the folded state — the fold OWNS this
  *  projection rather than the shell assembling it. The discriminant is decided by
  *  the agent the fold just observed paired with the remembered launch line:
- *   - a LIVE `agent` + a remembered `lastAgentCommand` → `exact` (wake resumes
- *     THAT conversation by id, #1495);
+ *   - a LIVE `agent` + a remembered `lastAgentCommand` THAT INVOKES THE SAME AGENT
+ *     KIND → `exact` (wake resumes THAT conversation by id, #1495);
  *   - otherwise → `none` (a quit-to-shell drops the live agent, a never-launched
- *     terminal never had one — either way wake lands on a BARE SHELL, #1492).
- *  Absence is decided HERE as `none`; it is never read downstream as "resume
- *  most-recent". The live fold never produces `legacyMostRecent` — that arm exists
- *  only for migrated pre-1.29 records (`backfillAwarenessCutover`). */
+ *     terminal never had one, OR the remembered command and the live agent disagree
+ *     on kind — either way wake lands on a BARE SHELL, #1492, never the wrong agent).
+ *  The kind-consistency gate lives in `exactRestoreTarget`: a stale-command/new-agent
+ *  race (the producer observes a new agent before the replayed command mark updates
+ *  memory) could otherwise pair, say, an `opencode` command with a `claude-code`
+ *  identity, which `resumeAgentCommand` would silently downgrade to opencode's
+ *  most-recent — the wrong-agent resume #2 makes unspellable. Refused here instead.
+ *  Absence is decided HERE as `none`; never read downstream as "resume most-recent".
+ *  The live fold never produces `legacyMostRecent` — that arm exists only for migrated
+ *  pre-1.29 records (`backfillAwarenessCutover`). */
 export function restoreTargetOf(aw: KoluAwareness): RestoreTarget {
   const command = aw.memory.lastAgentCommand;
   const agent = aw.observed.agent;
   if (command === undefined || agent === null) return { kind: "none" };
-  return {
-    kind: "exact",
-    command,
-    agent: { kind: agent.kind, sessionId: agent.sessionId },
-  };
+  return (
+    exactRestoreTarget(command, {
+      kind: agent.kind,
+      sessionId: agent.sessionId,
+    }) ?? { kind: "none" }
+  );
 }
 
 /** Structural equality of two RESTORE TARGETS, BY VALUE. Lets an emit fence gate
