@@ -1,81 +1,69 @@
 /**
- * Awareness + metadata write seam (Design-S) — the publishers and the two
- * narrowed awareness mutators, plus the client-field mutator and the lifecycle
- * publish.
+ * Awareness + metadata write seam — the publishers, the fold's two commit seams
+ * (observation + memory), the client-field mutator, and the lifecycle publish.
  *
- * Design-S splits a terminal's record in two halves, BOTH carried by the one
- * registry entry: the eight AWARENESS fields ride `entry.awareness` (the sink is
- * the sole live writer, mutating it through the two narrowed mutators), and the
- * AUTHORED record (location + client fields + discriminant) rides `entry.meta`.
- * This module publishes each half on its
- * OWN collection — awareness onto `terminalWorkspace.awareness`, the authored
+ * A terminal's record is two halves, BOTH carried by the one registry entry: the
+ * last-seen `TerminalSnapshot` rides `entry.snapshot` (kolu's fold REPLACES it
+ * wholesale each frame), and the AUTHORED record (location + memory + client fields
+ * + discriminant) rides `entry.meta`. This module publishes each half on its OWN
+ * collection — the observation onto `terminalWorkspace.snapshots`, the authored
  * record onto `kolu.authored` — and the CLIENT joins them at read time
  * (`useTerminalMetadata` → `composeTerminalMetadata`). There is NO server-side
- * re-fusion here: this module owns "how an awareness write becomes visible" and
- * "how an authored / lifecycle flip becomes visible" as two separate publishes.
+ * re-fusion here.
  *
- * The mutator-type narrowing is a bidirectional compile-time fence:
- *   - `updateServerMetadata` — persisted awareness (cwd, git, lastAgentCommand,
- *     agentSession, lastActivityAt). Mutator typed `AwarenessPersistedFields`.
- *     Fires `terminals:dirty`.
- *   - `updateServerLiveMetadata` — live awareness (pr, agent, foreground).
- *     Mutator typed `AwarenessLiveFields`. Does NOT fire `terminals:dirty` —
- *     that's the point: the agent stream publishes at ~150 ms during streaming,
- *     and most of those publishes touch only live state.
- *   - `updateClientMetadata` — client-persisted authored fields (themeName,
- *     parentId, canvasLayout, subPanel, rightPanel, intent). Mutator typed
+ * The write seams:
+ *   - `commitSnapshot(id, observation)` — replace `entry.snapshot` and publish
+ *     it. Does NOT fire `terminals:dirty`: the ~150 ms agent-detail/foreground
+ *     firehose touches only the observation, so it must never arm autosave. The
+ *     fold's watch loop fires dirty ITSELF, but only on a restore-relevant VALUE
+ *     change (the autosave fence) — never on a bare observation tick.
+ *   - `updateMemory(id, memory)` — write the two remembered `AgentMemory` facts
+ *     onto `entry.meta` (the narrowed writer — it CANNOT touch any other field) and
+ *     publish the authored record. The fold is its one caller; it likewise leaves
+ *     `terminals:dirty` to the watch-loop fence.
+ *   - `updateClientMetadata` — client-persisted authored fields. Mutator typed
  *     `TerminalClientMetadata`. Fires `terminals:dirty` (every client field is
- *     persisted).
- *
- * Both awareness mutators now key on the terminal ID (the sink closes over the
- * id); `entry.awareness` on the registry is where their writes land.
+ *     persisted), the precedent `updateMemory` mirrors.
  */
 
 import { prValue } from "anyforge/schemas";
 import {
-  type AwarenessLiveFields,
-  type AwarenessPersistedFields,
-  type AwarenessValue,
+  type AgentMemory,
+  type TerminalSnapshot,
   prUnavailableReason,
+  type RestoreTarget,
   type TerminalClientMetadata,
 } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
-import {
-  mutateAwarenessLive,
-  mutateAwarenessPersisted,
-  type TerminalProcess,
-} from "../terminal-registry.ts";
+import { getTerminal, type TerminalProcess } from "../terminal-registry.ts";
 import { workspaceSurfaceCtx } from "../workspaceSurfaceCtx.ts";
 
-/** Push an awareness snapshot onto the `terminalWorkspace` surface's `awareness`
- *  collection — the SOLE channel an awareness change reaches the client (kolu's
- *  own client reads this collection and joins each value with the matching
- *  `authored` record). Shallow-clones so the collection stores an independent
- *  snapshot rather than aliasing the live (sink-mutated) store object. The debug
- *  line is the awareness half of the old fused "metadata publish" log — `prStatus`
- *  is the store's raw `pr.kind` (frozen-stale on a slept terminal, which the
- *  client's join drops in favour of the authored frozen `pr`). */
-function publishAwareness(terminalId: string, aw: AwarenessValue): void {
-  const pr = prValue(aw.pr);
-  const prUnavailable = prUnavailableReason(aw.pr);
+/** Push an `TerminalSnapshot` snapshot onto the `terminalWorkspace` surface's
+ *  `snapshots` collection — the SOLE channel an observation change reaches the
+ *  client (kolu's own client reads this collection and joins each value with the
+ *  matching `authored` record). Shallow-clones so the collection stores an
+ *  independent snapshot rather than aliasing the registry object. */
+function publishSnapshot(terminalId: string, obs: TerminalSnapshot): void {
+  const pr = prValue(obs.pr);
+  const prUnavailable = prUnavailableReason(obs.pr);
   log.debug(
     {
       terminal: terminalId,
-      cwd: aw.cwd,
-      repo: aw.git?.repoName,
-      branch: aw.git?.branch,
+      cwd: obs.cwd,
+      repo: obs.git?.repoName,
+      branch: obs.git?.branch,
       pr: pr?.number ?? null,
       checks: pr?.checks ?? null,
-      prStatus: aw.pr.kind,
+      prStatus: obs.pr.kind,
       ...(prUnavailable && { prUnavailable }),
-      ...(aw.agent && { agent: `${aw.agent.kind}:${aw.agent.state}` }),
-      ...(aw.foreground && { foreground: aw.foreground.name }),
+      ...(obs.agent && { agent: `${obs.agent.kind}:${obs.agent.state}` }),
+      ...(obs.foreground && { foreground: obs.foreground.name }),
     },
-    "awareness publish",
+    "snapshot publish",
   );
-  workspaceSurfaceCtx.collections.awareness.upsert(terminalId, { ...aw });
+  workspaceSurfaceCtx.collections.snapshots.upsert(terminalId, { ...obs });
 }
 
 /** Push a terminal's AUTHORED record onto the `kolu` surface's `authored`
@@ -92,70 +80,106 @@ function publishAuthored(terminalId: string, entry: TerminalProcess): void {
   surfaceCtx.collections.authored.upsert(terminalId, { ...entry.meta });
 }
 
-/** Fan a terminal's awareness snapshot out onto the `awareness` collection. The
+/** Fan a terminal's snapshot out onto the `snapshots` collection. The
  *  awareness VALUE itself now rides the registry entry (a required field set when
  *  the entry is registered), so this no longer writes any backing store — it only
  *  publishes the snapshot to subscribers. Called by the endpoint AFTER
  *  `registerTerminal` on spawn / adopt / orphan / wake / cold-restore; the
  *  caller's `publishTerminalState` publishes the matching authored record, so the
  *  client's join has both halves. */
-export function installAwareness(
+export function installSnapshot(
   terminalId: string,
-  value: AwarenessValue,
+  value: TerminalSnapshot,
 ): void {
-  publishAwareness(terminalId, value);
+  publishSnapshot(terminalId, value);
 }
 
-/** Fan a terminal's awareness REMOVAL out onto the `awareness` collection. The
+/** Fan a terminal's REMOVAL out onto the `snapshots` collection. The
  *  awareness value was already dropped with the entry by `unregisterTerminal`
  *  (it is a field on the entry), so this only tells subscribers it is gone.
  *  Called by the endpoint's `finalizeRemoval` (and `killAll`) on exit / kill /
  *  discard. */
-export function dropAwareness(terminalId: string): void {
-  workspaceSurfaceCtx.collections.awareness.remove(terminalId);
+export function dropSnapshot(terminalId: string): void {
+  workspaceSurfaceCtx.collections.snapshots.remove(terminalId);
 }
 
-/** Atomically mutate PERSISTED awareness (`cwd`, `git`, `lastAgentCommand`,
- *  `agentSession`, `lastActivityAt`) and publish. The mutator is narrowed to
- *  `AwarenessPersistedFields` — half the bidirectional fence: a sensor cannot
- *  write a live field (pr/agent/foreground) through this path, so the
- *  `terminals:dirty` firehose can't grow back. A no-op if `id` has no awareness
- *  entry (a late write after removal). Fires `terminals:dirty`. */
-export function updateServerMetadata(
+/** Commit a folded `TerminalSnapshot` — REPLACE `entry.snapshot` wholesale (the fold
+ *  built a new value; nothing is mutated in place) and publish it. Does NOT fire
+ *  `terminals:dirty`: the ~150 ms agent-detail/foreground firehose touches only the
+ *  observation, so it must never arm autosave; the fold's watch loop fires dirty
+ *  itself, but only on a restore-relevant VALUE change. A no-op if `id` has no
+ *  entry (a late commit after removal — sensors are torn down before the entry is
+ *  removed, so this "never" fires; logged so a teardown bug is observable). */
+export function commitSnapshot(
   terminalId: string,
-  mutate: (meta: AwarenessPersistedFields) => void,
+  observation: TerminalSnapshot,
 ): void {
-  const aw = mutateAwarenessPersisted(terminalId, mutate);
-  if (!aw) {
-    // Sensors are torn down BEFORE the entry is removed, so this "never" fires;
-    // log it so a write that DOES outlive its terminal (a sensor-teardown bug)
-    // is observable rather than silently dropped.
-    log.debug(
-      { terminal: terminalId },
-      "persisted awareness write after removal",
+  const entry = getTerminal(terminalId);
+  if (!entry) {
+    // Sensors are torn down BEFORE the entry is removed, so a commit landing after
+    // removal "never" happens — if it does, a teardown-ordering bug let a producer
+    // outlive its entry. Log at `warn` so it's visible in prod without debug logging.
+    log.warn({ terminal: terminalId }, "observation commit after removal");
+    return;
+  }
+  // Apply the fold's commit to the registry FIRST (the accepted value), THEN publish.
+  // The publish (a collection upsert that fans out to subscribers) is the only
+  // fallible step, so guard it HERE — at the publish boundary — not around the
+  // producer's emit funnel: a throwing subscriber must not propagate back into the
+  // sensor loop (it would freeze the sensor) and must not be swallowed at a seam
+  // where the producer already advanced its dedup baseline (the fold has accepted
+  // `observation` above, so the registry stays in sync regardless; a lost publish
+  // self-heals on the next observation). This is what makes `emit` infallible.
+  entry.snapshot = observation;
+  try {
+    publishSnapshot(terminalId, observation);
+  } catch (err) {
+    log.error(
+      { err, terminal: terminalId },
+      "snapshot publish threw (observation committed; will re-publish on next change)",
     );
-    return;
   }
-  publishAwareness(terminalId, aw);
-  terminalsDirtyChannel.publish({});
 }
 
-/** Atomically mutate LIVE awareness (`pr`, `agent`, `foreground`) and publish —
- *  WITHOUT firing `terminals:dirty` (the firehose fence). The mutator is narrowed
- *  to `AwarenessLiveFields`: writing a persisted field through this path is a type
- *  error. A no-op if `id` has no awareness entry. */
-export function updateServerLiveMetadata(
+/** Write the fold's three restore-relevant AUTHORED facts — the two remembered
+ *  `AgentMemory` fields (`lastActivityAt`, `lastAgentCommand`) and the fold-derived
+ *  `restoreTarget` — onto `entry.meta`, then publish the authored record. The ONE
+ *  writer of these (the fold's), so no other code path can spell them — the typed
+ *  mirror of `updateClientMetadata`. Does NOT fire `terminals:dirty`: these ARE
+ *  restore-relevant, but the fold's watch loop already fires dirty on the
+ *  restore-relevant value change, so firing here too would double-arm. The CALLER
+ *  (the emit loop) invokes this only when an authored fact actually CHANGED, so the
+ *  authored collection never re-publishes on the ~150 ms observation firehose. A
+ *  no-op if `id` has no entry. */
+export function updateMemory(
   terminalId: string,
-  mutate: (meta: AwarenessLiveFields) => void,
+  memory: AgentMemory,
+  restoreTarget: RestoreTarget,
 ): void {
-  const aw = mutateAwarenessLive(terminalId, mutate);
-  if (!aw) {
-    // See `updateServerMetadata`: a live write that outlives its terminal means a
-    // sensor wasn't torn down — surface it at debug rather than drop it silently.
-    log.debug({ terminal: terminalId }, "live awareness write after removal");
+  const entry = getTerminal(terminalId);
+  if (!entry) {
+    // As in `commitSnapshot`: a memory write after the entry is gone signals a
+    // teardown-ordering bug (a producer outlived its entry), not an expected miss —
+    // `warn` so it surfaces in prod.
+    log.warn({ terminal: terminalId }, "memory write after removal");
     return;
   }
-  publishAwareness(terminalId, aw);
+  // Apply the fold's memory facts to the registry FIRST (accepted), THEN publish —
+  // and guard the publish at this boundary (as `commitSnapshot` does), so a
+  // throwing authored-collection subscriber can't propagate into the sensor loop or
+  // be swallowed after the producer baseline advanced. The registry stays in sync;
+  // a lost publish self-heals on the next authored-fact change.
+  entry.meta.lastActivityAt = memory.lastActivityAt;
+  entry.meta.lastAgentCommand = memory.lastAgentCommand;
+  entry.meta.restoreTarget = restoreTarget;
+  try {
+    publishAuthored(terminalId, entry);
+  } catch (err) {
+    log.error(
+      { err, terminal: terminalId },
+      "authored publish threw (memory committed; will re-publish on next change)",
+    );
+  }
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,

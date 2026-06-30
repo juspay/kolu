@@ -295,13 +295,14 @@ export function useSessionRestore(deps: {
         // command, if the user didn't opt out. The command is already
         // normalized (prompts/positionals stripped by the allowlist at
         // capture time), so there's nothing arbitrary to smuggle through.
-        // `t.agentSession` (when present) targets the EXACT conversation that
-        // was running on this terminal rather than the most-recent one in the
-        // cwd (juspay/kolu#1495); absent → most-recent fallback.
-        // `resumeFormFor` is the SAME composition the server's wake path feeds a
-        // fresh spawn (`local.ts`), so restore and wake can't drift.
+        // `resumeFormFor` switches on the fold-derived `restoreTarget`:
+        // `exact` targets the EXACT conversation that was running by id
+        // (juspay/kolu#1495), `legacyMostRecent` the most-recent fallback, and
+        // `none`/absent a bare shell. It is the SAME composition the server's
+        // wake path feeds a fresh spawn (`local.ts`), so restore and wake can't
+        // drift.
         const optedIn = !resumeIds || resumeIds.has(t.id);
-        const resumeForm = optedIn ? resumeFormFor(t) : null;
+        const resumeForm = optedIn ? resumeFormFor(t.restoreTarget) : null;
         if (resumeForm) {
           await client.terminal.sendInput({
             id: newId,

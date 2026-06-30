@@ -1,37 +1,43 @@
 /**
- * The generic terminal-awareness value — the server-derived slice of a
- * terminal's metadata, owned where it is PRODUCED (the sensor set in this
- * package) rather than by any app.
+ * The terminal-snapshot vocabulary — the value a host PRODUCER emits and the
+ * value kolu's fold accumulates, owned where it is PRODUCED (the sensor set in
+ * this package) rather than by any app.
  *
- * `AwarenessValue` is exactly the fields the sensors compute: a terminal's
- * cwd · git context · last agent command · activity recency (the persisted
- * half) plus its forge PR · agent status · foreground process (the live half).
- * It is composed from the vendor-neutral leaf schemas (anyforge · kolu-git ·
- * kolu-github · the per-agent packages) and names NOTHING app-specific — no
- * `location` endpoint discriminator, no client/UI fields.
+ * The de-entanglement (awareness-derive-store.mdx) splits SAMPLING from
+ * REMEMBERING:
+ *   - `TerminalSnapshot` is exactly the five fields a memoryless host can RE-SAMPLE:
+ *     cwd · git context · forge PR · live agent · foreground process. Composed
+ *     from the vendor-neutral leaf schemas (anyforge · kolu-git · kolu-github ·
+ *     the per-agent packages) and naming NOTHING app-specific — no `location`
+ *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
+ *     `terminalWorkspace.snapshots` collection.
+ *   - `AgentMemory` is the two facts a host CANNOT re-sample — a clock reading
+ *     (`lastActivityAt`) and the launch line the user typed (`lastAgentCommand`).
+ *     kolu remembers them; a producer's `TerminalSnapshot` cannot spell either.
+ *   - `TerminalState = { snapshot, memory }` is kolu's fold accumulator, never on
+ *     a wire (kolu folds in-process). `TerminalEvent` is the per-field EMIT
+ *     type a producer streams.
  *
- * kolu does NOT build a record ON TOP of this. It serves this generic
- * `AwarenessValue` UNCHANGED on its `terminalWorkspace.awareness` collection, and
- * recomposes its full `TerminalMetadata` at the CLIENT by JOINING that value with
- * a SEPARATE authored record — the app-owned `location` (the local/remote endpoint
- * discriminator) plus the client-persisted UI fields (themeName / parentId /
- * canvasLayout / …). So awareness is a SIBLING of kolu's authored record, not a
- * base kolu's record extends. That separation is what lets `pulam` (the standalone
- * daemon) and `pulam-tui` (the viewer) reuse the sensors with zero dependency on
- * any kolu-app package.
- *
- * The persisted-vs-live partition is the same write fence the sensors honor
- * through `AwarenessSink` (and that kolu's `metadata.ts` enforces): persisted
- * fields flow through the autosave-arming mutator, live fields through the
- * quiet one. The two halves are kept as distinct sub-schemas so a hook's
- * mutator type can be narrowed to exactly one half.
+ * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
+ * GONE: the producer is memoryless and the emit type forbids a memory field, so no
+ * snapshot can clobber a remembered fact — the fence is the TYPE, not a runtime
+ * mutator. kolu recomposes its full `TerminalMetadata` at the CLIENT by JOINING
+ * the served `TerminalSnapshot` with a SEPARATE authored record (the app-owned
+ * `location` + memory + client-persisted UI fields). That separation is what lets
+ * `pulam` (the standalone daemon) and `pulam-tui` (the viewer) reuse the sensors
+ * with zero dependency on any kolu-app package.
  */
 
-import { AgentKindSchema, AgentSessionRefSchema } from "anyagent/schemas";
+import {
+  AgentIdentitySchema,
+  AgentKindSchema,
+  resumableCommand,
+  RestoreTargetSchema,
+} from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
-import { GitInfoSchema } from "kolu-git/schemas";
+import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { match } from "ts-pattern";
@@ -44,23 +50,24 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 
-// `AgentKindSchema` + `AgentSessionRefSchema` are OWNED by anyagent/schemas
-// (the lower layer that owns the `AgentKind` vocabulary and the
-// `resumeAgentCommand` receptacle consuming the ref). Re-exported here so the
-// persist path (`agentSession.ts`) and kolu-common/surface keep resolving them
-// from this schema home — one declaration, validated once.
-export { AgentKindSchema, AgentSessionRefSchema };
+// `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,
+// `RestoreTargetSchema`, and the `resumableCommand` projection) are OWNED by
+// anyagent/schemas (the lower layer that owns the `AgentKind` vocabulary and the
+// `resumeAgentCommand`/`resumeFormFor` receptacles consuming them). Re-exported
+// here so the wake/restore path and kolu-common/surface keep resolving them from
+// this schema home — one declaration, validated once.
+export {
+  AgentIdentitySchema,
+  AgentKindSchema,
+  resumableCommand,
+  RestoreTargetSchema,
+};
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
 ]);
-
-// `AgentSessionRef` (the persisted conversation-identity ref) is imported by
-// `agentSession.ts` from this module; re-export the inferred type from the
-// anyagent-owned schema so that import keeps resolving.
-export type AgentSessionRef = z.infer<typeof AgentSessionRefSchema>;
 
 // ── PR resolution — closed forge union + wire result ──────────────────
 //
@@ -123,88 +130,105 @@ export const ForegroundSchema = z.object({
   title: z.string().nullable(),
 });
 
-// ── The awareness value — persisted half + live half ──────────────────
+// ── The TerminalSnapshot — what a host PRODUCER emits ──────────────────────
 //
-// Invariant: every awareness field appears in EXACTLY ONE of the two halves.
-// The split is the write fence: the persisted half is mutated through the
-// autosave-arming hook (`updateServerMetadata`), the live half through the
-// quiet one (`updateServerLiveMetadata`) — so the ~150 ms agent-stream
-// firehose can never re-arm the persist path. Choose a new field's half on
-// one axis: "must this survive a process restart?" — yes → persisted, no →
-// live.
+// The de-entanglement (awareness-derive-store.mdx): a host PRODUCER emits one
+// `TerminalSnapshot` — exactly the five fields it can RE-SAMPLE — and nothing it
+// cannot. The two facts a host genuinely cannot re-sample (a clock reading and
+// the launch invocation) are `AgentMemory`, written by kolu's fold ALONE. The
+// old persisted/live write-fence is gone: the producer is memoryless and cannot
+// CONSTRUCT memory (the type forbids it), so no snapshot can clobber a
+// remembered fact — the fence is the EMIT TYPE, not a runtime mutator split.
 
-/** The persisted half of the awareness value — re-resolved slowly (cwd / git /
- *  last agent command) and carried across a restart by hosts that persist
- *  (kolu). Disjoint from the live half. */
-export const AwarenessPersistedFieldsSchema = z.object({
+/** What a host PRODUCER emits — exactly the fields it can RE-SAMPLE. Local or
+ *  remote, the SAME type. Served as-is on kolu's `terminalWorkspace.snapshots`
+ *  collection (kolu JOINS it with a separate authored record at the client).
+ *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
+ *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
+ *  (lie-when-dead, re-derived on (re)spawn). */
+export const TerminalSnapshotSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
-  /** Normalized agent CLI invocation last observed in this terminal (e.g.
-   *  `"claude --model sonnet"`). Preserved across intervening non-agent
-   *  input; drives the "resume agent on restore" offer. Absent for terminals
-   *  that never ran a known agent. */
-  lastAgentCommand: z.string().optional(),
-  /** The EXACT agent conversation last running in this terminal — its agent
-   *  `kind` + native session `id` (see `AgentSessionRefSchema`). Captured live
-   *  from `agent.sessionId` but persisted here (the live `agent` field is wiped
-   *  on restart), so wake / restore resumes that conversation rather than the
-   *  most-recent one in the cwd (juspay/kolu#1495). Absent for terminals whose
-   *  agent never resolved a session (then resume falls back to most-recent). */
-  agentSession: AgentSessionRefSchema.optional(),
-  /** Workspace-switcher recency key: epoch-millis of the last agent
-   *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
-   *  stay at `0`. */
-  lastActivityAt: z.number().default(0),
-});
-export type AwarenessPersistedFields = z.infer<
-  typeof AwarenessPersistedFieldsSchema
->;
-
-/** The live half of the awareness value — transient status fed by external
- *  state and never persisted; a host with no live source re-derives it on
- *  (re)start. Disjoint from the persisted half. */
-export const AwarenessLiveFieldsSchema = z.object({
-  /** Forge PR resolution — discriminated union (see PrResultSchema).
-   *  Forge-neutral PR resolution (anyforge); the gh adapter resolves it
-   *  today. */
+  /** Forge PR resolution — discriminated union (see PrResultSchema). */
   pr: PrResultSchema,
-  /** AI coding agent status (Claude Code, OpenCode, etc.). */
+  /** The LIVE agent right now, or null when the user is at the shell. */
   agent: AgentInfoSchema.nullable(),
-  /** Foreground process name — detected via OSC 2 title change events. */
+  /** The live foreground process (vim, …) — detected via OSC 2 title events. */
   foreground: ForegroundSchema.nullable(),
 });
-export type AwarenessLiveFields = z.infer<typeof AwarenessLiveFieldsSchema>;
+export type TerminalSnapshot = z.infer<typeof TerminalSnapshotSchema>;
 
-/** The whole generic awareness value — persisted half ∪ live half. kolu serves
- *  exactly this on `terminalWorkspace.awareness` and JOINS it with a separate
- *  authored record (location + UI fields) at the client; `pulam` serves exactly
- *  this over the wire. */
-export const AwarenessValueSchema = AwarenessPersistedFieldsSchema.merge(
-  AwarenessLiveFieldsSchema,
-);
-export type AwarenessValue = z.infer<typeof AwarenessValueSchema>;
+/** The agent IDENTITY kolu persists for restore (`kind` + native session
+ *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
+ *  both OWNED by anyagent/schemas (the resume vocabulary layer), re-exported here
+ *  as the schema home kolu-common/surface and the fold resolve them through. The
+ *  fold's `restoreTargetOf` PRODUCES the target; `resumeFormFor` CONSUMES it. */
+export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
+export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
 
-/** The live half of a fresh / reset awareness value — PR pending, no agent, no
- *  foreground: the "not yet resolved" defaults the sensors fill in. The ONE home
- *  for the live-default set, so a fresh spawn (via {@link seedAwarenessValue}), a
- *  wake, and an adoption all reset the live half through this and can't drift. A
- *  fresh object each call — the value is mutated in place by the sensor sink, so
- *  callers must not share one. */
-export function seedAwarenessLive(): AwarenessLiveFields {
-  return { pr: { kind: "pending" }, agent: null, foreground: null };
+/** The two facts a host CANNOT observe — recency is a CLOCK reading, the launch
+ *  line is what the user TYPED. Irrecoverable from a screen, so kolu remembers
+ *  them; written by kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell
+ *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
+ *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
+export const AgentMemorySchema = z.object({
+  /** Workspace-switcher recency: epoch-millis of the last LIVE agent-IDENTITY
+   *  change (start / finish / new session), on kolu's clock. Idle terminals
+   *  stay at `0`. */
+  lastActivityAt: z.number().default(0),
+  /** Normalized agent CLI invocation last observed (e.g. `"claude --model
+   *  sonnet"`). Preserved across intervening non-agent input; drives the "resume
+   *  agent on restore" offer. Absent for terminals that never ran a known agent. */
+  lastAgentCommand: z.string().optional(),
+});
+export type AgentMemory = z.infer<typeof AgentMemorySchema>;
+
+/** kolu's stored value: the last-seen `TerminalSnapshot` + the two remembered facts.
+ *  NESTED, not merged, so the half published to the snapshots collection is
+ *  `current.snapshot` — structurally WITHOUT the memory fields, not a runtime
+ *  strip. The fold accumulator; never crosses a wire (kolu folds in-process). */
+export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
+
+/** The async resolution of the agent field made LAWFUL. The session file lands a
+ *  beat after the command mark (over the settle window), so a bare `agent: null`
+ *  is ambiguous — "no agent" or "not resolved yet?". `"unknown"` means a producer
+ *  is mid-resolution (kolu KEEPS its last value, no clobber); `{ value }` is
+ *  authoritative (kolu APPLIES it, even when `null` — a shell-idle null is the
+ *  session genuinely ended). Never stored — only the resolved value is. */
+export type Known<T> = "unknown" | { value: T };
+
+/** A per-field sample a memoryless producer emits. The standing five build
+ *  the `TerminalSnapshot`; `commandRun` is a discrete mark that feeds kolu's
+ *  `lastAgentCommand` memory + the recent-agent MRU. The agent is the one field
+ *  that resolves ASYNCHRONOUSLY, so it carries `Known<>` rather than a bare
+ *  nullable. In-process for R9.0 (a plain TS union, no wire schema — the framed
+ *  `terminalEvents` stream that serializes these is R9.3). */
+export type TerminalEvent =
+  | { kind: "cwd"; cwd: string }
+  | { kind: "git"; git: GitInfo | null }
+  | { kind: "pr"; pr: PrResult }
+  | { kind: "foreground"; foreground: Foreground | null }
+  | { kind: "agent"; agent: Known<AgentInfo | null> }
+  | { kind: "commandRun"; command: string; replayed: boolean };
+
+/** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
+ *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground).
+ *  The fold fills it in from now. The ONE home for the snapshot-default set. */
+export function seedSnapshot(cwd: string): TerminalSnapshot {
+  return {
+    cwd,
+    git: null,
+    pr: { kind: "pending" },
+    agent: null,
+    foreground: null,
+  };
 }
 
-/** The initial awareness value for a freshly-spawned terminal: its spawn-time
- *  cwd, everything else at its "not yet resolved" seed (git absent, recency at 0,
- *  and the live half from {@link seedAwarenessLive}). The sensors fill it in from
- *  now.
- *
- *  Owned HERE, beside the schema that defines its shape, so every consumer
- *  shares one seed: `pulam`'s daemon seeds a watched terminal with it, and
- *  kolu's `createMetadata` spreads it under the kolu-only `location`. A new
- *  awareness field then has exactly one seed value to set. */
-export function seedAwarenessValue(cwd: string): AwarenessValue {
-  return { cwd, git: null, lastActivityAt: 0, ...seedAwarenessLive() };
+/** A fresh terminal's empty memory — recency at 0, no command yet. The ONE home
+ *  for the memory-default set (a fresh spawn seeds zero memory; wake/adopt seed
+ *  from the durable record). */
+export function seedMemory(): AgentMemory {
+  return { lastActivityAt: 0 };
 }
 
 // ── Schema-derived sub-types ──────────────────────────────────────────

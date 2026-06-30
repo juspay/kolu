@@ -79,7 +79,7 @@ export class ClientSurfaceMismatchError extends Error {
 
 /** Per-primitive consumers for `mirrorRemoteSurface`, typed off the source
  *  surface's spec `S`. Every entry is optional: a primitive is subscribed iff a
- *  sink is supplied, so a consumer that only wants the `awareness` collection (the
+ *  sink is supplied, so a consumer that only wants the `snapshots` collection (the
  *  R-2 fold is intended to) provides just that, and one that wants the whole
  *  surface (the fleet board, today) provides all of them. Omission is deliberate
  *  non-interest, not a
@@ -299,7 +299,7 @@ function buildProcedureForwarders(
  *
  *      const { procedures, done } = mirrorRemoteSurface(terminalWorkspaceSurface, client, {
  *        cells: { version: (v) => setSkew(!isContractVersionCompatible(v.contractVersion, OURS)) },
- *        collections: { awareness: { upsert, remove } },
+ *        collections: { snapshots: { upsert, remove } },
  *        streams: { activity: { input: {}, onFrame: (live) => setLive(live) } },
  *      }, { signal, log });
  *      await procedures.terminal.kill({ id });  // forwarded to the remote

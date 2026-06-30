@@ -58,7 +58,7 @@ const stubLink = {
 };
 
 describe("pulam-web surfaceClient health — the real registry over pulamSurface", () => {
-  it("enrols the connection cell, the awareness keys-stream, and the activity stream by name", async () => {
+  it("enrols the connection cell, the snapshots keys-stream, and the activity stream by name", async () => {
     await createRoot(async (dispose) => {
       const app = surfaceClient(
         pulamSurface,
@@ -67,7 +67,7 @@ describe("pulam-web surfaceClient health — the real registry over pulamSurface
       );
       // Exactly the three subscriptions HostGroup's gate folds.
       app.cells.connection.use();
-      app.collections.awareness.use({});
+      app.collections.snapshots.use({});
       app.streams.activity.use(() => ({}));
       await settle();
 
@@ -75,8 +75,9 @@ describe("pulam-web surfaceClient health — the real registry over pulamSurface
         .health()
         .subs.map((s) => s.name)
         .sort();
-      // The keys-stream yields `[]`, so no per-key fan-out — just the three.
-      expect(names).toEqual(["activity", "awareness.keys", "connection"]);
+      // The keys-stream yields `[]`, so no per-key fan-out — just the three
+      // (sorted: the `snapshots.keys` rename re-orders it after `connection`).
+      expect(names).toEqual(["activity", "connection", "snapshots.keys"]);
       // All healthy over the stub: each yielded a first frame, none erroring.
       const fact = app.health();
       expect(fact.subs.every((s) => !s.pending && s.error === undefined)).toBe(

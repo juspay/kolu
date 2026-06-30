@@ -711,7 +711,7 @@ const Terminal: Component<{
             // unrelated programmatic off-bottom scroll could latch onto within
             // the window (#1272). So arm only on the keys that actually scroll;
             // the resulting synchronous onScroll must read as user intent or
-            // the latch suppresses it. Observation only; the key still falls
+            // the latch suppresses it. TerminalSnapshot only; the key still falls
             // through to xterm below.
             if (
               e.type === "keydown" &&

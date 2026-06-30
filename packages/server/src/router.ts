@@ -263,10 +263,10 @@ export const appRouter = t.router({
       async ({ input }) => {
         // `requireActiveTerminal` proves the terminal exists AND narrows it to the
         // active arm; awareness is a REQUIRED field on that entry (Design-S), so the
-        // agent + cwd + git + pr fields are read straight off `entry.awareness` —
+        // agent + cwd + git + pr fields are read straight off `entry.snapshot` —
         // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
         // lockstep bug.
-        const { awareness: aw } = requireActiveTerminal(input.id);
+        const { snapshot: aw } = requireActiveTerminal(input.id);
         const agent = aw.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {

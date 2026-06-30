@@ -9,8 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 // `useTerminalMetadata` pulls `app` + `workspace` (live surface sockets) and
 // `solid-sonner` (a toast DOM) at import time. Stub all three so the hook loads
 // under Node, and drive the TWO per-key collections it joins — `app.authored` and
-// `workspace.awareness` — through one hoisted, signal-backed bag. A test supplies
-// a flat `TestMeta`; the mock SPLITS it across the two halves (the eight awareness
+// `workspace.snapshots` — through one hoisted, signal-backed bag. A test supplies
+// a flat `TestMeta`; the mock SPLITS it across the two halves (the eight snapshots
 // fields vs the authored rest) exactly as Design-S serves them, and the real
 // `composeTerminalMetadata` in `getMetadata` rejoins them. Flipping a field or the
 // id set re-runs the real `terminalIds` memo the way a server delta would, so a
@@ -18,35 +18,27 @@ import { describe, expect, it, vi } from "vitest";
 // drives the join.
 type TestMeta = Partial<TerminalMetadata>;
 const bag = vi.hoisted(() => {
-  // The eight AWARENESS fields ride `terminalWorkspace.awareness`; everything else
-  // is the AUTHORED half. Split a flat test meta the way the two collections do.
-  const AWARENESS = new Set([
-    "cwd",
-    "git",
-    "lastActivityAt",
-    "lastAgentCommand",
-    "agentSession",
-    "pr",
-    "agent",
-    "foreground",
-  ]);
+  // The five OBSERVED snapshots fields ride `terminalWorkspace.snapshots`;
+  // everything else (location, memory, `restoreTarget`, client chrome) is the
+  // AUTHORED half. Split a flat test meta the way the two collections do.
+  const AWARENESS = new Set(["cwd", "git", "pr", "agent", "foreground"]);
   return {
     // Late-bound to module-scope signals once solid-js is imported (below). The
     // mock reads through these so the memo tracks them as reactive sources.
     keys: (() => [] as TerminalId[]) as () => TerminalId[],
     metaOf: (() => undefined) as (id: TerminalId) => TestMeta | undefined,
     // Project a flat test meta onto one half. The active arm of
-    // `composeTerminalMetadata` is `{...awareness, ...authored}`, so the two
+    // `composeTerminalMetadata` is `{...snapshot, ...authored}`, so the two
     // disjoint halves rejoin to the original (plus the `state: "active"` the
     // authored half always carries here).
     half: (
       m: TestMeta,
-      which: "authored" | "awareness",
+      which: "authored" | "snapshots",
     ): Record<string, unknown> => {
       const out: Record<string, unknown> =
         which === "authored" ? { state: "active" } : {};
       for (const [k, v] of Object.entries(m)) {
-        if (AWARENESS.has(k) === (which === "awareness")) out[k] = v;
+        if (AWARENESS.has(k) === (which === "snapshots")) out[k] = v;
       }
       return out;
     },
@@ -57,7 +49,7 @@ vi.mock("../wire", () => {
   // Surface `{ keys, byKey }` shape (see useCollection.ts). `byKey` returns an
   // accessor when the id has metadata, else undefined — and reads `bag.metaOf`
   // INSIDE the accessor so the join stays reactive to either half.
-  const collectionFor = (which: "authored" | "awareness") => ({
+  const collectionFor = (which: "authored" | "snapshots") => ({
     use: () => ({
       keys: () => bag.keys(),
       byKey: (id: TerminalId) =>
@@ -68,7 +60,7 @@ vi.mock("../wire", () => {
   });
   return {
     app: { collections: { authored: collectionFor("authored") } },
-    workspace: { collections: { awareness: collectionFor("awareness") } },
+    workspace: { collections: { snapshots: collectionFor("snapshots") } },
   };
 });
 vi.mock("solid-sonner", () => ({

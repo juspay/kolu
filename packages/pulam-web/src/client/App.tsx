@@ -13,15 +13,7 @@
  * handling into the shell).
  */
 
-import {
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createMemo, createResource, For, type JSX, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { type PipVariant, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
@@ -58,44 +50,6 @@ async function fetchHosts(): Promise<string[]> {
   // this strictly-before-first-connect.
   rememberServerProcessId(body.processId);
   return body.hosts as string[];
-}
-
-/** A shared `now` accessor ticking once a second — drives the relative-age cells.
- *  Visibility-aware: it pauses while the tab is hidden (a background dashboard
- *  needn't re-render every second) and snaps to the current time on return, so
- *  the catalogued "visibility-blind timer" anti-pattern is avoided. Created
- *  inside App's reactive root, so its listener/interval are torn down on
- *  cleanup. */
-function createNow(): () => number {
-  const [now, setNow] = createSignal(Date.now());
-  let timer: ReturnType<typeof setInterval> | undefined;
-  const tick = (): void => {
-    setNow(Date.now());
-  };
-  const start = (): void => {
-    if (timer === undefined) timer = setInterval(tick, 1000);
-  };
-  const stop = (): void => {
-    if (timer !== undefined) {
-      clearInterval(timer);
-      timer = undefined;
-    }
-  };
-  const onVisibility = (): void => {
-    if (document.hidden) {
-      stop();
-    } else {
-      tick();
-      start();
-    }
-  };
-  document.addEventListener("visibilitychange", onVisibility);
-  if (!document.hidden) start();
-  onCleanup(() => {
-    stop();
-    document.removeEventListener("visibilitychange", onVisibility);
-  });
-  return now;
 }
 
 /** One legend entry — the REAL `StatePip` beside its meaning, so the legend can
@@ -187,7 +141,6 @@ function FilterChip(props: {
 
 export function App(): JSX.Element {
   const [hosts] = createResource(fetchHosts);
-  const now = createNow();
 
   // View filters — `active` agents always show; idle agents show by default too
   // (the full agent board), with non-agent/sleeping shells opt-in. See
@@ -252,7 +205,6 @@ export function App(): JSX.Element {
                 <HostGroup
                   host={host}
                   filters={filters}
-                  now={now}
                   reportCounts={reportCounts}
                 />
               )}

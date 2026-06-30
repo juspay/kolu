@@ -1,6 +1,6 @@
 /**
  * Bridge a `kaval` PTY-host client's raw tap streams onto the
- * `AwarenessSignals` the sensor set consumes — the connective tissue the
+ * `SensorSignals` the sensor set consumes — the connective tissue the
  * standalone `pulam` daemon needs and kolu-server does NOT.
  *
  * kolu-server builds the same four in-memory channels inline in its local
@@ -23,7 +23,7 @@
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample, PtyHostClient } from "kaval";
 import type { Logger } from "pino";
-import type { AwarenessSignals, CommandRunSample } from "./sensors.ts";
+import type { SensorSignals, CommandRunSample } from "./sensors.ts";
 import type { TerminalId } from "./schema.ts";
 
 /** Pump a kaval tap stream onto a channel until `signal` aborts. Fire-and-
@@ -49,7 +49,7 @@ function bridgeStream<T>(
   })();
 }
 
-/** Build the four `AwarenessSignals` channels for terminal `id` from a dialed
+/** Build the four `SensorSignals` channels for terminal `id` from a dialed
  *  kaval client, wiring each `ptyHostSurface` tap stream onto its channel.
  *  Every subscription is bound to `signal`, so one `abort()` tears the whole
  *  bridge down. The caller owns the channels afterward — `startAwareness`
@@ -60,8 +60,8 @@ export function bridgeKavalTaps(
   id: TerminalId,
   signal: AbortSignal,
   log?: Logger,
-): AwarenessSignals {
-  const signals: AwarenessSignals = {
+): SensorSignals {
+  const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
     commandRun: inMemoryChannel<CommandRunSample>(),

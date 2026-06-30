@@ -14,7 +14,7 @@ describe("surfaces map — three siblings (R8)", () => {
   it("terminalWorkspace exposes version + awareness + activity + fs/git + watcher streams", () => {
     const spec = surfaces.terminalWorkspace.spec;
     expect(spec.cells?.version).toBeDefined();
-    expect(spec.collections?.awareness).toBeDefined();
+    expect(spec.collections?.snapshots).toBeDefined();
     expect(spec.streams?.activity).toBeDefined();
     expect(spec.streams?.subscribeRepoChange).toBeDefined();
     expect(spec.streams?.subscribeFileChange).toBeDefined();
@@ -25,7 +25,7 @@ describe("surfaces map — three siblings (R8)", () => {
   it("kolu serves the `authored` half only — the fused `terminalMetadata` is gone (no re-fusion)", () => {
     const spec = surfaces.kolu.spec;
     // Design-S: kolu serves the AUTHORED half; the client joins it with
-    // `terminalWorkspace.awareness` at read time. The fused `terminalMetadata`
+    // `terminalWorkspace.snapshots` at read time. The fused `terminalMetadata`
     // collection is REMOVED, so a server-side recompose is unspellable — there is
     // no `surfaceCtx.collections.terminalMetadata` to push a fused record onto.
     expect(spec.collections?.authored).toBeDefined();

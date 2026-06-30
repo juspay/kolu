@@ -113,7 +113,7 @@ export const surfaceApp = clients.surfaceApp;
 
 /** The GENERIC `@kolu/terminal-workspace` surface client — kolu reads the
  *  per-terminal `awareness` collection here
- *  (`workspace.collections.awareness.use(...)`) and joins each value with the
+ *  (`workspace.collections.snapshots.use(...)`) and joins each value with the
  *  matching `kolu.authored` record in `useTerminalMetadata`. This is the SAME
  *  surface `pulam` serves, so R9 (remote awareness) becomes a pure backing-swap
  *  behind this one collection — no second client read path to migrate. */

@@ -41,15 +41,18 @@ set per terminal as they come and go.
 
 ## One sensor library, two homes
 
-The sensor set lives in [`@kolu/terminal-workspace`](../terminal-workspace) and
-is **shared, not forked**: kolu-server runs it _in-process_ for local terminals
-(writing the **awareness store** directly); pulam runs the _same_ code as a
-separate process and publishes each terminal's `AwarenessValue` into the served
-collection. The only per-consumer code is the thin `AwarenessSink` — mutate the
-record, then publish — plus the `bridgeKavalTaps` adapter that feeds the sensors
-from a dialed kaval's taps. So there is one copy of the freshness-critical
-sensor computation, and proving it runs correctly as a separate, kaval-dialing
-process is exactly what this daemon retires.
+The **memoryless producer** lives in
+[`@kolu/terminal-workspace`](../terminal-workspace) and is **shared, not
+forked**: kolu-server runs it _in-process_ for local terminals (folding its
+observation stream into kolu's stored value); pulam runs the _same_ producer
+as a separate process and publishes each terminal's `TerminalSnapshot` into the served
+collection. The only per-consumer code is a thin accumulator — pulam is a
+dashboard that remembers nothing, so it folds **only the snapshot half**
+(`foldSnapshot`: the same last-write-wins kolu's `fold` uses, minus the recency
+and resume-target memory) — plus the `bridgeKavalTaps` adapter that feeds the
+producer from a dialed kaval's taps. So there is one copy of the
+freshness-critical computation, and proving it runs correctly as a separate,
+kaval-dialing process is exactly what this daemon retires.
 
 ## Running it
 
@@ -65,8 +68,9 @@ The runtime is just `node · git · gh` — no kolu-server, no browser. For _rem
 awareness, [`pulam-tui --host <ssh>`](../pulam-tui) Nix-provisions this daemon on
 another machine and dials it over `--stdio` (it discovers the remote kaval, a
 kolu-server included). The kolu-server **mirror** — a long-lived dial where kolu
-_reads_ a remote host's surface (no fold; the server-side fold dissolves) — is the
-separate [remote-terminals R8–R9](https://kolu.dev/atlas/remote-terminals.html) phase.
+_reads_ a remote host's `TerminalSnapshot` stream and **folds** it locally (the host
+produces, kolu remembers) — is the separate
+[remote-terminals R8–R9](https://kolu.dev/atlas/remote-terminals.html) phase.
 
 The full design lives in the
 [pulam atlas note](https://kolu.dev/atlas/pulam.html).
