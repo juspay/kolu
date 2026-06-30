@@ -29,8 +29,8 @@ The surface mapping — each command is a thin read over the `terminalWorkspaceS
 
 | Subcommand | Surface read | Behaviour |
 | --- | --- | --- |
-| `pulam-tui status` | `awareness` collection (one-shot) | Print one row per terminal — `repo·branch · PR · agent · foreground · idle` — then exit. The awareness snapshot as a plain text table. (No working-tree *dirty* count: that needs `git.getStatus`, which the single-daemon snapshot deliberately doesn't call — it's pulam-web's drill-in.) |
-| `pulam-tui status --json` | `awareness` collection (one-shot) | Emit the flat `[{ id, ...AwarenessValue }]` array and exit. The machine-readable face. |
+| `pulam-tui status` | `awareness` collection (one-shot) | Print one row per terminal — `repo·branch · PR · agent · foreground` — then exit. The awareness snapshot as a plain text table. (No recency/`idle` column: pulam serves the memoryless `Observation`, which has no `lastActivityAt` — recency is kolu's remembered fact.) (No working-tree *dirty* count: that needs `git.getStatus`, which the single-daemon snapshot deliberately doesn't call — it's pulam-web's drill-in.) |
+| `pulam-tui status --json` | `awareness` collection (one-shot) | Emit the flat `[{ id, ...Observation }]` array and exit. The machine-readable face. |
 | `pulam-tui watch` | `awareness` collection + `activity` stream (subscribe) | Follow **every terminal** on the daemon: print a line each time any terminal's awareness changes (agent state, branch, foreground), with a trailing `●` when it's moving bytes right now, until `Ctrl+C`. |
 | `pulam-tui watch --json` | same | One JSON object per line (newline-delimited) per update, across all terminals — the streaming scriptable feed. |
 | `pulam-tui watch <id>` | same, filtered to one id | The same live follow, narrowed to a single terminal. `--json` likewise. |

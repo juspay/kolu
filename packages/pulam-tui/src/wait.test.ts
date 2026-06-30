@@ -23,8 +23,8 @@ import {
   type UnixSocketListener,
 } from "@kolu/surface/unix-socket";
 import {
-  type AwarenessValue,
   DEFAULT_VERSION,
+  type Observation,
   terminalWorkspaceSurface,
   type TerminalId,
 } from "@kolu/terminal-workspace/surface";
@@ -38,7 +38,7 @@ const id = (s: string): TerminalId => s as TerminalId;
 /** A schema-VALID ClaudeCodeInfo (the wire validates against the zod schema, so
  *  the cast factory render.test.ts uses won't survive the socket). All the
  *  nullable detail fields are seeded null/empty — only `state` varies per case. */
-function agentVal(state: string): AwarenessValue["agent"] {
+function agentVal(state: string): Observation["agent"] {
   return {
     kind: "claude-code",
     state,
@@ -49,19 +49,18 @@ function agentVal(state: string): AwarenessValue["agent"] {
     workflow: null,
     contextTokens: null,
     startedAt: null,
-  } as AwarenessValue["agent"];
+  } as Observation["agent"];
 }
 
-function awareness(over: Partial<AwarenessValue>): AwarenessValue {
+function observation(over: Partial<Observation>): Observation {
   return {
     cwd: "/repo",
     git: null,
-    lastActivityAt: 0,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
     ...over,
-  } as AwarenessValue;
+  } as Observation;
 }
 
 /** A single-consumer pushable `activity` source (verbatim from watch.test.ts). */
@@ -102,14 +101,14 @@ function notInTest(name: string): never {
 }
 
 const TARGET = new Set(["awaiting", "waiting"]);
-const matchTurnEnded = (agent: AwarenessValue["agent"]): boolean =>
+const matchTurnEnded = (agent: Observation["agent"]): boolean =>
   agentMatchesUntil(agent, TARGET);
 
 let listener: UnixSocketListener;
 let socketPath: string;
-let cache: Map<TerminalId, AwarenessValue>;
+let cache: Map<TerminalId, Observation>;
 let activity: ReturnType<typeof makeActivity>;
-let publishUpsert: (id: TerminalId, v: AwarenessValue) => void;
+let publishUpsert: (id: TerminalId, v: Observation) => void;
 let publishRemove: (id: TerminalId) => void;
 
 beforeEach(async () => {
@@ -174,7 +173,7 @@ afterEach(() => {
 describe("awaitAgentState — block until the agent enters a target bucket", () => {
   it("stays pending while working, then resolves `met` on the awaiting transition", async () => {
     const tid = id("a3f10000-1111-4222-8333-444455556666");
-    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // working
+    publishUpsert(tid, observation({ agent: agentVal("thinking") })); // working
 
     const conn = await connectPulam(socketPath);
     try {
@@ -192,7 +191,7 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
       expect(settled).toBe(false);
 
       // The agent ends its turn — now it matches.
-      publishUpsert(tid, awareness({ agent: agentVal("awaiting_user") }));
+      publishUpsert(tid, observation({ agent: agentVal("awaiting_user") }));
       const outcome = await p;
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met")
@@ -204,7 +203,7 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
 
   it("resolves `met` immediately when the agent is ALREADY in a target bucket", async () => {
     const tid = id("b7c20000-1111-4222-8333-444455556666");
-    publishUpsert(tid, awareness({ agent: agentVal("waiting") })); // already idle
+    publishUpsert(tid, observation({ agent: agentVal("waiting") })); // already idle
 
     const conn = await connectPulam(socketPath);
     try {
@@ -222,7 +221,7 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
 
   it("resolves `gone` immediately when the target terminal is removed before the state lands", async () => {
     const tid = id("d1e50000-1111-4222-8333-444455556666");
-    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // working
+    publishUpsert(tid, observation({ agent: agentVal("thinking") })); // working
 
     const conn = await connectPulam(socketPath);
     try {
@@ -256,8 +255,8 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
   it("ignores removal of a DIFFERENT terminal", async () => {
     const tid = id("e2f60000-1111-4222-8333-444455556666");
     const other = id("f3a70000-1111-4222-8333-444455556666");
-    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // working
-    publishUpsert(other, awareness({ agent: agentVal("thinking") }));
+    publishUpsert(tid, observation({ agent: agentVal("thinking") })); // working
+    publishUpsert(other, observation({ agent: agentVal("thinking") }));
 
     const conn = await connectPulam(socketPath);
     try {
@@ -275,7 +274,7 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
       expect(settled).toBe(false);
 
       // tid ends its own turn — now it matches.
-      publishUpsert(tid, awareness({ agent: agentVal("awaiting_user") }));
+      publishUpsert(tid, observation({ agent: agentVal("awaiting_user") }));
       const outcome = await p;
       expect(outcome.kind).toBe("met");
     } finally {
@@ -285,7 +284,7 @@ describe("awaitAgentState — block until the agent enters a target bucket", () 
 
   it("resolves `timeout` when the target state never lands", async () => {
     const tid = id("c9d40000-1111-4222-8333-444455556666");
-    publishUpsert(tid, awareness({ agent: agentVal("thinking") })); // stays working
+    publishUpsert(tid, observation({ agent: agentVal("thinking") })); // stays working
 
     const conn = await connectPulam(socketPath);
     try {

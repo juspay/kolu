@@ -13,6 +13,10 @@ import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
 **A terminal's facts are split across two served collections, joined at the reader.** The **observed** half — `AwarenessValue`, the eight sensor fields — is served raw on `terminalWorkspace.awareness`. The **authored** half — `AuthoredTerminal`, kolu's own UI + the `active | sleeping` discriminant — is served raw on `kolu.authored`. The client's `useTerminalMetadata` subscribes to **both** and joins them with `composeTerminalMetadata` into a `TerminalMetadata`; `snapshotSession` reuses the **same** join to author the on-disk `SavedTerminal`. **Nothing fuses the two server-side** — `surfaceCtx.collections.terminalMetadata` is a compile error (pinned by `surface.test.ts`). This shipped in **PR #1594**.
 
+<Callout kind="warn" title="Superseded shape — the awareness-derive-store cutover reshaped the observed half">
+The reader-side **join** documented below (two collections, joined at the reader; no server-side fusion) still stands. But the **observed-half type** shown throughout this note is **pre-cutover**. The [awareness-derive-store cutover](awareness-derive-store.html) (now landed) renamed `AwarenessValue` → **`Observation`**, **deleted** the `agentSession` field (the restore identity is now the fold-derived `resumeAgent` on the authored record), moved kolu's two remembered facts (`lastActivityAt` · `lastAgentCommand`) onto `kolu.authored`, and made `pr` **persisted** (restore-relevant, like `git`) — so the "frozen pr on the sleeping arm" special case described below is **gone**. Read the type tables as history; the converged types live in [the awareness design](awareness-derive-store.html).
+</Callout>
+
 <Svg svg={diagram} caption="Two collections served raw — terminalWorkspace.awareness (AwarenessValue, 8 sensor fields) and kolu.authored (AuthoredTerminal, kolu's UI + discriminant) — joined by composeTerminalMetadata at the reader (useTerminalMetadata) and at save (snapshotSession) into a TerminalMetadata. No server-side fusion; R9 swaps awareness's backing behind the same seam." />
 
 ## The shipped types
@@ -112,7 +116,7 @@ The `terminalWorkspace.awareness` collection is served by **two homes** — kolu
 It's the volatility-boundary twin of `serveFsGit`: the factory hides the assembly, only the backing varies. So a second home — or R9 turning kolu's `activity` live — is a **backing injection**, never a second hand-assembled copy (pinned by `serveTerminalWorkspace.test.ts`).
 
 <Callout kind="warn" title="Superseded — the converged design splits observing from remembering">
-The createPulam framing this section once carried is **superseded**. The settled architecture ([the awareness design](awareness-derive-store.html), from a 3-agent debate) is **observe vs. remember**: a *memoryless producer* per host emits `HostObservation` events (cache + live, **no** memory); *kolu alone folds* them. The consequence for this model: the three **memory** fields — `lastActivityAt` · `agentSession` · `lastAgentCommand` — **move onto `kolu.authored`**, so the served `awareness` collection everywhere carries only `HostObservation`. The reader-join keeps its shape (`authored ⋈ awareness`); it just takes the memory fields from the authored half. *(The type tables above still show the pre-move shape; the converged types live in the awareness note. The remaining live/memory split is being explored further.)*
+The createPulam framing this section once carried is **superseded**, and the cutover has **landed**. The settled architecture ([the awareness design](awareness-derive-store.html), from a 3-agent debate) is **observe vs. remember**: a *memoryless producer* per host emits `Observation` events (**no** memory); *kolu alone folds* them. The consequence for this model: kolu's **two** remembered facts — `lastActivityAt` · `lastAgentCommand` — plus the fold-derived `resumeAgent` restore target **move onto `kolu.authored`** (the old `agentSession` field is gone — its identity is now `resumeAgent`), so the served `awareness` collection everywhere carries only an `Observation`. The reader-join keeps its shape (`authored ⋈ awareness`); it just takes the memory fields from the authored half. *(The type tables above still show the pre-cutover shape; the converged types live in the awareness note.)*
 </Callout>
 
 ## Next — R9 (converged: the producer observes, kolu remembers)
@@ -120,7 +124,7 @@ The createPulam framing this section once carried is **superseded**. The settled
 R8's reader-join stays. The awareness architecture is settled: a **memoryless producer** emits per-field observations and *cannot spell* the memory fields, by type; **kolu's fold** owns the memory, stamps recency with kolu's clock, and writes the memory fields to `kolu.authored`.
 
 ```text
-S1   memoryless producer:  taps → AwarenessObservation events  (HostObservation = cache + live)
+S1   memoryless producer:  taps → AwarenessObservation events  (Observation: cwd·git·pr·agent·foreground)
 S2   kolu's fold:          { cache, memory, live } patches · kolu's clock · memory → kolu.authored
 R9.0 kolu runs the producer IN-PROCESS and folds            (R9·lib / createPulam dissolved)
 R9.3 kolu SUBSCRIBES a remote producer's event stream into the SAME fold  (no reconcile)

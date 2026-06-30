@@ -5,9 +5,10 @@
  * homes share ONE copy of the freshness-critical code. Its entry points
  * (the export map is the boundary — node-only code never reaches a browser
  * consumer):
- *  - `.` — the per-terminal awareness sensor set (git · PR · agent ·
- *    foreground) + the generic `AwarenessValue` schema it produces.
- *  - `./schema` — the browser-safe `AwarenessValue` zod schema alone.
+ *  - `.` — the memoryless per-terminal awareness PRODUCER (git · PR · agent ·
+ *    foreground) + the generic `Observation` schema it emits, and the pure `fold`
+ *    kolu folds the observation stream with.
+ *  - `./schema` — the browser-safe `Observation` / `AgentMemory` zod schemas alone.
  *  - `./endpoint` — `createTerminalWorkspaceEndpoint`, the host-side fs/git
  *    wrapper over `kolu-git` the Code tab reads.
  *  - `./surface` — `terminalWorkspaceSurface`, the browser-safe served surface
@@ -17,12 +18,13 @@
  *  - `./socket` — the well-known pulam rendezvous socket path.
  *
  * The package names no kolu-app package: its lone host coupling — a logger —
- * is injected as a `startAwareness` parameter. Consumers that only need the
+ * is injected as a `startAwarenessEngine` parameter. Consumers that only need the
  * schemas (no sensors, no node/kaval runtime) import `./schema` directly.
  */
 
 export * from "./sensors.ts";
 export * from "./schema.ts";
+export * from "./fold.ts";
 // The kaval-dial bridge — taps → `AwarenessSignals`. Only the standalone
 // `pulam` daemon needs it (kolu-server builds its channels in-process); it
 // lives here so there is one copy of the transport adapter, not a fork.

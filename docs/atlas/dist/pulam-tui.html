@@ -17,12 +17,12 @@
 <tr>
 <td><code>pulam-tui status</code></td>
 <td><code>awareness</code> collection (one-shot)</td>
-<td>Print one row per terminal — <code>repo·branch · PR · agent · foreground · idle</code> — then exit. The awareness snapshot as a plain text table. (No working-tree <em>dirty</em> count: that needs <code>git.getStatus</code>, which the single-daemon snapshot deliberately doesn’t call — it’s pulam-web’s drill-in.)</td>
+<td>Print one row per terminal — <code>repo·branch · PR · agent · foreground</code> — then exit. The awareness snapshot as a plain text table. (No recency/<code>idle</code> column: pulam serves the memoryless <code>Observation</code>, which has no <code>lastActivityAt</code> — recency is kolu’s remembered fact.) (No working-tree <em>dirty</em> count: that needs <code>git.getStatus</code>, which the single-daemon snapshot deliberately doesn’t call — it’s pulam-web’s drill-in.)</td>
 </tr>
 <tr>
 <td><code>pulam-tui status --json</code></td>
 <td><code>awareness</code> collection (one-shot)</td>
-<td>Emit the flat <code>[{ id, ...AwarenessValue }]</code> array and exit. The machine-readable face.</td>
+<td>Emit the flat <code>[{ id, ...Observation }]</code> array and exit. The machine-readable face.</td>
 </tr>
 <tr>
 <td><code>pulam-tui watch</code></td>

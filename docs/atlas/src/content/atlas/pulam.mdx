@@ -15,6 +15,10 @@ import Pill from "../../components/Pill.astro";
 
 **kaval decoupled the PTY out of kolu into a standalone, minimal, durable daemon.** This note makes the *same move one level up* for the part kolu kept tangling: **terminal awareness** (git branch/dirty, PR status, agent detection, foreground). A new daemon — **`pulam`** (Tamil *புலம்*, "field · domain" — and from the same root *pulan* = a sense; sibling to `kaval` = *guard* and `odu` = *run*) — sits *on top of* kaval, runs the sensors, and exposes the result as one typed `@kolu/surface` collection. **One sensor library, two homes:** locally kolu runs the sensors in-process; remotely the `pulam` daemon serves the same awareness over ssh. Either way the result is one typed **observation surface** that kolu **reads** — it never folds a copy into its own record. (That convergence is [remote-terminals](remote-terminals.html) **R8**; until it lands, kolu's local path still routes awareness into `terminalMetadata`.)
 
+<Callout kind="warn" title="Refined by the awareness-derive-store cutover — the producer is memoryless, both homes fold">
+This note's "kolu **reads**, never folds" framing is the R8 stance; the [awareness-derive-store cutover](awareness-derive-store.html) (now landed) refined it. The producer is now explicitly **memoryless**: it **emits** per-field `Observation`s rather than mutating a host record through an `AwarenessSink` — that sink, both `makeAwarenessSink` impls (kolu's and pulam's `hooks.ts`), and the `AwarenessRecord` are **deleted**. Both homes now **fold** that stream: *kolu* runs the full fold (the five observed fields **plus** its two remembered facts — `lastActivityAt` · `lastAgentCommand` — on `kolu.authored`); *pulam*, a memoryless dashboard, folds only the observed half (`foldObserved`). The served collection value is now `Observation` (was `AwarenessValue`). What survives unchanged: one library, two homes, and kolu consuming through one seam.
+</Callout>
+
 <D2
   caption="pulam sits on top of kaval (which stays byte-for-byte minimal). LOCAL terminals run the sensors inside kolu-server, in-process — no socket. REMOTE terminals run pulam host-side: it dials the host's kaval for taps, reads the host fs (git/gh/~/.claude), and serves the awareness slice over ssh, which kolu-server mirrors and reads through one seam (remote-terminals R8 deletes the old server-side fold). The same daemon is independently useful: pulam-tui dials it directly."
   code={`direction: down
@@ -47,11 +51,13 @@ tui -> awd: dials
 
 Three claims, each verified against the shipped code:
 
-- **The unit is a generic awareness value, not kolu's record.** `pulam` exposes `Collection<TerminalId, AwarenessValue>` — exactly `cwd · git · lastAgentCommand · lastActivityAt` plus `pr · agent · foreground`. That schema lives in `@kolu/terminal-workspace` (the R4.1 `@kolu/terminal-awareness`, renamed when it grew fs/git in R6), built from the vendor-neutral `anyagent` / `anyforge` / `kolu-git` shapes with **no kolu content** — not even `location` (no sensor can know its own kolu-side `hostId`). Kolu's `TerminalServerMetadata` is `AwarenessValue` **plus** `location` and UI fields: built *on* it, never carved *from* it.
+- **The unit is a generic observation, not kolu's record.** `pulam` exposes `Collection<TerminalId, Observation>` — exactly the five fields a host can RE-OBSERVE: `cwd · git · pr · agent · foreground`. It carries **no memory**: kolu's two remembered facts (`lastActivityAt` recency, `lastAgentCommand`) are derived by *kolu's* fold and live on `kolu.authored`, never on pulam's collection. That schema lives in `@kolu/terminal-workspace` (the R4.1 `@kolu/terminal-awareness`, renamed when it grew fs/git in R6), built from the vendor-neutral `anyagent` / `anyforge` / `kolu-git` shapes with **no kolu content** — not even `location` (no producer can know its own kolu-side `hostId`). Kolu's per-terminal record is this `Observation` **joined** with its authored half (`location`, the memory facts, the UI fields): built *on* it, never carved *from* it.
 - **kaval stays byte-for-byte minimal.** `pulam` *dials* kaval as a `ptyHostSurface` client for the four taps + `getScreenText`; it adds zero awareness/git/gh logic to kaval. A layer above, never a fork.
 - **Ephemerality is the simplifier.** Awareness never has to survive a restart — it's re-derivable from live taps + current host fs. So `pulam` sheds all of kaval's durability machinery: no single-instance lock, no spawn/cleanup, no persisted list (it borrows kaval's `terminal.list`), no adoption or reconnect. Every (re)start just re-runs the sensors from now.
 
-## One library, two homes — kolu reads, never folds
+## One library, two homes — one shape of consumption
+
+> **Superseded detail:** the cutover (see the callout above) reintroduced a *fold* — a pure reduce over the producer's observation stream, **not** the old persisted∪live fusion this section says was deleted. Read the "no fold" wording below as R8 history; today kolu folds a memoryless producer's `Observation` events.
 
 Local and remote share the *sensor library* and *one schema* — and, after [remote-terminals](remote-terminals.html) **R8**, one **shape of consumption** too: the sensors fill the `terminalWorkspaceSurface.awareness` collection, and kolu **reads** it. The only thing that differs is where that collection is *backed*:
 
@@ -182,11 +188,11 @@ export const FleetBoard = ({ mode = "alert" }) => {
 
 <FleetBoard mode="alert" />
 
-When nothing needs you the board sits **calm** — cyan working spinners, dim idle rows, a quiet `all clear ✓`. The moment an agent hits `awaiting_user` its row lifts to the top of the fleet and a warm amber strip **breathes**, so a glance tells you *someone's waiting* before you've read a word. Rows sort **needs-you first** across the whole fleet; `--by agent` regroups into one fleet-wide "who is waiting on input, anywhere" list; `--json` emits the flat `[{ host, terminalId, ...AwarenessValue }]` for a notifier. Unreachable / skew / empty hosts each render distinctly rather than silently vanishing.
+When nothing needs you the board sits **calm** — cyan working spinners, dim idle rows, a quiet `all clear ✓`. The moment an agent hits `awaiting_user` its row lifts to the top of the fleet and a warm amber strip **breathes**, so a glance tells you *someone's waiting* before you've read a word. Rows sort **needs-you first** across the whole fleet; `--by agent` regroups into one fleet-wide "who is waiting on input, anywhere" list; `--json` emits the flat `[{ host, terminalId, ...Observation }]` for a notifier. Unreachable / skew / empty hosts each render distinctly rather than silently vanishing.
 
 <FleetBoard mode="calm" />
 
-**Host is stamped at the dial site**, never by the daemon — the awareness-layer echo of kolu's kolu-side `location` stamp (`AwarenessValue` deliberately carries no `hostId`). The render reads the aggregate keyed by `(host, terminalId)`, so two boxes' identical terminal ids stay distinct.
+**Host is stamped at the dial site**, never by the daemon — the awareness-layer echo of kolu's kolu-side `location` stamp (`Observation` deliberately carries no `hostId`). The render reads the aggregate keyed by `(host, terminalId)`, so two boxes' identical terminal ids stay distinct.
 
 ## The fleet board moved to the browser — and pulam-tui slimmed down
 

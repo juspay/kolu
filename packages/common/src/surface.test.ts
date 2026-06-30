@@ -1,85 +1,115 @@
 /**
  * `composeTerminalMetadata` (in `./surface.ts`) — the ONE join of a terminal's
- * two halves, the AUTHORED record + its AWARENESS value, into the unified
+ * two halves, the AUTHORED record + its OBSERVATION, into the unified
  * `TerminalMetadata`. Applied at the client read and at disk persist, never
- * served (Design-S, R8).
+ * served.
  *
- * These pin the load-bearing sleeping-arm invariant: a sleeping terminal's `pr`
- * is sourced EXCLUSIVELY from the authored (frozen) record, never from the
- * awareness value's live half — so a legacy sleeping record predating the
- * frozen-pr field stays pr-absent instead of leaking a stale `pr: pending`, and
- * the live half (`agent`/`foreground`) never reaches the sleeping wire.
+ * These pin the load-bearing sleeping-arm invariants AFTER the awareness-derive-
+ * store cutover: a sleeping terminal carries only the restore-relevant projection
+ * of its observation (`cwd · git · pr` — `pr` rides it, restore-relevant now, no
+ * frozen-pr special case), the churny `foreground` and lie-when-dead agent detail
+ * are dropped, and the resume target rides the authored record's `resumeAgent`
+ * (its identity), joined with `location` + memory + client fields.
  */
 
-import type { AwarenessValue } from "@kolu/terminal-workspace";
+import type { Observation } from "@kolu/terminal-workspace";
 import { describe, expect, it } from "vitest";
 import {
+  type AgentInfo,
   type AuthoredActiveTerminal,
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
   LOCAL_LOCATION,
 } from "./surface.ts";
 
-/** A live awareness value with a `pending` PR and a foreground process — both
- *  live-half fields that must NOT survive onto a sleeping wire. */
-const liveAwareness = (over: Partial<AwarenessValue> = {}): AwarenessValue => ({
+const claude = (sessionId: string): AgentInfo => ({
+  kind: "claude-code",
+  state: "thinking",
+  sessionId,
+  model: null,
+  summary: null,
+  taskProgress: null,
+  workflow: null,
+  contextTokens: null,
+  startedAt: null,
+});
+
+/** A full live observation with a resolved PR, a live agent, and a foreground
+ *  process. `pr` is restore-relevant (survives onto a dormant tile); the agent
+ *  DETAIL + `foreground` are lie-when-dead / churny and must not reach the
+ *  sleeping wire. */
+const observation = (over: Partial<Observation> = {}): Observation => ({
   cwd: "/repo",
   git: null,
-  lastActivityAt: 0,
-  pr: { kind: "pending" },
-  agent: null,
+  pr: { kind: "absent" },
+  agent: claude("ses-A"),
   foreground: { name: "vim", title: null },
   ...over,
 });
 
-describe("composeTerminalMetadata — the sleeping arm's pr comes only from authored", () => {
-  it("a legacy sleeping record with no frozen pr stays pr-absent (no leaked store pending)", () => {
+describe("composeTerminalMetadata — the sleeping arm is the restore-relevant projection", () => {
+  it("the sleeping arm's pr comes from the OBSERVATION (restore-relevant, no frozen-pr special case)", () => {
     const authored: AuthoredSleepingTerminal = {
       location: LOCAL_LOCATION,
+      lastActivityAt: 7,
       state: "sleeping",
       sleptAt: 123,
-    };
-    const wire = composeTerminalMetadata(authored, liveAwareness());
-    if (wire.state !== "sleeping") throw new Error("expected sleeping arm");
-    expect(wire.pr).toBeUndefined();
-  });
-
-  it("a sleeping record WITH a frozen pr keeps the frozen value, not the store's live pr", () => {
-    const authored: AuthoredSleepingTerminal = {
-      location: LOCAL_LOCATION,
-      state: "sleeping",
-      sleptAt: 123,
-      pr: { kind: "absent" }, // the frozen snapshot — must win over the store's `pending`
     };
     const wire = composeTerminalMetadata(
       authored,
-      liveAwareness({ pr: { kind: "pending" } }),
+      observation({ pr: { kind: "absent" } }),
     );
     if (wire.state !== "sleeping") throw new Error("expected sleeping arm");
     expect(wire.pr).toEqual({ kind: "absent" });
   });
 
-  it("strips the live half (agent/foreground) from a sleeping wire", () => {
+  it("drops the live half (agent detail + foreground), keeping memory + the resume target", () => {
     const authored: AuthoredSleepingTerminal = {
       location: LOCAL_LOCATION,
+      lastActivityAt: 7,
+      resumeAgent: { kind: "claude-code", sessionId: "ses-A" },
       state: "sleeping",
       sleptAt: 123,
     };
-    const wire = composeTerminalMetadata(authored, liveAwareness());
-    // The persisted half survives; the live half does not exist on a sleeping arm.
+    const wire = composeTerminalMetadata(authored, observation());
+    if (wire.state !== "sleeping") throw new Error("expected sleeping arm");
+    // cwd survives; the live agent detail + foreground are gone.
     expect(wire.cwd).toBe("/repo");
-    expect("foreground" in wire).toBe(false);
     expect("agent" in wire).toBe(false);
+    expect("foreground" in wire).toBe(false);
+    // memory + the resume target rode the authored record onto the joined value.
+    expect(wire.lastActivityAt).toBe(7);
+    expect(wire.resumeAgent).toEqual({
+      kind: "claude-code",
+      sessionId: "ses-A",
+    });
   });
 
-  it("the active arm carries the full awareness, pr included", () => {
+  it("a quit-to-shell sleeping record carries no resume target", () => {
+    const authored: AuthoredSleepingTerminal = {
+      location: LOCAL_LOCATION,
+      lastActivityAt: 7,
+      state: "sleeping",
+      sleptAt: 123,
+    };
+    const wire = composeTerminalMetadata(
+      authored,
+      observation({ agent: null }),
+    );
+    if (wire.state !== "sleeping") throw new Error("expected sleeping arm");
+    expect(wire.resumeAgent).toBeUndefined();
+  });
+
+  it("the active arm carries the FULL observation — full agent detail + foreground", () => {
     const authored: AuthoredActiveTerminal = {
       location: LOCAL_LOCATION,
+      lastActivityAt: 0,
       state: "active",
     };
-    const wire = composeTerminalMetadata(authored, liveAwareness());
+    const wire = composeTerminalMetadata(authored, observation());
     if (wire.state !== "active") throw new Error("expected active arm");
-    expect(wire.pr).toEqual({ kind: "pending" });
+    expect(wire.pr).toEqual({ kind: "absent" });
+    expect(wire.agent).toEqual(claude("ses-A"));
     expect(wire.foreground).toEqual({ name: "vim", title: null });
   });
 });

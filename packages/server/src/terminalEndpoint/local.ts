@@ -24,21 +24,22 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  AwarenessPersistedFieldsSchema,
-  type AwarenessRecord,
+  type AwarenessObservation,
   type AwarenessSignals,
-  type AwarenessSink,
   type CommandRunSample,
-  seedAwarenessLive,
-  seedAwarenessValue,
-  startAwareness,
+  fold,
+  type FoldCtx,
+  type KoluAwareness,
+  seedObservation,
+  startAwarenessEngine,
 } from "@kolu/terminal-workspace";
 import { createTerminalWorkspaceEndpoint } from "@kolu/terminal-workspace/endpoint";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type {
+  AgentIdentity,
   AuthoredActiveTerminal,
-  AwarenessValue,
+  Observation,
   SavedActiveTerminal,
   SavedSleepingTerminal,
   TerminalId,
@@ -49,6 +50,7 @@ import {
   AuthoredSleepingSchema,
   createAuthoredActive,
   LOCAL_LOCATION,
+  PersistedObservationSchema,
   SavedSleepingTerminalSchema,
   TerminalIdSchema,
 } from "kolu-common/surface";
@@ -77,11 +79,11 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
+  commitObservation,
   dropAwareness,
   installAwareness,
   publishTerminalState,
-  updateServerLiveMetadata,
-  updateServerMetadata,
+  updateMemory,
 } from "./metadata.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
@@ -271,39 +273,48 @@ export function bridgeStream<T>(
   })();
 }
 
-/** Wire the awareness sink to kolu-server's metadata + activity surfaces.
- *  `record.meta` IS the awareness-store value for `id` (same object — see
- *  `startAwarenessSensors`), so a sensor mutating its record IS writing the store;
- *  the sink's two mutators key on `id` and land in the same store object. */
-function makeAwarenessSink(id: TerminalId): AwarenessSink {
-  return {
-    updateServerMetadata: (_record, mutate) => updateServerMetadata(id, mutate),
-    updateServerLiveMetadata: (_record, mutate) =>
-      updateServerLiveMetadata(id, mutate),
-    trackRecentRepo,
-    trackRecentAgent,
-    // The screen-scrape promoter (Claude's AskUserQuestion / ExitPlanMode, #905)
-    // reads the rendered screen through the pty-host handle. `getScreenText`
-    // waits on `ready`, so it's safe even if a poll tick races spawn. The
-    // promoter passes its detector's `tailLines` so only the screen bottom is
-    // read — not the full (up to 50k-line) scrollback — each poll. The handle is
-    // read off the live active entry (the sensor set runs only while active).
-    readScreenText: (tailLines) => {
-      // Look the entry up explicitly rather than `getActiveTerminal(id)!`: a poll
-      // tick can race teardown/sleep, and a non-null assertion would throw a bare
-      // TypeError the sensor's `isNotFoundError` gate misreads as an UNEXPECTED
-      // scrape failure (logged at error). Throw the structured `terminalNotFound`
-      // (an `ORPCError("NOT_FOUND")`) so the race stays classified as the benign
-      // teardown it is — the same fail-loud stance as `getScreenState`.
-      const entry = getActiveTerminal(id);
-      if (!entry) throw terminalNotFound(id);
-      return entry.handle.getScreenText(undefined, undefined, tailLines);
-    },
-  };
+/** The producer's optional screen reader (Claude's AskUserQuestion / ExitPlanMode
+ *  screen-scrape promotion, #905) — reads the rendered screen tail through the
+ *  pty-host handle. `getScreenText` waits on `ready`, so it's safe even if a poll
+ *  tick races spawn. The handle is read off the live active entry (the producer
+ *  runs only while active). Looks the entry up explicitly rather than asserting:
+ *  a poll tick can race teardown/sleep, and a bare TypeError would be misread by
+ *  the producer's `isNotFoundError` gate as an UNEXPECTED scrape failure — so throw
+ *  the structured `terminalNotFound` to keep the race classified as benign. */
+function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
+  const entry = getActiveTerminal(id);
+  if (!entry) throw terminalNotFound(id);
+  return entry.handle.getScreenText(undefined, undefined, tailLines);
 }
 
-/** Everything needed to stop one terminal's sensor set + tap bridges: abort
- *  the tap-stream subscriptions and stop the watchers. */
+/** How long the fold treats the initial re-observation burst as a SNAPSHOT
+ *  (`ctx.live = false`, no recency bump) before flipping to live DELTAs. Sized to
+ *  cover the producer's agent settle window (the command-run reconcile schedule +
+ *  the screen-scrape poll), so an adopt / resuming-wake re-resolution lands inside
+ *  it and keeps its saved recency. Only a re-observation start (adopt / resuming
+ *  wake) uses it; a fresh spawn starts live, so its first agent bumps at once. */
+const AWARENESS_SNAPSHOT_WINDOW_MS = 1500;
+
+/** Are two folds' RESTORE-RELEVANT projections equal — the autosave fence? Compares
+ *  cwd · git · pr · agent IDENTITY · the two memory fields; agent DETAIL and
+ *  foreground are excluded, so the ~150 ms firehose folds to an equal projection and
+ *  never arms autosave. `git`/`pr` compare by reference (the fold preserves the
+ *  reference for an unchanged field — a non-git fold spreads the same object), which
+ *  is exact for "did this restore-relevant value change". */
+function restoreRelevantEqual(a: KoluAwareness, b: KoluAwareness): boolean {
+  return (
+    a.observed.cwd === b.observed.cwd &&
+    a.observed.git === b.observed.git &&
+    a.observed.pr === b.observed.pr &&
+    a.observed.agent?.kind === b.observed.agent?.kind &&
+    a.observed.agent?.sessionId === b.observed.agent?.sessionId &&
+    a.memory.lastActivityAt === b.memory.lastActivityAt &&
+    a.memory.lastAgentCommand === b.memory.lastAgentCommand
+  );
+}
+
+/** Everything needed to stop one terminal's producer + tap bridges: abort the
+ *  tap-stream subscriptions and stop the producer + the snapshot-window timer. */
 interface TerminalLifecycle {
   abort: AbortController;
   stopAwareness: () => void;
@@ -317,57 +328,56 @@ interface TerminalLifecycle {
  *  so it stays null until the title tap fires. */
 function liveForeground(
   liveEntry: PtyHostListEntry,
-): AwarenessValue["foreground"] {
+): Observation["foreground"] {
   return liveEntry.foregroundProcess
     ? { name: liveEntry.foregroundProcess, title: liveEntry.title ?? null }
     : null;
 }
 
-/** The AWARENESS half of an adopted survivor (B3.3): the saved record's persisted
- *  awareness fields, parsed WHOLE through `AwarenessPersistedFieldsSchema` (the
- *  #1275 whole-record-as-unit guard — a new persisted awareness field rides the
- *  parse for free), with the live half re-seeded to defaults (the sensors
- *  re-derive pr/agent against the surviving taps).
+/** The OBSERVATION half of an adopted survivor (B3.3): the saved record's
+ *  restore-relevant observed fields (`cwd`/`git`/`pr`, parsed WHOLE through
+ *  `PersistedObservationSchema`), with the live agent re-seeded to `null` and the
+ *  foreground to the live daemon snapshot — the producer re-derives the live agent
+ *  against the surviving taps. The agent the survivor will resume is its identity
+ *  (`resumeAgent`), which rides the AUTHORED half (`adoptedAuthored`), not here.
  *
  *  The LIVE daemon snapshot (`liveEntry`) is the authority for `cwd` and
  *  `foreground` (F2): kaval's `cwd`/`title` taps do NOT replay a snapshot on
  *  subscribe, so a `cd` that happened while kolu-server was down — or after the
  *  last 500ms-debounced autosave — would otherwise leave the adopted tile pinned
- *  to the stale SAVED cwd until the next OSC 7, and the boot's
- *  `saveSession(snapshotSession())` would persist that stale value back over the
- *  live truth. The survivor's listed `cwd` wins; the git sensor re-resolves
- *  against it on start. */
+ *  to the stale SAVED cwd. The survivor's listed `cwd` wins; the git sensor
+ *  re-resolves against it on start. */
 export function adoptedAwareness(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): AwarenessValue {
+): Observation {
   return {
-    ...AwarenessPersistedFieldsSchema.parse(record),
+    ...PersistedObservationSchema.parse(record),
     cwd: liveEntry.cwd,
-    ...seedAwarenessLive(),
+    agent: null,
     foreground: liveForeground(liveEntry),
   };
 }
 
-/** The AUTHORED half of an adopted survivor — its `location` + client chrome +
- *  active discriminant, parsed off the saved record WHOLE (so a new authored field
- *  rides the parse too). The awareness half rides `adoptedAwareness`. */
+/** The AUTHORED half of an adopted survivor — its `location` + memory + the
+ *  `resumeAgent` restore target + client chrome + active discriminant, parsed off
+ *  the saved record WHOLE (so a new authored field rides the parse too). The
+ *  observation half rides `adoptedAwareness`. */
 export function adoptedAuthored(
   record: SavedActiveTerminal,
 ): AuthoredActiveTerminal {
   return AuthoredActiveSchema.parse(record);
 }
 
-/** The AWARENESS half of an ORPHAN survivor (B3.3): a live PTY the daemon still
+/** The OBSERVATION half of an ORPHAN survivor (B3.3): a live PTY the daemon still
  *  owns with NO saved record (F1). A create that never reached the 500ms-debounced
- *  autosave before the restart is the common case — exactly the redeploy window
- *  this feature protects — so the PTY is ADOPTED (never reaped), seeded entirely
- *  from the live daemon snapshot. Its authored half is a bare
- *  `createAuthoredActive(LOCAL_LOCATION)` (client chrome that never made it to disk
- *  is gone, but the live shell + scrollback survive — the headline guarantee). */
-export function orphanAwareness(liveEntry: PtyHostListEntry): AwarenessValue {
+ *  autosave before the restart is the common case — so the PTY is ADOPTED (never
+ *  reaped), seeded entirely from the live daemon snapshot. Its authored half is a
+ *  bare `createAuthoredActive(LOCAL_LOCATION)` (client chrome that never made it to
+ *  disk is gone, but the live shell + scrollback survive — the headline guarantee). */
+export function orphanAwareness(liveEntry: PtyHostListEntry): Observation {
   return {
-    ...seedAwarenessValue(liveEntry.cwd),
+    ...seedObservation(liveEntry.cwd),
     foreground: liveForeground(liveEntry),
   };
 }
@@ -396,20 +406,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // this synchronous path cannot see). Seed with the caller's cwd or empty,
     // and let the `res.cwd` correction below install the single authority.
     const cwd = opts.cwd ?? "";
-    // Design-S: seed the AWARENESS half (cwd + sensor defaults). It rides the
-    // registry entry built in `registerActiveAndSpawn`, born WITH the authored
-    // half (no separate store, no install-before-register ordering).
-    // `lastActivityAt` is the one awareness field a caller seeds: session restore
-    // threads the saved recency through so it survives restart.
-    const aw = seedAwarenessValue(cwd);
-    if (opts.initialMetadata?.lastActivityAt !== undefined)
-      aw.lastActivityAt = opts.initialMetadata.lastActivityAt;
+    // Seed the OBSERVATION half (cwd + observed defaults). It rides the registry
+    // entry built in `registerActiveAndSpawn`, born WITH the authored half.
+    const aw = seedObservation(cwd);
 
-    // The AUTHORED half — location + the client-owned chrome seeded before
-    // providers run (#642). It names no awareness field.
+    // The AUTHORED half — location + memory + the client-owned chrome seeded before
+    // providers run (#642). `lastActivityAt` is the one memory field a caller seeds:
+    // session restore threads the saved recency through so it survives restart (it
+    // lives on the authored record now, the fold's `updateMemory` rewrites it live).
     const meta: AuthoredActiveTerminal = {
       ...createAuthoredActive(LOCAL_LOCATION),
     };
+    if (opts.initialMetadata?.lastActivityAt !== undefined)
+      meta.lastActivityAt = opts.initialMetadata.lastActivityAt;
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
@@ -438,7 +447,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   private registerActiveAndSpawn(
     id: TerminalId,
     meta: AuthoredActiveTerminal,
-    awareness: AwarenessValue,
+    awareness: Observation,
     opts: PtySpawnOpts,
   ): TerminalInfo {
     const tlog = log.child({ terminal: id });
@@ -480,7 +489,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   adoptTerminal(
     id: TerminalId,
     authored: AuthoredActiveTerminal,
-    awareness: AwarenessValue,
+    awareness: Observation,
     liveEntry: PtyHostListEntry,
   ): void {
     const tlog = log.child({ terminal: id });
@@ -499,7 +508,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // difference from `spawnAndWire`).
     proxy.markReady(liveEntry.pid);
     try {
-      this.startAwarenessSensors(id, liveEntry.pid);
+      // Adoption RE-OBSERVES a survivor: the producer re-resolves the live agent
+      // from the surviving (replayed) taps. That re-observation must NOT bump
+      // recency (the saved value is the truth), so the fold starts in the SNAPSHOT
+      // phase — `initialLive: false`.
+      this.startAwarenessSensors(id, liveEntry.pid, liveEntry.cwd, false);
     } catch (err) {
       // Sensor wiring failed against the survivor — the same reap policy as a
       // failed fresh spawn (the F2 receptacle): tear down partials, kill the
@@ -588,17 +601,25 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
 
     proxy.markReady(res.pid);
     entry.info.pid = res.pid;
-    // Seed the authoritative resolved cwd before starting the sensor set (the git
-    // watcher reads `record.meta.cwd` at start).
-    updateServerMetadata(id, (m) => {
-      m.cwd = res.cwd;
-    });
+    // Seed the authoritative resolved cwd onto the entry's observation before
+    // starting the producer (the git sensor reads the spawn cwd at start, and the
+    // fold seeds `current` off `entry.awareness`).
+    commitObservation(id, { ...entry.awareness, cwd: res.cwd });
 
     // Phase 2 — post-spawn wiring. The PTY now exists and the host owns it, so
     // a failure here must KILL the child (not just unregister the entry), or
     // we leak an orphaned PTY with no server-side record.
     try {
-      this.startAwarenessSensors(id, res.pid);
+      // A fresh spawn (and a bare-shell wake) start LIVE — the first agent the user
+      // launches is genuinely new activity. A RESUMING wake re-observes its prior
+      // agent (`opts.resumeCommand` set), so it starts in the SNAPSHOT phase to keep
+      // the saved recency.
+      this.startAwarenessSensors(
+        id,
+        res.pid,
+        res.cwd,
+        opts.resumeCommand === undefined,
+      );
     } catch (err) {
       this.killHalfWiredPty(
         id,
@@ -678,11 +699,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     this.unwindSpawnShadow(id, entry, prior);
   }
 
-  /** Start the per-terminal sensor set against the pty-host's tap streams.
-   *  The sensor set runs HERE, in kolu-server, so it's always the current build's
-   *  code (the freshness guarantee — the most-edited code never rides the
-   *  long-lived pty-host). */
-  private startAwarenessSensors(id: TerminalId, pid: number): void {
+  /** Start the per-terminal awareness PRODUCER against the pty-host's tap streams
+   *  and FOLD its observation stream into the registry entry — the local R9.0 seam.
+   *  The producer runs HERE, in kolu-server, so it's always the current build's code
+   *  (the freshness guarantee). kolu seeds `current` from the entry's durable
+   *  observation + memory and folds each emitted observation: the five observed
+   *  fields are last-write-wins; `lastActivityAt` is stamped on a LIVE agent-identity
+   *  change with kolu's clock; `lastAgentCommand` + the `resumeAgent` restore target
+   *  are kolu's to remember. It publishes the observed half to the `awareness`
+   *  collection and the memory half to `kolu.authored`, and arms the session autosave
+   *  ONLY when the RESTORE-RELEVANT projection changes — so the ~150 ms agent-detail /
+   *  foreground firehose never reaches disk.
+   *
+   *  `initialLive` is the frame phase: `false` for an adopt / resuming-wake
+   *  re-observation (the SNAPSHOT phase, which must not bump recency until it
+   *  settles), `true` for a fresh spawn (every observed agent is genuinely new). */
+  private startAwarenessSensors(
+    id: TerminalId,
+    pid: number,
+    cwd: string,
+    initialLive: boolean,
+  ): void {
     const abort = new AbortController();
     const { signal } = abort;
     const signals: AwarenessSignals = {
@@ -691,33 +728,64 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       commandRun: inMemoryChannel<CommandRunSample>(),
       foreground: inMemoryChannel<ForegroundSample>(),
     };
-    // `record.meta` MUST be the SAME object the sink mutates: it is the registry
-    // entry's `awareness` field, and the sink's `mutateAwareness*` mutate that same
-    // object in place — so the apply-and-read-back contract (the sensors read
-    // `record.meta` back as their own prior state) holds. The entry was registered
-    // by the caller (spawnPty/wake/adopt) before we get here, so its awareness is
-    // present.
-    const record: AwarenessRecord = {
-      pid,
-      meta: getTerminal(id)!.awareness,
-      currentAgent: null,
-    };
-    const sink = makeAwarenessSink(id);
 
-    // Bridge the raw VT taps onto the awareness signals. cwd also lands on
-    // persisted metadata (the bridge owns `m.cwd`; the git sensor reads
-    // `signals.cwd` to re-resolve git).
-    // Fire-and-forget: the abort signal owns teardown, so the returned Promise
-    // is intentionally not awaited (only the inventory reconciler awaits it).
+    // Seed the fold accumulator from the entry's durable state (the caller —
+    // spawnPty/wake/adopt — registered it before we get here). A fact the producer
+    // can't re-observe (the two memory facts, the resume target) survives because
+    // it is simply never in an observation.
+    const seedEntry = getTerminal(id)!;
+    let current: KoluAwareness = {
+      observed: seedEntry.awareness,
+      memory: {
+        lastActivityAt: seedEntry.meta.lastActivityAt,
+        lastAgentCommand: seedEntry.meta.lastAgentCommand,
+      },
+    };
+
+    // Frame phase: the initial re-observation burst is a SNAPSHOT (ctx.live = false,
+    // no recency bump); after a bounded settle window it flips to DELTA. A fresh
+    // spawn starts live (no re-observation to suppress); an adopt / resuming wake
+    // starts in snapshot so the survivor's re-resolved agent keeps its saved recency.
+    let live = initialLive;
+    const snapshotTimer = initialLive
+      ? null
+      : setTimeout(() => {
+          live = true;
+        }, AWARENESS_SNAPSHOT_WINDOW_MS);
+
+    const emit = (o: AwarenessObservation): void => {
+      const before = current;
+      const ctx: FoldCtx = { live, at: Date.now() };
+      current = fold(current, o, ctx);
+      if (current === before) return; // an `unknown` / dedup no-op — nothing changed
+      // Commit the observed half (whole replace + publish; no dirty) and the memory
+      // half + the derived resume target (publish authored; no dirty).
+      commitObservation(id, current.observed);
+      const resumeAgent: AgentIdentity | undefined = current.observed.agent
+        ? {
+            kind: current.observed.agent.kind,
+            sessionId: current.observed.agent.sessionId,
+          }
+        : undefined;
+      updateMemory(id, current.memory, resumeAgent);
+      // Arm the session autosave ONLY on a RESTORE-RELEVANT value change — the
+      // firehose fence: agent detail + foreground churn fold to an equal projection
+      // and never reach disk.
+      if (!restoreRelevantEqual(before, current)) emitTerminalsDirty();
+      // Cross-terminal MRUs (kolu's, fold-side): a git context tracks the recent
+      // repo; a LIVE (non-replayed) agent command tracks the recent agent.
+      if (o.kind === "git" && o.git)
+        trackRecentRepo(o.git.mainRepoRoot, o.git.repoName);
+      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
+    };
+
+    // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the
+    // abort signal owns teardown). The producer emits a `cwd` observation off the
+    // `cwd` channel; the git sensor reads the same channel to re-resolve git.
     void bridgeStream(
       ptyHostClient.surface.cwd.get({ id }, { signal }),
       signal,
-      (msg) => {
-        updateServerMetadata(id, (m) => {
-          m.cwd = msg.cwd;
-        });
-        signals.cwd.publish(msg.cwd);
-      },
+      (msg) => signals.cwd.publish(msg.cwd),
     );
     void bridgeStream(
       ptyHostClient.surface.title.get({ id }, { signal }),
@@ -742,7 +810,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           foregroundPid: msg.foregroundPid,
         }),
     );
-    const stopAwareness = startAwareness(record, id, signals, sink, log);
+    const stopEngine = startAwarenessEngine(
+      id,
+      {
+        pid,
+        cwd,
+        signals,
+        readScreenText: (tailLines) => readScreenTextFor(id, tailLines),
+        log,
+      },
+      emit,
+    );
+    const stopAwareness = (): void => {
+      if (snapshotTimer) clearTimeout(snapshotTimer);
+      stopEngine();
+    };
 
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
@@ -852,23 +934,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const entry = getActiveTerminal(id);
     if (!entry) return false;
     this.teardownSensors(id);
-    // Flip the AUTHORED entry to the sleeping arm IN PLACE. `entry.meta` (location
-    // + client chrome) rides the `...entry.meta` spread; the live `pr` is FROZEN
-    // from the entry's awareness onto the authored sleeping arm (the dormant tile
-    // reads it — awareness's live half goes stale once the PTY is released).
-    //
-    // The persisted AWARENESS (cwd / git / lastAgentCommand / agentSession / …)
-    // RIDES the new sleeping entry's `awareness` field — `beginSleep` carries it
-    // over rather than dropping it, so the client's join still recomposes the
-    // dormant tile's cwd / branch off it, and wake reads `lastAgentCommand` back
-    // from there. Sensors went down FIRST so no in-flight tap re-publishes.
+    // Flip the AUTHORED entry to the sleeping arm IN PLACE. `entry.meta` (location +
+    // memory + the `resumeAgent` restore target + client chrome) rides the
+    // `...entry.meta` spread — the fold already set `resumeAgent` to the live agent's
+    // identity during the active session (a quit-to-shell cleared it), so the freeze
+    // needs no special capture: wake reads the restore target straight off `meta`.
+    // The frozen-`pr` special case is GONE — `pr` is restore-relevant now and rides
+    // the entry's observation, which `beginSleep` carries over so the dormant tile
+    // recomposes its cwd / branch / pr off it. Sensors went down FIRST so no
+    // in-flight observation re-publishes the active meta over the flip.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
       meta: AuthoredSleepingSchema.parse({
         ...entry.meta,
         state: "sleeping",
         sleptAt: Date.now(),
-        pr: entry.awareness.pr,
       }),
       awareness: entry.awareness,
     };
@@ -900,39 +980,34 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** Wake a SLEEPING terminal: flip it back to the active arm and re-spawn its
-   *  PTY on the SAME id in its saved cwd, replaying the resume form derived from
-   *  the persisted `lastAgentCommand` (via `resumeAgentCommand`, or null for a
-   *  never-observed / non-resumable agent) so the conversation comes back —
-   *  session-restore-of-one. The persisted base rides through WHOLE
-   *  (theme/layout/intent/git/lastAgentCommand); only the live overlay is
-   *  re-derived by the sensors. Returns the active info, or undefined when `id`
-   *  is not a sleeping terminal. */
+   *  PTY on the SAME id in its saved cwd, replaying the resume form derived from the
+   *  remembered `lastAgentCommand` + the `resumeAgent` restore target (via
+   *  `resumeFormFor`, or null for a quit-to-shell / never-observed / non-resumable
+   *  agent) so the conversation comes back — session-restore-of-one. The authored
+   *  record rides through WHOLE (theme/layout/intent/memory/resumeAgent); the
+   *  observation is reset and re-derived by the producer. Returns the active info,
+   *  or undefined when `id` is not a sleeping terminal. */
   wake(id: TerminalId): TerminalInfo | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // Read the persisted awareness straight off the SLEEPING entry (it is present —
-    // checked above — and awareness is a REQUIRED field, so no optional lookup and
-    // no `?? {}` / `?? seedAwarenessValue("")` fallback). Render the resume FORM from
-    // the OBSERVED `lastAgentCommand` via `resumeAgentCommand`. With the persisted
-    // `agentSession` ref it resumes the EXACT conversation that was running on this
-    // terminal (juspay/kolu#1495); without it, the most-recent marker (claude `-c`,
-    // codex `resume --last`, opencode `--continue`). Null for a never-observed /
-    // non-resumable agent (e.g. a `nix run …#agent` wrapper) — it wakes to a bare
-    // shell (juspay/kolu#1492).
-    const aw = entry.awareness;
-    const resumeCommand = resumeFormFor(aw);
-    // Reset the LIVE half (pr/agent/foreground re-derived by the re-spawned PTY's
-    // sensors), keep the PERSISTED half. This woken awareness rides the active entry
-    // built in `registerActiveAndSpawn`, which fans it out so the client's join sees
-    // fresh awareness once the active authored arm publishes.
-    const wokenAwareness: AwarenessValue = { ...aw, ...seedAwarenessLive() };
-    // Flip the AUTHORED record to active — drops `sleptAt` + the frozen `pr`.
+    // The resume FORM reads the remembered `lastAgentCommand` + the `resumeAgent`
+    // restore target straight off the authored `meta`: with the agent identity it
+    // resumes the EXACT conversation that was live at sleep (juspay/kolu#1495);
+    // without it (quit to shell, or no id) the most-recent marker (claude `-c`,
+    // codex `resume --last`, opencode `--continue`); null for a never-observed /
+    // non-resumable agent — a bare shell (juspay/kolu#1492).
+    const resumeCommand = resumeFormFor(entry.meta);
+    // Reset the OBSERVATION (pr/agent/foreground re-derived by the re-spawned PTY's
+    // producer), keeping the saved cwd. The authored memory + resume target ride the
+    // active entry built in `registerActiveAndSpawn`.
+    const wokenAwareness: Observation = seedObservation(entry.awareness.cwd);
+    // Flip the AUTHORED record to active — drops `sleptAt`.
     const meta = AuthoredActiveSchema.parse({ ...entry.meta, state: "active" });
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
     return this.registerActiveAndSpawn(id, meta, wokenAwareness, {
-      cwd: aw.cwd,
+      cwd: wokenAwareness.cwd,
       parentId: meta.parentId,
       resumeCommand: resumeCommand ?? undefined,
     });
@@ -1069,13 +1144,16 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
   const id = idParsed.data;
   if (getTerminal(id)) return false;
   const parsed = recordParsed.data;
-  // Seed awareness from the saved persisted half (cwd / git / …), live half reset
-  // — the client's join recomposes the dormant tile's cwd / branch off it, and the
-  // frozen `pr` rides the AUTHORED sleeping record below. The value rides the
-  // sleeping entry's `awareness` field (no separate store), then fans out.
-  const awareness: AwarenessValue = {
-    ...AwarenessPersistedFieldsSchema.parse(parsed),
-    ...seedAwarenessLive(),
+  // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
+  // live agent + foreground reset — the client's join recomposes the dormant tile's
+  // cwd / branch / pr off it. The agent the terminal will resume is its identity
+  // (`resumeAgent`), which rides the AUTHORED sleeping record below (no full-agent
+  // reconstruction needed across a cold restart). The observation rides the sleeping
+  // entry's `awareness` field (no separate store), then fans out.
+  const awareness: Observation = {
+    ...PersistedObservationSchema.parse(parsed),
+    agent: null,
+    foreground: null,
   };
   registerAndInstall(id, {
     info: { id, pid: 0 },

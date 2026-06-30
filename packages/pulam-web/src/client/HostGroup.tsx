@@ -67,12 +67,8 @@ import {
   agentUrgency,
   DASH,
   fleetStateLabel,
-  relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
-import type {
-  AwarenessValue,
-  TerminalId,
-} from "@kolu/terminal-workspace/surface";
+import type { Observation, TerminalId } from "@kolu/terminal-workspace/surface";
 import {
   createEffect,
   createMemo,
@@ -104,8 +100,6 @@ export interface HostGroupProps {
   host: string;
   /** The fleet-wide view filters (App owns them; read here to drop rows). */
   filters: FleetFilters;
-  /** The shared 1s clock — drives the relative-age cells. */
-  now: () => number;
   /** Report this host's blocked/working counts up for the fleet-wide strip. */
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
@@ -123,9 +117,8 @@ export interface HostGroupProps {
  *  value fine-grained off `value()` (a per-key subscription) so only this row
  *  re-renders on its own delta. */
 function AgentRow(props: {
-  value: () => AwarenessValue | undefined;
+  value: () => Observation | undefined;
   live: () => boolean;
-  now: () => number;
 }): JSX.Element {
   return (
     <Show when={props.value()}>
@@ -175,9 +168,6 @@ function AgentRow(props: {
             </span>
             <span class="flex-none text-[12px]" style={`color:${tone().color}`}>
               {fleetStateLabel(value().agent, URGENCY_LABELS)}
-            </span>
-            <span class="w-[4ch] flex-none text-right text-[12px] text-[#5b6678]">
-              {relativeTime(value().lastActivityAt, props.now())}
             </span>
           </li>
         );
@@ -242,7 +232,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // collection binding's `enroll` hook), so they surface through the
   // `<SurfaceGate>` fallback — not a per-call `onError` (this PR dropped that for
   // the self-clearing health fact).
-  const valueForId = (id: TerminalId): AwarenessValue | undefined => {
+  const valueForId = (id: TerminalId): Observation | undefined => {
     const sub = awareness.byKey(id);
     return sub !== undefined && !sub.pending() ? sub() : undefined;
   };
@@ -402,7 +392,6 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
                     <AgentRow
                       value={() => valueForId(id)}
                       live={() => liveSet().has(id)}
-                      now={props.now}
                     />
                   )}
                 </For>

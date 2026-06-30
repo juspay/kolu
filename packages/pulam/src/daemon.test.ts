@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   terminalWorkspaceSurface,
-  AwarenessValue,
+  Observation,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import {
@@ -86,9 +86,9 @@ class SurfaceNotReadyError extends Error {
  *  and each present key's `get` yields its current value, so this never hangs. */
 async function snapshot(
   client: AwarenessClient,
-): Promise<Map<TerminalId, AwarenessValue>> {
+): Promise<Map<TerminalId, Observation>> {
   const abort = new AbortController();
-  const out = new Map<TerminalId, AwarenessValue>();
+  const out = new Map<TerminalId, Observation>();
   try {
     // `snapshot` is the SINGLE place that understands the live, reconciling
     // collection, so it owns the entire transient/real distinction — `waitFor`

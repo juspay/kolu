@@ -1,6 +1,6 @@
 ---
 title: Remote terminals — the finale (R9–R10)
-description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits HostObservation events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote subscribe-and-fold · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
+description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits Observation events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (shipped) · R9.2 ssh PTY · R9.3 remote subscribe-and-fold · R9.4 reconnect · R9.5 Code-tab fs/git · R10 canvas.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
@@ -13,7 +13,7 @@ import Issue from "../../components/Issue.astro";
 import Phase from "../../components/Phase.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
 
-**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and that architecture is now **decided**: split **observing** from **remembering**. A **memoryless producer** runs beside each host's kaval and emits `HostObservation` events; **kolu alone folds** them, owns the memory (on `kolu.authored`), and stamps recency with **its own clock**. The full types/API/flows are in **[the awareness design](awareness-derive-store.html)**; this note is the phase plan of record. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; the model is in [the terminal model](terminal-metadata-model.html).
+**The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.awareness`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and that architecture is now **decided**: split **observing** from **remembering**. A **memoryless producer** runs beside each host's kaval and emits `Observation` events; **kolu alone folds** them, owns the memory (on `kolu.authored`), and stamps recency with **its own clock**. The full types/API/flows are in **[the awareness design](awareness-derive-store.html)**; this note is the phase plan of record. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; the model is in [the terminal model](terminal-metadata-model.html).
 
 <Callout kind="note" title="The settled design — and the two directions it replaced">
 The awareness boundary is **observe vs. remember** ([the awareness design](awareness-derive-store.html), outcome of a grounded 3-agent debate). It supersedes two earlier attempts, both now dead: (1) the **local-pulam-PROCESS** (#1614, **CLOSED**) — it conflated a process boundary with code decoupling and introduced a fold-clobber intrinsic to mirroring an ephemeral process; (2) **createPulam / "share the assembly"** — it shared the *wrong thing* (the assembly still fused deriving with storing, so the foot-gun and clobber rode along to every consumer). The converged fix doesn't share the assembly; it **deletes** it: the producer is memoryless (it can't even spell memory, by type), so there is nothing to clobber and nothing to assemble. **R9·lib therefore dissolves** (below).
@@ -22,7 +22,7 @@ The awareness boundary is **observe vs. remember** ([the awareness design](aware
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "○", c: "prog", l: "S1 · memoryless awareness producer — emits observations, no seed, HostObservation only", m: "the foundation · → awareness design", h: "awareness-derive-store.html#s1" },
+  { d: 0, g: "○", c: "prog", l: "S1 · memoryless awareness producer — emits observations, no seed, Observation only", m: "the foundation · → awareness design", h: "awareness-derive-store.html#s1" },
   { d: 0, g: "○", c: "prog", l: "S2 · kolu's fold owns memory — typed patches · kolu's clock · memory→authored · event stream", m: "needs S1", h: "awareness-derive-store.html#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — createPulam unneeded; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#r9lib" },
   { d: 0, g: "○", c: "prog", l: "R9.0 · kolu runs the producer in-process, folds onto authored + awareness", m: "needs S2", h: "#r90" },
@@ -56,7 +56,7 @@ export const PT = [
 
 | gap | today | the phase |
 | --- | --- | --- |
-| make the sensors a **memoryless producer** (observations, no seed, `HostObservation`) | the engine mutates a host record + reads it back (`sensors.ts:139-162`) | **S1** |
+| make the sensors a **memoryless producer** (observations, no seed, `Observation`) | the engine mutates a host record + reads it back (`sensors.ts:139-162`) | **S1** |
 | **kolu's fold** owns the gates + the clock; memory moves to `kolu.authored`; an `awarenessEvents` stream | kolu/daemon each hand-roll a sink that writes the store | **S2** |
 | kolu runs the producer in-process and folds | kolu wires `startAwareness` against a registry-aliased record | **R9.0** |
 | the ssh **driver** (the remote PTY arm) | only `{kind:"local"}` exists | **R9.2** |
@@ -70,15 +70,17 @@ The **awareness** phases (S1 · S2 · R9.0 · R9.3) are specified in full — ty
 
 ### S1 · S2 — the awareness foundation, and why R9·lib dissolves
 
-<Phase id="S1" name="memoryless awareness producer — observations, no seed, HostObservation only" status="todo" needs={["R6", "R4"]} />
-<Phase id="S2" name="kolu's fold owns memory — typed patches, kolu's clock, memory→authored, event stream" status="todo" needs={["S1"]} />
+<Phase id="S1" name="memoryless awareness producer — observations, no seed, Observation only" status="done" needs={["R6", "R4"]} />
+<Phase id="S2" name="kolu's fold owns memory — kolu's clock, memory→authored" status="done" needs={["S1"]} />
 
-**S1** rewrites the sensors into a **memoryless producer**: it emits per-field `AwarenessObservation` events (each agent/command event flagged `fromSnapshot`/`replayed`), holds no durable memory, takes no seed, and its export type `HostObservation` (cache + live) **cannot spell** the memory fields. It *deletes* the `AwarenessSink`, both `makeAwarenessSink` impls, the `AwarenessRecord`, and the apply-and-publish read-back contract. **S2** gives **kolu** the only fold: it owns the three sticky gates, returns typed `{cache, memory, live}` patches (arm-autosave *derived* from patch class, not a boolean), stamps recency with kolu's clock, and writes the memory fields onto `kolu.authored` — so every awareness collection everywhere is `HostObservation`. The wire carries an ordered `awarenessEvents` stream, not whole values.
+> **Converged + landed.** The S1/S2 model below was simplified across a long review and shipped by the [awareness-derive-store cutover](awareness-derive-store.html) — read that note for the final types. The summary here is updated to match: the three-category `{cache, live, memory}` patch model and the per-event `fromSnapshot` flag were **dropped** (snapshot-vs-delta rides the frame, not the event).
+
+**S1** rewrites the sensors into a **memoryless producer**: it emits per-field `AwarenessObservation` events, holds no durable memory, takes no seed, and its export type `Observation` (the five re-observable fields) **cannot spell** the memory fields. It *deletes* the `AwarenessSink`, both `makeAwarenessSink` impls, the `AwarenessRecord`, and the apply-and-publish read-back contract. **S2** gives **kolu** the only fold: `fold(cur, o, ctx) → KoluAwareness` (`{observed, memory}`), last-write-wins for the five observed fields, stamping recency with kolu's clock on a live agent-identity change and remembering `lastAgentCommand` (the resume target rides the authored record as the fold-derived `resumeAgent`). It writes memory onto `kolu.authored` — so every awareness collection everywhere is `Observation`.
 
 **Why R9·lib dissolves:** createPulam was an attempt to *share the assembly* the daemon and kolu each hand-rolled. Under S1+S2 there is **no assembly** — the producer and the fold are pure leaves, each home's loop is ~8 lines, and the producer can't write memory, so there is nothing to clobber and nothing to consolidate. The `R9·lib` / createPulam phase is **removed**.
 
 - **Needs:** R6 (the sensor library) and R4 (the pulam daemon) — both shipped.
-- **Done (S1):** the producer emits observations and touches no host store; `AwarenessSink`/`makeAwarenessSink`×2/`AwarenessRecord`/seed are gone. **Done (S2):** kolu's fold is the sole writer of memory (onto `kolu.authored`); the daemon serves an `awarenessEvents` stream; the write-fence, clock authority, and single-memory-writer are enforced **by type** (tests in the awareness note).
+- **Done (S1):** the producer emits observations and touches no host store; `AwarenessSink`/`makeAwarenessSink`×2/`AwarenessRecord`/seed are gone. **Done (S2):** kolu's fold is the sole writer of memory (onto `kolu.authored`); the write-fence, clock authority, and single-memory-writer are enforced **by type** (tests in the awareness note). The remote `awarenessEvents` *wire* stream is R9.3; R9.0 folds the in-process producer and pulam serves an `Observation` collection.
 
 <a id="r90"></a>
 
@@ -117,7 +119,7 @@ Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **k
 
 <Phase id="R9.3" name="remote awareness — subscribe the remote producer's event stream" status="todo" needs={["S2", "R9.2", "R7"]} />
 
-A remote host runs the **same memoryless producer** (in its pulam daemon), serving an ordered `awarenessEvents` stream of `HostObservation`. kolu subscribes over a long-lived `getHostSession` (mirrored via R7's total dual) and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical.
+A remote host runs the **same memoryless producer** (in its pulam daemon), serving an ordered `awarenessEvents` stream of `Observation`. kolu subscribes over a long-lived `getHostSession` (mirrored via R7's total dual) and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical.
 
 - **Needs:** S2 (the producer + fold), R9.2 (the remote PTY), R7 (the total dual).
 - **Done:** a remote tile shows live awareness folded from the remote producer's stream, via the **same** fold as local; a differential test pins it equal to the producer's observed state. Detail: [the awareness design](awareness-derive-store.html).

@@ -35,6 +35,9 @@ const terminal: SavedTerminal = {
     mainRepoRoot: "/home/user/project",
     remoteUrl: null,
   },
+  // `pr` is restore-relevant now (persisted like `git`), so every saved
+  // record carries it. `{ kind: "absent" }` is the no-PR fixture value.
+  pr: { kind: "absent" },
   location: LOCAL_LOCATION,
   lastActivityAt: 0,
 };
@@ -116,6 +119,7 @@ describe("session persistence", () => {
         id: "a",
         cwd: "/a",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         lastActivityAt: 0,
@@ -124,6 +128,7 @@ describe("session persistence", () => {
         id: "b",
         cwd: "/b",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         lastActivityAt: 0,
@@ -132,6 +137,7 @@ describe("session persistence", () => {
         id: "c",
         cwd: "/c",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         parentId: "a",
@@ -152,6 +158,7 @@ describe("session persistence", () => {
         id: "a",
         cwd: "/a",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         themeName: "Dracula",
@@ -161,6 +168,7 @@ describe("session persistence", () => {
         id: "b",
         cwd: "/b",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         lastActivityAt: 0,
@@ -184,6 +192,7 @@ describe("session persistence", () => {
         id: "a",
         cwd: "/a",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         lastActivityAt: t1,
@@ -192,6 +201,7 @@ describe("session persistence", () => {
         id: "b",
         cwd: "/b",
         git: null,
+        pr: { kind: "absent" },
         location: LOCAL_LOCATION,
         state: "active",
         lastActivityAt: t2,
@@ -202,6 +212,39 @@ describe("session persistence", () => {
     assert.ok(session !== null, "session round-trip lost the saved value");
     expect(session.terminals[0]?.lastActivityAt).toBe(t1);
     expect(session.terminals[1]?.lastActivityAt).toBe(t2);
+  });
+
+  it("preserves pr on round-trip", () => {
+    // `pr` moved live→persisted in the awareness-derive-store cutover: it is
+    // now restore-relevant (true-when-dead, persisted like `git`), so a saved
+    // record must carry its last-known PR through disk rather than dropping it
+    // to a re-resolve on restore. Use distinct discriminants so a restore that
+    // collapses pr to one value can't pass by coincidence.
+    const terminals: SavedTerminal[] = [
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        pr: { kind: "absent" },
+        location: LOCAL_LOCATION,
+        state: "active",
+        lastActivityAt: 0,
+      },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        pr: { kind: "pending" },
+        location: LOCAL_LOCATION,
+        state: "active",
+        lastActivityAt: 0,
+      },
+    ];
+    saveSession({ terminals, activeTerminalId: null });
+    const session = getSavedSession();
+    assert.ok(session !== null, "session round-trip lost the saved value");
+    expect(session.terminals[0]?.pr).toEqual({ kind: "absent" });
+    expect(session.terminals[1]?.pr).toEqual({ kind: "pending" });
   });
 
   it("clearSavedSession removes the session", () => {

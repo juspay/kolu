@@ -144,7 +144,6 @@ function mountHostGroup(): {
       <HostGroup
         host="prod"
         filters={DEFAULT_FLEET_FILTERS}
-        now={() => 0}
         reportCounts={(_host, c) => {
           counts = c;
         }}

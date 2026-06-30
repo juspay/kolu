@@ -16,6 +16,10 @@ const valid: SavedSession = {
       state: "active",
       cwd: "/home/user",
       git: null,
+      // `pr` is a persisted (restore-relevant) field after the
+      // awareness-derive-store cutover (PR #1621), so a current-schema export
+      // carries it verbatim and the parse round-trips with no backfill.
+      pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
     },
@@ -51,12 +55,16 @@ describe("parseSavedSession", () => {
     );
   });
 
-  it("backfills a legacy export missing state/location so the recovery hatch works", () => {
+  it("backfills a legacy export missing state/location/pr so the recovery hatch works", () => {
     // A `kolu-session.json` exported before the schema gained the now-required
-    // `state` discriminant (and `location`). The export pre-dates the migration
-    // ladder, so without the import-side backfill the discriminated schema
-    // rejects it and the recovery hatch can't recover the very backup it exists
-    // for. `lastActivityAt` rides through verbatim — it predates these bumps.
+    // `state` discriminant, `location`, and (with the awareness-derive-store
+    // cutover, PR #1621) the now-persisted `pr`. The export pre-dates the
+    // migration ladder, so without the import-side backfill the discriminated
+    // schema rejects it and the recovery hatch can't recover the very backup it
+    // exists for. The backfill repairs all three: `state: "active"` (every
+    // pre-discriminant terminal was live), `location: LOCAL_LOCATION`, and
+    // `pr: { kind: "absent" }` (the live PR sensor re-resolves on restore).
+    // `lastActivityAt` rides through verbatim — it predates these bumps.
     const legacy = {
       terminals: [
         { id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 },
@@ -71,6 +79,48 @@ describe("parseSavedSession", () => {
           ...legacy.terminals[0],
           state: "active",
           location: LOCAL_LOCATION,
+          pr: { kind: "absent" },
+        },
+      ],
+    });
+  });
+
+  it("maps a pre-cutover agentSession to resumeAgent (keying id → sessionId)", () => {
+    // The awareness-derive-store cutover (PR #1621) replaced the sticky
+    // `agentSession: { kind, id }` resume ref with the fold-derived
+    // `resumeAgent: { kind, sessionId }` restore target (the EXACT conversation
+    // wake resumes, #1495). A pre-cutover export still carries `agentSession`;
+    // the import backfill maps it across — renaming the inner key `id` →
+    // `sessionId` to match the agent's own field — and drops `agentSession`, so
+    // the recovery hatch recovers a backup that still resumes the right session.
+    // The same record predates persisted `pr`, so it is backfilled `absent` too.
+    const legacy = {
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          agentSession: { kind: "claude-code", id: "sess-123" },
+        },
+      ],
+      activeTerminalId: "t1",
+      savedAt: 1_700_000_000_000,
+    };
+    expect(parseSavedSession(JSON.stringify(legacy))).toEqual({
+      ...legacy,
+      terminals: [
+        {
+          id: "t1",
+          state: "active",
+          cwd: "/home/user",
+          git: null,
+          location: LOCAL_LOCATION,
+          lastActivityAt: 5,
+          pr: { kind: "absent" },
+          resumeAgent: { kind: "claude-code", sessionId: "sess-123" },
         },
       ],
     });

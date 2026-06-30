@@ -49,7 +49,7 @@ import type {
 import { observableHolder, seedConnectionCell } from "@kolu/surface-nix-host";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import type {
-  AwarenessValue,
+  Observation,
   TerminalId,
   TerminalWorkspaceSpec,
   Version,
@@ -140,7 +140,7 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
   const connection = seedConnectionCell();
   // The awareness cache — the R4.8a render payload. The mirror's sink upserts /
   // removes per key; the browser-facing collection reads the whole map.
-  const awarenessCache = new Map<TerminalId, AwarenessValue>();
+  const awarenessCache = new Map<TerminalId, Observation>();
   // A local bus the mirror's `activity` sink republishes each remote frame onto,
   // so the browser-facing `activity` source forwards the same data without
   // re-subscribing to the remote. `activityLatest` caches the most-recent frame

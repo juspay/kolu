@@ -1,7 +1,7 @@
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { describe, expect, it } from "vitest";
-import { seedAwarenessValue } from "./index.ts";
-import { AwarenessValueSchema } from "./schema.ts";
+import { seedObservation } from "./index.ts";
+import { ObservationSchema } from "./schema.ts";
 import {
   DEFAULT_VERSION,
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
@@ -21,12 +21,12 @@ describe("terminal-workspace surface", () => {
     expect(VersionSchema.parse(DEFAULT_VERSION)).toEqual(DEFAULT_VERSION);
   });
 
-  it("the fresh awareness seed validates against the collection's value schema", () => {
-    // The daemon seeds every watched terminal with `seedAwarenessValue` and
-    // serves it into the `awareness` collection, whose value schema is
-    // `AwarenessValueSchema` — so the seed must stay valid against it.
-    const seed = seedAwarenessValue("/some/repo");
-    expect(AwarenessValueSchema.parse(seed)).toEqual(seed);
+  it("the fresh observation seed validates against the collection's value schema", () => {
+    // The daemon seeds every watched terminal with `seedObservation` and serves it
+    // into the `awareness` collection, whose value schema is now `ObservationSchema`
+    // (the memoryless producer's emit shape) — so the seed must stay valid against it.
+    const seed = seedObservation("/some/repo");
+    expect(ObservationSchema.parse(seed)).toEqual(seed);
     expect(seed.pr).toEqual({ kind: "pending" });
   });
 
@@ -47,16 +47,16 @@ describe("terminal-workspace surface", () => {
     );
   });
 
-  it("bumped the contract to 1.0 — a BREAKING getStatus reshape, skew in BOTH directions vs 0.3", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("1.0");
-    // The 1.0 getStatus `local` arm dropped the always-null `base` (and grew the
-    // branch/working-tree fields). A 0.3 viewer's schema requires `base` in every
-    // mode, so a 1.0 daemon's `local` result fails its parse — NOT additive. The
-    // gate must therefore mark the two mutually incompatible, both directions:
-    expect(isContractVersionCompatible("1.0", "0.3")).toBe(false);
-    expect(isContractVersionCompatible("0.3", "1.0")).toBe(false);
-    // A newer-minor 1.x daemon (a future additive bump) still serves a 1.0 viewer.
-    expect(isContractVersionCompatible("1.1", "1.0")).toBe(true);
+  it("bumped the contract to 2.0 — a BREAKING awareness-value reshape, skew in BOTH directions vs 1.0", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("2.0");
+    // The 2.0 `awareness` collection serves the producer's `Observation` — the two
+    // memory fields left the value (they are kolu's to remember). A 1.0 viewer's
+    // schema still expects the fused `AwarenessValue` shape, so a 2.0 value skews —
+    // NOT additive. The gate must mark the two mutually incompatible, both directions:
+    expect(isContractVersionCompatible("2.0", "1.0")).toBe(false);
+    expect(isContractVersionCompatible("1.0", "2.0")).toBe(false);
+    // A newer-minor 2.x daemon (a future additive bump) still serves a 2.0 viewer.
+    expect(isContractVersionCompatible("2.1", "2.0")).toBe(true);
   });
 
   it("the base surface carries NO `connection` cell — link health lives only at the mirror seam", () => {

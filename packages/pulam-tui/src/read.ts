@@ -14,7 +14,7 @@ import {
 } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
-  type AwarenessValue,
+  type Observation,
   TERMINAL_WORKSPACE_CONTRACT_VERSION,
   type TerminalId,
   terminalWorkspaceSurface,
@@ -55,7 +55,7 @@ export async function assertCompatible(client: PulamClient): Promise<string> {
  *  concurrently; their streams are aborted once read. */
 export async function snapshotAwareness(
   client: PulamClient,
-): Promise<Array<[TerminalId, AwarenessValue]>> {
+): Promise<Array<[TerminalId, Observation]>> {
   const abort = new AbortController();
   try {
     // The `keys` collection ALWAYS opens with a snapshot frame (zero terminals
@@ -68,32 +68,32 @@ export async function snapshotAwareness(
       "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
     );
     const pairs = await Promise.all(
-      keys.map(async (key): Promise<[TerminalId, AwarenessValue] | null> => {
+      keys.map(async (key): Promise<[TerminalId, Observation] | null> => {
         const value = await firstFrameOrUndefined(
           await client.surface.awareness.get({ key }, { signal: abort.signal }),
         );
         return value === undefined ? null : [key, value];
       }),
     );
-    return pairs.filter((p): p is [TerminalId, AwarenessValue] => p !== null);
+    return pairs.filter((p): p is [TerminalId, Observation] => p !== null);
   } finally {
     abort.abort();
   }
 }
 
-/** A still-unresolved awareness value — the daemon's `seedAwarenessValue`: no
- *  git, no agent, no foreground, PR not yet resolved, recency at 0. A freshly
- *  (re)started pulam — exactly what `--host` provisions — publishes this seed for
- *  each terminal the instant it discovers it, THEN fills it in asynchronously as
- *  the git / PR / agent / foreground sensors resolve. So a value is "resolved
- *  enough to show" once ANY of those fields has landed. */
-function isResolved(v: AwarenessValue): boolean {
+/** A still-unresolved observation — the daemon's `seedObservation`: no git, no
+ *  agent, no foreground, PR not yet resolved. A freshly (re)started pulam — exactly
+ *  what `--host` provisions — publishes this seed for each terminal the instant it
+ *  discovers it, THEN fills it in asynchronously as the git / PR / agent /
+ *  foreground sensors resolve. So a value is "resolved enough to show" once ANY of
+ *  those fields has landed. (`lastActivityAt` is no longer an observed field —
+ *  pulam is memoryless — so it can't gate resolution.) */
+function isResolved(v: Observation): boolean {
   return (
     v.git !== null ||
     v.agent !== null ||
     v.foreground !== null ||
-    v.pr.kind !== "pending" ||
-    v.lastActivityAt > 0
+    v.pr.kind !== "pending"
   );
 }
 
@@ -112,7 +112,7 @@ function isResolved(v: AwarenessValue): boolean {
 export async function settledSnapshot(
   client: PulamClient,
   opts: { maxMs?: number; graceMs?: number } = {},
-): Promise<Array<[TerminalId, AwarenessValue]>> {
+): Promise<Array<[TerminalId, Observation]>> {
   // Once the fast sensors (git/PR) have resolved every terminal, `graceMs` is how
   // long we keep collecting before printing — wide enough to catch the slower
   // agent / foreground sensors, which land a beat later (~1s after git) in the
@@ -130,7 +130,7 @@ export async function settledSnapshot(
     "pulam awareness keys yielded no snapshot frame — link or protocol failure.",
   );
 
-  const acc = new Map<TerminalId, AwarenessValue>();
+  const acc = new Map<TerminalId, Observation>();
   const abort = new AbortController();
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let settle!: () => void;
@@ -202,7 +202,7 @@ export async function settledSnapshot(
  *  line of its own (it pulses ~1s while bytes move, which would drown the feed),
  *  it just colours the next awareness line. */
 export interface WatchHandlers {
-  onUpsert: (id: TerminalId, value: AwarenessValue, live: boolean) => void;
+  onUpsert: (id: TerminalId, value: Observation, live: boolean) => void;
   onRemove: (id: TerminalId) => void;
 }
 
@@ -297,7 +297,7 @@ export async function watchAwareness(
  *  alone carries the full result and the caller never re-derives it from a side
  *  channel. */
 export type WaitOutcome =
-  | { kind: "met"; agent: NonNullable<AwarenessValue["agent"]> }
+  | { kind: "met"; agent: NonNullable<Observation["agent"]> }
   | { kind: "gone" }
   | { kind: "timeout" }
   | { kind: "interrupted" }
@@ -324,7 +324,7 @@ export async function awaitAgentState(
   client: PulamClient,
   opts: {
     id: TerminalId;
-    matches: (agent: AwarenessValue["agent"]) => boolean;
+    matches: (agent: Observation["agent"]) => boolean;
     timeoutMs?: number;
     signal?: AbortSignal;
   },

@@ -5,6 +5,9 @@ import { resumableTerminalIds } from "./restoreModel.ts";
 const base = {
   cwd: "/work/repo",
   git: null,
+  // `pr` is restore-relevant now (persisted like `git`); every SavedTerminal
+  // carries it. A pre-cutover record with no resolved PR is `{ kind: "absent" }`.
+  pr: { kind: "absent" },
   location: LOCAL_LOCATION,
   lastActivityAt: 0,
 } as const;

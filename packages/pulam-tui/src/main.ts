@@ -246,9 +246,7 @@ async function cmdStatus(conn: Connection, json: boolean): Promise<void> {
     conn.dispose();
   }
   await writeOut(
-    json
-      ? `${formatAwarenessJson(entries)}\n`
-      : `${formatStatus(entries, { now: Date.now() })}\n`,
+    json ? `${formatAwarenessJson(entries)}\n` : `${formatStatus(entries)}\n`,
   );
 }
 

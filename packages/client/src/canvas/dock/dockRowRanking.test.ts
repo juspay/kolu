@@ -51,6 +51,10 @@ function makeSleepingMeta(lastActivityAt = 0): TerminalMetadata {
     sleptAt: 1_700_000_000_000,
     cwd: "/tmp",
     git: null,
+    // `pr` is restore-relevant now (true-when-dead, persisted like `git`), so it
+    // rides the sleeping arm's `PersistedObservation` — the old frozen-`pr`
+    // special case is gone and `pr` is a normal required field on both arms.
+    pr: { kind: "absent" },
     location: LOCAL_LOCATION,
     lastActivityAt,
   };

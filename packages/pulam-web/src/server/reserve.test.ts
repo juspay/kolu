@@ -38,11 +38,11 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import { surfaceClient } from "@kolu/surface/solid";
-import { seedAwarenessValue } from "@kolu/terminal-workspace";
+import { seedObservation } from "@kolu/terminal-workspace";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
-  type AwarenessValue,
   DEFAULT_VERSION,
+  type Observation,
   type TerminalId,
   terminalWorkspaceSurface,
 } from "@kolu/terminal-workspace/surface";
@@ -76,8 +76,8 @@ function browserLink(router: unknown) {
 function standUpAgent(
   opts: { activityFeed?: AsyncIterable<TerminalId[]> } = {},
 ) {
-  const cache = new Map<TerminalId, AwarenessValue>();
-  cache.set(TERM_A, seedAwarenessValue("/work/repo-a"));
+  const cache = new Map<TerminalId, Observation>();
+  cache.set(TERM_A, seedObservation("/work/repo-a"));
 
   // The agent serves the BASE surface (connection-free) — link health is the
   // PARENT's, added only at the re-serve seam via `mirroredSurface`.
@@ -341,7 +341,7 @@ describe("buildReServe — agent → mirror → re-serve → browser store", () 
     // browser client → the Solid subscription re-runs.
     agent.ctx.collections.awareness.upsert(
       TERM_B,
-      seedAwarenessValue("/work/repo-b"),
+      seedObservation("/work/repo-b"),
     );
     agent.ctx.collections.awareness.remove(TERM_A);
 

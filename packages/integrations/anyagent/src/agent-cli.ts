@@ -318,21 +318,28 @@ export function resumeAgentCommand(
 }
 
 /**
- * Derive the resume FORM for a terminal's persisted base — the one composition
+ * Derive the resume FORM for a terminal's restore target — the one composition
  * `wake()` (and the client's session-restore path) feeds into a fresh spawn:
- * render the persisted `lastAgentCommand` via `resumeAgentCommand`, passing the
- * persisted `agentSession` ref so it targets the EXACT conversation that ran on
- * this terminal (juspay/kolu#1495); `null` when no agent command was ever
- * observed, or when the observed command is not resumable.
+ * render the remembered `lastAgentCommand` via `resumeAgentCommand`, passing the
+ * `resumeAgent` IDENTITY (the agent that was live, derived by kolu's fold) so it
+ * targets the EXACT conversation that ran on this terminal (juspay/kolu#1495);
+ * `null` when no agent command was ever observed, or when the observed command is
+ * not resumable. A quit-to-shell clears `resumeAgent`, so the most-recent-marker
+ * fallback applies (and a never-resumable command still wakes to a bare shell).
  *
- * One home for the `lastAgentCommand` + `agentSession` → resume-form mapping, so
- * the wake path and its tests can't drift from each other.
+ * The `resumeAgent` identity carries `sessionId` (matching the agent's own field);
+ * `resumeAgentCommand` consumes an `AgentSessionRef` keyed on `id`, so the mapping
+ * lives here — one home for "restore target → resume form", so the wake path and
+ * its tests can't drift.
  */
 export function resumeFormFor(meta: {
   lastAgentCommand?: string;
-  agentSession?: AgentSessionRef;
+  resumeAgent?: { kind: AgentSessionRef["kind"]; sessionId: string };
 }): string | null {
-  return meta.lastAgentCommand
-    ? resumeAgentCommand(meta.lastAgentCommand, meta.agentSession)
-    : null;
+  if (!meta.lastAgentCommand) return null;
+  const ref: AgentSessionRef | undefined = meta.resumeAgent && {
+    kind: meta.resumeAgent.kind,
+    id: meta.resumeAgent.sessionId,
+  };
+  return resumeAgentCommand(meta.lastAgentCommand, ref);
 }
