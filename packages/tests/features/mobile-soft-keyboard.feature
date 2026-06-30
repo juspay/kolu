@@ -170,3 +170,14 @@ Feature: Mobile soft keyboard
     # area. Wire-check: --app-h must be populated after mount.
     Then the --app-h CSS variable should match visualViewport.height
     And there should be no page errors
+
+  @mobile
+  Scenario: Typed input on soft keyboard appears correctly
+    # Regression guard for kolu#1592. The Android password-input transport is
+    # verified by manual testing on Android — synthetic desktop keyboard events
+    # in headless Chromium do not reproduce mobile keyboard autocorrect editor
+    # state, but this keeps the terminal onData path exercised.
+    When I type "ls" on the soft keyboard
+    And I type " " on the soft keyboard
+    Then the active terminal should show "ls "
+    And there should be no page errors

@@ -72,6 +72,7 @@ import {
   trackLoseContextCalled,
 } from "./webglTracker";
 import {
+  patchAndroidSoftKeyboardInput,
   patchTransformAwareMouseCoords,
   readBufferBytes,
 } from "./xtermInternals";
@@ -526,6 +527,7 @@ const Terminal: Component<{
           term.loadAddon(serializeAddon);
 
           term.open(containerRef);
+          patchAndroidSoftKeyboardInput(term);
           // Canvas tiles render xterm inside a CSS `scale(zoom)` transform
           // (`tileTransformCSS`); teach xterm's mouse hit-testing to inverse it
           // so text selection, link hover, and TUI mouse reporting land on the

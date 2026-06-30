@@ -12,7 +12,9 @@
  *   - `renderRecovery.ts` uses `renderService`/`readDecPrivateMode` for its
  *     forced sync repaint + render-pipeline probes.
  *   - `Terminal.tsx` uses `readBufferBytes` for the Diagnostic dialog's
- *     per-terminal byte counts. */
+ *     per-terminal byte counts.
+ *   - `Terminal.tsx` uses `patchAndroidSoftKeyboardInput` so Android keyboards
+ *     don't treat xterm's helper textarea as prose. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 
@@ -96,6 +98,131 @@ export function readBufferBytes(
   const alternate = bufSvc.buffers.alt?.lines;
   if (!primary || !alternate) return null;
   return { primary: sum(primary), alternate: sum(alternate) };
+}
+
+interface CompositionHelperShape {
+  keydown?: (ev: KeyboardEvent) => boolean;
+  __koluAndroidSoftKeyboardPatched?: boolean;
+}
+
+interface CoreServiceShape {
+  triggerDataEvent?: (data: string, wasUserInput?: boolean) => void;
+}
+
+const ANDROID_TEXTAREA_SENTINEL = "\u200b";
+
+/** Route Android soft-keyboard input through an autocorrect-proof password
+ *  input instead of xterm's helper textarea (#1592).
+ *
+ *  Android keyboards treat xterm's textarea like prose despite autocorrect
+ *  hints: they keep a word buffer, replace prior text (`ls` -> `LS `), apply
+ *  double-space-period, and sometimes consume Backspace to undo/cycle
+ *  suggestions. Trying to infer terminal intent from those transformed
+ *  replacement strings is ambiguous (`". "` can be a real period key or the
+ *  double-space shortcut), so do not use that editor path.
+ *
+ *  A password input disables the keyboard suggestion/autocorrect editor mode on
+ *  Android. We focus that hidden input for touch typing, prevent its DOM edits,
+ *  keep a one-codepoint sentinel so all keyboards emit Backspace, and forward
+ *  raw `beforeinput` payloads through xterm's own data event. */
+export function patchAndroidSoftKeyboardInput(term: XTerm): void {
+  const textarea = term.textarea;
+  const coreShape = core<{
+    _compositionHelper?: CompositionHelperShape;
+    coreService?: CoreServiceShape;
+  }>(term);
+  const helper = coreShape?._compositionHelper;
+  const coreService = coreShape?.coreService;
+  if (
+    !textarea ||
+    !helper ||
+    helper.__koluAndroidSoftKeyboardPatched ||
+    typeof coreService?.triggerDataEvent !== "function"
+  ) {
+    return;
+  }
+  const triggerDataEvent = coreService.triggerDataEvent.bind(coreService);
+  const keydown = helper.keydown;
+  if (typeof keydown !== "function") return;
+
+  // xterm sets some anti-correction attributes, but Android/GBoard is picky:
+  // `autocapitalize="off"` is not the canonical value, and autocomplete is
+  // absent. Apply the full set to the actual focused helper textarea so GBoard
+  // treats it like a terminal transport, not prose.
+  textarea.setAttribute("autocomplete", "off");
+  textarea.setAttribute("autocorrect", "off");
+  textarea.setAttribute("autocapitalize", "none");
+  textarea.setAttribute("spellcheck", "false");
+  textarea.setAttribute("aria-autocomplete", "none");
+
+  const input = document.createElement("input");
+  input.type = "password";
+  input.className = "kolu-android-keyboard-input";
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("autocorrect", "off");
+  input.setAttribute("autocapitalize", "none");
+  input.setAttribute("spellcheck", "false");
+  input.setAttribute("aria-hidden", "true");
+  input.style.position = "absolute";
+  input.style.left = "0";
+  input.style.top = "0";
+  input.style.width = "1px";
+  input.style.height = "1px";
+  input.style.opacity = "0";
+  input.style.pointerEvents = "none";
+  input.style.zIndex = "-10";
+  textarea.parentElement?.appendChild(input);
+
+  const resetSentinel = () => {
+    input.value = ANDROID_TEXTAREA_SENTINEL;
+    input.selectionStart = ANDROID_TEXTAREA_SENTINEL.length;
+    input.selectionEnd = ANDROID_TEXTAREA_SENTINEL.length;
+  };
+
+  resetSentinel();
+
+  const focusAndroidInput = () => {
+    resetSentinel();
+    input.focus({ preventScroll: true });
+  };
+
+  helper.keydown = function patchedAndroidGboardKeydown(ev) {
+    if (ev.keyCode === 229) {
+      return false;
+    }
+    return keydown.call(this, ev);
+  };
+
+  input.addEventListener(
+    "beforeinput",
+    (ev) => {
+      ev.preventDefault();
+      resetSentinel();
+
+      if (ev.inputType === "insertText" && typeof ev.data === "string") {
+        triggerDataEvent(ev.data, true);
+      } else if (ev.inputType === "deleteContentBackward") {
+        triggerDataEvent("\x7f", true);
+      } else if (ev.inputType === "insertLineBreak") {
+        triggerDataEvent("\r", true);
+      }
+    },
+    { capture: true },
+  );
+
+  input.addEventListener("input", () => resetSentinel(), { capture: true });
+  textarea.addEventListener("focus", () =>
+    window.setTimeout(focusAndroidInput, 0),
+  );
+
+  const termWithMutableFocus = term as XTerm & { focus: () => void };
+  const focus = termWithMutableFocus.focus.bind(termWithMutableFocus);
+  termWithMutableFocus.focus = () => {
+    focus();
+    focusAndroidInput();
+  };
+
+  helper.__koluAndroidSoftKeyboardPatched = true;
 }
 
 /** An effective scale within this band of 1 takes the cheap no-op path in
