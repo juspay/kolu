@@ -2,9 +2,10 @@
  * One host's agent rows — the R-pulamweb-3 dashboard leaf.
  *
  * Reads TWO surface members, both already-proven consumers:
- *   - the `awareness` COLLECTION (agent state + git + recency) — `byKey` per
- *     terminal, lifted to a list-level memo so the rows can be bucketed/sorted/
- *     filtered by content;
+ *   - the `awareness` COLLECTION (the memoryless `Observation`: agent state + git,
+ *     no recency — `lastActivityAt` is kolu's REMEMBERED memory, not an observed
+ *     field) — `byKey` per terminal, lifted to a list-level memo so the rows can be
+ *     bucketed/sorted/filtered by content;
  *   - the `activity` STREAM (the green live-output dot). It is VALUE-BEARING —
  *     each frame is the full current live set — so it reads through
  *     `.streams.activity.use()` (replace-each-frame), NOT the delta-accumulate
@@ -276,9 +277,11 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   });
   onCleanup(() => props.reportCounts(props.host, { need: 0, work: 0 }));
 
-  // The visible row order: needs-you first, then most-recent, then id; dropped to
-  // the enabled categories. Keyed by an array-equality memo so the `<For>` only
-  // re-diffs on a genuine reorder/membership change, not on every value tick.
+  // The visible row order: needs-you first, then id (a stable tiebreak) — urgency
+  // alone, since the memoryless `Observation` carries no recency (the most-recent
+  // tiebreak is kolu's, where recency is remembered; see `compareFleetEntries`).
+  // Dropped to the enabled categories. Keyed by an array-equality memo so the `<For>`
+  // only re-diffs on a genuine reorder/membership change, not on every value tick.
   const visibleIds = createMemo<TerminalId[]>(
     () =>
       entries()

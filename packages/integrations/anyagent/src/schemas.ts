@@ -3,6 +3,7 @@
  *  Split out from `index.ts` so kolu-common (and the client bundle) can
  *  import zod schemas without dragging in node-only modules transitively. */
 
+import { resumeFormFor } from "./agent-cli.ts";
 import { z } from "zod";
 
 /** Task/todo progress — total items and completed count.
@@ -71,22 +72,27 @@ export const RestoreTargetSchema = z.discriminatedUnion("kind", [
 ]);
 export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
 
-/** The command line waking this terminal will RELAUNCH, or `null` when wake lands
- *  on a bare shell — the ONE projection of "does this restore target resume, and
- *  with what command?" that the count/display sites share (the restore card,
- *  `EmptyState`, `DormantTileBody`), so the question is spelled once instead of
- *  re-hand-rolled per consumer. EXHAUSTIVE over the discriminant, so a future
- *  non-resuming arm is a COMPILE ERROR here — never a `!== "none"` that silently
- *  counts it as resumable:
- *   - absent / `none` → `null` (a quit-to-shell or never-launched terminal);
- *   - `exact` / `legacyMostRecent` → the launch `command` wake resumes.
- *  Distinct from `resumeFormFor` (anyagent/cli), which renders the actual resume
- *  INVOCATION (`claude -c`, `--resume <id>`); this is the raw command line a tile
- *  DISPLAYS and the restore card COUNTS. */
+/** The raw launch command a restore card COUNTS and a tile DISPLAYS, or `null`
+ *  when wake lands on a bare shell — the ONE projection the display sites share
+ *  (the restore card, `EmptyState`, `DormantTileBody`), so the question is spelled
+ *  once instead of re-hand-rolled per consumer.
+ *
+ *  Whether there IS a command is the SAME question wake answers: `resumeFormFor`
+ *  is the single authority on "would wake render a resume invocation?", so this
+ *  GATES on it rather than testing `kind` independently — the two can no longer
+ *  drift into the card promising a resume wake won't perform. A target whose
+ *  command isn't actually resumable — a detection-only agent (`aider`/`goose`/…)
+ *  in a migrated `legacyMostRecent` record, or an `exact` id that fails its
+ *  shell-safe shape gate — yields no invocation, hence `null` here even though its
+ *  `kind` is `exact`/`legacyMostRecent`. The switch stays EXHAUSTIVE so a future
+ *  non-resuming arm is a COMPILE ERROR (never a silent `!== "none"`).
+ *
+ *  Distinct from `resumeFormFor`'s RETURN, which is the actual resume INVOCATION
+ *  (`claude -c`, `--resume <id>`); this is the raw command line for DISPLAY. */
 export function resumableCommand(
   target: RestoreTarget | undefined,
 ): string | null {
-  if (target === undefined) return null;
+  if (target === undefined || resumeFormFor(target) === null) return null;
   switch (target.kind) {
     case "none":
       return null;

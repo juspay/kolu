@@ -12,12 +12,17 @@ const base = {
   lastActivityAt: 0,
 } as const;
 
+/** A claude-code native session id — a UUID, the only shape that passes
+ *  `resumeAgentCommand`'s shell-safe id gate (so the `exact` target actually
+ *  resumes rather than waking to a bare shell). */
+const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
+
 /** An `exact` restore target for the given command — what `restoreTargetOf`
  *  produces for a terminal whose agent was live. */
 const exactTarget = (command: string): SavedTerminal["restoreTarget"] => ({
   kind: "exact",
   command,
-  agent: { kind: "claude-code", sessionId: "ses-A" },
+  agent: { kind: "claude-code", sessionId: CLAUDE_ID },
 });
 
 const activeWithAgent: SavedTerminal = {
@@ -86,5 +91,23 @@ describe("resumableTerminalIds", () => {
 
   it("returns [] when every agent-carrying terminal is asleep", () => {
     expect(resumableTerminalIds([sleepingWithAgent])).toEqual([]);
+  });
+
+  it("excludes an `exact` target whose id can't actually resume (matches wake)", () => {
+    // The count must agree with what wake does: an `exact` id that fails its
+    // shell-safe shape gate yields a bare shell on wake (`resumeFormFor` → null), so
+    // it must NOT inflate the resumable count even though its kind is `exact`.
+    const brokenId: SavedTerminal = {
+      ...base,
+      id: "active-broken-id",
+      state: "active",
+      lastAgentCommand: "claude",
+      restoreTarget: {
+        kind: "exact",
+        command: "claude",
+        agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+      },
+    };
+    expect(resumableTerminalIds([brokenId])).toEqual([]);
   });
 });

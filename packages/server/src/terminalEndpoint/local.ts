@@ -772,7 +772,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       }
       const ctx: FoldCtx = { live, at: Date.now() };
       current = fold(current, o, ctx);
-      if (current === before) return; // an `unknown` / dedup no-op — nothing changed
+      // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
+      // context seen, a (non-replayed) agent command run — NOT the fold delta, so they
+      // run BEFORE the no-op early-return below. Re-launching the SAME agent command
+      // dedups in the fold (`lastAgentCommand` is unchanged → `current === before`) but
+      // is still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
+      // gating it on the fold delta would drop that bump — the old command sensor fired
+      // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
+      if (o.kind === "git" && o.git)
+        trackRecentRepo(o.git.mainRepoRoot, o.git.repoName);
+      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
+      if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
       //  - the OBSERVED half → the `awareness` collection, on an observed change;
       //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
@@ -785,11 +795,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       if (!authoredFactsEqual(before, current))
         updateMemory(id, current.memory, restoreTargetOf(current));
       if (!restoreRelevantEqual(before, current)) emitTerminalsDirty();
-      // Cross-terminal MRUs (kolu's, fold-side): a git context tracks the recent
-      // repo; a LIVE (non-replayed) agent command tracks the recent agent.
-      if (o.kind === "git" && o.git)
-        trackRecentRepo(o.git.mainRepoRoot, o.git.repoName);
-      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
     };
 
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the

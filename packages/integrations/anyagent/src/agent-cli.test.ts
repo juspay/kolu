@@ -9,6 +9,7 @@ import {
   resumeAgentCommand,
   resumeFormFor,
 } from "./agent-cli.ts";
+import { resumableCommand } from "./schemas.ts";
 import type { RestoreTarget } from "./schemas.ts";
 
 describe("parseAgentCommand", () => {
@@ -488,6 +489,67 @@ describe("resumeFormFor — switches on the discriminated RestoreTarget", () => 
       command: "claude --model sonnet",
     };
     expect(resumeFormFor(target)).toBe("claude -c --model sonnet");
+  });
+});
+
+describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeFormFor", () => {
+  const CLAUDE_ID2 = "12341234-1234-1234-1234-123412341234";
+  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+
+  it("absent / `none` → null", () => {
+    expect(resumableCommand(undefined)).toBeNull();
+    expect(resumableCommand({ kind: "none" })).toBeNull();
+  });
+
+  it("`exact` with a resumable id → the raw launch command (not the invocation)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "opencode --model sonnet",
+      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+    };
+    // The DISPLAY string is the raw command, NOT `opencode --session … --model …`.
+    expect(resumableCommand(target)).toBe("opencode --model sonnet");
+  });
+
+  it("`legacyMostRecent` for a resume-capable agent → the raw launch command", () => {
+    expect(
+      resumableCommand({
+        kind: "legacyMostRecent",
+        command: "claude --model sonnet",
+      }),
+    ).toBe("claude --model sonnet");
+  });
+
+  // The bug F1 fixed: count/display must AGREE with wake. These targets carry an
+  // `exact`/`legacyMostRecent` kind but `resumeFormFor` returns null for them, so a
+  // raw-`kind` test would have counted/shown a command wake never resumes.
+  it("`exact` with an id that FAILS its shape gate → null (matches resumeFormFor)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
+  });
+
+  it("`legacyMostRecent` for a detection-only agent → null (matches resumeFormFor)", () => {
+    const target: RestoreTarget = {
+      kind: "legacyMostRecent",
+      command: "aider --model opus",
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
+  });
+
+  it("`exact` whose command head names a non-resumable agent → null", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "aider --model opus",
+      agent: { kind: "claude-code", sessionId: CLAUDE_ID2 },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
   });
 });
 

@@ -79,10 +79,12 @@ export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
     // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
     // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
-    // `composeTerminalMetadata`: awareness FIRST, authored LAST (a sleeping record's
-    // frozen `pr` wins; the saved discriminated union strips the live half —
-    // agent/foreground — structurally, so a future live field can never silently
-    // ride to disk).
+    // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
+    // names no observed field, so it never clobbers the observation. On the sleeping
+    // arm the saved discriminated union keeps only the restore-relevant projection
+    // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
+    // (agent detail + foreground) structurally, so a future live field can never
+    // silently ride to disk.
     ([id, entry]): SavedTerminal =>
       SavedTerminalSchema.parse({
         ...composeTerminalMetadata(entry.meta, entry.awareness),
