@@ -40,6 +40,7 @@ import {
   type Observation,
   ObservationSchema,
   RestoreTargetSchema,
+  seedMemory,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
 import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
@@ -1071,14 +1072,16 @@ export function sleepingArm(
 }
 
 /** Build a fresh AUTHORED active record for a newly-spawned terminal — the
- *  kolu-owned `location`, empty memory (recency at 0, no command), and the active
- *  discriminant. The observation half is seeded SEPARATELY via `seedObservation`;
- *  this names none of it. The single seam every live terminal's authored record is
- *  born through (spawn / orphan adoption), so a future authored field has one seed. */
+ *  kolu-owned `location`, empty memory from the canonical `seedMemory` home
+ *  (recency at 0, no command), and the active discriminant. The observation half is
+ *  seeded SEPARATELY via `seedObservation`; this names none of it. The single seam
+ *  every live terminal's authored record is born through (spawn / orphan adoption),
+ *  and the memory default lives ONCE in `seedMemory`, so a future memory field is
+ *  added there and rides here for free. */
 export function createAuthoredActive(
   location: HostLocation,
 ): AuthoredActiveTerminal {
-  return { location, lastActivityAt: 0, state: "active" };
+  return { location, ...seedMemory(), state: "active" };
 }
 
 /** Join the two halves of a terminal into the unified `TerminalMetadata` — the
