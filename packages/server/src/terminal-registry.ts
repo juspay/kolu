@@ -18,6 +18,7 @@ import type {
   TerminalInfo,
 } from "kolu-common/surface";
 import type { TerminalHandle } from "kolu-common/terminalEndpoint";
+import { log } from "./log.ts";
 
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
@@ -188,6 +189,28 @@ export function getActiveTerminal(
 export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
   const entry = getActiveTerminal(id);
   if (!entry) throw terminalNotFound(id);
+  return entry;
+}
+
+/** The active terminal for a STREAM-FIRED op (`sendInput` / `resize`), or `undefined`
+ *  — logged at debug — when it is no longer live. The QUIET twin of
+ *  `requireActiveTerminal`, deliberately NOT throwing: those two RPCs are dispatched
+ *  fire-and-forget from the client's xterm `onData` / resize observers, so a message
+ *  can arrive just AFTER a kill removed the terminal — a focus-in/out report or a late
+ *  keystroke racing the close (juspay/kolu#1628). For them that miss is an EXPECTED
+ *  no-op, NOT the thrown `terminalNotFound` (auto-logged at ERROR) that
+ *  `requireActiveTerminal` raises for handlers whose contract genuinely needs a live
+ *  PTY (attach, screen reads, paste/upload, kill). The debug line keeps the dropped
+ *  op observable without dressing a benign race as an error. Callers MUST treat
+ *  `undefined` as "drop it", never a fault — i.e. `?.handle.write(...)`. */
+export function activeTerminalForStreamOp(
+  id: TerminalId,
+  op: "sendInput" | "resize",
+): ActiveTerminalProcess | undefined {
+  const entry = getActiveTerminal(id);
+  if (!entry) {
+    log.debug({ terminal: id, op }, "dropped stream op for a closed terminal");
+  }
   return entry;
 }
 
