@@ -123,6 +123,11 @@ beforeEach(async () => {
       subscribeFileChange: {
         source: async function* (): AsyncGenerator<{ seq: number }> {},
       },
+      terminalEvents: {
+        source: async function* () {
+          yield { phase: "snapshot" as const, events: [] };
+        },
+      },
     },
     procedures: {
       fs: {

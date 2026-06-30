@@ -56,8 +56,13 @@ contract shapes:
   `subscribeRepoChange` / `subscribeFileChange` payload-free `{seq}` **pulse
   watcher streams** a consumer requeries on. `fsGitSurfaceDeps`
   (`./serveFsGit`) wires the endpoint onto it. The surface also carries the
-  `awareness` collection + `version` cell + `activity` stream (the live "green
-  dot" liveness).
+  `snapshots` collection + `version` cell + `activity` stream (the live "green
+  dot" liveness) + — since PR-3 — the framed `terminalEvents` stream: a
+  producer's raw observation events (`TerminalFrame` = snapshot-then-deltas, incl.
+  the `commandRun` mark the snapshot collection drops), the fold's INPUT that a
+  remote kolu subscribes to for awareness. A producer with no live tap
+  quiet-defaults it (`quietTerminalEvents`); the local in-process path routes its
+  emit through the same framer + consumer arm but is never served on the wire.
 
 The two shapes can drift, and that's accepted for R6: the procedures+pulse
 split keeps R8's remote kolu re-querying rather than streaming full diffs over

@@ -25,6 +25,12 @@
 export * from "./sensors.ts";
 export * from "./schema.ts";
 export * from "./fold.ts";
+// The framer (phase/seq) + the serving helper, and kolu's consumer arm (the
+// durable recency baseline + the `live` decision the fold takes as a value).
+// Both pure; one home so local (kolu-server) and serving (pulam) — and, in
+// F-REMOTE, the remote subscribe path — share one copy.
+export * from "./framer.ts";
+export * from "./consume.ts";
 // The kaval-dial bridge — taps → `SensorSignals`. Only the standalone
 // `pulam` daemon needs it (kolu-server builds its channels in-process); it
 // lives here so there is one copy of the transport adapter, not a fork.

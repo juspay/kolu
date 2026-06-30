@@ -108,6 +108,11 @@ function makeClient() {
       activity: {
         source: async function* (): AsyncGenerator<never> {},
       },
+      terminalEvents: {
+        source: async function* () {
+          yield { phase: "snapshot" as const, events: [] };
+        },
+      },
       ...deps.streams,
     },
     procedures: deps.procedures,

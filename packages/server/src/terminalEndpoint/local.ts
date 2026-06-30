@@ -24,12 +24,11 @@
 
 import { inMemoryChannel } from "@kolu/surface/server";
 import {
-  agentIdentityChanged,
   type TerminalEvent,
   type SensorSignals,
   type CommandRunSample,
-  fold,
-  type FoldCtx,
+  createConsumerArm,
+  createFramer,
   type TerminalState,
   restoreTargetEqual,
   restoreTargetOf,
@@ -750,77 +749,72 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       foreground: inMemoryChannel<ForegroundSample>(),
     };
 
-    // Seed the fold accumulator from the entry's durable state (the caller —
+    // Seed kolu's CONSUMER ARM from the entry's durable state (the caller —
     // spawnPty/wake/adopt — registered it before we get here). A fact the producer
-    // can't re-observe (the two memory facts, the resume target) survives because
-    // it is simply never in an observation.
+    // can't re-observe (the two memory facts, the resume target, the recency
+    // baseline) survives because it is simply never in an observation.
+    //
+    // The recency baseline (the last known-live agent identity) is seeded from the
+    // durable restore target — BY VALUE, no wall-clock window: an adopt / resuming-wake
+    // re-resolves the SAME session (`exact` target) → matches the baseline → no bump →
+    // the saved recency stands across the restart; a fresh spawn seeds `null`, so its
+    // first agent is genuinely new and bumps. The `live` rule and the baseline live in
+    // the arm (uniform for local and, in F-REMOTE, remote), NOT in `fold` or the framer
+    // — a remote framer runs in pulam, which has no kolu memory.
     const seedEntry = getTerminal(id)!;
-    let current: TerminalState = {
+    const seededTarget = seedEntry.meta.restoreTarget;
+    const baseline: AgentIdentity | null =
+      seededTarget?.kind === "exact" ? seededTarget.agent : null;
+    const arm = createConsumerArm({
       snapshot: seedEntry.snapshot,
       memory: {
         lastActivityAt: seedEntry.meta.lastActivityAt,
         lastAgentCommand: seedEntry.meta.lastAgentCommand,
       },
-    };
-
-    // Recency frame phase, decided BY VALUE — no wall-clock window. The bump fires
-    // only when a re-resolved agent IDENTITY differs from the one we last knew,
-    // seeded from the durable restore target: an adopt / resuming-wake re-resolves
-    // the SAME session (`exact` target) → matches the baseline → no bump → the saved
-    // recency stands across the restart; a fresh spawn seeds `null`, so its first
-    // agent is genuinely new and bumps. This replaces the old 1.5 s timer whose race
-    // (a slow settle landing after it fired) could restamp saved recency.
-    const seededTarget = seedEntry.meta.restoreTarget;
-    let recencyBaseline: AgentIdentity | null =
-      seededTarget?.kind === "exact" ? seededTarget.agent : null;
+      baseline,
+    });
+    // The LOCAL framer stamps every in-process emission `phase:"delta"` — there is no
+    // per-subscription snapshot here (kolu folds in-process off its durable seed), and
+    // a `snapshot`-phased emit would fold with `live:false` and suppress the fresh-spawn
+    // recency bump. (The serving side — pulam — emits a snapshot-then-deltas stream.)
+    const framer = createFramer();
 
     const emit = (o: TerminalEvent): void => {
-      const before = current;
-      // The frame phase is a VALUE comparison on the agent's identity: a re-resolved
-      // identity equal to the baseline is a re-observation (not live); a different
-      // one is new activity. The baseline then tracks the latest authoritative agent.
-      let live = false;
-      if (o.kind === "agent" && o.agent !== "unknown") {
-        const next = o.agent.value;
-        live = agentIdentityChanged(recencyBaseline, next);
-        // Only re-seat the baseline when the identity actually changed (`live`):
-        // a same-identity tick (the ~150 ms firehose) already matches the baseline,
-        // so re-allocating an identical `{ kind, sessionId }` every tick is wasted.
-        if (live)
-          recencyBaseline = next
-            ? { kind: next.kind, sessionId: next.sessionId }
-            : null;
-      }
-      const ctx: FoldCtx = { live, at: Date.now() };
-      current = fold(current, o, ctx);
-      // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
-      // context seen, a (non-replayed) agent command run — NOT the fold delta, so they
-      // run BEFORE the no-op early-return below. Re-launching the SAME agent command
-      // dedups in the fold (`lastAgentCommand` is unchanged → `current === before`) but
-      // is still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
-      // gating it on the fold delta would drop that bump — the old command sensor fired
-      // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
-      if (o.kind === "git" && o.git)
-        trackRecentRepo(o.git.mainRepoRoot, o.git.repoName);
-      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
-      if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
-      // Three effect arms, each gated by ITS OWN delta — no firehose on any:
-      //  - the OBSERVED half → the `snapshots` collection, on a snapshot change;
-      //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
-      //    authored-fact change (so pure agent-detail churn never re-publishes it);
-      //  - the session AUTOSAVE, on a restore-relevant VALUE change (off disk for the
-      //    firehose). None of the three fires `terminals:dirty` from its own commit
-      //    seam — that fence lives here.
-      if (current.snapshot !== before.snapshot)
-        commitSnapshot(id, current.snapshot);
-      // Evaluate the authored-fact delta ONCE and feed it to the disk fence (a strict
-      // superset), so the firehose path doesn't recompute `authoredFactsEqual` —
-      // and its `restoreTargetOf` allocations — a second time inside it.
-      const authoredEqual = authoredFactsEqual(before, current);
-      if (!authoredEqual)
-        updateMemory(id, current.memory, restoreTargetOf(current));
-      if (!restoreRelevantEqual(before, current, authoredEqual))
-        emitTerminalsDirty();
+      // One in-process emission → one `delta` frame, folded through the consumer arm
+      // (which decides liveness off the durable baseline + the frame phase). The arm
+      // calls back once per event (a local frame carries exactly one), with the prior
+      // and next state so the effect arms below stay byte-identical.
+      arm.consume(framer.delta([o]), (event, before, after) => {
+        // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
+        // context seen, a (non-replayed) agent command run — NOT the fold delta, so they
+        // run BEFORE the no-op early-return below. Re-launching the SAME agent command
+        // dedups in the fold (`lastAgentCommand` unchanged → `after === before`) but is
+        // still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
+        // gating it on the fold delta would drop that bump — the old command sensor fired
+        // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
+        if (event.kind === "git" && event.git)
+          trackRecentRepo(event.git.mainRepoRoot, event.git.repoName);
+        if (event.kind === "commandRun" && !event.replayed)
+          trackRecentAgent(event.command);
+        if (after === before) return; // `unknown`/dedup no-op — nothing else to commit
+        // Three effect arms, each gated by ITS OWN delta — no firehose on any:
+        //  - the OBSERVED half → the `snapshots` collection, on a snapshot change;
+        //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
+        //    authored-fact change (so pure agent-detail churn never re-publishes it);
+        //  - the session AUTOSAVE, on a restore-relevant VALUE change (off disk for the
+        //    firehose). None of the three fires `terminals:dirty` from its own commit
+        //    seam — that fence lives here.
+        if (after.snapshot !== before.snapshot)
+          commitSnapshot(id, after.snapshot);
+        // Evaluate the authored-fact delta ONCE and feed it to the disk fence (a strict
+        // superset), so the firehose path doesn't recompute `authoredFactsEqual` —
+        // and its `restoreTargetOf` allocations — a second time inside it.
+        const authoredEqual = authoredFactsEqual(before, after);
+        if (!authoredEqual)
+          updateMemory(id, after.memory, restoreTargetOf(after));
+        if (!restoreRelevantEqual(before, after, authoredEqual))
+          emitTerminalsDirty();
+      });
     };
 
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the

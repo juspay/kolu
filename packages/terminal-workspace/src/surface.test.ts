@@ -41,22 +41,27 @@ describe("terminal-workspace surface", () => {
     expect(Object.keys(spec.streams ?? {})).toEqual(
       expect.arrayContaining([
         "activity",
+        "terminalEvents",
         "subscribeRepoChange",
         "subscribeFileChange",
       ]),
     );
   });
 
-  it("bumped the contract to 3.0 — the BREAKING collection rename (snapshots), skew in BOTH directions vs 2.0", () => {
-    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("3.0");
-    // 2.0 → 3.0 RENAMES the collection key `awareness` → `snapshots` (the type-naming
-    // cleanup). The wire path a viewer subscribes to changes, so a 2.0 viewer can't
-    // find the renamed collection — NOT additive. The gate must mark the two mutually
-    // incompatible, both directions:
+  it("declares the PR-3 terminalEvents stream — framed TerminalEvents, keyed by terminalId", () => {
+    const spec = terminalWorkspaceSurface.spec;
+    expect(spec.streams?.terminalEvents).toBeDefined();
+  });
+
+  it("bumped the contract to 3.1 — the ADDITIVE terminalEvents stream, still compatible with a 3.0 viewer", () => {
+    expect(TERMINAL_WORKSPACE_CONTRACT_VERSION).toBe("3.1");
+    // 3.0 → 3.1 ADDS the `terminalEvents` stream. A new stream is ADDITIVE — a 3.0
+    // viewer simply never subscribes to it — so a 3.1 daemon still serves a 3.0 viewer
+    // (a one-directional minor bump, NOT the mutual skew a breaking major forces).
+    expect(isContractVersionCompatible("3.1", "3.0")).toBe(true);
+    // The 2.0 → 3.0 collection RENAME stays a breaking major in BOTH directions.
     expect(isContractVersionCompatible("3.0", "2.0")).toBe(false);
     expect(isContractVersionCompatible("2.0", "3.0")).toBe(false);
-    // A newer-minor 3.x daemon (a future additive bump) still serves a 3.0 viewer.
-    expect(isContractVersionCompatible("3.1", "3.0")).toBe(true);
   });
 
   it("the base surface carries NO `connection` cell — link health lives only at the mirror seam", () => {

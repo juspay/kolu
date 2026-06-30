@@ -11,6 +11,9 @@
  *   - `activity` — the live "bytes moving now" source. kolu-server has no raw
  *     byte tap yet, so it passes {@link quietActivity} (R9 turns it live); `pulam`
  *     passes a live source over its activity tracker.
+ *   - `terminalEvents` — the framed observation stream (PR-3). kolu-server folds
+ *     its producer in-process and serves nothing live, so it passes
+ *     {@link quietTerminalEvents}; `pulam` passes a live per-terminal source.
  *
  * So a second home — or R9 turning kolu's activity live — is a backing
  * INJECTION, never a second hand-assembled copy of these deps. This is the
@@ -27,7 +30,7 @@ import {
 } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
-import type { TerminalId } from "./schema.ts";
+import type { TerminalFrame, TerminalId } from "./schema.ts";
 import { fsGitSurfaceDeps } from "./serveFsGit.ts";
 import { DEFAULT_VERSION, type terminalWorkspaceSurface } from "./surface.ts";
 
@@ -43,6 +46,12 @@ export type SnapshotCollectionDeps = NonNullable<
 export type ActivityStreamDeps = NonNullable<
   WorkspaceDeps["streams"]
 >["activity"];
+
+/** The framed-`terminalEvents` stream backing a home injects — pulam's live
+ *  per-terminal event source, or kolu-server's {@link quietTerminalEvents}. */
+export type TerminalEventsStreamDeps = NonNullable<
+  WorkspaceDeps["streams"]
+>["terminalEvents"];
 
 /** A QUIET activity source — yields the empty live set once and never changes.
  *  For a home with no raw byte tap (kolu-server today; R9 makes it live): the
@@ -64,6 +73,28 @@ export const quietActivity: ActivityStreamDeps = {
     }),
 };
 
+/** A QUIET `terminalEvents` source — yields one empty `snapshot` frame and never
+ *  a delta. For a home with no raw event tap to SERVE: kolu-server folds its
+ *  producer IN-PROCESS, so it serves no live event stream (nobody consumes
+ *  kolu-server's `terminalEvents`; its awareness never crosses this wire). The
+ *  leading `snapshot` frame keeps the stream a valid snapshot-then-delta source
+ *  (the streaming contract) without asserting any live activity — the honest
+ *  "this home serves no events", the per-frame twin of {@link quietActivity}. A
+ *  home WITH a tap (pulam) injects a live source instead. */
+export const quietTerminalEvents: TerminalEventsStreamDeps = {
+  source: (_input, signal) =>
+    pollOnEvent<TerminalFrame>({
+      // The frame is constant: the empty snapshot, yielded once. `read` touches no
+      // I/O so it cannot fail (`onReadError` unreachable, intentionally empty);
+      // `isEqual` always true and `install` never firing mean no second frame.
+      read: async () => ({ phase: "snapshot", events: [] }),
+      isEqual: () => true,
+      install: () => () => {},
+      signal,
+      onReadError: () => {},
+    }),
+};
+
 /** Assemble the FULL `terminalWorkspaceSurface` server deps (minus `channel`,
  *  which each home supplies). The `version` cell and the fs/git procedures +
  *  watcher streams are built HERE off the injected `endpoint`; the caller injects
@@ -73,6 +104,7 @@ export const quietActivity: ActivityStreamDeps = {
 export function serveTerminalWorkspace(deps: {
   snapshots: SnapshotCollectionDeps;
   activity: ActivityStreamDeps;
+  terminalEvents: TerminalEventsStreamDeps;
   endpoint: TerminalWorkspaceEndpoint;
   log: Logger;
 }): Omit<WorkspaceDeps, "channel"> {
@@ -80,7 +112,11 @@ export function serveTerminalWorkspace(deps: {
   return {
     cells: { version: { store: inMemoryStore(DEFAULT_VERSION) } },
     collections: { snapshots: deps.snapshots },
-    streams: { activity: deps.activity, ...fsGit.streams },
+    streams: {
+      activity: deps.activity,
+      terminalEvents: deps.terminalEvents,
+      ...fsGit.streams,
+    },
     procedures: fsGit.procedures,
   };
 }

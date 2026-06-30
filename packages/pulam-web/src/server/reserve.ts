@@ -49,6 +49,7 @@ import type {
 import { observableHolder, seedConnectionCell } from "@kolu/surface-nix-host";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import type {
+  TerminalFrame,
   TerminalSnapshot,
   TerminalId,
   TerminalWorkspaceSpec,
@@ -225,6 +226,22 @@ export function buildReServe(opts: BuildReServeOptions = {}): ReServe {
           (surface) => surface.subscribeFileChange,
           { seq: 0 },
           "subscribeFileChange",
+          log,
+        ),
+      },
+      // Browser-facing `terminalEvents` — a per-terminal framed stream the parent
+      // can't subscribe up front (the `terminalId` is the consumer's). Same
+      // hold-open-and-rebind forward as the watchers: the lead frame is an empty
+      // `snapshot` (the streaming contract's required leading frame, so a consumer
+      // that subscribes before the link is live still gets a snapshot), then each
+      // remote frame relays. The parent doesn't fold this — it's the remote kolu's
+      // (F-REMOTE) to fold; the parent only forwards.
+      terminalEvents: {
+        source: forwardInputStream(
+          liveClient,
+          (surface) => surface.terminalEvents,
+          { phase: "snapshot", events: [] } satisfies TerminalFrame,
+          "terminalEvents",
           log,
         ),
       },

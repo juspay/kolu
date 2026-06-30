@@ -29,7 +29,9 @@ import {
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
+  type Channel,
   implementSurface,
+  inMemoryChannel,
   inMemoryChannelByName,
   pollOnEvent,
 } from "@kolu/surface/server";
@@ -37,6 +39,8 @@ import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   bridgeKavalTaps,
   foldSnapshot,
+  serveTerminalEvents,
+  type TerminalEvent,
   type TerminalSnapshot,
   seedSnapshot,
   startSensors,
@@ -160,6 +164,13 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
   //    pulam injects only its volatile backings: the cache-backed `snapshots`
   //    store and a LIVE `activity` source over its tracker. ──
   const cache = new Map<TerminalId, TerminalSnapshot>();
+  // The raw observation stream per terminal — the framed `terminalEvents` source
+  // serves it (snapshot-then-deltas), so a remote kolu folds memory + recency from
+  // the SAME events kolu folds locally. Distinct from the `snapshots` cache, which
+  // is the LOSSY fold output (it drops the `commandRun` mark): a producer publishes
+  // every emit here, then folds into the cache below. One bus per watched terminal,
+  // torn down on departure.
+  const eventBuses = new Map<TerminalId, Channel<TerminalEvent>>();
   const fragment = implementSurface(terminalWorkspaceSurface, {
     channel: inMemoryChannelByName(),
     ...serveTerminalWorkspace({
@@ -170,6 +181,26 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
         },
         remove: (key) => {
           cache.delete(key);
+        },
+      },
+      // The framed event stream for one terminal — snapshot-then-deltas with a
+      // per-subscription `seq`, served live off that terminal's bus + its current
+      // snapshot. A subscribe for a terminal no longer watched yields one empty
+      // snapshot frame and ends (the honest "nothing to stream for this id"), never
+      // a hang or a throw.
+      terminalEvents: {
+        source: ({ terminalId }, signal) => {
+          const events = eventBuses.get(terminalId);
+          if (!events) {
+            return (async function* () {
+              yield { phase: "snapshot", events: [] } as const;
+            })();
+          }
+          return serveTerminalEvents({
+            events,
+            currentSnapshot: () => cache.get(terminalId) ?? seedSnapshot(""),
+            signal,
+          });
         },
       },
       // Poll-on-event over the live set: yield the current set, then re-yield
@@ -211,6 +242,11 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
     // each emitted observation. Shallow-clone on publish so the collection stores an
     // independent snapshot rather than aliasing the live value.
     let snapshot: TerminalSnapshot = seedSnapshot(entry.cwd);
+    // This terminal's raw event bus — every producer emission lands here (incl. the
+    // `commandRun` mark the snapshot fold drops), so the framed `terminalEvents`
+    // stream can replay it. Registered for the source to find; dropped on departure.
+    const events = inMemoryChannel<TerminalEvent>();
+    eventBuses.set(id, events);
     // Guard the upsert at the publish boundary: the emit below folds (`snapshot =
     // next`) BEFORE publishing, so a throwing awareness subscriber must not propagate
     // back into the producer's sensor loop (it would freeze the sensor) — the accepted
@@ -244,6 +280,10 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
         log,
       },
       (o) => {
+        // Broadcast every raw emission to the framed event stream FIRST — incl. the
+        // `commandRun` mark and an `unknown` agent, which the snapshot fold no-ops
+        // below: the event stream is the fold's INPUT, the cache its lossy output.
+        events.publish(o);
         const next = foldSnapshot(snapshot, o);
         if (next === snapshot) return; // an `unknown` / memory-mark no-op
         snapshot = next;
@@ -284,6 +324,10 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
       abort.abort();
       stopAwareness();
       activity.forget(id);
+      // Drop the bus so a later subscribe for this departed id serves the empty
+      // snapshot rather than a stale one; any subscriber still attached unwinds on
+      // its own signal (the producer simply stops publishing).
+      eventBuses.delete(id);
     };
   };
 

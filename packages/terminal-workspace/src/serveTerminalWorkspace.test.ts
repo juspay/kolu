@@ -12,6 +12,7 @@ import type { TerminalWorkspaceEndpoint } from "./endpoint.ts";
 import {
   type SnapshotCollectionDeps,
   quietActivity,
+  quietTerminalEvents,
   serveTerminalWorkspace,
 } from "./serveTerminalWorkspace.ts";
 
@@ -30,6 +31,7 @@ describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () =>
     const deps = serveTerminalWorkspace({
       snapshots: stubSnapshots,
       activity: quietActivity,
+      terminalEvents: quietTerminalEvents,
       endpoint: stubEndpoint,
       log: stubLog,
     });
@@ -47,5 +49,6 @@ describe("serveTerminalWorkspace — the ONE workspace-surface assembler", () =>
     // The VOLATILE backings are injected through verbatim (identity):
     expect(deps.collections?.snapshots).toBe(stubSnapshots);
     expect(deps.streams?.activity).toBe(quietActivity);
+    expect(deps.streams?.terminalEvents).toBe(quietTerminalEvents);
   });
 });

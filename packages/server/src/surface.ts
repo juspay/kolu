@@ -42,6 +42,7 @@ import {
 import { surfaceAppServer } from "@kolu/surface-app/server";
 import {
   quietActivity,
+  quietTerminalEvents,
   serveTerminalWorkspace,
 } from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
@@ -456,6 +457,11 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // truthfully yields the empty live set — not a lie, the honest "nothing
         // known to be moving". R9 injects a live source here instead.
         activity: quietActivity,
+        // QUIET-DEFAULT the framed event stream (PR-3): kolu folds its producer
+        // IN-PROCESS, so nobody consumes kolu-server's `terminalEvents` — its
+        // local awareness fold is untouched by the new wire. F-REMOTE consumes a
+        // REMOTE host's stream (pulam serves the live one), never this one.
+        terminalEvents: quietTerminalEvents,
         endpoint: localEndpoint,
         log,
       }),

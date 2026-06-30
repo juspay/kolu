@@ -42,6 +42,7 @@ import { seedSnapshot } from "@kolu/terminal-workspace";
 import type { ConnectionInfo } from "@kolu/surface-nix-host/connection";
 import {
   DEFAULT_VERSION,
+  type TerminalFrame,
   type TerminalSnapshot,
   type TerminalId,
   terminalWorkspaceSurface,
@@ -122,6 +123,14 @@ function standUpAgent(
       subscribeFileChange: {
         source: async function* () {
           yield { seq: 0 };
+        },
+      },
+      // Minimal framed event source — one empty snapshot frame, then done. Proves
+      // the re-serve grafts onto a COMPLETE agent surface (incl. PR-3's stream); the
+      // forward itself is exercised by the dedicated terminalEvents forward test.
+      terminalEvents: {
+        source: async function* () {
+          yield { phase: "snapshot" as const, events: [] };
         },
       },
     },
@@ -520,6 +529,98 @@ describe("forwardInputStream — holds open and rebinds across spawns (F1)", () 
     // The browser subscription stayed alive the whole time — the upstream error
     // was swallowed as a link blip, never propagated.
     expect(drainThrew).toBeNull();
+  });
+});
+
+/**
+ * PR-3 proof: the parent FORWARDS the per-terminal `terminalEvents` framed stream
+ * to the live remote — it doesn't fold it (that's the remote kolu's, F-REMOTE).
+ * It yields the lead empty-`snapshot` frame before any client (so a consumer that
+ * subscribes pre-handshake still gets a leading frame), then relays each remote
+ * frame, rebinding across spawns — the same hold-open shape `subscribeRepoChange`
+ * uses, exercised here for the `{terminalId}`-keyed stream.
+ */
+describe("buildReServe — forwards the terminalEvents framed stream (PR-3)", () => {
+  /** A minimal AgentClient stand-in whose `terminalEvents` yields a controllable
+   *  frame stream — only the slice `forwardInputStream` reaches. */
+  function fakeEventsClient() {
+    const queue: TerminalFrame[] = [];
+    let wake: (() => void) | null = null;
+    let done = false;
+    const surface = {
+      terminalEvents: {
+        get: async (_input: { terminalId: TerminalId }) => ({
+          async *[Symbol.asyncIterator]() {
+            while (true) {
+              while (queue.length > 0) yield queue.shift() as TerminalFrame;
+              if (done) return;
+              await new Promise<void>((r) => {
+                wake = r;
+              });
+            }
+          },
+        }),
+      },
+    };
+    return {
+      // biome-ignore lint/suspicious/noExplicitAny: structural stand-in for the slice forwardInputStream reaches
+      client: { surface } as any,
+      emit: (frame: TerminalFrame) => {
+        queue.push(frame);
+        wake?.();
+      },
+      end: () => {
+        done = true;
+        wake?.();
+      },
+    };
+  }
+
+  it("yields the lead empty-snapshot frame before any client, then forwards a remote delta", async () => {
+    const reServe = buildReServe();
+    const browser = browserLink(reServe.router);
+
+    const ac = new AbortController();
+    const seen: TerminalFrame[] = [];
+    const iterable = await browser.surface.terminalEvents.get(
+      { terminalId: TERM_A },
+      { signal: ac.signal },
+    );
+    const drain = (async () => {
+      try {
+        for await (const frame of iterable) seen.push(frame as TerminalFrame);
+      } catch {
+        /* aborted on teardown */
+      }
+    })();
+    disposers.push(() => {
+      ac.abort();
+      void drain.catch(() => {});
+    });
+
+    // The lead frame — an empty `snapshot` — arrives BEFORE any live client.
+    await waitFor(() => seen.length >= 1);
+    expect(seen[0]).toEqual({ phase: "snapshot", events: [] });
+
+    // A spawn appears; a remote `commandRun` delta forwards through the SAME
+    // browser subscription (the mark the snapshots cache can't carry).
+    const spawn = fakeEventsClient();
+    reServe.liveClient.current = spawn.client;
+    reServe.liveClient.onChange?.();
+    const delta: TerminalFrame = {
+      phase: "delta",
+      seq: 1,
+      events: [
+        {
+          kind: "commandRun",
+          command: "claude --model sonnet",
+          replayed: false,
+        },
+      ],
+    };
+    spawn.emit(delta);
+    await waitFor(() => seen.some((f) => f.phase === "delta"));
+    expect(seen.find((f) => f.phase === "delta")).toEqual(delta);
   });
 });
 

@@ -27,7 +27,11 @@ import {
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
 import { z } from "zod";
-import { TerminalSnapshotSchema, TerminalIdSchema } from "./schema.ts";
+import {
+  TerminalFrameSchema,
+  TerminalSnapshotSchema,
+  TerminalIdSchema,
+} from "./schema.ts";
 
 /** The wire-shape `major.minor` of the workspace surface this build serves and
  *  expects. Bumped only when `terminalWorkspaceSurface` itself changes shape —
@@ -51,8 +55,13 @@ import { TerminalSnapshotSchema, TerminalIdSchema } from "./schema.ts";
  *  `1.0` viewer's parse would reject a `2.0` value's shape — a breaking major.
  *  `2.0 → 3.0` RENAMES the collection key `awareness` → `snapshots` (the type-naming
  *  cleanup): the wire path a viewer subscribes to changes, so a `2.0` viewer can't
- *  find the renamed collection — a breaking major. */
-export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.0";
+ *  find the renamed collection — a breaking major.
+ *  `3.0 → 3.1` ADDS the `terminalEvents` stream (PR-3): a framed `TerminalFrame`
+ *  stream a producer serves beside its `snapshots` collection, carrying the raw
+ *  observation events (incl. the `commandRun` mark the snapshot cache drops) a
+ *  remote kolu folds. A new stream is ADDITIVE — a `3.0` viewer simply never
+ *  subscribes to it — so the gate keeps a `3.1` daemon serving a `3.0` viewer. */
+export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.1";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */
 export const VersionSchema = z.object({ contractVersion: z.string() });
@@ -144,6 +153,18 @@ export const terminalWorkspaceSurface = defineSurface({
       inputSchema: z.object({}),
       outputSchema: z.array(TerminalIdSchema),
     },
+    /** One terminal's framed observation stream — `snapshot`-then-`delta`s of
+     *  `TerminalEvent`s, with a monotonic per-subscription `seq` (the same
+     *  subscribe-before-serialize attach contract every reconnect relies on). The
+     *  fold's INPUT, not its lossy snapshot output: it carries the `commandRun`
+     *  mark the `snapshots` collection drops, so a REMOTE kolu folds memory + recency
+     *  from HERE (F-REMOTE), keyed by `terminalId`. The dashboards (pulam-tui /
+     *  pulam-web) need no recency and keep reading `snapshots`; a producer with no
+     *  live tap quiet-defaults this to one empty `snapshot` frame. */
+    terminalEvents: {
+      inputSchema: z.object({ terminalId: TerminalIdSchema }),
+      outputSchema: TerminalFrameSchema,
+    },
     /** Live change-pulses for a repo's working tree + git dir (HEAD, index,
      *  reflog, files). Pulse-then-requery: a consumer subscribes for a `{seq:0}`
      *  snapshot, then re-queries `git.getStatus` / `fs.listAll` on each later
@@ -202,8 +223,9 @@ export type ActivitySet = SF["streams"]["activity"]["Output"];
 
 // The collection's value is exactly `@kolu/terminal-workspace`'s `TerminalSnapshot`
 // (both are `z.infer<typeof TerminalSnapshotSchema>`). Re-export the canonical names so
-// a consumer of the surface has one import for the surface AND its value/key shapes.
-export type { TerminalSnapshot, TerminalId } from "./schema.ts";
+// a consumer of the surface has one import for the surface AND its value/key shapes —
+// plus `TerminalFrame`, the `terminalEvents` stream's frame shape a forwarder/consumer types against.
+export type { TerminalSnapshot, TerminalId, TerminalFrame } from "./schema.ts";
 
 // The git-status shapes `git.getStatus` returns — re-exported so a viewer or
 // remote-kolu consumer reads the surface AND the types its procedures return

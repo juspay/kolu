@@ -281,6 +281,30 @@ it("dials a kaval, runs the sensors for a real terminal, serves correct awarenes
   expect(after.workingTree.untracked).toBeGreaterThanOrEqual(2); // +fresh.txt
   await iter.return?.(); // close the subscription before the kill below
 
+  // ── PR-3: pulam serves the framed `terminalEvents` stream over the SAME socket ──
+  // The producer-side prep for remote awareness — a remote kolu folds memory +
+  // recency from THIS event stream (not the lossy snapshot cache). Here we only
+  // prove the wire: a subscriber gets a leading `snapshot` frame whose events
+  // reconstruct the terminal's current observed state (the cwd it spawned in, the
+  // resolved git branch). The deltas-carry-commandRun capability the cache can't
+  // express is pinned deterministically in @kolu/terminal-workspace's framer test.
+  const eventsAbort = new AbortController();
+  const eventsStream = await conn.client.surface.terminalEvents.get(
+    { terminalId },
+    { signal: eventsAbort.signal },
+  );
+  const firstFrame = await firstValue(eventsStream);
+  if (!firstFrame || firstFrame.phase !== "snapshot") {
+    throw new Error(
+      `expected a leading snapshot frame, got ${firstFrame?.phase}`,
+    );
+  }
+  const cwdEvent = firstFrame.events.find((e) => e.kind === "cwd");
+  expect(cwdEvent).toEqual({ kind: "cwd", cwd: repo });
+  const gitEvent = firstFrame.events.find((e) => e.kind === "git");
+  expect(gitEvent?.kind === "git" && gitEvent.git?.branch).toBe(BRANCH);
+  eventsAbort.abort();
+
   // ── kill the terminal → pulam reconciles it out of the collection ─
   await ptyHost.client.surface.terminal.kill({ id });
   await waitFor(async () =>

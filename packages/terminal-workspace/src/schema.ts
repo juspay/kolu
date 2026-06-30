@@ -37,7 +37,7 @@ import {
 import { PrInfoSchema } from "anyforge/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
-import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
+import { GitInfoSchema } from "kolu-git/schemas";
 import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { match } from "ts-pattern";
@@ -198,19 +198,63 @@ export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
  *  session genuinely ended). Never stored — only the resolved value is. */
 export type Known<T> = "unknown" | { value: T };
 
+/** The `agent` field's `Known<AgentInfo | null>` as a wire schema — `"unknown"`
+ *  (keep) or an authoritative `{ value }` (apply, even a shell-idle `null`). Zod
+ *  can't be generic over `Known<T>`, so this is the one instantiation the
+ *  `terminalEvents` wire needs; its inferred type is exactly `Known<AgentInfo | null>`. */
+export const KnownAgentSchema = z.union([
+  z.literal("unknown"),
+  z.object({ value: AgentInfoSchema.nullable() }),
+]);
+
 /** A per-field sample a memoryless producer emits. The standing five build
  *  the `TerminalSnapshot`; `commandRun` is a discrete mark that feeds kolu's
  *  `lastAgentCommand` memory + the recent-agent MRU. The agent is the one field
  *  that resolves ASYNCHRONOUSLY, so it carries `Known<>` rather than a bare
- *  nullable. In-process for R9.0 (a plain TS union, no wire schema — the framed
- *  `terminalEvents` stream that serializes these is R9.3). */
-export type TerminalEvent =
-  | { kind: "cwd"; cwd: string }
-  | { kind: "git"; git: GitInfo | null }
-  | { kind: "pr"; pr: PrResult }
-  | { kind: "foreground"; foreground: Foreground | null }
-  | { kind: "agent"; agent: Known<AgentInfo | null> }
-  | { kind: "commandRun"; command: string; replayed: boolean };
+ *  nullable. Now a zod schema (was a plain TS union): the framed `terminalEvents`
+ *  stream (PR-3) serializes these over the wire, so the shape needs a parser. The
+ *  inferred `TerminalEvent` type is unchanged — kolu's in-process fold (R9.0) is
+ *  untouched; only the wire was added. */
+export const TerminalEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("cwd"), cwd: z.string() }),
+  z.object({ kind: z.literal("git"), git: GitInfoSchema.nullable() }),
+  z.object({ kind: z.literal("pr"), pr: PrResultSchema }),
+  z.object({
+    kind: z.literal("foreground"),
+    foreground: ForegroundSchema.nullable(),
+  }),
+  z.object({ kind: z.literal("agent"), agent: KnownAgentSchema }),
+  z.object({
+    kind: z.literal("commandRun"),
+    command: z.string(),
+    replayed: z.boolean(),
+  }),
+]);
+export type TerminalEvent = z.infer<typeof TerminalEventSchema>;
+
+/** A FRAME wrapping a producer's `TerminalEvent` burst with the provenance the
+ *  per-event vocabulary deliberately omits — the subscription PHASE and per-subscription
+ *  SEQ a framer derives (never liveness, never memory). The consumer reads phase to
+ *  decide `ctx.live` (a `snapshot` re-observation never bumps recency; a `delta` may)
+ *  and seq to assert contiguity (a hole forces a `gap` → re-snapshot, never a silently
+ *  divergent fold). `snapshot` carries the current state replayed as events;
+ *  `delta` carries one live emission; `gap` carries only the last good `seq`. */
+export const TerminalFrameSchema = z.discriminatedUnion("phase", [
+  z.object({
+    phase: z.literal("snapshot"),
+    events: z.array(TerminalEventSchema),
+  }),
+  z.object({
+    phase: z.literal("delta"),
+    seq: z.number().int().nonnegative(),
+    events: z.array(TerminalEventSchema),
+  }),
+  z.object({
+    phase: z.literal("gap"),
+    afterSeq: z.number().int().nonnegative(),
+  }),
+]);
+export type TerminalFrame = z.infer<typeof TerminalFrameSchema>;
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
  *  its "not yet resolved" seed (git absent, PR pending, no agent, no foreground).
