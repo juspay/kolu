@@ -149,11 +149,12 @@ two surface shapes — chosen by where the consumer sits.
   rather than streaming full diffs over the wire"*).
 
 That difference is the crux of [remote-terminals R8/R9](remote-terminals.html#r8).
-kolu's Code tab reads `koluSurface`'s **value-bearing** streams today
-(`CodeTab.tsx`); to read the **shared** `terminalWorkspaceSurface` it must switch
-to **pulse-then-requery** — a real client change (re-query on the pulse instead of
-rendering pushed frames). That's the bigger fs/git move, so it rides **R9** (when
-kolu mirrors the shared surface whole), not R8.
+kolu's Code tab **used to** read `koluSurface`'s **value-bearing** streams; as of
+**R9.5** (PR-2 of the finale) it reads the **shared** `terminalWorkspaceSurface`'s
+**procedure + pulse** instead (`CodeTab.tsx`) — re-querying on each pulse rather
+than rendering pushed frames, via `createPolledQuery` (the client dual of
+`pollOnEvent`). So a remote tile's Code tab reads its host's mirror behind the same
+client; the `koluSurface` fs/git streams are gone.
 
 Awareness has **no** such split: it's a `collection`, the same *kind* on both (kolu's `terminalMetadata` is a superset; only the awareness slice matches) —
 which is exactly why R8's awareness half is the clean, do-now move and fs/git is

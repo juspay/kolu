@@ -42,27 +42,28 @@ remembers nothing, folds only the snapshot half with `foldSnapshot`.
 collapses to an empty result). It was lifted out of `kolu-server` so there is
 **one** impl, not one per home.
 
-**One fs/git impl, two homes.** R6 ships **one** fs/git impl
-(`createTerminalWorkspaceEndpoint`), not one surface both homes already serve.
-The two homes re-expose that one impl through two **deliberately different**
-contract shapes:
+**One fs/git impl, one surface, two homes.** R6 ships **one** fs/git impl
+(`createTerminalWorkspaceEndpoint`); since R9.5 both homes serve it through the
+**same** contract shape — `terminalWorkspaceSurface`'s `fs.*` / `git.*` read
+**procedures** plus the `subscribeRepoChange` / `subscribeFileChange` payload-free
+`{seq}` **pulse watcher streams** a consumer re-queries on. `fsGitSurfaceDeps`
+(`./serveFsGit`) wires the endpoint onto it; `serveTerminalWorkspace` assembles the
+whole surface. The surface also carries the `snapshots` collection + `version` cell
++ `activity` stream (the live "green dot" liveness), and — added in R9.5 — three
+host-scoped byte primitives: `fs.previewRead` (range-capable preview bytes),
+`scratch.write` (paste/upload), and `transcript.read`.
 
-- **kolu-server** (in-process) binds the impl to its local `TerminalEndpoint`
-  and re-exposes the reads on `koluSurface`'s **value-bearing streams** — each
-  stream yields the actual `GitStatusOutput` / `GitDiffOutput` /
-  `FsListAllOutput` / `FsReadFileOutput` and re-yields on change.
-- **pulam** (remote) serves them on `terminalWorkspaceSurface` (`./surface`,
-  browser-safe): the `fs.*` / `git.*` read **procedures** plus the
-  `subscribeRepoChange` / `subscribeFileChange` payload-free `{seq}` **pulse
-  watcher streams** a consumer requeries on. `fsGitSurfaceDeps`
-  (`./serveFsGit`) wires the endpoint onto it. The surface also carries the
-  `awareness` collection + `version` cell + `activity` stream (the live "green
-  dot" liveness).
+- **kolu-server** (in-process) and **pulam** (remote) BOTH serve this surface.
+  kolu's own Code tab reads it through `createPolledQuery` — the client dual of
+  `pollOnEvent` (call the procedure once, re-query on each pulse) — so a remote
+  tile reads its host's mirror behind the same client. (Until R9.5, kolu-server
+  served the Code tab's fs/git reads as `koluSurface`'s **value-bearing streams**
+  instead — that home is gone; the Code tab moved onto the shared procedure +
+  pulse, and the binary-preview/iframe-URL orchestration moved client-side.)
 
-The two shapes can drift, and that's accepted for R6: the procedures+pulse
-split keeps R8's remote kolu re-querying rather than streaming full diffs over
-the wire. The single shared **surface** contract both homes serve arrives in
-**R8**, when kolu mirrors the workspace surface whole (via R7's total mirror).
+The single shared **surface** contract both homes serve arrives in **R8** (the
+awareness half) and **R9.5** (the fs/git half — kolu mirrors the workspace surface
+whole via R7's total mirror).
 
 ## What it knows nothing about
 
@@ -78,7 +79,8 @@ vendor-neutral source libraries it builds on (`anyforge` for PRs, `kolu-git` for
 git/fs, the per-agent packages for agent state).
 
 `kolu-server` embeds it (the producer in-process; fs/git bound to its local
-`TerminalEndpoint`, the reads re-exposed on `koluSurface`'s value-bearing streams)
+`TerminalEndpoint`, the reads served as `terminalWorkspaceSurface`'s procedures +
+pulse — the Code tab consumes them via `createPolledQuery`, R9.5)
 AND — since **R8** — serves `terminalWorkspaceSurface` itself, in-process: kolu
 **folds** each terminal's observation stream and publishes the snapshot half (an
 `TerminalSnapshot`) onto its `awareness` collection, while the fold's two remembered
@@ -86,8 +88,9 @@ facts ride kolu's **authored** record on its own `koluSurface.authored`
 collection, and the browser **joins the two halves at read time**
 (`composeTerminalMetadata`) — there is no server-side re-fusion. `pulam` serves
 the same surface remotely. The **awareness** half of
-"one surface, both homes" is closed in R8; the Code tab's value-bearing fs/git
-streams move onto this surface's procedure+pulse in R9.
+"one surface, both homes" closed in R8; the **fs/git** half closed in R9.5 — the
+Code tab moved off `koluSurface`'s value-bearing streams onto this surface's
+procedure + pulse.
 
 ## Entry points
 

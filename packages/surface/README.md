@@ -468,12 +468,16 @@ Concrete inventory — what every server-pushed reactive surface in the `kolu` s
 
 ### Streams
 
-| Descriptor | Backs |
-|---|---|
-| `gitStatusStream` | Code-view's Local/Branch mode file list (changed files) |
-| `gitDiffStream` | Code-view's unified diff for the selected file |
-| `fsListAllStream` | Code-view's All mode tree (full repo path list) |
-| `fsReadFileStream` | Code-view's All mode body — discriminated by `kind`: `text` yields the file content for Pierre's syntax-highlighted viewer; `binary` yields a cache-busted URL pointing at `/api/terminals/<id>/file/<path>?v=<mtime>` for the route-served viewer — the iframe-preview viewer (`.html`/`.svg`/`.pdf`) or a plain `<img>` for raster images (`.png`/`.jpg`/`.gif`/`.webp`/`.ico`), a client-side presentation split below the wire boundary. One subscription path; mtime bump on save re-yields a fresh URL so the viewer reloads. |
+`koluSurface` carries no value-bearing fs/git stream anymore. The Code tab's
+reads (status · diff · file list · file content) moved off `koluSurface` onto the
+**shared `terminalWorkspaceSurface`'s procedure + `{seq}` pulse** (R9.5) — the
+client calls `git.getStatus` / `fs.listAll` / `fs.readFile` once and re-queries on
+each `subscribeRepoChange` / `subscribeFileChange` pulse (`createPolledQuery`, the
+client dual of `pollOnEvent`), so a remote tile reads its host's mirror behind the
+same client. The binary-preview split (`text` content vs a cache-busted
+`/api/terminals/<id>/file/<path>?v=<mtime>` URL) is now done client-side too. The
+`## Stream` section above still documents the value-bearing `stream` primitive (the
+framework supports it; `activity` on `terminalWorkspaceSurface` is one).
 
 ### Events
 

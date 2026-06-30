@@ -142,11 +142,12 @@ pull on demand — the deliberate choice the surface’s own header records
 rather than streaming full diffs over the wire”</em>).</li>
 </ul>
 <p>That difference is the crux of <a href="remote-terminals.html#r8">remote-terminals R8/R9</a>.
-kolu’s Code tab reads <code>koluSurface</code>’s <strong>value-bearing</strong> streams today
-(<code>CodeTab.tsx</code>); to read the <strong>shared</strong> <code>terminalWorkspaceSurface</code> it must switch
-to <strong>pulse-then-requery</strong> — a real client change (re-query on the pulse instead of
-rendering pushed frames). That’s the bigger fs/git move, so it rides <strong>R9</strong> (when
-kolu mirrors the shared surface whole), not R8.</p>
+kolu’s Code tab <strong>used to</strong> read <code>koluSurface</code>’s <strong>value-bearing</strong> streams; as of
+<strong>R9.5</strong> (PR-2 of the finale) it reads the <strong>shared</strong> <code>terminalWorkspaceSurface</code>’s
+<strong>procedure + pulse</strong> instead (<code>CodeTab.tsx</code>) — re-querying on each pulse rather
+than rendering pushed frames, via <code>createPolledQuery</code> (the client dual of
+<code>pollOnEvent</code>). So a remote tile’s Code tab reads its host’s mirror behind the same
+client; the <code>koluSurface</code> fs/git streams are gone.</p>
 <p>Awareness has <strong>no</strong> such split: it’s a <code>collection</code>, the same <em>kind</em> on both (kolu’s <code>terminalMetadata</code> is a superset; only the awareness slice matches) —
 which is exactly why R8’s awareness half is the clean, do-now move and fs/git is
 the heavier one that waits for R9.</p></div><nav class="backlinks" aria-label="Notes that reference this one" data-astro-cid-aziudkuj><h2 class="backlinks-h" data-astro-cid-aziudkuj>Referenced by</h2><ul class="backlinks-list" data-astro-cid-aziudkuj><li data-astro-cid-aziudkuj><a href="./pulam.html" data-astro-cid-aziudkuj>pulam — the terminal-workspace surface as an ephemeral daemon on kaval</a></li><li data-astro-cid-aziudkuj><a href="./pulam-web.html" data-astro-cid-aziudkuj>pulam-web — the browser twin (kolu&#39;s surface-consumption leg, proven standalone)</a></li><li data-astro-cid-aziudkuj><a href="./remote-terminals-finale.html" data-astro-cid-aziudkuj>Remote terminals — the finale (R9–R10)</a></li><li data-astro-cid-aziudkuj><a href="./remote-terminals.html" data-astro-cid-aziudkuj>Remote terminals over SSH</a></li></ul></nav><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
