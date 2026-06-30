@@ -31,6 +31,9 @@ export interface ForgeAdapter<
   /** Resolve the PR for the given git context. Must not throw — failures
    *  are classified into the `PrResult` variants (`absent` for "no PR can
    *  exist here", `unavailable` with this adapter's typed source `S` for
-   *  everything actionable). */
+   *  everything actionable). A concrete forge resolver's outcomes are thus
+   *  `ok` / `absent` / `unavailable`; the `unsupported` member is reserved
+   *  for the dispatch layer ("no adapter for this remote") and must never be
+   *  returned by a real adapter's `resolve`. */
   resolve(git: PrGitContext, log?: Logger): Promise<PrResult<S>>;
 }

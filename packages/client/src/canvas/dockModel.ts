@@ -299,7 +299,15 @@ function prSearchFields(pr: PrResult | undefined): string[] {
       return [pr.kind, pr.source.provider, pr.source.code];
     case "absent":
     case "pending":
+    case "unsupported":
       return [pr.kind];
+    default: {
+      // Exhaustiveness guard (matches `prValueText` in pulam-tui): a future
+      // `PrResult` variant added without a case here is a compile error, not a
+      // silent `undefined` return that crashes search on `...prSearchFields(...)`.
+      const _exhaustive: never = pr;
+      return _exhaustive;
+    }
   }
 }
 
