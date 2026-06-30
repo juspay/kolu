@@ -69,9 +69,11 @@ export {
  *  applies at read time — then keyed with `id` and re-validated against
  *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
  *  persist is one of the join's two sites (the ephemeral client read is the
- *  other), so reusing the one join at both means the live-half strip (and the
- *  sleeping `pr`-from-authored rule) lives in exactly one place — disk and the
- *  client read can never diverge. A new *persisted* field flows through untouched;
+ *  other), so reusing the one join at both means the sleeping arm's restore-
+ *  relevant projection — the live-half strip down to `PersistedObservation`
+ *  (`cwd · git · pr`, `pr` riding the observation now, not a frozen authored
+ *  field) — lives in exactly one place, so disk and the client read can never
+ *  diverge. A new *persisted* field flows through untouched;
  *  a live field can never ride to disk. Awareness is a required field on the entry,
  *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
  *  `Map` insertion order — terminals appear in the sequence they were created. */
