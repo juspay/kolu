@@ -22,13 +22,13 @@ The awareness boundary is **observe vs. remember** ([the awareness design](aware
 ## Roadmap
 
 export const PT = [
-  { d: 0, g: "○", c: "prog", l: "S1 · memoryless awareness producer — emits observations, no seed, TerminalSnapshot only", m: "the foundation · → awareness design", h: "awareness-derive-store.html#s1" },
-  { d: 0, g: "○", c: "prog", l: "S2 · kolu's fold owns memory — typed patches · kolu's clock · memory→authored · event stream", m: "needs S1", h: "awareness-derive-store.html#s2" },
+  { d: 0, g: "✓", c: "ship", l: "S1 · memoryless awareness producer — emits observations, no seed, TerminalSnapshot only", m: "shipped #1626 · → awareness design", h: "awareness-derive-store.html#s1" },
+  { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold owns memory — typed patches · kolu's clock · memory→authored · event stream", m: "shipped #1626", h: "awareness-derive-store.html#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — createPulam unneeded; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#r9lib" },
-  { d: 0, g: "○", c: "prog", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "needs S2", h: "#r90" },
+  { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "shipped #1626 (foundation assessed transport-agnostic for R9.3)", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (orthogonal — shipped)", m: "#1603", h: "#r91" },
-  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile", m: "needs R9.1", h: "#r92" },
-  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote event stream + the SAME fold", m: "needs S2 · R9.2 · R7", h: "#r93" },
+  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → a remote PTY tile — NEXT (unblocked)", m: "needs R9.1 (shipped)", h: "#r92" },
+  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote terminalEvents stream + the SAME fold", m: "needs R9.2 · R7", h: "#r93" },
   { d: 0, g: "○", c: "prog", l: "R9.4 · persisted location + reconnect + adoption", m: "needs R9.2", h: "#r94" },
   { d: 0, g: "○", c: "prog", l: "R9.5 · Code-tab fs/git → procedure + pulse", m: "needs R-pulamweb-4 · R9.3", h: "#r95" },
   { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + validate", m: "needs R9.5", h: "#r10" },
@@ -84,15 +84,14 @@ The **awareness** phases (S1 · S2 · R9.0 · R9.3) are specified in full — ty
 
 <a id="r90"></a>
 
-### R9.0 — kolu runs the producer in-process, folds
+### R9.0 — kolu runs the producer in-process, folds — *shipped* <PrLink pr={1626} />
 
-<Phase id="R9.0" name="kolu runs the memoryless producer in-process and folds" status="todo" needs={["S2"]} />
+<Phase id="R9.0" name="kolu runs the memoryless producer in-process and folds" status="shipped" needs={["S2"]} links={[{ label: "#1626", href: "https://github.com/juspay/kolu/pull/1626" }]} />
 
-kolu's local awareness is the **memoryless producer called in-process** (no daemon, no socket, no mirror), its observations fed straight into kolu's fold. kolu seeds `current` from its durable record, folds with its clock, writes the memory fields to `kolu.authored` and the rest to the `snapshots` collection. The reader-join is unchanged (`composeTerminalMetadata` now reads memory from the authored half). Clobber-free **by type** (the producer can't spell memory).
+kolu's local awareness is the **memoryless producer called in-process** (no daemon, no socket, no mirror), its observations fed straight into kolu's fold. kolu seeds `current` from its durable record, folds with its clock, writes the memory fields to `kolu.authored` and the rest to the `snapshots` collection. The reader-join is unchanged (`composeTerminalMetadata` now reads memory from the authored half). Clobber-free **by type** (the producer can't spell memory). Hardened by a 4-reviewer architecture-first-principles + perfection-review gauntlet (the fold-produced `RestoreTarget`, value-based recency, the publish-boundary guard); the type vocabulary is `TerminalSnapshot · TerminalEvent · TerminalState · Known<T>`. A 4-reviewer foundation debate then assessed it **transport-agnostic** — R9.3 reuses the fold and producer verbatim (`debates/r93-foundation/`).
 
 - **Migration:** a **hard cutover**, no flag/fallback; plus the memory→`kolu.authored` schema move (`SCHEMA_VERSION` bump + state migration).
-- **Needs:** S2.
-- **Done:** kolu runs no bespoke sink/assembly; local awareness is the producer + kolu's fold; the reader-join and disk persistence hold; a fold differential test passes. Detail: [the awareness design](awareness-derive-store.html).
+- **Shipped:** kolu runs no bespoke sink/assembly; local awareness is the producer + kolu's fold; reader-join + disk persistence hold; differential tests pass; CI green.
 
 <a id="r91"></a>
 
@@ -117,12 +116,20 @@ Add the `{kind:"remote",hostId}` arm to the resolver: dial the remote host's **k
 
 ### R9.3 — remote awareness = subscribe the remote event stream + the same fold
 
-<Phase id="R9.3" name="remote awareness — subscribe the remote producer's event stream" status="todo" needs={["S2", "R9.2", "R7"]} />
+<Phase id="R9.3" name="remote awareness — subscribe the remote producer's event stream" status="todo" needs={["R9.2", "R7"]} />
 
-A remote host runs the **same memoryless producer** (in its pulam daemon), serving an ordered `terminalEvents` stream of `TerminalSnapshot`. kolu subscribes over a long-lived `getHostSession` (mirrored via R7's total dual) and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical.
+A remote host runs the **same memoryless producer** (in its pulam daemon), serving an ordered `terminalEvents` stream. kolu subscribes over a long-lived `getHostSession` (mirrored via R7's total dual) and folds those events through the **same** fold it uses locally — kolu seeds `current` from its durable record, stamps recency with **its** clock, writes memory to `kolu.authored`. Because kolu seeds from memory and the stream is snapshot-then-deltas, the **snapshot frame is the reconcile** — there is no separate `reconcileRemoteSnapshot`. Only the transport differs (in-process vs ssh); the fold, the reader-join, and disk persistence are identical. The R9.0 foundation was **assessed transport-agnostic** for exactly this (`debates/r93-foundation/`): the fold and producer reuse verbatim, so R9.3 is an **additive transport arm**, not a refactor.
 
-- **Needs:** S2 (the producer + fold), R9.2 (the remote PTY), R7 (the total dual).
-- **Done:** a remote tile shows live awareness folded from the remote producer's stream, via the **same** fold as local; a differential test pins it equal to the producer's snapshot state. Detail: [the awareness design](awareness-derive-store.html).
+**Work-list** (the build, given R9.0's actual structure — full version in [the awareness design](awareness-derive-store.html#r93-the-remote-build)):
+1. Build the `TerminalFrame` type (`snapshot | delta(seq) | gap`) — deferred from R9.0 by design.
+2. A **framer** that turns the producer's `emit` into frames (wraps the pure emitter; the one place `ctx.live` is derived).
+3. **Pulam serves the framed *event* stream, not just its snapshot cache.** ⚠️ Pulam's `snapshots` cache is sufficient for pulam-tui/pulam-web but **not** for kolu-as-remote-consumer — `commandRun` is a memory mark `foldSnapshot` drops. The daemon must serve the raw `terminalEvents` beside the cache; kolu must **not** rebuild memory from the served `snapshots`.
+4. kolu's **remote subscribe-and-fold arm** over R7's total dual; on a missing `seq` → `gap` → re-snapshot.
+5. The branded `HostTerminalKey` lands here (two hosts' opaque PTY ids can collide).
+6. **Prep:** route the *local* path through the same framer so there is **one** phase-seam (in-process framer vs ssh wire), not two parallel phase-logics — makes "only the transport differs" literally true.
+
+- **Needs:** R9.2 (the remote PTY), R7 (the total dual). *(S2 shipped in #1626.)*
+- **Done:** a remote tile shows live awareness folded from the remote producer's stream, via the **same** fold as local; a differential test pins it equal to the producer's snapshot state.
 
 <a id="r94"></a>
 

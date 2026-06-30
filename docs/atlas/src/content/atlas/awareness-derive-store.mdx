@@ -279,25 +279,74 @@ Volume is tens–hundreds of small events/sec at realistic fleet sizes — the f
 A "host" is now *dial a kaval → per terminal: run the memoryless producer → serve its observation stream*. **kolu** is the one consumer that remembers: it folds every host's stream (localhost in-process, remotes over ssh) into a host-keyed aggregate. "Two homes" was an artifact — there is **one producer per host; localhost is the degenerate (in-process) host**.
 
 export const PT = [
-  { d: 0, g: "○", c: "prog", l: "S1 · memoryless producer — observations, no seed, TerminalSnapshot only", m: "deletes AwarenessSink ×2 + the seed", h: "#s1" },
-  { d: 0, g: "○", c: "prog", l: "S2 · kolu's fold — last-write-wins + 2 kolu-only fields · kolu's clock · memory→authored", m: "needs S1", h: "#s2" },
+  { d: 0, g: "✓", c: "ship", l: "S1 · memoryless producer — observations, no seed, TerminalSnapshot only", m: "shipped #1626", h: "#s1" },
+  { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold — last-write-wins + 2 kolu-only fields · kolu's clock · memory→authored", m: "shipped #1626", h: "#s2" },
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVES — nothing to assemble; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#how-r9-collapses" },
-  { d: 0, g: "○", c: "prog", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots — ~trivial", m: "needs S2", h: "#how-r9-collapses" },
-  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → remote PTY (unchanged)", m: "needs R9.1 (shipped)", h: "remote-terminals-finale.html#r92" },
-  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote event stream + fold (SAME fold)", m: "needs S2 · R9.2 · R7", h: "#how-r9-collapses" },
+  { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots", m: "shipped #1626 (foundation assessed transport-agnostic)", h: "#how-r9-collapses" },
+  { d: 0, g: "○", c: "prog", l: "R9.2 · ssh kaval driver → remote PTY — NEXT (unblocked)", m: "needs R9.1 (shipped)", h: "remote-terminals-finale.html#r92" },
+  { d: 0, g: "○", c: "prog", l: "R9.3 · remote awareness = subscribe the remote terminalEvents stream + the SAME fold", m: "needs R9.2 · R7", h: "#r93-the-remote-build" },
   { d: 0, g: "○", c: "last", l: "R9.4 · R9.5 · R10 (unchanged)", m: "→ finale", h: "remote-terminals-finale.html" },
 ];
 
 <PhaseTree title="S1 · S2 → R9 collapses" phases={PT} />
 
-| phase | today | after S1 + S2 |
+| phase | was | now |
 | --- | --- | --- |
-| **R9·lib** | share a daemon-shaped assembly (createPulam) | **dissolves** — producer + fold are pure leaves; each host's loop is ~8 lines |
-| **R9.0** | kolu cuts over its sink/loop; clobber risk | run the producer in-process, fold onto authored+snapshots. Clobber-free by type |
-| **R9.3** | unbuilt; "the remote-only fold" | subscribe the remote `terminalEvents` stream → the **same** fold. No `reconcileRemoteSnapshot` |
-| R9.2 / R9.4 / R9.5 / R10 | — | unchanged |
+| **R9·lib** | share a daemon-shaped assembly (createPulam) | **dissolved** — producer + fold are pure leaves; each host's loop is ~8 lines |
+| **R9.0** | kolu cuts over its sink/loop; clobber risk | **✓ shipped** (<PrLink pr={1626} />) — producer in-process, folds onto authored+snapshots; clobber-free by type |
+| **R9.3** | unbuilt; "the remote-only fold" | the next awareness build — subscribe the remote `terminalEvents` stream → the **same** fold. No `reconcileRemoteSnapshot`. Work-list above. |
+| R9.2 / R9.4 / R9.5 / R10 | — | R9.2 (ssh PTY) is the next PR; R9.4/R9.5/R10 unchanged |
 
 <Svg svg={homes} caption="Local (R9.0) vs remote (R9.3) — the SAME memoryless producer and the SAME fold, two transports. LOCAL: kolu runs the producer in-process; its observations feed kolu's fold directly. REMOTE: the producer runs in the pulam daemon and serves an ordered TerminalSnapshot event stream over ssh; kolu subscribes and folds with ITS clock. Either way kolu seeds current from its durable record, so the snapshot frame is the reconcile — there is no separate reconcileRemoteSnapshot. The two memory fields land on kolu.authored; the snapshots collection is TerminalSnapshot everywhere. Reader-join (authored ⋈ snapshots) unchanged." />
+
+<a id="r93-the-remote-build"></a>
+
+## R9.3 — the remote build
+
+R9.0 shipped (<PrLink pr={1626} />). Before starting R9.3 it was **assessed by a 4-reviewer
+foundation debate** (`debates/r93-foundation/`): the verdict is **clean / transport-agnostic** —
+nothing in R9.0 must be undone for R9.3. Verified against the merged diff:
+
+- the **fold** is reused **verbatim** — `fold(state, event, ctx:{live, at})` injects clock + liveness
+  as values; it knows no transport;
+- the **producer** (`startSensors`) "names no host" (`sensors.ts:757`) and already runs in the pulam
+  daemon — a remote daemon calls it with its own inputs and serves the `emit` stream;
+- **`reconcileRemoteSnapshot` is genuinely unnecessary** — seed-from-durable-record + the snapshot
+  frame *is* the reconcile; the value-based recency baseline (the R9.0 substitute for the deleted
+  `AWARENESS_SNAPSHOT_WINDOW_MS` timer) suppresses the re-observation bump.
+
+So R9.3 is an **additive transport arm**, not a refactor. The work-list, given R9.0's actual structure:
+
+1. **Build the `TerminalFrame` type** (designed above — `snapshot | delta(seq) | gap`). R9.0 has only
+   `TerminalEvent`; the framed stream was deferred here, by design.
+2. **A framer** that turns the producer's `emit` sequence into frames — *wraps* the producer (which
+   stays a pure emitter), assigns `phase`/`seq`, and is the one place `ctx.live` is derived.
+3. **Pulam serves the framed *event* stream — not just its snapshot cache.** ⚠️ The sharp,
+   non-obvious requirement (the debate's headline): pulam today folds each `TerminalEvent` into a
+   `TerminalSnapshot` cache and serves *that* (perfect for pulam-tui/pulam-web, which need no recency).
+   But that cache is **insufficient** for kolu-as-remote-consumer, because `commandRun` is a **memory
+   mark** that `foldSnapshot` drops — so the remote daemon must serve the **raw event stream** (a new
+   `terminalEvents` stream beside the `snapshots` collection), and **kolu must not rebuild memory from
+   the served `snapshots`**.
+4. **kolu's remote subscribe-and-fold arm** — subscribe the remote `terminalEvents` over a long-lived
+   `getHostSession` (mirrored via **R7**'s total dual), seed `current` from kolu's durable record, fold
+   exactly as local; on a missing `seq`, force a `gap` → re-snapshot.
+5. **Host-scoped keys** — the branded `HostTerminalKey` (designed in "Decided") lands here, where two
+   hosts' opaque PTY ids can actually collide.
+
+<Callout kind="note" title="R9.3 prep — route the LOCAL path through the framer too (one phase-seam, not two)">
+R9.0 decides snapshot-vs-delta **inline** in the local emit closure (the value-based recency baseline).
+It's correct and **localized** — the fold doesn't see it, so it's not debt — but a naive R9.3 would end
+with **two** phase-logics (a local value-hack vs the remote `frame.phase`) and two paths feeding the fold.
+When building R9.3, **route the in-process path through the *same* framer** (even a trivial one: the
+initial burst = a `snapshot` frame, `live=false`; thereafter `delta`s). Then "subscribe-and-fold" is
+*the* seam — only the **source of frames** differs (in-process framer vs ssh wire) — and the plan's
+"only the transport differs" becomes literally true.
+</Callout>
+
+**Order:** **R9.2** (the ssh kaval driver → a remote PTY tile) is the next PR — it's unblocked (needs
+only the shipped R9.1) and is a prerequisite for R9.3. Then R9.3 (needs R9.2 + R7) lights up remote
+awareness on the same fold.
 
 ## Decided — the forks closed
 
