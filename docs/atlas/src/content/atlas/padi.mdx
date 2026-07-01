@@ -74,7 +74,7 @@ export const LENS = [
 ];
 
 export const PhaseLens = () => (
-  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:.75rem .9rem;margin:1.2rem 0;max-width:52rem">
+  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:.75rem 1.1rem;margin:1.2rem 0;box-sizing:border-box;width:min(1500px,calc(100vw - 4rem));position:relative;left:50%;transform:translateX(-50%)">
     <div style={`display:flex;gap:1.5ch;color:${PAL.dim};font-size:.78em;padding-bottom:.5rem;border-bottom:1px solid #1c2231`}>
       <span style="width:3.5ch"></span>
       <span style="flex:1.2 1 0">what the user sees</span>
@@ -84,7 +84,7 @@ export const PhaseLens = () => (
       <div style="display:flex;gap:1.5ch;padding:.55rem 0;border-bottom:1px solid #141926;align-items:baseline">
         <a href={r.h} style={`width:3.5ch;color:${PAL.cyan};text-decoration:none;font-weight:700`}>{r.p}</a>
         <span style={`flex:1.35 1 0;padding-right:1ch;color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
-        <span style="flex:1 1 0">
+        <span style="flex:1 1 0;min-width:0">
           <Meter n={r.work} /><span style={`color:${PAL.sub};font-size:.85em;margin-left:.9ch`}>{r.why}</span>
           {r.sub && <><br/><SubDots items={r.sub} /></>}
         </span>
