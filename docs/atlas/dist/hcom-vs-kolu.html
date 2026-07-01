@@ -1,0 +1,313 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hcom vs. kolu — what to adopt · the kolu Atlas</title><meta name="description" content="hcom hooks coding agents together through tool hooks and a shared SQLite event log, giving each agent an addressable inbox, an event feed, and subscriptions — the one thing kolu has no equivalent for. kolu's agent-drives-agent story today is screen-scraping (type keystrokes into a PTY, read the reply off the screen). The borrow is hcom's channel — an agent message surface built on the awareness surface kolu already ships; the thing we keep is kolu's substrate — first-party PTYs and typed surface-over-ssh, not a shared-PSK MQTT relay."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/hcom-vs-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="hcom vs. kolu — what to adopt · the kolu Atlas"><meta property="og:description" content="hcom hooks coding agents together through tool hooks and a shared SQLite event log, giving each agent an addressable inbox, an event feed, and subscriptions — the one thing kolu has no equivalent for. kolu's agent-drives-agent story today is screen-scraping (type keystrokes into a PTY, read the reply off the screen). The borrow is hcom's channel — an agent message surface built on the awareness surface kolu already ships; the thing we keep is kolu's substrate — first-party PTYs and typed surface-over-ssh, not a shared-PSK MQTT relay."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/hcom-vs-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-01T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="hcom vs. kolu — what to adopt · the kolu Atlas"><meta name="twitter:description" content="hcom hooks coding agents together through tool hooks and a shared SQLite event log, giving each agent an addressable inbox, an event feed, and subscriptions — the one thing kolu has no equivalent for. kolu's agent-drives-agent story today is screen-scraping (type keystrokes into a PTY, read the reply off the screen). The borrow is hcom's channel — an agent message surface built on the awareness surface kolu already ships; the thing we keep is kolu's substrate — first-party PTYs and typed surface-over-ssh, not a shared-PSK MQTT relay."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.pill[data-astro-cid-4xidn2cs]{font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;vertical-align:middle;border-radius:999px;padding:.1em .5em;font-size:.62rem;display:inline-block}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">hcom vs. kolu — what to adopt</h1><div class="meta-row"><span>Comparisons</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><span>proposed</span><span class="meta-sep">·</span><time datetime="2026-07-01T00:00:00.000Z">JUL 01, 2026</time></div><p class="note-sub">hcom hooks coding agents together through tool hooks and a shared SQLite event log, giving each agent an addressable inbox, an event feed, and subscriptions — the one thing kolu has no equivalent for. kolu&#39;s agent-drives-agent story today is screen-scraping (type keystrokes into a PTY, read the reply off the screen). The borrow is hcom&#39;s channel — an agent message surface built on the awareness surface kolu already ships; the thing we keep is kolu&#39;s substrate — first-party PTYs and typed surface-over-ssh, not a shared-PSK MQTT relay.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#two-bets-on-the-same-problem" data-astro-cid-rda6bqd5>Two bets on the same problem</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-to-adopt--an-agent-message-surface-on-pulam" data-astro-cid-rda6bqd5>What to adopt — an agent message surface on pulam</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#debate--the-first-consumer-that-stops-screen-scraping" data-astro-cid-rda6bqd5>/debate — the first consumer that stops screen-scraping</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#where-kolu-keeps-its-own-bet" data-astro-cid-rda6bqd5>Where kolu keeps its own bet</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-smallest-first-step" data-astro-cid-rda6bqd5>The smallest first step</a></li></ul></nav></header><div class="prose"><p><em>A read of <a href="https://github.com/aannoo/hcom"><strong>hcom</strong></a> (a single Rust binary that
+“hooks your coding agents together” — message, watch, and spawn each other
+across terminals) held against what kolu already is. Claims checked against both
+codebases. hcom and kolu chase the <strong>same goal</strong> — several coding agents working
+together across terminals — and bet on <strong>opposite substrates</strong> to get there. That
+makes hcom a clean reference for the one capability kolu is missing, and a clean
+foil for the two bets kolu should keep.</em></p>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 726" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="How two agents coordinate, drawn as three stacked panels — the same pair of agents A and B, differing only in the channel between them. Panel one, hcom, a coordination fabric: A and B both read and write a shared SQLite event log that holds an inbox, an event feed, and subscriptions; tool hooks deliver messages mid-turn, routed by at-mention, tagged with an intent and isolated by thread. The channel is a solid two-way path through shared state. Panel two, kolu today, one agent screen-scrapes another: A is a driver that types keystrokes into B's PTY with kaval-tui send, then reads B's reply by snapshotting the screen and matching text. The path is one-directional and drawn dashed and red, annotated with kolu's own skill warnings — the write is blind, an Enter races bracketed-paste and is silently dropped, and output going idle does not mean the reply is correct. Panel three, kolu proposed, a message surface beside awareness: A and B exchange messages through a new green surface layer — an inbox collection, a messages Event, and subscriptions — sitting atop the existing blue awareness surface that already tracks git, PR, agent state and foreground; messages are delivered as a prompt through the anyagent adapter, folded like awareness, over the same surface-over-ssh transport with no broker. The verdict: adopt hcom's channel, keep kolu's substrate.">
+  <defs>
+    <marker id="hk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <marker id="hk-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#b91c1c"/>
+    </marker>
+    <marker id="hk-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
+    </marker>
+    <style>
+      .panel   { fill:#ffffff; stroke:#e2e8f0; stroke-width:1.5; }
+      .ptitle  { fill:#0f172a; font-size:15px; font-weight:700; }
+      .badge   { font-size:10px; font-weight:700; letter-spacing:0.08em; }
+      .agent   { fill:#F1F5F9; stroke:#64748b; stroke-width:1.75; }
+      .agent-t { fill:#0f172a; font-size:13px; font-weight:700; }
+      .agent-s { fill:#64748b; font-size:10.5px; }
+      .mono    { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+
+      .amber-box { fill:#FBF1DC; stroke:#B45309; stroke-width:2; }
+      .amber-t   { fill:#92400E; font-size:13px; font-weight:700; }
+      .amber-s   { fill:#7a4f00; font-size:10.5px; }
+      .amber-badge { fill:#B45309; }
+
+      .red-t   { fill:#b91c1c; font-size:10.5px; font-weight:700; }
+      .red-s   { fill:#9f1239; font-size:10px; font-style:italic; }
+      .red-badge { fill:#b91c1c; }
+
+      .green-box { fill:#E6F4EA; stroke:#15803D; stroke-width:2; }
+      .green-t   { fill:#14532D; font-size:12.5px; font-weight:700; }
+      .green-s   { fill:#166534; font-size:10px; }
+      .green-badge { fill:#15803D; }
+      .blue-box  { fill:#EDF0FD; stroke:#0D32B2; stroke-width:1.75; }
+      .blue-t    { fill:#0D32B2; font-size:12px; font-weight:700; }
+      .blue-s    { fill:#4A5072; font-size:9.5px; }
+
+      .edge    { stroke:#475569; stroke-width:2.25; fill:none; }
+      .edge-red{ stroke:#b91c1c; stroke-width:2.25; fill:none; stroke-dasharray:7 5; }
+      .edge-grn{ stroke:#15803D; stroke-width:2.5; fill:none; }
+      .elabel  { fill:#475569; font-size:10.5px; font-style:italic; }
+    </style>
+  </defs>
+
+  <!-- ============ PANEL 1 — hcom ============ -->
+  <rect class="panel" x="14" y="14" width="712" height="210" rx="10"/>
+  <text class="ptitle" x="34" y="42">hcom — a coordination <tspan font-style="italic">fabric</tspan></text>
+  <text class="badge amber-badge" x="692" y="42" text-anchor="end">ADOPT THE CHANNEL</text>
+
+  <rect class="agent" x="40"  y="86" width="120" height="66" rx="8"/>
+  <text class="agent-t" x="100" y="115" text-anchor="middle">Agent A</text>
+  <text class="agent-s" x="100" y="132" text-anchor="middle">claude</text>
+
+  <rect class="agent" x="580" y="86" width="120" height="66" rx="8"/>
+  <text class="agent-t" x="640" y="115" text-anchor="middle">Agent B</text>
+  <text class="agent-s" x="640" y="132" text-anchor="middle">codex</text>
+
+  <rect class="amber-box" x="278" y="78" width="184" height="82" rx="8"/>
+  <text class="amber-t" x="370" y="104" text-anchor="middle">shared event log</text>
+  <text class="amber-s mono" x="370" y="123" text-anchor="middle">SQLite · one file</text>
+  <text class="amber-s" x="370" y="140" text-anchor="middle">inbox · events · subscribe</text>
+
+  <path class="edge" d="M160 119 H278" marker-end="url(#hk-arrow)" marker-start="url(#hk-arrow)"/>
+  <path class="edge" d="M462 119 H580" marker-end="url(#hk-arrow)" marker-start="url(#hk-arrow)"/>
+  <text class="elabel" x="370" y="184" text-anchor="middle">hooks deliver mid-turn · @mention routing · intent (request/inform/ack) · threads</text>
+
+  <!-- ============ PANEL 2 — kolu today ============ -->
+  <rect class="panel" x="14" y="240" width="712" height="212" rx="10"/>
+  <text class="ptitle" x="34" y="268">kolu today — one agent <tspan font-style="italic">screen-scrapes</tspan> another</text>
+  <text class="badge red-badge" x="692" y="268" text-anchor="end">THE GAP</text>
+
+  <rect class="agent" x="46"  y="316" width="176" height="78" rx="8"/>
+  <text class="agent-t" x="134" y="348" text-anchor="middle">Agent A — driver</text>
+  <text class="agent-s" x="134" y="366" text-anchor="middle">the kolu skill loop</text>
+
+  <rect class="agent" x="518" y="316" width="176" height="78" rx="8"/>
+  <text class="agent-t" x="606" y="348" text-anchor="middle">Agent B</text>
+  <text class="agent-s" x="606" y="366" text-anchor="middle">its live TUI, on a kaval PTY</text>
+
+  <path class="edge-red" d="M222 340 H518" marker-end="url(#hk-red)"/>
+  <text class="red-t mono" x="370" y="332" text-anchor="middle">kaval-tui send — type keystrokes into the PTY</text>
+
+  <path class="edge-red" d="M518 372 H222" marker-end="url(#hk-red)"/>
+  <text class="red-t mono" x="370" y="390" text-anchor="middle">snapshot --viewport — read pixels off the screen</text>
+
+  <text class="red-s" x="370" y="430" text-anchor="middle">blind write · Enter races bracketed-paste and is dropped · idle ≠ the reply is correct</text>
+
+  <!-- ============ PANEL 3 — kolu proposed ============ -->
+  <rect class="panel" x="14" y="468" width="712" height="244" rx="10"/>
+  <text class="ptitle" x="34" y="496">kolu proposed — a message surface <tspan font-style="italic">beside</tspan> awareness</text>
+  <text class="badge green-badge" x="692" y="496" text-anchor="end">KEEP THE SUBSTRATE</text>
+
+  <rect class="agent" x="40"  y="556" width="120" height="66" rx="8"/>
+  <text class="agent-t" x="100" y="585" text-anchor="middle">Agent A</text>
+  <text class="agent-s" x="100" y="602" text-anchor="middle">claude</text>
+
+  <rect class="agent" x="580" y="556" width="120" height="66" rx="8"/>
+  <text class="agent-t" x="640" y="585" text-anchor="middle">Agent B</text>
+  <text class="agent-s" x="640" y="602" text-anchor="middle">codex</text>
+
+  <rect class="green-box" x="258" y="534" width="224" height="52" rx="8"/>
+  <text class="green-t" x="370" y="556" text-anchor="middle">message surface (new)</text>
+  <text class="green-s mono" x="370" y="573" text-anchor="middle">inbox · messages Event · subscribe</text>
+
+  <rect class="blue-box" x="258" y="592" width="224" height="50" rx="8"/>
+  <text class="blue-t" x="370" y="612" text-anchor="middle">awareness surface (exists)</text>
+  <text class="blue-s mono" x="370" y="628" text-anchor="middle">git · pr · agent-state · foreground</text>
+
+  <path class="edge-grn" d="M160 589 H258" marker-end="url(#hk-green)" marker-start="url(#hk-green)"/>
+  <path class="edge-grn" d="M482 589 H580" marker-end="url(#hk-green)" marker-start="url(#hk-green)"/>
+  <text class="elabel" x="370" y="672" text-anchor="middle">delivered as a prompt via the anyagent adapter · folded like awareness</text>
+  <text class="elabel" x="370" y="690" text-anchor="middle">same @kolu/surface-over-ssh transport · no broker</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>The same pair of agents, three channels between them. hcom routes messages through a shared event log; kolu today has one agent type into and read off another&#39;s screen; the proposal gives kolu a real channel without giving up its substrate.</figcaption></figure>
+<h2 id="two-bets-on-the-same-problem">Two bets on the same problem</h2>
+<p>hcom owns <strong>no terminal</strong>. It rides each tool’s hook system (Claude Code’s
+<code>PostToolUse</code>/<code>Stop</code>, Gemini, Codex, OpenCode, Cursor, …) and writes everything —
+messages, status changes, file edits, tool calls — into a <strong>local SQLite event
+log</strong>. That single move buys every agent a queryable <em>identity</em>: a name, a
+status (active/blocked/listening), an <strong>inbox</strong>, a live event feed, and a
+transcript. Agents then <code>@mention</code> each other, tag messages with an <strong>intent</strong>
+(<code>request</code> → always reply, <code>inform</code> → reply if useful, <code>ack</code> → don’t), isolate
+traffic into <strong>threads</strong>, and <strong>subscribe</strong> to events with a SQL predicate that
+auto-sends a message when it fires (<code>hcom events sub … --on-hit-text …</code>).
+Delivery is a hook injecting the message <em>mid-turn between tool calls</em>, or a wake
+that nudges an idle agent. Collision detection ships on by default: two agents
+editing the same file within 30 s both get pinged. It’s a <strong>coordination
+fabric</strong> — agents talk <em>in a channel</em>.</p>
+<p>kolu made the other bet, and made it well. It <strong>owns the PTYs</strong> first-party:
+<code>kaval</code> is a daemon that holds every terminal and outlives its clients; <code>pulam</code>
+dials kaval and derives per-terminal <strong>awareness</strong> — git repo/branch/dirtiness,
+the branch’s PR and CI checks, the live agent and <em>its state</em>, the foreground
+process — serving it as one typed <code>@kolu/surface</code> collection that mirrors across
+machines over ssh. The agent-state feed is real and precise: a closed set
+<code>{thinking, tool_use, running_background, awaiting_user, waiting}</code> folded from a
+memoryless producer (see <a href="./awareness-derive-store.html">awareness as a fold</a>).
+kolu has a superb <strong>substrate</strong> — but no channel on top of it.</p>
+<p>So how does one kolu agent drive another today? It <strong>screen-scrapes.</strong> The
+<a href="./pulam-tui.html"><code>kolu</code> skill</a> is a <code>create → send → snapshot</code> loop: spawn the
+inner agent in a kaval PTY, <code>kaval-tui send</code> the prompt as <strong>keystrokes</strong>, a
+second <code>send --key Enter</code> to submit, <code>kaval-tui wait --until idle:&lt;ms&gt;</code> for the
+turn to go quiet, then <code>kaval-tui snapshot --viewport</code> and <em>read the reply off
+the screen</em>. The skill’s own warnings are the tell of how much tax that is:
+<code>send</code> is <strong>blind</strong> (it writes whether or not the agent is ready); an Enter sent
+in the same breath as the text <strong>races bracketed-paste and is silently dropped</strong>;
+and idle <strong>“≠ the reply is correct”</strong> — quiescence can’t tell “finished” from
+“blocked asking you a question,” so you must snapshot and guess. That’s the whole
+cost of coordinating through a screen instead of a channel: the message is bytes
+typed into a TUI and pixels read back out.</p>
+<aside class="callout callout-note" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>Not a competitor — a reference and a foil</p><div class="callout-body" data-astro-cid-q2ml7llr><p>hcom is the same first-mover bet as <a href="./herdr-vs-kolu.html">herdr</a> in a different
+axis. herdr validated <em>first-party PTYs</em> (kolu’s substrate). hcom validates the
+layer above it — <em>agents as addressable endpoints on a shared log</em>. kolu has the
+first and lacks the second. The borrow writes itself.</p></div></aside>
+<h2 id="what-to-adopt--an-agent-message-surface-on-pulam">What to adopt — an agent message surface on <code>pulam</code></h2>
+<p>The borrow is not hcom’s <em>implementation</em> (a parallel SQLite database, a fresh
+hook harness per tool). kolu already has the primitives; the borrow is the
+<strong>shape</strong>. Build a message channel as a new capability on the surface <code>pulam</code>
+already serves — reusing the source of truth, not standing up a rival one.</p>
+<ul>
+<li>
+<p><strong>Addressable inbox — a surface <code>Collection</code>, not a new database.</strong> <code>pulam</code>
+already keys awareness by terminal id and every terminal already carries the
+agent’s name. Add an <code>inbox</code> collection (and a <code>messages</code> <code>Event</code>) to that same
+surface. <code>@name</code> routing is a lookup over keys kolu already broadcasts. hcom
+needed SQLite because it owns no shared state; kolu owns a typed reactive one
+already — the mailbox is a few keys on it, mirrored across machines for free by
+<code>mirrorRemoteSurface</code>.</p>
+</li>
+<li>
+<p><strong>Subscriptions — “react when X.”</strong> hcom’s highest-leverage feature is
+<code>events sub</code>: a predicate plus an auto-sent message. kolu’s awareness <em>is</em>
+already an event stream folded over a log, and <code>@kolu/surface</code> ships an <code>Event</code>
+primitive. Expose a subscribe verb over it and the reactive topologies hcom’s
+scripts lean on fall out: <em>“when @codex reaches <code>awaiting_user</code>, send it the
+next task”</em>; <em>“notify me if a file I touched is edited by another agent within
+30 s”</em> (collision detection — kolu already has the file-edit sensor, it just
+never cross-references agents).</p>
+</li>
+<li>
+<p><strong>An intent protocol (<code>request</code> / <code>inform</code> / <code>ack</code>).</strong> This is a pure
+convention and it directly retires the screen-scrape loop’s worst guess. Today
+<code>kaval-tui wait --until idle</code> fires whether the agent <em>finished</em> or is <em>blocked
+asking you something</em>, so the driver must snapshot and infer “is this a
+question?” An <code>intent</code> tag on the message makes the turn contract explicit — the
+driven agent knows whether a reply is owed — so the loop stops inferring
+conversational state from terminal quiescence.</p>
+</li>
+<li>
+<p><strong>Deliver as a prompt, not a keystroke.</strong> hcom injects a message <em>between tool
+calls</em> through the tool’s own hooks; kolu injects <em>keystrokes into a PTY</em>, which
+is exactly what races bracketed-paste. kolu already classifies agents
+per-adapter in <code>@kolu/integrations/anyagent</code> (Claude Code / Codex / OpenCode
+session watchers). Route delivery through that adapter as a <strong>prompt</strong>, and the
+blind-write / dropped-Enter failure mode is gone by construction — the message
+arrives as input the agent is <em>ready</em> to read, not bytes fired at a maybe-ready
+TUI.</p>
+</li>
+<li>
+<p><strong>Ship it as a skill + workflow scripts — the way hcom does.</strong> hcom’s reach
+comes from a ~700-token bootstrap primer plus <code>hcom run debate|confess|ensemble</code>
+bundled multi-agent scripts. kolu already has the delivery vehicles: the
+<a href="./pulam-tui.html"><code>kolu</code> skill</a>, the <code>debate</code> skill, and the <code>Workflow</code> tool.
+The message surface is what turns those from screen-scrape choreography into a
+channel the scripts address directly — a <code>kolu-tui msg @name</code> verb the skill
+teaches, worker-reviewer / ensemble / hub-spoke topologies the workflow scripts
+compose.</p>
+</li>
+</ul>
+<h2 id="debate--the-first-consumer-that-stops-screen-scraping"><code>/debate</code> — the first consumer that stops screen-scraping</h2>
+<p>The <strong><code>/debate</code> skill</strong> is the sharpest proof, because it is
+built <strong>directly</strong> on the screen-scrape loop and inherits every one of its
+failure modes. Its handoff is literally <em>“after taking a turn, ping the other
+terminal with <code>kaval-tui send</code> so it knows to proceed,”</em> and it deliberately
+bans done-signal polling — <em>“do not use <code>pulam-tui</code>… the agents prompt each other
+directly with <code>kaval-tui send</code>.”</em> A debate is nothing but turn-taking between
+agents on terminals, so it is exactly the workload a channel is for. Three
+concrete wins, each tied to a mechanic the skill already describes:</p>
+<ul>
+<li>
+<p><strong>The handoff <em>is</em> the intent protocol.</strong> “Ping the other terminal so it knows
+to proceed” is <code>--intent request</code>; ending the round is <code>ack</code>. Today that ping is
+a blind keystroke nudge that races bracketed-paste (the loop’s #1 failure) and
+has to be confirmed with a snapshot. As an addressed <code>kolu-tui msg @opponent --intent request</code> it lands reliably, and the turn contract is explicit instead of
+inferred from terminal quiescence.</p>
+</li>
+<li>
+<p><strong>A turn longer than one screen becomes readable.</strong> This is a <em>correctness</em> bug,
+not just ergonomics. To read the opponent’s argument the skill snapshots the
+terminal — but <code>snapshot --viewport</code> returns <strong>one screenful</strong>, so a rebuttal
+longer than the viewport is silently truncated, and the alternative (a full
+<code>snapshot</code>) hands back the entire scrollback to sift. When the turn arrives as a
+<em>message</em> (or the debater writes its numbered turn-file and messages <em>“turn 03
+ready”</em>), the whole argument comes through intact. The file record — the point of
+the numbered-turn layout — is untouched; the channel just carries the handoff
+signal.</p>
+</li>
+<li>
+<p><strong><code>--orchestrate</code> is hub-spoke, and convergence is a subscription.</strong> Orchestrate
+mode (one coordinator shuttling between N ≥ 2 debaters) is hcom’s <em>hub-spoke</em>
+topology verbatim; today the coordinator round-robin-snapshots each terminal to
+see who has spoken. Broadcast to <code>@debaters-</code> plus a subscription that fires on
+the convergence marker (an <code>AGREED</code> in the ledger) turns the manual
+loop-until-consensus into a reactive one — the exact shape the
+<strong><code>/codex-debate</code></strong> skill asks for (<em>“no round cap, no deadlock
+exit — loop until they agree”</em>).</p>
+</li>
+</ul>
+<p>Two honesties keep this from overreaching. The skill’s ban on <code>pulam-tui</code> polling
+was to keep handoffs <strong>direct</strong> — agent prompts agent, no middle poller — and the
+message channel <em>preserves</em> that directness while removing the keystroke
+fragility; it’s the mechanism the skill already reaches for, done right, not a
+new indirection. And the borrow is scoped to the <strong>terminal</strong> debates: the
+in-process review debates (<strong><code>/lens-debate</code></strong>’s lowy⇄hickey,
+<code>/codex-debate</code>’s Claude-author subagent) run through the <code>Agent</code>/<code>Workflow</code> tools,
+never touch a PTY, and so have nothing to screen-scrape and nothing to gain here.</p>
+<h2 id="where-kolu-keeps-its-own-bet">Where kolu keeps its own bet</h2>
+<p>Two places the comparison says <em>don’t</em> copy hcom — kolu is deliberately, and
+correctly, different.</p>
+<ul>
+<li>
+<p><strong>First-party PTYs, not per-emulator hooks.</strong> hcom rides whatever terminal
+emulator you launched and can close panes on only a subset (kitty, wezterm,
+tmux, …). kolu <em>owns</em> the terminal through <code>kaval</code>, so it has the live screen,
+scrollback, resize arbitration, and remote-over-ssh survival as guarantees, not
+best-effort. This is the <a href="./herdr-vs-kolu.html">herdr bet</a> again, and it’s the
+reason kolu can render the whole fleet on one canvas instead of N windows.</p>
+</li>
+<li>
+<p><strong>Typed surface-over-ssh, not a shared-PSK MQTT relay.</strong> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>keep</span> This
+is the sharpest divergence. hcom’s cross-device story is a shared-secret MQTT
+relay on public brokers, and it is honest about the cost in its own README:
+<em>“enrollment is total trust — a peer can launch, kill, and drive agents… treat
+that as shell access on every enrolled device,”</em> with <strong>no forward secrecy</strong> (a
+leaked PSK decrypts all past traffic) and <strong>no revocation</strong>. kolu’s cross-machine
+path is <a href="./remote-terminals.html"><code>@kolu/surface-nix-host</code></a>: <code>nix copy</code> the
+agent’s closure to a host you already have ssh to, run it over a long-lived ssh
+subprocess. Per-connection OS auth, no third-party broker, no single secret whose
+leak is game-over. <strong>Adopt hcom’s channel; keep kolu’s transport</strong> — the message
+surface rides <code>mirrorRemoteSurface</code> over that same ssh link, and the MQTT relay
+never gets built.</p>
+</li>
+<li>
+<p><strong>The fold discipline stays.</strong> hcom’s SQLite log is authoritative shared mutable
+state that every device writes. kolu’s model is a <strong>memoryless producer</strong> whose
+events <em>one</em> owner folds into stored state on its own clock
+(<a href="./awareness-derive-store.html">awareness as a fold</a>). A message surface must
+honor that: messages are occurrences on an <code>Event</code>, folded into an <code>inbox</code>
+collection by the receiving side — not a shared table many writers mutate. Same
+capability as hcom, kept inside kolu’s state model rather than importing hcom’s.</p>
+</li>
+</ul>
+<h2 id="the-smallest-first-step">The smallest first step</h2>
+<p>One PR-sized proof, scoped to graduate the <em>one path that doesn’t exist yet</em> — an
+agent addressing another agent by name over the surface, not by typing into its
+screen. Concretely: extend the <code>pulam</code> awareness surface with a <code>messages</code>
+<code>Event</code> and an <code>inbox</code> <code>Collection</code> keyed by agent name; add a <code>kolu-tui msg @name -- &lt;text&gt;</code> verb that publishes to it and a <code>kolu-tui inbox [--wait]</code> that
+folds and reads it; route delivery through the <code>anyagent</code> adapter as a prompt.
+The done-criterion that can only be met by hitting the real path: <strong>two agents on
+two different hosts exchange a <code>request</code>/<code>ack</code> pair through the surface — mirrored
+over ssh by <code>mirrorRemoteSurface</code>, with no keystroke ever injected and no screen
+ever scraped.</strong> Teach it in the <code>kolu</code> skill the same turn, so the loop that
+today says <em>“send, then snapshot and guess”</em> can instead say <em>“message, then wait
+for the reply.”</em> Everything above it — subscriptions, collision detection,
+ensemble scripts — is additive once that channel exists.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>
