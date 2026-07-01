@@ -22,10 +22,10 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "overflow frame — typed overflow → re-attach on kaval's attach contract", m: "#1591 · kaval 5.0", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "#1637–#1640 closed · finale superseded", m: "2026-07-01", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "freeze terminalWorkspaceSurface at 3.0 · retire pulam-web", m: "#1650", h: "#w0" },
-  { d: 0, g: "○", c: "prog", l: "W1 · the padi seam, in place — sliced by review mode: contract → motion → rewiring", m: "3 PRs ↓", h: "#w1" },
-  { d: 1, g: "○", c: "prog", l: "W1.C · the contract PR — packages/padi born: padiSurface 1.0 + control core + tests", m: "#1651's good half · read every line", h: "#w1c" },
-  { d: 1, g: "○", c: "prog", l: "W1.M · the motion PRs — the terminal domain relocates verbatim into @kolu/padi", m: "1–3 PRs · skim: nothing changed", h: "#w1m" },
-  { d: 1, g: "○", c: "prog", l: "W1.R · the rewiring PR — serve complete · client onto the surface · root RPC dies · seal", m: "the dangerous diff · commits = members", h: "#w1r" },
+  { d: 0, g: "○", c: "prog", l: "W1 · the padi seam, in place — ONE PR; commit stages contract → motion → rewiring", m: "1 PR ↓", h: "#w1" },
+  { d: 1, g: "○", c: "prog", l: "W1.C · the contract — packages/padi born: padiSurface 1.0 + control core + tests", m: "stage · #1651's good half", h: "#w1c" },
+  { d: 1, g: "○", c: "prog", l: "W1.M · the motion — the terminal domain relocates into @kolu/padi (severing commits named)", m: "stages · skim", h: "#w1m" },
+  { d: 1, g: "○", c: "prog", l: "W1.R · the rewiring — serve complete · client onto the surface · root RPC dies · seal", m: "stages · one member per commit", h: "#w1r" },
   { d: 0, g: "○", c: "prog", l: "W2 · padi the process — 4 PRs ↓ · byte-identical · warm restarts", m: "needs W1", h: "#w2" },
   { d: 1, g: "○", c: "prog", l: "W2.1 · the re-serve machinery in @kolu/surface* — forwarding policy · per-binding scope", m: "drishti-gated · ∥ with W1", h: "#w21" },
   { d: 1, g: "○", c: "prog", l: "W2.2 · the padi binary — identity · rendezvous · control core · owns kaval · Nix/staleKey", m: "zero kolu consumers", h: "#w22" },
@@ -64,7 +64,7 @@ export const LENS = [
   { p: "W0", h: "#w0", done: true, user: "nothing new", vis: false, work: 1, why: "deletions + one shipped kaval rev",
     beh: "a shed slow tab now recovers instead of freezing (shows only when it fires); kaval 4.x survivors recycled once at the 5.0 upgrade", sub: null },
   { p: "W1", h: "#w1", user: "nothing — pixels byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract",
-    beh: "same process, but the rewiring PR (ΔR) shifts the data-flow profiles — timestamps become server-stamped · Code tab goes push → pulse-then-requery · preview bytes ride a range-capable procedure, not the raw HTTP route · restore executes server-side (the respawn race is gone); C and M are behaviour-inert by construction",
+    beh: "same process, but the rewiring stages (ΔR) shift the data-flow profiles — timestamps become server-stamped · Code tab goes push → pulse-then-requery · preview bytes ride a range-capable procedure, not the raw HTTP route · restore executes server-side (the respawn race is gone); C and M are behaviour-inert by construction",
     sub: [["C",2],["M",2],["R",4,true]] },
   { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
     beh: "the behaviour cliff, behind identical pixels — Δ2.2 a second daemon appears; sockets go digest-keyed (kaval-<port> retires) · Δ2.3 attach gains a hop (p99 budget < 5ms); boot becomes padi-adopts-then-kolu-binds; the session file moves (one-shot import) · Δ2.4 `pulam-tui wait` → padi's wait",
@@ -234,13 +234,13 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 
 <a id="w1"></a>
 
-### W1 — the padi seam, in place *(three PRs, sliced by the kind of review attention each needs; UX byte-identical)*
+### W1 — the padi seam, in place *(ONE PR; commit stages contract → motion → rewiring; UX byte-identical at the head)*
 
 Define **`padiSurface` 1.0**, relocate the terminal domain into **`packages/padi`** (born at W1.C — location is structure: code destined for padi camping in `packages/server` would make the seal a bespoke test fighting gravity, and W2.2 a double move), then rewire the client onto the surface. The phase proves one path — *the client runs entirely on padiSurface + the shell surface, with the in-process server behind the same contract a remote padi will serve* — sealed at the end of W1.R.
 
-**The slicing axis is "separate the moves from the changes"** (re-planned 2026-07-01 after reviewing the first attempt, <PrLink pr={1651} /> — closed, its contract half carried into W1.C). Vertical byte-identical slices manufacture **piecemeal-tax**: #1651 had to erect a ~160-line backings adapter (`padiBackings.ts`) whose *only* purpose was to let a PR boundary be byte-identical — and eight pixels-identical PRs are low-information for a human reviewer, since only the before/after-W1 diff is the design. Slicing by **review mode** instead makes each PR homogeneous in the attention it demands: **W1.C** the contract (small, dense — read every line) → **W1.M** the motion (huge but skimmable — rename-detection and "no logic changed" is the entire review question) → **W1.R** the rewiring (the one genuinely dangerous diff, kept small *because* the motion already happened). Under this slicing the backings adapter **never exists** — by the time anything serves, the backing code already lives in the package and the assembly calls it natively. *(The argument does **not** generalize to W2: W2.1 is externally gated, and W2.2/W2.3 carry genuinely different blast radii.)* The **root oRPC namespace dies entirely** in W1.R, per-member:
+**W1 is ONE PR** (settled 2026-07-01, after reviewing the first vertical slice, <PrLink pr={1651} /> — closed, its contract work carried into stage C). Splitting W1 across PRs — whether eight byte-identical verticals or three review-mode horizontals — keeps paying the same two taxes: the byte-identical constraint at each boundary manufactures scaffolding (#1651's ~160-line `padiBackings.ts` adapter existed *only* to make a PR boundary green), and the design is only legible in the before/after-W1 diff, so partial PRs are low-information reviews. One PR pays neither: **only the head must be green and byte-identical**, and the reviewer reads the whole design once. The review-mode insight survives as the **commit structure** — stages **C** (the contract: small, dense), **M** (the motion: huge, skimmable, rename-detection), **R** (the rewiring: the dangerous part, member-by-member) — giving bisectable history without inter-PR scaffolding; the backings adapter **never exists**, since by the time anything serves, the backing code already lives in the package. Intermediate commits need not each be CI-green; the safety net — the e2e suite, the differential tests, the seal — runs against the head. *(This does **not** generalize to W2: W2.1 is externally gated, and W2.2/W2.3 carry genuinely different blast radii — they stay separate PRs.)* The **root oRPC namespace dies entirely** in the R stages, per-member:
 
-| root oRPC member | disposition | dies in |
+| root oRPC member | disposition | stage |
 | --- | --- | --- |
 | `terminal.create/kill/killAll`<br/>`terminal.sleep/wake`<br/>`terminal.discardSleeping/restoreSleeping`<br/>`terminal.setTheme/setIntent/setParent/setActive`<br/>`terminal.setCanvasLayout/setSubPanel/setRightPanel`<br/>`terminal.resize/sendInput` | padiSurface lifecycle + chrome procedures (`create` **loses the client-supplied `lastActivityAt`** — padi stamps) | W1.R |
 | `terminal.attach` | `padiSurface.terminalAttach` — the fail-through per-subscriber stream (the carve-out, kept) | W1.R |
@@ -254,21 +254,21 @@ Define **`padiSurface` 1.0**, relocate the terminal domain into **`packages/padi
 
 <a id="w1c"></a>
 
-#### W1.C — the contract PR *(small and dense: read every line)*
+#### W1.C — the contract *(commit stage 1: small and dense — read every line)*
 
 **Creates `packages/padi`** — the daemon package, from day one, though no process exists until W2.2 (the export-map split `terminal-workspace` already uses: `./surface` browser-safe, the node-only side beside it). In it, the **contract only** — nothing served, zero runtime change: every member from the [surface section](#padisurface) — the composed `terminals` collection (with `parked` in the record-state union and the host axis reserved on the dock projection), the urgency projection (counts + ids, recency-free), `activity`, the repo/file pulses, fs/git + worktree + byte procedures (**`preview.read` is range-capable from day one** — serve-dir-shaped `{status, headers, bodyBase64}` with an optional `range`; a whole-file-blob-only shape would bake a large-file regression into the contract), `transcript.exportHtml`, lifecycle + chrome procedures, `session.restore`/`session.import`, `terminalExit`, `terminalAttach` — each annotated with its **forwarding policy** (value vs fail-through), plus the frozen control-core types (hello · version · drain · `clock.now` — they live in `@kolu/padi` and graduate to `@kolu/surface-daemon` only if a second daemon ever adopts them: electricity test ③, proof before extraction). This is #1651's good half, carried nearly verbatim.
-- **Done:** the contract test pins the member list, **set-equality** between members and policy annotations (no unannotated member, no orphan), delta = exactly {`activity`, `terminalAttach`}, and version `1.0`; nothing else in the repo changes.
+- **Stage acceptance:** the contract test pins the member list, **set-equality** between members and policy annotations (no unannotated member, no orphan), delta = exactly {`activity`, `terminalAttach`}, and version `1.0`; nothing else in the repo changes.
 
 <a id="w1m"></a>
 
-#### W1.M — the motion PRs *(1–3 PRs, after W1.C: huge but skimmable — nothing changes)*
+#### W1.M — the motion *(commit stages after C: huge but skimmable — nothing changes)*
 
-Pure relocation of the terminal domain into `@kolu/padi`, verbatim: the registry, the lifecycle functions (`terminals.ts` and the endpoint's spawn/kill/sleep/wake/adopt paths), the fold + metadata commit path, the terminal-workspace endpoint bindings, the scratch/transcript/worktree helpers (the transcript loaders behind one extracted `transcriptExport` entry), session persistence + reconcile, and the MRU trackers. kolu-server's imports repoint; **no logic changes, no wire changes, no new callers**. Split by area (domain core · fs/bytes · session) only if a single PR gets unreviewably large — each split stays pure-motion.
-- **Done:** git detects the moves as renames; every existing test passes unchanged; zero wire/UX delta; `packages/server` retains only web-shell + serving code that *calls into* `@kolu/padi`.
+Pure relocation of the terminal domain into `@kolu/padi`, verbatim: the registry, the lifecycle functions (`terminals.ts` and the endpoint's spawn/kill/sleep/wake/adopt paths), the fold + metadata commit path, the terminal-workspace endpoint bindings, the scratch/transcript/worktree helpers (the transcript loaders behind one extracted `transcriptExport` entry), session persistence + reconcile, and the MRU trackers. kolu-server's imports repoint; **no logic changes, no wire changes, no new callers**. Split into commits by area (domain core · fs/bytes · session); each commit stays pure-motion. Where a tendril into server internals (surfaceCtx cells, conf-store, config) must be severed to make the move possible, the severing is its own named commit BEFORE the move — never smuggled inside a rename diff.
+- **Stage acceptance:** git detects the moves as renames; every existing test passes unchanged; zero wire/UX delta; `packages/server` retains only web-shell + serving code that *calls into* `@kolu/padi`.
 
 <a id="w1r"></a>
 
-#### W1.R — the rewiring PR *(the one dangerous diff, after W1.M; member-by-member as its commit order)*
+#### W1.R — the rewiring *(the dangerous stages, after M; one member per commit)*
 
 The package's assembly serves **padiSurface complete, natively** (`implementSurface` is fail-fast — no member may stub; every backing now lives in-package), and the client migrates onto it, one member per commit, in this order:
 
