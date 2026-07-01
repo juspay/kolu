@@ -81,7 +81,16 @@ export function installFreshStatic(
     if (directive) c.header("Cache-Control", directive);
     return next();
   });
-  app.use("/*", serveStatic({ root }));
+  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) when the client
+  // accepts them: serve-static negotiates `Accept-Encoding`, serves the sibling
+  // with the right `Content-Encoding`, keeps the original `Content-Type`, and
+  // appends `Vary`. It fires ONLY when a sibling actually exists, so the *policy*
+  // of what gets compressed lives entirely in the build — kolu's client build
+  // emits siblings for the immutable hashed `/assets/*` only, never the
+  // `no-store` shell (whose commit stamp is seded post-build, so a compressed
+  // shell would pin returning browsers to a stale stamp). A consumer that
+  // precompresses nothing serves byte-identical identity responses.
+  app.use("/*", serveStatic({ root, precompressed: true }));
   app.get(
     "/*",
     (c, next) => {

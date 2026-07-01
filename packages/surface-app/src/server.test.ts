@@ -10,6 +10,9 @@
  * merged into the app surface.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { implementSurfaces, inMemoryChannelByName } from "@kolu/surface/server";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +59,74 @@ describe("installFreshStatic — the /sw.js route", () => {
     installFreshStatic(app, { root: "/nonexistent", serviceWorker: "notify" });
     const res = await app.request("/sw.js");
     expect(res.headers.get("Cache-Control")).toContain("no-cache");
+  });
+});
+
+describe("installFreshStatic — precompressed asset negotiation", () => {
+  // The immutable hashed assets carry the whole client bundle, so the win is
+  // serving their build-time `.br`/`.gz` siblings (no per-request CPU) with the
+  // right `Content-Encoding`, the original `Content-Type`, and a `Vary` header —
+  // and identity bytes whenever a sibling is missing or the client declines.
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "fresh-static-"));
+    mkdirSync(join(root, "assets"));
+    writeFileSync(
+      join(root, "assets", "app-abc123.js"),
+      "console.log('identity')",
+    );
+    writeFileSync(join(root, "assets", "app-abc123.js.br"), "BROTLI-PAYLOAD");
+    writeFileSync(join(root, "assets", "app-abc123.js.gz"), "GZIP-PAYLOAD");
+    // An asset with no precompressed sibling — must still serve identity.
+    writeFileSync(
+      join(root, "assets", "plain-def456.js"),
+      "console.log('plain')",
+    );
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("serves the .br sibling when the client prefers brotli, keeping the original Content-Type", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root });
+    const res = await app.request("/assets/app-abc123.js", {
+      headers: { "Accept-Encoding": "br, gzip" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Encoding")).toBe("br");
+    expect(res.headers.get("Vary")).toContain("Accept-Encoding");
+    // The `.br` extension must NOT leak into the type as octet-stream.
+    expect(res.headers.get("Content-Type")).toContain("javascript");
+    expect(await res.text()).toBe("BROTLI-PAYLOAD");
+  });
+
+  it("falls back to the .gz sibling when the client accepts only gzip", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root });
+    const res = await app.request("/assets/app-abc123.js", {
+      headers: { "Accept-Encoding": "gzip" },
+    });
+    expect(res.headers.get("Content-Encoding")).toBe("gzip");
+    expect(await res.text()).toBe("GZIP-PAYLOAD");
+  });
+
+  it("serves identity bytes when the client offers no matching encoding", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root });
+    const res = await app.request("/assets/app-abc123.js", {
+      headers: { "Accept-Encoding": "identity" },
+    });
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+    expect(await res.text()).toBe("console.log('identity')");
+  });
+
+  it("serves identity when no precompressed sibling exists, even if the client accepts br", async () => {
+    const app = new Hono();
+    installFreshStatic(app, { root });
+    const res = await app.request("/assets/plain-def456.js", {
+      headers: { "Accept-Encoding": "br, gzip" },
+    });
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+    expect(await res.text()).toBe("console.log('plain')");
   });
 });
 

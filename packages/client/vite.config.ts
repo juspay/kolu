@@ -1,8 +1,10 @@
+import { constants as zlibConstants } from "node:zlib";
 import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig, type PluginOption } from "vite";
+import { compression, defineAlgorithm } from "vite-plugin-compression2";
 import solid from "vite-plugin-solid";
 
 const xtermVersion = xtermPackage.version;
@@ -46,6 +48,27 @@ export default defineConfig({
     solid(),
     tailwindcss(),
     surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,
+    // Emit `.br` + `.gz` siblings for the immutable hashed assets at BUILD time,
+    // so the production server (`@kolu/surface-app` installFreshStatic →
+    // serve-static `precompressed`) serves them with the right `Content-Encoding`
+    // and zero per-request CPU — the ~2.56 MB eager bundle drops to ~700 kB on
+    // every cold / remote / phone load. Scoped to `assets/*` compressible types
+    // ONLY (js/css/svg/json/wasm/…), never `index.html`: the shell's commit stamp
+    // is seded post-build (koluStamped in default.nix), so a compressed shell
+    // would strand returning browsers on a stale stamp (kolu#1319). Brotli at max
+    // quality since the cost is paid once at build, not per request.
+    compression({
+      algorithms: [
+        defineAlgorithm("brotliCompress", {
+          params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
+        }),
+        "gzip",
+      ],
+      include: [/\.(?:js|mjs|css|json|svg|wasm|ico)$/],
+      exclude: [/\.map$/, /index\.html$/],
+      threshold: 1024,
+      skipIfLargerOrEqual: true,
+    }) as PluginOption,
   ],
   resolve: {
     alias: {
