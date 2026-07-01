@@ -142,6 +142,30 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
+/** Per-worker throwaway HOME for PTY shells under test.
+ *
+ *  The kolu server forwards HOME straight into every terminal it spawns:
+ *  `cleanEnv()` whitelists HOME (see NIX_ENV_WHITELIST), `ptyHost` reads it as
+ *  `env.HOME`, and `prepareShellInit`'s `replay` step sources `$HOME/.bashrc` /
+ *  `.zshrc` / `.profile` from it. Inheriting the developer's REAL home is a
+ *  sandbox hole with two costumes of one defect: effects leak OUT — a scenario
+ *  that types `cmd` into a terminal appends it to the real `~/.bash_history`
+ *  (and any tool writing under `~` hits real caches/config) — and inputs leak
+ *  IN — the suite's shell behavior depends on whatever lives in the dev's
+ *  personal dotfiles, so runs aren't reproducible across machines.
+ *
+ *  Pointing HOME at an empty dir under `testBaseDir` closes both by
+ *  construction: history, caches, and dotfile lookups all resolve inside
+ *  throwaway space that AfterAll wipes, and every machine sees the same
+ *  (empty) dotfiles. PATH and git identity don't depend on it — PATH rides the
+ *  whitelist from the parent env and the GIT_AUTHOR / GIT_COMMITTER identity is
+ *  pinned above.
+ *
+ *  ABSENT under KOLU_X11CAP: those recordings launch the REAL claude/codex,
+ *  which read `~/.claude` / `~/.codex` from the real home — the same reason the
+ *  agent-dir overrides go all-undefined there. */
+const fixtureHome = process.env.KOLU_X11CAP ? undefined : mkSubDir("home");
+
 /** Per-worker `XDG_RUNTIME_DIR` so each worker's kolu-server spawns its kaval
  *  daemon at an ISOLATED socket + gate (`$XDG_RUNTIME_DIR/kaval/...`). Without
  *  this, parallel workers collide on the shared runtime socket and the
@@ -586,6 +610,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // Route server state to an ephemeral $TMPDIR path so test runs
           // never touch ~/.config and the dir can be wiped in AfterAll.
           KOLU_STATE_DIR: koluStateDir,
+          // Point PTY shells at a throwaway HOME (absent under X11CAP, which
+          // needs the real ~/.claude / ~/.codex) so test-typed commands can't
+          // reach the developer's real ~/.bash_history and the suite doesn't
+          // depend on personal dotfiles. See `fixtureHome` above.
+          ...(fixtureHome ? { HOME: fixtureHome } : {}),
           // Per-worker runtime dir → an isolated kaval socket + gate, so
           // parallel workers' daemons never collide on the shared path.
           XDG_RUNTIME_DIR: runtimeDir,
