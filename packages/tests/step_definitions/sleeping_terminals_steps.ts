@@ -339,6 +339,39 @@ Then(
   },
 );
 
+When(
+  "I toggle the dock's sleeping-terminal filter",
+  async function (this: KoluWorld) {
+    // The ☾ toggle in the desktop dock's footer hides / shows sleeping rows —
+    // an independent filter from the activity window. Scope the click to the
+    // desktop `dock-hidden-footer` so a mounted mobile drawer (its own
+    // `mobile-dock-sleeping-toggle`) can't be hit instead. Unlike the canvas
+    // tile buttons above (which need a raw DOM click to dodge WebGL tile
+    // hit-testing), this footer control is plain DOM, so drive it through
+    // Playwright's real interaction path — actionability checks included —
+    // proving a user could actually reach and click it.
+    await this.page
+      .locator(
+        '[data-testid="dock-hidden-footer"] [data-testid="dock-sleeping-toggle"]',
+      )
+      .click();
+  },
+);
+
+When(
+  "I click the dock's show-all filter reset",
+  async function (this: KoluWorld) {
+    // The combined `N hidden · show all` reset in the desktop footer relaxes
+    // BOTH filters at once (activity window → all, sleeping → shown). Drive it
+    // through the real interaction path, scoped to the desktop footer.
+    await this.page
+      .locator(
+        '[data-testid="dock-hidden-footer"] [data-testid="dock-hidden-show-all"]',
+      )
+      .click();
+  },
+);
+
 Then(
   "the dock should show {int} sleeping row(s)",
   async function (this: KoluWorld, expected: number) {
