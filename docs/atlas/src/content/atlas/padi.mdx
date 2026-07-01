@@ -18,10 +18,10 @@ import arch from "../../diagrams/padi-architecture.svg?raw";
 **The ground-up re-architecture for <Issue n={951} /> — remote terminals — and the extraction that untangles kolu-server and the client along the way.** The [finale plan](remote-terminals-finale.html) (PR-1 · PR-2 · PR-3 · F-REMOTE · R10) threaded a per-terminal `HostLocation` through every seam of kolu-server because it assumed tiles from several hosts share one canvas. Stepping back dissolved the premise: **"which host" is a property of the *connection*, not of a *terminal*.** One daemon per host — **padi** (படி, the stepped stand a koḷu is arranged on) — owns everything about that host's terminals and serves it as one complete surface; kolu-server becomes a thin web shell that *binds* to a padi per client view. The four prep PRs (<PrLink pr={1637} /> <PrLink pr={1638} /> <PrLink pr={1639} /> <PrLink pr={1640} />) are closed as superseded; pulam and pulam-web dissolve into padi. This design was hardened by a 7-lens adversarial review (state-and-time, Löwy, Hickey, a defect-constructing adversary, feasibility-against-code, an A-vs-B adjudicator, a completeness critic — every finding independently skeptic-verified) plus a persona-driven UX evaluation; the load-bearing outcomes of both are baked in below.
 
 export const ROADMAP = [
-  { d: 0, g: "◐", c: "prog", l: "W0 · decks cleared", m: "2 of 3 landed", h: "#w0" },
+  { d: 0, g: "✓", c: "ship", l: "W0 · decks cleared", m: "all landed", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "overflow frame — typed overflow → re-attach on kaval's attach contract", m: "#1591 · kaval 5.0", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "#1637–#1640 closed · finale superseded", m: "2026-07-01", h: "#w0" },
-  { d: 1, g: "◐", c: "prog", l: "freeze terminalWorkspaceSurface at 3.0 · retire pulam-web", m: "#1650", h: "#w0" },
+  { d: 1, g: "✓", c: "ship", l: "freeze terminalWorkspaceSurface at 3.0 · retire pulam-web", m: "#1650", h: "#w0" },
   { d: 0, g: "○", c: "prog", l: "W1 · the padi seam, in place — strangler inside kolu-server, UX byte-identical", m: "8 PRs ↓", h: "#w1" },
   { d: 1, g: "○", c: "prog", l: "W1.1 · padiSurface 1.0 + control core, served in-process (complete, zero consumers)", m: "opens all W1.x", h: "#w11" },
   { d: 1, g: "○", c: "prog", l: "W1.2 · the composed terminals collection — client join deleted", m: "∥ after W1.1", h: "#w12" },
@@ -146,7 +146,7 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 
 ## Implementation details
 
-<Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="todo" />
+<Phase id="W0" name="decks cleared — freeze the old contract, retire pulam-web, land the overflow frame, close the PRs" status="done" />
 <Phase id="W1" name="the padi seam, in place — padiSurface served in-process, client migrated, root oRPC dispositioned" status="todo" needs={["W0"]} />
 <Phase id="W2" name="padi the process — state-root identity, owns kaval, on-host persistence; kolu-server binds + re-serves" status="todo" needs={["W1"]} />
 <Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
@@ -154,9 +154,9 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 
 <a id="w0"></a>
 
-### W0 — decks cleared *(three independent moves; 2 of 3 landed)*
+### W0 — decks cleared *(all three landed)*
 
-1. **Freeze `terminalWorkspaceSurface` at 3.0 + retire pulam-web** — *in flight:* <PrLink pr={1650} />. No member is ever added to the frozen surface (this alone breaks the lockstep: padiSurface is new, so nothing forces members through the dying consumers); pulam-web goes with its flake/nix wiring in the same change. **pulam-tui and the pulam daemon survive until W2**: `pulam-tui wait` is the agent-drives-agent done-signal (the `/kolu` and `/debate` skills, the dock-fleet-mirror rule, and the home-manager module all depend on it), so they retire only when W2 re-homes that signal.
+1. **Freeze `terminalWorkspaceSurface` at 3.0 + retire pulam-web** — ✓ **shipped** (<PrLink pr={1650} />). No member is ever added to the frozen surface (this alone breaks the lockstep: padiSurface is new, so nothing forces members through the dying consumers); pulam-web goes with its flake/nix wiring in the same change. **pulam-tui and the pulam daemon survive until W2**: `pulam-tui wait` is the agent-drives-agent done-signal (the `/kolu` and `/debate` skills, the dock-fleet-mirror rule, and the home-manager module all depend on it), so they retire only when W2 re-homes that signal.
 2. **The overflow frame** — ✓ **shipped** (<PrLink pr={1591} />, kaval contract **5.0**): kaval's attach output carries the typed *overflow → re-attach* signal, and the recovery loop (`reattachingDeltas.ts`) re-attaches with a fresh snapshot, distinguishable from PTY exit. The loop landed in kolu-server's endpoint — it **migrates into padi with the domain at W2**, and W1.4 re-runs its e2e through `padiSurface.terminalAttach`.
 3. **Close <PrLink pr={1637} /> <PrLink pr={1638} /> <PrLink pr={1639} /> <PrLink pr={1640} />** — ✓ done (2026-07-01, each with a pointer here); the [finale](remote-terminals-finale.html) is marked superseded. #1577 (kaval transcript memory) is orthogonal and unaffected.
 
@@ -168,7 +168,7 @@ Define **`padiSurface` 1.0** and serve it **in-process** from kolu-server's exis
 
 | root oRPC member | disposition | PR |
 | --- | --- | --- |
-| `terminal.create/kill/sleep/wake/discardSleeping/restoreSleeping/setTheme/setIntent/setCanvasLayout/setSubPanel/setRightPanel/setActive/setParent/killAll/resize/sendInput` | padiSurface lifecycle + chrome procedures (`create` **loses the client-supplied `lastActivityAt`** — padi stamps) | W1.3 |
+| `terminal.create/kill/killAll`<br/>`terminal.sleep/wake`<br/>`terminal.discardSleeping/restoreSleeping`<br/>`terminal.setTheme/setIntent/setParent/setActive`<br/>`terminal.setCanvasLayout/setSubPanel/setRightPanel`<br/>`terminal.resize/sendInput` | padiSurface lifecycle + chrome procedures (`create` **loses the client-supplied `lastActivityAt`** — padi stamps) | W1.3 |
 | `terminal.attach` | `padiSurface.terminalAttach` — the fail-through per-subscriber stream (the carve-out, kept) | W1.4 |
 | `terminal.screenState/screenText` | padiSurface procedures | W1.4 |
 | `terminal.pasteImage/uploadFile` | `scratch.write` + a paste procedure (bytes land on the terminal's host) | W1.6 |
