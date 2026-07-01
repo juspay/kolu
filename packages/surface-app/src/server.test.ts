@@ -128,6 +128,25 @@ describe("installFreshStatic — precompressed asset negotiation", () => {
     expect(res.headers.get("Content-Encoding")).toBeNull();
     expect(await res.text()).toBe("console.log('plain')");
   });
+
+  it("never serves a compressed sibling for a ROOT file like the shell, even when one exists and the client accepts br", async () => {
+    // A build that (wrongly) emitted an `index.html.br` must not defeat the
+    // freshness contract. The `precompressed` route is scoped to `/assets/*`, so a
+    // root-level `.br` sibling is never negotiated: the `no-store` shell always
+    // goes out identity, so a returning browser can't be pinned to a stale
+    // post-build stamp (kolu#1319). This is the invariant made mechanical inside
+    // the module that owns the contract, rather than left to each consumer's build.
+    writeFileSync(join(root, "index.html"), "<!doctype html>identity shell");
+    writeFileSync(join(root, "index.html.br"), "BROTLI-SHELL");
+    const app = new Hono();
+    installFreshStatic(app, { root });
+    const res = await app.request("/index.html", {
+      headers: { "Accept-Encoding": "br, gzip" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Encoding")).toBeNull();
+    expect(await res.text()).toBe("<!doctype html>identity shell");
+  });
 });
 
 describe("installSurfaceApp — forwards the serviceWorker option to /sw.js", () => {

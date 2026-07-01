@@ -20,6 +20,7 @@ import type { Hono } from "hono";
 import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
+  DEFAULT_ASSET_PREFIX,
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
@@ -81,16 +82,21 @@ export function installFreshStatic(
     if (directive) c.header("Cache-Control", directive);
     return next();
   });
-  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) when the client
-  // accepts them: serve-static negotiates `Accept-Encoding`, serves the sibling
-  // with the right `Content-Encoding`, keeps the original `Content-Type`, and
-  // appends `Vary`. It fires ONLY when a sibling actually exists, so the *policy*
-  // of what gets compressed lives entirely in the build — kolu's client build
-  // emits siblings for the immutable hashed `/assets/*` only, never the
-  // `no-store` shell (whose commit stamp is seded post-build, so a compressed
-  // shell would pin returning browsers to a stale stamp). A consumer that
-  // precompresses nothing serves byte-identical identity responses.
-  app.use("/*", serveStatic({ root, precompressed: true }));
+  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) — but ONLY under
+  // the immutable hashed-asset prefix, never the shell. serve-static negotiates
+  // `Accept-Encoding`, serves the sibling with the right `Content-Encoding`, keeps
+  // the original `Content-Type`, and appends `Vary`; it fires only when a sibling
+  // actually exists. Scoping the `precompressed` route to `assetPrefix` (the same
+  // prefix `isImmutableAssetPath` owns) keeps the "never serve a compressed shell"
+  // half of the freshness contract MECHANICAL and enforced here — even if a
+  // consumer's build wrongly emitted an `index.html.br`, the shell (served by the
+  // identity catch-all below) can never go out compressed and pin returning
+  // browsers to a stale post-build stamp (kolu#1319). The whole payload win is the
+  // `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs nothing. A consumer
+  // that precompresses nothing serves byte-identical identity responses either way.
+  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  app.use(`${assetPrefix}*`, serveStatic({ root, precompressed: true }));
+  app.use("/*", serveStatic({ root }));
   app.get(
     "/*",
     (c, next) => {
