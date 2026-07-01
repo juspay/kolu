@@ -26,7 +26,7 @@
 
 import { type Component, createMemo, Show } from "solid-js";
 import { setActivityWindow } from "../../terminal/activityWindow";
-import { setShowSleeping, showSleeping } from "../../terminal/showSleeping";
+import { setShowSleeping } from "../../terminal/showSleeping";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
 import { SleepingToggle } from "../../ui/SleepingToggle";
@@ -63,7 +63,10 @@ function sleepingPrefix(
 }
 
 export const HiddenFooter: Component<{
-  parkedCount: number;
+  /** How many rows BOTH filters are hiding right now, computed by
+   *  `buildDockTree` (the receptacle that owns the filtering). The footer
+   *  reports this answer rather than re-applying the filter rule itself. */
+  hiddenCount: number;
   /** Fresh sleeping rows in the dock (shown or hidden by the ☾ chip).
    *  The ☾ chip only renders when this is > 0 — there's nothing to show
    *  or hide otherwise. */
@@ -83,16 +86,12 @@ export const HiddenFooter: Component<{
    *  colliding on `dock-window-trigger` / `dock-sleeping-toggle`. */
   chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
 }> = (props) => {
-  // The combined hidden count is what BOTH filters are hiding right now:
-  // the window's parked rows plus the sleeping rows the ☾ chip is hiding
-  // (zero while sleeping rows are shown). `showReset` gates the single
+  // `props.hiddenCount` is the answer the tree already computed — what
+  // BOTH filters are hiding right now. `showReset` gates the single
   // `show all`, which relaxes BOTH filters — the only way to truly reveal
   // every terminal, since leaving the window at `24h` would keep parked
-  // rows hidden. Hoisted here — one reactive node each — so neither
-  // layout re-derives them independently.
-  const hiddenCount = createMemo(
-    () => props.parkedCount + (showSleeping() ? 0 : props.sleepingCount),
-  );
+  // rows hidden. One reactive node, read by both layouts.
+  const hiddenCount = () => props.hiddenCount;
   const showReset = createMemo(() => hiddenCount() > 0);
   const resetAll = () => {
     setActivityWindow("all");

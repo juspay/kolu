@@ -70,6 +70,13 @@ export type DockTree = {
    *  decide whether the toggle earns its place and show the count. Stale
    *  sleeping tiles are `parked`, not counted here. */
   sleepingCount: number;
+  /** How many rows BOTH dock filters are hiding right now — the parked
+   *  rows the activity window dropped plus the sleeping rows the ☾ toggle
+   *  is hiding (only when `hideSleeping`). The tree owns this arithmetic
+   *  so the footer reads the answer instead of re-applying the filter rule
+   *  itself; add a third filter and this term grows here, not at the
+   *  consumer. */
+  hiddenCount: number;
   /** The dock has substantive content — visible rows, parked rows, or
    *  sleeping rows the ☾ toggle is hiding. This is the boolean the
    *  empty-canvas Dock is defined by (true zero is the only state with no
@@ -129,6 +136,7 @@ export function buildDockTree(
     flatRows,
     parkedCount,
     sleepingCount,
+    hiddenCount: parkedCount + (hideSleeping ? sleepingCount : 0),
     hasContent: flatRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
   };
 }
