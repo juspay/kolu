@@ -57,26 +57,34 @@ export const Meter = ({ n, s = 9 }) => (
 
 export const SubDots = ({ items }) => (
   <span style="display:flex;flex-wrap:wrap;gap:.35rem 1.8ch;align-items:center">
-    {items.map(([id, n]) => (
+    {items.map(([id, n, delta]) => (
       <span style={`white-space:nowrap;color:${PAL.sub};font-size:.92em`}>
-        {id}&nbsp;<Meter n={n} s={7} />
+        {delta ? <span style={`color:${PAL.cyan};font-weight:700`}>Δ</span> : ""}{id}&nbsp;<Meter n={n} s={7} />
       </span>
     ))}
   </span>
 );
 
 export const LENS = [
-  { p: "W0", h: "#w0", done: true, user: "nothing", vis: false, work: 1, why: "deletions + one shipped kaval rev", sub: null },
-  { p: "W1", h: "#w1", user: "nothing — byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract", sub: [["1.1",3],["1.2",2],["1.3",2],["1.4",3],["1.5",3],["1.6",2],["1.7",3],["1.8",2]] },
-  { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration", sub: [["2.1",4],["2.2",4],["2.3",5],["2.4",2]] },
-  { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)", sub: [["3.1",2],["3.2",3],["3.3",1]] },
-  { p: "W4", h: "#w4", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons", sub: null },
+  { p: "W0", h: "#w0", done: true, user: "nothing new", vis: false, work: 1, why: "deletions + one shipped kaval rev",
+    beh: "a shed slow tab now recovers instead of freezing (shows only when it fires); kaval 4.x survivors recycled once at the 5.0 upgrade", sub: null },
+  { p: "W1", h: "#w1", user: "nothing — pixels byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract",
+    beh: "same process, but the data-flow profiles shift — Δ1.3 timestamps become server-stamped · Δ1.5 Code tab goes push → pulse-then-requery · Δ1.6 preview bytes ride a procedure (base64), not the raw HTTP route · Δ1.7 restore executes server-side (the respawn race is gone)",
+    sub: [["1.1",3],["1.2",2],["1.3",2,true],["1.4",3],["1.5",3,true],["1.6",2,true],["1.7",3,true],["1.8",2]] },
+  { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration",
+    beh: "the behaviour cliff, behind identical pixels — Δ2.2 a second daemon appears; sockets go digest-keyed (kaval-<port> retires) · Δ2.3 attach gains a hop (p99 budget < 5ms); boot becomes padi-adopts-then-kolu-binds; the session file moves (one-shot import) · Δ2.4 `pulam-tui wait` → padi's wait",
+    sub: [["2.1",4],["2.2",4,true],["2.3",5,true],["2.4",2,true]] },
+  { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)",
+    beh: "Δ3.2 the wire becomes binding-scoped — client singletons rebuild on switch · Δ3.3 OS notifications fire for hosts you are not looking at (3.1 is config-gated, inert by default)",
+    sub: [["3.1",2],["3.2",3,true],["3.3",1,true]] },
+  { p: "W4", h: "#w4", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons",
+    beh: null, sub: null },
 ];
 
 export const PhaseLens = () => (
   <div style="font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:1rem 1.3rem;margin:1.4rem 0;width:min(60rem,94vw);position:relative;left:50%;transform:translateX(-50%);box-sizing:border-box">
     <div style={`display:flex;justify-content:space-between;color:${PAL.dim};font-size:.8em;padding-bottom:.6rem;border-bottom:1px solid #1c2231`}>
-      <span>phase · what the user sees</span>
+      <span>phase · <span style={`color:${PAL.green}`}>◉ user sees</span> · <span style={`color:${PAL.cyan}`}>Δ behaviour</span></span>
       <span>architectural rework: <Meter n={3} s={7} /> = 3/5</span>
     </div>
     {LENS.map(r => (
@@ -84,6 +92,7 @@ export const PhaseLens = () => (
         <a href={r.h} style={`color:${PAL.cyan};text-decoration:none;font-weight:700;font-size:1.08em`}>{r.p}</a>
         <div style="display:flex;flex-direction:column;gap:.4rem;min-width:0">
           <span style={`color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
+          <span style={`color:${r.beh ? PAL.txt : PAL.dim};font-size:.95em`}><span style={`color:${PAL.cyan};font-weight:700`}>Δ </span>{r.beh ?? "no runtime-behaviour change until built"}</span>
           <span style="display:flex;align-items:center;gap:1.2ch;flex-wrap:wrap">
             <Meter n={r.work} s={11} />
             <span style={`color:${PAL.sub};font-size:.95em`}>{r.why}</span>
@@ -92,7 +101,7 @@ export const PhaseLens = () => (
         </div>
       </div>
     ))}
-    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}>◉ user-visible · ○ invisible — the shape to notice: rework peaks (W1–W2) where the user sees <em>nothing</em>, and the user-loud phase (W3) is deliberately thin.</div>
+    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}>◉ user-visible · ○ invisible · <span style={`color:${PAL.cyan}`}>Δ</span> runtime-behaviour change — pixels can be byte-identical while the system runs differently (a Δ-marked sub-PR is where that happens). The shape to notice: rework <em>and</em> the behaviour cliff (W1–W2) land where the user sees nothing; the user-loud phase (W3) is deliberately thin.</div>
   </div>
 );
 
