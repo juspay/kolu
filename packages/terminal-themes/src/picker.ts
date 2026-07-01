@@ -119,26 +119,41 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
-/** Filter candidates to those with parseable, in-gamut backgrounds — and,
- *  when `mode` is set, to that light/dark family. Falls back to the full list
- *  when filtering leaves nothing — preserves non-emptiness in the type. */
+/** Choose the candidate pool, relaxing constraints in priority order so an
+ *  exhausted request never silently reintroduces a *worse* theme than the one
+ *  constraint it couldn't satisfy. The quality gate (parseable, in-gamut — not
+ *  garish) is ALWAYS required; distinctness (`excludeBgs`) is kept longer than
+ *  the luminance `mode`, which is dropped first. So a `mode: "dark"` request
+ *  that runs out of dark themes yields a *light* theme (family relaxed) before
+ *  it would ever yield a garish or duplicate one — never all constraints at
+ *  once. Only a degenerate catalogue with no in-gamut theme falls through to
+ *  the raw list, preserving the non-emptiness type guarantee. The `??` chain
+ *  short-circuits, so the common (non-empty) case runs just the first filter. */
 function filterEligible(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
   mode?: "light" | "dark",
 ): NonEmpty<NamedTheme> {
-  const eligible = nonEmpty(
-    candidates.filter((t) => {
-      const bg = t.theme.background;
-      if (!bg) return false;
-      if (excludeBgs?.has(bg)) return false;
-      const lab = getLab(bg);
-      if (lab === undefined || chroma(lab) > MAX_CANDIDATE_CHROMA) return false;
-      if (mode && labFamily(lab) !== mode) return false;
-      return true;
-    }),
+  // Quality gate — never relaxed except in a degenerate catalogue.
+  const quality = candidates.filter((t) => {
+    const bg = t.theme.background;
+    if (!bg) return false;
+    const lab = getLab(bg);
+    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+  });
+  const inFamily = (t: NamedTheme): boolean => {
+    if (!mode) return true;
+    const lab = getLab(t.theme.background ?? "");
+    return lab !== undefined && labFamily(lab) === mode;
+  };
+  const notExcluded = (t: NamedTheme): boolean =>
+    !excludeBgs?.has(t.theme.background ?? "");
+  return (
+    nonEmpty(quality.filter((t) => notExcluded(t) && inFamily(t))) ??
+    nonEmpty(quality.filter(notExcluded)) ??
+    nonEmpty(quality) ??
+    candidates
   );
-  return eligible ?? candidates;
 }
 
 /** Candidates within this OkLab distance of the best score are all eligible

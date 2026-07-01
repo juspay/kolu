@@ -315,4 +315,29 @@ describe("pickTheme – mode restriction", () => {
       pickTheme(allDark, { spread: true, peerBgs: [], mode: "light" }),
     );
   });
+
+  it("relaxes only the family — never quality or distinctness — when a family is empty", () => {
+    // No light theme exists, so mode:"light" can't be honored. The fallback
+    // must drop ONLY the family constraint: it must still reject the garish
+    // (high-chroma) candidate and still honor excludeBgs, rather than dumping
+    // the whole raw list back in.
+    const candidates: NonEmptyThemes = [
+      mk("DarkA", "#111111"),
+      mk("DarkB", "#222222"),
+      mk("Garish", "#ff00ff"),
+    ];
+    const results = new Set<string>();
+    for (const r of [0, 0.34, 0.67, 0.99]) {
+      results.add(
+        pickTheme(candidates, {
+          excludeBgs: ["#111111"], // exclude DarkA
+          mode: "light",
+          rand: () => r,
+        }),
+      );
+    }
+    // Only DarkB survives quality ∧ not-excluded; Garish (fails quality) and
+    // DarkA (excluded) must never be picked despite the impossible family.
+    expect([...results]).toEqual(["DarkB"]);
+  });
 });
