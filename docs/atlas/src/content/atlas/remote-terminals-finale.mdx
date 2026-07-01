@@ -6,11 +6,13 @@ description: >-
   host emits TerminalSnapshot events, kolu alone folds them and owns the memory). What changed is the
   SEQUENCE. The old three-parallel-prep split (PR-1 lifecycle · PR-2 fs/git · PR-3 awareness → one
   F-REMOTE feature) is replaced. The remaining work is now: (1) extract the terminal-workflow SUBSTRATE
-  as a @kolu/* package both UIs embed — sealed id-keyed dispatch, host registry, reconnect/adoption,
-  composite TerminalKey — which isolates the host-lifecycle volatility (about half of kolu-server) and
-  makes "hard-pin local" a compile error; (2) kolu-tui, the second consumer that EMBEDS the substrate
-  and proves it remote-first; (3) full-client F-REMOTE, the whole web tile on the proven substrate; (4)
-  R10 canvas. Phases — S1·S2·R9.0·R9.1 shipped · SUBSTRATE · KOLU-TUI · F-REMOTE · R10.
+  as a @kolu/* package both UIs embed — sealed single-host dispatch, dial/reconnect/adoption — scoped to
+  ONE host per connection, so a bare ptyId is the whole id (host is connection context: no mixed tiles,
+  no composite key, no HostLocation threading; the cross-host glance is pulam-web's). It isolates the
+  host-lifecycle volatility (about half of kolu-server) and makes "hard-pin local" a compile error; (2)
+  kolu-tui, the second consumer that EMBEDS the substrate and proves it remote-first; (3) full-client
+  F-REMOTE, the whole web tile + host-selector dropdown; (4) R10 host picker. Phases — S1·S2·R9.0·R9.1
+  shipped · SUBSTRATE · KOLU-TUI · F-REMOTE · R10.
 parents: [remote-terminals]
 status: proposed
 maturity: budding
@@ -32,7 +34,7 @@ The awareness boundary is **observe vs. remember** ([the awareness design](aware
 </Callout>
 
 <Callout kind="warn" title="What changed in this re-plan — the prep-split is dead, the substrate is the spine">
-The previous version of this note sequenced **three parallel local-preserving prep PRs** (PR-1 lifecycle · PR-2 fs/git · PR-3 awareness) → one complete-everything **F-REMOTE** → R10. That split is **replaced**. The round-2 type-enforcement debate (`debates/pr1637/`) showed the lifecycle prep's real problem: routing is a *convention*, not a boundary — the local endpoint is importable, so "hard-pin local" is a writable expression a missed seam forgets. The fix isn't to thread the seam by hand (PR-1); it's to **lift the whole host-lifecycle volatility into a sealed `@kolu/*` package** both UIs embed — the [terminal substrate](sutra.html). That makes the seam-hunt a *compile error*, slims kolu-server by ~half, and turns ssh-remote into an additive endpoint. So PR-1 **dissolves into the substrate**; PR-2 (fs/git) and PR-3 (awareness rendering) **reframe** from "preps that gate remote" into **full-client surface work that lands in F-REMOTE**; and **kolu-tui** is inserted as the second consumer that proves the substrate **remote-first**. *(Strategic debate + the lone dissent: `debates/pr1637/r3.*`.)*
+The previous version of this note sequenced **three parallel local-preserving prep PRs** (PR-1 lifecycle · PR-2 fs/git · PR-3 awareness) → one complete-everything **F-REMOTE** → R10. That split is **replaced**. The round-2 type-enforcement debate (`debates/pr1637/`) showed the lifecycle prep's real problem: routing is a *convention*, not a boundary — the local endpoint is importable, so "hard-pin local" is a writable expression a missed seam forgets. The fix isn't to thread the seam by hand (PR-1); it's to **lift the whole host-lifecycle volatility into a sealed `@kolu/*` package** both UIs embed — the [terminal substrate](sutra.html). That makes the seam-hunt a *compile error*, slims kolu-server by ~half, and turns ssh-remote into an additive endpoint. So PR-1 **dissolves into the substrate**; PR-2 (fs/git) and PR-3 (awareness rendering) **reframe** from "preps that gate remote" into **full-client surface work that lands in F-REMOTE**; and **kolu-tui** is inserted as the second consumer that proves the substrate **remote-first**. **And it's single-host:** a kolu surface shows one host at a time (host = *connection context*, switched by a dropdown), so there is no mixed local+remote canvas, no composite key, and no `HostLocation` threaded through every op — the cross-host fleet glance stays [pulam-web](pulam-web.html)'s. *(Strategic + re-evaluation debates: `debates/pr1637/`, `debates/sutra-reconsidered/`.)*
 </Callout>
 
 ## Roadmap
@@ -42,15 +44,15 @@ export const PT = [
   { d: 0, g: "✓", c: "ship", l: "S2 · kolu's fold owns memory — typed patches · kolu's clock · memory→authored · event stream", m: "shipped #1626", h: "awareness-derive-store.html#s2" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored + snapshots", m: "shipped #1626", h: "#r90" },
   { d: 0, g: "✓", c: "ship", l: "R9.1 · the TerminalEndpoint resolver (the one HostLocation-keyed seam)", m: "shipped #1603", h: "#r91" },
-  { d: 0, g: "▶", c: "prog", l: "SUBSTRATE · extract @kolu/sutra — sealed id-keyed dispatch · private endpoints · host registry · forEachHost · reconnect/adoption · composite TerminalKey", m: "needs R9.1 · do next", h: "#substrate" },
-  { d: 0, g: "○", c: "prog", l: "KOLU-TUI · the second consumer, remote-first — embeds the substrate, dials hosts, proves the host-lifecycle volatility on ~⅓ the surface", m: "needs SUBSTRATE", h: "#kolu-tui" },
-  { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete web tile on the proven substrate — PTY · fs/git Code tab · byte preview · full awareness · restore · sleep/wake · paste/upload · transcript (nothing deferred)", m: "needs KOLU-TUI · R7", h: "#fremote" },
-  { d: 0, g: "○", c: "last", l: "R10 · canvas multiplex + host picker + validate", m: "needs F-REMOTE", h: "#r10" },
+  { d: 0, g: "▶", c: "prog", l: "SUBSTRATE · extract @kolu/sutra — connectSutra(host) · sealed single-host dispatch · private endpoints · dial/reconnect/adoption · bare ptyId (no composite key, no HostLocation threading)", m: "needs R9.1 · do next", h: "#substrate" },
+  { d: 0, g: "○", c: "prog", l: "KOLU-TUI · the second consumer, remote-first — embeds sutra, dials one host, proves the host-lifecycle volatility on ~⅓ the surface", m: "needs SUBSTRATE", h: "#kolu-tui" },
+  { d: 0, g: "○", c: "prog", l: "F-REMOTE · the complete web tile on the proven substrate — PTY · fs/git Code tab · byte preview · full awareness · restore · sleep/wake · paste/upload · transcript · host-selector dropdown (nothing deferred)", m: "needs KOLU-TUI · R7", h: "#fremote" },
+  { d: 0, g: "○", c: "last", l: "R10 · curated host picker (ssh-config) + validate the host-switch UX", m: "needs F-REMOTE", h: "#r10" },
 ];
 
 <PhaseTree title="FINALE — substrate → kolu-tui → full-client F-REMOTE → R10" phases={PT} />
 
-**S1 + S2 + R9.0 + R9.1 shipped** (#1626, #1603) — the memoryless producer, kolu's fold, the in-process local awareness, and the `HostLocation` resolver. The remaining four phases run **mostly in sequence** (each builds on the last): the **[substrate](sutra.html)** is the foundation; **[kolu-tui](kolu-tui.html)** proves it remote-first; **F-REMOTE** lands the complete web tile on top; **R10** is the picker/multiplex UX. The old `PR-1/PR-2/PR-3` prep rows are gone — see the re-plan callout above.
+**S1 + S2 + R9.0 + R9.1 shipped** (#1626, #1603) — the memoryless producer, kolu's fold, the in-process local awareness, and the `HostLocation` resolver. The remaining four phases run **mostly in sequence** (each builds on the last): the **[substrate](sutra.html)** is the foundation; **[kolu-tui](kolu-tui.html)** proves it remote-first; **F-REMOTE** lands the complete web tile + the host-selector dropdown; **R10** is the curated host-picker UX. The old `PR-1/PR-2/PR-3` prep rows are gone — see the re-plan callout above.
 
 ## What it reuses — and what it must build
 
@@ -71,10 +73,10 @@ export const PT = [
 
 | gap | today | the phase |
 | --- | --- | --- |
-| lifecycle / registry / reconnect / adoption as a **sealed boundary**, not a convention smeared across kolu-server | the local endpoint is importable → "hard-pin local" is a writable expression; one `ptyHostClient` singleton | **[SUBSTRATE](#substrate)** |
-| a **second consumer** that *embeds* the substrate and *dials* hosts itself — the proof it graduated | only the web client consumes the lifecycle, in-process | **[KOLU-TUI](#kolu-tui)** |
-| the **complete web remote tile** — fs/git Code tab + byte preview + rich awareness + restore + paste/upload + transcript + the create knob | only `{kind:"local"}` exists; the Code tab rides value-streams; the preview byte route reads kolu-server's local fs | **[F-REMOTE](#fremote)** |
-| host picker + canvas multiplex | one local kaval, no picker | **[R10](#r10)** |
+| the per-host terminal lifecycle (dial · reconnect · adoption) as a **sealed single-host boundary**, not a convention smeared across kolu-server | the local endpoint is importable → "hard-pin local" is a writable expression; the lifecycle lives in-process in kolu-server | **[SUBSTRATE](#substrate)** |
+| a **second consumer** that *embeds* the substrate and *dials* a host itself — the proof it graduated | only the web client consumes the lifecycle, in-process | **[KOLU-TUI](#kolu-tui)** |
+| the **complete web remote tile** — fs/git Code tab + byte preview + rich awareness + restore + paste/upload + transcript + the host-selector dropdown | only the local connection exists; the Code tab rides value-streams; the preview byte route reads kolu-server's local fs | **[F-REMOTE](#fremote)** |
+| a curated host picker (from ssh-config) | one local kaval, no picker | **[R10](#r10)** |
 
 ## The shipped foundation
 
@@ -109,16 +111,16 @@ kolu's local awareness is the **memoryless producer called in-process**, its obs
 
 ### SUBSTRATE — extract `@kolu/sutra` *(do next · the spine)*
 
-<Phase id="SUBSTRATE" name="extract the terminal-workflow substrate — sealed dispatch · private endpoints · host registry · reconnect/adoption · composite TerminalKey" status="next" needs={["R9.1"]} blocks={["KOLU-TUI", "F-REMOTE"]} links={[{ label: "the substrate note", href: "sutra.html" }]} />
+<Phase id="SUBSTRATE" name="extract the terminal-workflow substrate — connectSutra(host) · sealed single-host dispatch · private endpoints · dial/reconnect/adoption · bare ptyId" status="next" needs={["R9.1"]} blocks={["KOLU-TUI", "F-REMOTE"]} links={[{ label: "the substrate note", href: "sutra.html" }]} />
 
-<Svg svg={boundary} caption="The package boundary the SUBSTRATE phase creates — both UIs embed @kolu/sutra, which depends outward on the already-graduated transport (kaval · pulam · surface-nix-host · surface). The full design — API spec, the compile-error guarantee, the composite key — is in the substrate note." />
+<Svg svg={boundary} caption="The package boundary the SUBSTRATE phase creates — both UIs embed @kolu/sutra, each CONNECTED to one selected host, depending outward on the already-graduated transport (kaval · pulam · surface-nix-host · surface). The full design — API spec, the compile-error guarantee, the single-host / bare-ptyId model — is in the substrate note." />
 
-Lift the host-lifecycle volatility into **one `@kolu/*` package both UIs embed**. Per-terminal ops become `op(key)` that resolve the endpoint **internally**; the endpoint, the resolver and the nine `*Local*` helpers go **package-private**, so "hard-pin local / bypass the host router" becomes a **compile error** (no symbol to import). `create(location)` is the sole location-supply; session-global ops go through `forEachHost` + a branded complete-host sweep. Terminal identity becomes the composite **`{host, ptyId}` `TerminalKey`** (the wire stays bare; `meta.location` becomes a derived projection). This **absorbs the manual lifecycle-threading prep** (the seam-hunt is now the compiler's job) and migrates ~**half of kolu-server** out of the web server.
+Lift the host-lifecycle volatility into **one `@kolu/*` package both UIs embed** — scoped to **one host per connection**. You `connectSutra(host)`; per-terminal ops become `op(id)` that resolve **that connection's** endpoint **internally**; the endpoint, the resolver and the nine `*Local*` helpers go **package-private**, so "hard-pin local / bypass the host router" becomes a **compile error** (no symbol to import). A terminal's id is the **bare `ptyId`** — host is *connection context*, not a per-terminal property, so there is **no composite key and no `HostLocation` threaded through every op**. This **absorbs the manual lifecycle-threading prep** (the seam-hunt is now the compiler's job) and migrates ~**half of kolu-server** out of the web server.
 
-- **Why whole:** a pure **local-preserving refactor + package move** — every record is `{kind:"local"}` today, so every `op(key)` resolves to the same local endpoint; create/attach/kill/sleep/wake/adoption stay byte-identical. **No user-facing change.**
-- **The full design — API spec, the compile-error guarantee, the composite key + staged migration, what moves vs stays — is in [the substrate note](sutra.html).**
+- **Why whole:** a pure **local-preserving refactor + package move** — every terminal is on the local connection today, so every `op(id)` resolves to the same local endpoint; create/attach/kill/sleep/wake/adoption stay byte-identical. **No user-facing change.**
+- **The full design — the single-host API, the compile-error guarantee, the bare-ptyId model, the session split, what moves vs stays — is in [the substrate note](sutra.html).**
 - **Needs:** R9.1. **Blocks:** kolu-tui and the full client both embed the result.
-- **Done:** the sealed `TerminalSubstrate` facade ships; the endpoint/resolver/`*Local*` helpers are package-private (importing one outside the package fails to compile); kolu-server drives every op through the facade; `TerminalKey` is the registry key with `meta.location` derived; all terminal e2e + `sleepWake.test.ts` + boot-adoption pass unchanged; a mixed-host `reconcile` test + the create-location reject test land.
+- **Done:** the sealed single-host `TerminalSubstrate` facade + `connectSutra(host)` ship; the endpoint/resolver/`*Local*` helpers are package-private (importing one outside the package fails to compile); kolu-server drives every op through the facade with a **bare `ptyId`**; `HostLocation` no longer threads through per-terminal ops (it lives on the connection); all terminal e2e + `sleepWake.test.ts` + boot-adoption pass unchanged.
 
 <a id="kolu-tui"></a>
 
@@ -126,12 +128,12 @@ Lift the host-lifecycle volatility into **one `@kolu/*` package both UIs embed**
 
 <Phase id="KOLU-TUI" name="kolu-tui embeds the substrate and proves it remote-first — local+remote PTY · reconnect · boot re-adopt · adoption · basic awareness" status="todo" needs={["SUBSTRATE"]} blocks={["F-REMOTE"]} links={[{ label: "the kolu-tui note", href: "kolu-tui.html" }]} />
 
-**kolu itself, in the terminal** — it **embeds** the substrate (Option B — own process, own state, *not* a thin client of a running kolu-server) and **dials hosts itself**, rendering **kolu's own two-pane layout** — the **Dock rail** you switch from, the **live terminal** you type into — as a full-screen TUI on [OpenTUI](kolu-tui.html) that reuses the shared `agentProjection` folds, across local **and** ssh hosts, **with no Code browser**. It is the **second consumer that proves the substrate graduated** — and it **MUST exercise the pulam dial** for awareness, which (because awareness and fs/git ride the *same* `getHostSession({binary:"pulam"})` surface) proves **fs/git's transport for free**. It ships local+remote PTY + reconnect + boot re-dial-re-adopt + adoption + basic awareness — the **hardest, least-reversible third** of remote terminals — and is a usable product. It deliberately skips the Code tab, byte preview, paste/upload and transcript.
+**kolu itself, in the terminal** — it **embeds** the substrate (Option B — own process, own state, *not* a thin client of a running kolu-server) and **dials one host itself**, rendering **kolu's own two-pane layout** — the **Dock rail** you switch terminals in, the **live terminal** you type into, and a **host selector** to switch which host — as a full-screen TUI on [OpenTUI](kolu-tui.html) that reuses the shared `agentProjection` folds, **one host at a time**, **with no Code browser**. It is the **second consumer that proves the substrate graduated** — and it **MUST exercise the pulam dial** for awareness, which (because awareness and fs/git ride the *same* `getHostSession({binary:"pulam"})` surface) proves **fs/git's transport for free**. It ships local+remote PTY + reconnect + boot re-dial-re-adopt + adoption + basic awareness — the **hardest, least-reversible third** of remote terminals — and is a usable product. It deliberately skips the Code tab, byte preview, paste/upload and transcript.
 
 - **Why it's the proof, not just a product:** kaval-tui already proves raw PTY transport — kolu-tui's added value is the **kolu orchestration** both consumers share, plus the **dial coverage**. The two conditions (embed + exercise the pulam dial) are what keep it a de-risk rather than a second UI.
 - **The surface, the UX prototypes, the phases (K1 embed + the Dock · K2 survive-the-link · K3 live Dock badges over the pulam dial) are in [the kolu-tui note](kolu-tui.html).**
 - **Needs:** SUBSTRATE. **Blocks:** F-REMOTE inherits a *proven* substrate.
-- **Done:** a remote pane is created/attached/driven/killed through the embedded substrate; the link can drop and recover; kolu-tui restart re-dials + re-adopts; two hosts' colliding bare ids stay distinct via `TerminalKey`; a remote agent's `working→awaiting` shows on the board over the pulam dial.
+- **Done:** a remote pane is created/attached/driven/killed through the embedded substrate; the link can drop and recover; kolu-tui restart re-dials + re-adopts; the host selector switches local ↔ remote and each shows its own terminals; a remote agent's `working→awaiting` shows in the rail over the pulam dial.
 
 <a id="fremote"></a>
 
@@ -143,10 +145,10 @@ The web/electron remote tile, lit **whole** on the substrate kolu-tui already pr
 
 - **PTY** over the remote **kaval** (the substrate's remote endpoint; remote spawn-env from the host's `system.info`).
 - **Real fs/git Code tab** + the host-aware **binary-preview byte route** over the remote **pulam** (R7 mirror) — *the transport kolu-tui already exercised; F-REMOTE adds the rendering*: rewrite the Code tab off `koluSurface`'s value-streams onto the shared surface's **procedure + `{seq}` pulse**, add the byte primitives (range-capable preview-read, scratch-write, transcript-read), re-enforce the realpath/traversal guard **on the producing host**.
-- **Full awareness** — subscribe `terminalEvents` on the same mirror, fold via the **same** `fold`, keyed by the substrate's composite `TerminalKey`. Agent badge + recency + restore-target, richly rendered.
-- **Session restore incl. boot re-dial-re-adopt** — reuses the substrate's `forEachHost` boot loop (proven by kolu-tui); the client restore loop **dials+adopts, not respawns**.
+- **Full awareness** — subscribe `terminalEvents` on the same mirror, fold via the **same** `fold`, keyed by the **bare `ptyId`** (host is the connection, not part of the id). Agent badge + recency + restore-target, richly rendered.
+- **Session restore incl. boot re-dial-re-adopt** — reuses the substrate's per-host boot re-adopt (`connectSutra` + adopt, proven by kolu-tui); the client restore loop **dials+adopts, not respawns**; kolu re-`connectSutra`s each saved host.
 - **kill/attach** (substrate-routed); **sleep/wake on the host**; **paste/upload to the host**; **transcript from the host**.
-- The **create knob** ("On SSH host…" → `location:{kind:"remote",hostId}`, the substrate's `create(location)`), the **`ssh` badge** + a discoverability tip, the remote-`hostId` `daemonStatus` writer, and the Nix wiring.
+- The **host-selector dropdown** ("On SSH host…" → `connectSutra({kind:"remote",hostId})`), the **`ssh` badge** + a discoverability tip, the remote-`hostId` `daemonStatus` writer, and the Nix wiring.
 
 - **Why whole:** a remote tile matches a local tile on **every** axis — and every substrate primitive it rides was proven by kolu-tui, so the only new risk is the *web rendering*, not the transport. All local e2e stay green.
 - **Needs:** KOLU-TUI · R7. **Not** R-pulamweb-4; **not** any further contract bump beyond the byte primitives.
@@ -154,18 +156,18 @@ The web/electron remote tile, lit **whole** on the substrate kolu-tui already pr
 
 <a id="r10"></a>
 
-### R10 — canvas multiplex + validate
+### R10 — curated host picker + validate
 
-<Phase id="R10" name="canvas multiplex + host picker + validate" status="todo" needs={["F-REMOTE"]} />
+<Phase id="R10" name="curated host picker (ssh-config) + validate the host-switch UX" status="todo" needs={["F-REMOTE"]} />
 
-The web UI: an active-kaval strip (local always present), a per-tile host hint, an ssh-config host picker — *kinda like tmux sessions*. Then **validate the feel** on real use: does N-kavals-at-once beat tmux-style one-at-a-time switching? Fall back to switch if multiplex doesn't earn its keep. *(F-REMOTE's create knob is the minimal "type a host"; R10 is the curated picker + multiplex — and kolu-tui already road-tested a host strip in the terminal.)*
+The web UI: a curated host selector populated from ssh-config (F-REMOTE's dropdown is the minimal "type a host"; R10 is the curated list), *kinda like tmux sessions*. Then **validate the feel** on real use: does one-host-at-a-time switching (the whole plan's bet) hold up, or does a session miss the fleet enough that pulam-web needs a "jump to this host in kolu" deep-link? Record the call. *(kolu-tui already road-tested the host selector in the terminal; R10 brings the curated picker to the web and validates the model.)*
 
 - **Needs:** F-REMOTE.
-- **Done:** the validated UX call, recorded.
+- **Done:** the validated host-switch UX call, recorded.
 
 ## Open decisions
 
-The awareness forks are **decided** (recorded in [the awareness design](awareness-derive-store.html)): memory home = `kolu.authored`; recency = identity-only; dashboards = urgency-only; the activity predicate is one tested function. The sequencing forks are **decided** here: substrate → kolu-tui → full-client F-REMOTE → R10; the old prep-split is replaced (see the re-plan note above); R-pulamweb-4 off kolu's critical path. The id model is **decided**: composite `TerminalKey` in the substrate, wire bare, `meta.location` derived, staged migration ([the substrate note](sutra.html)). The awareness split is **decided**: the substrate exposes `subscribeTerminal(key)`; the **memoryless snapshot fold** — the Dock's badges via the shared `agentProjection` — rides both embedders, while the **memoryful recency baseline stays kolu-server's** (per the awareness design); the producer wire is pulam's additive `terminalEvents` stream (`3.0→3.1`), ratified at K3. The one implementation decision still open:
+The awareness forks are **decided** (recorded in [the awareness design](awareness-derive-store.html)): memory home = `kolu.authored`; recency = identity-only; dashboards = urgency-only; the activity predicate is one tested function. The sequencing forks are **decided** here: substrate → kolu-tui → full-client F-REMOTE → R10; the old prep-split is replaced (see the re-plan note above); R-pulamweb-4 off kolu's critical path. **Single-host is decided** (`debates/sutra-reconsidered/`): one host per surface, switched by a dropdown — the cross-host fleet glance is [pulam-web](pulam-web.html)'s, not kolu's. The id model is **decided**: a **bare `ptyId`**; host is *connection context* (`connectSutra`), not a per-terminal property — no composite key, no `HostLocation` threading ([the substrate note](sutra.html)). The awareness split is **decided**: the substrate exposes `subscribeTerminal(id)`; the **memoryless snapshot fold** — the Dock's badges via the shared `agentProjection` — rides both embedders, while the **memoryful recency baseline stays kolu-server's** (per the awareness design); the producer wire is pulam's additive `terminalEvents` stream (`3.0→3.1`), ratified at K3. The one implementation decision still open:
 
 | decision | needed by | options |
 | --- | --- | --- |

@@ -216,7 +216,7 @@ const restoreRelevant = (a: TerminalState) => ({
   ...a.memory,
 });
 
-function watch(key: HostTerminalKey, terminal): () => void {
+function watch(key: TerminalId, terminal): () => void {   // single-host fold — bare id keys it
   let current = seed(terminal);                            // kolu seeds from its durable record
   const stop = subscribeSnapshots(key, terminal, (frame) => {          // frame: snapshot | delta | gap (the wire)
     if (frame.phase === "gap") { current = reseed(key); return; }      // a detected gap re-snapshots — never a silent diverge
@@ -288,7 +288,7 @@ export const PT = [
   { d: 0, g: "✕", c: "prog", l: "R9·lib · DISSOLVED — nothing to assemble; producer + fold are pure leaves", m: "subsumed by S1+S2", h: "#how-r9-collapses" },
   { d: 0, g: "✓", c: "ship", l: "R9.0 · kolu runs the producer in-process, folds onto authored+snapshots", m: "shipped #1626 (transport-agnostic)", h: "#how-r9-collapses" },
   { d: 0, g: "○", c: "prog", l: "KOLU-TUI · the framer + terminalEvents wire land here — basic awareness over the pulam dial (the first remote producer consumer)", m: "needs SUBSTRATE", h: "#remote-awareness-build" },
-  { d: 0, g: "○", c: "prog", l: "F-REMOTE · rich remote awareness — subscribes the remote terminalEvents, folds through the SAME fold with kolu's memory, composite TerminalKey", m: "needs KOLU-TUI · R7", h: "remote-terminals-finale.html#fremote" },
+  { d: 0, g: "○", c: "prog", l: "F-REMOTE · rich remote awareness — subscribes the remote terminalEvents, folds through the SAME fold with kolu's memory, keyed by bare ptyId", m: "needs KOLU-TUI · R7", h: "remote-terminals-finale.html#fremote" },
   { d: 0, g: "○", c: "last", l: "SUBSTRATE → KOLU-TUI → F-REMOTE → R10 — the full sequence in the finale", m: "→ finale", h: "remote-terminals-finale.html#roadmap" },
 ];
 
@@ -319,7 +319,7 @@ nothing in R9.0 must be undone. Verified against the merged diff:
   frame *is* the reconcile; the value-based recency baseline (the R9.0 substitute for the deleted
   `AWARENESS_SNAPSHOT_WINDOW_MS` timer) suppresses the re-observation bump.
 
-So remote awareness is an **additive transport arm**, not a refactor — and the [re-sequence](remote-terminals-finale.html#roadmap) maps it onto the new phases: the **framer + the `terminalEvents` wire land with [kolu-tui](kolu-tui.html)** (its basic-awareness overlay is the *first* consumer of a remote producer, dialed over the same `getHostSession({binary:"pulam"})` it uses for everything), and **F-REMOTE renders it richly** (recency, restore-target, the agent badge). Mapping the work-list below: items 1–3 (the framer, the wire, pulam serving events) land with **kolu-tui** as its overlay; items 4–5 (kolu's subscribe-and-fold + the composite key) are proven as *transport* by kolu-tui and rendered with full memory by **F-REMOTE**. The work-list, given R9.0's actual structure:
+So remote awareness is an **additive transport arm**, not a refactor — and the [re-sequence](remote-terminals-finale.html#roadmap) maps it onto the new phases: the **framer + the `terminalEvents` wire land with [kolu-tui](kolu-tui.html)** (its basic-awareness overlay is the *first* consumer of a remote producer, dialed over the same `getHostSession({binary:"pulam"})` it uses for everything), and **F-REMOTE renders it richly** (recency, restore-target, the agent badge). Mapping the work-list below: items 1–3 (the framer, the wire, pulam serving events) land with **kolu-tui** as its overlay; items 4–5 (kolu's subscribe-and-fold, keyed by a bare `ptyId`) are proven as *transport* by kolu-tui and rendered with full memory by **F-REMOTE**. The work-list, given R9.0's actual structure:
 
 1. **Build the `TerminalFrame` type** (designed above — `snapshot | delta(seq) | gap`). R9.0 has only
    `TerminalEvent`; the framed stream was deferred here, by design. *(kolu-tui · K3)*
@@ -341,7 +341,7 @@ So remote awareness is an **additive transport arm**, not a refactor — and the
    surface — kaval serves only PTY; `getHostSession({binary:"pulam"})`, the `pulam-tui` precedent, bake
    `PULAM_AGENT_DRVS_JSON`), mirror the `terminalEvents` over **R7**'s total dual, seed `current` from
    kolu's durable record, fold exactly as local; on a missing `seq`, force a `gap` → re-snapshot. *(kolu-tui proves the transport · F-REMOTE the memoryful fold)*
-5. **Host-scoped keys** — folded into the substrate's composite **[`TerminalKey`](sutra.html#the-composite-terminalkey)** `{host, ptyId}` (the wire stays bare `TerminalId`). What this note called the kolu-intake-only `HostTerminalKey` is now **native substrate identity from phase 1**, so two hosts' opaque PTY ids cannot alias the moment kolu-tui dials a second host. *(substrate · used by kolu-tui + F-REMOTE)*
+5. **Host scoping is by connection, not a composite key** — a kolu surface is single-host ([sutra](sutra.html) `connectSutra`), so the fold keys by **bare `TerminalId`** and two hosts never share a surface to collide in. The cross-host fleet board ([pulam-web](pulam-web.html)) keeps hosts apart by **connection** (N single-host dials, host identity at the transport layer), not a composite id. So R9.3's `HostTerminalKey` is **dropped** — single-host deleted the collision it guarded. *(sutra · pulam-web)*
 
 <Callout kind="note" title="Awareness wiring — route the LOCAL path through the framer too (one phase-seam, not two)">
 R9.0 decides snapshot-vs-delta **inline** in the local emit closure (the value-based recency baseline,
@@ -369,7 +369,7 @@ part of the one complete-everything web tile. See [the finale](remote-terminals-
 - **`pr` is restore-relevant, persisted like `git`**: a forge fact keyed by the branch, true-when-dead, so it survives on the dormant tile and arms autosave — deleting the frozen-`pr` special case (`local.ts:871`, the sleeping-arm `pr?`) and the `pending` flash on restore.
 - **The two memory fields live on `kolu.authored`** (so the `snapshots` collection is `TerminalSnapshot` everywhere — kolu's own and every producer's). The fold is their **one** writer through a narrowed `authored.updateMemory(key, AgentMemory)` mutator — mirroring the existing narrowed `updateClientMetadata` (`metadata.ts:166`) — so "the fold writes only memory; client code never does" is typed, not remembered. Reader-join shape unchanged (`authored ⋈ snapshots`).
 - **Dashboards (pulam-tui / pulam-web) → urgency-only** — they read `TerminalSnapshot` + the urgency projection and need no fold. Because `TerminalSnapshot` has no `lastActivityAt`, a dashboard that still imports recency **fails to compile** (split `compareAgents` into `compareAgentUrgency` (host-safe) and a kolu-only recency tiebreak).
-- **Host-scoped aggregation key — the substrate's composite [`TerminalKey`](sutra.html#the-composite-terminalkey)** `{host, ptyId}`, not the prose pair `(HostLocation, TerminalId)`: kaval ids are opaque (`ptyHostSurface.ts:87`), so a bare `Map<TerminalId, …>` still *spells* the cross-host orphan collision. The substrate pairs the host-local `TerminalId` with its `HostLocation` at intake **before** the fold; aggregates key by it, so a fleet view cannot alias two hosts' non-kolu-minted PTY ids. *(What this note earlier called the kolu-intake-only `HostTerminalKey` is now native substrate identity.)*
+- **Host scoping is by connection, not a composite key** (`debates/sutra-reconsidered/`): a kolu surface shows one host at a time ([sutra](sutra.html) `connectSutra`), so the fold keys by a **bare `TerminalId`** — two hosts never share a surface, so they can't collide. The cross-host fleet ([pulam-web](pulam-web.html)) keeps hosts apart by **connection** (N single-host dials, host identity at the transport layer), not a `(HostLocation, TerminalId)` composite. R9.3's `HostTerminalKey` is dropped — the single-host scoping deleted the collision it guarded.
 
 ## Phasing & migration
 
@@ -388,4 +388,4 @@ Exactly one judgment is a product choice, not a type: **which agent transition c
 - a replayed `commandRun` updates `lastAgentCommand` (so wake can replay) but fires **no** recent-agent MRU bump.
 - a producer clock a year ahead never reorders kolu's recency (kolu samples its own clock; the wire has no `observedAt`).
 - a dropped delta (a hole in `seq`) yields a `gap` frame and a re-snapshot — never a silently divergent fold.
-- the same id on two `HostLocation`s keeps two aggregate entries (a bare `TerminalId` can't index the fleet — the substrate's composite `{host, ptyId}` `TerminalKey` is required).
+- two hosts' identical bare ids never collide **because they never share a fold** — a kolu surface is single-host, and the cross-host board (pulam-web) separates them by connection, not a composite key.
