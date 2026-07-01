@@ -1,0 +1,193 @@
+---
+title: sutra — the terminal-workflow substrate
+description: >-
+  sutra (the connecting thread) is the receptacle the remote-terminals plan was missing. Managing terminals across hosts — the
+  lifecycle (create · attach · kill · sleep/wake · adopt), the host registry, reconnect, boot
+  re-dial-re-adopt — is a hard volatility today smeared across kolu-server as a CONVENTION (the local
+  endpoint is importable, so "hard-pin local" is a writable expression). Lift it into one @kolu/*
+  package both UIs EMBED — kolu-server (serving the web client) and kolu-tui — with the dependency
+  arrow pointing OUT to kaval, pulam, surface-nix-host and surface. Per-terminal ops become op(key)
+  that resolve the endpoint internally; the endpoints go private, so bypassing the router is a COMPILE
+  ERROR. Terminal identity becomes a composite { host, ptyId } TerminalKey. About half of kolu-server
+  migrates, which is what finally makes ssh-remote terminals an additive endpoint instead of a
+  cross-cutting rewrite. kolu-tui is the second consumer that proves it graduated.
+parents: [remote-terminals-finale, electricity]
+status: proposed
+maturity: seedling
+updated: 2026-06-30
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Cite from "../../components/Cite.astro";
+import Phase from "../../components/Phase.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import Pill from "../../components/Pill.astro";
+import Svg from "../../components/Svg.astro";
+import boundary from "../../diagrams/sutra-boundary.svg?raw";
+
+**`@kolu/sutra` — the receptacle the [finale](remote-terminals-finale.html) was missing.** *sutra* (Sanskrit: the connecting thread) is the thread that binds terminals across hosts — the sibling of [kaval](pty-daemon.html), [pulam](pulam.html) and [drishti](https://github.com/srid/drishti) in kolu's graduated-electricity family. Every hard thing left in remote terminals — routing a lifecycle op to the right host, keeping a registry of dialed daemons, reconnecting an ssh link, re-adopting surviving PTYs at boot — is **one volatility**: *managing terminals across hosts*. Today it is not a boundary, it's a **convention** smeared across kolu-server. The local endpoint is `export`ed and directly reachable, so "hard-pin local / bypass the host router" is a *writable expression* a missed seam simply forgets (the round-2 type-enforcement debate verified the smear; `debates/pr1637/`). This note lifts that volatility into **one `@kolu/*` package both UIs embed** — and that extraction is what turns ssh-remote from a cross-cutting rewrite into an additive endpoint.
+
+<Svg svg={boundary} caption="@kolu/sutra — the terminal-workflow substrate — as a receptacle. kolu-server (serving the web client) and kolu-tui both EMBED the one package — own process, own state (Option B), not a thin client of a running server. The substrate owns the host-lifecycle volatility (sealed dispatch · host registry · reconnect/adoption · composite TerminalKey) and depends OUTWARD on the already-graduated transport (kaval · pulam · surface-nix-host · surface). Neither UI is depended on by the substrate — that arrow direction is the whole test." />
+
+<Callout kind="note" title="Why this note exists — naming the receptacle, not the organ">
+A live debate proposed graduating a **kolu-TUI** as the electricity. That names an *organ*: a TUI is a product surface (panes, keybindings, attach) — it fails electricity [test ①](electricity.html) (domain-agnostic) on sight, exactly the "history stack vs. browser" trap. The electricity is the **substrate** the TUI would *consume*. The TUI's role is the other half of the proof: it's the **second consumer** that shows the substrate graduated — the way [drishti](https://github.com/srid/drishti) proved `@kolu/surface`, [kaval-tui](pty-daemon-tui.html) proved kaval's `ptyHostSurface`, and [pulam-tui](pulam-tui.html) proved pulam's awareness surface. Decided 3-of-4 across `debates/pr1637/r3.*`; the lone dissent (opencode — "don't over-extract; the transport is already graduated") is folded in below as the bar this must clear, not waved away.
+</Callout>
+
+## What it owns — and why it's electricity, not the server's internals renamed
+
+Run the three [electricity tests](electricity.html) honestly, because the dissent's sharpest point is that they could fail:
+
+- **① Domain-agnostic?** The substrate's interface is *terminal-across-hosts*, shared verbatim by a browser GUI and a TUI — no Solid, no canvas, no Code-tab, no xterm leaks across it. The thing that fails ① is the TUI, not this.
+- **② A real volatility?** Yes, and a *different* one than the pieces already graduated. kaval owns **PTY transport**; pulam owns **awareness + fs/git observation**; `@kolu/surface-nix-host` owns the **ssh/Nix dial**; `@kolu/surface` owns the **mirror**. None of them owns kolu's **terminal *lifecycle* across a set of hosts** — create/attach/kill/sleep/wake/adopt, *which* host each resolves to, the registry of dialed daemons, the boot reconcile. That orchestration is the smear the round-2 debate found, and it is a transport-grade volatility (reconnect, adoption, partial-host failure), not a bounded algorithm.
+- **③ Graduates, second consumer plugs in?** It ships as `@kolu/sutra` and **kolu-tui embeds it** ([the next note](kolu-tui.html)). The proof is real, not aspirational — kolu-tui is on the roadmap as the very next work.
+
+<Callout kind="warn" title="The bar the dissent sets — clear it or this is just a rename">
+opencode's caution, kept as a **condition**: the substrate must encapsulate a *genuine* volatility — the lifecycle/registry/reconnect/adoption **orchestration** — not be "kolu-server internals given a package name." Two falsifiable consequences hold it to that: (1) **kaval-tui already proves the raw *PTY* transport** over ssh, so the substrate's value is explicitly the *kolu orchestration* both consumers share, never the transport (that's kaval's); (2) **kolu-tui must EMBED it and dial hosts itself** — if the TUI were a thin renderer of a running kolu-server, nothing graduates and it's a second UI, not a second consumer. Both conditions are load-bearing in the phase plan below.
+</Callout>
+
+**What it owns** (the four capabilities in the diagram):
+
+| Capability | What it encapsulates | Grounded in today's code |
+| --- | --- | --- |
+| **Sealed id-keyed dispatch** | per-terminal ops as `op(key)` that resolve the endpoint *internally*; the endpoint instances + resolver + `*Local*` helpers are **private** | replaces the resolver-bypass at <Cite file="packages/server/src/terminalEndpoint/resolve.ts" lines="39-53" /> + the 9 `*Local*` escape hatches at <Cite file="packages/server/src/terminalEndpoint/local.ts" lines="1143-1283" /> |
+| **Host registry · `forEachHost`** | the host-keyed map of dialed daemons (one `"local"` today) and a branded *complete-host sweep* for session-global ops | generalizes the single `ptyHostClient` / `LOCAL_HOST_ID` singleton at <Cite file="packages/server/src/terminalEndpoint/reattach.ts" lines="61-66" /> |
+| **Reconnect / adoption** | boot re-dial-re-adopt, the per-host reconcile, `HostSession` backoff, durable `kaval --stdio` survival | `adoptSurvivingSession` <Cite file="packages/server/src/terminalEndpoint/reattach.ts" lines="61-174" /> + the pure `reconcile` <Cite file="packages/server/src/reconcile.ts" lines="68-96" /> |
+| **Composite `TerminalKey`** | host folded into terminal identity — `{ host, ptyId }`, so a caller cannot name a terminal without naming its host | the registry `Map<TerminalId, …>` at <Cite file="packages/server/src/terminal-registry.ts" lines="70" />, re-keyed |
+
+**What it consumes** (deps point out): `kaval` (PTY, remote over ssh), `pulam` (awareness + fs/git, dialed as one surface), `@kolu/surface-nix-host` (`getHostSession`), `@kolu/surface` (`mirrorRemoteSurface`, R7). The substrate depends on these; **neither UI is depended on by the substrate.**
+
+## The API both embedders call
+
+The shape is the round-2 cure grown into a shared package: **per-terminal ops are exposed only as `op(key)`; the endpoint, the resolver and the local impls are package-private.** There is no `location` parameter on a per-terminal op to hard-pin, and no symbol to import that yields a local endpoint. `create` is the **sole** location-supplying entry (no id exists yet); session-global ops go through `forEachHost`.
+
+```ts
+// @kolu/sutra — the one surface both kolu-server and kolu-tui call.
+// PRIVATE (not exported): TerminalEndpoint, resolveTerminalEndpoint, the LocalTerminalEndpoint
+// instance, and every *Local* helper. A consumer cannot spell "the local endpoint".
+
+export interface TerminalSubstrate {
+  // —— create is the ONLY place a location is supplied (mints the key, binds the endpoint) ——
+  create(location: HostLocation, opts: PtySpawnOpts): TerminalInfo;
+
+  // —— per-terminal ops: key in, endpoint resolved INTERNALLY off the registered host ——
+  attach(key: TerminalKey, signal?: AbortSignal): Promise<TerminalAttachment>;
+  sendInput(key: TerminalKey, data: string): void;
+  resize(key: TerminalKey, cols: number, rows: number): void;
+  screenText(key: TerminalKey, extent?: ScreenExtent): Promise<string>;
+  kill(key: TerminalKey): Promise<TerminalInfo | undefined>;
+  sleep(key: TerminalKey): Promise<void>;       // was beginSleepLocal + saveSession + releaseSleptLocalPty
+  wake(key: TerminalKey): TerminalInfo | undefined;
+  discardSleeping(key: TerminalKey): boolean;
+  restoreSleeping(record: SavedSleepingTerminal): boolean;
+
+  // —— awareness: one framed stream per terminal, folded by the consumer (see below) ——
+  subscribeTerminal(key: TerminalKey): AsyncIterable<TerminalFrame>;
+
+  // —— session-global: NO per-id routing possible; act on the WHOLE host set or it won't type ——
+  killAll(): Promise<void>;                      // drains every host's registry
+  forEachHost(fn: (host: HostScope) => Promise<HostAdoptionResult>): Promise<void>;
+  commitBootAdoption(sweep: CompleteHostSweep): void;   // the ONLY seeder+saver; needs a branded complete sweep
+}
+```
+
+*(Types like `TerminalFrame`, `HostScope`, `CompleteHostSweep` and `ScreenExtent` are illustrative — an implementer derives them from the existing `TerminalEndpoint` + awareness code; the shape that matters is the sealing, not the exact names.)*
+
+This is not new surface area — it is **today's call sites with the escape hatches removed.** Every per-terminal op already exists; it is just reached three incompatible ways that the facade collapses into one:
+
+| Op | How it routes today | Through the facade |
+| --- | --- | --- |
+| `attach` · `kill` | the resolver, per-terminal — `resolveTerminalEndpoint(entry.meta.location).attach(…)` <Cite file="packages/server/src/router.ts" lines="183-186" /> | `op(key)` — unchanged in spirit, generalized |
+| `resize` · `sendInput` · `screenText` | a raw registry lookup + handle verb — `getActiveTerminal(id)?.handle.write(…)` <Cite file="packages/server/src/router.ts" lines="118-125" /> | `op(key)` — the registry lookup moves *inside* |
+| `sleep` · `wake` · `discardSleeping` · `restoreSleeping` | **direct `*Local*` calls that bypass the resolver entirely** — `wakeLocalTerminal(id)` <Cite file="packages/server/src/router.ts" lines="242-253" /> | `op(key)` — the bypass becomes **unspellable** |
+| `create` | `crypto.randomUUID()` then a constant-pinned `localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION)` <Cite file="packages/server/src/terminals.ts" lines="49-117" /> | `create(location, …)` — location supplied, not pinned |
+| `killAll` · boot adopt | the constant `localEndpoint` alias + the single `ptyHostClient` singleton <Cite file="packages/server/src/terminals.ts" lines="291-293" /> | `killAll()` / `forEachHost` over the registry |
+
+<Callout kind="accent" title="The guarantee: a missed host-seam is a COMPILE ERROR, not a code-review catch">
+Because `TerminalEndpoint`, `resolveTerminalEndpoint`, the `localTerminalEndpoint` instance and all nine `*Local*` helpers become **package-private**, the offending expressions have *no symbols to write*:
+
+- `discardLocalSleeping(id)` → **`Cannot find name 'discardLocalSleeping'`**
+- `localEndpoint.killAllTerminals()` → **`Cannot find name 'localEndpoint'`**
+- `resolveTerminalEndpoint(LOCAL_LOCATION).sleep(id)` → **`Cannot find name 'resolveTerminalEndpoint'`**
+
+This is strictly stronger than a branded "routed" type: a brand rejects a value that still *exists and can be formed*; **removing the producer** means there's nothing to form. The compiler does the seam-hunt that the manual lifecycle-threading prep did by hand — which is exactly why that prep **dissolves into this one**. The session-global side gets the same treatment: `forEachHost` over the private registry is the only way to reach every host, and `commitBootAdoption` demands a **branded `CompleteHostSweep`** — so "kill all terminals on only the local host" or "save the session after adopting one host of three" become *type errors*, closing the round-1 partial-host-save bug structurally.
+</Callout>
+
+**Both embedders call this identically** — the *same methods*, only a different host set:
+
+```ts
+// kolu-server — the web client's oRPC handlers (packages/server):
+await substrate.attach(key, signal);
+substrate.create({ kind: "local" }, opts);
+
+// kolu-tui — the Dock's attach action + create command (the SAME package, embedded):
+await substrate.attach(key, signal);                 // byte-for-byte the same call
+substrate.create({ kind: "remote", hostId }, opts);  // remote is just a different location
+```
+
+kolu-server starts with one `"local"` host (and grows remotes when the full client lands); kolu-tui dials its remotes itself at startup. The substrate doesn't know or care which embedder it's inside — that ignorance is test ① passing.
+
+## The composite TerminalKey
+
+Terminal identity becomes a composite **`TerminalKey = { host: HostLocation; ptyId: string }`** inside the substrate. This is greenfield where it's cheap to adopt, and it **reflects a real invariant** rather than complecting two facts: a PTY is *born on one host and never moves* (`location` is already "set once at spawn, never mutated", <Cite file="packages/common/src/surface.ts" lines="313-326" />), so host is *intrinsic* to a PTY's identity, not a mutable place glued onto it (Hickey: reflects, doesn't complect). It **folds the old `HostTerminalKey`** — the awareness design's kolu-intake-only pairing — into native identity: no separate intake construct, the registry and the fleet aggregate key by `TerminalKey` from phase one, so two hosts' opaque same-UUID PTYs *cannot* alias.
+
+```ts
+type TerminalKey = { readonly host: HostLocation; readonly ptyId: string };
+```
+
+<Callout kind="note" title="The wire stays bare — a staged migration, not a big-bang rekey">
+The composite key is a **substrate-internal** construct; the wire does **not** change. kaval mints bare, host-agnostic `z.string().uuid()` ids (<Cite file="packages/terminal-workspace/src/schema.ts" lines="48" />) and its surfaces are host-scoped — the substrate pairs `(host, bare ptyId)` at intake. So the migration is staged, not a breaking rekey of every collection (the blast-radius objection the dissent raised, answered):
+
+1. `TerminalKey` becomes the substrate's **routing + registry key**.
+2. `meta.location` stays in authored records as the **persisted projection** old records, restore and the client join still read.
+3. The only writer of authored `location` **derives it from `TerminalKey.host`** (one source of truth).
+4. A central invariant check rejects any record where `meta.location !== locationOf(key)`.
+5. Once contracts, saved sessions and client keys move to `TerminalKey`, `meta.location` collapses to a derived field.
+
+The legacy web/electron client keeps a **bare-uuid projection at the kolu-server boundary** until the full-client phase migrates it — *don't migrate it now*. `meta.location` thus demotes from *routing authority* to a *derived/validated projection* of the key.
+</Callout>
+
+**Honest residuals — what types still can't settle** (each gets a runtime check + test, not a type): *which* location `create` chooses (default/inherit/explicit is a `BAD_REQUEST` + test); whether the endpoint stamps the location it was resolved from (shrunk to a test by moving the `createAuthoredActive(LOCAL_LOCATION)` stamp <Cite file="packages/server/src/terminalEndpoint/local.ts" lines="451-453" /> out of the endpoint into `create`); the per-host `reconcile` filter correctness (a mixed-host reconcile test); host-registry completeness (a dial/`daemonStatus` liveness fact + test).
+
+## Slimming kolu-server — and why that unlocks ssh-remote
+
+The extraction isn't a tidy-up; it's the move that makes remote terminals *small*. Today the lifecycle volatility is ~**half of kolu-server's source**, and because it's a convention rather than a boundary, the remote arm has to be threaded through every one of those sites by hand. Lift it into the substrate and the remote host is just **another entry in the registry behind the same sealed resolver** — an additive endpoint, not a cross-cutting edit.
+
+| Migrates **into** `@kolu/sutra` (the volatility) | LOC | Stays in kolu-server (web/HTTP/product) | LOC |
+| --- | --- | --- | --- |
+| `terminalEndpoint/*` — the lifecycle engine, sleep/wake, adopt, the resolver | 1981 | `index.ts` — the Hono HTTP server, oRPC handlers, static serving, TLS | 500 |
+| `ptyHost/*` — daemon supervision, dial, handshake, restart policy | 670 | `state.ts` — on-disk persisted-state + migrations | 539 |
+| `terminal-registry.ts` · `terminals.ts` (lifecycle verbs) · `reconcile.ts` | 595 | `surface.ts` · `router.ts` — the surface/contract serving + oRPC glue | 838 |
+| | | `iframePreviewRoute.ts`, `pwaIdentity.ts`, `tls.ts`, … web-only | rest |
+
+That's **~3246 LOC ≈ 52%** of kolu-server's non-test `src/` (a hair less once `terminals.ts`'s client-chrome setters — netted out below — stay behind), plus its matching tests (~1491 LOC). The dependency arrow points out, so the web server shrinks to *the web server*: HTTP, the oRPC router, the iframe-preview byte route, persistence.
+
+<Callout kind="note" title="The load-bearing boundary inside the migration — kolu still owns memory">
+Two seams split rather than move wholesale, and the split is exactly the [awareness design](awareness-derive-store.html)'s line:
+- **`terminalEndpoint/metadata.ts`** — the fold's commit-to-registry half is substrate; the *publish-to-kolu-surface* tail stays kolu. The substrate runs the **memoryless** producer + the snapshot-half fold; **kolu owns the two remembered facts** (recency, the launch line) and the durable record. The substrate is memoryless *by the same type fence* that protects the producer.
+- **`terminals.ts`** — the lifecycle verbs (`create`/`kill`/`sleep`) migrate; the client-chrome setters (`setCanvasLayout`, `setTerminalIntent`, …) and `snapshotSession` are kolu's web-product concern and stay (or move to a thin kolu adapter).
+- **`session.ts` / `state.ts`** persistence **stays in kolu** — they are the seam where the substrate's memoryless producer hands off to kolu-owns-memory. That hand-off is the boundary the whole awareness design rests on; the substrate exposes a status/snapshot *event*, kolu adapts it to disk.
+</Callout>
+
+## The extraction phase
+
+One PR: **extract `@kolu/sutra` and seal the dispatch.** It is a pure **local-preserving refactor + a package move** — every record is `{kind:"local"}` today, so every `op(key)` resolves to the same local endpoint and create/attach/kill/sleep/wake/adoption stay byte-identical. It **absorbs the old PR-1** (the manual lifecycle threading): there is no seam-hunt because the missed seam is a compile error. It is the foundation both subsequent phases build on.
+
+<PhaseTree title="The substrate — phase 1 of the re-sequenced finale" phases={[
+  { d: 0, g: "✓", c: "ship", l: "S1 · S2 · R9.0 · R9.1 — memoryless producer · kolu's fold · in-process awareness · the resolver", m: "shipped #1626 #1603 · → awareness", h: "awareness-derive-store.html" },
+  { d: 0, g: "▶", c: "prog", l: "SUBSTRATE · extract @kolu/sutra — sealed id-keyed dispatch · private endpoints · host registry · forEachHost · reconnect/adoption · composite TerminalKey", m: "the lifecycle prep · do next", h: "#the-extraction-phase" },
+  { d: 1, g: "○", c: "prog", l: "kolu-server re-homed onto the substrate — local-preserving; the seam-hunt is now a compile error", m: "this PR" },
+  { d: 0, g: "○", c: "prog", l: "KOLU-TUI · the second consumer, remote-first — embeds the substrate, dials hosts, proves it graduated", m: "→ kolu-tui", h: "kolu-tui.html" },
+  { d: 0, g: "○", c: "last", l: "F-REMOTE · full-client remote tile — the web surface on the proven substrate", m: "→ finale", h: "remote-terminals-finale.html#fremote" },
+]} />
+
+- **Needs:** R9.1 (the resolver, shipped). **Blocks:** kolu-tui and the full client both embed the result.
+- **Done:** `@kolu/sutra` exists with the sealed `TerminalSubstrate` facade; `TerminalEndpoint` / `resolveTerminalEndpoint` / `localTerminalEndpoint` / the nine `*Local*` helpers are package-private (importing one outside the package fails to compile); kolu-server drives every terminal op through the facade; the composite `TerminalKey` is the registry key with `meta.location` derived from it; all existing terminal e2e + `sleepWake.test.ts` + boot-adoption tests pass **unchanged**; a new mixed-host `reconcile` test and the create-location reject test land. **No user-facing change.**
+
+## See also
+
+- **[kolu-tui](kolu-tui.html)** — the second consumer that proves the substrate, remote-first.
+- **[The finale](remote-terminals-finale.html)** — the re-sequenced phase plan of record (substrate → kolu-tui → full-client F-REMOTE → R10).
+- **[Awareness — observe vs. remember](awareness-derive-store.html)** — the memoryless producer / kolu-owns-memory line the substrate honors.
+- **[Electricity](electricity.html)** — the receptacle bar this clears, and the table it joins.

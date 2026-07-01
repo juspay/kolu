@@ -1,0 +1,85 @@
+<svg viewBox="0 0 760 552" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,sans-serif" role="img" aria-label="kolu-server and kolu-tui both embed the @kolu/sutra package, which depends outward on kaval, pulam, surface-nix-host and surface">
+  <defs>
+    <marker id="ts-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6470" />
+    </marker>
+    <marker id="ts-arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1b7a3a" />
+    </marker>
+  </defs>
+
+  <!-- ── embedders (consumers) ── -->
+  <g>
+    <rect x="92" y="26" width="250" height="74" rx="11" fill="#dcf0f4" stroke="#0b6478" stroke-width="1.6" />
+    <text x="217" y="58" text-anchor="middle" font-size="17" font-weight="700" fill="#0b3c49">kolu-server</text>
+    <text x="217" y="80" text-anchor="middle" font-size="11.5" fill="#3a6470">embeds it · serves the web client</text>
+
+    <rect x="418" y="26" width="250" height="74" rx="11" fill="#dcf0f4" stroke="#0b6478" stroke-width="1.6" />
+    <text x="543" y="58" text-anchor="middle" font-size="17" font-weight="700" fill="#0b3c49">kolu-tui</text>
+    <text x="543" y="80" text-anchor="middle" font-size="11.5" fill="#3a6470">embeds it · remote-first · proves it</text>
+  </g>
+
+  <!-- embed arrows down into the substrate -->
+  <line x1="217" y1="100" x2="217" y2="152" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ts-arrow)" />
+  <line x1="543" y1="100" x2="543" y2="152" stroke="#5b6470" stroke-width="1.6" marker-end="url(#ts-arrow)" />
+  <text x="380" y="124" text-anchor="middle" font-size="11.5" font-style="italic" fill="#5b6470">embed — own process, own state (Option B)</text>
+
+  <!-- ── the substrate: the electricity ── -->
+  <rect x="70" y="154" width="620" height="214" rx="15" fill="#e3f4e9" stroke="#1b7a3a" stroke-width="2.4" />
+  <text x="380" y="186" text-anchor="middle" font-size="18" font-weight="800" fill="#15532a">@kolu/sutra</text>
+  <text x="380" y="206" text-anchor="middle" font-size="11.5" fill="#2f6b41">the terminal-workflow electricity — one volatility boundary both embed</text>
+
+  <g font-size="11" fill="#1a4a2b">
+    <rect x="96" y="222" width="270" height="60" rx="8" fill="#ffffff" stroke="#bce3c8" stroke-width="1.2" />
+    <text x="231" y="246" text-anchor="middle" font-size="12.5" font-weight="700">Sealed id-keyed dispatch</text>
+    <text x="231" y="266" text-anchor="middle">private endpoints → hard-pin-local is a</text>
+    <text x="231" y="280" text-anchor="middle">compile error (no symbol to import)</text>
+
+    <rect x="394" y="222" width="270" height="60" rx="8" fill="#ffffff" stroke="#bce3c8" stroke-width="1.2" />
+    <text x="529" y="246" text-anchor="middle" font-size="12.5" font-weight="700">Host registry · forEachHost</text>
+    <text x="529" y="266" text-anchor="middle">the dialed-daemon map; a branded</text>
+    <text x="529" y="280" text-anchor="middle">complete-host sweep for session ops</text>
+
+    <rect x="96" y="290" width="270" height="60" rx="8" fill="#ffffff" stroke="#bce3c8" stroke-width="1.2" />
+    <text x="231" y="314" text-anchor="middle" font-size="12.5" font-weight="700">Reconnect / adoption</text>
+    <text x="231" y="334" text-anchor="middle">boot re-dial-re-adopt · HostSession</text>
+    <text x="231" y="348" text-anchor="middle">backoff · durable kaval --stdio</text>
+
+    <rect x="394" y="290" width="270" height="60" rx="8" fill="#ffffff" stroke="#bce3c8" stroke-width="1.2" />
+    <text x="529" y="314" text-anchor="middle" font-size="12.5" font-weight="700">Composite TerminalKey</text>
+    <text x="529" y="334" text-anchor="middle">{ host, ptyId } — host is intrinsic</text>
+    <text x="529" y="348" text-anchor="middle">to identity, not a side lookup</text>
+  </g>
+
+  <!-- depends-out arrows -->
+  <line x1="160" y1="368" x2="160" y2="430" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#ts-arrow-green)" />
+  <line x1="305" y1="368" x2="305" y2="430" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#ts-arrow-green)" />
+  <line x1="455" y1="368" x2="455" y2="430" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#ts-arrow-green)" />
+  <line x1="610" y1="368" x2="610" y2="430" stroke="#1b7a3a" stroke-width="1.6" marker-end="url(#ts-arrow-green)" />
+  <text x="380" y="404" text-anchor="middle" font-size="11.5" font-style="italic" fill="#1b7a3a">depends on — the arrow points OUT (neither UI is depended on)</text>
+
+  <!-- ── the already-graduated electricity it stands on ── -->
+  <g font-size="10.5" fill="#6b4a12">
+    <rect x="70" y="432" width="148" height="74" rx="9" fill="#f8efd9" stroke="#c79a3e" stroke-width="1.5" />
+    <text x="144" y="460" text-anchor="middle" font-size="13" font-weight="700" fill="#5b3d0a">kaval</text>
+    <text x="144" y="480" text-anchor="middle">PTY transport ·</text>
+    <text x="144" y="494" text-anchor="middle">remote over ssh</text>
+
+    <rect x="230" y="432" width="160" height="74" rx="9" fill="#f8efd9" stroke="#c79a3e" stroke-width="1.5" />
+    <text x="310" y="460" text-anchor="middle" font-size="13" font-weight="700" fill="#5b3d0a">pulam</text>
+    <text x="310" y="480" text-anchor="middle">awareness + fs/git ·</text>
+    <text x="310" y="494" text-anchor="middle">one dial serves both</text>
+
+    <rect x="402" y="432" width="172" height="74" rx="9" fill="#f8efd9" stroke="#c79a3e" stroke-width="1.5" />
+    <text x="488" y="460" text-anchor="middle" font-size="12.5" font-weight="700" fill="#5b3d0a">@kolu/surface-nix-host</text>
+    <text x="488" y="480" text-anchor="middle">getHostSession —</text>
+    <text x="488" y="494" text-anchor="middle">the ssh / Nix dial</text>
+
+    <rect x="586" y="432" width="104" height="74" rx="9" fill="#f8efd9" stroke="#c79a3e" stroke-width="1.5" />
+    <text x="638" y="460" text-anchor="middle" font-size="13" font-weight="700" fill="#5b3d0a">@kolu/surface</text>
+    <text x="638" y="480" text-anchor="middle">the mirror</text>
+    <text x="638" y="494" text-anchor="middle">(R7 dual)</text>
+  </g>
+
+  <text x="380" y="534" text-anchor="middle" font-size="11" fill="#8a93a0">Both UIs consume the one substrate; the substrate consumes the graduated transport — it is depended on by neither.</text>
+</svg>

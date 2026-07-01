@@ -1,0 +1,201 @@
+---
+title: kolu-tui — a real TUI version of kolu, remote-first
+description: >-
+  Not another raw single-daemon CLI — kolu-tui is kolu itself in the terminal, in kolu's own two-pane
+  shape: the DOCK rail on the left (the terminal fleet you switch between), the live terminal you type
+  into as the main panel. It EMBEDS @kolu/sutra (own process, own state — Option B, not a
+  thin renderer of a running kolu-server) and renders that layout with OpenTUI (the SolidJS-reconciler
+  terminal framework, the lib that powers opencode; runs under Bun). The Dock reuses the shared
+  agentProjection folds (agentBucket / agentUrgency / agentPaintClass), so kolu-tui is a new renderer of
+  the Dock-fleet-mirror contract, not a re-derivation. Built remote-FIRST as the de-risk milestone —
+  local+remote PTY, reconnect, boot re-dial-re-adopt, adoption, the composite TerminalKey across two
+  hosts, basic awareness — and it MUST exercise the pulam dial (awareness + fs/git ride one
+  getHostSession(binary pulam) surface, so proving awareness proves fs/git's transport for free). It
+  stops at the Dock + terminal + basic awareness — no Code tab, byte preview, paste/upload or transcript
+  (full-client surface, deferred to F-REMOTE). Ships in remote-first phases K1-K3, after the substrate.
+parents: [remote-terminals-finale, feature]
+status: proposed
+maturity: seedling
+updated: 2026-06-30
+---
+
+import Callout from "../../components/Callout.astro";
+import PrLink from "../../components/PrLink.astro";
+import Issue from "../../components/Issue.astro";
+import Cite from "../../components/Cite.astro";
+import Terminal from "../../components/Terminal.astro";
+import D2 from "../../components/D2.astro";
+import Phase from "../../components/Phase.astro";
+import PhaseTree from "../../components/PhaseTree.astro";
+import Pill from "../../components/Pill.astro";
+
+**kolu itself, in the terminal.** kolu already has two *raw* single-daemon CLIs — [kaval-tui](pty-daemon-tui.html) reads PTY **bytes**, [pulam-tui](pulam-tui.html) reads **awareness** — and each is a scriptable face of one daemon. kolu-tui is a different animal: it **embeds the [terminal substrate](sutra.html)** (own process, own state — like kaval-tui is its own process, *not* a thin client of a running kolu-server) and lays out **kolu's own two-pane shape** — the **Dock rail on the left**, the **live terminal you type into as the main panel** — as a **full-screen TUI** on [OpenTUI](https://opentui.com). It's the **second consumer that proves the substrate graduated**, and it's built **remote-first** as the de-risk milestone for the [finale](remote-terminals-finale.html).
+
+## User-facing — kolu's Dock, in the terminal
+
+export const PAL = { bg: "#0f1117", panel: "#151823", line: "#222838", txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa", red: "#e06c75" };
+
+export const RailHead = ({ name, remote }) => (
+  <div style={`padding:.35rem .35rem .1rem;color:${remote ? PAL.violet : PAL.dim};font-size:.66em;letter-spacing:.05em;text-transform:uppercase`}>{remote ? "ssh " : ""}{name}</div>
+);
+
+export const RailRow = ({ glyph, gc, label, sel }) => (
+  <div style={`display:flex;align-items:center;gap:.5ch;padding:.16rem .35rem;border-radius:5px;border-left:2px solid ${sel ? PAL.cyan : "transparent"};${sel ? "background:rgba(86,182,194,.13)" : ""}`}>
+    <span class={glyph === "◜" ? "rt-spin" : glyph === "●" ? "rt-blink" : ""} style={`color:${gc};font-size:.8em;width:1ch`}>{glyph}</span>
+    <span style={`color:${sel ? PAL.txt : PAL.sub};font-size:.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap`}>{label}</span>
+  </div>
+);
+
+export const Line = ({ c, dim, children }) => (
+  <div style={`color:${dim ? PAL.dim : c || PAL.txt};white-space:pre`}>{children}</div>
+);
+
+export const Workbench = () => (
+  <div style="font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;overflow:hidden;margin:1.2rem 0;box-shadow:0 10px 34px rgba(0,0,0,.4);max-width:48rem">
+    <div style="display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;background:#0b0d12;border-bottom:1px solid #222838">
+      <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56;display:inline-block"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e;display:inline-block"></span>
+      <span style="width:11px;height:11px;border-radius:50%;background:#27c93f;display:inline-block"></span>
+      <span style="margin-left:.4rem;color:#8b94a6">kolu-tui</span>
+      <span style="margin-left:auto;color:#5b6678;font-size:.78em">OpenTUI · embeds @kolu/sutra</span>
+    </div>
+    <div style="display:flex;min-height:11rem">
+      <div style="width:15ch;flex:none;border-right:1px solid #1c2231;background:#0d0f15;padding:.3rem .25rem">
+        <div style="color:#5b6678;font-size:.62em;letter-spacing:.08em;padding:.1rem .35rem .2rem">◧ DOCK</div>
+        <RailHead name="local" />
+        <RailRow glyph="◜" gc={PAL.cyan} label="kolu · codex" />
+        <RailRow glyph="✓" gc={PAL.green} label="notes · claude" />
+        <RailHead name="nix@prod" remote />
+        <RailRow glyph="●" gc={PAL.amber} label="kolu · claude" sel />
+        <RailRow glyph="○" gc={PAL.dim} label="infra · vim" />
+      </div>
+      <div style="flex:1;min-width:0;padding:.4rem .7rem">
+        <div style="color:#8b94a6;font-size:.74em;border-bottom:1px solid #1c2231;padding-bottom:.28rem;margin-bottom:.35rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="color:#a78bfa">ssh nix@prod</span> · ~/kolu · feat/dial-ssh · <span style="color:#e6a23c">claude ● awaiting you</span></div>
+        <Line c={PAL.sub}>⏺ Bash(cargo test)</Line>
+        <Line dim>  ⎿ test result: ok. 128 passed; 0 failed</Line>
+        <Line c={PAL.txt}>I've got the ssh dial passing. Want me to wire the</Line>
+        <Line c={PAL.txt}>reconnect backoff next, or open the PR first?</Line>
+        <div style="color:#c8d0de">&gt; open the PR<span class="rt-blink" style="background:#c8d0de;color:#0f1117">&nbsp;</span></div>
+      </div>
+    </div>
+    <div style="padding:.4rem .8rem;border-top:1px solid #1c2231;color:#5b6678;font-size:.78em">↑↓ switch · ⇥ focus rail/term · c create · type → main pane · ● nix@prod/kolu awaiting you</div>
+  </div>
+);
+
+<style>{`
+  .rt-blink { animation: rtblink 1.8s ease-in-out infinite; }
+  @keyframes rtblink { 0%, 100% { opacity: 1 } 50% { opacity: .45 } }
+  .rt-spin { display:inline-block; animation: rtspin 1.1s linear infinite; transform-origin: 50% 54%; }
+  @keyframes rtspin { to { transform: rotate(360deg) } }
+`}</style>
+
+The layout is **kolu's own, in the terminal**: the **[Dock](dock-repo-identity.html) rail on the left** — every terminal you own, grouped by host, each with its live agent badge — and the **main panel is the live terminal you type into**. The same two-pane shape as kolu-web (Dock + canvas), rendered by OpenTUI. You don't leave one view to reach the other; both are on screen at once.
+
+<Workbench />
+
+You **switch between terminals** from the rail: `↑`/`↓` (or `j`/`k`) moves the selection and the **main pane swaps to that terminal**; `⇥` toggles focus between navigating the rail and typing into the terminal, so keystrokes go where you mean. The host headers make it *kinda like tmux sessions* — except a session can live on an ssh remote, and the rail's badge tells you which terminal is **awaiting you** while you work in another. A detached terminal keeps running on its host; the rail just shows it dimmer.
+
+The badges are not a re-implementation: they are the **shared `agentProjection` folds** the web Dock and [pulam-web](pulam-web.html) already use — `agentBucket` (`working` · `awaiting` · `waiting`), with the **order≠colour** split intact (a just-finished `waiting` agent *ranks* idle but *paints* awaiting). kolu-tui is a **new renderer of the [Dock ⇄ fleet-mirror contract](dock-repo-identity.html)**, importing the folds, never re-deriving a `switch` over agent states.
+
+<Callout kind="note" title="Typing is raw passthrough — and it must not steal the inner agent's chords">
+When the main pane has focus, keystrokes are forwarded to that PTY **raw** (kolu-tui reuses kaval-tui's attach machine — the escape machine + reply filter + terminal restore, via `@kolu/terminal-protocol`). kolu-tui owns only the rail + its own chrome; the terminal pane is total passthrough. So its focus/switch chords must respect `input/prohibitedKeybinds.ts` — it never claims a chord an inner tool needs (Claude Code's `Ctrl+B`/`Ctrl+J`); the rail-focus toggle and the ssh-style line-start escape stay clear of them, exactly the reserved-keybinding rule the web client already follows.
+</Callout>
+
+**Create on a remote host** — `c`, pick a host; it's the substrate's `create(location)`, one keystroke and one code path, and the new terminal lands in the rail focused in the main pane:
+
+<Terminal title="kolu-tui · c → create" lines={[
+  "host? nix@prod          cmd? claude",
+  "# dialing nix@prod · kaval (PTY) + pulam (awareness) over ssh…",
+  "✓ added to the Dock  ·  ssh nix@prod  ·  ~/kolu  ·  a3f9…c21 (survives the link)",
+]} />
+
+<Callout kind="note" title="What it deliberately is NOT — the scope line that keeps it honest">
+kolu-tui is the Dock rail + the terminal pane + **basic awareness**. It has **no Code-tab fs/git browser, no binary/image preview, no paste/upload, no transcript export, no recency clock of its own** (recency is kolu's remembered fact, absent from the memoryless snapshot a dial serves). Those are *full-client surface* work that lands in [F-REMOTE](remote-terminals-finale.html#fremote), not here. The smaller surface is the point: prove the *hard transport/lifecycle volatility* without the *web rendering* riding along.
+</Callout>
+
+## Architecture — embed the substrate · render with OpenTUI · reuse the Dock's folds
+
+kolu-tui is **its own process**, composed of three parts that map cleanly onto kolu's existing boundaries:
+
+1. **The embedded [substrate](sutra.html)** owns the lifecycle — `create(location)`, `attach(key)`, `forEachHost` at boot — exactly as kolu-server uses it. **This is Option B and it is load-bearing**: if kolu-tui were a thin renderer of a running kolu-server, nothing would graduate and it would be a second UI, not a second consumer. Because it embeds and dials, it *is* the proof.
+2. **[OpenTUI](https://opentui.com) renders the two-pane layout** — specifically its **SolidJS reconciler `@opentui/solid`** (compile-time JSX → renderables, no virtual DOM, the same Solid model kolu's web client already uses), so the Dock rail and the terminal pane can be expressed in the framework kolu is built in. OpenTUI is the right reuse: it's the SolidJS-native TUI framework (the lib that powers opencode), and pulam-tui already road-tested it in-repo.
+3. **The shared `agentProjection` folds** give the rail its meaning — `agentBucket` / `agentUrgency` / `agentPaintClass` from `@kolu/terminal-workspace`, imported (never re-derived), making kolu-tui the next renderer of the Dock ⇄ fleet-mirror contract.
+
+<D2 caption="kolu-tui's three parts on kolu's existing boundaries. OpenTUI (@opentui/solid, under Bun) renders the Dock rail + the terminal pane; the embedded substrate owns the lifecycle and dials each host's kaval (PTY) + pulam; agentProjection (the shared fold) gives the rail its badges. The pulam dial carries terminalWorkspaceSurface — ONE surface holding BOTH awareness AND fs/git — so dialing it for the rail's badges exercises the exact transport the full client's Code tab will ride." code={`direction: down
+tui: "kolu-tui — own process, under Bun (Option B)" {
+  ui: "OpenTUI @opentui/solid — the Dock rail + the terminal pane"
+  proj: "agentProjection (shared fold) — agentBucket / urgency / paint"
+}
+sub: "@kolu/sutra (embedded)" {
+  disp: "sealed dispatch · host registry · reconnect/adoption · composite TerminalKey"
+}
+kaval: "kaval dial — binary: kaval\\nptyHostSurface · raw PTY bytes"
+pulam: "pulam dial — binary: pulam\\nterminalWorkspaceSurface · ONE surface:\\nawareness (snapshots · activity) + fs/git (fs.* · git.*)"
+tui -> sub: "embeds · calls op(key)"
+sub -> kaval: "PTY transport → the terminal pane"
+sub -> pulam: "awareness now · fs/git transport PROVEN"
+pulam -> tui: "snapshots → agentProjection → rail badges"
+`} />
+
+<Callout kind="warn" title="The pulam-dial requirement — the proof condition, not an afterthought">
+kolu-tui **must** dial the host's pulam for the rail's awareness badges, and that is deliberate. Awareness **and** fs/git are procedures on the *same* `terminalWorkspaceSurface`, served by the *same* `pulam` binary, reached through the *same* `getHostSession({ host, binary: "pulam" })` pool key (<Cite file="packages/surface-nix-host/src/hostSession.ts" lines="911-929" />; pulam-tui dials it the same way, <Cite file="packages/pulam-tui/src/hostConnect.ts" lines="56-64" />). So a kolu-tui that exercises the pulam dial for the Dock **has by construction exercised the exact transport fs/git rides** — same ssh provision, same `pulam --stdio` seam, same typed link. Even with no Code tab, kolu-tui proves the fs/git *transport*; what F-REMOTE adds is the *rendering*. Skip the pulam dial (e.g. fold only the in-process local producer) and the TUI stops being a de-risk — it becomes a second UI. This condition is what makes the milestone worth more than a product.
+</Callout>
+
+The three terminal-side clients, kept distinct:
+
+| | kaval-tui | pulam-tui | **kolu-tui** |
+| --- | --- | --- | --- |
+| Dials | kaval, `binary: kaval` — `ptyHostSurface` | pulam, `binary: pulam` — `terminalWorkspaceSurface` | **embeds the substrate**, which dials *both* |
+| Sees | raw PTY **bytes** | derived **meaning** (agent/git/PR), no bytes | a **live terminal pane** *and* the Dock rail |
+| Renderer | raw passthrough (Node) | scriptable text/NDJSON (Node, *no OpenTUI*) | **full-screen OpenTUI** two-pane (`@opentui/solid`, Bun) |
+| Proves | PTY transport over ssh | awareness producer over ssh | the **substrate orchestration** + both dials, end-to-end |
+
+<Callout kind="note" title="pulam-tui shed OpenTUI; kolu-tui is where it earns its place">
+[pulam-tui](pulam-tui.html) *was* a full OpenTUI dashboard, then **reverted to a thin Node CLI** (<PrLink pr={1582} />) once [pulam-web](pulam-web.html) became the browser fleet board — a raw `status`/`watch` snapshot has no place for a full-screen renderer. kolu-tui is the opposite case: a two-pane Dock+terminal you switch and type in genuinely needs a layout/widget/reactivity engine, and hand-rolling one would violate the repo's "prefer external libraries" rule. So OpenTUI comes back here, where it's load-bearing rather than redundant.
+</Callout>
+
+## What it proves vs skips
+
+The milestone is honest only if the path it *exists to prove* is the one a done-criterion can only meet by hitting it — so name it exactly.
+
+**Proves** (transfers verbatim to the full client):
+
+- The **sealed substrate end-to-end** — every op routed by `TerminalKey`, no host-seam bypass possible.
+- **Remote PTY** into the terminal pane over the kaval dial; **reconnect / blip survival** (`HostSession` backoff + the durable `kaval --stdio` daemon outliving the link).
+- **Boot re-dial-re-adopt** and **adoption** across hosts — `forEachHost` + the branded complete-host sweep, exercised on a *real* second host.
+- The **composite `TerminalKey`** under genuine pressure: two hosts whose bare PTY ids can collide, kept distinct by `{host, ptyId}`.
+- The **rail fed over the pulam dial** — which, per the condition above, proves the **awareness *and* fs/git transport** the full client inherits, and exercises the shared `agentProjection` as a TUI renderer.
+
+**Skips** (deliberately — full-client surface, lands in F-REMOTE): the fs/git **Code tab** UI, the binary-preview **byte route**, **paste/upload**, **transcript export**, **rich awareness rendering** + restore UX. kaval-tui already proves raw PTY; kolu-tui's added value is the *kolu orchestration*, the *two-pane Dock+terminal*, and the *dial coverage* — never the rendering F-REMOTE owns.
+
+<Callout kind="accent" title="The de-risk, in one line">
+kolu-tui lights the hardest, least-reversible third of remote terminals — transport, reconnect, host-lifecycle, adoption, the composite key — behind kolu's real Dock, with no web rendering, and ships as a usable product while doing it. The full client then inherits a *proven* substrate and only has to add its own pixels.
+</Callout>
+
+## Implementation & phases — OpenTUI/Bun, the agentProjection reuse, K1–K3
+
+The library decisions are **made** (so an implementer doesn't have to guess):
+
+- **Renderer: OpenTUI via `@opentui/solid`.** SolidJS reconciler, so the Dock rail and terminal pane are authored in the same framework as the web client; reuse the presentation-neutral `agentProjection` folds outright, and reuse the web Dock's *component logic* where it's portable (the structure + the folds port; DOM/CSS specifics do not — confirm the component-reuse depth at K1).
+- **Runtime: Bun** — OpenTUI's native Zig core needs it (the same reason pulam-tui ran under Bun before reverting). The substrate dials kaval/pulam *daemons* over sockets/ssh rather than spawning native PTYs in-process, so the Bun process carries no native PTY dependency; the kaval/pulam daemons stay as they are.
+- **Honest caveat:** OpenTUI is **pre-1.0** ("not ready for production" upstream). It's the right SolidJS-native bet and has in-repo precedent, but pin a version and treat a renderer-API break as a real K1 risk — the substrate/awareness work behind the Dock is unaffected either way.
+
+Three increments, each shippable, each remote-from-the-start. They come **after** the [substrate](sutra.html) extraction.
+
+<PhaseTree title="kolu-tui — remote-first, on the embedded substrate" phases={[
+  { d: 0, g: "○", c: "prog", l: "K1 · embed + the Dock — link @kolu/sutra; render the two-pane Dock rail + terminal on OpenTUI (@opentui/solid); switch/type across local AND ssh hosts; the create knob", m: "needs SUBSTRATE", h: "#user-facing--kolus-dock-in-the-terminal" },
+  { d: 0, g: "○", c: "prog", l: "K2 · survive the link — reconnect + blip survival · boot re-dial-re-adopt · adoption across hosts · composite TerminalKey proven on ≥2 hosts", m: "needs K1" },
+  { d: 0, g: "○", c: "prog", l: "K3 · live rail badges over the pulam dial — agentProjection (working/awaiting/waiting) per row, proving the awareness + fs/git transport", m: "needs K2 · the proof condition", h: "#architecture--embed-the-substrate--render-with-opentui--reuse-the-docks-folds" },
+  { d: 0, g: "○", c: "last", l: "→ F-REMOTE · the full web tile inherits the proven substrate + both dials", m: "→ finale", h: "remote-terminals-finale.html#fremote" },
+]} />
+
+- **K1 — embed + the Dock.** The skeleton that proves Option B: kolu-tui *embeds* the substrate (own process, under Bun) and renders the two-pane Dock rail + terminal on OpenTUI; `create`/`kill`, **switch-between-terminals** (rail selection swaps the main pane), and raw typing into the focused pane work across local and ssh hosts through the kaval dial. Reuses kaval-tui's raw attach machine ([the escape machine + reply filter + restore](pty-daemon-tui.html#phase-2--the-attach-loop-shipped-), via `@kolu/terminal-protocol`). *Done: a remote terminal appears in the rail, is selected/typed-into/killed through the substrate; the PTY survives a detach.*
+- **K2 — survive the link.** Reconnect, boot re-dial-re-adopt, adoption — the substrate's hard volatility under real ssh conditions. *Done: kill the link mid-session → the pane reconnects and the remote PTY is intact; restart kolu-tui → it re-dials each host and re-adopts surviving PTYs; two hosts with colliding bare ids stay distinct.*
+- **K3 — live rail badges over the pulam dial.** Dial each host's pulam, fold the snapshot stream through the shared `agentProjection` into each rail row's bucketed badge + live `●`. *Done: a remote agent's `working → awaiting` shows in the rail while you work in another pane — proving the pulam transport (and thus fs/git's) that F-REMOTE's Code tab will ride.*
+
+## See also
+
+- **[The terminal-workflow substrate](sutra.html)** — the electricity kolu-tui embeds; the API both it and kolu-server call.
+- **[The Dock](dock-repo-identity.html)** · the Dock ⇄ fleet-mirror contract kolu-tui renders into the terminal.
+- **[The finale](remote-terminals-finale.html)** — the phase plan of record this slots into (substrate → kolu-tui → full-client F-REMOTE → R10).
+- **[kaval-tui](pty-daemon-tui.html)** · **[pulam-tui](pulam-tui.html)** — the raw single-daemon clients kolu-tui sits above.
