@@ -40,8 +40,6 @@ export interface ChannelOptions {
    *  this is dropped (its iterator ends) rather than buffering forever.
    *  Defaults to 10,000. */
   maxQueue?: number;
-  /** Invoked when a subscriber is dropped for exceeding `maxQueue`. */
-  onOverflow?: () => void;
 }
 
 interface Sub<T> {
@@ -52,11 +50,9 @@ export class Channel<T> {
   private readonly subs = new Set<Sub<T>>();
   private closed = false;
   private readonly maxQueue: number;
-  private readonly onOverflow?: () => void;
 
   constructor(options: ChannelOptions = {}) {
     this.maxQueue = options.maxQueue ?? DEFAULT_MAX_QUEUE;
-    this.onOverflow = options.onOverflow;
   }
 
   /** Synchronous fire-and-forget broadcast to every live subscriber. */
@@ -84,8 +80,14 @@ export class Channel<T> {
    * The subscriber is added to the set the moment `subscribe()` is
    * called — not on first `next()` — so a `publish()` that races a
    * `subscribe()`/`serialize()` pair is captured deterministically.
+   *
+   * `onOverflow` is THIS subscriber's drop callback — invoked (once) if it is
+   * dropped for exceeding `maxQueue`. It is per-subscriber, not channel-wide:
+   * each subscriber buffers independently, so only the one that overflowed
+   * fires. The attach serving layer uses it to distinguish a slow-consumer drop
+   * from a graceful end and emit an `overflow` frame.
    */
-  subscribe(signal?: AbortSignal): AsyncIterable<T> {
+  subscribe(signal?: AbortSignal, onOverflow?: () => void): AsyncIterable<T> {
     if (this.closed || signal?.aborted) return EMPTY;
 
     const queue: (T | typeof CLOSE)[] = [];
@@ -124,7 +126,7 @@ export class Channel<T> {
           // buffered items (including the CLOSE we push below) before it ends.
           this.subs.delete(sub);
           signal?.removeEventListener("abort", onAbort);
-          this.onOverflow?.();
+          onOverflow?.();
           queue.length = 0;
           queue.push(CLOSE);
           return;
@@ -134,7 +136,18 @@ export class Channel<T> {
     };
     this.subs.add(sub);
 
-    const onAbort = () => sub.push(CLOSE);
+    const onAbort = () => {
+      // Remove from the live set BEFORE delivering CLOSE: an abort is a clean
+      // end, NOT an overflow. If the sub stayed in `subs`, a publish() racing the
+      // abort could still reach it and — with its queue already at the cap — trip
+      // the drop branch above, firing `onOverflow` and mis-signalling the abort
+      // as an overflow (inverting the exit-vs-overflow distinction the attach
+      // contract draws). Deleting first, like the drop branch does, keeps a
+      // post-abort publish from ever reaching it; the queued CLOSE still drains
+      // to end the consumer.
+      this.subs.delete(sub);
+      sub.push(CLOSE);
+    };
     signal?.addEventListener("abort", onAbort, { once: true });
 
     return {

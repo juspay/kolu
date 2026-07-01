@@ -69,9 +69,11 @@ to the mirror's existing per-terminal footprint, not a new unbounded retention.
 
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
-browser tab on the chatty `data` stream — is **dropped** (its iterator ends)
-rather than pinning server memory without bound. The client's transparent
-re-subscribe then delivers a fresh snapshot.
+browser tab on the chatty `data` stream — is **dropped** rather than pinning
+server memory without bound. The drop emits a typed `overflow` control frame as
+the attach stream's last frame (contract 4.0), distinct from a PTY exit, so the
+client re-attaches for a fresh snapshot instead of mistaking the drop for a dead
+terminal and freezing its scrollback.
 
 ## Usage
 

@@ -88,6 +88,7 @@ import {
   publishTerminalState,
   updateMemory,
 } from "./metadata.ts";
+import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -1097,34 +1098,36 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // `TerminalHandle` invariant (undefined ⟹ already live); awaiting it
     // surfaces a spawn failure rather than hitting a missing PTY.
     await getActiveTerminal(id)?.handle.ready;
-    const stream = await ptyHostClient.surface.terminalAttach.get(
-      { id },
-      { signal },
-    );
-    const iter = stream[Symbol.asyncIterator]();
-    // The pty-host contract guarantees the first frame is the screen-state
-    // snapshot, then deltas. A first frame that isn't a snapshot is a contract
-    // violation — throw rather than silently paint a blank terminal (the same
-    // fail-loud stance as `getScreenState`'s NOT_FOUND).
-    const first = await iter.next();
-    let snapshot = "";
-    if (!first.done) {
+    // Open a kaval attach and consume its mandatory snapshot-first frame. Shared
+    // by the initial attach and each overflow-driven re-attach below. The
+    // pty-host contract guarantees the first frame is the screen-state snapshot,
+    // then deltas; a first frame that isn't a snapshot is a contract violation —
+    // throw rather than silently paint a blank terminal (the same fail-loud
+    // stance as `getScreenState`'s NOT_FOUND).
+    const open = async (): Promise<OpenedAttach> => {
+      const stream = await ptyHostClient.surface.terminalAttach.get(
+        { id },
+        { signal },
+      );
+      const iter = stream[Symbol.asyncIterator]();
+      const first = await iter.next();
+      if (first.done) return { snapshot: "", iter };
       if (first.value.kind !== "snapshot") {
         throw new Error(
           `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
         );
       }
-      snapshot = first.value.data;
-    }
-    const deltas = (async function* () {
-      if (first.done) return;
-      // `iter` is an AsyncIterator, not AsyncIterable — wrap it so `for await`
-      // can consume the already-advanced iterator (after the snapshot was read).
-      for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
-        yield msg.data;
-      }
-    })();
-    return { snapshot, deltas };
+      return { snapshot: first.value.data, iter };
+    };
+
+    const initial = await open();
+    // The deltas survive a slow-subscriber drop: on kaval's `overflow` frame the
+    // loop re-attaches for a fresh snapshot instead of ending (which would freeze
+    // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
+    return {
+      snapshot: initial.snapshot,
+      deltas: reattachingDeltas(open, initial.iter),
+    };
   }
 }
 
