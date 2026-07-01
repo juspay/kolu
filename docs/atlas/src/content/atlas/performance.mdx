@@ -1,10 +1,10 @@
 ---
 title: Performance — Where Kolu Can Get Faster
-description: A living tuning map of the Kolu monorepo. Built from a 77-agent survey (10 subsystem investigators → adversarial verification → synthesis), it ledgers what's already shipped and ranks the real-but-bounded opportunities that remain — so we keep Kolu nimble and fast, by measurement, over time.
+description: A living tuning map of the Kolu monorepo, read through the N/C/U performance model — do fewer things (N), make each thing cheaper (C), use idle capacity (U). Built from a 77-agent survey and adversarial verification, it files every shipped win and open opportunity under the lever it pulls, so we keep Kolu nimble and fast, by measurement, over time.
 parents: [analysis]
 status: proposed
 maturity: seedling
-updated: 2026-06-20
+updated: 2026-07-01
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -15,169 +15,196 @@ import PrLink from "../../components/PrLink.astro";
 
 This is the Atlas hub for **keeping Kolu nimble and fast** — a living map of the
 monorepo's performance surfaces, the wins already banked, and the opportunities
-worth tuning next. It was built by a survey workflow: **10 investigators**, one
-per subsystem, each reading real source; **adversarial verification** of every
-finding against the code (this repo's history shows plausible, code-cited perf
-diagnoses are *often wrong* — see [`memory-learnings`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/memory-learnings.md)
-and [`dock-and-eventloop-1308`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/dock-and-eventloop-1308.md));
-then synthesis into the themes below. Of **66 raw findings, 35 survived** as real
-or partial, 6 were confirmed already-shipped, and **25 were dropped** as
-speculative or mechanically wrong.
+worth tuning next, all organized by one model: **N/C/U**. It was built by a
+survey workflow — **10 investigators**, one per subsystem, each reading real
+source; **adversarial verification** of every finding against the code (this
+repo's history shows plausible, code-cited perf diagnoses are *often wrong* — see
+[`memory-learnings`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/memory-learnings.md)
+and [`dock-and-eventloop-1308`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/dock-and-eventloop-1308.md)) —
+then synthesis. Of **66 raw findings, 35 survived** as real or partial, 6 were
+confirmed already-shipped, and **25 were dropped** as speculative or mechanically
+wrong. This pass re-files every survivor under the N/C/U lever it pulls, adds one
+verified new item (the uncompressed bundle) and two low-confidence candidates a
+second sweep surfaced.
 
-<Callout kind="accent" title="The honest headline — Kolu is already measurement-disciplined">
-Verification **downgraded every "high-impact" claim to medium**. The big wins are
-already in: off-screen aura mounting, rAF-coalesced canvas gestures, the
-worker-pool diff highlighter, lazy/capped WebGL, and the `storesByKey` cleanup.
-What remains is mostly **real-but-bounded structural inefficiency, not acute
-regressions** — so the discipline this map enforces is: *measure before you
-tune*. Two clusters carry the most leverage — (1) **reactivity granularity** in
-the terminal-metadata pipeline (an unstable array reference made `terminalIds()`
-notify downstream on every metadata write, even ones that left the id set
-unchanged) and the **wire layer's full-set broadcasts**; and (2) **mobile battery
-hygiene** (timers that wake the device
-regardless of visibility). Nearly every item below ends in *"…but confirm with a
-trace first."*
+<Callout kind="accent" title="The honest headline — Kolu is N-dominated and measurement-disciplined">
+Read through the model, the ledger has a clear shape. **N — doing fewer things —
+is where Kolu has already won**: nearly every banked win removes redundant work —
+the reactivity re-derivation gate <PrLink pr={1425} />, the markdown re-sanitize
+keep-alive <PrLink pr={1446} />, the per-attach scrollback share <PrLink pr={1573} />,
+rAF-coalesced canvas gestures <PrLink pr={1368} />. **C — making each thing
+cheaper — concentrates on the wire and the bundle**: full-set broadcasts, base64
+framing, and the biggest unconditional item, a **2.56 MB client bundle served
+uncompressed**. **U — using idle capacity — is nearly untapped**: off-thread diff
+highlighting <PrLink pr={1363} /> is the lone banked U win, because a single-user
+desktop client has little idle capacity to reclaim. Verification **downgraded
+every "high-impact" claim to medium** — what remains is mostly real-but-bounded
+structural inefficiency, not acute regression. So the rule this map enforces is
+*measure before you tune*: **the model tells you which lever a fix pulls and where
+to look next; a trace still tells you whether it matters.**
 </Callout>
 
-## The map
+## The N/C/U model
 
-Green is banked; amber is open. The opportunities cluster on the **client render
-path**, the **wire**, the **kaval backend**, **mobile timers**, and the **dev
-loop** — with the GPU/canvas/diff hot paths already green.
+Think of any workload as a loop. The time to finish it is roughly:
 
-export const PerfSurfaces = () => (
+<p style="text-align:center;font-size:1.2rem;margin:1.1rem 0;font-weight:650;color:#11203a">Time&nbsp;to&nbsp;outcome&nbsp;&nbsp;≈&nbsp;&nbsp;(N&nbsp;×&nbsp;C)&nbsp;/&nbsp;U</p>
+
+- **N — how many times.** Iterations, round-trips, re-derivations, retries. Lower
+  it with a better algorithm, by removing dead work, by doing shared work once, or
+  by not doing work until it's actually asked for.
+- **C — how much each time costs.** Dominated by *distance* — network hops, layers
+  of indirection, bytes moved. Lower it by keeping hot data close, compacting what
+  repeats, and shrinking what crosses the wire.
+- **U — how much of your capacity is working.** Idle cores, idle links, unbalanced
+  load. Raise it with parallelism, pipelining, and pre-computing in slack time.
+
+The three levers are orthogonal, so they *multiply*: a 3× on each is 27×, not 9×.
+But that is the aspirational ceiling, not Kolu's ledger — this repo's wins are
+mostly **single-lever and single-digit-percent at today's scale** (3–20 terminals,
+small/medium docs). Here the model earns its keep as a **search heuristic**: it
+names the lever each fix pulls (so we don't double-count a win) and points at the
+thin levers — **C on the wire, and U almost everywhere** — where the next
+structural headroom sits. Then you measure.
+
+export const NcuLevers = () => (
   <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 720 524" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui" role="img" aria-label="Kolu's performance surfaces as a runtime spine: CLIENT render and load, down to WIRE surface/oRPC subscriptions, down to BACKEND server and kaval PTY host, then MOBILE battery and DEV-LOOP/CI side by side. Each cell is green where shipped (with PR number) or amber where still to tune; the highest-leverage to-tune items — reactivity metadata, the wire collection key-set, and the mobile 15s heartbeat — are emphasised.">
-      <defs>
-        <marker id="perf-ah" markerWidth="9" markerHeight="9" refX="5" refY="3" orient="auto">
-          <path d="M0,0 L6,3 L0,6 Z" fill="#0D32B2" />
-        </marker>
-      </defs>
-      <text x="20" y="26" font-size="14" font-weight="700" fill="#0A0F25">Kolu's performance surfaces</text>
-      <rect x="430" y="15" width="13" height="13" rx="3" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
-      <text x="449" y="26" font-size="11" fill="#3f444b">shipped</text>
-      <rect x="528" y="15" width="13" height="13" rx="3" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="547" y="26" font-size="11" fill="#3f444b">to tune</text>
+    <svg viewBox="0 0 720 336" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui" role="img" aria-label="Kolu's optimizations sorted into three columns by the lever they pull. N (do fewer things) is green-heavy — reactivity re-derivation, markdown re-sanitize, scrollback share, and canvas coalescing all shipped, with getSubTerminalIds, mobile wake-ups, and the Nix build still open. C (make each thing cheaper) is all-open and led by the starred marquee item, compressing the 2.56 MB client bundle, plus binary framing, metadata deltas, and a tap-rect cache; no banked C win yet. U (use idle capacity) has one shipped win, off-thread diff highlighting, then workspace and server test parallelism and byte-bounded kaval queues open — a thin lever because a single-user client has little idle capacity.">
+      <text x="20" y="26" font-size="14" font-weight="700" fill="#0A0F25">Kolu's optimizations by lever</text>
+      <text x="20" y="45" font-size="12" font-weight="650" fill="#3f444b">Time ≈ (N × C) / U</text>
+      <rect x="470" y="14" width="13" height="13" rx="3" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
+      <text x="489" y="25" font-size="11" fill="#3f444b">shipped</text>
+      <rect x="560" y="14" width="13" height="13" rx="3" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
+      <text x="579" y="25" font-size="11" fill="#3f444b">to tune</text>
+      <text x="648" y="25" font-size="11" fill="#92400E">★ = next</text>
 
-      {/* runtime spine: client -> wire -> backend, a request/runtime path descending through the layers */}
-      <line x1="58" y1="58" x2="58" y2="380" stroke="#0D32B2" stroke-width="2.5" />
-      <line x1="58" y1="190" x2="58" y2="206" stroke="#0D32B2" stroke-width="2.5" marker-end="url(#perf-ah)" />
-      <line x1="58" y1="278" x2="58" y2="294" stroke="#0D32B2" stroke-width="2.5" marker-end="url(#perf-ah)" />
-      <circle cx="58" cy="58" r="4" fill="#0D32B2" />
-      <circle cx="58" cy="380" r="4" fill="#0D32B2" />
+      {/* ---- N column ---- */}
+      <rect x="16" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.4" />
+      <text x="30" y="88" font-size="21" font-weight="800" fill="#0D32B2">N</text>
+      <text x="54" y="80" font-size="11.5" font-weight="700" fill="#11203a">Do fewer things</text>
+      <text x="54" y="94" font-size="9.3" fill="#5b6470">fewer steps · redundant work</text>
+      <text x="30" y="110" font-size="9" font-style="italic" fill="#166534">where Kolu has already won</text>
+      {[
+        ["Reactivity re-derivation ✓ #1425", true, "#n-reactivity-memo"],
+        ["Markdown re-sanitize ✓ #1446", true, "#n-markdown-toggle"],
+        ["Scrollback share ✓ #1573", true, "#banked-scrollback"],
+        ["Canvas rAF-coalesce ✓ #1368", true, "#banked-canvas"],
+        ["getSubTerminalIds O(n²)", false, "#n-getsubterminalids"],
+        ["Mobile wake-ups ↓ (15s·60s·1s)", false, "#n-heartbeat"],
+        ["Nix build-once", false, "#n-nix-hash"],
+      ].map(([label, ok, href], i) => (
+        <a href={href} style="cursor:pointer">
+          <rect x="26" y={120 + i * 26} width="202" height="20" rx="5" fill={ok ? "#E6F4EA" : "#FBF1DC"} stroke={ok ? "#15803D" : "#B45309"} stroke-width="1.3" />
+          <text x="35" y={134 + i * 26} font-size="9.4" fill={ok ? "#166534" : "#92400E"}>{label}</text>
+        </a>
+      ))}
 
-      <rect x="40" y="40" width="664" height="150" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
-      <text x="74" y="60" font-size="13" font-weight="700" fill="#11203a">CLIENT — render &amp; load</text>
-      {/* highest-leverage to-tune: reactivity metadata — halo + thicker stroke */}
-      <rect x="71" y="67" width="218" height="50" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
-      <rect x="74" y="70" width="212" height="44" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
-      <text x="86" y="88" font-size="10.5" fill="#92400E">Reactivity — metadata</text>
-      <text x="86" y="103" font-size="10.5" fill="#92400E">derivation re-runs</text>
-      <rect x="298" y="70" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
-      <text x="310" y="88" font-size="10.5" fill="#166534">Canvas render loop</text>
-      <text x="310" y="103" font-size="10.5" fill="#166534">rAF-coalesced ✓ #1368</text>
-      <rect x="522" y="70" width="170" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
-      <text x="534" y="88" font-size="10.5" fill="#166534">WebGL contexts</text>
-      <text x="534" y="103" font-size="10.5" fill="#166534">capped ✓ #1399</text>
-      <rect x="74" y="124" width="212" height="44" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="86" y="142" font-size="10.5" fill="#92400E">Bundle — Code tab</text>
-      <text x="86" y="157" font-size="10.5" fill="#92400E">171 kB · deferred</text>
-      <rect x="298" y="124" width="212" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
-      <text x="310" y="142" font-size="10.5" fill="#166534">Markdown / Pierre</text>
-      <text x="310" y="157" font-size="10.5" fill="#166534">worker pool ✓ #1363</text>
-      <rect x="522" y="124" width="170" height="44" rx="7" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
-      <text x="534" y="142" font-size="10.5" fill="#166534">Memory lifecycle</text>
-      <text x="534" y="157" font-size="10.5" fill="#166534">storesByKey freed ✓</text>
+      {/* ---- C column ---- */}
+      <rect x="249" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#0b6478" stroke-width="1.4" />
+      <text x="263" y="88" font-size="21" font-weight="800" fill="#0b6478">C</text>
+      <text x="287" y="80" font-size="11.5" font-weight="700" fill="#11203a">Make each cheaper</text>
+      <text x="287" y="94" font-size="9.3" fill="#5b6470">fewer bytes · less distance</text>
+      <text x="263" y="110" font-size="9" font-style="italic" fill="#92400E">frontier: the wire + the bundle</text>
+      {/* marquee — compression — halo */}
+      <rect x="256" y="117" width="208" height="26" rx="7" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.6" />
+      <a href="#c-compression" style="cursor:pointer">
+        <rect x="259" y="120" width="202" height="20" rx="5" fill="#FBF1DC" stroke="#B45309" stroke-width="2.3" />
+        <text x="268" y="134" font-size="9.4" font-weight="700" fill="#92400E">★ Compress the bundle −~3.5×</text>
+      </a>
+      {[
+        ["base64 → binary framing +33%", "#c-base64"],
+        ["Full metadata → deltas", "#c-metadata"],
+        ["Tap-rect cache (layout read)", "#c-taprect"],
+      ].map(([label, href], i) => (
+        <a href={href} style="cursor:pointer">
+          <rect x="259" y={146 + i * 26} width="202" height="20" rx="5" fill="#FBF1DC" stroke="#B45309" stroke-width="1.3" />
+          <text x="268" y={160 + i * 26} font-size="9.4" fill="#92400E">{label}</text>
+        </a>
+      ))}
+      <text x="263" y="242" font-size="9" font-style="italic" fill="#5b6470">no banked C win yet</text>
 
-      <rect x="40" y="206" width="664" height="72" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
-      <text x="74" y="226" font-size="13" font-weight="700" fill="#11203a">WIRE — surface / oRPC subscriptions</text>
-      {/* highest-leverage to-tune: full collection key-set re-publish — halo + thicker stroke */}
-      <rect x="71" y="231" width="304" height="40" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
-      <rect x="74" y="234" width="298" height="34" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
-      <text x="86" y="255" font-size="10.5" fill="#92400E">Collection key-set re-published in full</text>
-      <rect x="388" y="234" width="304" height="34" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="400" y="255" font-size="10.5" fill="#92400E">base64 stdio framing (+33% bytes)</text>
-
-      <rect x="40" y="294" width="664" height="86" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
-      <text x="74" y="314" font-size="13" font-weight="700" fill="#11203a">BACKEND — server + kaval PTY host</text>
-      <rect x="74" y="322" width="298" height="48" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="86" y="340" font-size="10.5" fill="#92400E">kaval — Channel queues (item-bounded),</text>
-      <text x="86" y="355" font-size="10.5" fill="#92400E">scrollback snapshot per attach</text>
-      <rect x="388" y="322" width="304" height="48" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="400" y="340" font-size="10.5" fill="#92400E">server — full metadata object</text>
-      <text x="400" y="355" font-size="10.5" fill="#92400E">published per live-field update</text>
-
-      <rect x="16" y="398" width="336" height="106" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
-      <text x="28" y="418" font-size="13" font-weight="700" fill="#11203a">MOBILE — battery</text>
-      {/* highest-leverage to-tune: 15s heartbeat — halo + thicker stroke */}
-      <rect x="25" y="423" width="318" height="70" rx="9" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.55" />
-      <rect x="28" y="426" width="312" height="64" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="2.4" />
-      <text x="40" y="448" font-size="10.5" fill="#92400E">heartbeat 15s · staleness ticker</text>
-      <text x="40" y="463" font-size="10.5" fill="#92400E">· per-terminal visibility listeners</text>
-      <text x="40" y="481" font-size="10.5" fill="#92400E">— wake regardless of visibility</text>
-      <rect x="368" y="398" width="336" height="106" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.2" />
-      <text x="380" y="418" font-size="13" font-weight="700" fill="#11203a">DEV-LOOP / CI</text>
-      <rect x="380" y="426" width="312" height="64" rx="7" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
-      <text x="392" y="448" font-size="10.5" fill="#92400E">vitest serial across 44 packages</text>
-      <text x="392" y="463" font-size="10.5" fill="#92400E">· nix pnpmDeps hash double-fetch</text>
-      <text x="392" y="481" font-size="10.5" fill="#92400E">(2m45s darwin / 25s linux)</text>
+      {/* ---- U column ---- */}
+      <rect x="482" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#7c4dd4" stroke-width="1.4" />
+      <text x="496" y="88" font-size="21" font-weight="800" fill="#7c4dd4">U</text>
+      <text x="520" y="80" font-size="11.5" font-weight="700" fill="#11203a">Use idle capacity</text>
+      <text x="520" y="94" font-size="9.3" fill="#5b6470">parallel · pipeline · pre-compute</text>
+      <text x="496" y="110" font-size="9" font-style="italic" fill="#6d28d9">nearly untapped</text>
+      {[
+        ["Off-thread diff ✓ #1363", true, "#banked-diff"],
+        ["Workspace test parallelism", false, "#u-test-parallelism"],
+        ["Server vitest parallelism", false, "#u-server-vitest"],
+        ["kaval byte-bounded queues", false, "#u-kaval-queues"],
+      ].map(([label, ok, href], i) => (
+        <a href={href} style="cursor:pointer">
+          <rect x="492" y={120 + i * 26} width="202" height="20" rx="5" fill={ok ? "#E6F4EA" : "#FBF1DC"} stroke={ok ? "#15803D" : "#B45309"} stroke-width="1.3" />
+          <text x="501" y={134 + i * 26} font-size="9.4" fill={ok ? "#166534" : "#92400E"}>{label}</text>
+        </a>
+      ))}
+      <text x="496" y="242" font-size="9" font-style="italic" fill="#5b6470">thin — a single-user client</text>
     </svg>
   </div>
 );
 
-<PerfSurfaces />
+<NcuLevers />
 
-### Top of the backlog
+## The backlog
 
-The actionable shortlist, ranked by leverage. **Impact** and **effort** are the
-*verified* estimates (post-adversarial-correction), not the original claims. The
-keystone (row 1) is now **shipped**; it clears the way for the rest of the
-reactivity cluster.
+The actionable shortlist, ranked by leverage, tagged with the lever each item
+pulls. **Impact** and **effort** are the *verified* estimates (post-adversarial
+correction), not the original claims. Row 1 is new this pass and the only item on
+the list that is **not bounded at today's scale** — it fires on every cold load,
+now.
 
-| # | Opportunity | Surface | Impact | Effort | The fix, in one line |
-|---|---|---|---|---|---|
-| 1 | **Stabilize the `terminalIds` memo reference** <Pill variant="done">shipped</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id order is unchanged, so `terminalIds()` stops *notifying* downstream on non-display metadata writes (`displayInfos` still re-runs correctly for `git`/`cwd`/`parentId` changes via its own field-level subscription). Clears the rest of the reactivity cluster. |
-| 2 | Per-key collection deltas on the wire | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
-| 3 | Heartbeat: reconnect-on-resume **fixed**; hidden-tab battery open | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Reconnect-on-resume shipped** — a measured wall-vs-monotonic clock gap voids a probe a sleep/freeze interrupted, and a focus / tab-visible event re-probes at once. Hidden-tab radio still wakes ≈240×/h; but *gating the probe on `hidden` blinds the watchdog* (a hidden tab still runs), so a battery fix must **lengthen** the hidden interval, not stop it. |
-| 4 | Workspace-level test parallelism | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so 44 packages don't test one-at-a-time. |
-| 5 | Lazy-load the Code tab — measured, deferred | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | A/B build: the Code-tab tree is **171 kB gzip / 23%** of the eager chunk. But `activeTab` **defaults to `code`**, so lazy-loading defers it async past first paint rather than skipping it for most desktop sessions — a faster-first-paint-vs-cold-flash trade, TTI untraced. Deferred. ([investigation](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/bundle-codetab-lazyload.md)) |
-| 6 | One-shot Nix `pnpmDeps` hash check | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
-| 7 | **Avoid the Markdown Source⇄Rendered toggle re-sanitize** <Pill variant="done">shipped</Pill> | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1446} /> — `FileView` keeps both toggle modes alive (the #818 pattern), so a flip is a visibility change, not a remount: the full marked→DOMPurify→Shiki→`innerHTML` pipeline runs **0× per toggle** (was 1×). Replaces the refuted *"stabilize the resolver reference"* claim — a [measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md). |
+| # | Opportunity | Lever | Surface | Impact | Effort | The fix, in one line |
+|---|---|---|---|---|---|---|
+| 1 | **Serve the client bundle compressed** | <Pill variant="run">C·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Precompress `.br`/`.gz` at build + `Content-Encoding` negotiation; ~2.56 MB → ~700 kB on every cold / remote / phone load. |
+| 2 | Per-key collection deltas on the wire | <Pill variant="run">C·N</Pill> | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
+| 3 | Heartbeat: hidden-tab probe interval | <Pill variant="dx">N</Pill> | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Lengthen** the background probe (30–60s), don't stop it (that blinds the watchdog). Reconnect-on-resume already shipped <PrLink pr={1598} />. |
+| 4 | Workspace-level test parallelism | <Pill variant="dx">U</Pill> | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so ~44 packages don't test one-at-a-time. |
+| 5 | Lazy-load the Code tab — measured, deferred | <Pill variant="run">N·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | 171 kB gzip / 23% of the eager chunk, but `activeTab` **defaults to `code`** so it defers past first paint rather than skips — a faster-first-paint-vs-cold-flash trade. Deferred. |
+| 6 | One-shot Nix `pnpmDeps` hash check | <Pill variant="dx">N</Pill> | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="hi">high</Pill> | Compute the hash once instead of two sequential builds (2m45s on darwin). |
+| 7 | **Stabilize the `terminalIds` memo** <Pill variant="done">shipped</Pill> | <Pill variant="dx">N</Pill> | Reactivity | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1425} /> — the memo keeps its prior array when the id order is unchanged, so `terminalIds()` stops *notifying* downstream on non-display metadata writes. |
+| 8 | **Markdown toggle keep-alive** <Pill variant="done">shipped</Pill> | <Pill variant="dx">N</Pill> | Markdown | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Done** <PrLink pr={1446} /> — a Source⇄Rendered flip is a visibility change, not a remount + full re-sanitize (pipeline runs **0×** per toggle, was 1×). |
 
 <Callout kind="warn" title="Read this before picking one up">
-Almost every item is **bounded at today's scale** (3–20 terminals, small/medium
-docs). The verdicts repeatedly note the mechanism is real but the cost is below
-perception until the scale grows. **Confirm with a profile first** — the
-[coverage gaps](#from-static-reads-to-live-traces) section says exactly which
+Almost every item below row 1 is **bounded at today's scale** (3–20 terminals,
+small/medium docs). The verdicts repeatedly note the mechanism is real but the
+cost is below perception until the scale grows. **Confirm with a profile first** —
+the [coverage gaps](#from-static-reads-to-live-traces) section says exactly which
 traces are still missing. The point of this map is to *prioritize measurement*,
-not to license speculative rewrites.
+not to license speculative rewrites. Compression (row 1) is the exception: its
+mechanism and its ~3.5× byte cut are near-certain, so it earns a fix ahead of a
+trace — though the after-LCP on a real phone is still worth capturing.
 </Callout>
 
 ### Already banked
 
 So this map isn't re-litigated: the wins below are **shipped and verified** — do
-not re-report them as opportunities. Remaining slivers inside them are noted in
-their themes as *"remaining within …"*.
+not re-report them as opportunities. Each is tagged with the lever it pulled;
+remaining slivers inside them are noted in the lever sections as *"remaining
+within …"*.
 
-- **WebGL context cap** <PrLink pr={1416} /> <Issue n={1399} /> — admit the whole working set under a 12-context cap; killed the focus-churn VRAM leak on Chrome+AMD.
-- **OpenCode-derived wins** — `@pierre/diffs` 1.2.10 + Shiki 4.2.0 <PrLink pr={1360} />, off-thread diff highlighting <PrLink pr={1363} />, the canvas gesture-p99 harness + rAF-coalesced pan/zoom <PrLink pr={1368} />. Full write-up: [opencode-perf](./opencode-perf.html).
-- **Compositor paint storms** — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
-- **Off-screen work elimination** — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
-- **Memory** — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
-- **Reactivity keystone** <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to the display-relevant metadata — `git` / `cwd` / `parentId` — via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
-- **Markdown toggle keep-alive** <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize of the doc (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×); a per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change, and each comment overlay took a per-instance CSS-highlight name so the two kept-alive surfaces don't contend. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
-- **Nix dev-shell eval** — 35× faster (`docs/nix-eval-perf-report.md`).
-- **Blocking `git rev-parse` off the event loop** <PrLink pr={1615} /> — the Code-view watchers resolved each repo's git dir with a synchronous `execSync('git rev-parse')` + `realpathSync` run inline on every watcher install; on the single-threaded server one wedged call froze the *entire* event loop in `waitpid` with no timeout (a 25-minute browser-unresponsive wedge: ~0 CPU, no crash, all logging stopped at once). Now async + bounded (`execFile` 5s timeout, `fs.promises.realpath`); `createDirFilenameWatcher.watch()` attaches `fs.watch` after the async resolve while still returning the unsubscribe synchronously (and fires one reconciliation tick so a change in the snapshot→attach window isn't lost).
+- **Reactivity keystone** <Pill variant="dx">N</Pill> <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to `git` / `cwd` / `parentId` via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
+- **Markdown toggle keep-alive** <Pill variant="dx">N</Pill> <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×); a per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
+- <span id="banked-scrollback" />**Per-attach scrollback share** <Pill variant="dx">N</Pill> <PrLink pr={1573} /> — an already-aborted attach does zero `serialize()`, and a burst of attaches to one PTY within a publish-epoch shares one memoized snapshot; the reconnect-storm transient dropped from a measured **2–3.2 GB** of concurrent full serializes to O(live-terminal count). (Bounding each snapshot to a viewport is the follow-up — [kaval memory](./kaval-memory-architecture.html).)
+- **OpenCode-derived wins** <Pill variant="dx">N·U</Pill> — `@pierre/diffs` 1.2.10 + Shiki 4.2.0 <PrLink pr={1360} />, <span id="banked-diff" />off-thread diff highlighting <PrLink pr={1363} /> (the lone banked **U** win), <span id="banked-canvas" />the canvas gesture-p99 harness + rAF-coalesced pan/zoom <PrLink pr={1368} />. Full write-up: [opencode-perf](./opencode-perf.html).
+- **WebGL context cap** <Pill variant="dx">U</Pill> <PrLink pr={1416} /> <Issue n={1399} /> — admit the whole working set under a 12-context cap; killed the focus-churn VRAM leak on Chrome+AMD.
+- **Compositor paint storms** <Pill variant="dx">C</Pill> — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
+- **Off-screen work elimination** <Pill variant="dx">N</Pill> — covered tiles reuse the viewport box; no redundant `ResizeObserver` `fit()` cycles on hidden terminals.
+- **Memory** <Pill variant="dx">U</Pill> — `storesByKey` released on terminal deletion; per-terminal history-browser state reset on repo change <Issue n={610} />.
+- **Heartbeat reconnect-on-resume** <Pill variant="dx">N</Pill> <PrLink pr={1598} /> — the watchdog compares elapsed wall vs monotonic time across each probe and voids-and-re-probes a window a suspension crossed, so a laptop sleep / tab freeze no longer forces a spurious reconnect over a healthy socket.
+- **Blocking `git rev-parse` off the event loop** <Pill variant="dx">N</Pill> <PrLink pr={1615} /> — the Code-view watchers resolved each repo's git dir with a synchronous `execSync('git rev-parse')` inline on every watcher install; on the single-threaded server one wedged call froze the *entire* event loop in `waitpid` with no timeout (a 25-minute browser-unresponsive wedge). Now async + bounded (`execFile` 5s timeout, `fs.promises.realpath`).
+- **Nix dev-shell eval** <Pill variant="dx">C</Pill> — 35× faster (`docs/nix-eval-perf-report.md`).
 
-## Frontend hot paths
+## N — Do fewer things
 
-The client is where users *feel* speed. The canvas, WebGL, and diff paths are
-already green; what's left is reactive over-derivation, eager bundle weight, and
-a few markdown tree-walks — all bounded at current scale.
+The fat lever, and the one Kolu has mostly already pulled. On a reactive client
+the enemy is **redundant re-derivation**, not distance or idle cores — so the
+banked wins above (reactivity, markdown, scrollback, canvas) all live here, and
+what's left is more of the same: scans that could be indexed, timers that wake
+when nothing's watching, and round-trips that could be shared or deferred.
 
-### Reactivity granularity
-
-<Finding sev="low" title="Keystone — stabilize the terminalIds memo reference — ✓ shipped">
+<Finding sev="low" id="n-reactivity-memo" title="Keystone — stabilize the terminalIds memo reference — ✓ shipped">
 `terminalIds` was a `createMemo` running `meta.keys().filter(...)`
 (`useTerminalMetadata.ts`), returning a **new array reference every run even
 when the contents were identical**. The dependent `displayInfos` memo tracked
@@ -185,214 +212,204 @@ that reference, so *any single terminal's metadata mutation* re-ran
 `buildTerminalDisplayInfos` for **all** terminals (`terminalDisplay.ts`),
 allocating 4–5 intermediate collections each pass, and re-evaluated every tile's
 `Show` gate on `getDisplayInfo` (`TerminalCanvas.tsx`). **Done** <PrLink pr={1425} /> —
-the memo now carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior array
-whenever the top-level id set is unchanged — the *set-shaped* re-run path
-(`terminalIds()` returning a fresh reference) now fires only on a real add /
-remove / reorder, not on every metadata mutation. The accessor still re-runs
-cheaply; what it no longer does is *notify* downstream when the set is identical.
-Proven by a re-run-count regression test (`useTerminalMetadata.test.ts`), so banking
-it didn't need the live trace the [coverage gaps](#from-static-reads-to-live-traces)
-flag as still-pending. (Verification had corrected the original "O(n³)" claim to
-O(n log n) — the cost was wasted allocations + re-derivation, not algorithmic
-blowup.) One nuance the gate does **not** change: `displayInfos` reads the
-display-relevant fields (`git`, `cwd`, `parentId`) of each terminal's metadata
-*inside its own scope*, so it carries a second, field-level subscription to those
-paths. Because the surface store writes via `reconcile`, PR / agent / foreground
-churn — the dominant ~1/s updates — never reached `displayInfos` even before this
-gate; a real `git`/`cwd`/`parentId` change still re-runs it, which is correct (the
-displayed identity genuinely changed). The gate closes the *set-reference* path;
-the field-level path is already as narrow as it should be.
+the memo now carries a `sameTerminalIdOrder` `equals` gate, so it keeps the prior
+array whenever the top-level id set is unchanged; the *set-shaped* re-run path now
+fires only on a real add / remove / reorder, not on every metadata mutation. The
+accessor still re-runs cheaply; what it no longer does is *notify* downstream when
+the set is identical. Proven by a re-run-count regression test
+(`useTerminalMetadata.test.ts`). (Verification had corrected the original "O(n³)"
+claim to O(n log n) — the cost was wasted allocations + re-derivation, not
+algorithmic blowup.) `displayInfos` keeps a second, field-level subscription to
+`git` / `cwd` / `parentId` inside its own scope; because the surface store writes
+via `reconcile`, PR / agent / foreground churn never reached it even before this
+gate, and a real display-identity change still re-runs it, correctly. The gate
+closes the *set-reference* path; the field-level path is already as narrow as it
+should be.
 </Finding>
 
-- **`getSubTerminalIds` O(n) scan, called per top-level terminal** inside the display derivation → O(n²) per metadata update (`useTerminalMetadata.ts:54-56`, `terminalDisplay.ts:80`). Fix with a `Map<ParentId, TerminalId[]>` index in the same memo. <Pill variant="lo">low</Pill> impact.
-- **`terminalLabel` O(n) `indexOf` per access** (`useTerminalMetadata.ts:94-96`) — real, but only 2 call sites, both at event boundaries; bundle it with the index work above, don't chase it alone. <Pill variant="lo">low</Pill>
-- **Per-tile geometry arithmetic** (`onScreen`, `tileTransformCSS` in `CanvasTile.tsx:114-130`) recomputes per pan/zoom frame — but the big win (not *mounting* off-screen auras) already shipped; the residual ~4 ops/tile/rAF is likely below noise. *Remaining within* the canvas work. <Pill variant="lo">low</Pill>
+- <span id="n-getsubterminalids" />**`getSubTerminalIds` O(n) scan, called per top-level terminal** inside the display derivation → O(n²) per metadata update (`useTerminalMetadata.ts:54-56`, `terminalDisplay.ts:80`). A `Map<ParentId, TerminalId[]>` index built in the same memo replaces the repeated full scans with one O(n) pass — a *better-algorithm* N cut. <Pill variant="lo">low</Pill>
+- **`terminalLabel` O(n) `indexOf` per access** (`useTerminalMetadata.ts:94-96`) — real, but only 2 call sites, both at event boundaries; a precomputed id→position map (derived alongside the group-by index above) collapses it to O(1). Bundle it with that index work, don't chase it alone. <Pill variant="lo">low</Pill>
+- **Per-tile geometry arithmetic** (`onScreen`, `tileTransformCSS` in `CanvasTile.tsx:114-130`) recomputes per pan/zoom frame — but the big win (not *mounting* off-screen auras) already shipped; the residual ~4 ops/tile/rAF is the arithmetic pan/zoom genuinely changes each frame, likely below noise. *Remaining within* the canvas work. <Pill variant="lo">low</Pill>
 
-### Bundle & startup weight
-
-<Finding sev="medium" title="Lazy-load the Code tab — measured (171 kB gzip), deferred">
-An A/B production build measured the Code-tab tree — `@kolu/solid-pierre`'s
-`FileTree`, the `@kolu/solid-markdown` renderer, the diff/source view wrappers, and
-the comment system — at **629 kB raw / 171 kB gzip (23%)** of the eager `index`
-chunk (it was a static import in `RightPanel`). Lazy-loading it **works** (built,
-lens/codex/simplify/police-reviewed, e2e-verified 115/115 on a pu box) — but it's
-**deferred, not shipped**, because the value is narrower than the framing:
-`activeTab` **defaults to `code`** and the desktop panel opens by default, so on a
-typical desktop session CodeTab loads anyway, just *async past first paint* rather
-than skipped. The "many who only open terminals never parse it" win holds only for
-**mobile (drawer closed) / collapsed panel**; the common desktop case is a
-faster-first-paint-vs-cold-load-flash trade whose perceptual net is the **untraced**
-cold-start TTI — a speculative bet against a visible regression on the default
-surface. **Two premises this refuted:** Shiki grammars are *already* lazy (a dynamic
-`import("shiki")`, never on the eager path — and `@pierre/diffs` already runs in a
-Worker), and "lazy-load Image on first use" is mechanically impossible (`ImageAddon`
-must precede the image escape sequence). Full write-up + the unblock path (TTI
-trace, default-tab decision, or idle-preload):
-[bundle-codetab-lazyload](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/bundle-codetab-lazyload.md).
-</Finding>
-
-- **Eager per-terminal addons** — `Search`/`Image`/`Serialize` are instantiated per terminal (`Terminal.tsx:490-510`) though conditional; but `ImageAddon` can't lazy-on-first-use (it must precede the image escape sequence), and `Serialize`/`Search` minify to ~10–15 kB gzip + add async to the hot path. Low value. <Pill variant="lo">low</Pill>
-- **`WebglAddon` static import** — the GPU renderer sits in the eager bundle though it's lazily *constructed*; but every terminal needs it, so it's core, not deferrable. <Pill variant="lo">low</Pill>
-
-### Markdown & code-tab rendering
-
-<Finding sev="medium" title="Markdown preview render cost — the resolver 'fix' was a no-op; the toggle remount is real">
+<Finding sev="medium" id="n-markdown-toggle" title="Markdown preview render cost — the resolver 'fix' was a no-op; the toggle remount was real — ✓ shipped">
 The original claim — *`BrowseFileDispatcher` passes `resolveImageSrc` as an inline
-arrow (`BrowseFileDispatcher.tsx:374-376`), so `Markdown`'s memo re-runs* — is a
-**measured no-op**. Stabilizing the reference eliminates **zero** `sanitizeHtml`
-runs, confirmed three ways: a faithful jsdom reproduction on the repo's real Solid
-build (fresh arrow vs stable callback ⇒ byte-identical memo counts), `FileView`'s
-own design (`FileView.tsx:91-98` — the appliance is re-rendered on every `props.file`
-snapshot, a *remount*), and the Solid compiler (the inline-arrow prop is **static**,
-never a reactive dependency). The defense-in-depth marker is inert too — sanitize
-re-parses from raw markdown each run, so a marker never survives to the next.
-**The real cost the reproduction surfaced — now fixed:** `active()` returned only
-the active branch, so a Source⇄Rendered **toggle remounted and re-sanitized the
-whole doc** (50-image doc: ~50 image-resolutions + a full
-parse/sanitize/highlight/DOM-reparse *per toggle*). **Fixed** <PrLink pr={1446} /> —
-`FileView` now keeps both toggle modes alive (the #818 `RightPanel` pattern), so a
-flip is a visibility change, not a remount; the pipeline runs **0× per toggle**.
-A per-slot `heldFile` snapshot defers a hidden mode's refresh (no double-render on
-edit, no `render(file)` API change), and each comment overlay took a per-instance
-CSS-highlight name so the two kept-alive surfaces don't contend. Proven by an e2e
-(the rendered preview element survives the round-trip). The content-keyed sanitize
-cache alternative was dropped as accidental complexity. Full write-up + reproduction:
+arrow, so `Markdown`'s memo re-runs* — is a **measured no-op** (stabilizing the
+reference eliminates **zero** `sanitizeHtml` runs; the inline-arrow prop is static
+to the Solid compiler, never a reactive dependency). **The real cost the
+reproduction surfaced — now fixed:** `active()` returned only the active branch,
+so a Source⇄Rendered **toggle remounted and re-sanitized the whole doc** (a
+50-image doc: ~50 image-resolutions + a full parse/sanitize/highlight/DOM-reparse
+*per toggle*). **Fixed** <PrLink pr={1446} /> — `FileView` now keeps both toggle
+modes alive (the #818 `RightPanel` keep-alive pattern), so a flip is a visibility
+change, not a remount; the pipeline runs **0× per toggle** — a textbook
+*pre-compute + reuse*. Proven by an e2e. Full write-up + reproduction:
 [markdown-image-resolver-and-toggle](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
 </Finding>
 
-- **`sanitizeHtml` does 6 sequential full-tree walks per parse** (`sanitize.ts:359-410`) — memo-gated on content, so it only bites very large documents; collapse into a single walk if/when that surfaces. <Pill variant="lo">low</Pill>
-- **File-search ancestor recompute per keystroke** (`fileSearch.ts:50-62`) — measured at 0.076 ms/200 calls, below perception; a module-level memo is cheap insurance, not urgent. <Pill variant="lo">low</Pill>
+- **`sanitizeHtml` does 6 sequential full-tree walks per parse** (`sanitize.ts:359-410`) — six `querySelectorAll` passes (anchors, inputs, pre, img, `[id]`, `a[href^=#]`) each re-traverse the whole DOM; fusing them into one traversal that dispatches per node visits each node once instead of six times (*find common work*). Memo-gated on content, so it only bites very large documents. <Pill variant="lo">low</Pill>
+- **File-search ancestor recompute per keystroke** (`fileSearch.ts:50-62`) — `ancestorDirectoryPaths` (and the per-path normalization) re-derives over a stable tree on every keystroke; a path-keyed module-level memo reuses it (*pre-compute + reuse*). Measured at 0.076 ms/200 calls, below perception — cheap insurance, not urgent. <Pill variant="lo">low</Pill>
 
-### Memory lifecycle
+<Finding sev="medium" title="Lazy-load the Code tab — measured (171 kB gzip), deferred — N (skip) + U (time-shift)">
+An A/B production build measured the Code-tab tree — `@kolu/solid-pierre`'s
+`FileTree`, the `@kolu/solid-markdown` renderer, the diff/source view wrappers,
+and the comment system — at **629 kB raw / 171 kB gzip (23%)** of the eager
+`index` chunk (a static import in `RightPanel`). Splitting it out **skips
+parsing+executing it entirely** on mobile / collapsed-panel sessions (N: work
+never done) and **time-shifts it async past first paint** on the default desktop
+case (U: moved off the first-paint window) — not any byte shrink. Lazy-loading
+**works** (built, review-clean, e2e 115/115) but is **deferred**: `activeTab`
+**defaults to `code`** and the desktop panel opens by default, so on a typical
+desktop session CodeTab loads anyway, just async — a faster-first-paint-vs-cold-
+flash trade whose perceptual net is the **untraced** cold-start TTI. Two premises
+it refuted: Shiki grammars are *already* lazy, and `ImageAddon` **can't**
+lazy-on-first-use (it must precede the image escape sequence). Full write-up + the
+unblock path:
+[bundle-codetab-lazyload](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/bundle-codetab-lazyload.md).
+Note the C sibling below: before deferring this 171 kB slice, *compressing* the
+whole 2.56 MB bundle is a strictly larger, unconditional win.
+</Finding>
 
-After the shipped `storesByKey` and history-browser fixes, the residual is one
-belt-and-suspenders item: the `useComments` `persistedPref` factory hand-rolls a
-per-`terminalId` signal (`useComments.ts:36-83`). Consumers wrap it in
-`createMemo`, so owners *do* auto-dispose — the leak claim was overstated — but
-moving to `makePersisted` from `@solid-primitives` would make owner cleanup
-automatic. <Pill variant="lo">low</Pill>
+<Finding sev="medium" id="n-heartbeat" title="Heartbeat probe: reconnect-on-resume fixed; hidden-tab battery still open">
+`createHeartbeat()` runs `system.live` / `identity.info()` every 15s while the
+socket is OPEN. Two distinct costs hid behind one finding, both N:
 
-## Backend, wire & streaming
+- **Spurious reconnect on resume — FIXED <PrLink pr={1598} />** (*eliminate
+  retries*). A laptop sleep / tab freeze paused the event loop; the probe's 10s
+  timeout fired *overdue* on resume and forced a reconnect over a still-healthy
+  socket. The watchdog now compares elapsed wall time against elapsed monotonic
+  time across each probe and **voids-and-re-probes** a window a suspension crossed,
+  and a window-focus / tab-visible **wake** event re-probes at once.
+- **Hidden-tab radio wake — still open** (*reduce round-trips*). The probe still
+  runs ≈240×/hour while backgrounded, forcing the mobile radio idle→active. The
+  tempting fix — stop the interval while `document.visibilityState === 'hidden'` —
+  is a **coverage regression**: a hidden tab is still *running*, so gating the
+  probe blinds the watchdog to a genuine half-open during a long background. A
+  battery fix must **lengthen** the hidden-tab interval (30–60s), not stop it.
+  **Measure:** packet-capture probes/hour backgrounded on a real phone — target
+  under ~10, vs ~240 today.
+</Finding>
 
-The path from server to client. The strongest *new* item is per-key wire deltas;
-the kaval items are hardening/observability wins, **not** the production OOM fix —
-the [#1420](https://github.com/juspay/kolu/issues/1420) RCA explicitly ruled out
-the Channel queue, so the real leak lives elsewhere (likely scrollback/snapshots)
-and needs a dedicated heap snapshot.
+- **Every-minute staleness ticker fires globally** regardless of visibility (`terminal/staleness.ts:26-57`) — gate the shared 60s `setNow` tick on `visibilitychange` (reuse the `refitOnTabVisible` pattern); its re-bucketing is invisible while the tab is hidden (*remove dead work*). <Pill variant="lo">low</Pill>
+- **A second, ungated 1s clock tick** drives the uptime / "Running for" / heap readouts (`time/clock.ts:24`) with no `visibilitychange` gate — the same family as the 60s staleness ticker, firing **60× more often**. Its comment assumes a hidden tab self-throttles to ~1/min, but kolu holds an always-open surface WebSocket, which can exempt the page from Chrome's background-timer throttling — so backgrounded it may keep waking a phone. Gate it on visibility like the ticker (the readouts it feeds are invisible while hidden). *New this pass; low, unmeasured — the same on-device caveat as the rest of this cluster.* <Pill variant="lo">low</Pill>
+- **N per-terminal `visibilitychange` listeners** for re-fit (`refitOnTabVisible.ts`) — collapse to one shared App-root listener fanning out to a Set of `debouncedFit` callbacks (*find common work* — N redundant registrations on one document event). <Pill variant="lo">low</Pill>
+- **`useCollection` subscribes to all keys** even if one is consumed (`useTerminalMetadata.ts:34`) — bounded, since rendered terminals genuinely need metadata; lazily subscribing only visible terminals removes standing streams never read, worth it only in 50+ terminal workspaces with most invisible (*lazy evaluation*). <Pill variant="lo">low</Pill>
+- **Three parallel git-status subscriptions per Code tab** (`CodeTab.tsx:314-349`) — real duplication (`localStatus` and `activeStatus` even collide on identical `{mode:'local'}` input), but **documented as load-bearing** (the passive subs swallow `BASE_BRANCH_NOT_FOUND` while the active one revives after fetch). Do not coalesce blindly. <Pill variant="lo">low</Pill>
+- <span id="n-nix-hash" />**One-shot Nix `pnpmDeps` hash check** — `ci::pnpm-hash-fresh` runs **two sequential `nix build`s** (the second `--rebuild`), so `pnpm install` runs fully twice — measured at **2m45s on darwin / 25s on linux** (`ci/mod.just:82-84`, `default.nix:154-159`). Compute the hash once into a temp derivation, then compare in a pure eval step (*remove the redundant double-fetch*). <Pill variant="md">med</Pill>
 
-### Surface wire & subscriptions
+## C — Make each thing cheaper
 
-<Finding sev="medium" title="Publish per-key collection deltas, not the full key set">
+C is dominated by **distance** — bytes over the wire, layers of indirection — and
+Kolu has no banked C win yet, so this is open frontier. The marquee item is the
+biggest single lever on the whole map: the client bundle ships uncompressed. The
+rest is the wire (payload shapes) plus one forced layout read.
+
+<Finding sev="medium" id="c-compression" title="Serve the client bundle compressed — the biggest unconditional win on the map">
+The production Hono server ships the client build through `@hono/node-server`'s
+`serveStatic` (`surface-app/server.ts:84,95`, via `installFreshStatic`), and **no
+compression middleware sits anywhere in the pipeline** (`server/src/index.ts`) —
+so the ~**2.56 MB** eager `index` bundle goes out with **no `Content-Encoding`**,
+even though every browser offers `gzip, deflate, br`. Caching is already right
+(immutable hashed `/assets/*`, `max-age` a year), so this doesn't bite a warm
+reload — it bites the **cold load**: first visit, cache-miss, and every
+post-deploy hash change. That's exactly the **remote / Tailscale / phone** path
+kolu markets, where bytes over a slow radio dominate time-to-first-paint. At the
+**3.7× gzip ratio this codebase already measured** (the Code-tab A/B build:
+629 kB → 171 kB), 2.56 MB compresses to **~700 kB** (Brotli, ~640 kB) — a
+**~3.5× cut in transferred bytes** on every cold load.
+
+This is the model's textbook **C-down / U-up** move (compression: fewer bytes to
+move, better link fill), and — unusually for this map — it is **not bounded at
+today's scale**: it fires on every first load, now. It also **dominates the
+Code-tab lazy-load item above**: that defers a 171 kB gzip *slice* of the bundle
+(speculatively, mobile-only), while compressing ships ~1.8 MB less on the *whole*
+eager load, unconditionally, with no first-paint regression. **Compress first.
+Fix:** precompress at build (a Vite plugin emitting `.br`/`.gz` beside each
+immutable hashed asset) and serve with `Content-Encoding` negotiation — zero
+per-request CPU, the compression *time-shifted* to build (a U "pre-compute in
+idle" move); an on-the-fly `compress` middleware is the simpler fallback at a
+per-request CPU cost. Bake it into the server rather than lean on a fronting proxy
+(`tailscale serve` doesn't compress; loopback has none) — the fail-fast,
+no-external-dependency path this repo prefers. **Measure:** cold-load transferred
+bytes and LCP/INP on a real phone over Tailscale, before/after.
+</Finding>
+
+<Finding sev="medium" title="Publish per-key collection deltas, not the full key set — C (payload) + N (client work)">
 Every upsert/remove publishes the **entire** key array via
 `keysBus.publish(Array.from(...))` — a fresh object each time — which crosses the
 wire and triggers client `mapArray` reconciliation (`surface/server.ts:1218-1223`,
-`useCollection.ts:60-65`). `mapArray` avoids per-key subscription churn, so the
-cost is wasted allocations + transmission + memo recompute, not thrashing.
-**Fix:** publish discriminated `{added:[k]}/{changed:[k]}/{removed:[k]}` deltas,
-emitting the full set only on init; let `useCollection` apply them. **Measure:**
+`useCollection.ts:60-65`). Publishing discriminated `{added:[k]}/{changed:[k]}/{removed:[k]}`
+deltas (full set only on init) **shrinks the per-event payload/allocation (C)**
+and lets `useCollection` apply the change instead of re-reconciling the whole key
+set (N). The batched machinery already exists (`deltasBus` + `createTickCoalescer`,
+`useCollectionDeltas`) but the `useTerminalMetadata` call sites pass explicit
+`keys`, which forces the per-key path regardless of the `deltas` verb — so
+realizing this is a call-site change, not a one-line verb flip. **Measure:**
 `keysBus` publish frequency and payload sizes during terminal spawn/metadata
 churn.
 </Finding>
 
-- **Full metadata object per live-field update** (`terminalEndpoint/metadata.ts:96-136`) — real, but upstream dedup gates (`prResultEqual`, `agentInfoEqual`) already cap cadence to PR-poll 30s / screen-scrape 1s; splitting live vs persisted deltas is lower priority. <Pill variant="lo">low</Pill>
-- **`base64` stdio framing adds ~33%** (`links/stdio-codec.ts:25-64`) — framing is already swappable; a length-prefixed binary frame is the upgrade, **gated on measured large-payload ops** (git diff, `fsListAll`). <Pill variant="lo">low</Pill>
-- **`useCollection` subscribes to all keys** even if one is consumed (`useTerminalMetadata.ts:34`) — bounded, since rendered terminals genuinely need metadata; only worth lazy-subscribing in 50+ terminal workspaces with most invisible. <Pill variant="lo">low</Pill>
-- **Three parallel git-status subscriptions per Code tab** (`CodeTab.tsx:314-349`) — real duplication, but **documented as load-bearing** (the passive subs swallow `BASE_BRANCH_NOT_FOUND` while the active one revives after fetch). Do not coalesce blindly. <Pill variant="lo">low</Pill>
+- <span id="c-metadata" />**Full metadata object per live-field update** (`terminalEndpoint/metadata.ts:96-136`) — `publishAuthored` upserts a full `{...entry.meta}` clone on every field change. Upstream dedup gates (`prResultEqual`, `agentInfoEqual`) already cap the *number* of publishes to PR-poll 30s / screen-scrape 1s, so the remaining lever is *payload size* (C): splitting live vs persisted deltas. Lower priority. <Pill variant="lo">low</Pill>
+- <span id="c-base64" />**`base64` stdio framing adds ~33%** (`links/stdio-codec.ts:25-64`) — `encodeFrame` base64-encodes every peer message, a fixed 4/3 byte inflation; framing is already swappable, so a length-prefixed binary frame is the upgrade (*compact encoding*), **gated on measured large-payload ops** (git diff, `fsListAll`). <Pill variant="lo">low</Pill>
+- <span id="c-taprect" />**`getBoundingClientRect` per terminal tap** for link detection (`Terminal.tsx:572-591`) — guarded to genuine taps, but each forces a sync layout read; caching the rect against the `ResizeObserver` (*local caching* — recompute only on real resize) removes the reflow. <Pill variant="lo">low</Pill>
+- **Eager per-terminal addons** — `Search`/`Image`/`Serialize` are instantiated per terminal (`Terminal.tsx:490-510`) though conditional; dynamic-importing `Serialize`/`Search` would defer bundle load (N) and stop per-mount allocation (C), but `ImageAddon` can't defer and the survivors minify to ~10–15 kB gzip while adding async to the hot path. Low value. <Pill variant="lo">low</Pill>
 
-### kaval memory & streaming
+## U — Use the capacity you have
 
-<Finding sev="low" title="Bound subscriber queues by bytes, not just item count">
+The thinnest lever, because a single-user desktop client has little idle capacity
+to reclaim — which is exactly why the one banked U win (off-thread diff
+highlighting <PrLink pr={1363} />) and most of what's open live in the **dev-loop
+and the backend**, where cores and queues actually sit idle. The rule here is
+*don't waste, don't bottleneck, pre-compute in slack time*.
+
+<Finding sev="medium" id="u-test-parallelism" title="Parallelize tests across the workspace">
+`pnpm -r` serializes package test runs (no `--workspace-concurrency`), so on a
+multi-core machine the **~44 packages run roughly one-at-a-time** even though each
+vitest threads internally — workspace-level parallelism is unused
+(`package.json:7`). Enabling workspace concurrency in the `test:unit` recipe fills
+idle cores (*parallelism / raise utilization*) without changing the tests run;
+consider `vitest --shard` for the slowest packages (`git/index.test.ts`).
+**Measure:** `just test-unit` baseline vs `--workspace-concurrency N`.
+</Finding>
+
+- <span id="u-server-vitest" />**Server unit tests run single-file** — `packages/server/package.json` forces `vitest --fileParallelism=false` because all 16 server test files share one `KOLU_STATE_DIR` (keyed off the shell PID `$$`, resolved once so every worker inherits the same path), and a module-level `Conf` singleton would collide across parallel forks. Key the state dir per `VITEST_WORKER_ID` (each fork a private dir) and drop the flag to run the files across cores — a *within-package* U win distinct from the cross-package item above (that fans out whole packages; this unblocks the slowest one). *New this pass; bounded by whether server is the unit-lane long pole (`git` is named the slowest).* <Pill variant="lo">low</Pill>
+
+<Finding sev="low" id="u-kaval-queues" title="Bound subscriber queues by bytes, not just item count">
 Each subscriber queue caps at `maxQueue` (10k *items*) with no byte bound
 (`kaval/channel.ts:54-132`), so a stalled subscriber on a 1 KB/event PTY could
-pin ~10 MB before being dropped. **Fix:** track queue byte size at publish and
-drop when *either* item-count or a new `maxQueueBytes` is exceeded. **Note:** the
-#1420 RCA rules this out as the OOM source — this is a known-constant memory cap,
-not the leak fix.
+pin ~10 MB before being dropped. Tracking queue byte size at publish and dropping
+when *either* item-count or a new `maxQueueBytes` is exceeded *right-sizes* the
+drop threshold to actual heap. **Note:** the [#1420](https://github.com/juspay/kolu/issues/1420)
+RCA rules this out as the production OOM source — this is a known-constant memory
+cap, not the leak fix (which lives in scrollback/snapshot retention and needs a
+dedicated heap snapshot).
 </Finding>
 
-- **No backpressure / drop-visibility on `proc.onData` fan-out** (`ptyHost.ts:544-548`) — `publish()` is fire-and-forget; add a dropped-subscriber counter/metric. (The original "O(N) push" claim was wrong — `push` is O(1).) <Pill variant="lo">low</Pill>
-- **Per-attach scrollback serialization** — **banked** <PrLink pr={1573} />: an already-aborted attach now does zero `serialize()`, and a burst of attaches to one PTY within a publish-epoch shares one memoized snapshot (`ptyHost.ts` `attach()` + `Entry.snapshotCache`). The leverage turned out to be the *reconnect storm*, not one snapshot's size: a WebSocket disconnect reissues ~60 attaches, and the measured transient was **2–3.2 GB** of concurrent full serializes (a filled 10 K/213-col snapshot is ~4 MB, not the ~4 KB guessed here) — now collapsed to O(live-terminal count). Bounding each snapshot to a viewport is the follow-up (PR2, [kaval memory](./kaval-memory-architecture.html)). <Pill variant="ok">banked</Pill>
-- **Exit-code tombstones FIFO-evicted, no TTL** (`ptyHost.ts:39-42`) — intentional bounded design; a missing tombstone falls back harmlessly to `0`. Add a TTL only if measurement shows the fallback is hit often. <Pill variant="lo">low</Pill>
-
-## Mobile battery & wake-ups
-
-Timers and listeners that run regardless of visibility — the clearest *new*
-cluster, and the one most likely to matter on a real phone (where it is, so far,
-**unmeasured**).
-
-<Finding sev="medium" title="Heartbeat probe: reconnect-on-resume fixed; hidden-tab battery still open">
-`createHeartbeat()` runs `system.live` / `identity.info()` every 15s while the
-socket is OPEN. Two distinct costs hid behind one finding:
-
-- **Spurious reconnect on resume — FIXED <PrLink pr={1598} />.** A laptop sleep / tab freeze /
-  app-switch paused the event loop; the probe's 10s timeout fired *overdue* on
-  resume and forced a reconnect over a still-healthy socket (the brief
-  "Disconnected" flash — a regression from the default-on watchdog
-  <PrLink pr={1545} />). The watchdog now compares elapsed WALL time against
-  elapsed MONOTONIC time across each probe and **voids-and-re-probes** a window a
-  suspension crossed — the browser-leg analog of the ssh leg's wall-clock-gap wake
-  watcher <PrLink pr={1078} /> — and a window-focus / tab-visible **wake** event
-  re-probes immediately; the full-screen overlay is grace-windowed too, so a
-  sub-second reconnect never flashes.
-- **Hidden-tab radio wake — still open.** The probe still runs ≈240×/hour while
-  backgrounded, forcing the mobile radio idle→active. The tempting fix — stop the
-  interval while `document.visibilityState === 'hidden'` — is a **coverage
-  regression**: a hidden tab is still *running*, so its probe timeout is real, and
-  gating it blinds the watchdog to a genuine half-open during a long background. A
-  battery fix must keep watching — **lengthen** the hidden-tab interval (30–60s),
-  not stop it. **Measure:** packet-capture probes/hour backgrounded on a real
-  phone — target under ~10, vs ~240 today.
-</Finding>
-
-- **Every-minute staleness ticker fires globally** regardless of visibility (`terminal/staleness.ts:26-57`) — gate the `setInterval` on `visibilitychange` (reuse the `refitOnTabVisible` pattern). <Pill variant="lo">low</Pill>
-- **N per-terminal `visibilitychange` listeners** for re-fit (`refitOnTabVisible.ts`) — collapse to one shared App-root listener fanning out to a Set of `debouncedFit` callbacks. <Pill variant="lo">low</Pill>
-- **WebGL cap oversized for phones** — `WEBGL_CONTEXT_CAP=12` suits desktop; mobile shows 1–2 tiles. Largely mitigated (`Terminal.tsx:185-196` requires `visible && holdsWebgl`), but a layout-specific budget (1 on phone) would be tighter. *Remaining within* <Issue n={1399} />. <Pill variant="lo">low</Pill>
-- **`getBoundingClientRect` per terminal tap** for link detection (`Terminal.tsx:572-591`) — guarded to genuine taps, but each forces a sync layout read; cache the rect against the `ResizeObserver`. <Pill variant="lo">low</Pill>
-
-## Dev-loop & CI
-
-Iteration speed is a performance surface too. Two confirmed-real wins, both with
-concrete cost.
-
-<Finding sev="medium" title="Parallelize tests across the workspace">
-`pnpm -r` serializes package test runs (no `--workspace-concurrency`), so on a
-multi-core machine the **44 packages run roughly one-at-a-time** even though each
-vitest threads internally — workspace-level parallelism is unused
-(`package.json:7`, per-package `vitest.config.ts`). **Fix:** enable workspace
-concurrency in the `test:unit` recipe; consider `vitest --shard` for the slowest
-packages (e.g. `git/index.test.ts`). **Measure:** `just test-unit` baseline vs
-`--workspace-concurrency N`.
-</Finding>
-
-<Finding sev="medium" title="Compute the Nix pnpmDeps hash once, not twice">
-`ci::pnpm-hash-fresh` runs **two sequential `nix build`s** (the second
-`--rebuild`) with no cache reuse, so `pnpm install` runs fully twice — measured at
-**2m45s on darwin / 25s on linux** (`ci/mod.just:82-84`, `default.nix:154-159`).
-**Fix:** compute the actual hash once into a temp derivation, then compare against
-the declared hash in a pure eval step, deferring the fetch to a single
-store-locked derivation. **Measure:** cold-store `nix build .#pnpmDeps --no-link`
-then `--rebuild --no-link`, total wall-clock before/after.
-</Finding>
+- **No backpressure / drop-visibility on `proc.onData` fan-out** (`ptyHost.ts:544-548`) — `publish()` is fire-and-forget; wiring the unused `onOverflow` hook into a dropped-subscriber counter surfaces *when* the fan-out sheds load, the measurement needed to balance producer/consumer capacity. (The original "O(N) push" claim was wrong — `push` is O(1).) <Pill variant="lo">low</Pill>
+- **Exit-code tombstones FIFO-evicted, no TTL** (`ptyHost.ts:39-42`) — an intentional bounded reuse-cache (1024 entries, FIFO); a missing tombstone falls back harmlessly to `0`. Add a TTL only if measurement shows time-based eviction *right-sizes* retention better than count-based. <Pill variant="lo">low</Pill>
+- **`useComments` `persistedPref` hand-rolls a per-`terminalId` signal** (`useComments.ts:36-83`) — consumers wrap it in `createMemo` so owners *do* auto-dispose (the leak claim was overstated), but moving to `makePersisted` from `@solid-primitives` would make owner cleanup automatic (*don't waste retained capacity*). Marginal. <Pill variant="lo">low</Pill>
+- **WebGL cap oversized for phones** — `WEBGL_CONTEXT_CAP=12` suits desktop; mobile shows 1–2 tiles. Largely mitigated (`Terminal.tsx:185-196` requires `visible && holdsWebgl`), but a layout-specific budget (1 on phone) would *right-size* held VRAM tighter. *Remaining within* <Issue n={1399} />. <Pill variant="lo">low</Pill>
 
 ## From static reads to live traces
 
 Every finding above is a **static code read**. Verification corrected several
 overstated claims (no "high" survived; "O(n³)" was O(n log n); a "100–400 KB"
-snapshot is likely ~4 KB) precisely because nobody had a number. The next round
-moves from reading to **measuring** — these are the gaps this map does *not* yet
-rest on:
+snapshot was ~4 MB, not ~4 KB) precisely because nobody had a number. The next
+round moves from reading to **measuring** — the gaps this map does *not* yet rest
+on:
 
-- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which reactivity items actually surface — this gates backlog item #2 (#1 shipped, proven by a deterministic re-run-count test rather than a trace; #7's *resolver-reference* claim was **refuted** by deterministic reproduction — no trace needed — and the Markdown toggle re-sanitize it surfaced instead **shipped**, proven by an e2e rather than a trace).
+- **Compression's after-number is uncaptured.** The ~3.5× byte cut (row 1) is near-certain from the codebase's own measured gzip ratio, but the perceptual win — cold-start LCP/INP on a real phone over Tailscale, before/after — is untraced. The fix earns going ahead of the trace; the trace still confirms the payoff.
+- **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which N-lever items actually surface — this gates the open reactivity/wire items (the keystone shipped, proven by a deterministic re-run-count test rather than a trace; the markdown toggle re-sanitize shipped, proven by an e2e).
+- **The two new candidates rest on mechanism, not measurement.** The ungated 1s `clock.ts` tick leans on unverified WebSocket-exempts-throttling browser behavior; the server vitest parallelism win is bounded by whether server is the unit-lane long pole. Both are code-confirmed and correctly levered, both unmeasured.
 - **The #1420 OOM root cause is still unidentified.** The Channel-queue RCA ruled itself out; a dedicated kaval heap snapshot needs to find the real scrollback/snapshot retention path.
-- **Mobile rests on mechanism, not on-device traces.** Battery wake-ups, GPU memory across swipes, and keystroke-to-paint on low-end Android are all unmeasured.
+- **Mobile rests on mechanism, not on-device traces.** Battery wake-ups (15s heartbeat, 60s + 1s tickers), GPU memory across swipes, and keystroke-to-paint on low-end Android are all unmeasured.
 - **Wire payloads are uncounted.** No captured byte sizes for full-key-set / full-object publishes or base64 framing across representative repos.
-- **Bundle composition is now measured** (item #5) — an A/B build attributes the Code-tab tree at **171 kB gzip** of the eager chunk and the lazy-load works (e2e 115/115), but it's **deferred**: with `activeTab` defaulting to `code`, the untraced question is cold-start **LCP/INP** — does deferring it (faster first paint vs a cold-load Code-tab flash) net out perceptually.
 - **Server CPU under load** (git-status polling, 1s agent screen-scrape, PR polling) hasn't been profiled in aggregate, only mechanism-by-mechanism.
 
 <Callout kind="note" title="How this note lives">
 Items advance by **measurement, then merge**. When a trace confirms one, link the
 profiling note and the PR (`<PrLink pr={N} />`), flip its line to ✓, and move it to
-*Already banked*. When a trace *refutes* one (this repo's specialty — see
-`dock-and-eventloop-1308`), record the negative here too: a faithfully-reproduced
-negative is as load-bearing as a fix. The map shrinks from the top.
+*Already banked* under the lever it pulled. When a trace *refutes* one (this repo's
+specialty — see `dock-and-eventloop-1308`), record the negative here too: a
+faithfully-reproduced negative is as load-bearing as a fix. The map shrinks from
+the top.
 </Callout>
