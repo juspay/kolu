@@ -752,12 +752,14 @@ Before(async function (this: KoluWorld, scenario) {
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
-        // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
+        // Reset all preferences to defaults (newTerminalTheme "inherit" so new
+        // terminals get the default theme — deterministic for tests)
         seenTips: [],
         // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
         // tip banners popping in mid-shot. Normal e2e runs keep them on.
         startupTips: !X11CAP,
-        shuffleTheme: false,
+        newTerminalTheme: "inherit",
+        shuffleBehavior: "auto",
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",

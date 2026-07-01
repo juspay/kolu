@@ -19,7 +19,11 @@ const SettingRow: Component<{
   children: JSX.Element;
 }> = (props) => (
   <div>
-    <div class="flex items-center justify-between gap-4">
+    {/* Wrap the control below the label when it can't fit beside it (a wide
+     *  control like the 5-segment "New terminal theme" picker in the narrow
+     *  mobile chrome sheet) rather than clipping it off the popover edge. On a
+     *  wide popover everything stays on one line. */}
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <span class="text-sm font-medium text-fg">{props.label}</span>
       {props.children}
     </div>

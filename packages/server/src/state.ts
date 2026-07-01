@@ -89,6 +89,37 @@ export function migrateLegacyTerminal_1_18_0(
   return { ...kept, git: null };
 }
 
+/** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
+ *  boolean chose whether new terminals auto-picked a distinct theme — to the
+ *  two fields that replaced it: `newTerminalTheme` (`inherit` | `shuffle`, the
+ *  creation strategy) and `shuffleBehavior` (the pool a shuffle draws from).
+ *  `true` → `{ shuffle, auto }` (keep auto-picking a distinct tint, now
+ *  mode-matched — the old behaviour, minus the jarring cross-mode picks);
+ *  `false` → `{ inherit, auto }` (don't auto-shuffle — new terminals inherit
+ *  the active one, seeded from the server default, exactly as `false` behaved
+ *  until the user themes a tile). The legacy field is dropped.
+ *
+ *  Keyed off the PRESENCE of `shuffleTheme` and always wins over the values the
+ *  1.10.0 step spreads in (it spreads the current `DEFAULT_PREFERENCES`, which
+ *  now carries both new fields), so a very old record arriving with all three
+ *  still takes its real intent from `shuffleTheme`. A record with no
+ *  `shuffleTheme` (a fresh ≥1.30 install) is returned untouched.
+ *
+ *  Exported so `state.test.ts` can exercise the conversion directly without
+ *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
+export function migratePreferences_1_30_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("shuffleTheme" in current)) return current;
+  const { shuffleTheme, ...rest } = current as { shuffleTheme?: unknown };
+  const newTerminalTheme = shuffleTheme === false ? "inherit" : "shuffle";
+  return {
+    ...rest,
+    newTerminalTheme,
+    shuffleBehavior: DEFAULT_PREFERENCES.shuffleBehavior,
+  };
+}
+
 // The per-field backfills the migration ladder runs (`backfillRemoteUrl` /
 // `backfillLocation` / `backfillTerminalState`) live in `kolu-common/surface`,
 // beside the `SavedTerminalSchema` they restore, because the client's
@@ -114,7 +145,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.29.0";
+const SCHEMA_VERSION = "1.30.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -280,10 +311,12 @@ export const store = new Conf<PersistedState>({
         | (Record<string, unknown> & { randomTheme?: unknown })
         | undefined;
       const { randomTheme, ...rest } = current ?? {};
+      // `shuffleTheme` was itself later removed (→ `newTerminalTheme` in
+      // 1.30.0), so its historical default is pinned as a literal here rather
+      // than read off the current DEFAULT_PREFERENCES (which no longer carries
+      // it). The 1.30.0 step converts whatever this writes.
       const shuffleTheme =
-        typeof randomTheme === "boolean"
-          ? randomTheme
-          : DEFAULT_PREFERENCES.shuffleTheme;
+        typeof randomTheme === "boolean" ? randomTheme : true;
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...(rest as Partial<Preferences>),
@@ -516,6 +549,19 @@ export const store = new Conf<PersistedState>({
     // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
     "1.29.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillSnapshotCutover),
+    // `shuffleTheme` (boolean) split into `newTerminalTheme` (inherit|shuffle)
+    // + `shuffleBehavior` (random|dark|light|auto) — see
+    // `migratePreferences_1_30_0` for the conversion (on→{shuffle,auto},
+    // off→{inherit,auto}, legacy-field-wins ladder handling).
+    "1.30.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      // `migratePreferences_1_30_0` self-guards (returns `current` untouched
+      // when there's no legacy `shuffleTheme`), so no inline presence check.
+      store.set(
+        "preferences",
+        migratePreferences_1_30_0(current) as unknown as Preferences,
+      );
+    },
   },
 });
 

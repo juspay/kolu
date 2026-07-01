@@ -20,7 +20,25 @@ import {
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
   LOCAL_LOCATION,
+  shuffleMode,
 } from "./surface.ts";
+
+describe("shuffleMode", () => {
+  it("random imposes no family restriction", () => {
+    expect(shuffleMode("random", true)).toBeUndefined();
+    expect(shuffleMode("random", false)).toBeUndefined();
+  });
+
+  it("dark / light force their family regardless of app mode", () => {
+    expect(shuffleMode("dark", false)).toBe("dark");
+    expect(shuffleMode("light", true)).toBe("light");
+  });
+
+  it("auto tracks the app's resolved dark mode", () => {
+    expect(shuffleMode("auto", true)).toBe("dark");
+    expect(shuffleMode("auto", false)).toBe("light");
+  });
+});
 
 const claude = (sessionId: string): AgentInfo => ({
   kind: "claude-code",

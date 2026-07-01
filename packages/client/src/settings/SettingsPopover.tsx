@@ -2,7 +2,11 @@
  *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
  *  and trigger ref from the parent. */
 
-import type { Preferences } from "kolu-common/surface";
+import type {
+  NewTerminalTheme,
+  Preferences,
+  ShuffleBehavior,
+} from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
@@ -52,6 +56,42 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
 };
 
+/** New-terminal creation strategy. `Inherit` copies the active terminal's
+ *  theme (set one, every new terminal follows); `Shuffle` auto-picks a distinct
+ *  tint via the Shuffle behaviour below. */
+const NEW_TERMINAL_THEME_OPTIONS: readonly SegmentedControlOption<NewTerminalTheme>[] =
+  [
+    { value: "inherit", label: "Inherit" },
+    { value: "shuffle", label: "Shuffle" },
+  ];
+
+/** Reactive hint table — re-read on every new-terminal-theme change. */
+const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
+  inherit: { text: "New terminals copy the active terminal's theme." },
+  shuffle: {
+    text: "New terminals get a distinct tint (see Shuffle behaviour).",
+  },
+};
+
+/** Shuffle pool — governs both a `Shuffle` new terminal and the ⌘⇧J action.
+ *  `Auto` tracks the app's light/dark mode; `Dark`/`Light` force that family;
+ *  `Random` spreads across the whole catalogue. */
+const SHUFFLE_BEHAVIOR_OPTIONS: readonly SegmentedControlOption<ShuffleBehavior>[] =
+  [
+    { value: "random", label: "Random" },
+    { value: "dark", label: "Dark" },
+    { value: "light", label: "Light" },
+    { value: "auto", label: "Auto" },
+  ];
+
+/** Reactive hint table — re-read on every shuffle-behaviour change. */
+const SHUFFLE_BEHAVIOR_HINT: Record<ShuffleBehavior, Hint> = {
+  random: { text: "Any tint, light or dark — the whole catalogue." },
+  dark: { text: "Dark tints only." },
+  light: { text: "Light tints only." },
+  auto: { text: "Match the app's light/dark mode." },
+};
+
 const SettingsPopover: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -86,13 +126,25 @@ const SettingsPopover: Component<{
             />
           </SettingRow>
           <SettingRow
-            label="Shuffle theme"
-            hint={{ text: "New terminals pick a distinct background tint." }}
+            label="New terminal theme"
+            hint={NEW_TERMINAL_THEME_HINT[preferences().newTerminalTheme]}
           >
-            <Toggle
-              testId="shuffle-theme-toggle"
-              enabled={preferences().shuffleTheme}
-              onChange={(on) => updatePreferences({ shuffleTheme: on })}
+            <SegmentedControl
+              options={NEW_TERMINAL_THEME_OPTIONS}
+              value={preferences().newTerminalTheme}
+              onChange={(v) => updatePreferences({ newTerminalTheme: v })}
+              testIdPrefix="new-terminal-theme"
+            />
+          </SettingRow>
+          <SettingRow
+            label="Shuffle behaviour"
+            hint={SHUFFLE_BEHAVIOR_HINT[preferences().shuffleBehavior]}
+          >
+            <SegmentedControl
+              options={SHUFFLE_BEHAVIOR_OPTIONS}
+              value={preferences().shuffleBehavior}
+              onChange={(v) => updatePreferences({ shuffleBehavior: v })}
+              testIdPrefix="shuffle-behavior"
             />
           </SettingRow>
           <SettingRow

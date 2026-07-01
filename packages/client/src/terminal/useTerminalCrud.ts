@@ -4,10 +4,12 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import { shuffleMode } from "kolu-common/surface";
 import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
+import { useColorScheme } from "../settings/useColorScheme";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
@@ -34,6 +36,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
+  const { isDark } = useColorScheme();
 
   // --- Handlers ---
 
@@ -118,20 +121,32 @@ export const useTerminalCrud = createSharedRoot(() => {
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
-    // server's default theme for a frame, which we don't want scored as a
-    // peer against itself.
-    const peerBgs = preferences().shuffleTheme
-      ? resolveThemeBgs(
-          store.terminalIds(),
-          (id) => store.getMetadata(id)?.themeName,
-        )
-      : null;
+    // Pick the new terminal's theme by strategy. `inherit` copies the active
+    // tile's theme (like size inheritance below); `shuffle` auto-picks a tint
+    // distinct from every open terminal, restricted to the family the shuffle
+    // behaviour resolves to. Either way an explicit `initial.themeName`
+    // (worktree / session restore) wins, and an unresolved theme (no active
+    // tile to inherit, or the active tile is on the default) stays `undefined`
+    // → the server default. Peers are snapshotted BEFORE creating so the new
+    // tile's momentary default theme isn't scored as a peer against itself.
     const theme =
       initial?.themeName ??
-      (peerBgs
-        ? pickTheme(availableThemes, { spread: true, peerBgs })
-        : undefined);
+      (preferences().newTerminalTheme === "shuffle"
+        ? pickTheme(availableThemes, {
+            spread: true,
+            peerBgs: resolveThemeBgs(
+              store.terminalIds(),
+              (id) => store.getMetadata(id)?.themeName,
+            ),
+            mode: shuffleMode(preferences().shuffleBehavior, isDark()),
+          })
+        : // "inherit": copy the active tile's theme (undefined → server default)
+          (() => {
+            const activeId = store.activeId();
+            return activeId !== null
+              ? store.getMetadata(activeId)?.themeName
+              : undefined;
+          })());
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the
     // canvas placement effect, which consumes the signal. If we set

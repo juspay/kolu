@@ -58,6 +58,7 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
+import { match } from "ts-pattern";
 import { z } from "zod";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
@@ -515,6 +516,23 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
+/** How a newly created terminal gets its theme. `inherit` copies the active
+ *  terminal's theme (like new terminals inherit its size — set one theme once
+ *  and every new terminal follows; the first terminal seeds from the server
+ *  default); `shuffle` auto-picks a distinct tint via {@link ShuffleBehaviorSchema}. */
+export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
+
+/** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
+ *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
+ *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
+ *  resolved light/dark mode. */
+export const ShuffleBehaviorSchema = z.enum([
+  "random",
+  "dark",
+  "light",
+  "auto",
+]);
+
 /** Right-panel preferences — workspace-level layout chrome. The fields
  *  *about* what each terminal is doing (active tab, code sub-mode,
  *  selected file) live on `RightPanelPerTerminalStateSchema` against the
@@ -533,9 +551,12 @@ export const RightPanelPrefsSchema = z.object({
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  /** Auto-pick a perceptually-distinct theme for each new terminal. When
-   *  off, every terminal gets the server default until the user picks one. */
-  shuffleTheme: z.boolean(),
+  /** How a new terminal gets its theme (inherit the active one, or shuffle a
+   *  distinct tint) — see {@link NewTerminalThemeSchema}. */
+  newTerminalTheme: NewTerminalThemeSchema,
+  /** Which themes any shuffle draws from — a `shuffle` new terminal and the
+   *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
+  shuffleBehavior: ShuffleBehaviorSchema,
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
@@ -592,6 +613,26 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
  *  slept terminal persists and what the boot seed / restore card read back. */
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
+export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
+
+/** The luminance family a shuffle should restrict its candidate pool to, from
+ *  the `shuffleBehavior` preference and the app's resolved dark mode.
+ *  `undefined` means no restriction (`random` — the whole catalogue). The
+ *  single source of truth for every shuffle: a `shuffle` new terminal AND the
+ *  ⌘⇧J action both resolve their pool through here. */
+export function shuffleMode(
+  behavior: ShuffleBehavior,
+  isDark: boolean,
+): "light" | "dark" | undefined {
+  return match(behavior)
+    .with("random", () => undefined)
+    .with("dark", () => "dark" as const)
+    .with("light", () => "light" as const)
+    .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
+    .exhaustive();
+}
+
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
 /** User-facing name of a Code-tab view — the single source for the words the
@@ -636,7 +677,8 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   seenTips: [],
   startupTips: true,
-  shuffleTheme: true,
+  newTerminalTheme: "shuffle",
+  shuffleBehavior: "auto",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
