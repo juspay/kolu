@@ -502,6 +502,75 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
   </section>
 
   <section class="mx-auto max-w-3xl px-6 pb-14">
+    <h2 class="kv-head">
+      why <span class="kv-prog">kaval-tui send</span>, not a message bus
+    </h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+      Driving one agent from another means typing a prompt and{" "}
+      <span class="text-ink">pressing Enter</span> — raw bytes into the PTY, raw
+      output back — not some agent-to-agent protocol. That's a{" "}
+      <span class="text-ink">deliberate choice</span>, not a missing feature.
+      kolu's rule is to stay out of the agent's way: it never edits your{" "}
+      <code class="mono text-ink">~/.claude</code> (or codex / opencode) config and
+      ships <span class="text-ink">no per-agent glue</span>. The terminal is the
+      one interface every agent already speaks, so raw input is the honest floor.
+      Run any agent CLI once — <code class="mono text-ink">claude</code>,{" "}
+      <code class="mono text-ink">codex</code>, whatever ships next week — and it
+      drives the same way, with nothing to install and no adapter to write.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      Tools like <code class="mono text-ink">hcom</code> get a real message bus by
+      going the other way — installing <span class="text-ink">hooks</span> into
+      each agent's config and routing messages through a shared database, one
+      integration per tool. kolu won't take on that setup step or that per-agent
+      code — and here's the thing:{" "}
+      <span class="text-ink">it doesn't need to</span>, because a channel every
+      agent already speaks is sitting right there.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      <span class="text-ink">The channel is the filesystem.</span> When one agent
+      hands work to another, it doesn't type an essay into the other's terminal —
+      it <span class="text-ink">writes a file</span>, and the other one reads it.
+      kolu's <code class="mono text-ink">/debate</code> skill (a port of{" "}
+      <a
+        href="https://github.com/srid/llm-debate"
+        class="text-amber hover:underline"
+        rel="noopener">srid/llm-debate</a
+      >) runs entirely this way: agents exchange arguments as numbered markdown
+      files in a shared directory, each reading the others' and writing its own by
+      path — <em>"pass file paths, not pasted argument text."</em> A turn being
+      done is just its <span class="text-ink">file existing</span>. Every agent can
+      read and write files with no hook and no adapter; it works headless and
+      across machines over ssh; and because kolu already{" "}
+      <span class="text-ink">watches</span> the working directory, a new file is a{" "}
+      <span class="text-ink">push</span>, not a poll. An inbox is a file; a
+      subscription is a watch on a path. That's the whole coordination layer — no
+      bus required.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      So <code class="mono text-ink">kaval-tui send</code> stays deliberately dumb:
+      it delivers the <span class="text-ink">prompt</span> — "your turn, read these
+      files, write that one" — and nothing bigger flows over the wire. The one
+      place the screen is genuinely irreplaceable is the interactive prompt: when
+      Claude Code stops on an <code class="mono text-ink">AskUserQuestion</code> or
+      a plan-approval menu, that question isn't in any log or file until{" "}
+      <em>after</em> you answer, so the only way to see "it's waiting on you" is to{" "}
+      <a
+        href="https://github.com/juspay/kolu/pull/1160"
+        class="text-amber hover:underline"
+        rel="noopener">read the rendered screen</a
+      >, and you answer it with <span class="text-ink">arrow keys</span>, not
+      text. A message bus wouldn't help there either. Files carry the content, the
+      terminal carries the floor — the full argument is in the{" "}
+      <a
+        href="https://kolu.dev/atlas/hcom-vs-kolu.html"
+        class="text-amber hover:underline"
+        rel="noopener">hcom vs. kolu note</a
+      >.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
     <h2 class="kv-head">commands · <span class="kv-prog">kaval-tui</span></h2>
     {
       commands.map((c) => (
