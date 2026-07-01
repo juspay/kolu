@@ -57,9 +57,9 @@ export const Meter = ({ n, s = 9 }) => (
 
 export const SubDots = ({ items }) => (
   <span style="display:flex;flex-wrap:wrap;gap:.35rem 1.8ch;align-items:center">
-    {items.map(([id, n, delta]) => (
-      <span style={`white-space:nowrap;color:${PAL.sub};font-size:.92em`}>
-        {delta ? <span style={`color:${PAL.cyan};font-weight:700`}>Δ</span> : ""}{id}&nbsp;<Meter n={n} s={7} />
+    {items.map(([id, n, delta, done]) => (
+      <span style={`white-space:nowrap;color:${done ? PAL.green : PAL.sub};font-size:.92em`}>
+        {done ? "✓" : ""}{delta ? <span style={`color:${PAL.cyan};font-weight:700`}>Δ</span> : ""}{id}&nbsp;<Meter n={n} s={7} />
       </span>
     ))}
   </span>
@@ -89,7 +89,7 @@ export const PhaseLens = () => (
     </div>
     {LENS.map(r => (
       <div style="display:grid;grid-template-columns:5ch 1fr;column-gap:1ch;padding:.75rem 0;border-bottom:1px solid #141926">
-        <a href={r.h} style={`color:${PAL.cyan};text-decoration:none;font-weight:700;font-size:1.08em`}>{r.p}</a>
+        <a href={r.h} style={`color:${r.done ? PAL.green : PAL.cyan};text-decoration:none;font-weight:700;font-size:1.08em;white-space:nowrap`}>{r.done ? "✓ " : ""}{r.p}</a>
         <div style="display:flex;flex-direction:column;gap:.4rem;min-width:0">
           <span style={`color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
           <span style={`color:${r.beh ? PAL.txt : PAL.dim};font-size:.95em`}><span style={`color:${PAL.cyan};font-weight:700`}>Δ </span>{r.beh ?? "no runtime-behaviour change until built"}</span>
@@ -101,7 +101,7 @@ export const PhaseLens = () => (
         </div>
       </div>
     ))}
-    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}>◉ user-visible · ○ invisible · <span style={`color:${PAL.cyan}`}>Δ</span> runtime-behaviour change — pixels can be byte-identical while the system runs differently (a Δ-marked sub-PR is where that happens). The shape to notice: rework <em>and</em> the behaviour cliff (W1–W2) land where the user sees nothing; the user-loud phase (W3) is deliberately thin.</div>
+    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}><span style={`color:${PAL.green}`}>✓ shipped</span> · ◉ user-visible · ○ invisible · <span style={`color:${PAL.cyan}`}>Δ</span> runtime-behaviour change — pixels can be byte-identical while the system runs differently (a Δ-marked sub-PR is where that happens). The shape to notice: rework <em>and</em> the behaviour cliff (W1–W2) land where the user sees nothing; the user-loud phase (W3) is deliberately thin.</div>
   </div>
 );
 
