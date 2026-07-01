@@ -20,8 +20,8 @@
  *
  *  Parked rows are filtered out — the activity-window selector becomes a
  *  hard hide, not a dim. The dropped count is surfaced as `parkedCount`
- *  so the dock can render a "N hidden by 24h window" footer with a
- *  one-click "show all" escape.
+ *  so the dock's `Filters` footer can render a combined "N hidden · show
+ *  all" disclosure (parked + hidden-sleeping) with a one-click escape.
  *
  *  `sleeping` rows get the same hard-hide treatment when `hideSleeping` is
  *  set (the dock footer's ☾ toggle) — an orthogonal filter to staleness:

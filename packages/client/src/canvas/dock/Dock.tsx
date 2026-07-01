@@ -48,12 +48,11 @@
  *     0 width and gives that space back to the branch label.
  *
  *  The activity-window picker (`24h`/`12h`/`All`) is a hard filter, not
- *  a dim: rows past the window disappear from the dock entirely. The
- *  picker lives inline inside `HiddenFooter` at the bottom of the dock
- *  alongside the parked-count disclosure ("N hidden by [Wh] window"),
- *  so cause and effect share one zone — and the same strip offers a
- *  one-click "show all" escape via `setActivityWindow("all")` whenever
- *  the window is hiding something.
+ *  a dim: rows past the window disappear from the dock entirely. It lives
+ *  inside `HiddenFooter` at the bottom of the dock, in a `Filters` group
+ *  beside its sibling the ☾ sleeping filter, so cause and effect share
+ *  one zone — and the same strip offers a combined "N hidden · show all"
+ *  disclosure that clears both filters whenever either is hiding rows.
  *
  *  In maximized-tile mode the dock renders as a flush left-edge sidebar
  *  with opaque background, full canvas height, separator on the right.
@@ -268,16 +267,16 @@ const RailOrCards: Component<{
           </For>
         </Show>
       </div>
-      {/* Footer carries the activity-window control + "N hidden by …
-       *  window" disclosure. It governs which rows the window parks, so
-       *  it only earns its place once there is something to park or
-       *  show: at true zero (no visible rows AND nothing parked — the
-       *  empty-canvas Dock) it would read a meaningless "0 hidden by …
-       *  window". The all-parked case (no visible rows but
-       *  `parkedCount > 0`) still needs it — that is exactly when
-       *  "show all" is the way back. In rail mode the footer hands off
-       *  to its chip-only layout (the 44px rail can't hold the
-       *  sentence), driven by the `rail` prop below. */}
+      {/* Footer carries the dock's `Filters` group (activity window + ☾
+       *  sleeping) and their combined "N hidden · show all" disclosure. It
+       *  only earns its place once there's something to filter or show: at
+       *  true zero (no visible rows, nothing parked, nothing sleeping —
+       *  the empty-canvas Dock) it would be a filter row over nothing. The
+       *  all-hidden case (no visible rows but parked/sleeping rows exist)
+       *  still needs it — that is exactly when "show all" is the way back.
+       *  In rail mode the footer hands off to its chip-only stacked layout
+       *  (the 44px rail can't hold the label or sentence), driven by the
+       *  `rail` prop below. */}
       <Show when={props.tree.hasContent}>
         <HiddenFooter
           parkedCount={props.tree.parkedCount}

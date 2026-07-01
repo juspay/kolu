@@ -119,7 +119,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-dock-sleeping",
-    text: "Click the ☾ toggle in the dock's footer to hide sleeping terminals — an independent filter from the activity window, for when you want the dock to show only what's awake",
+    text: "The dock's Filters row has two chips: the activity window (hides stale terminals) and a ☾ chip that hides sleeping ones — click ☾ when you want the dock to show only what's awake",
   },
   {
     id: "amb-terminal-intent",

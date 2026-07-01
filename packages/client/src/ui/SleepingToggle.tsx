@@ -34,7 +34,7 @@ export const SleepingToggle: Component<{
       type="button"
       data-testid={`${props.testIdPrefix}-toggle`}
       data-hiding={hidden() ? "" : undefined}
-      class={`inline-flex items-center gap-1 tabular-nums cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${props.class ?? ""}`}
+      class={`inline-flex items-center justify-center gap-1 font-mono tabular-nums cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${props.class ?? ""}`}
       classList={{
         // Neutral while sleeping rows are visible; accent once the toggle
         // is actively hiding them — the same "filter active = accent"
