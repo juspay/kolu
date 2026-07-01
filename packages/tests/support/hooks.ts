@@ -81,8 +81,9 @@ const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
  *  or make the suite depend on the developer's personal dotfiles. (kolu
  *  forwards HOME into every PTY it spawns: `cleanEnv` whitelists it → `ptyHost`
  *  reads `env.HOME` → `prepareShellInit`'s `replay` sources `$HOME/.bashrc`
- *  etc. — so a real HOME is the leak.) Both the fake dirs and the fake home sit
- *  under `testBaseDir`, which AfterAll wipes.
+ *  etc. — so a real HOME is the leak.) The fake agent dirs sit under
+ *  `testBaseDir` (AfterAll wipes it); the fake home is `fixtureHome`, wiped
+ *  separately in AfterAll (it lives outside `testBaseDir` — see below).
  *
  *  Recording is the exact opposite: it launches the REAL claude/codex to
  *  capture footage, so the agent dirs must be ABSENT (the server then resolves
@@ -96,6 +97,25 @@ const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
  *  there. HOME is child-env ONLY: never mutated onto the harness's own
  *  `process.env`, whose real value the recording path still needs. */
 const RECORDING = !!process.env.KOLU_X11CAP;
+
+/** e2e's throwaway $HOME must NOT sit under the OS temp dir. On Linux
+ *  `os.tmpdir()` is `/tmp`, and a home under it makes every *default-cwd*
+ *  terminal (a new PTY opens in `$HOME`) report a cwd containing the substring
+ *  `/tmp` — which pollutes the workspace-switcher's cwd search: a scenario that
+ *  `cd /tmp` then searches `"/tmp"` also matches the home-cwd terminals, so
+ *  "show 1 card" sees 2. Production homes aren't under `/tmp`, so the fake one
+ *  mustn't be either — else the e2e env diverges from production and quietly
+ *  breaks substring-cwd assertions. Root it on the tmpfs `/dev/shm` on Linux
+ *  (ephemeral, not under `/tmp`, wiped in AfterAll); `os.tmpdir()` elsewhere
+ *  (macOS's `/var/folders/…/T` doesn't contain `/tmp`). Real dotfiles stay
+ *  untouched — HISTFILE resolves to `<fixtureHome>/.bash_history`. If `/dev/shm`
+ *  is absent the `mkdtempSync` throws loudly rather than silently falling back
+ *  to a `/tmp` path that would reintroduce the collision. */
+const fixtureHomeRoot = process.platform === "linux" ? "/dev/shm" : os.tmpdir();
+const fixtureHome = RECORDING
+  ? undefined
+  : fs.mkdtempSync(path.join(fixtureHomeRoot, "kolu-e2e-home-"));
+
 const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
   "KOLU_CLAUDE_PROJECTS_DIR",
@@ -114,7 +134,7 @@ const serverModeEnv: Record<
       KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
       KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
       KOLU_CODEX_DIR: codexDir,
-      HOME: mkSubDir("home"),
+      HOME: fixtureHome,
     };
 for (const name of AGENT_DIR_VARS) {
   const value = serverModeEnv[name];
@@ -752,6 +772,10 @@ AfterAll(async () => {
   // hardening loop — the halt at 0 bytes free was directly caused by this.
   try {
     fs.rmSync(testBaseDir, { recursive: true, force: true });
+    // The fake $HOME lives outside `testBaseDir` (on /dev/shm under Linux — see
+    // `fixtureHome`), so the recursive remove above doesn't catch it. Reap it
+    // here in the same best-effort block. Absent under X11CAP (real HOME).
+    if (fixtureHome) fs.rmSync(fixtureHome, { recursive: true, force: true });
   } catch {
     // Best-effort cleanup — if something already removed the tree (or we
     // don't have permission for some reason) there's nothing productive
