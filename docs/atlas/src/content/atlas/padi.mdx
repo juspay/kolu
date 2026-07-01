@@ -23,7 +23,7 @@ export const ROADMAP = [
   { d: 1, g: "✓", c: "ship", l: "#1637–#1640 closed · finale superseded", m: "2026-07-01", h: "#w0" },
   { d: 1, g: "✓", c: "ship", l: "freeze terminalWorkspaceSurface at 3.0 · retire pulam-web", m: "#1650", h: "#w0" },
   { d: 0, g: "○", c: "prog", l: "W1 · the padi seam, in place — strangler inside kolu-server, UX byte-identical", m: "8 PRs ↓", h: "#w1" },
-  { d: 1, g: "○", c: "prog", l: "W1.1 · padiSurface 1.0 + control core, served in-process (complete, zero consumers)", m: "opens all W1.x", h: "#w11" },
+  { d: 1, g: "○", c: "prog", l: "W1.1 · packages/padi born — padiSurface 1.0 + control core, served in-process (zero consumers)", m: "opens all W1.x", h: "#w11" },
   { d: 1, g: "○", c: "prog", l: "W1.2 · the composed terminals collection — client join deleted", m: "∥ after W1.1", h: "#w12" },
   { d: 1, g: "○", c: "prog", l: "W1.3 · lifecycle + chrome procedures — root terminal.* starts dying", m: "∥ after W1.1", h: "#w13" },
   { d: 1, g: "○", c: "prog", l: "W1.4 · terminalAttach fail-through stream + screen procedures", m: "∥ after W1.1", h: "#w14" },
@@ -219,6 +219,16 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 <Phase id="W3" name="remote + the switch — ssh/Nix leg, host picker, per-view bindings, cross-host badges" status="todo" needs={["W2"]} />
 <Phase id="W4" name="demand-driven — cross-host dock (B-lite) · kolu-tui · hybrid canvas only if earned" status="todo" needs={["W3"]} />
 
+**When packages are born** — graduation is a scheduled event, not a side effect:
+
+| package | born | why then, not earlier/later |
+| --- | --- | --- |
+| `@kolu/padi` | **W1.1** | location is structure: code destined for the daemon must not camp in `packages/server` (the seal would fight gravity; W2.2 would be a double move). Package at W1.1, **process at W2.2** — kaval's package=process=staleKey rule starts *applying* when the process exists, but the boundary the hash covers is drawn seven PRs earlier |
+| re-serve machinery | **W2.1**, into existing `@kolu/surface` / `surface-nix-host` | it generalizes proven pulam-web code for a second consumer (kolu-server) — that *is* the graduation moment; no new package, it extends the receptacle that already owns mirroring (drishti-gated) |
+| the control core | lives in `@kolu/padi` | graduates to `@kolu/surface-daemon` only if a second daemon adopts it — electricity test ③: the proof of graduation is real, not aspirational |
+| padi's `wait` (the agent done-signal) | **W2.4**, a subcommand of the padi binary | no new package: the kaval-tui precedent (separate TUI package) is for a full client; a done-signal probe rides the daemon's own CLI |
+| `kolu-tui` | **W4**, new package | it exists to *prove* padiSurface serves a second frontend — building it earlier would be extraction before proof |
+
 <a id="w0"></a>
 
 ### W0 — decks cleared *(all three landed)*
@@ -231,7 +241,7 @@ The contract's one structural novelty, forced by the adversarial review: **membe
 
 ### W1 — the padi seam, in place *(strangler; eight PRs, phased below; UX byte-identical throughout)*
 
-Define **`padiSurface` 1.0** and serve it **in-process** from kolu-server's existing terminal domain; migrate the client member-by-member. The phase exists to prove one path — *the client runs entirely on padiSurface + the shell surface, with the in-process server behind the same contract a remote padi will serve* — so its terminal done-criterion is the **import-seal test** (W1.8). Every PR lands green with the UX byte-identical; W1.1 opens the fan, W1.2–W1.6 are parallel, W1.7 needs W1.2 + W1.3, W1.8 closes. The **root oRPC namespace dies entirely** across them, per-member (each row names its PR):
+Define **`padiSurface` 1.0** and serve it **in-process**; migrate the client member-by-member. **`packages/padi` is born at W1.1, not at the process split** — location is structure: code destined for padi homed in `packages/server` would make the seal a bespoke test fighting gravity, and W2.2 a double move. So the strangler is a **physical migration**: each W1.x PR moves its member's backing code out of `packages/server` into `@kolu/padi` as it migrates the client onto the surface. The phase proves one path — *the client runs entirely on padiSurface + the shell surface, with the in-process server behind the same contract a remote padi will serve* — sealed by W1.8. Every PR lands green with the UX byte-identical; W1.1 opens the fan, W1.2–W1.6 are parallel, W1.7 needs W1.2 + W1.3, W1.8 closes. The **root oRPC namespace dies entirely** across them, per-member (each row names its PR):
 
 | root oRPC member | disposition | PR |
 | --- | --- | --- |
@@ -247,10 +257,10 @@ Define **`padiSurface` 1.0** and serve it **in-process** from kolu-server's exis
 
 <a id="w11"></a>
 
-#### W1.1 — `padiSurface` 1.0 + the control core, served in-process *(opens the fan)*
+#### W1.1 — `packages/padi` is born: `padiSurface` 1.0 + the control core, served in-process *(opens the fan)*
 
-The contract: every member from the [surface section](#padisurface) — the composed `terminals` collection (with `parked` in the record-state union and the host axis reserved on the dock projection), the urgency projection, `activity`, the repo/file pulses, fs/git + worktree + byte procedures, `transcript.exportHtml`, lifecycle + chrome procedures, `session.restore`/`session.import`, `terminalExit`, `terminalAttach` — each annotated with its **forwarding policy** (value vs fail-through), plus the frozen control-core types (hello · version · drain · `clock.now`). Served **complete** from kolu-server in-process (`implementSurface` is fail-fast, so no member may stub; every backing exists in today's domain code — registry projections, the terminal-workspace endpoint, the scratch/transcript/worktree helpers, an urgency fold off the registry). **Zero client consumers yet.**
-- **Done:** the surface serves beside `koluSurface`; a contract test pins the member list, the policy annotations, and version `1.0`; all e2e untouched.
+**Creates `packages/padi`** — the daemon package, from day one, though no process exists until W2.2 (the export-map split `terminal-workspace` already uses: `./surface` browser-safe — the zod contract the client will import — and the node-only domain assembly beside it). In it, the contract: every member from the [surface section](#padisurface) — the composed `terminals` collection (with `parked` in the record-state union and the host axis reserved on the dock projection), the urgency projection, `activity`, the repo/file pulses, fs/git + worktree + byte procedures, `transcript.exportHtml`, lifecycle + chrome procedures, `session.restore`/`session.import`, `terminalExit`, `terminalAttach` — each annotated with its **forwarding policy** (value vs fail-through), plus the frozen control-core types (hello · version · drain · `clock.now` — they live in `@kolu/padi` and graduate to `@kolu/surface-daemon` only if a second daemon ever adopts them: electricity test ③, proof before extraction). Served **complete** by kolu-server importing the package's in-process assembly (`implementSurface` is fail-fast, so no member may stub; every backing exists in today's domain code — registry projections, the terminal-workspace endpoint, the scratch/transcript/worktree helpers, an urgency fold off the registry — wired through here, physically moved in by W1.2–W1.8). **Zero client consumers yet.**
+- **Done:** the surface serves beside `koluSurface` **from the new package**; a contract test pins the member list, the policy annotations, and version `1.0`; all e2e untouched.
 
 <a id="w12"></a>
 
@@ -298,8 +308,8 @@ The `parked` record state lands; boot reconcile parks reboot-killed actives serv
 
 #### W1.8 — MRU + status relocation, and the import-seal *(last)*
 
-`trackRecentRepo`/`trackRecentAgent` and the MRU feed move into the padi domain module (served on padiSurface; validated against the domain's own fs), `expectedKaval` moves onto padi's status cell — kolu-server's surface retains **no terminal-derived cell**. Then the seal: an import test (à la #1640's `sealedDispatch`, re-derived) pins that client-facing serving reaches the terminal domain **only** through the padiSurface implementation, and that the root `terminal.*` namespace is empty.
-- **Done:** the seal test is green and fails on any reintroduced bypass import; W1 exits with the domain module *extractable* — W2 moves it out of process without touching the contract.
+`trackRecentRepo`/`trackRecentAgent` and the MRU feed move into `@kolu/padi` (served on padiSurface; validated against the domain's own fs), `expectedKaval` moves onto padi's status cell — kolu-server's surface retains **no terminal-derived cell**. Then the seal — mostly the **package boundary itself** by now: a test pins that `packages/server` contains no terminal-domain code, imports nothing from `@kolu/padi` but its public in-process assembly (no deep imports — the `sealedDispatch` idea from #1640, degenerated to a package-boundary lint), and that the root `terminal.*` namespace is empty.
+- **Done:** the seal test is green and fails on any reintroduced bypass or deep import; W1 exits with `@kolu/padi` complete **as a library** — W2.2 gives it a process without touching the contract.
 
 <a id="w2"></a>
 
@@ -318,7 +328,7 @@ Graduate pulam-web's forwarding shapes into the surface stack, generalized: **pe
 
 #### W2.2 — the padi binary *(needs W1.8; zero kolu consumers, like W1.1)*
 
-`packages/padi`: the sealed domain module gets its process entry — **package = process = staleKey** (kaval's one rule; its own Nix derivation + closure). Identity per the architecture section: persistent state-root with the default **spelled by the padi binary on the host**; **digest-keyed runtime rendezvous** (`padi-<digest>/`, gates auto-invalidate at boot); 0700 socket; the frozen **control core** (hello · version · drain · `clock.now`) served for real. padi **spawns-or-adopts its kaval** under `kaval-<digest>/` (retiring `kaval-<port>`), and `kaval-tui`'s **discovery + labels move to the digest pattern + a manifest (digest → state-root) in the same PR** — a flag-less `kaval-tui` keeps working throughout. Session persistence lands in the state-root. Nothing in kolu-server consumes it yet — the daemon is proven standalone.
+`packages/padi` has existed since W1.1 — this PR gives it a **process entry**, and kaval's one rule starts applying: **package = process = staleKey** (its own Nix derivation + closure; the boundary the hash covers was drawn seven PRs ago, so this is additive, not a move). Identity per the architecture section: persistent state-root with the default **spelled by the padi binary on the host**; **digest-keyed runtime rendezvous** (`padi-<digest>/`, gates auto-invalidate at boot); 0700 socket; the frozen **control core** (hello · version · drain · `clock.now`) served for real. padi **spawns-or-adopts its kaval** under `kaval-<digest>/` (retiring `kaval-<port>`), and `kaval-tui`'s **discovery + labels move to the digest pattern + a manifest (digest → state-root) in the same PR** — a flag-less `kaval-tui` keeps working throughout. Session persistence lands in the state-root. Nothing in kolu-server consumes it yet — the daemon is proven standalone.
 - **Done:** a dial test (kaval-tui-style) spawns-or-adopts padi at a private state-root, handshakes the control core, round-trips a terminal through `padiSurface` over the socket; two padis at distinct state-roots never touch each other's kaval (the #1313 property, by construction); `nix build` produces the padi closure with a stable staleKey.
 
 <a id="w23"></a>
