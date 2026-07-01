@@ -269,6 +269,10 @@ export async function runPulamDaemon(opts: PulamDaemonOptions): Promise<void> {
           terminalAttach: {
             input: { id },
             onFrame: (msg) => {
+              // Only `delta` frames mark live output. A `snapshot` is replayed
+              // scrollback, and an `overflow` (contract 4.0) is the host
+              // dropping a slow subscriber — neither is fresh activity, so both
+              // are ignored here (activity detection is best-effort).
               if (msg.kind === "delta") activity.noteOutput(id);
             },
           },

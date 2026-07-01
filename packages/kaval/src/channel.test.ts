@@ -120,15 +120,17 @@ describe("Channel", () => {
     expect(ch.subscriberCount).toBe(0);
   });
 
-  it("drops a slow subscriber that exceeds maxQueue", async () => {
+  it("drops a slow subscriber that exceeds maxQueue, firing its onOverflow", async () => {
     let overflowed = false;
-    const ch = new Channel<number>({
-      maxQueue: 3,
-      onOverflow: () => {
+    const ch = new Channel<number>({ maxQueue: 3 });
+    // The drop callback is PER-SUBSCRIBER (passed to subscribe), not channel-
+    // wide — each subscriber buffers independently, so only the one that
+    // overflowed fires.
+    const it = ch
+      .subscribe(undefined, () => {
         overflowed = true;
-      },
-    });
-    const it = ch.subscribe()[Symbol.asyncIterator]();
+      })
+      [Symbol.asyncIterator]();
     // Never pull — let the queue overflow.
     for (let i = 0; i < 10; i++) ch.publish(i);
     expect(overflowed).toBe(true);
@@ -136,6 +138,58 @@ describe("Channel", () => {
     // On overflow the dropped subscriber's iterator ends immediately — the
     // partially-buffered items are discarded (a transparent re-subscribe
     // delivers a fresh snapshot, so replaying stale bytes is pointless).
+    expect(await next(it)).toEqual({ done: true, value: undefined });
+  });
+
+  it("fires onOverflow only for the subscriber that overflowed, not its siblings", async () => {
+    // overflow is per-subscriber: a slow consumer is dropped while a sibling
+    // draining the same channel keeps receiving, and only the slow one's
+    // callback fires.
+    const ch = new Channel<number>({ maxQueue: 3 });
+    let slowDropped = false;
+    let fastDropped = false;
+    const slow = ch
+      .subscribe(undefined, () => {
+        slowDropped = true;
+      })
+      [Symbol.asyncIterator]();
+    const fast = ch
+      .subscribe(undefined, () => {
+        fastDropped = true;
+      })
+      [Symbol.asyncIterator]();
+    // Publish one at a time and drain `fast` immediately after each, so its
+    // queue never exceeds the cap; `slow` never pulls, so its queue climbs past
+    // the cap and trips the drop.
+    for (let i = 0; i < 10; i++) {
+      ch.publish(i);
+      expect((await next(fast)).value).toBe(i);
+    }
+    expect(slowDropped).toBe(true);
+    expect(fastDropped).toBe(false);
+    expect(await next(slow)).toEqual({ done: true, value: undefined });
+  });
+
+  it("does not mis-signal an abort as an overflow when a publish races it", async () => {
+    // Regression: onAbort queued CLOSE while leaving the sub in the live set, so
+    // a publish racing the abort could reach it and — with its queue already at
+    // the cap — trip the drop branch, firing onOverflow. An abort is a clean
+    // end, not an overflow; firing onOverflow there mis-reads it as one.
+    const ch = new Channel<number>({ maxQueue: 1 });
+    const ac = new AbortController();
+    let overflowed = false;
+    const it = ch
+      .subscribe(ac.signal, () => {
+        overflowed = true;
+      })
+      [Symbol.asyncIterator]();
+    // No pending next(): abort queues CLOSE, filling the 1-deep queue to the cap.
+    ac.abort();
+    // A publish racing the abort must NOT reach the now-dead subscriber.
+    ch.publish(1);
+    expect(overflowed).toBe(false);
+    expect(ch.subscriberCount).toBe(0);
+    // The consumer drains the queued CLOSE → a clean end, never an overflow.
     expect(await next(it)).toEqual({ done: true, value: undefined });
   });
 
