@@ -34,8 +34,8 @@ the reactivity re-derivation gate <PrLink pr={1425} />, the markdown re-sanitize
 keep-alive <PrLink pr={1446} />, the per-attach scrollback share <PrLink pr={1573} />,
 rAF-coalesced canvas gestures <PrLink pr={1368} />. **C — making each thing
 cheaper — concentrates on the wire and the bundle**: full-set broadcasts, base64
-framing, and the biggest unconditional item, a **2.56 MB client bundle served
-uncompressed**. **U — using idle capacity — is nearly untapped**: off-thread diff
+framing, and — the first **banked** C win — a **2.56 MB client bundle now served
+compressed** (→ 571 kB, 4.6×) <PrLink pr={1643} />. **U — using idle capacity — is nearly untapped**: off-thread diff
 highlighting <PrLink pr={1363} /> is the lone banked U win, because a single-user
 desktop client has little idle capacity to reclaim. Verification **downgraded
 every "high-impact" claim to medium** — what remains is mostly real-but-bounded
@@ -69,14 +69,14 @@ structural headroom sits. Then you measure.
 
 export const NcuLevers = () => (
   <div style="margin:1.5rem 0;overflow-x:auto">
-    <svg viewBox="0 0 720 336" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui" role="img" aria-label="Kolu's optimizations sorted into three columns by the lever they pull. N (do fewer things) is green-heavy — reactivity re-derivation, markdown re-sanitize, scrollback share, and canvas coalescing all shipped, with getSubTerminalIds, mobile wake-ups, and the Nix build still open. C (make each thing cheaper) is all-open and led by the starred marquee item, compressing the 2.56 MB client bundle, plus binary framing, metadata deltas, and a tap-rect cache; no banked C win yet. U (use idle capacity) has one shipped win, off-thread diff highlighting, then workspace and server test parallelism and byte-bounded kaval queues open — a thin lever because a single-user client has little idle capacity.">
+    <svg viewBox="0 0 720 336" width="100%" style="min-width:600px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;font-family:ui-sans-serif,system-ui" role="img" aria-label="Kolu's optimizations sorted into three columns by the lever they pull. N (do fewer things) is green-heavy — reactivity re-derivation, markdown re-sanitize, scrollback share, and canvas coalescing all shipped, with getSubTerminalIds, mobile wake-ups, and the Nix build still open. C (make each thing cheaper) is led by the now-shipped marquee item — compressing the 2.56 MB client bundle to 571 kB — plus still-open binary framing, metadata deltas, and a tap-rect cache. U (use idle capacity) has one shipped win, off-thread diff highlighting, then workspace and server test parallelism and byte-bounded kaval queues open — a thin lever because a single-user client has little idle capacity.">
       <text x="20" y="26" font-size="14" font-weight="700" fill="#0A0F25">Kolu's optimizations by lever</text>
       <text x="20" y="45" font-size="12" font-weight="650" fill="#3f444b">Time ≈ (N × C) / U</text>
       <rect x="470" y="14" width="13" height="13" rx="3" fill="#E6F4EA" stroke="#15803D" stroke-width="1.5" />
       <text x="489" y="25" font-size="11" fill="#3f444b">shipped</text>
       <rect x="560" y="14" width="13" height="13" rx="3" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
       <text x="579" y="25" font-size="11" fill="#3f444b">to tune</text>
-      <text x="648" y="25" font-size="11" fill="#92400E">★ = next</text>
+      <text x="636" y="25" font-size="11" fill="#166534">★ = marquee ✓</text>
 
       {/* ---- N column ---- */}
       <rect x="16" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.4" />
@@ -105,11 +105,11 @@ export const NcuLevers = () => (
       <text x="287" y="80" font-size="11.5" font-weight="700" fill="#11203a">Make each cheaper</text>
       <text x="287" y="94" font-size="9.3" fill="#5b6470">fewer bytes · less distance</text>
       <text x="263" y="110" font-size="9" font-style="italic" fill="#92400E">frontier: the wire + the bundle</text>
-      {/* marquee — compression — halo */}
-      <rect x="256" y="117" width="208" height="26" rx="7" fill="#FBF1DC" stroke="#FBF1DC" stroke-width="6" opacity="0.6" />
+      {/* marquee — compression — SHIPPED */}
+      <rect x="256" y="117" width="208" height="26" rx="7" fill="#E6F4EA" stroke="#E6F4EA" stroke-width="6" opacity="0.6" />
       <a href="#c-compression" style="cursor:pointer">
-        <rect x="259" y="120" width="202" height="20" rx="5" fill="#FBF1DC" stroke="#B45309" stroke-width="2.3" />
-        <text x="268" y="134" font-size="9.4" font-weight="700" fill="#92400E">★ Compress the bundle −~3.5×</text>
+        <rect x="259" y="120" width="202" height="20" rx="5" fill="#E6F4EA" stroke="#15803D" stroke-width="2.3" />
+        <text x="268" y="134" font-size="9.4" font-weight="700" fill="#166534">★ Bundle compressed ✓ 4.6× #1643</text>
       </a>
       {[
         ["base64 → binary framing +33%", "#c-base64"],
@@ -121,7 +121,7 @@ export const NcuLevers = () => (
           <text x="268" y={160 + i * 26} font-size="9.4" fill="#92400E">{label}</text>
         </a>
       ))}
-      <text x="263" y="242" font-size="9" font-style="italic" fill="#5b6470">no banked C win yet</text>
+      <text x="263" y="242" font-size="9" font-style="italic" fill="#166534">bundle compression ✓ banked</text>
 
       {/* ---- U column ---- */}
       <rect x="482" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#7c4dd4" stroke-width="1.4" />
@@ -157,7 +157,7 @@ now.
 
 | # | Opportunity | Lever | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|---|
-| 1 | **Serve the client bundle compressed** | <Pill variant="run">C·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Precompress `.br`/`.gz` at build + `Content-Encoding` negotiation; ~2.56 MB → ~700 kB on every cold / remote / phone load. |
+| 1 | **Serve the client bundle compressed** <Pill variant="done">shipped</Pill> | <Pill variant="run">C·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | **Done** <PrLink pr={1643} /> — build-time `.br`/`.gz` + serve-static negotiation; the 2.56 MB main chunk → **571 kB brotli (4.6×)** on every cold / remote / phone load. |
 | 2 | Per-key collection deltas on the wire | <Pill variant="run">C·N</Pill> | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Heartbeat: hidden-tab probe interval | <Pill variant="dx">N</Pill> | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Lengthen** the background probe (30–60s), don't stop it (that blinds the watchdog). Reconnect-on-resume already shipped <PrLink pr={1598} />. |
 | 4 | Workspace-level test parallelism | <Pill variant="dx">U</Pill> | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so ~44 packages don't test one-at-a-time. |
@@ -172,9 +172,9 @@ small/medium docs). The verdicts repeatedly note the mechanism is real but the
 cost is below perception until the scale grows. **Confirm with a profile first** —
 the [coverage gaps](#from-static-reads-to-live-traces) section says exactly which
 traces are still missing. The point of this map is to *prioritize measurement*,
-not to license speculative rewrites. Compression (row 1) is the exception: its
-mechanism and its ~3.5× byte cut are near-certain, so it earns a fix ahead of a
-trace — though the after-LCP on a real phone is still worth capturing.
+not to license speculative rewrites. Compression (row 1) is the exception — it
+already **shipped** <PrLink pr={1643} /> at a measured **4.6×** byte cut, so the
+only work left there is capturing the after-LCP on a real phone.
 </Callout>
 
 ### Already banked
@@ -187,6 +187,7 @@ within …"*.
 - **Reactivity keystone** <Pill variant="dx">N</Pill> <PrLink pr={1425} /> — the `terminalIds` memo keeps a stable reference when the top-level id order is unchanged (`sameTerminalIdOrder` `equals` gate), so the accessor stops *notifying* downstream on non-display metadata writes; proven by a re-run-count regression test. (`displayInfos` keeps its own field-level subscriptions to `git` / `cwd` / `parentId` via the surface store's `reconcile` writes, so PR/agent/foreground churn never reached it even before this gate; a real `git`/`cwd`/`parentId` change still re-runs it, correctly — that path is left intact, by design.)
 - **Markdown toggle keep-alive** <Pill variant="dx">N</Pill> <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×); a per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).
 - <span id="banked-scrollback" />**Per-attach scrollback share** <Pill variant="dx">N</Pill> <PrLink pr={1573} /> — an already-aborted attach does zero `serialize()`, and a burst of attaches to one PTY within a publish-epoch shares one memoized snapshot; the reconnect-storm transient dropped from a measured **2–3.2 GB** of concurrent full serializes to O(live-terminal count). (Bounding each snapshot to a viewport is the follow-up — [kaval memory](./kaval-memory-architecture.html).)
+- **Client bundle compression** <Pill variant="dx">C·U</Pill> <PrLink pr={1643} /> — the client build emits `.br`/`.gz` for the immutable `/assets/*` and `installFreshStatic` serves them via serve-static `precompressed`; the 2.56 MB main chunk crosses the wire as **571 kB brotli (4.6×)** on every cold / remote / phone load. The `no-store` shell stays uncompressed (its commit stamp is seded post-build); zero per-request CPU, compression time-shifted to build.
 - **OpenCode-derived wins** <Pill variant="dx">N·U</Pill> — `@pierre/diffs` 1.2.10 + Shiki 4.2.0 <PrLink pr={1360} />, <span id="banked-diff" />off-thread diff highlighting <PrLink pr={1363} /> (the lone banked **U** win), <span id="banked-canvas" />the canvas gesture-p99 harness + rAF-coalesced pan/zoom <PrLink pr={1368} />. Full write-up: [opencode-perf](./opencode-perf.html).
 - **WebGL context cap** <Pill variant="dx">U</Pill> <PrLink pr={1416} /> <Issue n={1399} /> — admit the whole working set under a 12-context cap; killed the focus-churn VRAM leak on Chrome+AMD.
 - **Compositor paint storms** <Pill variant="dx">C</Pill> — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
@@ -299,38 +300,37 @@ socket is OPEN. Two distinct costs hid behind one finding, both N:
 ## C — Make each thing cheaper
 
 C is dominated by **distance** — bytes over the wire, layers of indirection — and
-Kolu has no banked C win yet, so this is open frontier. The marquee item is the
-biggest single lever on the whole map: the client bundle ships uncompressed. The
-rest is the wire (payload shapes) plus one forced layout read.
+its marquee item is now **banked**: the client bundle, which shipped uncompressed,
+is now served `.br`/`.gz` — a 4.6× cut on every cold load <PrLink pr={1643} />. The
+rest is open wire work (payload shapes) plus one forced layout read.
 
-<Finding sev="medium" id="c-compression" title="Serve the client bundle compressed — the biggest unconditional win on the map">
-The production Hono server ships the client build through `@hono/node-server`'s
-`serveStatic` (`surface-app/server.ts:84,95`, via `installFreshStatic`), and **no
-compression middleware sits anywhere in the pipeline** (`server/src/index.ts`) —
-so the ~**2.56 MB** eager `index` bundle goes out with **no `Content-Encoding`**,
-even though every browser offers `gzip, deflate, br`. Caching is already right
-(immutable hashed `/assets/*`, `max-age` a year), so this doesn't bite a warm
-reload — it bites the **cold load**: first visit, cache-miss, and every
-post-deploy hash change. That's exactly the **remote / Tailscale / phone** path
-kolu markets, where bytes over a slow radio dominate time-to-first-paint. At the
-**3.7× gzip ratio this codebase already measured** (the Code-tab A/B build:
-629 kB → 171 kB), 2.56 MB compresses to **~700 kB** (Brotli, ~640 kB) — a
-**~3.5× cut in transferred bytes** on every cold load.
+<Finding sev="low" id="c-compression" title="Serve the client bundle compressed — ✓ shipped (2.56 MB → 571 kB)">
+The production Hono server shipped the client build through `@hono/node-server`'s
+`serveStatic` (`installFreshStatic`) with **no compression in the pipeline**, so
+the ~**2.56 MB** eager `index` bundle went out with **no `Content-Encoding`** even
+though every browser offers `gzip, deflate, br`. Caching was already right
+(immutable hashed `/assets/*`, `max-age` a year), so it only bit the **cold load**
+— first visit, cache-miss, every post-deploy hash change — but that's exactly the
+**remote / Tailscale / phone** path kolu markets, where bytes over a slow radio
+dominate first paint. **Done** <PrLink pr={1643} /> — the client Vite build now
+emits `.br`/`.gz` siblings for the immutable `/assets/*` at build time (brotli
+q11), and `installFreshStatic` turns on serve-static's `precompressed`, which
+negotiates `Accept-Encoding` and serves the sibling with the right
+`Content-Encoding` + `Vary` at **zero per-request CPU** — the compression
+*time-shifted* to build, a U "pre-compute in idle" move on top of the C byte cut.
 
-This is the model's textbook **C-down / U-up** move (compression: fewer bytes to
-move, better link fill), and — unusually for this map — it is **not bounded at
-today's scale**: it fires on every first load, now. It also **dominates the
-Code-tab lazy-load item above**: that defers a 171 kB gzip *slice* of the bundle
-(speculatively, mobile-only), while compressing ships ~1.8 MB less on the *whole*
-eager load, unconditionally, with no first-paint regression. **Compress first.
-Fix:** precompress at build (a Vite plugin emitting `.br`/`.gz` beside each
-immutable hashed asset) and serve with `Content-Encoding` negotiation — zero
-per-request CPU, the compression *time-shifted* to build (a U "pre-compute in
-idle" move); an on-the-fly `compress` middleware is the simpler fallback at a
-per-request CPU cost. Bake it into the server rather than lean on a fronting proxy
-(`tailscale serve` doesn't compress; loopback has none) — the fail-fast,
-no-external-dependency path this repo prefers. **Measure:** cold-load transferred
-bytes and LCP/INP on a real phone over Tailscale, before/after.
+**Measured on the main chunk: 2.56 MB → 571 kB brotli (4.58×) / 726 kB gzip** —
+beating the ~700 kB the map first estimated from the Code-tab gzip ratio. The
+`no-store` shell (`index.html`) is deliberately left **uncompressed**: its commit
+stamp is seded post-build (kolu#1319), so a compressed shell would strand a
+returning browser on a stale stamp — the build emits siblings for `/assets/*`
+only. A per-request `compress` middleware was the rejected alternative (per-request
+CPU vs build-time zero). This was row 1 and the only item on the map **not bounded
+at today's scale** — it fires on every cold load — and it settled the Code-tab
+lazy-load debate: compressing ships ~2 MB less on the *whole* eager load,
+unconditionally, dwarfing that deferred 171 kB slice. Covered by an
+`installFreshStatic` negotiation test; the remaining trace is on-device cold-start
+LCP over Tailscale (see [coverage gaps](#from-static-reads-to-live-traces)).
 </Finding>
 
 <Finding sev="medium" title="Publish per-key collection deltas, not the full key set — C (payload) + N (client work)">
@@ -397,7 +397,7 @@ snapshot was ~4 MB, not ~4 KB) precisely because nobody had a number. The next
 round moves from reading to **measuring** — the gaps this map does *not* yet rest
 on:
 
-- **Compression's after-number is uncaptured.** The ~3.5× byte cut (row 1) is near-certain from the codebase's own measured gzip ratio, but the perceptual win — cold-start LCP/INP on a real phone over Tailscale, before/after — is untraced. The fix earns going ahead of the trace; the trace still confirms the payoff.
+- **Compression's byte cut is measured; the on-device time isn't.** The build cut is banked — the main chunk went 2.56 MB → 571 kB brotli (4.6×) <PrLink pr={1643} />. What's still untraced is the *perceptual* win: cold-start LCP/INP on a real phone over Tailscale, before/after.
 - **No live client trace.** Capture LCP/INP/CLS and a flame chart of a real 20+ terminal session (chrome-devtools) to confirm which N-lever items actually surface — this gates the open reactivity/wire items (the keystone shipped, proven by a deterministic re-run-count test rather than a trace; the markdown toggle re-sanitize shipped, proven by an e2e).
 - **The two new candidates rest on mechanism, not measurement.** The ungated 1s `clock.ts` tick leans on unverified WebSocket-exempts-throttling browser behavior; the server vitest parallelism win is bounded by whether server is the unit-lane long pole. Both are code-confirmed and correctly levered, both unmeasured.
 - **The #1420 OOM root cause is still unidentified.** The Channel-queue RCA ruled itself out; a dedicated kaval heap snapshot needs to find the real scrollback/snapshot retention path.

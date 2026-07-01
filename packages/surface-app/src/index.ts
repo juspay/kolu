@@ -26,8 +26,18 @@ export interface FreshnessPaths {
  *  hashed assets live. */
 export const ASSET_DIR = "assets";
 
-const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
-const DEFAULT_SHELL_PATHS = ["/", "/index.html"];
+/** The default request prefix of the immutable, content-hashed assets (Vite's
+ *  `/assets/`, derived from `ASSET_DIR`) — the value `FreshnessPaths.assetPrefix`
+ *  falls back to. Exported so the server can scope its `precompressed` static
+ *  route to exactly this prefix (never the shell) without re-hardcoding the
+ *  literal, keeping the "safe to precompress" set single-sourced with the
+ *  immutable-asset taxonomy. */
+export const DEFAULT_ASSET_PREFIX = `/${ASSET_DIR}/`;
+/** The default `no-store` shell paths `FreshnessPaths.shellPaths` falls back to.
+ *  Exported so the server can assert its `precompressed` route (scoped to
+ *  `assetPrefix`) never overlaps the shell — the mechanical half of the kolu#1319
+ *  "never serve a compressed shell" invariant. */
+export const DEFAULT_SHELL_PATHS = ["/", "/index.html"];
 
 /** The SPA shell directive — `no-store`, never `no-cache`. A normal reload must
  *  not be able to replay a cached shell (a pre-`no-store` entry with a 1970

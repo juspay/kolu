@@ -20,6 +20,8 @@ import type { Hono } from "hono";
 import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
+  DEFAULT_ASSET_PREFIX,
+  DEFAULT_SHELL_PATHS,
   type FreshnessPaths,
   isImmutableAssetPath,
   NOTIFICATION_SW_SOURCE,
@@ -81,6 +83,33 @@ export function installFreshStatic(
     if (directive) c.header("Cache-Control", directive);
     return next();
   });
+  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) — but ONLY under
+  // the immutable hashed-asset prefix, never the shell. serve-static negotiates
+  // `Accept-Encoding`, serves the sibling with the right `Content-Encoding`, keeps
+  // the original `Content-Type`, and appends `Vary`; it fires only when a sibling
+  // actually exists. Scoping the `precompressed` route to `assetPrefix` (the same
+  // prefix `isImmutableAssetPath` owns) keeps the "never serve a compressed shell"
+  // half of the freshness contract MECHANICAL and enforced here — even if a
+  // consumer's build wrongly emitted an `index.html.br`, the shell (served by the
+  // identity catch-all below) can never go out compressed and pin returning
+  // browsers to a stale post-build stamp (kolu#1319). The whole payload win is the
+  // `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs nothing. A consumer
+  // that precompresses nothing serves byte-identical identity responses either way.
+  const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
+  // The mechanical guarantee above holds ONLY while `assetPrefix` is disjoint from
+  // the shell — a caller-supplied `assetPrefix: "/"` (or `""`) would scope the
+  // `precompressed` route over `/index.html` too and re-open the exact kolu#1319
+  // stale-stamp footgun. `assetPrefix` is a public, overridable input, so assert
+  // the invariant fail-fast (the file's no-fallback philosophy) rather than trust
+  // its shape: if any shell path is classified as an immutable asset, the prefix
+  // captures the shell and this is a misconfiguration, not a degraded mode.
+  const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
+  if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
+    throw new Error(
+      `installFreshStatic: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
+    );
+  }
+  app.use(`${assetPrefix}*`, serveStatic({ root, precompressed: true }));
   app.use("/*", serveStatic({ root }));
   app.get(
     "/*",
