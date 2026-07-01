@@ -15,7 +15,8 @@ import channel from "../../diagrams/hcom-vs-kolu-channel.svg?raw";
 
 *A read of [**hcom**](https://github.com/aannoo/hcom) — a single Rust binary that
 "hooks your coding agents together" so they message, watch, and spawn each other
-across terminals — held against what kolu is. hcom is a genuinely nice design, and
+across terminals — held against what kolu (a workspace where many coding agents
+run in real terminals you can watch) already is. hcom is a genuinely nice design, and
 the obvious instinct is "kolu should adopt this." Checked against both codebases,
 the honest verdict is the opposite: **kolu already has the channel hcom installs —
 the filesystem — so it doesn't need hcom's.** This note is why.*
@@ -93,8 +94,9 @@ not to build it:
 
 <Callout kind="warning" title="The interactive-prompt floor — neither files nor a message bus reach it">
 Claude Code's Agent SDK buffers the `AskUserQuestion`/`ExitPlanMode` message *in
-memory* and flushes it to the JSONL only **after you answer** — so a log reader
-(and a file-based agent) sees `waiting`, never `awaiting_user` (<Issue n={905} />).
+memory* and flushes it to the session transcript file (the agent's JSONL log) only
+**after you answer** — so a log reader (and a file-based agent) sees `waiting`,
+never `awaiting_user` (<Issue n={905} />).
 kolu already had to **read the rendered screen** to catch it (<PrLink pr={1160} />),
 matching literal strings plus the menu's shape — brittle by nature. And you
 *answer* such a menu with **arrow keys**, not text. A message channel changes none
@@ -109,17 +111,20 @@ case.** Net negative. Don't adopt it.
 
 ## What kolu keeps — the channel it has, and the floor beneath it
 
-The comparison is not "kolu is missing a layer." It's "kolu already made the
-volatility-boundary call hcom's design fights."
+The comparison is not "kolu is missing a layer." It's that kolu already put each
+job where it belongs — files carry what agents *say*, the terminal carries only
+what files *can't* — the kind of boundary call ([electricity](./electricity.html),
+in kolu's terms) that hcom's hook-everything design has to fight.
 
 - **The filesystem is the channel** <Pill>keep</Pill> — content and coordination
   ride shared files, watched for push. No hooks, any agent, headless, over ssh.
-- **The terminal is the floor** <Pill>keep</Pill> — `kaval-tui send` types the
-  prompt; the screen is read *only* for what files can't carry (the raw prompt
-  keystroke and the interactive prompts above). That's why driving an agent is
-  *"press Enter,"* not a protocol: it's the one path that works for **any** agent
-  at **zero** setup — the same [agent-agnostic bet](./herdr-vs-kolu.html) kolu
-  makes everywhere.
+- **The terminal is the floor** <Pill>keep</Pill> — kolu's terminal CLI
+  [`kaval-tui`](./pty-daemon-tui.html) `send`s the prompt; the screen is read
+  *only* for what files can't carry (the raw prompt keystroke and the interactive
+  prompts above). That's why driving an agent is *"press Enter,"* not a protocol:
+  it's the one path that works for **any** agent at **zero** setup — the same
+  [agent-agnostic bet](./herdr-vs-kolu.html) kolu makes everywhere, explained for a
+  general reader on the [kaval page](https://kolu.dev/kaval/).
 - **Transport is surface-over-ssh, not a broker** <Pill>keep</Pill> — hcom's
   cross-device story is a shared-PSK MQTT relay its own README calls *"shell access
   on every enrolled device,"* with no forward secrecy and no revocation. kolu's is
