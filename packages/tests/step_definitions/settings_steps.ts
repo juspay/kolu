@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -34,13 +33,16 @@ When(
 Then(
   "the {string} new terminal theme button should be selected",
   async function (this: KoluWorld, mode: string) {
-    const btn = this.page.locator(`[data-testid="new-terminal-theme-${mode}"]`);
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const pressed = await btn.getAttribute("aria-pressed");
-    assert.strictEqual(
-      pressed,
-      "true",
-      `Expected new-terminal-theme "${mode}" to be selected (aria-pressed=true)`,
+    // aria-pressed flips asynchronously after the click (local preference
+    // patch → SolidJS reactivity flush → DOM update), so poll rather than
+    // read once — a synchronous assertion here races on slower machines.
+    await this.page.waitForFunction(
+      (m) =>
+        document
+          .querySelector(`[data-testid="new-terminal-theme-${m}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      mode,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

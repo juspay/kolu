@@ -165,7 +165,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
 - Live preview while browsing themes in the palette
-- New terminal theme — new terminals (and the active one on <kbd>⌘J</kbd>) get a background perceptually distinct from every other open terminal, chosen from a light/dark family: **Auto** (matches the app's light/dark mode — the default), **Dark** / **Light** (force that family), **Random** (the whole catalogue), or **Off** (use the default theme)
+- New terminal theme — each new terminal gets a background perceptually distinct from every other open terminal, chosen from a light/dark family: **Auto** (matches the app's light/dark mode — the default), **Dark** / **Light** (force that family), **Random** (the whole catalogue), or **Off** (leave new terminals on the default theme). The <kbd>⌘⇧J</kbd> "shuffle this terminal" shortcut honors the same family under Auto/Dark/Light and shuffles freely under Off/Random
 - Dark / light / system UI theme
 - Installed PWA chrome color derives from the server hostname, so app windows from different machines are easier to distinguish
 - **Welcome for new users** — the empty canvas shows three bird's-eye moments (pin kolu as an app · reach it remotely via Tailscale · run agents), above session restore and re-openable anytime via the command palette's **Tutorial** command. The "pin it" card is context-aware: over plain `http://` (a LAN/Tailscale IP, where browsers can't install a PWA without a secure context) it points you to the Tailscale HTTPS fix instead of a dead Install button. Full guide at [kolu.dev](https://kolu.dev)

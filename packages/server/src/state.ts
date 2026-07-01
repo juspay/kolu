@@ -89,6 +89,37 @@ export function migrateLegacyTerminal_1_18_0(
   return { ...kept, git: null };
 }
 
+/** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
+ *  boolean chose whether new terminals auto-picked a distinct theme — to the
+ *  5-way `newTerminalTheme` enum. `true` → `"auto"` (match the app's light/dark
+ *  family, the closest to the old "distinct tint" intent without the jarring
+ *  cross-mode picks, and the new default); `false` → `"off"`. The legacy field
+ *  is dropped. Keyed off the PRESENCE of `shuffleTheme` and always wins over a
+ *  spread-injected `newTerminalTheme` default: the 1.10.0 step spreads the
+ *  current `DEFAULT_PREFERENCES` (which now carries `newTerminalTheme: "auto"`),
+ *  so a very old record can arrive here with BOTH fields — `shuffleTheme` holds
+ *  the user's real intent and must override the injected default. A record with
+ *  no `shuffleTheme` (a fresh ≥1.30 install) is returned untouched.
+ *
+ *  Exported so `state.test.ts` can exercise the conversion directly without
+ *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
+export function migratePreferences_1_30_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!("shuffleTheme" in current)) return current;
+  const { shuffleTheme, ...rest } = current as {
+    shuffleTheme?: unknown;
+    newTerminalTheme?: unknown;
+  };
+  const newTerminalTheme =
+    shuffleTheme === false
+      ? "off"
+      : shuffleTheme === true
+        ? "auto"
+        : (rest.newTerminalTheme ?? DEFAULT_PREFERENCES.newTerminalTheme);
+  return { ...rest, newTerminalTheme };
+}
+
 // The per-field backfills the migration ladder runs (`backfillRemoteUrl` /
 // `backfillLocation` / `backfillTerminalState`) live in `kolu-common/surface`,
 // beside the `SavedTerminalSchema` they restore, because the client's
@@ -519,33 +550,15 @@ export const store = new Conf<PersistedState>({
     "1.29.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillSnapshotCutover),
     // `shuffleTheme` (boolean) generalized to `newTerminalTheme` (5-way enum:
-    // off/random/dark/light/auto). The on/off bit carries over: `true` → "auto"
-    // (match the app's light/dark mode — the closest to the old "distinct tint"
-    // intent without the jarring cross-mode picks, and the new default);
-    // `false` → "off". Keyed off the presence of the legacy `shuffleTheme` field
-    // and always wins: the 1.10.0 step spreads the current DEFAULT_PREFERENCES
-    // (which now carries `newTerminalTheme: "auto"`), so a very old record can
-    // arrive here with BOTH fields set — `shuffleTheme` holds the user's real
-    // intent and must override the spread-injected default. The legacy field is
-    // dropped. A record with no `shuffleTheme` (e.g. a fresh 1.30.0 install) is
-    // left untouched.
+    // off/random/dark/light/auto) — see `migratePreferences_1_30_0` for the
+    // conversion rationale (on→auto, off→off, legacy-field-wins ladder handling).
     "1.30.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       if (!("shuffleTheme" in current)) return;
-      const { shuffleTheme, ...rest } = current as {
-        shuffleTheme?: unknown;
-        newTerminalTheme?: unknown;
-      };
-      const newTerminalTheme =
-        shuffleTheme === false
-          ? "off"
-          : shuffleTheme === true
-            ? "auto"
-            : (rest.newTerminalTheme ?? DEFAULT_PREFERENCES.newTerminalTheme);
-      store.set("preferences", {
-        ...rest,
-        newTerminalTheme,
-      } as unknown as Preferences);
+      store.set(
+        "preferences",
+        migratePreferences_1_30_0(current) as unknown as Preferences,
+      );
     },
   },
 });

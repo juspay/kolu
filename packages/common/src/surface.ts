@@ -58,6 +58,7 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
+import { match } from "ts-pattern";
 import { z } from "zod";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
@@ -611,24 +612,22 @@ export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
  *  `newTerminalTheme` preference and the app's resolved dark mode. `assign`
  *  gates whether a new terminal auto-picks at all (`false` → server default);
  *  `mode`, when set, restricts the candidate pool to that luminance family.
- *  The ⌘J manual shuffle reads `mode` only — it always shuffles, ignoring
+ *  The ⌘⇧J manual shuffle reads `mode` only — it always shuffles, ignoring
  *  `assign`. Single source of truth for both call sites. */
 export function resolveNewTerminalTheme(
   pref: NewTerminalTheme,
   isDark: boolean,
 ): { assign: boolean; mode?: "light" | "dark" } {
-  switch (pref) {
-    case "off":
-      return { assign: false };
-    case "random":
-      return { assign: true };
-    case "dark":
-      return { assign: true, mode: "dark" };
-    case "light":
-      return { assign: true, mode: "light" };
-    case "auto":
-      return { assign: true, mode: isDark ? "dark" : "light" };
-  }
+  return match(pref)
+    .with("off", () => ({ assign: false }))
+    .with("random", () => ({ assign: true }))
+    .with("dark", () => ({ assign: true, mode: "dark" as const }))
+    .with("light", () => ({ assign: true, mode: "light" as const }))
+    .with("auto", () => ({
+      assign: true,
+      mode: isDark ? ("dark" as const) : ("light" as const),
+    }))
+    .exhaustive();
 }
 
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
