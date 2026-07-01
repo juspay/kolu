@@ -2,9 +2,9 @@
 title: Remote terminals — the finale (R9–R10)
 description: The R9–R10 plan of record. R8's reader-join stays. The awareness architecture for remote terminals is SETTLED in the awareness design note — split observing from remembering. A memoryless producer per host emits TerminalSnapshot events, and kolu alone folds them, owns the memory (on kolu.authored), and stamps recency with its own clock. Two earlier directions are dead — the local-pulam-PROCESS (#1614, closed) and createPulam / share-the-assembly (superseded). So R9·lib dissolves. The remaining work is re-sequenced under a hard constraint (a remote tile must be as complete as a local tile, nothing deferred) into three parallel local-preserving prep PRs then one feature. Phases — S1 producer · S2 kolu-fold · R9.0 in-process · R9.1 resolver (all shipped) · PR-1 lifecycle · PR-2 fs/git · PR-3 awareness · F-REMOTE the complete remote tile · R10 canvas.
 parents: [remote-terminals]
-status: proposed
+status: superseded
 maturity: budding
-updated: 2026-06-29
+updated: 2026-07-01
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -12,6 +12,10 @@ import PrLink from "../../components/PrLink.astro";
 import Issue from "../../components/Issue.astro";
 import Phase from "../../components/Phase.astro";
 import PhaseTree from "../../components/PhaseTree.astro";
+
+<Callout kind="warning" title="SUPERSEDED — the plan of record is now the padi architecture">
+This whole plan (PR-1 · PR-2 · PR-3 · F-REMOTE · R10) is **superseded by [padi](padi.html)** (2026-07-01): a ground-up re-evaluation found the per-terminal `HostLocation` threading below to be N-site handling of a *connection-level* volatility — the canvas is now single-host per view, one workspace daemon per host owns everything, and none of the remaining phases here proceed. PRs <PrLink pr={1637} />, <PrLink pr={1638} />, <PrLink pr={1639} />, <PrLink pr={1640} /> are closed. The shipped foundations (S1 · S2 · R9.0 · R9.1) survive — the producer, fold, and types are reused verbatim inside padi. This note is kept as the record of the superseded decomposition.
+</Callout>
 
 **The last leg of <Issue n={951} /> — kolu dials remote hosts.** R8 (<PrLink pr={1594} />) shipped the right **reader-join** (a terminal is `kolu.authored ⋈ terminalWorkspace.snapshots`, joined at the reader) — *keep that*. The question this note settles is how kolu gets the **awareness** half for a *remote* host, and that architecture is now **decided**: split **observing** from **remembering**. A **memoryless producer** runs beside each host's kaval and emits `TerminalSnapshot` events; **kolu alone folds** them, owns the memory (on `kolu.authored`), and stamps recency with **its own clock**. The full types/API/flows are in **[the awareness design](awareness-derive-store.html)**; this note is the phase plan of record. The parent [remote-terminals](remote-terminals.html) keeps the one-line rows; the model is in [the terminal model](terminal-metadata-model.html).
 

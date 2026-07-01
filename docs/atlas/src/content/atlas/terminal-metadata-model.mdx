@@ -4,7 +4,7 @@ description: A terminal's facts are split across two served collections — the 
 parents: [remote-terminals, reference]
 status: proposed
 maturity: budding
-updated: 2026-06-28
+updated: 2026-07-01
 ---
 
 import Svg from "../../components/Svg.astro";
@@ -12,6 +12,10 @@ import Callout from "../../components/Callout.astro";
 import diagram from "../../diagrams/terminal-metadata-model.svg?raw";
 
 **A terminal's facts are split across two served collections, joined at the reader.** The **snapshot** half — `AwarenessValue`, the eight sensor fields — is served raw on `terminalWorkspace.awareness`. The **authored** half — `AuthoredTerminal`, kolu's own UI + the `active | sleeping` discriminant — is served raw on `kolu.authored`. The client's `useTerminalMetadata` subscribes to **both** and joins them with `composeTerminalMetadata` into a `TerminalMetadata`; `snapshotSession` reuses the **same** join to author the on-disk `SavedTerminal`. **Nothing fuses the two server-side** — `surfaceCtx.collections.terminalMetadata` is a compile error (pinned by `surface.test.ts`). This shipped in **PR #1594**.
+
+<Callout kind="warn" title="Further superseded — under padi, the reader-join itself retires (2026-07-01)">
+The two-collections-joined-at-the-reader shape existed because **two processes wrote the two halves** (kolu authored; the sensors observed). Under the [padi architecture](padi.html) one process — padi, the per-host workspace daemon — writes both, so padi serves a single composed **`terminals`** collection (`composeTerminalMetadata` moves server-side; disk persistence keeps the same compose) and the client join deletes in phase W1. The authored/snapshot **split survives as padi-internal types** — the fence keeping the producer unable to write memory — it just stops being a wire shape. Read this note as the record of the R8 join.
+</Callout>
 
 <Callout kind="warn" title="Superseded shape — the awareness-derive-store cutover reshaped the snapshot half">
 The reader-side **join** documented below (two collections, joined at the reader; no server-side fusion) still stands. But the **snapshot-half type** shown throughout this note is **pre-cutover**. The [awareness-derive-store cutover](awareness-derive-store.html) (now landed) renamed `AwarenessValue` → **`TerminalSnapshot`**, **deleted** the `agentSession` field (the restore target is now the fold-derived discriminated `restoreTarget` on the authored record — its `exact` arm carries the identity), moved kolu's two remembered facts (`lastActivityAt` · `lastAgentCommand`) onto `kolu.authored`, and made `pr` **persisted** (restore-relevant, like `git`) — so the "frozen pr on the sleeping arm" special case described below is **gone**. Read the type tables as history; the converged types live in [the awareness design](awareness-derive-store.html).

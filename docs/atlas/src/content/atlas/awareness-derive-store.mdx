@@ -15,7 +15,7 @@ description: >-
 parents: [remote-terminals-finale]
 status: implemented
 maturity: budding
-updated: 2026-06-30
+updated: 2026-07-01
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -31,6 +31,10 @@ import homes from "../../diagrams/awareness-homes.svg?raw";
 **The de-entanglement that makes R9 mostly evaporate.** Every hard thing in [the finale](remote-terminals-finale.html) — the two assemblers, the createPulam boundary, the fold-clobber — traces to **one** complect: the sensor engine *derives* awareness by *mutating a host record it also reads back as memory*. Split **observing** from **remembering** and it dissolves. This note pins the **types, the API, and the flows** so the boundary can be evaluated before any code; every claim cites the code it restructures.
 
 **Landed** (S1 + S2 → R9.0): <PrLink pr={1626} />, then hardened by a 4-reviewer architecture-first-principles + perfection-review gauntlet. As shipped, the restore target is a **fold-produced discriminated value** on the authored record — `RestoreTarget = none | { exact, command, agent } | { legacyMostRecent, command }` (`restoreTargetOf`, consumed by `resumeFormFor`) — rather than a bare optional identity, so an absent field can never be misread as "resume most-recent". Quit-to-shell → `none` → **bare shell by construction** for new records (the strict #1492 behavior); migrated pre-1.29 records keep their old most-recent resume as a *named* `legacyMostRecent`. **Deferred** (tracked, not shipped): the **active drain-at-sleep** — `beginSleep` freezes the last fold-written target and does **not** drain a final settle, so a launch-then-sleep *inside* the agent settle window freezes a stale `none` and wakes to a **false bare shell** (narrow, self-corrects on re-launch). The recency frame phase is now **value-based** (compare the re-resolved identity to the saved target), not the original wall-clock window.
+
+<Callout kind="warn" title="Partially superseded — under the padi architecture, the fold's HOME moves (2026-07-01)">
+The **types and the cut survive verbatim** — memoryless producer, `TerminalSnapshot`/`AgentMemory`/`Known<T>`/`RestoreTarget`, the one fold, the clobber-free-by-type property. What the [padi architecture](padi.html) changes is **where remembering lives**: the fold and memory move from kolu-server into **padi, the per-host workspace daemon**, co-resident with the producer — so *no fold ever crosses a wire*, and the planned remote apparatus (the framer, `TerminalFrame` `seq`/`gap`, the `terminalEvents` wire, the consumer arm — PR #1638) is **deleted unbuilt**. Two decisions are re-settled deliberately: recency rides the **host's (owner's) clock**, not the consumer's — sound now because a canvas is single-host per view, so cross-host comparison is unrepresentable (display ages against padi's served `now`); and the reader-join collapses into padi's composed `terminals` collection. "kolu remembers" becomes "**the host's padi remembers**"; everything below about *how* observing and remembering are split still stands.
+</Callout>
 
 <Callout kind="note" title="Provenance — a settled design, simplified in review">
 This supersedes the createPulam / shared-leaf direction of the finale's R9·lib + R9.0, the "seed-the-engine" draft of this note, **and** the earlier three-category (cache / live / memory) model from the debate. The shape held; the *count* shrank. A long review collapsed it to the simplest thing that still can't clobber: **one observation a host produces, two facts only kolu keeps.** The record of the debate is `debates/awareness-architecture/conclusion.md`; the first-principles hardening pass (`05.*.md`) supplied the frame discriminator, the per-subscription `seq`, the value-change autosave fence, the mutator deletion, and the branded key — all carried below. The forks are **decided** (the "Decided" sections), not left open.

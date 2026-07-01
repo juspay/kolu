@@ -4,7 +4,7 @@ description: The skeleton plan for kolu#951 — remote terminals over SSH, as on
 parents: [feature]
 status: accepted
 maturity: budding
-updated: 2026-06-29
+updated: 2026-07-01
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -77,6 +77,10 @@ export const RemoteCanvas = () => (
   .rt-spin { display:inline-block; animation: rtspin 1.1s linear infinite; transform-origin: 50% 54%; }
   @keyframes rtspin { to { transform: rotate(360deg) } }
 `}</style>
+
+<Callout kind="warning" title="R9/R10 re-architected — the plan of record is now padi (2026-07-01)">
+The remaining work (R5's loop home, R9's decomposition, R10's canvas) was re-evaluated from the ground up and is **superseded by the [padi architecture](padi.html)**: one workspace daemon per host (padi) owns the complete terminal state — registry, fold + memory on the host's clock, lifecycle, fs/git + bytes, session persistence, kaval supervision — and kolu-server thins to a web shell holding per-connection host bindings. The canvas is **single-host per view** (a host switcher, not mixed tiles); pulam/pulam-web dissolve; prep PRs #1637–#1640 are closed. Everything shipped through R8 + S1/S2/R9.0/R9.1 survives — this note's history and the child build logs remain the record. New phases: **W0–W4 in [padi](padi.html)**.
+</Callout>
 
 ## User-facing description
 
@@ -219,6 +223,7 @@ Now that R8 shipped, **R9 is decomposed into landable PRs** — **S1 · S2** (th
 
 ## History
 
+- **R9/R10 superseded by the padi architecture** (2026-07-01) — a ground-up re-evaluation (7-lens adversarial review + persona UX evaluation) found "which host" to be a *connection-level* volatility, not a per-terminal one: the canvas becomes single-host per view, and a per-host workspace daemon (**padi** — pulam grown to completion + kolu-server's whole terminal domain) serves ONE complete surface that kolu-server merely binds to. PRs #1637/#1638/#1639/#1640 closed; pulam-web/pulam-tui retire; the S1/S2 producer+fold move into padi verbatim (owner-clock replaces consumer-clock — re-settled, since no view ever compares two hosts). Plan of record: [padi](padi.html).
 - **R9 awareness architecture settled — observe vs. remember; createPulam superseded** (2026-06-29) — A grounded 3-agent design debate (held to the perfection bar) converged the remote-awareness architecture: split **observing** from **remembering**. The producer is **memoryless** — it emits `TerminalSnapshot` events and *cannot spell* the memory fields, by type. **kolu alone folds**, owns the memory (moved to `kolu.authored`), and stamps recency with its own clock (killing cross-host clock skew); the wire carries an event stream, not whole values, so local and remote are one fold path and the remote reconcile disappears. This **supersedes createPulam** ("share the assembly" still fused deriving with storing), so **R9·lib dissolves**. Decided: memory→`kolu.authored`, identity-only recency, urgency-only dashboards, host-scoped key. Full design: [the awareness note](awareness-derive-store.html); plan: [the finale](remote-terminals-finale.html).
 - **R9 re-grounded — the decoupling is the library, not a process; #1614 closed** (2026-06-28) — A step back, grounded in the source, found the previous correction's premise wrong: the awareness capability is **already a decoupled library** (`@kolu/terminal-workspace` — its dependency arrow points out, six consumers) and kolu already consumes it in-process (`terminalEndpoint/local.ts` runs the library's `startAwareness` against kaval's taps). So no *local pulam process* was ever needed. **PR [#1614](https://github.com/juspay/kolu/pull/1614) is closed** (the local-pulam-process — a misdiagnosis that also introduced a fold-clobber intrinsic to mirroring an ephemeral local process across a socket). The real gap: the library exposes only *parts*, with no single assembly, so there is **no 1:1** between it and the pulam daemon (the assembly + the sink + the byte-tap live in the daemon, re-implemented divergently inside kolu). Corrected plan at the time — **R9·lib** gives the library one assembly entry point (createPulam) the daemon wraps trivially. (That createPulam direction is itself now **superseded** by the observe-vs-remember design — see the entry above.)
 - **R9a discarded; an interim "local pulam process" direction** (2026-06-28) — R8's reader-join is kept; **R9a (<PrLink pr={1604} />) is abandoned** (its approach had pulam-web reach *into* kolu), and the one real thing it surfaced — a `@kolu/surface` membership bug (`broadcastKeys`) — landed on its own (<PrLink pr={1609} />). This entry's then-proposed direction (kolu running a *local pulam process* as its awareness backing) is **superseded by the re-grounding above** — the awareness library was already decoupled, so no process was needed.
