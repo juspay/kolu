@@ -12,6 +12,7 @@
 
 import { type Component, Show } from "solid-js";
 import { setShowSleeping, showSleeping } from "../terminal/showSleeping";
+import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
 
 export const SleepingToggle: Component<{
   /** How many sleeping terminals the dock holds (shown or hidden). Shown
@@ -34,14 +35,8 @@ export const SleepingToggle: Component<{
       type="button"
       data-testid={`${props.testIdPrefix}-toggle`}
       data-hiding={hidden() ? "" : undefined}
-      class={`inline-flex items-center justify-center gap-1 font-mono tabular-nums cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${props.class ?? ""}`}
-      classList={{
-        // Neutral while sleeping rows are visible; accent once the toggle
-        // is actively hiding them — the same "filter active = accent"
-        // grammar the activity-window chip uses.
-        "text-fg-3 hover:text-fg": !hidden(),
-        "text-accent": hidden(),
-      }}
+      class={`${FILTER_CHIP_BASE} gap-1 ${props.class ?? ""}`}
+      classList={filterChipAccent(hidden())}
       aria-label={
         hidden()
           ? `${props.count} sleeping terminals hidden — show them`
