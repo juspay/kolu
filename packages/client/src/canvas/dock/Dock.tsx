@@ -281,6 +281,7 @@ const RailOrCards: Component<{
       <Show when={props.tree.hasContent}>
         <HiddenFooter
           parkedCount={props.tree.parkedCount}
+          sleepingCount={props.tree.sleepingCount}
           rail={props.mode === "rail"}
         />
       </Show>

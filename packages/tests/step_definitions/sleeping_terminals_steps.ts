@@ -339,6 +339,25 @@ Then(
   },
 );
 
+When(
+  "I toggle the dock's sleeping-terminal filter",
+  async function (this: KoluWorld) {
+    // The ☾ toggle in the desktop dock's footer hides / shows sleeping rows —
+    // an independent filter from the activity window. Scope the click to the
+    // desktop `dock-hidden-footer` so a mounted mobile drawer (its own
+    // `mobile-dock-sleeping-toggle`) can't be hit instead. Dispatch the DOM
+    // click directly, the same idiom as the sleep button above.
+    await this.page.evaluate(() => {
+      const btn = document.querySelector(
+        '[data-testid="dock-hidden-footer"] [data-testid="dock-sleeping-toggle"]',
+      ) as HTMLButtonElement | null;
+      if (!btn)
+        throw new Error("dock-sleeping-toggle not found in dock footer");
+      btn.click();
+    });
+  },
+);
+
 Then(
   "the dock should show {int} sleeping row(s)",
   async function (this: KoluWorld, expected: number) {

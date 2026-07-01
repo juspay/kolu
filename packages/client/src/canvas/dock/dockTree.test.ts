@@ -48,7 +48,7 @@ describe("buildDockTree", () => {
       b: { group: "pierre", color: "#bbb" },
       c: { group: "kolu", color: "#aaa" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     // Section recency: kolu's newest (c@2000) > pierre's newest (b@500).
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
     // Within kolu, c@2000 outranks a@1000 on pure recency — bucket no
@@ -68,7 +68,7 @@ describe("buildDockTree", () => {
       b: { group: "kolu", color: "#aaa" },
       c: { group: "pierre", color: "#bbb" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.parkedCount).toBe(2);
     expect(tree.groups).toHaveLength(1);
     expect(tree.groups[0]?.name).toBe("kolu");
@@ -88,7 +88,7 @@ describe("buildDockTree", () => {
       c: { group: "pierre", color: "#bbb" },
       d: { group: "justci", color: "#ccc" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     // Section order: pierre(300) > kolu(200) > justci(0). Within kolu,
     // b@200 > a@100 on recency.
     expect(tree.flatRows.map((r) => r.id)).toEqual(["c", "b", "a", "d"]);
@@ -105,7 +105,7 @@ describe("buildDockTree", () => {
       a: { group: "kolu", color: "#aaa" },
       b: { group: "pierre", color: "#bbb" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     // Under bucket-priority, pierre's awaiting could outrank kolu at
     // the row layer; under pure recency, kolu wins because a@1000
     // beats b@400. The pip's pulse on b carries the attention signal
@@ -124,7 +124,7 @@ describe("buildDockTree", () => {
       b: { group: "pierre", color: "#bbb" },
       c: { group: "kolu", color: "#aaa" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     // Pierre's newest (b@500) beats kolu's (c@300); within kolu, c@300
     // beats a@100.
     expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
@@ -137,7 +137,7 @@ describe("buildDockTree", () => {
       a: { group: "kolu", color: "#aaa" },
       // b has no entry → buildTerminalDisplayInfos hasn't resolved it yet.
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
     expect(tree.parkedCount).toBe(0);
   });
@@ -153,7 +153,7 @@ describe("buildDockTree", () => {
       b: { group: "kolu", color: "#aaa", label: "feat-y" },
       c: { group: "kolu", color: "#aaa", label: "feat-x" },
     });
-    const tree = buildDockTree(ranked, getInfo);
+    const tree = buildDockTree(ranked, getInfo, false);
     // Cluster feat-x (headline a@1000) outranks cluster feat-y
     // (headline b@500) on recency. Within feat-x, a@1000 > c@200.
     // Pure-recency interleaving would have been [a, b, c]; clustering
@@ -163,9 +163,74 @@ describe("buildDockTree", () => {
   });
 
   it("an empty input yields zero groups and zero parked", () => {
-    const tree = buildDockTree([], () => undefined);
+    const tree = buildDockTree([], () => undefined, false);
     expect(tree.groups).toEqual([]);
     expect(tree.flatRows.map((r) => r.id)).toEqual([]);
     expect(tree.parkedCount).toBe(0);
+    expect(tree.sleepingCount).toBe(0);
+  });
+
+  it("counts sleeping rows but keeps them visible when hideSleeping is off", () => {
+    const ranked = [
+      row("a", "awaiting", 1000),
+      row("b", "sleeping", 500),
+      row("c", "sleeping", 200),
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa" },
+      b: { group: "kolu", color: "#aaa" },
+      c: { group: "pierre", color: "#bbb" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false);
+    // Shown → they're in the tree, and the count still reports the total.
+    expect(tree.sleepingCount).toBe(2);
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("drops sleeping rows when hideSleeping is on, surfacing the count", () => {
+    const ranked = [
+      row("a", "awaiting", 1000),
+      row("b", "sleeping", 500),
+      row("c", "sleeping", 200),
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa" },
+      b: { group: "kolu", color: "#aaa" },
+      c: { group: "pierre", color: "#bbb" },
+    });
+    const tree = buildDockTree(ranked, getInfo, true);
+    expect(tree.sleepingCount).toBe(2);
+    // Both sleeping rows are gone; only the awaiting row (and its group) remain.
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
+    expect(tree.groups.map((g) => g.name)).toEqual(["kolu"]);
+  });
+
+  it("keeps the footer reachable: all-sleeping-hidden still has content", () => {
+    // A dock of only sleeping terminals, all hidden — flatRows and parked are
+    // both empty, so `sleepingCount` is the only thing keeping `hasContent`
+    // true and the ☾ toggle on screen to bring them back.
+    const ranked = [row("a", "sleeping", 500), row("b", "sleeping", 200)];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa" },
+      b: { group: "kolu", color: "#aaa" },
+    });
+    const tree = buildDockTree(ranked, getInfo, true);
+    expect(tree.flatRows).toHaveLength(0);
+    expect(tree.parkedCount).toBe(0);
+    expect(tree.sleepingCount).toBe(2);
+    expect(tree.hasContent).toBe(true);
+  });
+
+  it("does not count parked rows as sleeping even when they were slept", () => {
+    // A stale sleeping tile ranks `parked` (staleness wins), so it belongs to
+    // parkedCount, not sleepingCount — the ☾ toggle only governs fresh ones.
+    const ranked = [row("a", "sleeping", 900), row("b", "parked", 100)];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa" },
+      b: { group: "kolu", color: "#aaa" },
+    });
+    const tree = buildDockTree(ranked, getInfo, false);
+    expect(tree.sleepingCount).toBe(1);
+    expect(tree.parkedCount).toBe(1);
   });
 });

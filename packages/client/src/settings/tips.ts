@@ -118,6 +118,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Click the `All` chip in the minimap's zoom bar to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
   },
   {
+    id: "amb-dock-sleeping",
+    text: "Click the ☾ toggle in the dock's footer to hide sleeping terminals — an independent filter from the activity window, for when you want the dock to show only what's awake",
+  },
+  {
     id: "amb-terminal-intent",
     text: `Click the annotation slot in a tile's title bar (or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "Edit intent") to attach a note — line 1 supplants the branch name in dock/switcher; the rest renders as markdown`,
   },

@@ -23,6 +23,12 @@
  *  so the dock can render a "N hidden by 24h window" footer with a
  *  one-click "show all" escape.
  *
+ *  `sleeping` rows get the same hard-hide treatment when `hideSleeping` is
+ *  set (the dock footer's ☾ toggle) — an orthogonal filter to staleness:
+ *  the window hides *stale* rows, this hides *deliberately dormant* ones.
+ *  `sleepingCount` counts every fresh sleeping row (shown or hidden) so the
+ *  footer knows whether the toggle earns its place and what count to show.
+ *
  *  `flatRows` is the same row order the dock paints, but flat — rail
  *  mode reads each row's `bucket` straight off this list for its
  *  breathe/pulse animation, and `App.tsx` projects `.map(r => r.id)`
@@ -59,27 +65,43 @@ export type DockTree = {
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
-  /** The dock has substantive content — visible rows or parked rows.
-   *  This is the boolean the empty-canvas Dock is defined by (true zero
-   *  is the only state with no content), so the HiddenFooter reads it to
-   *  decide whether the activity-window control earns its place. */
+  /** How many fresh (in-window) sleeping rows the dock holds — counted
+   *  whether they're shown or hidden by the ☾ toggle, so the footer can
+   *  decide whether the toggle earns its place and show the count. Stale
+   *  sleeping tiles are `parked`, not counted here. */
+  sleepingCount: number;
+  /** The dock has substantive content — visible rows, parked rows, or
+   *  sleeping rows the ☾ toggle is hiding. This is the boolean the
+   *  empty-canvas Dock is defined by (true zero is the only state with no
+   *  content), so the HiddenFooter reads it to decide whether the footer
+   *  controls earn their place. Sleeping rows count even when hidden, so
+   *  the toggle stays reachable to bring them back. */
   hasContent: boolean;
 };
 
 export function buildDockTree(
   ranked: readonly RankedDockRow[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+  hideSleeping: boolean,
 ): DockTree {
   const byName = new Map<
     string,
     { color: string; byLabel: Map<string, RankedDockRow[]> }
   >();
   let parkedCount = 0;
+  let sleepingCount = 0;
 
   for (const row of ranked) {
     if (row.bucket === "parked") {
       parkedCount++;
       continue;
+    }
+    if (row.bucket === "sleeping") {
+      // Count every fresh sleeping row so the footer toggle knows the total,
+      // then drop it from the tree when the ☾ toggle is off — the same
+      // hard-hide the activity window applies to parked rows.
+      sleepingCount++;
+      if (hideSleeping) continue;
     }
     const info = getDisplayInfo(row.id);
     if (!info) continue;
@@ -106,7 +128,8 @@ export function buildDockTree(
     groups,
     flatRows,
     parkedCount,
-    hasContent: flatRows.length > 0 || parkedCount > 0,
+    sleepingCount,
+    hasContent: flatRows.length > 0 || parkedCount > 0 || sleepingCount > 0,
   };
 }
 

@@ -125,6 +125,22 @@ Feature: Sleeping terminals
     And the workspace switcher should have 1 terminal entry
     And there should be no page errors
 
+  Scenario: The dock's ☾ toggle hides and re-shows sleeping terminals
+    # The dock footer's ☾ toggle is an independent filter from the activity
+    # window: it hides `sleeping`-bucket rows. Sleep the only terminal, hide it
+    # via the toggle (the sleeping row drops), then toggle again to bring it
+    # back — proving the filter is reversible AND that hiding the last visible
+    # row doesn't strand the footer (the toggle must stay reachable to un-hide).
+    Given the terminal is ready
+    When I sleep the active terminal via the tile sleep button
+    Then the slept terminal should be sleeping
+    And the dock should show 1 sleeping row
+    When I toggle the dock's sleeping-terminal filter
+    Then the dock should show 0 sleeping rows
+    When I toggle the dock's sleeping-terminal filter
+    Then the dock should show 1 sleeping row
+    And there should be no page errors
+
   Scenario: A sleeping terminal offers no kaval-tui attach command in the Inspector
     # A slept terminal released its PTY, so it is no longer one of kaval's
     # terminals — a kaval-tui attach/snapshot command would have nothing to reach.

@@ -28,14 +28,32 @@ import {
 } from "../../terminal/activityWindow";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
+import { SleepingToggle } from "../../ui/SleepingToggle";
 
 /** Default testid for the footer strip's root element. The footer's
  *  identity is one concept, so the fallback literal lives here once and
  *  both layouts (rail + cards) reference it — neither branch can drift. */
 const DOCK_HIDDEN_FOOTER_TESTID = "dock-hidden-footer";
 
+/** The ☾ toggle's testid prefix tracks the window chip's surface — both
+ *  share the footer, so one derivation keeps the desktop/mobile split in
+ *  lockstep and a caller can't wire the two controls to different
+ *  surfaces by accident. */
+function sleepingPrefix(
+  chip: "dock-window" | "mobile-dock-window" | undefined,
+): "dock-sleeping" | "mobile-dock-sleeping" {
+  return chip === "mobile-dock-window"
+    ? "mobile-dock-sleeping"
+    : "dock-sleeping";
+}
+
 export const HiddenFooter: Component<{
   parkedCount: number;
+  /** Fresh sleeping rows in the dock (shown or hidden by the ☾ toggle).
+   *  The toggle only renders when this is > 0 — there's nothing to show
+   *  or hide otherwise, so the footer stays as quiet as the activity
+   *  window's own "show all" (which appears only when it would act). */
+  sleepingCount: number;
   compact?: boolean;
   /** Rail (collapsed dock) layout. The 44px rail has no room for the
    *  "N hidden by … window" sentence — it clips under the dock's
@@ -76,6 +94,7 @@ export const HiddenFooter: Component<{
       fallback={
         <CardsLayout
           parkedCount={props.parkedCount}
+          sleepingCount={props.sleepingCount}
           compact={props.compact}
           testId={props.testId}
           chipTestIdPrefix={props.chipTestIdPrefix}
@@ -107,6 +126,17 @@ export const HiddenFooter: Component<{
             <span aria-hidden="true">{props.parkedCount}</span>
           </button>
         </Show>
+        {/* ☾ toggle stacks above the window chip in the narrow rail — a
+         *  tiny glyph + count, shown only when there's something to hide
+         *  or reveal, mirroring how the rail's "show all" count is
+         *  conditional. */}
+        <Show when={props.sleepingCount > 0}>
+          <SleepingToggle
+            count={props.sleepingCount}
+            testIdPrefix={sleepingPrefix(props.chipTestIdPrefix)}
+            class="rounded-md hover:bg-surface-2/70 h-5 min-w-5 px-1 text-[0.6rem] leading-none"
+          />
+        </Show>
         <ActivityWindowChip
           anchor="top-start"
           testIdPrefix={props.chipTestIdPrefix ?? "dock-window"}
@@ -123,6 +153,7 @@ export const HiddenFooter: Component<{
  *  create-time branch that freezes when the dock mode toggles. */
 const CardsLayout: Component<{
   parkedCount: number;
+  sleepingCount: number;
   compact?: boolean;
   testId?: string;
   chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
@@ -165,17 +196,34 @@ const CardsLayout: Component<{
       <Show when={props.filterActive()}>
         <span>window</span>
       </Show>
-      <Show when={props.showRelax()}>
-        <button
-          type="button"
-          data-testid="dock-hidden-show-all"
-          onClick={props.relax}
-          class="ml-auto text-accent shrink-0 cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
-          title="Show every terminal, regardless of activity window"
-        >
-          show all
-        </button>
-      </Show>
+      {/* Right-aligned cluster: the ☾ toggle (its own filter, shown only
+       *  when there are sleeping rows) sits beside the window's "show all"
+       *  escape, so both dock filters live at the strip's trailing edge
+       *  rather than fighting for the same `ml-auto` slot. */}
+      <div class="ml-auto flex items-center gap-2">
+        <Show when={props.sleepingCount > 0}>
+          <SleepingToggle
+            count={props.sleepingCount}
+            testIdPrefix={sleepingPrefix(props.chipTestIdPrefix)}
+            class={
+              props.compact === true
+                ? "h-6 px-1 text-[0.75rem]"
+                : "px-0.5 text-[0.65rem]"
+            }
+          />
+        </Show>
+        <Show when={props.showRelax()}>
+          <button
+            type="button"
+            data-testid="dock-hidden-show-all"
+            onClick={props.relax}
+            class="text-accent shrink-0 cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
+            title="Show every terminal, regardless of activity window"
+          >
+            show all
+          </button>
+        </Show>
+      </div>
     </div>
   );
 };
