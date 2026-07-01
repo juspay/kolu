@@ -76,7 +76,7 @@ export const NcuLevers = () => (
       <text x="489" y="25" font-size="11" fill="#3f444b">shipped</text>
       <rect x="560" y="14" width="13" height="13" rx="3" fill="#FBF1DC" stroke="#B45309" stroke-width="1.5" />
       <text x="579" y="25" font-size="11" fill="#3f444b">to tune</text>
-      <text x="648" y="25" font-size="11" fill="#92400E">★ = next</text>
+      <text x="636" y="25" font-size="11" fill="#166534">★ = marquee ✓</text>
 
       {/* ---- N column ---- */}
       <rect x="16" y="60" width="222" height="264" rx="10" fill="#F7F8FE" stroke="#0D32B2" stroke-width="1.4" />
@@ -172,9 +172,9 @@ small/medium docs). The verdicts repeatedly note the mechanism is real but the
 cost is below perception until the scale grows. **Confirm with a profile first** —
 the [coverage gaps](#from-static-reads-to-live-traces) section says exactly which
 traces are still missing. The point of this map is to *prioritize measurement*,
-not to license speculative rewrites. Compression (row 1) is the exception: its
-mechanism and its ~3.5× byte cut are near-certain, so it earns a fix ahead of a
-trace — though the after-LCP on a real phone is still worth capturing.
+not to license speculative rewrites. Compression (row 1) is the exception — it
+already **shipped** <PrLink pr={1643} /> at a measured **4.6×** byte cut, so the
+only work left there is capturing the after-LCP on a real phone.
 </Callout>
 
 ### Already banked
