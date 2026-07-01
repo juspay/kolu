@@ -1,8 +1,7 @@
 ---
-title: hcom vs. kolu — what to adopt
-description: hcom hooks coding agents together through per-tool hooks and a shared SQLite event log — an addressable inbox, event feed, and subscriptions kolu has no equivalent for. But kolu drives agents through the terminal it owns on purpose (agent-agnostic, zero-setup, nothing written to your ~/.claude). The honest borrow is a message channel for the plain text hand-off between turns; it does not remove screen-scraping, because the interactive prompts that matter most — AskUserQuestion, plan approval — are in no log and can't be answered by pasted text.
+title: hcom vs. kolu — the filesystem is the channel
+description: hcom hooks coding agents together with per-tool hooks and a shared SQLite event log, so agents message, watch, and subscribe to each other. It's a fine design for a tool that owns no terminal. kolu owns the terminal and won't touch your ~/.claude — and it already has a channel every agent speaks natively, the filesystem. Agents coordinate through shared files (as /debate does), kolu watches them for push, and the screen is the floor only for what files can't carry. So the honest verdict is not to adopt hcom's channel — it's that kolu already has one.
 parents: [comparison, pulam]
-status: proposed
 maturity: seedling
 updated: 2026-07-01
 ---
@@ -16,161 +15,119 @@ import channel from "../../diagrams/hcom-vs-kolu-channel.svg?raw";
 
 *A read of [**hcom**](https://github.com/aannoo/hcom) — a single Rust binary that
 "hooks your coding agents together" so they message, watch, and spawn each other
-across terminals — held against what kolu is. Claims checked against both
-codebases. hcom and kolu chase the **same goal** (several coding agents working
-together across terminals) and bet on **opposite substrates**, so hcom is a clean
-reference for the one capability kolu lacks — and a clean foil for the two bets
-kolu keeps.*
+across terminals — held against what kolu is. hcom is a genuinely nice design, and
+the obvious instinct is "kolu should adopt this." Checked against both codebases,
+the honest verdict is the opposite: **kolu already has the channel hcom installs —
+the filesystem — so it doesn't need hcom's.** This note is why.*
 
-<Svg svg={channel} caption="The same pair of agents, three channels between them. hcom routes messages through a shared event log; kolu today has one agent type into and read off another's screen; the proposal gives kolu a real channel for the text hand-off — without giving up its substrate." wide />
+<Svg svg={channel} caption="Two ways to wire agents together. hcom installs a message channel (per-tool hooks + a shared event log) because it owns no terminal. kolu owns the terminal and won't touch your config — so it uses the channel every agent already speaks: a shared directory of files, watched for push. The screen is the floor only for what files can't carry." wide />
 
-## Two bets on the same problem
+## Two ways to wire agents together
 
-hcom owns **no terminal**. It rides each tool's hook system (Claude Code's
-`PostToolUse`/`Stop`, Gemini, Codex, OpenCode, Cursor, …) and writes everything —
-messages, status changes, file edits, tool calls — into a **local SQLite event
-log**. That one move buys every agent a queryable identity: a name, a status, an
-**inbox**, an event feed, subscriptions. Agents `@mention` each other, tag turns
-with an **intent** (`request`/`inform`/`ack`), isolate traffic into **threads**,
-and **subscribe** to events that auto-send a message when they fire. It's a
-**coordination fabric** — agents talk *in a channel*. The price is stated plainly
-in hcom's own README: its hooks *"go into config dirs under `~/` on first run,"*
-and every tool needs its own hand-written hook and transcript parser.
+hcom owns **no terminal**, so to let agents coordinate it has to *build a channel*
+and inject into each tool. It rides each tool's hooks (Claude Code's
+`PostToolUse`/`Stop`, Gemini, Codex, …) and a **shared SQLite event log**, giving
+every agent an inbox, an event feed, `@mention` routing, an intent
+(`request`/`inform`/`ack`), and subscriptions. It's a real coordination fabric.
+The price is stated in hcom's own README: its hooks *"go into config dirs under
+`~/` on first run,"* and each of its ~10 tools needs a hand-written hook and
+transcript parser.
 
-kolu made the other bet **on purpose**, and its README names the two rules that
-force it:
+kolu made the other choice, and its README names the two rules that force it:
 
 - **Agent-agnostic** — *"no adapter to write, no per-agent code… run it once and
   the next agent that ships works the same way."*
 - **Auto-detected, zero setup** — *"the surface grows with your workflow, not with
-  a preferences pane. If kolu knows something, it's because the shell already told
-  it."*
+  a preferences pane."*
 
-So kolu **owns the terminal** and never touches your `~/.claude`. `kaval` holds
-every PTY; `pulam` derives per-terminal **awareness** — git · PR · agent-state ·
-foreground — as one typed `@kolu/surface` collection that mirrors over ssh. A
-superb substrate — with **no channel on top**. One kolu agent drives another by
-**screen-scraping**: the [`kolu` skill](./pulam-tui.html) types the prompt into a
-PTY as keystrokes (`kaval-tui send`), `wait --until idle` for quiet, then
-`snapshot --viewport` to read the reply off the screen. The skill's own warnings —
-`send` is blind, an Enter in the same breath *races bracketed-paste and is
-silently dropped*, idle *"≠ the reply is correct"* — are the tax of coordinating
-through a screen instead of a channel.
+So kolu **won't touch your `~/.claude`**. That rules out hcom's whole mechanism —
+and forces the interesting question: without installed hooks, how do kolu agents
+coordinate? The answer is already in the repo, and it isn't the terminal screen.
 
-## What a channel buys — and where it stops
+## The filesystem is already the channel
 
-The borrow is hcom's **shape**, not its implementation: no parallel SQLite, no
-per-tool hook harness. On the surface `pulam` already serves, add a channel —
+Kolu's `/debate` skill — a port of [`srid/llm-debate`](https://github.com/srid/llm-debate) —
+is the proof. Agents don't message each other and don't read each other's screens.
+They exchange arguments as **numbered markdown files** in a shared directory: each
+reads the others' turn-files and writes its own *by path*. The skill is explicit —
+*"pass file paths, not pasted argument text — the agents read and write the shared
+directory directly."* A turn being **done** is just its **file existing**.
 
-- an **inbox** `Collection` + a **messages** `Event`, so `@name` routing is a
-  lookup over keys kolu already broadcasts (mirrored across machines for free by
-  `mirrorRemoteSurface`);
-- **subscriptions** over the surface `Event` primitive — *"when @codex finishes,
-  send it the next task"*, collision pings, the reactive topologies hcom's scripts
-  lean on;
-- an **intent** convention (`request`/`inform`/`ack`) that makes "whose turn" an
-  explicit contract instead of a guess inferred from terminal quiescence;
-- shipped as a **skill + workflow scripts** — kolu already has the vehicles (the
-  `kolu` skill, the `Workflow` tool).
+That's the whole coordination channel, and it has every property hcom's log has,
+with none of the cost:
 
-**But here is the boundary, and it is the honest heart of this note. A channel
-cleanly carries the *text hand-off between turns* — one agent finishes, passes
-text to the next. It does *not* abolish screen-scraping**, because the state that
-matters most for coordination is invisible to any log and un-answerable by text:
+- **Every agent speaks it natively.** Reading and writing files needs no hook, no
+  per-agent adapter, no bootstrap primer — it works for `claude`, `codex`, and
+  whatever ships next week, unchanged. It works **headless**, and it crosses
+  machines over ssh like any other file.
+- **Push, not poll.** kolu already watches the filesystem (`@parcel/watcher`, the
+  `.git/HEAD` watcher, session-file watchers). A file appearing or changing *is* a
+  push notification — so "react
+  when the other agent writes its turn" needs no message bus and no wait-loop.
+- **It's shared state you can read after the fact** — the turn-files *are* the
+  transcript, on disk, greppable, diffable, committable. hcom rebuilds this with a
+  queryable event log; kolu gets it from the directory for free.
 
-<Callout kind="warning" title="The interactive-prompt hole — the screen is not optional">
-When Claude Code blocks on an **AskUserQuestion** or **plan-approval** prompt, its
-Agent SDK buffers that message *in memory* and flushes it to the JSONL only
-**after you answer** — so a log reader sees `waiting`, never `awaiting_user`
-(<Issue n={905} />). kolu already had to **read the rendered screen** to catch it
-(<PrLink pr={1160} />), matching literal strings (`Ready to code?`) plus the
-menu's shape — a brittle TUI match by nature. And you *answer* such a menu with
-**arrow keys and Enter** aimed at that layout, not pasted text. So a "message as a
-prompt" can neither *see* nor *answer* it. The channel **narrows** screen-scraping
-to the interactive prompts; it doesn't remove it — and hooks don't rescue this
-either (below).
+Map hcom's headline features onto this and they collapse into things kolu already
+has: an **inbox** is a file the other agent writes; **subscriptions** are a watch
+on a path; **`@mention` addressing** is a filename; a **thread** is a
+subdirectory. There is no capability here that kolu lacks — only a different
+spelling of one it already uses.
+
+## What adopting hcom's channel would actually add — and why it isn't worth it
+
+Held against "shared files + a watcher," a message-inbox API adds **ergonomics, not
+capability** — addressed messages and threads are a nicer surface over what a
+directory already does. Two things it does *not* buy, which is the whole reason
+not to build it:
+
+- **hcom's one genuinely unique trick is mid-turn injection** — dropping a message
+  between an agent's tool calls. That is *purchased by* the hooks kolu refuses. And
+  it isn't wanted for the coordination kolu actually runs: turn-based work
+  (`/debate`, worker-reviewer, pipeline) *wants* each agent to finish its turn
+  before the next input lands. Between-turns — which files already give — is the
+  correct semantics, not a limitation.
+- **The one real gap it leaves open, a channel can't close.** When an agent blocks
+  on an interactive UI prompt — `AskUserQuestion`, plan approval, a permission
+  dialog — that state is invisible to files *and* logs, and un-answerable by text.
+
+<Callout kind="warning" title="The interactive-prompt floor — neither files nor a message bus reach it">
+Claude Code's Agent SDK buffers the `AskUserQuestion`/`ExitPlanMode` message *in
+memory* and flushes it to the JSONL only **after you answer** — so a log reader
+(and a file-based agent) sees `waiting`, never `awaiting_user` (<Issue n={905} />).
+kolu already had to **read the rendered screen** to catch it (<PrLink pr={1160} />),
+matching literal strings plus the menu's shape — brittle by nature. And you
+*answer* such a menu with **arrow keys**, not text. A message channel changes none
+of this: the agent never *sends* here, it's blocked in a UI. This is the floor the
+terminal exists to cover, and it's why driving an agent bottoms out at real
+keystrokes.
 </Callout>
 
-One thing kolu does **not** lose by refusing hcom's hooks: **mid-turn delivery**.
-hcom can drop a message between an agent's tool calls; kolu, delivering into a PTY
-at its prompt, is between-turns only. But turn-based coordination — debate,
-worker-reviewer, pipeline — *wants* each agent to finish before the next message
-lands. Between-turns is the **correct** semantics, not a limitation.
+So the trade is: **ergonomics over a filesystem kolu already uses, bought with the
+per-tool hooks kolu deliberately refuses — and it still doesn't solve the one hard
+case.** Net negative. Don't adopt it.
 
-## `/debate` — the concrete case
+## What kolu keeps — the channel it has, and the floor beneath it
 
-`/debate` already solved the "don't read big content off a screen" problem — **with
-the filesystem.** Agents exchange arguments as **numbered turn-files** in the
-shared repo directory: each reads the others' files and writes its own *by path*.
-The skill is explicit — *"pass file paths, not pasted argument text — the agents
-read and write the shared directory directly."* So the arguments **never touch the
-screen**. `kaval-tui send` only **pings** the next agent (*"your turn — read
-`<k−1>.*.md`, write `<k>.<id>.md`"*), and the screen is read only to **confirm** a
-turn finished and its file landed.
+The comparison is not "kolu is missing a layer." It's "kolu already made the
+volatility-boundary call hcom's design fights."
 
-That means a channel has exactly two things to tighten here — both
-**coordination**, both modest, because the content is already handled by files:
+- **The filesystem is the channel** <Pill>keep</Pill> — content and coordination
+  ride shared files, watched for push. No hooks, any agent, headless, over ssh.
+- **The terminal is the floor** <Pill>keep</Pill> — `kaval-tui send` types the
+  prompt; the screen is read *only* for what files can't carry (the raw prompt
+  keystroke and the interactive prompts above). That's why driving an agent is
+  *"press Enter,"* not a protocol: it's the one path that works for **any** agent
+  at **zero** setup — the same [agent-agnostic bet](./herdr-vs-kolu.html) kolu
+  makes everywhere.
+- **Transport is surface-over-ssh, not a broker** <Pill>keep</Pill> — hcom's
+  cross-device story is a shared-PSK MQTT relay its own README calls *"shell access
+  on every enrolled device,"* with no forward secrecy and no revocation. kolu's is
+  [`@kolu/surface-nix-host`](./remote-terminals.html) over ssh: per-connection OS
+  auth, no third-party broker.
 
-- **The ping lands reliably.** Today it's a blind `kaval-tui send` plus a separate
-  `--key Enter` that can race bracketed-paste and silently drop. An addressed
-  `request` message just arrives — "whose turn" as an explicit hand-off, not a
-  keystroke that might not submit.
-- **A clean done-signal.** Today the orchestrator waits for the screen to settle,
-  `snapshot`s, and verifies the file exists. The agent messaging *"done — wrote
-  `03.foo.md`"* is a push instead of that infer-from-the-screen-then-check-disk
-  dance, so an orchestrated round advances the moment a turn lands.
-
-That's the whole benefit for `/debate`: **content already flows through files**, so
-the channel only cleans up the ping and the done-signal — it doesn't change how
-arguments move, and it does nothing for a debater that stops mid-turn on an
-AskUserQuestion (still screen-bound, to both see and answer). The borrow is also
-scoped to **terminal** debates — `/lens-debate` (lowy⇄hickey) and `/codex-debate`
-run as in-process `Agent`/`Workflow` subagents, never touch a PTY, and have nothing
-to screen-scrape.
-
-## Where kolu keeps its own bet
-
-Two places the comparison says *don't* copy hcom.
-
-- **Own the terminal; don't touch the config.** <Pill>keep</Pill> hcom's channel
-  is *bought* by hooks in your `~/.claude` and bespoke code per tool — exactly what
-  kolu's two rules forbid. <Issue n={905} /> is that philosophy in one frame: kolu
-  *had* the option to detect AskUserQuestion via a `PreToolUse` hook and
-  **deliberately chose to read the rendered screen instead** — *"detect by scraping
-  the rendered screen — zero-config"* — accepting the brittleness as the price of
-  never reconfiguring your agent. That's not kolu lagging hcom; it's kolu refusing
-  hcom's setup tax. (And it's why a hook wouldn't rescue the hole above: it would
-  spot the awaiting *call* earlier than the log, but still can't answer the menu
-  with a message — so it costs the config-touch and buys only half.)
-
-- **Typed surface-over-ssh, not a shared-PSK MQTT relay.** <Pill>keep</Pill>
-  hcom's cross-device story is a shared-secret MQTT relay on public brokers, and
-  its README is honest about the cost: *"enrollment is total trust… treat that as
-  shell access on every enrolled device,"* with **no forward secrecy** and **no
-  revocation**. kolu's path is [`@kolu/surface-nix-host`](./remote-terminals.html)
-  over ssh: per-connection OS auth, no third-party broker, no single secret whose
-  leak is game-over. Adopt the channel; keep the transport — the mailbox rides
-  `mirrorRemoteSurface` over that same ssh link, and the relay never gets built.
-
-- **First-party PTYs and the fold discipline stay.** The [herdr
-  bet](./herdr-vs-kolu.html) (kolu *owns* the terminal, so live screen, scrollback,
-  resize, remote survival are guarantees) and kolu's [fold
-  model](./awareness-derive-store.html) (a memoryless producer whose events *one*
-  owner folds into stored state) are load-bearing. A message surface honors the
-  fold: messages are occurrences on an `Event`, folded into an `inbox` by the
-  receiver — not a shared table many writers mutate.
-
-## The smallest first step
-
-One PR-sized proof, scoped to the path that doesn't exist yet — an agent
-addressing another **by name over the surface**, not by typing into its screen.
-Add a `messages` `Event` and an `inbox` `Collection` to the `pulam` surface; a
-`kolu-tui msg @name -- <text>` verb and a `kolu-tui inbox [--wait]`; deliver into
-a terminal that's at its prompt. The done-criterion that can only be met by the
-real path: **two agents on two hosts exchange a `request`/`ack` through the
-surface — mirrored over ssh by `mirrorRemoteSurface`, no keystroke injected and no
-screen scraped *for that hand-off*.** State the boundary in the same breath:
-interactive prompts (AskUserQuestion, plan approval, permission dialogs) **stay
-screen-read** — a separate, unsolved problem this does not close. Everything above
-the channel — subscriptions, collision detection, ensemble scripts — is additive
-once it exists.
+hcom is the right design for a tool that owns no terminal and must therefore
+install a channel into your agents. kolu owns the terminal *and* the working
+directory, so it already has one — and keeps the setup-free floor beneath it. The
+thing worth borrowing from hcom isn't its channel; it's the clarity that a channel
+is what agents need. kolu answers that with the filesystem.
