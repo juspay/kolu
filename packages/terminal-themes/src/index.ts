@@ -9,7 +9,7 @@
 
 export type { ITheme } from "@xterm/xterm";
 // Theme picker
-export { hexToOkLab, okLabDistance, pickTheme, themeMode } from "./picker.ts";
+export { hexToOkLab, okLabDistance, pickTheme } from "./picker.ts";
 // Theme catalog
 export {
   availableThemes,
