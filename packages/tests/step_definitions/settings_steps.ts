@@ -23,23 +23,24 @@ Then(
   },
 );
 
-When("I click the shuffle theme toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="shuffle-theme-toggle"]');
-  await this.waitForFrame();
-});
+When(
+  "I click the {string} new terminal theme button",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="new-terminal-theme-${mode}"]`);
+    await this.waitForFrame();
+  },
+);
 
 Then(
-  "the shuffle theme toggle state should change",
-  async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="shuffle-theme-toggle"]');
-    const before = await toggle.getAttribute("data-enabled");
-    await this.page.click('[data-testid="shuffle-theme-toggle"]');
-    await this.waitForFrame();
-    const after = await toggle.getAttribute("data-enabled");
-    assert.notStrictEqual(
-      before,
-      after,
-      "Expected shuffle theme toggle to change state on click",
+  "the {string} new terminal theme button should be selected",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(`[data-testid="new-terminal-theme-${mode}"]`);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const pressed = await btn.getAttribute("aria-pressed");
+    assert.strictEqual(
+      pressed,
+      "true",
+      `Expected new-terminal-theme "${mode}" to be selected (aria-pressed=true)`,
     );
   },
 );

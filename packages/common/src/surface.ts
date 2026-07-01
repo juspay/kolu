@@ -515,6 +515,18 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
+/** How each new terminal's theme is chosen — and which pool the ⌘J manual
+ *  shuffle draws from. `off` disables auto-assignment; `random` spreads across
+ *  the whole catalogue; `dark`/`light` restrict to that luminance family; `auto`
+ *  tracks the app's resolved light/dark mode. */
+export const NewTerminalThemeSchema = z.enum([
+  "off",
+  "random",
+  "dark",
+  "light",
+  "auto",
+]);
+
 /** Right-panel preferences — workspace-level layout chrome. The fields
  *  *about* what each terminal is doing (active tab, code sub-mode,
  *  selected file) live on `RightPanelPerTerminalStateSchema` against the
@@ -533,9 +545,10 @@ export const RightPanelPrefsSchema = z.object({
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  /** Auto-pick a perceptually-distinct theme for each new terminal. When
-   *  off, every terminal gets the server default until the user picks one. */
-  shuffleTheme: z.boolean(),
+  /** How each new terminal's theme is chosen (and which pool the ⌘J shuffle
+   *  draws from) — see {@link NewTerminalThemeSchema}. `off` leaves every
+   *  terminal on the server default until the user picks one. */
+  newTerminalTheme: NewTerminalThemeSchema,
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
@@ -592,6 +605,32 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
  *  slept terminal persists and what the boot seed / restore card read back. */
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
+
+/** Plan for choosing a new terminal's theme, derived from the
+ *  `newTerminalTheme` preference and the app's resolved dark mode. `assign`
+ *  gates whether a new terminal auto-picks at all (`false` → server default);
+ *  `mode`, when set, restricts the candidate pool to that luminance family.
+ *  The ⌘J manual shuffle reads `mode` only — it always shuffles, ignoring
+ *  `assign`. Single source of truth for both call sites. */
+export function resolveNewTerminalTheme(
+  pref: NewTerminalTheme,
+  isDark: boolean,
+): { assign: boolean; mode?: "light" | "dark" } {
+  switch (pref) {
+    case "off":
+      return { assign: false };
+    case "random":
+      return { assign: true };
+    case "dark":
+      return { assign: true, mode: "dark" };
+    case "light":
+      return { assign: true, mode: "light" };
+    case "auto":
+      return { assign: true, mode: isDark ? "dark" : "light" };
+  }
+}
+
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
 /** User-facing name of a Code-tab view — the single source for the words the
@@ -636,7 +675,7 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   seenTips: [],
   startupTips: true,
-  shuffleTheme: true,
+  newTerminalTheme: "auto",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",

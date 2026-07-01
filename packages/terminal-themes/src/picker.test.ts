@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hexToOkLab, okLabDistance, pickTheme } from "./picker";
-import type { NamedTheme } from "./theme";
+import { hexToOkLab, okLabDistance, pickTheme, themeMode } from "./picker";
+import { availableThemes, type NamedTheme } from "./theme";
 
 function mk(name: string, background: string): NamedTheme {
   return { name, theme: { background } };
@@ -232,6 +232,87 @@ describe("pickTheme – shuffle mode", () => {
     );
     expect(pickTheme(candidates, { excludeBgs: [], rand: () => 0.99 })).toBe(
       "D",
+    );
+  });
+});
+
+describe("themeMode", () => {
+  it("classifies by background luminance", () => {
+    expect(themeMode(mk("Black", "#000000"))).toBe("dark");
+    expect(themeMode(mk("White", "#ffffff"))).toBe("light");
+    // A typical dark scheme bg (Dracula) and a typical light one (Solarized).
+    expect(themeMode(mk("Dracula", "#282a36"))).toBe("dark");
+    expect(themeMode(mk("SolarizedLight", "#fdf6e3"))).toBe("light");
+  });
+
+  it("returns undefined for missing / unparseable backgrounds", () => {
+    expect(themeMode(mk("NoBg", ""))).toBeUndefined();
+    expect(themeMode(mk("Named", "red"))).toBeUndefined();
+  });
+
+  it("buckets the real catalogue into non-trivial light and dark families", () => {
+    let dark = 0;
+    let light = 0;
+    for (const t of availableThemes) {
+      const m = themeMode(t);
+      if (m === "dark") dark++;
+      else if (m === "light") light++;
+    }
+    // Both families must be usably populated — a threshold that lumped
+    // everything into one bucket (or misclassified wholesale) would trip this.
+    expect(dark).toBeGreaterThan(10);
+    expect(light).toBeGreaterThan(10);
+  });
+});
+
+describe("pickTheme – mode restriction", () => {
+  const mixed: NonEmptyThemes = [
+    mk("Dark1", "#111111"),
+    mk("Light1", "#eeeeee"),
+    mk("Dark2", "#222222"),
+    mk("Light2", "#dddddd"),
+  ];
+  const darkNames = ["Dark1", "Dark2"];
+  const lightNames = ["Light1", "Light2"];
+
+  it("spread mode picks only within the requested family", () => {
+    for (const r of [0, 0.3, 0.6, 0.99]) {
+      expect(darkNames).toContain(
+        pickTheme(mixed, {
+          spread: true,
+          peerBgs: [],
+          mode: "dark",
+          rand: () => r,
+        }),
+      );
+      expect(lightNames).toContain(
+        pickTheme(mixed, {
+          spread: true,
+          peerBgs: [],
+          mode: "light",
+          rand: () => r,
+        }),
+      );
+    }
+  });
+
+  it("shuffle mode picks only within the requested family", () => {
+    for (const r of [0, 0.3, 0.6, 0.99]) {
+      expect(darkNames).toContain(
+        pickTheme(mixed, { excludeBgs: [], mode: "dark", rand: () => r }),
+      );
+      expect(lightNames).toContain(
+        pickTheme(mixed, { excludeBgs: [], mode: "light", rand: () => r }),
+      );
+    }
+  });
+
+  it("falls back to the full pool when the requested family is empty", () => {
+    const allDark: NonEmptyThemes = [mk("D1", "#111111"), mk("D2", "#222222")];
+    // No light candidates — rather than fail, the picker falls back so a tile
+    // still gets a theme (non-emptiness is a type guarantee).
+    expect(["D1", "D2"]).toContain(
+      pickTheme(allDark, { spread: true, peerBgs: [], mode: "light" }),
     );
   });
 });

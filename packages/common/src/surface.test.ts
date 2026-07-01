@@ -20,7 +20,42 @@ import {
   type AuthoredSleepingTerminal,
   composeTerminalMetadata,
   LOCAL_LOCATION,
+  resolveNewTerminalTheme,
 } from "./surface.ts";
+
+describe("resolveNewTerminalTheme", () => {
+  it("off disables auto-assignment (no pool restriction needed)", () => {
+    expect(resolveNewTerminalTheme("off", true)).toEqual({ assign: false });
+    expect(resolveNewTerminalTheme("off", false)).toEqual({ assign: false });
+  });
+
+  it("random assigns from the whole catalogue (no mode)", () => {
+    expect(resolveNewTerminalTheme("random", true)).toEqual({ assign: true });
+    expect(resolveNewTerminalTheme("random", false)).toEqual({ assign: true });
+  });
+
+  it("dark / light force their family regardless of app mode", () => {
+    expect(resolveNewTerminalTheme("dark", false)).toEqual({
+      assign: true,
+      mode: "dark",
+    });
+    expect(resolveNewTerminalTheme("light", true)).toEqual({
+      assign: true,
+      mode: "light",
+    });
+  });
+
+  it("auto tracks the app's resolved dark mode", () => {
+    expect(resolveNewTerminalTheme("auto", true)).toEqual({
+      assign: true,
+      mode: "dark",
+    });
+    expect(resolveNewTerminalTheme("auto", false)).toEqual({
+      assign: true,
+      mode: "light",
+    });
+  });
+});
 
 const claude = (sessionId: string): AgentInfo => ({
   kind: "claude-code",

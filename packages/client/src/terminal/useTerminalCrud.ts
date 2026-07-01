@@ -4,10 +4,12 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import { resolveNewTerminalTheme } from "kolu-common/surface";
 import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
+import { useColorScheme } from "../settings/useColorScheme";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
@@ -34,6 +36,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
+  const { isDark } = useColorScheme();
 
   // --- Handlers ---
 
@@ -120,8 +123,13 @@ export const useTerminalCrud = createSharedRoot(() => {
 
     // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
     // server's default theme for a frame, which we don't want scored as a
-    // peer against itself.
-    const peerBgs = preferences().shuffleTheme
+    // peer against itself. `assign` gates auto-pick; `mode` restricts the pool
+    // to the chosen (or app-resolved, for "auto") light/dark family.
+    const { assign, mode } = resolveNewTerminalTheme(
+      preferences().newTerminalTheme,
+      isDark(),
+    );
+    const peerBgs = assign
       ? resolveThemeBgs(
           store.terminalIds(),
           (id) => store.getMetadata(id)?.themeName,
@@ -130,7 +138,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const theme =
       initial?.themeName ??
       (peerBgs
-        ? pickTheme(availableThemes, { spread: true, peerBgs })
+        ? pickTheme(availableThemes, { spread: true, peerBgs, mode })
         : undefined);
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the

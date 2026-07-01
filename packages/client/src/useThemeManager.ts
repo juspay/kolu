@@ -5,6 +5,7 @@
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { resolveNewTerminalTheme } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -17,11 +18,13 @@ import {
   resolveThemeBgs,
 } from "terminal-themes";
 import { createSharedRoot } from "./createSharedRoot";
+import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { client } from "./wire";
+import { client, preferences } from "./wire";
 
 function init() {
   const store = useTerminalStore();
+  const { isDark } = useColorScheme();
   const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
 
   const committedThemeName = createMemo(() => {
@@ -76,7 +79,12 @@ function init() {
    *  Excludes every live terminal's bg so we don't land on a duplicate of
    *  a sibling, and stays under the chroma cap so we don't surface neon
    *  yellow. New-terminal creation uses spread mode instead —
-   *  see {@link pickTheme} for the rationale. */
+   *  see {@link pickTheme} for the rationale.
+   *
+   *  Honors the `newTerminalTheme` preference's light/dark pool (`dark`/
+   *  `light`/`auto` restrict the shuffle to that family); `off`/`random`
+   *  impose no restriction — ⌘J is an explicit action, so it always shuffles
+   *  even when auto-assignment is off. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;
@@ -86,7 +94,11 @@ function init() {
     );
     if (!candidates) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    handleSetTheme(pickTheme(candidates, { excludeBgs }));
+    const { mode } = resolveNewTerminalTheme(
+      preferences().newTerminalTheme,
+      isDark(),
+    );
+    handleSetTheme(pickTheme(candidates, { excludeBgs, mode }));
   }
 
   return {

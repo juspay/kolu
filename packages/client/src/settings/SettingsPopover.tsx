@@ -2,7 +2,7 @@
  *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
  *  and trigger ref from the parent. */
 
-import type { Preferences } from "kolu-common/surface";
+import type { NewTerminalTheme, Preferences } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
@@ -52,6 +52,27 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
 };
 
+/** New-terminal theme picker. `Auto` tracks the app's light/dark mode; `Dark`/
+ *  `Light` force that family regardless; `Random` spreads across the whole
+ *  catalogue; `Off` leaves new terminals on the default theme. */
+const NEW_TERMINAL_THEME_OPTIONS: readonly SegmentedControlOption<NewTerminalTheme>[] =
+  [
+    { value: "off", label: "Off" },
+    { value: "random", label: "Random" },
+    { value: "dark", label: "Dark" },
+    { value: "light", label: "Light" },
+    { value: "auto", label: "Auto" },
+  ];
+
+/** Reactive hint table — re-read on every new-terminal-theme change. */
+const NEW_TERMINAL_THEME_HINT: Record<NewTerminalTheme, Hint> = {
+  off: { text: "New terminals use the default theme." },
+  random: { text: "New terminals pick a distinct tint, light or dark." },
+  dark: { text: "New terminals pick a distinct dark tint." },
+  light: { text: "New terminals pick a distinct light tint." },
+  auto: { text: "New terminals match the app's light/dark mode." },
+};
+
 const SettingsPopover: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -86,13 +107,14 @@ const SettingsPopover: Component<{
             />
           </SettingRow>
           <SettingRow
-            label="Shuffle theme"
-            hint={{ text: "New terminals pick a distinct background tint." }}
+            label="New terminal theme"
+            hint={NEW_TERMINAL_THEME_HINT[preferences().newTerminalTheme]}
           >
-            <Toggle
-              testId="shuffle-theme-toggle"
-              enabled={preferences().shuffleTheme}
-              onChange={(on) => updatePreferences({ shuffleTheme: on })}
+            <SegmentedControl
+              options={NEW_TERMINAL_THEME_OPTIONS}
+              value={preferences().newTerminalTheme}
+              onChange={(v) => updatePreferences({ newTerminalTheme: v })}
+              testIdPrefix="new-terminal-theme"
             />
           </SettingRow>
           <SettingRow

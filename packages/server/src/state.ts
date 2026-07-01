@@ -114,7 +114,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.29.0";
+const SCHEMA_VERSION = "1.30.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -280,10 +280,12 @@ export const store = new Conf<PersistedState>({
         | (Record<string, unknown> & { randomTheme?: unknown })
         | undefined;
       const { randomTheme, ...rest } = current ?? {};
+      // `shuffleTheme` was itself later removed (→ `newTerminalTheme` in
+      // 1.30.0), so its historical default is pinned as a literal here rather
+      // than read off the current DEFAULT_PREFERENCES (which no longer carries
+      // it). The 1.30.0 step converts whatever this writes.
       const shuffleTheme =
-        typeof randomTheme === "boolean"
-          ? randomTheme
-          : DEFAULT_PREFERENCES.shuffleTheme;
+        typeof randomTheme === "boolean" ? randomTheme : true;
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...(rest as Partial<Preferences>),
@@ -516,6 +518,35 @@ export const store = new Conf<PersistedState>({
     // `legacyMostRecent`, neither → absent (a bare shell). `agentSession` is dropped.
     "1.29.0": (store: Conf<PersistedState>) =>
       mapSessionTerminals(store, backfillSnapshotCutover),
+    // `shuffleTheme` (boolean) generalized to `newTerminalTheme` (5-way enum:
+    // off/random/dark/light/auto). The on/off bit carries over: `true` → "auto"
+    // (match the app's light/dark mode — the closest to the old "distinct tint"
+    // intent without the jarring cross-mode picks, and the new default);
+    // `false` → "off". Keyed off the presence of the legacy `shuffleTheme` field
+    // and always wins: the 1.10.0 step spreads the current DEFAULT_PREFERENCES
+    // (which now carries `newTerminalTheme: "auto"`), so a very old record can
+    // arrive here with BOTH fields set — `shuffleTheme` holds the user's real
+    // intent and must override the spread-injected default. The legacy field is
+    // dropped. A record with no `shuffleTheme` (e.g. a fresh 1.30.0 install) is
+    // left untouched.
+    "1.30.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      if (!("shuffleTheme" in current)) return;
+      const { shuffleTheme, ...rest } = current as {
+        shuffleTheme?: unknown;
+        newTerminalTheme?: unknown;
+      };
+      const newTerminalTheme =
+        shuffleTheme === false
+          ? "off"
+          : shuffleTheme === true
+            ? "auto"
+            : (rest.newTerminalTheme ?? DEFAULT_PREFERENCES.newTerminalTheme);
+      store.set("preferences", {
+        ...rest,
+        newTerminalTheme,
+      } as unknown as Preferences);
+    },
   },
 });
 

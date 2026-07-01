@@ -65,6 +65,27 @@ function getLab(hex: string): OkLab | undefined {
   return computed;
 }
 
+/** OkLab lightness below this reads as a "dark" theme, at or above as
+ *  "light". OkLab's L is perceptual (0 = black, 1 = white), so the midpoint
+ *  is a reasonable split; the handful of mid-tone schemes near the line fall
+ *  on whichever side their background luminance lands, which is exactly the
+ *  "which family does this tint belong to" question the mode filter asks. */
+const DARK_L_MAX = 0.5;
+
+function labIsDark(lab: OkLab): boolean {
+  return lab.L < DARK_L_MAX;
+}
+
+/** Classify a theme as `"light"` / `"dark"` by its background luminance, or
+ *  `undefined` when the background is missing / unparseable. Used to restrict
+ *  the picker's candidate pool to one luminance family (see `pickTheme`'s
+ *  `mode` option). Exported for the test suite. */
+export function themeMode(t: NamedTheme): "light" | "dark" | undefined {
+  const bg = t.theme.background;
+  const lab = bg ? getLab(bg) : undefined;
+  return lab ? (labIsDark(lab) ? "dark" : "light") : undefined;
+}
+
 /** Luminance is DIVIDED by this factor when computing distance, so
  *  hue/chroma drift matters more than light/dark drift. Bigger factor =
  *  stronger "stay in the same luminance family" preference. Three was
@@ -95,12 +116,13 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
-/** Filter candidates to those with parseable, in-gamut backgrounds.
- *  Falls back to the full list when filtering leaves nothing — preserves
- *  non-emptiness in the type. */
+/** Filter candidates to those with parseable, in-gamut backgrounds — and,
+ *  when `mode` is set, to that light/dark family. Falls back to the full list
+ *  when filtering leaves nothing — preserves non-emptiness in the type. */
 function filterEligible(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
+  mode?: "light" | "dark",
 ): NonEmpty<NamedTheme> {
   const eligible = nonEmpty(
     candidates.filter((t) => {
@@ -108,7 +130,9 @@ function filterEligible(
       if (!bg) return false;
       if (excludeBgs?.has(bg)) return false;
       const lab = getLab(bg);
-      return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+      if (lab === undefined || chroma(lab) > MAX_CANDIDATE_CHROMA) return false;
+      if (mode && (labIsDark(lab) ? "dark" : "light") !== mode) return false;
+      return true;
     }),
   );
   return eligible ?? candidates;
@@ -127,8 +151,9 @@ function pickSpread(
   candidates: NonEmpty<NamedTheme>,
   peerBgs: string[],
   rand: () => number,
+  mode?: "light" | "dark",
 ): string {
-  const pool = filterEligible(candidates);
+  const pool = filterEligible(candidates, undefined, mode);
   const peerLabs: OkLab[] = [];
   for (const hex of peerBgs) {
     const lab = getLab(hex);
@@ -171,8 +196,9 @@ function pickShuffle(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs: string[],
   rand: () => number,
+  mode?: "light" | "dark",
 ): string {
-  const pool = filterEligible(candidates, new Set(excludeBgs));
+  const pool = filterEligible(candidates, new Set(excludeBgs), mode);
   const idx = Math.floor(rand() * pool.length);
   return (pool[idx] ?? pool[0]).name;
 }
@@ -187,20 +213,31 @@ function pickShuffle(
  *   Use for user-triggered ⌘J shuffle.
  *
  * Both modes reject candidates with unparseable backgrounds or chroma
- * above {@link MAX_CANDIDATE_CHROMA}, falling back to the full list when
- * filtering leaves nothing.
+ * above {@link MAX_CANDIDATE_CHROMA}, and — when `mode` is set — restrict the
+ * pool to that light/dark family, falling back to the full list when filtering
+ * leaves nothing.
  *
  * Caller must pass a non-empty candidates list — empty is a compile error.
  */
 export function pickTheme(
   candidates: NonEmpty<NamedTheme>,
   config:
-    | { spread: true; peerBgs: string[]; rand?: () => number }
-    | { spread?: false; excludeBgs: string[]; rand?: () => number },
+    | {
+        spread: true;
+        peerBgs: string[];
+        rand?: () => number;
+        mode?: "light" | "dark";
+      }
+    | {
+        spread?: false;
+        excludeBgs: string[];
+        rand?: () => number;
+        mode?: "light" | "dark";
+      },
 ): string {
   const rand = config.rand ?? Math.random;
   if (config.spread) {
-    return pickSpread(candidates, config.peerBgs, rand);
+    return pickSpread(candidates, config.peerBgs, rand, config.mode);
   }
-  return pickShuffle(candidates, config.excludeBgs, rand);
+  return pickShuffle(candidates, config.excludeBgs, rand, config.mode);
 }
