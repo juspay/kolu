@@ -2,9 +2,10 @@
  * One host's agent rows — the R-pulamweb-3 dashboard leaf.
  *
  * Reads TWO surface members, both already-proven consumers:
- *   - the `awareness` COLLECTION (agent state + git + recency) — `byKey` per
- *     terminal, lifted to a list-level memo so the rows can be bucketed/sorted/
- *     filtered by content;
+ *   - the `snapshots` COLLECTION (the memoryless `TerminalSnapshot`: agent state + git,
+ *     no recency — `lastActivityAt` is kolu's REMEMBERED memory, not a snapshot
+ *     field) — `byKey` per terminal, lifted to a list-level memo so the rows can be
+ *     bucketed/sorted/filtered by content;
  *   - the `activity` STREAM (the green live-output dot). It is VALUE-BEARING —
  *     each frame is the full current live set — so it reads through
  *     `.streams.activity.use()` (replace-each-frame), NOT the delta-accumulate
@@ -21,11 +22,11 @@
  * The list `<For>` is keyed by the primitive terminal id and the id ordering is
  * an array-equality memo, so a value-only delta (an agent ticking state) updates
  * one row in place rather than re-rendering the whole host — and a re-sort moves
- * nodes rather than rebuilding them. Each row reads its own awareness value
+ * nodes rather than rebuilding them. Each row reads its own snapshots value
  * fine-grained off `byKey`.
  *
  * NO git dirty/clean count and NO drill-in — those need `git.getStatus`
- * (R-pulamweb-4), which the awareness `git` info does not carry.
+ * (R-pulamweb-4), which the snapshots `git` info does not carry.
  *
  * Connection / loading / error states, truthfully — gated by ONE framework
  * `<SurfaceGate>` (this fleet board is a real consumer of the shared primitive,
@@ -43,8 +44,8 @@
  *     now the gate's POLICY INPUT, not a second gate. Off-`connected` the
  *     `fallback` renders the honest `ConnectionView`; the header dot reads the
  *     same fold, so they always agree.
- *   - A subscription FAILURE (any awareness per-key sub, the activity stream, the
- *     awareness keys-stream, or the connection cell) is surfaced from the
+ *   - A subscription FAILURE (any snapshots per-key sub, the activity stream, the
+ *     snapshots keys-stream, or the connection cell) is surfaced from the
  *     framework's `client.health()` FACT — the one fold over every subscription's
  *     OWN reactive, self-clearing `error()`. The gate's `fallback` shows it ABOVE
  *     the connection view (an error is the actionable failure), never collapsed
@@ -67,10 +68,9 @@ import {
   agentUrgency,
   DASH,
   fleetStateLabel,
-  relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import type {
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import {
@@ -93,6 +93,7 @@ import {
   isVisible,
   locationText,
   pipVariantFor,
+  rowBackground,
   terminalCategory,
   URGENCY,
   URGENCY_LABELS,
@@ -103,8 +104,6 @@ export interface HostGroupProps {
   host: string;
   /** The fleet-wide view filters (App owns them; read here to drop rows). */
   filters: FleetFilters;
-  /** The shared 1s clock — drives the relative-age cells. */
-  now: () => number;
   /** Report this host's blocked/working counts up for the fleet-wide strip. */
   reportCounts: (host: string, counts: { need: number; work: number }) => void;
 }
@@ -122,9 +121,8 @@ export interface HostGroupProps {
  *  value fine-grained off `value()` (a per-key subscription) so only this row
  *  re-renders on its own delta. */
 function AgentRow(props: {
-  value: () => AwarenessValue | undefined;
+  value: () => TerminalSnapshot | undefined;
   live: () => boolean;
-  now: () => number;
 }): JSX.Element {
   return (
     <Show when={props.value()}>
@@ -136,14 +134,14 @@ function AgentRow(props: {
           if (v.agent) return agentShortName(v.agent.kind);
           return v.foreground?.name ?? DASH;
         };
+        const rowStyle = (): string | undefined => {
+          const bg = rowBackground(value(), props.live());
+          return bg ? `background:${bg}` : undefined;
+        };
         return (
           <li
             class="flex items-center gap-2 border-b border-[#161b22] px-3 py-1.5 text-[13px]"
-            style={
-              urgency() === "need"
-                ? "background:color-mix(in oklch, var(--color-alert) 10%, transparent)"
-                : undefined
-            }
+            style={rowStyle()}
           >
             {/* One merged status indicator — the SAME component kolu's Dock
              *  renders, folding three axes into one glyph: the agent-state CORE
@@ -175,9 +173,6 @@ function AgentRow(props: {
             <span class="flex-none text-[12px]" style={`color:${tone().color}`}>
               {fleetStateLabel(value().agent, URGENCY_LABELS)}
             </span>
-            <span class="w-[4ch] flex-none text-right text-[12px] text-[#5b6678]">
-              {relativeTime(value().lastActivityAt, props.now())}
-            </span>
           </li>
         );
       }}
@@ -191,7 +186,7 @@ const sameIds = (a: TerminalId[], b: TerminalId[]): boolean =>
 export function HostGroup(props: HostGroupProps): JSX.Element {
   const app = surfaceForHost(props.host);
   const status = statusForHost(props.host);
-  const awareness = app.collections.awareness.use();
+  const snapshots = app.collections.snapshots.use();
   // The backend↔remote mirror's health — what gates "show the terminal list".
   // Distinct from `status` (the browser↔backend ws): a dead mirror with a
   // healthy ws is exactly the "green dot + no terminals" lie this fixes. Seeded
@@ -241,15 +236,15 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   // collection binding's `enroll` hook), so they surface through the
   // `<SurfaceGate>` fallback — not a per-call `onError` (this PR dropped that for
   // the self-clearing health fact).
-  const valueForId = (id: TerminalId): AwarenessValue | undefined => {
-    const sub = awareness.byKey(id);
+  const valueForId = (id: TerminalId): TerminalSnapshot | undefined => {
+    const sub = snapshots.byKey(id);
     return sub !== undefined && !sub.pending() ? sub() : undefined;
   };
 
   // Settled entries (skips pending keys), read for sorting/filtering/counting.
   const entries = createMemo<FleetEntry[]>(() => {
     const out: FleetEntry[] = [];
-    for (const id of awareness.keys()) {
+    for (const id of snapshots.keys()) {
       const value = valueForId(id as TerminalId);
       if (value === undefined) continue;
       out.push({ id: id as TerminalId, value });
@@ -264,7 +259,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   //
   // Gated on the SAME `hostBodyReady` the body is (via `bodyReady`): when the body
   // isn't painting real rows — a down/half-open link OR a live subscription error —
-  // report zero. In those states we hide the rows, but the awareness store keeps its
+  // report zero. In those states we hide the rows, but the snapshots store keeps its
   // LAST values (a transport loss can't deliver a reset frame; an erroring sub keeps
   // its last good), so counting `entries()` would let the global alert strip keep
   // tallying stale agents from a host the user is shown as down/erroring. Zeroing
@@ -285,9 +280,11 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
   });
   onCleanup(() => props.reportCounts(props.host, { need: 0, work: 0 }));
 
-  // The visible row order: needs-you first, then most-recent, then id; dropped to
-  // the enabled categories. Keyed by an array-equality memo so the `<For>` only
-  // re-diffs on a genuine reorder/membership change, not on every value tick.
+  // The visible row order: needs-you first, then id (a stable tiebreak) — urgency
+  // alone, since the memoryless `TerminalSnapshot` carries no recency (the most-recent
+  // tiebreak is kolu's, where recency is remembered; see `compareFleetEntries`).
+  // Dropped to the enabled categories. Keyed by an array-equality memo so the `<For>`
+  // only re-diffs on a genuine reorder/membership change, not on every value tick.
   const visibleIds = createMemo<TerminalId[]>(
     () =>
       entries()
@@ -306,13 +303,13 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
         <span class="font-semibold text-[#aeb7c7]">{props.host}</span>
         {/* The terminal count rides the SAME `hostBodyReady` gate as the body and
             the fleet-wide counts (`bodyReady`): when the body isn't painting rows —
-            a down/half-open link OR a live subscription error — the awareness key
+            a down/half-open link OR a live subscription error — the snapshots key
             set is stale (no reset frame crosses a dead transport; an erroring sub
             keeps its last keys), so showing "N terminals" beside a "down" dot or an
             error card would lie. Drop it until the body is genuinely showing rows. */}
         <Show when={bodyReady()}>
           <span class="text-[12px] text-[#5b6678]">
-            · {awareness.keys().length} terminals
+            · {snapshots.keys().length} terminals
           </span>
         </Show>
         <HostHealthIndicator view={health} fact={fact} />
@@ -345,8 +342,8 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
           // construction (each sub's self-clearing reactive `error()`), so a
           // transient blip — a backend restart on laptop sleep/wake 500ing a live
           // sub with a masked "Internal server error" — clears the instant the
-          // stream re-delivers (#1564's lie, gone). The awareness KEYS stream
-          // (enrolled `awareness.keys`) surfaces here too, so a keys-stream 500
+          // stream re-delivers (#1564's lie, gone). The snapshots KEYS stream
+          // (enrolled `snapshots.keys`) surfaces here too, so a keys-stream 500
           // can't masquerade as a connected, empty fleet. Otherwise the honest
           // ConnectionView (connecting / provisioning / reconnecting / failed),
           // which reads the SAME `effectiveHealth` the header dot does.
@@ -378,7 +375,7 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
             values haven't settled as empty. Keys-but-no-settled-values is a
             distinct loading state below. */}
         <Show
-          when={awareness.keys().length > 0}
+          when={snapshots.keys().length > 0}
           fallback={<div class="p-3 text-[#6b7480]">no terminals</div>}
         >
           <Show
@@ -401,7 +398,6 @@ export function HostGroup(props: HostGroupProps): JSX.Element {
                     <AgentRow
                       value={() => valueForId(id)}
                       live={() => liveSet().has(id)}
-                      now={props.now}
                     />
                   )}
                 </For>

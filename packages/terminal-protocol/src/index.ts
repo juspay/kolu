@@ -12,6 +12,8 @@
  *  - `deviceQueries`   — the answered/silent matrix as data; executed against
  *    a real headless by `kaval`'s device-query contract tests.
  *  - `bracketedPaste`  — the `?2004` paste delimiters.
+ *  - `keyInput`        — named-key → bytes table + the Ctrl `& 0x1f` fold, the
+ *    one home for every producer of key-press bytes (client + key bar + CLI).
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
  *
@@ -34,6 +36,7 @@ export {
   SILENT_DEVICE_QUERIES,
 } from "./deviceQueries.ts";
 export { shouldForwardHeadlessReply } from "./headlessReplies.ts";
+export { controlByte, metaByte, NAMED_KEY_BYTES } from "./keyInput.ts";
 export {
   createTerminalResponseStripper,
   isTerminalQueryResponse,

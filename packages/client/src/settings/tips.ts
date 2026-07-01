@@ -71,7 +71,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector-attach",
-    text: "The Inspector tab's Attach section copies `kaval-tui attach …` and `snapshot …` commands for the main terminal and each split — drive any pane from any shell with kaval-tui",
+    text: "The Inspector tab's Attach section copies `kaval-tui attach`, `snapshot`, and `send` commands for the main terminal and each split, plus a kaval-tui/pulam-tui reference — drive (and even prompt) any pane from any shell",
   },
   {
     id: "amb-canvas-zoom",
@@ -116,6 +116,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-minimap-window",
     text: "Click the `All` chip in the minimap's zoom bar to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
+  },
+  {
+    id: "amb-dock-sleeping",
+    text: "The dock's Filters row has two chips: the activity window (hides stale terminals) and a ☾ chip that hides sleeping ones — click ☾ when you want the dock to show only what's awake",
   },
   {
     id: "amb-terminal-intent",

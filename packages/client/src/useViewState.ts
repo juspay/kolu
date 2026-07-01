@@ -8,7 +8,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
-import { persistedPref } from "./persistedPref";
+import { boolPref } from "./persistedPref";
 import { client } from "./wire";
 
 type TerminalAttention = "unread" | "badge-only";
@@ -22,17 +22,12 @@ export function useViewState() {
    *  it's a per-tab view preference, not session state, so it lives
    *  alongside other view prefs (e.g. minimap-expanded), not in the
    *  server's SavedSession. */
-  const [canvasMaximized, setCanvasMaximizedSignal] = persistedPref<boolean>({
+  // `boolPref` carries the strict `"true"`/`"false"` parse — the default
+  // coercion read the stored string `"false"` as truthy, latching the
+  // posture on once persisted.
+  const [canvasMaximized, setCanvasMaximizedSignal] = boolPref({
     name: "kolu-canvas-maximized",
     fallback: false,
-    // Strict: the default coercion read the stored string `"false"` as
-    // truthy, so the posture latched on once persisted. Only literal
-    // `"true"`/`"false"` are valid; anything else throws and falls back.
-    parse: (raw) => {
-      if (raw === "true") return true;
-      if (raw === "false") return false;
-      throw new Error(`unrecognized maximized flag: ${raw}`);
-    },
   });
 
   /** Terminals needing attention. `unread` drives in-app dots and badges;

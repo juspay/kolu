@@ -44,7 +44,7 @@ version: Unreleased
 
 ## Keeping it filled — two checkpoints, no CI gate
 
-- **Write time** — `/be` authors the entry in its implement phase (<Cite file=".apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
+- **Write time** — `/be` authors the entry in its implement phase (<Cite file="agents/.apm/skills/be/SKILL.md" lines="36" label="be §2 — Add a changelog entry" />); every PR rides through `/be`.
 - **Publish time** — `/release X.Y.Z`'s go/no-go preview prints the exact `Unreleased` notes about to publish and waits for confirmation; a thin section is visible right before it ships.
 - Enough for a single-maintainer, `/be`-driven repo. Add a merge-blocking **`changelog` CI check** (diff touches `unreleased.mdx` or `no-changelog` label) only once PRs arrive from contributors who don't run `/be`.
 
@@ -70,7 +70,7 @@ Phases 1–3 are read-only; nothing is written before the go/no-go.
 ## Wiring
 
 - **`changelog` collection** — ✓ <PrLink pr={1208} /> (schema, `/changelog` page, seeded `unreleased.mdx`, `merge=union`).
-- **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file=".apm/skills/be/SKILL.md" lines="36" />); no CI gate.
+- **Keep-it-filled** — ✓ the `/be` implement-step entry (<Cite file="agents/.apm/skills/be/SKILL.md" lines="36" />); no CI gate.
 - **Identity rail** — ✓ version sourced once from `packages/server/package.json`, read at runtime via `serverVersion` (<Cite file="packages/server/src/hostname.ts" lines="17-23" label="serverVersion = pkg.version" />) and by Nix for the artifact version (<Cite file="default.nix" lines="15-19" />). No env var, nothing to propagate. `serverVersion` is the single runtime owner — it feeds the `buildInfo` cell → rail (`vX.Y.Z · <hash>`), `--version`, the startup log, and the pty's `TERM_PROGRAM_VERSION`.
 - **`/release` skill** — ✓ <Cite file=".apm/skills/release/SKILL.md" lines="1" />; the steps above.
 

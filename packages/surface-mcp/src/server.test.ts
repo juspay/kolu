@@ -201,6 +201,88 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(JSON.parse(body)).toBe(0);
   });
 
+  it("a snapshot-guaranteed primitive (cell) that opens EMPTY makes resources/read THROW, not collapse to null", async () => {
+    // snapshot-then-delta: a cell/collection/collection-item opens with a
+    // current-value snapshot frame (`@kolu/surface/server`), so an empty open is a
+    // dead/dropped bridge link — NOT an empty value. Coercing it to JSON `null`
+    // would hand an MCP agent `surface://cells/<x> => null` as if real (the green-dot
+    // lie in MCP form). A REAL `implementSurface` router can't produce this (it
+    // always opens with a snapshot), so model the dropped bridge with a stub client
+    // whose `count.get` yields no frame. readSnapshot must FAIL, never collapse.
+    const surface = defineSurface({
+      cells: { count: { schema: z.number(), default: 0 } },
+    });
+    const droppedBridge = {
+      surface: {
+        // Ends without yielding — the guaranteed snapshot frame never arrives.
+        count: {
+          get: async function* () {
+            return;
+          },
+        },
+      },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      // biome-ignore lint/suspicious/noExplicitAny: stub client modelling a dropped bridge link.
+      client: () => droppedBridge as any,
+      expose: { count: "resource" },
+      serverInfo: { name: "empty-snapshot-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
+      /no snapshot frame|link\/protocol failure/,
+    );
+  });
+
+  it("a STREAM that opens EMPTY also throws — streams are snapshot-first too (StreamHandlerDeps), not empty-to-null", async () => {
+    // The reloc-D correction: `StreamHandlerDeps` REQUIRES "first yield is a fresh
+    // full snapshot", so a Stream is snapshot-guaranteed exactly like a cell — only
+    // an Event has no snapshot obligation. An empty stream open is therefore the
+    // SAME dead-link failure, and must throw, not collapse to JSON null.
+    const surface = defineSurface({
+      streams: { ticks: { inputSchema: z.void(), outputSchema: z.number() } },
+    });
+    const droppedBridge = {
+      surface: {
+        ticks: {
+          get: async function* () {
+            return;
+          },
+        },
+      },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      // biome-ignore lint/suspicious/noExplicitAny: stub client modelling a dropped bridge link.
+      client: () => droppedBridge as any,
+      expose: { ticks: "resource" },
+      serverInfo: { name: "empty-stream-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: streamUri("ticks") })).rejects.toThrow(
+      /no snapshot frame|link\/protocol failure/,
+    );
+  });
+
   it("reads a stream resource snapshot (void-input source)", async () => {
     const over = buildSurface();
     const { mcp, served } = await connect(over);
@@ -270,9 +352,54 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
       readOnlyHint: false,
       destructiveHint: true,
     });
-    // The bespoke `greet` has no `mutates` → read-only.
+    // The bespoke `greet` OMITS `mutates`, so it is advertised DESTRUCTIVE
+    // (conservative default): an unannotated tool must never read as auto-approvable
+    // read-only — `readOnlyHint: true` can let an MCP host auto-execute a write
+    // unconfirmed, so an absent `mutates` fails SAFE (assume it mutates), not safe-
+    // for-the-tool. A genuinely read-only tool opts in with an explicit
+    // `mutates: false` (proven below).
     const greet = tools.find((t) => t.name === "greet");
     expect(greet?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+    });
+  });
+
+  it("an explicit `mutates: false` opts a tool into the read-only hint (the conservative default's escape)", async () => {
+    // The conservative default (absent ⇒ destructive) is only honest if the opt-in
+    // works: a tool the author KNOWS is read-only declares `mutates: false` and gets
+    // `readOnlyHint: true` — a conscious, reviewable claim, not a silent assumption.
+    const surface = defineSurface({
+      cells: { count: { schema: z.number(), default: 0 } },
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      // `peek` never touches the client and `listTools` doesn't invoke it.
+      // biome-ignore lint/suspicious/noExplicitAny: unused stub client (no resource/tool call reaches it).
+      client: () => ({ surface: {} }) as any,
+      expose: {},
+      tools: {
+        peek: {
+          mutates: false,
+          description: "A genuinely read-only tool.",
+          handler: () => ({ ok: true }),
+        },
+      },
+      serverInfo: { name: "opt-in-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const { tools } = await mcp.listTools();
+    const peek = tools.find((t) => t.name === "peek");
+    expect(peek?.annotations).toMatchObject({
       readOnlyHint: true,
       destructiveHint: false,
     });

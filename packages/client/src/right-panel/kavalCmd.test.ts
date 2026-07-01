@@ -1,6 +1,6 @@
 import { shellSplit } from "@kolu/shell-quote";
 import { describe, expect, it } from "vitest";
-import { kavalCmd } from "./kavalCmd.ts";
+import { kavalCmd, kavalSocketArg } from "./kavalCmd.ts";
 
 describe("kavalCmd", () => {
   it("emits a bare command when no socket is pinned", () => {
@@ -10,6 +10,29 @@ describe("kavalCmd", () => {
     expect(kavalCmd("snapshot", "0a1b2c3d", undefined)).toBe(
       "kaval-tui snapshot 0a1b2c3d",
     );
+  });
+
+  it("carries a quoted <prompt> placeholder for send (it's a template, not runnable)", () => {
+    // `send` refuses an empty payload, so the copied line is a template to
+    // complete; the placeholder lands quoted because `<`/`>` aren't bare-safe.
+    expect(kavalCmd("send", "0a1b2c3d", undefined)).toBe(
+      "kaval-tui send 0a1b2c3d '<prompt>'",
+    );
+    expect(
+      kavalCmd("send", "0a1b2c3d", "/run/user/1000/kaval-9221/pty-host.sock"),
+    ).toBe(
+      "kaval-tui send 0a1b2c3d '<prompt>' --socket /run/user/1000/kaval-9221/pty-host.sock",
+    );
+  });
+
+  it("quotes a socket path as a standalone --socket argument", () => {
+    expect(kavalSocketArg("/run/user/1000/kaval-9221/pty-host.sock")).toBe(
+      "--socket /run/user/1000/kaval-9221/pty-host.sock",
+    );
+    expect(shellSplit(kavalSocketArg("/tmp/my sock/pty-host.sock"))).toEqual([
+      "--socket",
+      "/tmp/my sock/pty-host.sock",
+    ]);
   });
 
   it("pins a clean socket path unquoted after the id", () => {

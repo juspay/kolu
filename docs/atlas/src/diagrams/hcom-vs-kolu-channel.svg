@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 432" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Two ways to wire coding agents together, side by side. Left panel, hcom: two agents, each with a hook installed into your ~/.claude config, talk through a shared SQLite event log — a real message channel with an inbox and events, delivered mid-turn through the hooks. The cost, labelled: per-tool hooks written into your config. Right panel, kolu: two agents — any agent, no setup, no hooks — read and write a shared directory of markdown files (01.md, 02.md, 03.md) by path; kolu watches that directory with parcel-watcher so a new or changed file is a push, not a poll. The files are the channel — no hooks, any agent, headless and over ssh. A footnote notes the terminal screen is used only for the prompt keystroke and for interactive UI prompts like AskUserQuestion that no log or file can carry. The conclusion the picture makes: kolu already has a channel — the filesystem — so it doesn't install hcom's.">
+  <defs>
+    <marker id="hkc-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    </marker>
+    <marker id="hkc-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
+    </marker>
+    <style>
+      .panel   { fill:#ffffff; stroke:#e2e8f0; stroke-width:1.5; }
+      .ptitle  { font-size:18px; font-weight:700; }
+      .psub    { font-size:11.5px; }
+      .badge   { font-size:9.5px; font-weight:700; letter-spacing:0.07em; }
+      .box-t   { font-size:13px; font-weight:700; }
+      .box-s   { font-size:10px; }
+      .mono    { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .note    { font-size:11px; font-style:italic; }
+      .cap     { font-size:11.5px; }
+
+      .amber-panel { fill:#FDFBF6; stroke:#EAD9B5; }
+      .amber-box { fill:#FBF1DC; stroke:#B45309; stroke-width:1.75; }
+      .amber-log { fill:#F6E7C6; stroke:#B45309; stroke-width:2; }
+      .amber-tt  { fill:#92400E; }
+      .amber-ss  { fill:#7a4f00; }
+      .amber-edge{ stroke:#B45309; stroke-width:2.25; fill:none; }
+
+      .green-panel { fill:#F6FBF7; stroke:#CDE8D5; }
+      .green-box { fill:#E6F4EA; stroke:#15803D; stroke-width:1.75; }
+      .blue-log  { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
+      .green-tt  { fill:#14532D; }
+      .green-ss  { fill:#166534; }
+      .blue-tt   { fill:#0D32B2; }
+      .blue-ss   { fill:#4A5072; }
+      .green-edge{ stroke:#15803D; stroke-width:2.25; fill:none; }
+      .foot      { fill:#64748b; font-size:10px; }
+    </style>
+  </defs>
+
+  <!-- ============ hcom ============ -->
+  <rect class="panel amber-panel" x="14" y="14" width="338" height="404" rx="11"/>
+  <text class="ptitle amber-tt" x="34" y="47">hcom</text>
+  <text class="psub amber-ss" x="34" y="64">installs a channel</text>
+  <text class="badge amber-tt" x="332" y="44" text-anchor="end">OWNS NO TERMINAL</text>
+
+  <rect class="amber-box" x="34" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t amber-tt" x="100" y="106" text-anchor="middle">agent A</text>
+  <text class="box-s amber-ss mono" x="100" y="123" text-anchor="middle">hook in ~/.claude</text>
+
+  <rect class="amber-box" x="200" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t amber-tt" x="266" y="106" text-anchor="middle">agent B</text>
+  <text class="box-s amber-ss mono" x="266" y="123" text-anchor="middle">hook in ~/.claude</text>
+
+  <rect class="amber-log" x="103" y="214" width="160" height="72" rx="9"/>
+  <text class="box-t amber-tt" x="183" y="243" text-anchor="middle">shared event log</text>
+  <text class="box-s amber-ss mono" x="183" y="262" text-anchor="middle">SQLite · inbox · events</text>
+
+  <path class="amber-edge" d="M100 138 L150 214" marker-start="url(#hkc-a)" marker-end="url(#hkc-a)"/>
+  <path class="amber-edge" d="M266 138 L216 214" marker-start="url(#hkc-a)" marker-end="url(#hkc-a)"/>
+
+  <text class="note amber-ss" x="183" y="314" text-anchor="middle">delivered mid-turn — through the hooks</text>
+  <text class="cap amber-tt" x="183" y="368" text-anchor="middle" font-weight="700">a real channel — the cost:</text>
+  <text class="cap amber-ss" x="183" y="386" text-anchor="middle">per-tool hooks, written into your config</text>
+
+  <!-- ============ kolu ============ -->
+  <rect class="panel green-panel" x="368" y="14" width="338" height="404" rx="11"/>
+  <text class="ptitle green-tt" x="388" y="47">kolu</text>
+  <text class="psub green-ss" x="388" y="64">uses the channel it already has</text>
+  <text class="badge green-tt" x="686" y="44" text-anchor="end">OWNS THE TERMINAL</text>
+
+  <rect class="green-box" x="388" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t green-tt" x="454" y="106" text-anchor="middle">agent A</text>
+  <text class="box-s green-ss" x="454" y="123" text-anchor="middle">any agent · no setup</text>
+
+  <rect class="green-box" x="554" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t green-tt" x="620" y="106" text-anchor="middle">agent B</text>
+  <text class="box-s green-ss" x="620" y="123" text-anchor="middle">any agent · no setup</text>
+
+  <rect class="blue-log" x="457" y="214" width="160" height="72" rx="9"/>
+  <text class="box-t blue-tt" x="537" y="240" text-anchor="middle">shared directory</text>
+  <text class="box-s blue-ss mono" x="537" y="259" text-anchor="middle">01.md · 02.md · 03.md</text>
+  <text class="box-s blue-ss" x="537" y="275" text-anchor="middle">kolu watches it → push</text>
+
+  <path class="green-edge" d="M454 138 L504 214" marker-start="url(#hkc-g)" marker-end="url(#hkc-g)"/>
+  <path class="green-edge" d="M620 138 L570 214" marker-start="url(#hkc-g)" marker-end="url(#hkc-g)"/>
+  <text class="note green-ss" x="537" y="182" text-anchor="middle">read / write by path</text>
+
+  <text class="cap green-tt" x="537" y="314" text-anchor="middle" font-weight="700">files are the channel</text>
+  <text class="cap green-ss" x="537" y="332" text-anchor="middle">no hooks · any agent · headless &amp; over ssh</text>
+  <text class="foot" x="537" y="372" text-anchor="middle">screen only for what files can't carry:</text>
+  <text class="foot mono" x="537" y="388" text-anchor="middle">the prompt keystroke · AskUserQuestion</text>
+</svg>

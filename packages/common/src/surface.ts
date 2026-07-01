@@ -36,11 +36,16 @@ import {
 } from "@kolu/surface-app/surface";
 import { ENDPOINT_STATES } from "@kolu/surface-daemon-supervisor/states";
 import {
-  AwarenessLiveFieldsSchema,
-  AwarenessPersistedFieldsSchema,
-  PrResultSchema,
+  AgentKindSchema,
+  AgentMemorySchema,
+  type TerminalSnapshot,
+  TerminalSnapshotSchema,
+  RestoreTargetSchema,
+  seedMemory,
   TerminalIdSchema,
 } from "@kolu/terminal-workspace/schema";
+import { terminalWorkspaceSurface } from "@kolu/terminal-workspace/surface";
+import { exactRestoreTarget } from "anyagent/cli";
 import type { TaskProgressSchema } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import {
@@ -53,34 +58,45 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
+import { match } from "ts-pattern";
 import { z } from "zod";
 
 // ── Re-exports — the awareness domain moved to @kolu/terminal-workspace (P1a) ──
 //
-// The generic awareness value (terminal identity, agent status, PR resolution,
+// The generic `TerminalSnapshot` (terminal identity, agent status, PR resolution,
 // foreground) is OWNED by `@kolu/terminal-workspace/schema` now. kolu-common
-// EXTENDS that base — adding `location` and the client/UI fields below — and
-// re-exports the moved symbols so existing `kolu-common/surface` import sites
-// are unchanged: the schema home inverted, the consumers didn't move.
+// EXTENDS that base — adding `location`, the client/UI fields, and kolu's
+// remembered `AgentMemory` below — and re-exports the moved symbols so existing
+// `kolu-common/surface` import sites are unchanged: the schema home inverted, the
+// consumers didn't move.
 export {
+  AgentIdentitySchema,
   AgentInfoSchema,
   AgentKindSchema,
+  AgentMemorySchema,
   ForegroundSchema,
+  TerminalSnapshotSchema,
   PrResultSchema,
   PrUnavailableSourceSchema,
   prUnavailableReason,
   prUnavailableSource,
   reasonForSource,
+  resumableCommand,
+  RestoreTargetSchema,
 } from "@kolu/terminal-workspace/schema";
 export type {
+  AgentIdentity,
   AgentInfo,
   AgentKind,
+  AgentMemory,
   ClaudeCodeInfo,
   CodexInfo,
   Foreground,
+  TerminalSnapshot,
   OpenCodeInfo,
   PrResult,
   PrUnavailableSource,
+  RestoreTarget,
   TerminalId,
 } from "@kolu/terminal-workspace/schema";
 export { TerminalIdSchema };
@@ -182,75 +198,49 @@ export const LOCAL_LOCATION: HostLocation = Object.freeze({
   kind: "local",
 } as const);
 
-// ── Terminal metadata fields, organized by write-authority + persistence ──
+// ── Terminal metadata fields, organized by who OBSERVES vs who REMEMBERS ──
 //
-// Invariant: every terminal-metadata field appears in EXACTLY ONE of
-// `ServerPersistedTerminalFieldsSchema`, `ClientPersistedTerminalFieldsSchema`,
-// or `LiveTerminalFieldsSchema`. The three schemas partition the persisted +
-// live field set; the `state`/`sleptAt` DISCRIMINANT (see "the active |
-// sleeping sum" below) is the one field group that rides ABOVE this partition
-// rather than inside it. `TerminalMetadataSchema`'s arms are built from these
-// bases: the `active` arm is persisted + live, the `sleeping` arm is persisted
-// + `sleptAt`.
+// After the awareness-derive-store cutover (PR #1621) a terminal's metadata has
+// three sources, joined at the client by `composeTerminalMetadata`:
+//   - the OBSERVATION (`@kolu/terminal-workspace`'s `TerminalSnapshot`: cwd · git · pr
+//     · agent · foreground) — what a memoryless host re-observes, served on the
+//     `terminalWorkspace.snapshots` collection and held in `entry.snapshot`;
+//   - kolu's AUTHORED record (`entry.meta`): the kolu-owned `location`, the
+//     client/UI fields, the two REMEMBERED `AgentMemory` facts (`lastActivityAt`
+//     /`lastAgentCommand`, written ONLY by the fold's `updateMemory`), and the
+//     active|sleeping discriminant;
+//   - the discriminant `state`/`sleptAt`.
 //
-// Adding a field misclassifies in one of two failure modes:
-//   - Persisted base, but written through the live update helper →
-//     compile error (the live mutator type excludes it).
-//   - Live base, but written through the persisting update helper →
-//     compile error (the persisting mutator types exclude it).
-//
-// Misclassifying a NEW field (declaring it on the wrong base) is the
-// only silent failure mode — choose the base on the first axis: "must
-// this survive a process restart?" If yes → one of the persisted
-// schemas; if no → `LiveTerminalFieldsSchema`. Then on the second
-// axis: "is this written by a server-side provider or by a client RPC
-// handler?" That picks server-persisted vs client-persisted.
+// The producer cannot CONSTRUCT memory (its emit type is `TerminalSnapshot`), so "two
+// writers of a remembered fact" is unrepresentable — the fence is the type, not a
+// runtime mutator split. Adding a field: an OBSERVABLE one belongs in
+// `TerminalSnapshot` (terminal-workspace); a kolu-REMEMBERED one in `AgentMemory`; a
+// client-owned one in `ClientPersistedTerminalFieldsSchema` below.
 
-/**
- * Server-persisted fields — written by server-side metadata providers
- * (via `updateServerMetadata`) and round-tripped through disk. The
- * "server-writes + persisted" intersection, declared structurally.
- *
- * This is kolu's EXTENSION of the generic `AwarenessPersistedFieldsSchema`
- * (cwd · git · lastAgentCommand · lastActivityAt, owned by
- * `@kolu/terminal-workspace`): the awareness base plus the one kolu-specific
- * field, `location`. The schema home inverted in P1a — kolu's record is built
- * ON TOP of the awareness value, not the other way around.
- *
- * Disjoint from `ClientPersistedTerminalFieldsSchema` and
- * `LiveTerminalFieldsSchema`. See the partition comment above.
- */
-export const ServerPersistedTerminalFieldsSchema =
-  AwarenessPersistedFieldsSchema.merge(
-    z.object({
-      /** Where this terminal's endpoint lives — `{ kind: "local" }` for an
-       *  in-process PTY, `{ kind: "remote", hostId }` for a dialed host (kaval-
-       *  sessions). See `HostLocationSchema`. Non-optional and explicit by
-       *  construction: a terminal's host is the value of this field, never the
-       *  *absence* of a host id. So any code that **constructs** a terminal's
-       *  metadata — spawn and host adoption — must name its host: a dropped
-       *  location is a compile error there, not a silent local respawn against
-       *  the wrong machine. (The client "Restore session" path re-creates
-       *  terminals through the create seam, which deliberately omits `location`
-       *  because the *endpoint* owns it; P3 replaces that path with
-       *  dial-the-host + adopt-its-list, so remote terminals must not ship
-       *  before then.) Set once at spawn and never mutated thereafter — a
-       *  terminal does not migrate hosts — so although it rides this
-       *  server-writable base, no provider writes it. This is the one kolu
-       *  concept absent from the generic awareness value (a remote tool can't
-       *  know its own kolu-side `hostId`). */
-      location: HostLocationSchema,
-    }),
-  );
+/** The PERSISTED (restore-relevant) projection of an `TerminalSnapshot` — what rides to
+ *  disk and what a DORMANT tile shows: `cwd · git · pr`. No churny `foreground`,
+ *  and NO agent detail (lie-when-dead). `pr` is restore-relevant now (true-when-
+ *  dead, persisted like `git`), so it survives on a dormant tile from HERE — the
+ *  old frozen-`pr`-on-the-sleeping-arm special case is gone. The agent the terminal
+ *  will RESUME rides the authored record's `restoreTarget` (the discriminated resume
+ *  value, carrying the agent IDENTITY on its `exact` arm), not this projection — a
+ *  full `TerminalSnapshot`'s live agent can't survive a server restart as anything but its
+ *  identity, and that identity is the kolu-owned resume target, not a snapshot field.
+ *  `SavedTerminalSchema.parse` reduces a full
+ *  `TerminalSnapshot` to this at the disk-persist seam (it drops agent + foreground
+ *  structurally). */
+export const PersistedSnapshotSchema = TerminalSnapshotSchema.pick({
+  cwd: true,
+  git: true,
+  pr: true,
+});
+export type PersistedSnapshot = z.infer<typeof PersistedSnapshotSchema>;
 
 /**
  * Client-persisted fields — written by client RPCs (via
  * `updateClientMetadata`, or direct mutation for paths that intentionally
  * skip the publish like sub-panel state) and round-tripped through disk.
  * The "client-writes + persisted" intersection, declared structurally.
- *
- * Disjoint from `ServerPersistedTerminalFieldsSchema` and
- * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
 export const ClientPersistedTerminalFieldsSchema = z.object({
   themeName: z.string().min(1).optional(),
@@ -275,46 +265,6 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
 });
 
 /**
- * Fields that only exist on a live terminal — transient status fed by
- * external state and never persisted. If a field is here, a session
- * restore must re-derive it; if a field is on one of the persisted
- * schemas, it round-trips through disk as-is.
- *
- * Identical to the generic `AwarenessLiveFieldsSchema` (pr · agent ·
- * foreground, owned by `@kolu/terminal-workspace`): no kolu-specific field
- * rides the live half (`location` is persisted, not live), so kolu aliases the
- * awareness live schema directly rather than re-declaring it.
- *
- * Disjoint from `ServerPersistedTerminalFieldsSchema` and
- * `ClientPersistedTerminalFieldsSchema`. See the partition comment
- * above. Writes go through `updateServerLiveMetadata`, which does NOT
- * fire `terminals:dirty` — that's how the agent-stream firehose is
- * kept off the autosave channel.
- */
-export const LiveTerminalFieldsSchema = AwarenessLiveFieldsSchema;
-
-/**
- * Every field that rides to disk. Disjoint union of the two
- * write-authority persisted bases — `SavedTerminal` just adds `id` to
- * this shape. Adding a persisted field is a one-place change on
- * whichever base owns it (server vs client). Live fields don't
- * participate.
- */
-export const PersistedTerminalFieldsSchema =
-  ServerPersistedTerminalFieldsSchema.merge(
-    ClientPersistedTerminalFieldsSchema,
-  );
-
-/**
- * Server write fence — the mutator passed to `updateServerMetadata` is
- * narrowed to this shape, so providers cannot accidentally write
- * client-owned fields like themeName. Server-persisted base + transient
- * live state (both server-written).
- */
-export const TerminalServerMetadataSchema =
-  ServerPersistedTerminalFieldsSchema.merge(LiveTerminalFieldsSchema);
-
-/**
  * Client write fence — the mutator passed to `updateClientMetadata` is
  * narrowed to this shape, so RPC handlers cannot accidentally overwrite
  * provider-owned state. Exactly the client-persisted base.
@@ -323,67 +273,127 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 
 // ── The active | sleeping sum ─────────────────────────────────────────
 //
-// A terminal is a discriminated union on `state`. The field partition above
-// already expresses it: an ACTIVE terminal is the persisted base + the live
-// overlay (agent · foreground · pr + the PTY/xterm handles); a SLEEPING
-// terminal is the persisted base alone — its PTY/xterm/agent released — plus
-// `sleptAt`.
+// A terminal is a discriminated union on `state`. An ACTIVE terminal carries the
+// FULL live `TerminalSnapshot` (agent detail + foreground); a SLEEPING terminal carries
+// only the restore-relevant `PersistedSnapshot` (its PTY/xterm/agent released,
+// so the live detail is stale) plus `sleptAt`. Both arms carry the AUTHORED record
+// (location + memory + client fields).
 //
 // `state` and `sleptAt` are persisted DISCRIMINANT fields, composed ABOVE the
-// server/client/live partition rather than inside it: a flat `sleptAt` would
-// leak onto the active arm, and `state` must gate the live overlay.
-//
-// Presence consumers (canvas, dock, minimap, arrange, cycle, switcher) read the
-// union; any consumer that touches a live field must first narrow
-// `state === "active"` — the compiler refuses a live field on the bare union, so
-// a sleeping terminal can sit on the canvas yet never be an input/WebGL target.
-// The awareness schemas in `@kolu/terminal-workspace` stay FLAT: the union is
-// recomposed HERE, and `state` never crosses the awareness wire (pulam/kaval
-// never see a sleeping arm).
+// observation/authored split: a flat `sleptAt` would leak onto the active arm, and
+// `state` must gate the live overlay. Presence consumers (canvas, dock, minimap,
+// arrange, cycle, switcher) read the union; any consumer that touches a live field
+// (full agent / foreground) must first narrow `state === "active"`. `state` never
+// crosses the awareness wire (pulam/kaval never see a sleeping arm).
 
 const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });
 const SleepingDiscriminantSchema = z.object({
   state: z.literal("sleeping"),
   /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
-   *  of the live overlay — the one scalar an active terminal doesn't carry. */
+   *  of the live overlay — the one scalar an active terminal doesn't carry. The
+   *  frozen-`pr` field that used to live here is GONE: `pr` is restore-relevant
+   *  now, so it rides the persisted observation and survives on the dormant tile
+   *  from there (no special case). */
   sleptAt: z.number(),
-  /** A FROZEN SNAPSHOT of the live `pr` overlay at sleep time, so the dormant
-   *  tile can still surface the GitHub PR the terminal was working — the live PR
-   *  resolution is gone with the PTY. `cwd`/`git` ride the persisted base (true
-   *  identity, re-resolved live on wake); `pr` is genuinely LIVE (checks tick),
-   *  so it can't sit on the base — its frozen copy belongs here on the sleeping
-   *  arm, captured at sleep via the `...entry.meta` spread and DISCARDED on wake
-   *  (`wakeMeta`), where the re-spawned PTY's PR sensor re-resolves it. Optional:
-   *  a terminal slept before this field, or with no PR context, carries none. */
-  pr: PrResultSchema.optional(),
 });
 
-/** The active arm's persisted core — `persisted base + state: "active"`, the one
- *  composition both the live and saved active arms build on. The live arm adds
- *  the overlay; the saved arm adds the id. Spelling it once keeps "active =
- *  persisted + discriminant" in a single place so the live/saved divergence is
- *  the only thing each arm restates. */
-const ActivePersistedCoreSchema = PersistedTerminalFieldsSchema.merge(
+// ── The AUTHORED family — what rides `entry.meta` after the cutover ───────
+//
+// The terminal record is bisected: the OBSERVATION (cwd · git · pr · agent ·
+// foreground) rides the registry entry's own `awareness` field, folded by kolu
+// from the producer's stream. What rides `entry.meta` is the AUTHORED record: the
+// kolu-owned `location`, the client/UI fields, the two REMEMBERED `AgentMemory`
+// facts (`lastActivityAt`/`lastAgentCommand`, written only by the fold's
+// `updateMemory`), and the active|sleeping discriminant.
+//
+// The authored TYPE names no OBSERVED field, so `entry.meta.cwd = x` is a COMPILE
+// ERROR — "two writers of the observation" is unrepresentable. The unified
+// `TerminalMetadata` is recomposed from the two halves at the CLIENT read (and at
+// disk persist) via `composeTerminalMetadata` (below).
+
+/** kolu's server-written authored fields — `location` (set once at spawn), the two
+ *  remembered `AgentMemory` facts, and the `restoreTarget` (all written by the
+ *  fold's `updateMemory`). Memory is FLAT here, so the on-disk JSON path is
+ *  unchanged and `composeTerminalMetadata` spreads it straight onto the joined
+ *  record. */
+const KoluAuthoredServerFieldsSchema = z
+  .object({
+    /** Where this terminal's endpoint lives — `{ kind: "local" }` for an in-process
+     *  PTY, `{ kind: "remote", hostId }` for a dialed host. Non-optional and explicit
+     *  by construction: a terminal's host is the value of this field, never the
+     *  *absence* of a host id, so any code that constructs a terminal's metadata must
+     *  name its host (a dropped location is a compile error, not a silent local
+     *  respawn against the wrong machine). Set once at spawn, never mutated. */
+    location: HostLocationSchema,
+    /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
+     *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
+     *  EXACT conversation that was live by id (#1495), `none` wakes to a bare shell
+     *  (#1492), `legacyMostRecent` resumes most-recent for migrated pre-1.29 records.
+     *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
+     *  rides the AUTHORED record (not the observation) because a server restart keeps
+     *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
+     *  `none` (a fresh terminal with no agent), never as "resume something" — the
+     *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
+     *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
+    restoreTarget: RestoreTargetSchema.optional(),
+  })
+  .merge(AgentMemorySchema);
+
+const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
+  ClientPersistedTerminalFieldsSchema,
+);
+
+/** The authored ACTIVE arm — `location` + memory + client fields + `state:
+ *  "active"`. No snapshot field. */
+export const AuthoredActiveSchema = KoluAuthoredFieldsSchema.merge(
   ActiveDiscriminantSchema,
 );
 
-/** An active terminal — persisted base + live overlay + `state: "active"`. The
- *  only arm Phase 1 ever constructs. */
-export const ActiveTerminalSchema = ActivePersistedCoreSchema.merge(
-  LiveTerminalFieldsSchema,
+/** The authored SLEEPING arm — `location` + memory + client fields + `sleptAt`.
+ *  No snapshot field, and no frozen `pr`: `pr` is restore-relevant now and rides
+ *  the persisted observation, so the dormant tile reads it from there. */
+export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
+  SleepingDiscriminantSchema,
 );
 
-/** A sleeping terminal — persisted base + `sleptAt`, no live overlay (its
- *  PTY/xterm/agent are released). */
-export const SleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
-  SleepingDiscriminantSchema,
+/** The authored terminal as a sum — `entry.meta`'s static type. Discriminated on
+ *  `state`, naming no snapshot field. */
+export const AuthoredTerminalSchema = z.discriminatedUnion("state", [
+  AuthoredActiveSchema,
+  AuthoredSleepingSchema,
+]);
+
+export type AuthoredActiveTerminal = z.infer<typeof AuthoredActiveSchema>;
+export type AuthoredSleepingTerminal = z.infer<typeof AuthoredSleepingSchema>;
+export type AuthoredTerminal = z.infer<typeof AuthoredTerminalSchema>;
+
+/** An active terminal — the FULL live `TerminalSnapshot` joined with the authored
+ *  active arm. The only live arm; narrowing `state === "active"` yields the full
+ *  agent detail + foreground. */
+export const ActiveTerminalSchema =
+  TerminalSnapshotSchema.merge(AuthoredActiveSchema);
+
+/** A sleeping terminal — the restore-relevant `PersistedSnapshot` (agent
+ *  identity, no foreground) joined with the authored sleeping arm. Its PTY/agent
+ *  are released, so it carries only what survives the release. */
+export const SleepingTerminalSchema = PersistedSnapshotSchema.merge(
+  AuthoredSleepingSchema,
+);
+
+/** The on-disk persisted core, both arms share — the `PersistedSnapshot` +
+ *  the authored fields. The saved active arm adds `state: "active"`; the saved
+ *  sleeping arm adds `sleptAt`. Both add `id`. */
+const SavedPersistedCoreSchema = PersistedSnapshotSchema.merge(
+  KoluAuthoredFieldsSchema,
 );
 
 /**
  * The terminal as a sum — `Terminal = active | sleeping`, discriminated on
- * `state`. The `terminalMetadata` collection's value (the wire shape). Presence
- * reads the union; liveness narrows to the `active` arm. Code that only needs
- * one half should import the sub-schema so the dependency is explicit.
+ * `state`. The shape the CLIENT reconstructs by joining the AUTHORED record
+ * (`kolu.authored`) with the AWARENESS value (`terminalWorkspace.snapshots`) via
+ * `composeTerminalMetadata` — it is never a server-served collection of its own.
+ * Presence reads the union; liveness narrows to the `active` arm. Code that only
+ * needs one half should import the sub-schema so the dependency is explicit.
  */
 export const TerminalMetadataSchema = z.discriminatedUnion("state", [
   ActiveTerminalSchema,
@@ -411,7 +421,8 @@ export const InitialTerminalMetadataSchema = z.object({
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
 /** Wire shape for the `terminalList` cell. Identity only — metadata
- *  flows through the `terminalMetadata` collection. */
+ *  flows through the `authored` collection joined with `awareness` at the
+ *  client. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
@@ -473,17 +484,19 @@ const SavedTerminalIdSchema = z.object({
   id: z.string(),
 });
 
-/** The active arm of the on-disk record (persisted base + id, no live overlay)
- *  — the shape restore/adoption produce. Exported so the adoption round-trip
- *  test can assert it carries every persisted key. */
-export const SavedActiveTerminalSchema = ActivePersistedCoreSchema.merge(
-  SavedTerminalIdSchema,
-);
+/** The active arm of the on-disk record (persisted-observation base + authored +
+ *  `state: "active"` + id) — the shape restore/adoption produce. The agent is its
+ *  IDENTITY only (no lie-when-dead detail) and foreground is absent: the
+ *  restore-relevant projection, not the full live `TerminalSnapshot`. Exported so the
+ *  adoption round-trip test can assert it carries every persisted key. */
+export const SavedActiveTerminalSchema = SavedPersistedCoreSchema.merge(
+  ActiveDiscriminantSchema,
+).merge(SavedTerminalIdSchema);
 
-/** The sleeping arm of the on-disk record (persisted base + `sleptAt` + id, no
- *  live overlay) — the shape a slept terminal persists. Named symmetrically with
+/** The sleeping arm of the on-disk record (persisted-observation base + authored +
+ *  `sleptAt` + id) — the shape a slept terminal persists. Named symmetrically with
  *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms. */
-export const SavedSleepingTerminalSchema = PersistedTerminalFieldsSchema.merge(
+export const SavedSleepingTerminalSchema = SavedPersistedCoreSchema.merge(
   SleepingDiscriminantSchema,
 ).merge(SavedTerminalIdSchema);
 
@@ -503,6 +516,23 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
+/** How a newly created terminal gets its theme. `inherit` copies the active
+ *  terminal's theme (like new terminals inherit its size — set one theme once
+ *  and every new terminal follows; the first terminal seeds from the server
+ *  default); `shuffle` auto-picks a distinct tint via {@link ShuffleBehaviorSchema}. */
+export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
+
+/** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
+ *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
+ *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
+ *  resolved light/dark mode. */
+export const ShuffleBehaviorSchema = z.enum([
+  "random",
+  "dark",
+  "light",
+  "auto",
+]);
+
 /** Right-panel preferences — workspace-level layout chrome. The fields
  *  *about* what each terminal is doing (active tab, code sub-mode,
  *  selected file) live on `RightPanelPerTerminalStateSchema` against the
@@ -521,9 +551,12 @@ export const RightPanelPrefsSchema = z.object({
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  /** Auto-pick a perceptually-distinct theme for each new terminal. When
-   *  off, every terminal gets the server default until the user picks one. */
-  shuffleTheme: z.boolean(),
+  /** How a new terminal gets its theme (inherit the active one, or shuffle a
+   *  distinct tint) — see {@link NewTerminalThemeSchema}. */
+  newTerminalTheme: NewTerminalThemeSchema,
+  /** Which themes any shuffle draws from — a `shuffle` new terminal and the
+   *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
+  shuffleBehavior: ShuffleBehaviorSchema,
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
@@ -557,27 +590,18 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     of one. `z.infer<typeof Schema>` here keeps the wiring local.
 
 export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
-export type TerminalServerMetadata = z.infer<
-  typeof TerminalServerMetadataSchema
->;
 export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
 export type InitialTerminalMetadata = z.infer<
   typeof InitialTerminalMetadataSchema
 >;
-export type PersistedTerminalFields = z.infer<
-  typeof PersistedTerminalFieldsSchema
->;
-export type LiveTerminalFields = z.infer<typeof LiveTerminalFieldsSchema>;
 /** The active arm of the `Terminal` sum — what `createMetadata` builds and the
  *  only arm Phase 1 constructs. Narrowing `state === "active"` yields this. */
 export type ActiveTerminal = z.infer<typeof ActiveTerminalSchema>;
-/** The sleeping arm of the `Terminal` sum — persisted base + `sleptAt`. */
+/** The sleeping arm of the `Terminal` sum — persisted-observation base + memory +
+ *  `sleptAt`. */
 export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
-export type ServerPersistedTerminalFields = z.infer<
-  typeof ServerPersistedTerminalFieldsSchema
->;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
@@ -589,6 +613,26 @@ export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
  *  slept terminal persists and what the boot seed / restore card read back. */
 export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
+export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
+
+/** The luminance family a shuffle should restrict its candidate pool to, from
+ *  the `shuffleBehavior` preference and the app's resolved dark mode.
+ *  `undefined` means no restriction (`random` — the whole catalogue). The
+ *  single source of truth for every shuffle: a `shuffle` new terminal AND the
+ *  ⌘⇧J action both resolve their pool through here. */
+export function shuffleMode(
+  behavior: ShuffleBehavior,
+  isDark: boolean,
+): "light" | "dark" | undefined {
+  return match(behavior)
+    .with("random", () => undefined)
+    .with("dark", () => "dark" as const)
+    .with("light", () => "light" as const)
+    .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
+    .exhaustive();
+}
+
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 
 /** User-facing name of a Code-tab view — the single source for the words the
@@ -633,7 +677,8 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   seenTips: [],
   startupTips: true,
-  shuffleTheme: true,
+  newTerminalTheme: "shuffle",
+  shuffleBehavior: "auto",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
@@ -844,20 +889,32 @@ export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
 
 // ── The surfaces ──────────────────────────────────────────────────────
 //
-// kolu now serves TWO sibling surfaces over one transport (kolu#1197):
+// kolu now serves THREE sibling surfaces over one transport (kolu#1197, R8):
 //
 //   - `koluSurface` — every primitive kolu OWNS (preferences, activityFeed,
-//     session, terminalList; terminalMetadata; the git/fs streams; the
-//     terminalExit event). Served under the `kolu` key.
+//     session, terminalList; the per-terminal `authored` record; the git/fs
+//     streams; the terminalExit event). Served under the `kolu` key. The eight
+//     AWARENESS fields are NOT here — they ride `terminalWorkspace.snapshots`,
+//     and the client JOINS the two halves at read time (no fused record on the
+//     wire).
 //   - `surfaceAppSurface_kolu` — surface-app's COMPLETE surface (the
 //     build-identity `buildInfo` cell extended with kolu's `expectedKaval`
 //     axis, plus the `identity.info` restart probe). Served under the `surfaceApp`
 //     key. Its wire path is `surface.surfaceApp.{buildInfo,identity}`.
+//   - `terminalWorkspaceSurface` — the GENERIC `@kolu/terminal-workspace` surface
+//     (awareness collection + version cell + activity flow + fs/git procedures &
+//     watcher streams), served under the `terminalWorkspace` key so a viewer reads
+//     the same surface `pulam` serves. Its `awareness` collection is projected
+//     off each registry entry's `awareness` field (Design-S; the sensor sink is
+//     the sole writer, see `server/src/terminal-registry.ts`). kolu's OWN
+//     client reads this collection too, joining each value with the matching
+//     `kolu.authored` record — so R9 (remote awareness) is a pure backing-swap
+//     behind this one collection, with no second read path to migrate.
 //
 // They are NOT merged — `composeSurfaceContracts` / `implementSurfaces` /
-// `surfaceClients` multiplex them, each namespaced by its key. surface-app is
-// already a complete surface; we serve it as a sibling rather than splicing its
-// halves into kolu's own surface.
+// `surfaceClients` multiplex them, each namespaced by its key. Each is already a
+// complete surface; we serve them as siblings rather than splicing their halves
+// into one surface.
 
 /** surface-app served as a sibling, extended with kolu's build identity. */
 export const surfaceAppSurface_kolu = surfaceAppSurfaceWith(koluBuildInfo);
@@ -922,13 +979,19 @@ export const koluSurface = defineSurface({
     },
   },
   collections: {
-    /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
-     *  is independently observable; mutations come from server-side
-     *  providers writing through the publisher channel — clients don't
-     *  call `upsert` on this collection directly. */
-    terminalMetadata: {
+    /** Per-terminal AUTHORED record — the kolu-owned half of a terminal:
+     *  `location` + memory + the `restoreTarget` + client/UI chrome + the
+     *  active|sleeping discriminant. The five OBSERVED awareness fields (cwd · git ·
+     *  pr · agent · foreground) ride the GENERIC
+     *  `terminalWorkspace.snapshots` collection, NOT here — the client JOINS the
+     *  two halves at read time via `composeTerminalMetadata`
+     *  (`useTerminalMetadata`), so there is no server-side re-fusion and no fused
+     *  record on the wire. Each terminal is independently observable; mutations
+     *  come from server-side providers writing through the publisher channel —
+     *  clients don't call `upsert` on this collection directly. */
+    authored: {
       keySchema: TerminalIdSchema,
-      schema: TerminalMetadataSchema,
+      schema: AuthoredTerminalSchema,
       // Only the streaming reads are exposed; writes are server-internal.
       verbs: ["keys", "get"],
     },
@@ -976,13 +1039,22 @@ export const koluSurface = defineSurface({
   },
 });
 
-/** The two siblings, keyed — the single browser-safe source of which surfaces
+/** The three siblings, keyed — the single browser-safe source of which surfaces
  *  exist under which keys. `composeSurfaceContracts(surfaces)` (contract),
  *  `surfaceClients(link, surfaces)` (client), and `implementSurfaces(surfaces, …)`
  *  (server) all read this one map, so the keys can't drift across the three. */
 export const surfaces = {
   kolu: koluSurface,
   surfaceApp: surfaceAppSurface_kolu,
+  // The generic `@kolu/terminal-workspace` surface, served as a third sibling
+  // (R8): the `awareness` collection (projected off each registry entry's
+  // `awareness` field — kolu's fold is the sole writer), the `version`
+  // handshake cell, the live `activity` flow, and the Code tab's fs/git
+  // procedures + watcher streams. `composeSurfaceContracts`
+  // / `surfaceClients` / `implementSurfaces` pick it up from this one map, so it
+  // is served at `surface.terminalWorkspace.*` automatically. Its value schema is
+  // the GENERIC `TerminalSnapshot` — no `location`, no kolu UI fields, no memory.
+  terminalWorkspace: terminalWorkspaceSurface,
 } as const;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
@@ -996,8 +1068,11 @@ export type Surface = SurfaceTypes<typeof koluSurface.spec>;
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
 export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
-export type TerminalMetadata =
-  Surface["collections"]["terminalMetadata"]["Value"];
+/** The unified terminal record — NOT a served collection value (the wire
+ *  carries the `authored` + `awareness` halves separately). This is the shape
+ *  `composeTerminalMetadata` reconstructs at the client read and at disk
+ *  persist, and the type the ~20 `getMetadata` consumers see. */
+export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 
@@ -1038,6 +1113,51 @@ export function sleepingArm(
   m: TerminalMetadata | null | undefined,
 ): SleepingTerminal | undefined {
   return m?.state === "sleeping" ? m : undefined;
+}
+
+/** Build a fresh AUTHORED active record for a newly-spawned terminal — the
+ *  kolu-owned `location`, empty memory from the canonical `seedMemory` home
+ *  (recency at 0, no command), and the active discriminant. The observation half is
+ *  seeded SEPARATELY via `seedSnapshot`; this names none of it. The single seam
+ *  every live terminal's authored record is born through (spawn / orphan adoption),
+ *  and the memory default lives ONCE in `seedMemory`, so a future memory field is
+ *  added there and rides here for free. */
+export function createAuthoredActive(
+  location: HostLocation,
+): AuthoredActiveTerminal {
+  return { location, ...seedMemory(), state: "active" };
+}
+
+/** Join the two halves of a terminal into the unified `TerminalMetadata` — the
+ *  ONE join function, applied at exactly two sites: the CLIENT reader
+ *  (`useTerminalMetadata`, ephemeral, recomputed per render) and DISK persist
+ *  (`snapshotSession`, a save-time snapshot). It is NEVER served as a collection
+ *  of its own: the wire carries the two halves separately (`kolu.authored` +
+ *  `terminalWorkspace.snapshots`) and the join lives at the reader. The authored
+ *  record (`entry.meta`) carries location + memory + client fields + the
+ *  discriminant; the observation carries the five snapshot fields. Reusing one
+ *  join at both the read and the persist site keeps disk and the client read from
+ *  ever diverging.
+ *
+ *  Spread order is LOAD-BEARING: observation FIRST, authored LAST. The authored
+ *  record names no snapshot field, so it never clobbers the observation. The
+ *  active path takes the full `TerminalSnapshot` as-is: TS verifies the spread IS an
+ *  `ActiveTerminal` structurally, with no parse on the per-render hot path.
+ *
+ *  The sleeping path takes ONLY the restore-relevant projection — `foreground` is
+ *  dropped and the agent reduced to its identity via `PersistedSnapshotSchema.
+ *  parse`. `pr` rides that projection (restore-relevant now), so the dormant tile
+ *  surfaces its last-known PR from there — no frozen-`pr` special case. */
+export function composeTerminalMetadata(
+  authored: AuthoredTerminal,
+  observation: TerminalSnapshot,
+): TerminalMetadata {
+  return authored.state === "active"
+    ? { ...observation, ...authored }
+    : SleepingTerminalSchema.parse({
+        ...PersistedSnapshotSchema.parse(observation),
+        ...authored,
+      });
 }
 
 /** The resolved PR of a terminal, if it is active AND its PR resolution is `ok`,
@@ -1116,13 +1236,69 @@ export function backfillTerminalState(
   return { ...t, state: "active" };
 }
 
+/** Backfill the awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
+ *  (restore-relevant) field, and the old sticky `agentSession` ref + the implicit
+ *  "`lastAgentCommand` ⇒ resume most-recent" rule collapsed into one discriminated
+ *  `restoreTarget` (`{@link RestoreTargetSchema}`). A pre-cutover record:
+ *   - lacks `pr` (it was a never-persisted live field) → backfill `{ kind: "absent"
+ *     }` so the now-persisted field parses; the live PR sensor re-resolves on
+ *     restore. A frozen sleeping-arm `pr` already satisfies it and passes through;
+ *   - is given a `restoreTarget` from what it remembered, so the OLD resume behavior
+ *     is preserved as a NAMED value rather than re-derived from field absence:
+ *       · `agentSession { kind, id }` + a `lastAgentCommand` → `{ kind: "exact",
+ *         command, agent: { kind, sessionId: id } }` (the EXACT conversation, #1495);
+ *       · a `lastAgentCommand` but no `agentSession` → `{ kind: "legacyMostRecent",
+ *         command }` (the old most-recent fallback, kept for already-saved sessions);
+ *       · no `lastAgentCommand` → no `restoreTarget` (absent ≡ `none`, a bare shell).
+ *  `agentSession` is dropped either way. Idempotent and presence-keyed: a record
+ *  that already has `pr` and a `restoreTarget` passes through untouched. */
+export function backfillSnapshotCutover(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const { agentSession, ...rest } = t;
+  const next: Record<string, unknown> = { ...rest };
+  if (!("pr" in next)) next.pr = { kind: "absent" };
+  if (!("restoreTarget" in next)) {
+    const command =
+      typeof next.lastAgentCommand === "string"
+        ? next.lastAgentCommand
+        : undefined;
+    if (command !== undefined) {
+      // Validate the captured ref's VALUE types, not just key presence: a corrupt
+      // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
+      // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
+      // terminal at the read boundary. A bad ref falls to `legacyMostRecent` (resume
+      // most-recent — still valid, the same degraded behavior the pre-cutover record
+      // already had).
+      const ref =
+        agentSession && typeof agentSession === "object"
+          ? (agentSession as Record<string, unknown>)
+          : null;
+      const kind = ref ? AgentKindSchema.safeParse(ref.kind) : null;
+      // Route through `exactRestoreTarget` so the SAME command/agent-kind consistency
+      // gate the live fold enforces also applies here: a migrated record whose old
+      // `agentSession.kind` disagrees with the remembered `lastAgentCommand`'s agent
+      // kind (corrupt / hand-edited / cross-agent) falls to `legacyMostRecent` rather
+      // than building a mismatched `exact` that would silently resume the wrong agent.
+      const exact =
+        ref && kind?.success && typeof ref.id === "string"
+          ? exactRestoreTarget(command, { kind: kind.data, sessionId: ref.id })
+          : null;
+      next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };
+    }
+  }
+  return next;
+}
+
 /** Bring one legacy saved-terminal record up to the current
  *  `SavedTerminalSchema` by composing every field backfill above. Order-free
  *  (each is idempotent + presence-keyed); spelled in ladder order for reading. */
 export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  return backfillTerminalState(backfillLocation(backfillRemoteUrl(t)));
+  return backfillSnapshotCutover(
+    backfillTerminalState(backfillLocation(backfillRemoteUrl(t))),
+  );
 }
 
 /** Bring a parsed-but-unvalidated saved-session blob up to the current schema

@@ -16,7 +16,9 @@
  */
 
 import {
+  composeTerminalMetadata,
   type InitialTerminalMetadata,
+  LOCAL_LOCATION,
   type RightPanelPerTerminalState,
   type SavedTerminal,
   SavedTerminalSchema,
@@ -34,17 +36,20 @@ import {
 import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 import {
   beginSleepLocal,
-  localTerminalEndpoint,
   releaseSleptLocalPty,
 } from "./terminalEndpoint/local.ts";
+// `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
+// to preserve the metadata→local order the TDZ note above depends on.
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import { type SessionSnapshot, saveSession } from "./session.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
-// A single local endpoint today. P3 will select the endpoint per call
-// site (e.g. a sub-terminal inheriting its parent's endpoint).
-const localEndpoint = localTerminalEndpoint;
+// A single local endpoint today, resolved through the one `HostLocation` seam.
+// R9.2 selects the endpoint per call site (a remote-dialed kaval, or a
+// sub-terminal inheriting its parent's endpoint).
+const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
@@ -59,25 +64,34 @@ export {
 
 /** Build a session snapshot from current terminal state.
  *
- *  Each live registry entry (an `ActiveTerminal`) is projected onto
- *  `SavedActiveTerminalSchema` — the schema IS the single source of truth for
- *  the persisted-vs-live partition, so the live overlay (pr/agent/foreground) is
- *  stripped structurally and a future live field can never silently ride to disk.
- *  A hand-named destructure would have to be kept in sync with the live partition
- *  by convention (TS does not excess-check object spreads, so a drifted strip
- *  would type-clean); deriving the strip from the schema makes
- *  "a persisted record carrying a live field" unrepresentable here. A new
- *  *persisted* field, being part of the schema, flows through untouched.
- *  Order is `Map` insertion order — terminals appear in the sequence they were
- *  created. */
+ *  Design-S: each saved record is the AUTHORED `entry.meta` joined with the entry's
+ *  AWARENESS value through `composeTerminalMetadata` — the SAME join the client
+ *  applies at read time — then keyed with `id` and re-validated against
+ *  `SavedTerminalSchema`. This is a SAVE-TIME snapshot, not a served record: disk
+ *  persist is one of the join's two sites (the ephemeral client read is the
+ *  other), so reusing the one join at both means the sleeping arm's restore-
+ *  relevant projection — the live-half strip down to `PersistedSnapshot`
+ *  (`cwd · git · pr`, `pr` riding the observation now, not a frozen authored
+ *  field) — lives in exactly one place, so disk and the client read can never
+ *  diverge. A new *persisted* field flows through untouched;
+ *  a live field can never ride to disk. Awareness is a required field on the entry,
+ *  so its presence is TOTAL by type — a plain `.map`, no per-entry guard. Order is
+ *  `Map` insertion order — terminals appear in the sequence they were created. */
 export function snapshotSession(): SessionSnapshot {
   const snappedTerminals = [...terminalEntries()].map(
+    // The JOIN of the two halves — the AUTHORED `entry.meta` (location + client
+    // chrome + discriminant) and the entry's AWARENESS value. Spread order matches
+    // `composeTerminalMetadata`: awareness FIRST, authored LAST — the authored record
+    // names no snapshot field, so it never clobbers the observation. On the sleeping
+    // arm the saved discriminated union keeps only the restore-relevant projection
+    // (`pr` rides it now — no frozen-`pr` special case) and strips the live half
+    // (agent detail + foreground) structurally, so a future live field can never
+    // silently ride to disk.
     ([id, entry]): SavedTerminal =>
-      // The registry now holds the `Terminal` union, so project each entry
-      // through the SAVED discriminated union: an active entry strips its live
-      // overlay onto the active arm, a sleeping entry carries its persisted base
-      // + `sleptAt` onto the sleeping arm. One snapshot, both arms, by `state`.
-      SavedTerminalSchema.parse({ ...entry.meta, id }),
+      SavedTerminalSchema.parse({
+        ...composeTerminalMetadata(entry.meta, entry.snapshot),
+        id,
+      }),
   );
   return { terminals: snappedTerminals, activeTerminalId };
 }
@@ -110,7 +124,13 @@ export function createTerminal(
 export async function killTerminal(
   id: TerminalId,
 ): Promise<TerminalInfo | undefined> {
-  return localEndpoint.killTerminal(id);
+  // Route by the terminal's OWN location so a remote tile's kill reaches its
+  // host (R9.2), never the local endpoint by default. Routing needs only a
+  // location, present on both arms; the endpoint owns the kill-requires-active
+  // gate.
+  const entry = getTerminal(id);
+  if (!entry) return undefined;
+  return resolveTerminalEndpoint(entry.meta.location).killTerminal(id);
 }
 
 /** Sleep a terminal — flip it to the sleeping arm IN PLACE, persist the session

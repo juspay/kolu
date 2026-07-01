@@ -5,9 +5,13 @@ import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import {
   agentKindFromCommand,
+  exactRestoreTarget,
   parseAgentCommand,
   resumeAgentCommand,
+  resumeFormFor,
 } from "./agent-cli.ts";
+import { resumableCommand } from "./schemas.ts";
+import type { RestoreTarget } from "./schemas.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -355,28 +359,32 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   it.each([
     [
       "claude",
-      { kind: "claude-code", id: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID}`,
     ],
     [
       "claude --model sonnet",
-      { kind: "claude-code", id: CLAUDE_ID },
+      { kind: "claude-code", sessionId: CLAUDE_ID },
       `claude --resume ${CLAUDE_ID} --model sonnet`,
     ],
-    ["codex", { kind: "codex", id: CODEX_ID }, `codex resume ${CODEX_ID}`],
+    [
+      "codex",
+      { kind: "codex", sessionId: CODEX_ID },
+      `codex resume ${CODEX_ID}`,
+    ],
     [
       "codex --yolo",
-      { kind: "codex", id: CODEX_ID },
+      { kind: "codex", sessionId: CODEX_ID },
       `codex resume ${CODEX_ID} --yolo`,
     ],
     [
       "opencode",
-      { kind: "opencode", id: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID}`,
     ],
     [
       "opencode --agent build --pure",
-      { kind: "opencode", id: OPENCODE_ID },
+      { kind: "opencode", sessionId: OPENCODE_ID },
       `opencode --session ${OPENCODE_ID} --agent build --pure`,
     ],
   ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
@@ -389,7 +397,7 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     expect(
       resumeAgentCommand(`claude --settings '{"ultracode": true}'`, {
         kind: "claude-code",
-        id: CLAUDE_ID,
+        sessionId: CLAUDE_ID,
       }),
     ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"ultracode": true}'`);
   });
@@ -397,9 +405,9 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // Fallback policy (locked): a ref naming a DIFFERENT agent than the command is
   // never aimed at this CLI — fall back to the most-recent marker.
   it("falls back to most-recent when the ref names a different agent", () => {
-    expect(resumeAgentCommand("claude", { kind: "codex", id: CODEX_ID })).toBe(
-      "claude -c",
-    );
+    expect(
+      resumeAgentCommand("claude", { kind: "codex", sessionId: CODEX_ID }),
+    ).toBe("claude -c");
   });
 
   // A SAME-agent ref whose id fails its per-agent shape gate (would-be shell
@@ -408,18 +416,18 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
   // conversation either. `resumeAgentCommand` returns null so the terminal wakes
   // to a bare shell rather than landing in a stranger's conversation.
   it.each([
-    ["claude", { kind: "claude-code", id: "not-a-uuid" }],
-    ["claude", { kind: "claude-code", id: "" }],
+    ["claude", { kind: "claude-code", sessionId: "not-a-uuid" }],
+    ["claude", { kind: "claude-code", sessionId: "" }],
     [
       // a hostile id carrying shell metacharacters never reaches the command
       "claude",
-      { kind: "claude-code", id: "$(rm -rf ~)" },
+      { kind: "claude-code", sessionId: "$(rm -rf ~)" },
     ],
-    ["codex", { kind: "codex", id: "ses_wrongshape" }],
+    ["codex", { kind: "codex", sessionId: "ses_wrongshape" }],
     [
       // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
       "opencode",
-      { kind: "opencode", id: "11111111-2222-3333-4444-555555555555" },
+      { kind: "opencode", sessionId: "11111111-2222-3333-4444-555555555555" },
     ],
   ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
     expect(resumeAgentCommand(normalized, session)).toBeNull();
@@ -439,9 +447,146 @@ describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
     expect(
       resumeAgentCommand("aider", {
         kind: "claude-code",
-        id: CLAUDE_ID,
+        sessionId: CLAUDE_ID,
       }),
     ).toBeNull();
+  });
+});
+
+describe("resumeFormFor — switches on the discriminated RestoreTarget", () => {
+  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+
+  it("an absent target → null (a bare shell, by construction)", () => {
+    expect(resumeFormFor(undefined)).toBeNull();
+  });
+
+  it("`none` → null (quit-to-shell never reads as most-recent)", () => {
+    expect(resumeFormFor({ kind: "none" })).toBeNull();
+  });
+
+  it("`exact` → resume the EXACT conversation by id (#1495)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "opencode --model sonnet",
+      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+    };
+    expect(resumeFormFor(target)).toBe(
+      `opencode --session ${OPENCODE_ID} --model sonnet`,
+    );
+  });
+
+  it("`exact` with an id that FAILS its shape gate → null (a bare shell, never the wrong conversation)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+  });
+
+  it("`legacyMostRecent` → the most-recent marker (migrated pre-1.29 records)", () => {
+    const target: RestoreTarget = {
+      kind: "legacyMostRecent",
+      command: "claude --model sonnet",
+    };
+    expect(resumeFormFor(target)).toBe("claude -c --model sonnet");
+  });
+});
+
+describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
+  const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
+
+  it("builds `exact` when the command's agent kind matches the identity", () => {
+    expect(
+      exactRestoreTarget("claude --model sonnet", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toEqual({
+      kind: "exact",
+      command: "claude --model sonnet",
+      agent: { kind: "claude-code", sessionId: CLAUDE_ID },
+    });
+  });
+
+  it("returns null on a kind MISMATCH (an `opencode` command paired with a claude identity)", () => {
+    // The wrong-agent pair that would otherwise downgrade to opencode's most-recent.
+    expect(
+      exactRestoreTarget("opencode --model sonnet", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null when the command names no known agent", () => {
+    expect(
+      exactRestoreTarget("ls -la", {
+        kind: "claude-code",
+        sessionId: CLAUDE_ID,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeFormFor", () => {
+  const CLAUDE_ID2 = "12341234-1234-1234-1234-123412341234";
+  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+
+  it("absent / `none` → null", () => {
+    expect(resumableCommand(undefined)).toBeNull();
+    expect(resumableCommand({ kind: "none" })).toBeNull();
+  });
+
+  it("`exact` with a resumable id → the raw launch command (not the invocation)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "opencode --model sonnet",
+      agent: { kind: "opencode", sessionId: OPENCODE_ID },
+    };
+    // The DISPLAY string is the raw command, NOT `opencode --session … --model …`.
+    expect(resumableCommand(target)).toBe("opencode --model sonnet");
+  });
+
+  it("`legacyMostRecent` for a resume-capable agent → the raw launch command", () => {
+    expect(
+      resumableCommand({
+        kind: "legacyMostRecent",
+        command: "claude --model sonnet",
+      }),
+    ).toBe("claude --model sonnet");
+  });
+
+  // The bug F1 fixed: count/display must AGREE with wake. These targets carry an
+  // `exact`/`legacyMostRecent` kind but `resumeFormFor` returns null for them, so a
+  // raw-`kind` test would have counted/shown a command wake never resumes.
+  it("`exact` with an id that FAILS its shape gate → null (matches resumeFormFor)", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "claude",
+      agent: { kind: "claude-code", sessionId: "not-a-uuid" },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
+  });
+
+  it("`legacyMostRecent` for a detection-only agent → null (matches resumeFormFor)", () => {
+    const target: RestoreTarget = {
+      kind: "legacyMostRecent",
+      command: "aider --model opus",
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
+  });
+
+  it("`exact` whose command head names a non-resumable agent → null", () => {
+    const target: RestoreTarget = {
+      kind: "exact",
+      command: "aider --model opus",
+      agent: { kind: "claude-code", sessionId: CLAUDE_ID2 },
+    };
+    expect(resumeFormFor(target)).toBeNull();
+    expect(resumableCommand(target)).toBeNull();
   });
 });
 

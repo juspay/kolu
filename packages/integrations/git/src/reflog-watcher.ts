@@ -17,8 +17,8 @@ import { createDirFilenameWatcher } from "kolu-io";
 import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 const reflogWatcher = createDirFilenameWatcher({
-  resolveDir: (cwd) => {
-    const gitDir = resolveGitDir(cwd);
+  resolveDir: async (cwd) => {
+    const gitDir = await resolveGitDir(cwd);
     if (gitDir === null) return null;
     const logsDir = path.join(gitDir, "logs");
     // A fresh `git init` with no commits has no `.git/logs/` yet — treat
@@ -27,7 +27,14 @@ const reflogWatcher = createDirFilenameWatcher({
     // for the original subscribe). Other axes catch the first-commit case
     // (HEAD content change, index update); a reflog-only event before
     // any commit isn't a thing.
-    return fs.existsSync(logsDir) ? logsDir : null;
+    try {
+      await fs.promises.access(logsDir);
+      return logsDir;
+    } catch {
+      // logs/ doesn't exist yet (fresh repo, no commits) — treat as
+      // not-watchable and return null silently. See comment above.
+      return null;
+    }
   },
   filename: "HEAD",
   debounceMs: WATCHER_DEBOUNCE_MS,

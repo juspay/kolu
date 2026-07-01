@@ -29,6 +29,11 @@ export const watchGitHead = headWatcher.watch;
  *  spying on `fs.watch`. */
 export const _sharedHeadWatcherCount = headWatcher._watcherCount;
 
+/** Test-only barrier — resolves once every in-flight `watchGitHead`
+ *  resolution has installed or cancelled. The async-install counterpart to
+ *  the old synchronous install; await it before reading the count. */
+export const _settledSharedHeadWatchers = headWatcher._whenSettled;
+
 /** Test-only teardown — close every active head-watcher and clear the
  *  singleton's registry. Production code must never call this; it exists
  *  so vitest `beforeEach` can break the module-scope leak that turns one

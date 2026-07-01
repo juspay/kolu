@@ -4,20 +4,22 @@
  * `main.ts` is the thin glue that reads the surface and prints these.
  *
  * pulam-tui shows what each terminal *is in* — repo·branch · PR + checks · agent
- * state · foreground · recency — where kaval-tui shows what's *running*. The
+ * state · foreground — where kaval-tui shows what's *running*. (No recency: pulam
+ * serves the memoryless `TerminalSnapshot`; `lastActivityAt` is kolu's remembered
+ * fact.) The
  * compact one-row-per-terminal `status` table is the human view; `--json` dumps
- * the full raw `AwarenessValue` (every deep field) for scripts. `watch` prints
+ * the full raw `TerminalSnapshot` (every deep field) for scripts. `watch` prints
  * one line per awareness change as it streams.
  */
 
 import {
+  agentBucket,
   agentShortName,
   agentStatusLabel,
   DASH,
-  relativeTime,
 } from "@kolu/terminal-workspace/agentProjection";
 import type {
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 import columnify from "columnify";
@@ -68,6 +70,60 @@ export function resolveTerminalId(
   return { kind: "found", id: first };
 }
 
+/** The coarse agent buckets `wait --until` accepts as targets — the
+ *  `agentBucket` fold's vocabulary minus `other` (an `other` bucket never
+ *  matches a real agent, so accepting it would only ever time out). `wait`
+ *  compares against the *bucket*, never the raw `AgentInfo['state']` literals,
+ *  so the one fold in `@kolu/terminal-workspace/agentProjection` stays the
+ *  single source of truth (see `.claude/rules/dock-fleet-mirror.md`). */
+export const WAIT_STATES = [
+  "working",
+  "awaiting",
+  "waiting",
+] as const satisfies readonly Exclude<
+  ReturnType<typeof agentBucket>,
+  "other"
+>[];
+
+export type WaitState = (typeof WAIT_STATES)[number];
+
+/** Parse a `--until` value — a comma list of bucket names — into the set of
+ *  target buckets, or a loud error. Whitespace is trimmed, case folded, and
+ *  duplicates collapse; an empty list or any token outside `WAIT_STATES` is
+ *  rejected (fail-fast — no silent drop of an unrecognized state). The caller
+ *  maps the error to `fail()`/exit. */
+export function parseUntilStates(
+  raw: string,
+):
+  | { kind: "ok"; targets: Set<WaitState> }
+  | { kind: "error"; message: string } {
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+  const valid = new Set<string>(WAIT_STATES);
+  const unknown = tokens.filter((t) => !valid.has(t));
+  if (tokens.length === 0 || unknown.length > 0) {
+    const offending = unknown.length > 0 ? unknown.join(", ") : "(none given)";
+    return {
+      kind: "error",
+      message: `--until: unknown state(s) ${offending} — use a comma list of: ${WAIT_STATES.join(", ")} (e.g. --until awaiting,waiting).`,
+    };
+  }
+  return { kind: "ok", targets: new Set(tokens as WaitState[]) };
+}
+
+/** Whether a terminal's agent is in one of the target buckets — the `wait`
+ *  predicate. A terminal with no agent (a bare shell, or an agent that exited)
+ *  is never a match; otherwise its `state` folds through the shared `agentBucket`
+ *  and is tested for membership. */
+export function agentMatchesUntil(
+  agent: TerminalSnapshot["agent"],
+  targets: ReadonlySet<string>,
+): boolean {
+  return agent !== null && targets.has(agentBucket(agent.state));
+}
+
 /** Strip terminal-hostile bytes from a human-rendered value. A shell can set its
  *  title / process name / branch to anything (newlines, raw ESC), so painting
  *  them verbatim could break the column layout or inject control effects. JSON
@@ -93,7 +149,7 @@ function repoBranchText(
 }
 
 /** The agent · state cell — `claude · working`, or a dash when no agent runs. */
-function agentValue(agent: AwarenessValue["agent"]): string {
+function agentValue(agent: TerminalSnapshot["agent"]): string {
   if (!agent) return DASH;
   return `${agentShortName(agent.kind)} · ${agentStatusLabel(agent.state)}`;
 }
@@ -103,7 +159,7 @@ function agentValue(agent: AwarenessValue["agent"]): string {
  *  to the `ok` arm; the exhaustive switch forces a decision on a new checks
  *  state. */
 function prChecks(
-  checks: Extract<AwarenessValue["pr"], { kind: "ok" }>["value"]["checks"],
+  checks: Extract<TerminalSnapshot["pr"], { kind: "ok" }>["value"]["checks"],
 ): "pass" | "fail" | "pending" {
   switch (checks) {
     case "pass":
@@ -121,8 +177,8 @@ function prChecks(
 }
 
 /** The PR resolution, every arm: `#<n> <state> <✓/✗/·>` when resolved, the
- *  pending/absent/unavailable kind (with the failure code) otherwise. */
-function prValueText(pr: AwarenessValue["pr"]): string {
+ *  pending/absent/unsupported/unavailable kind (with the failure code) otherwise. */
+function prValueText(pr: TerminalSnapshot["pr"]): string {
   switch (pr.kind) {
     case "ok": {
       const { number, state } = pr.value;
@@ -132,7 +188,11 @@ function prValueText(pr: AwarenessValue["pr"]): string {
     }
     case "pending":
       return "pending";
+    // Both mean "no PR to show here" — a branch with no PR, or a remote kolu has
+    // no adapter for (anything but github.com). Same dash, like the dock shows
+    // nothing for either.
     case "absent":
+    case "unsupported":
       return DASH;
     case "unavailable":
       return `unavailable: ${pr.source.code}`;
@@ -148,8 +208,7 @@ function prValueText(pr: AwarenessValue["pr"]): string {
  *  `list` uses). Sorted by id for a stable display. Empty inventory gets an
  *  honest one-liner, not a bare header. */
 export function formatStatus(
-  entries: Array<[TerminalId, AwarenessValue]>,
-  opts: { now: number },
+  entries: Array<[TerminalId, TerminalSnapshot]>,
 ): string {
   if (entries.length === 0) return "no terminals.";
   const rows = [...entries]
@@ -163,13 +222,13 @@ export function formatStatus(
       PR: prValueText(v.pr),
       AGENT: agentValue(v.agent),
       FOREGROUND: orDash(v.foreground?.name),
-      IDLE: relativeTime(v.lastActivityAt, opts.now),
     }));
   return (
+    // No recency (IDLE) column: pulam serves the memoryless `TerminalSnapshot`, which
+    // has no `lastActivityAt` — recency is kolu's remembered fact.
     columnify(rows, {
-      columns: ["ID", "REPO·BRANCH", "PR", "AGENT", "FOREGROUND", "IDLE"],
+      columns: ["ID", "REPO·BRANCH", "PR", "AGENT", "FOREGROUND"],
       columnSplitter: "  ",
-      config: { IDLE: { align: "right" } },
     })
       // columnify right-pads every column including the last; drop the trailing
       // run so piped/asserted output has no dangling whitespace.
@@ -183,13 +242,24 @@ export function formatStatus(
  *  full ids, controls JSON-escaped (so `jq '.[]'` works). The complete raw
  *  awareness value, including the deep fields the table doesn't break out. */
 export function formatAwarenessJson(
-  entries: Array<[TerminalId, AwarenessValue]>,
+  entries: Array<[TerminalId, TerminalSnapshot]>,
 ): string {
   return JSON.stringify(
     entries.map(([id, value]) => ({ id, ...value })),
     null,
     2,
   );
+}
+
+/** The `wait` success trailer (stderr) — `a1b2c3d4 reached awaiting · claude
+ *  awaiting_user`: the short id, the bucket it landed in (the shared `agentBucket`
+ *  fold), and the agent's short name + raw state for the detail. `--json` emits
+ *  the full `{ id, agent }` instead. */
+export function formatWaitMet(
+  id: TerminalId,
+  agent: NonNullable<TerminalSnapshot["agent"]>,
+): string {
+  return `${shortId(id)} reached ${agentBucket(agent.state)} · ${agentShortName(agent.kind)} ${agentStatusLabel(agent.state)}`;
 }
 
 /** A wall-clock `HH:MM:SS` stamp for a `watch` line, in local time — the live
@@ -204,7 +274,7 @@ function clockTime(ms: number): string {
  *  is annotation, not its own event (see `watchAwareness`). */
 export function formatWatchEvent(
   id: TerminalId,
-  v: AwarenessValue,
+  v: TerminalSnapshot,
   opts: { now: number; live: boolean },
 ): string {
   const where = repoBranchText(v.git?.repoName ?? null, v.git?.branch ?? null);
@@ -227,7 +297,7 @@ export function formatWatchRemoval(
  *  both streams. A removal emits `{ id, removed: true }`. */
 export function formatWatchJson(
   id: TerminalId,
-  v: AwarenessValue,
+  v: TerminalSnapshot,
   opts: { live: boolean },
 ): string {
   return JSON.stringify({ id, live: opts.live, ...v });

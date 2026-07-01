@@ -20,7 +20,7 @@ import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, createSignal, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import { wsDot } from "./kaval/useDaemonStatus";
+import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
@@ -57,7 +57,9 @@ const MobileChromeSheet: Component<{
         <span class="font-semibold text-sm flex-1">{props.appTitle}</span>
         <span
           data-ws-status={props.status}
-          class={`inline-block w-2 h-2 rounded-full ${wsDot(props.status)}`}
+          // Floored on the watchdog-backed `health().live` (same as the desktop srv
+          // dot), so a silent half-open can't paint green over a dead link.
+          class={`inline-block w-2 h-2 rounded-full ${serverDot(props.status, daemonTransportLive())}`}
           role="status"
           aria-label="Connection status"
         />

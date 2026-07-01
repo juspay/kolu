@@ -26,13 +26,23 @@ const commands = [
   },
   {
     cmd: "kaval-tui snapshot <id>",
-    flags: "",
-    what: "Print a terminal's current scrollback as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean).",
+    flags: "--viewport · --tail N",
+    what: "Print a terminal's rendered screen as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean). Defaults to the full scrollback; --viewport prints just the visible screen (the daemon's own last screenful — the right read when driving an agent), --tail N the last N rendered lines.",
   },
   {
     cmd: "kaval-tui attach <id>",
     flags: "--escape <char>",
     what: "Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below.",
+  },
+  {
+    cmd: "kaval-tui send <id> [text...]",
+    flags: "--paste/--no-paste · --key <name> · --json",
+    what: "Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. Sends exactly the text (and any --key) you pass — no implicit Enter; submit as a separate step with `send <id> --key Enter`. Multiline text or piped stdin is sent as one bracketed paste so it doesn't submit line-by-line; --key also sends control keys (Escape, C-c, Up…) after the text. --json emits { id, bytes, paste, keys }.",
+  },
+  {
+    cmd: "kaval-tui wait <id> --until <cond>",
+    flags: "--timeout <ms> · --json",
+    what: "Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another. --until idle:<ms> resolves once no output byte has arrived for <ms> (the turn ended / it's awaiting you — the common case); --until match:<regex> resolves once new output matches (a completion marker or returned-prompt sentinel). --timeout fails loud (exit 2) so a wedged agent can't hang the loop; a terminal that exits first exits 3. Keyed on raw PTY bytes, so it needs no shell hooks and works for any terminal — unlike pulam-tui wait, which reads agent state on hooked terminals.",
   },
   {
     cmd: "kaval-tui kill <id>",
@@ -50,7 +60,7 @@ const escapes = [
 
 <BaseLayout
   title="kaval"
-  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, and kill your terminals from the shell."
+  description="kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
 >
   <meta name="robots" content="noindex" slot="head" />
 
@@ -107,7 +117,8 @@ const escapes = [
       clients that come and go.{" "}
       <code class="mono text-ink">kaval-tui</code> is its terminal client: list
       your shells, <span class="text-ink">create</span> new ones, dump their
-      scrollback, attach and type, or <span class="text-ink">kill</span> them —
+      scrollback, attach and type, <span class="text-ink">send</span> a prompt to
+      an agent running in one, or <span class="text-ink">kill</span> them —
       locally, or on a remote machine over ssh
       (<code class="mono text-ink">--host</code>). Run the pair on a box where
       kolu has never been installed — a tmux/zellij-shaped duo, minus the
@@ -424,6 +435,9 @@ const escapes = [
       <span class="cmd"
         >nix run github:juspay/kolu#pulam-tui -- watch<span class="cmt">  # follow awareness live</span></span
       >
+      <span class="cmd"
+        >nix run github:juspay/kolu#pulam-tui -- wait $id --until awaiting,waiting<span class="cmt"> # block until its turn ends</span></span
+      >
     </div>
     <pre
       class="mt-4 overflow-x-auto rounded-lg border border-rule px-4 py-3 mono text-xs text-ink-dim leading-relaxed"
@@ -465,7 +479,16 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
       shows what each terminal <em>is in</em> — a compact{" "}
       <code class="mono text-ink">status</code> table or a live{" "}
       <code class="mono text-ink">watch</code> stream you can{" "}
-      <code class="mono text-ink">ssh</code> into.{" "}
+      <code class="mono text-ink">ssh</code> into. And{" "}
+      <code class="mono text-ink">wait &lt;id&gt; --until awaiting,waiting</code>{" "}
+      blocks until a terminal's agent finishes its turn — the done-signal that
+      lets one agent drive another: prompt it with{" "}
+      <code class="mono text-ink">kaval-tui send</code>, wait, then read the
+      reply. (Since <code class="mono text-ink">wait</code> matches the state the
+      moment it connects, a robust driver waits in two phases —{" "}
+      <code class="mono text-ink">--until working</code> for the pickup, then{" "}
+      <code class="mono text-ink">--until awaiting,waiting</code> for the
+      turn-end — so a stale previous-turn state can't satisfy it early.){" "}
       <code class="mono text-ink">--json</code> dumps the same surface (NDJSON
       under <code class="mono text-ink">watch</code>) for scripts. It runs the{" "}
       <em>same</em> awareness sensors kolu uses internally, now read by a thin
@@ -474,6 +497,75 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
         href="https://kolu.dev/atlas/pulam.html"
         class="text-amber hover:underline"
         rel="noopener">pulam atlas note</a
+      >.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 pb-14">
+    <h2 class="kv-head">
+      why <span class="kv-prog">kaval-tui send</span>, not a message bus
+    </h2>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl">
+      Driving one agent from another means typing a prompt and{" "}
+      <span class="text-ink">pressing Enter</span> — raw bytes into the PTY, raw
+      output back — not some agent-to-agent protocol. That's a{" "}
+      <span class="text-ink">deliberate choice</span>, not a missing feature.
+      kolu's rule is to stay out of the agent's way: it never edits your{" "}
+      <code class="mono text-ink">~/.claude</code> (or codex / opencode) config and
+      ships <span class="text-ink">no per-agent glue</span>. The terminal is the
+      one interface every agent already speaks, so raw input is the honest floor.
+      Run any agent CLI once — <code class="mono text-ink">claude</code>,{" "}
+      <code class="mono text-ink">codex</code>, whatever ships next week — and it
+      drives the same way, with nothing to install and no adapter to write.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      Tools like <code class="mono text-ink">hcom</code> get a real message bus by
+      going the other way — installing <span class="text-ink">hooks</span> into
+      each agent's config and routing messages through a shared database, one
+      integration per tool. kolu won't take on that setup step or that per-agent
+      code — and here's the thing:{" "}
+      <span class="text-ink">it doesn't need to</span>, because a channel every
+      agent already speaks is sitting right there.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      <span class="text-ink">The channel is the filesystem.</span> When one agent
+      hands work to another, it doesn't type an essay into the other's terminal —
+      it <span class="text-ink">writes a file</span>, and the other one reads it.
+      kolu's <code class="mono text-ink">/debate</code> skill (a port of{" "}
+      <a
+        href="https://github.com/srid/llm-debate"
+        class="text-amber hover:underline"
+        rel="noopener">srid/llm-debate</a
+      >) runs entirely this way: agents exchange arguments as numbered markdown
+      files in a shared directory, each reading the others' and writing its own by
+      path — <em>"pass file paths, not pasted argument text."</em> A turn being
+      done is just its <span class="text-ink">file existing</span>. Every agent can
+      read and write files with no hook and no adapter; it works headless and
+      across machines over ssh; and because kolu already{" "}
+      <span class="text-ink">watches</span> the working directory, a new file is a{" "}
+      <span class="text-ink">push</span>, not a poll. An inbox is a file; a
+      subscription is a watch on a path. That's the whole coordination layer — no
+      bus required.
+    </p>
+    <p class="text-ink-dim text-[0.95rem] leading-relaxed max-w-xl mt-4">
+      So <code class="mono text-ink">kaval-tui send</code> stays deliberately dumb:
+      it delivers the <span class="text-ink">prompt</span> — "your turn, read these
+      files, write that one" — and nothing bigger flows over the wire. The one
+      place the screen is genuinely irreplaceable is the interactive prompt: when
+      Claude Code stops on an <code class="mono text-ink">AskUserQuestion</code> or
+      a plan-approval menu, that question isn't in any log or file until{" "}
+      <em>after</em> you answer, so the only way to see "it's waiting on you" is to{" "}
+      <a
+        href="https://github.com/juspay/kolu/pull/1160"
+        class="text-amber hover:underline"
+        rel="noopener">read the rendered screen</a
+      >, and you answer it with <span class="text-ink">arrow keys</span>, not
+      text. A message bus wouldn't help there either. Files carry the content, the
+      terminal carries the floor — the full argument is in the{" "}
+      <a
+        href="https://kolu.dev/atlas/hcom-vs-kolu.html"
+        class="text-amber hover:underline"
+        rel="noopener">hcom vs. kolu note</a
       >.
     </p>
   </section>

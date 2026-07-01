@@ -132,3 +132,21 @@ export function formatList(
 export function formatListJson(entries: PtyHostListEntry[]): string {
   return JSON.stringify(entries, null, 2);
 }
+
+/** The human one-liner (stderr trailer) for `send` — `sent 14 bytes to a1b2c3d4
+ *  · pasted · keys: Enter`. The `· pasted` / `· keys: …` marks appear only when
+ *  those happened, so the line never claims an action `send` didn't take. Lives
+ *  here with the other formatters (and `shortId`); `send.ts` owns only the
+ *  encode/plan logic. */
+export function formatSend(result: {
+  id: string;
+  bytes: number;
+  paste: boolean;
+  keys: readonly string[];
+}): string {
+  const base = `sent ${result.bytes} byte${result.bytes === 1 ? "" : "s"} to ${shortId(result.id)}`;
+  const pasteMark = result.paste ? " · pasted" : "";
+  const keysMark =
+    result.keys.length > 0 ? ` · keys: ${result.keys.join(", ")}` : "";
+  return `${base}${pasteMark}${keysMark}`;
+}

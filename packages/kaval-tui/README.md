@@ -13,7 +13,9 @@ The daemon owns the PTYs and outlives the clients; kaval-tui comes and goes.
 ```
 kaval-tui list [--json]     list your live terminals (id · pid · idle · cmd · cwd)
 kaval-tui create [-- cmd]   spawn a new terminal ($SHELL or cmd), print its id
-kaval-tui snapshot <id>     print a terminal's current scrollback, then exit
+kaval-tui snapshot <id>     print a terminal's screen (--viewport / --tail N to bound it), then exit
+kaval-tui send <id> [text]  write input to a terminal (a prompt to an agent), then exit
+kaval-tui wait <id> --until <cond>  block until the terminal's output goes idle (or matches), then exit
 kaval-tui attach <id>       take over a terminal from the shell; ~. detaches
 kaval-tui kill <id>         end a terminal the daemon owns (by id or prefix)
 ```
@@ -42,6 +44,120 @@ kaval-tui create -- htop -d 5    # run htop, not a shell
 ```sh
 id=$(kaval-tui create --json | jq -r .id)
 ```
+
+## Sending input
+
+`send` writes input to a terminal without attaching — the raw _write_ half of
+driving a program in a PTY. Its headline use is handing a prompt to an agent
+(Claude Code, Codex, opencode) running in a terminal, so one agent can drive
+another: `create` it, `send` it a task, `snapshot` its reply, `send` the next.
+
+```sh
+kaval-tui send a1b2 "refactor the parser to use a lexer"   # type the prompt…
+kaval-tui send a1b2 --key Enter                            # …then submit it
+```
+
+`send` writes **exactly what you pass — the literal text and any `--key`s, with
+no implicit Enter**. A prompt is submitted only when you say so, as its own step:
+`send <id> --key Enter`. Keeping submit explicit is deliberate — an implicit Enter
+is invisible magic the caller can't time, and against Claude Code's
+bracketed-paste / debounced input it _raced the paste and was silently dropped_,
+leaving the prompt staged while `send` reported success. A separate
+`send --key Enter` lands after the text has settled, so it always submits.
+
+**Multiline text is sent as one bracketed paste**, so it lands in the agent's
+input box as a block instead of submitting line-by-line (each `\n` would
+otherwise fire a half-written prompt). Paste is automatic for multiline or piped
+text; `--no-paste` forces literal, `--paste` forces a wrap. Text comes from the
+positional words or, when you give none, from **stdin** — so large prompts skip
+shell quoting:
+
+```sh
+cat prompt.md | kaval-tui send a1b2        # big prompt → one bracketed paste
+kaval-tui send a1b2 --key Enter            # submit it
+```
+
+`--key` sends named or control keys **after** the text, in order — both the submit
+channel (`--key Enter`) and the channel for interrupting or steering an agent
+rather than typing at it:
+
+```sh
+kaval-tui send a1b2 --key Escape           # interrupt the agent mid-stream
+kaval-tui send a1b2 --key C-c              # SIGINT to whatever's running
+kaval-tui send a1b2 --key Enter            # submit the staged prompt
+```
+
+Names: `Enter`, `Escape`, `Tab`, `Up`/`Down`/`Left`/`Right`, `Home`, `End`,
+`Backspace`, `Space`; chords: `C-<char>` (control), `M-<char>` (meta/alt).
+
+`send` is **blind** — it writes whether or not the program is ready for input —
+so pair it with `snapshot` to look before (or after) you write. `--json` prints
+`{ id, bytes, paste, keys }` for scripts; the human one-line confirmation goes
+to stderr, so stdout stays empty unless you ask for JSON.
+
+## Waiting for a turn to end
+
+When you drive an agent, you need to know when its turn is over before you read
+the reply and send the next prompt. `wait` blocks until the terminal's **raw
+output** meets a condition, then exits — no shell hooks, no busy-word guessing.
+It reads the same byte stream the daemon serves to `attach`/`snapshot`, so "the
+agent went quiet" is exact and works the same for `claude` / `codex` / `grok` /
+`opencode`:
+
+```sh
+kaval-tui send a1b2 "refactor the parser"; kaval-tui send a1b2 --key Enter
+kaval-tui wait a1b2 --until idle:800 --timeout 600000   # block until the turn ends
+kaval-tui snapshot a1b2 --viewport                      # read the reply
+```
+
+- **`--until idle:<ms>`** resolves once no output byte has arrived for `<ms>` —
+  the agent-agnostic "turn ended / awaiting input" signal, and the common case.
+  `800` is a sensible default; raise it for an agent that pauses mid-thought.
+- **`--until match:'<regex>'`** resolves once **new** output matches — for a
+  completion marker or a returned-prompt sentinel (e.g. `--until match:'\$ $'`).
+- **`--timeout <ms>`** caps the wait and **fails loud (exit 2)** so a wedged
+  agent can't hang the loop. Default: wait indefinitely until the condition, a
+  terminal exit, a link drop, or Ctrl+C.
+
+Exit codes mirror a blocking read: **0** the condition was met · **2** the
+timeout elapsed · **3** the terminal **exited** before the condition (the agent
+you were driving died) · **130** interrupted (Ctrl+C). `--json` prints **one
+result frame per outcome** — `{ id, result, … }`, where `result` is `met` /
+`timeout` / `gone` / `interrupted` / `closed` (a `met` frame adds `fired` —
+`idle` / `match` —, `elapsedMs`, and `matchedLine` on a match). Every outcome
+emits a frame, so a `--json` driver never falls back to parsing the exit code
+alone. Like every subcommand, `wait` takes `--socket` / `--host` to target a
+running kolu or a remote daemon — a remote PTY's quiescence is observed at the
+remote daemon.
+
+> Idle means "output stopped", not "the answer is right": the turn may have
+> **finished** or be **blocked asking you something** — both are quiescence. So
+> read the `snapshot` after `wait` returns. (For terminals a kolu-server spawned
+> — which carry shell hooks — `pulam-tui wait --until <state>` is a more precise,
+> agent-state done-signal; `kaval-tui wait` is the hook-free one for any
+> terminal.)
+
+## Reading the screen
+
+`snapshot` prints a terminal's **rendered** screen — plain text, not the VT
+escape stream — so you can `grep` it or read it back when driving an agent.
+
+By default it prints the **whole scrollback**, which on a long-running (or
+compacted) agent session is thousands of lines — so `snapshot <id> | tail -8`
+hands you the bottom of the buffer (often just trailing blanks), not the current
+screen. Two flags bound it instead:
+
+```sh
+kaval-tui snapshot a1b2 --viewport      # just the visible screen (the daemon's last screenful)
+kaval-tui snapshot a1b2 --tail 40       # the last 40 rendered lines (--lines 40 is a synonym)
+```
+
+`--viewport` is the right read for "what's on screen now" when driving an agent —
+it asks the daemon for the terminal's own last screenful, so it's correct
+regardless of how tall _your_ shell is (your stdout is usually a pipe, and over
+`--host` the remote terminal is a different size entirely). `--viewport`,
+`--tail`, and `--lines` are mutually exclusive; pass at most one. A trailer line
+(`— a1b2 · N lines`) goes to stderr, so stdout stays clean, scriptable text.
 
 ## Short ids
 

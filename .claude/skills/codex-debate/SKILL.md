@@ -531,7 +531,16 @@ returns:
   a debate that quits without agreement is pointless. The two sides keep arguing
   until one concedes. The harness's own per-workflow agent backstop is the sole
   hard ceiling; interrupt via `/workflows` or `TaskStop` if you ever need to stop
-  one by hand.
+  one by hand. **The one carve-out is *not* a deadlock exit:** a finding that is *not a
+  code edit for this worktree* but a downstream / ship-phase / process gate (a companion
+  repo pinning this repo's final post-review HEAD, a CI/release step, a cross-repo PR)
+  cannot be satisfied during the review — it targets the *post*-gauntlet HEAD. When
+  CLAUDE shows a finding is such a gate, codex marks it **resolved-and-deferred**
+  (acknowledged, handed to the ship phase) instead of holding it open forever. The CODE
+  debate still converges to consensus the normal way; this only stops the loop spinning
+  on a process gate neither side can land mid-review. It is narrow by design — a genuine
+  code defect CLAUDE simply dislikes is still argued to consensus, no exit. (This is the
+  loop that once spun until a human killed it on a `@kolu/surface` cross-repo run.)
 
 ## Files
 
@@ -557,7 +566,7 @@ Answer mode:
   answer prompts, the answer schema/session file, the answer-shaped error).
 - `scripts/codex-answer.schema.json` — the JSON Schema codex's answer is constrained to.
 
-These are generated from `.apm/skills/codex-debate/`; edit the source there and
+These are generated from `agents/.apm/skills/codex-debate/`; edit the source there and
 run `just ai apm` to regenerate.
 
 ARGUMENTS: $ARGUMENTS

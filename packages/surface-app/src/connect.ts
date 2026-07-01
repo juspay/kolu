@@ -40,7 +40,7 @@ import { retireSocket } from "./lifecycle";
 export { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS };
 
 /** The `pid` handshake echo: the client's record of the last server `processId`
- *  it observed, threaded back as the `pid` query param on every (re)connect so a
+ *  it snapshot, threaded back as the `pid` query param on every (re)connect so a
  *  RESTARTED server can recognize and reject a stale tab at the handshake. One
  *  echo per app — kolu has a single socket so it owns one implicitly; drishti
  *  shares ONE echo across its per-host + admin sockets, all fed by the admin
@@ -189,7 +189,7 @@ export interface HeartbeatOptions {
    *  a silent half-open recovery is never invisible; pass your own logger. */
   onStale?: () => void;
   /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
-   *  from an async rejection). Defaults to a `console.warn` so the heartbeat
+   *  from an async rejection). Defaults to a `console.error` so the heartbeat
    *  going inert is never silent; pass your own logger. */
   onProbeError?: (error: unknown) => void;
 }
@@ -199,8 +199,13 @@ const warnStale = () =>
     "surface-app: heartbeat probe timed out — forcing reconnect (half-open socket)",
   );
 
+// `error` level, not `warn` (matching `@kolu/surface`'s `liveSignal` reporter): a
+// synchronous throw is an unexpected exception that leaves the watchdog permanently
+// INERT — a hard fault, not the degraded-but-recoverable blip a timed-out probe is
+// (`warnStale`, which recovers by reconnecting). Operators filtering on `error`
+// must see a heartbeat that has gone silent.
 const warnProbeThrew = (error: unknown) =>
-  console.warn(
+  console.error(
     "surface-app: heartbeat probe threw synchronously — no round-trip was made; " +
       "the probe is likely miswired (heartbeat is inert until fixed)",
     error,
@@ -224,10 +229,12 @@ const warnProbeThrew = (error: unknown) =>
  *  1000, NOT the stale-tab 4001, so the retire path is untouched). The public
  *  `onStale` here is a REPORTER (default `console.warn`), run after the reconnect.
  *
- *  Returns `dispose()` to stop the interval AND any in-flight probe timeout —
- *  wire it to the consumer's teardown (kolu's `onCleanup`). */
+ *  Returns `dispose()` to stop the interval AND any in-flight probe timeout (wire
+ *  it to the consumer's teardown — kolu's `onCleanup`), plus `wake()` — the
+ *  browser leg's fast resume re-probe (wire it to `onWake`). */
 export function createHeartbeat(opts: HeartbeatOptions): {
   dispose: () => void;
+  wake: () => void;
 } {
   return createHeartbeatPrimitive({
     probe: opts.probe,

@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -23,23 +22,49 @@ Then(
   },
 );
 
-When("I click the shuffle theme toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="shuffle-theme-toggle"]');
-  await this.waitForFrame();
-});
+When(
+  "I click the {string} new terminal theme button",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="new-terminal-theme-${mode}"]`);
+    await this.waitForFrame();
+  },
+);
 
 Then(
-  "the shuffle theme toggle state should change",
-  async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="shuffle-theme-toggle"]');
-    const before = await toggle.getAttribute("data-enabled");
-    await this.page.click('[data-testid="shuffle-theme-toggle"]');
+  "the {string} new terminal theme button should be selected",
+  async function (this: KoluWorld, mode: string) {
+    // aria-pressed flips asynchronously after the click (local preference
+    // patch → SolidJS reactivity flush → DOM update), so poll rather than
+    // read once — a synchronous assertion here races on slower machines.
+    await this.page.waitForFunction(
+      (m) =>
+        document
+          .querySelector(`[data-testid="new-terminal-theme-${m}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      mode,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I click the {string} shuffle behaviour button",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="shuffle-behavior-${mode}"]`);
     await this.waitForFrame();
-    const after = await toggle.getAttribute("data-enabled");
-    assert.notStrictEqual(
-      before,
-      after,
-      "Expected shuffle theme toggle to change state on click",
+  },
+);
+
+Then(
+  "the {string} shuffle behaviour button should be selected",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.waitForFunction(
+      (m) =>
+        document
+          .querySelector(`[data-testid="shuffle-behavior-${m}"]`)
+          ?.getAttribute("aria-pressed") === "true",
+      mode,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

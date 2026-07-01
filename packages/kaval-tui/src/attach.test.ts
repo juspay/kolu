@@ -28,6 +28,7 @@ import {
 import { buildCreateInput, newPtyId } from "./create.ts";
 import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
+import { planSend } from "./send.ts";
 
 const silentLog = {
   debug: () => {},
@@ -195,6 +196,64 @@ describe("runAttach — over a real unix socket", () => {
     );
   });
 
+  it("getScreenText bounds output: --viewport and --tail over the wire", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-snap-bound-"));
+    const id = "33333333-4444-5555-6666-777777777777";
+    // Print 60 numbered lines into the default 24-row grid, so the top scrolls
+    // out of the visible screen — the exact long-buffer case #1607 hit.
+    await conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id,
+        cwd: dir,
+        env: process.env,
+        command: [
+          "sh",
+          "-c",
+          "for i in $(seq 1 60); do printf 'L%02d\\n' $i; done; sleep 100",
+        ],
+      }),
+    );
+    let screen = "";
+    await until(
+      () => screen.includes("L60"),
+      "all lines printed",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
+
+    // Full read keeps the scrolled-off top.
+    const full = (await conn.client.surface.terminal.getScreenText({ id }))
+      .text;
+    expect(full).toContain("L01");
+    expect(full).toContain("L60");
+
+    // --viewport: only the visible screen (the daemon's own 24 rows) — drops L01.
+    const viewport = (
+      await conn.client.surface.terminal.getScreenText({
+        id,
+        extent: { kind: "viewport" },
+      })
+    ).text;
+    expect(viewport).toContain("L60");
+    expect(viewport).not.toContain("L01");
+
+    // --tail 3: exactly the last 3 rendered lines (the bottom of the buffer —
+    // L60 plus the blank cursor line, never the scrolled-off top).
+    const tail = (
+      await conn.client.surface.terminal.getScreenText({
+        id,
+        extent: { kind: "tail", lines: 3 },
+      })
+    ).text;
+    expect(tail.split("\n")).toHaveLength(3);
+    expect(tail).toContain("L60");
+    expect(tail).not.toContain("L01");
+  });
+
   it("paints the snapshot, round-trips a keystroke, detaches on ~., and leaves the PTY alive", {
     timeout: 30_000,
   }, async () => {
@@ -297,6 +356,42 @@ describe("runAttach — over a real unix socket", () => {
       id,
     });
     expect(text).not.toContain("kaval-tui escapes");
+  });
+});
+
+describe("send — over the same real unix socket", () => {
+  it("writes the planned bytes to the PTY so the shell runs the input", {
+    timeout: 30_000,
+  }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kolu-send-"));
+    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+
+    // The SAME plan `cmdSend` builds — the literal text plus an explicit
+    // `--key Enter` to submit (`keyData: "\r"`), since `send` never adds an Enter
+    // on its own. `$((…))` keeps the marker out of the echoed command line, so a
+    // screen match proves the shell really ran the sent input (not that the bytes
+    // were merely echoed). Drive `terminal.write` per planned chunk, exactly as
+    // the dispatch does, so this covers the write round-trip.
+    const plan = planSend({
+      text: "echo SENDMARK-$((6 * 7))",
+      paste: undefined,
+      fromStdin: false,
+      keyData: "\r", // an explicit `--key Enter`
+    });
+    expect(plan.writes).toEqual(["echo SENDMARK-$((6 * 7))", "\r"]);
+    for (const data of plan.writes) {
+      await conn.client.surface.terminal.write({ id, data });
+    }
+
+    let screen = "";
+    await until(
+      () => screen.includes("SENDMARK-42"),
+      "sent command output",
+      async () => {
+        screen = (await conn.client.surface.terminal.getScreenText({ id }))
+          .text;
+      },
+    );
   });
 });
 

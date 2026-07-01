@@ -121,7 +121,7 @@
   <text class="ptitle" x="380" y="550">Review gauntlet</text>
   <text class="psub"   x="380" y="572">four reviewers, SERIAL — each sole editor, commits in turn</text>
 
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/be-review/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/be-review/SKILL.md" target="_blank" rel="noopener">
     <path class="link" d="M750,555 L800,555"/>
     <rect class="chip" x="800" y="531" width="340" height="48" rx="8"/>
     <text class="skill"  x="818" y="553">/be-review</text>
@@ -132,13 +132,13 @@
   <path class="serial" d="M540,588 L540,608 L150,608 L150,636" marker-end="url(#arrowSerial)"/>
 
   <!-- 4 serial reviewers -->
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/lens-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="50" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="68" y="660">/lens-debate</text>
     <text class="skilln" x="68" y="678">boundaries ⇄ simplicity</text>
   </a>
   <path class="serial" d="M250,664 L320,664" marker-end="url(#arrowSerial)"/>
-  <a xlink:href="https://github.com/juspay/kolu/blob/master/.apm/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
+  <a xlink:href="https://github.com/juspay/kolu/blob/master/agents/.apm/skills/codex-debate/SKILL.md" target="_blank" rel="noopener">
     <rect class="chip" x="320" y="636" width="200" height="56" rx="8" stroke="#b5316f"/>
     <text class="skill"  x="338" y="660">/codex-debate</text>
     <text class="skilln" x="338" y="678">codex ⇄ claude, to consensus</text>

@@ -394,7 +394,7 @@ copies), <code>.agency/do.md</code>, and <code>settings.json</code> hooks.</p>
 <tr>
 <td>1</td>
 <td><strong>Wire <code>/be</code> into the existing Stop guard</strong> — write the generic <code>.do-results.json</code> the guard already understands</td>
-<td><code>.apm/skills/be/SKILL.md</code> §1/§Done; reuse <code>do/scripts/do-results</code>. No hook change needed</td>
+<td><code>agents/.apm/skills/be/SKILL.md</code> §1/§Done; reuse <code>do/scripts/do-results</code>. No hook change needed</td>
 <td>S · <strong>high</strong></td>
 </tr>
 <tr>
@@ -406,7 +406,7 @@ copies), <code>.agency/do.md</code>, and <code>settings.json</code> hooks.</p>
 <tr>
 <td>3</td>
 <td><strong>Full <code>/ci</code> on every touched PR + master-sync at the head of §5</strong></td>
-<td><code>.apm/skills/be/SKILL.md</code> §5; <code>.agency/do.md</code> <code>## CI</code></td>
+<td><code>agents/.apm/skills/be/SKILL.md</code> §5; <code>.agency/do.md</code> <code>## CI</code></td>
 <td>S · <strong>high</strong></td>
 </tr>
 <tr>
@@ -430,7 +430,7 @@ copies), <code>.agency/do.md</code>, and <code>settings.json</code> hooks.</p>
 <tr>
 <td>7</td>
 <td><strong>Make §4 a self-driving in-process Skill chain</strong>; forbid handing reviewers back to the user</td>
-<td><code>.apm/skills/be/SKILL.md</code> §4; <code>be-review</code></td>
+<td><code>agents/.apm/skills/be/SKILL.md</code> §4; <code>be-review</code></td>
 <td>M · <strong>high</strong></td>
 </tr>
 <tr>
@@ -555,8 +555,8 @@ look like a user turn — agents are told to ignore it. The autonomy rubric is a
 heuristic. Treat the <strong>trend across audits</strong> as the signal; hold the extraction
 method constant so successive runs are comparable.</p></div></aside>
 <aside class="callout callout-accent" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The lever map (where fixes go)</p><div class="callout-body" data-astro-cid-q2ml7llr><ul>
-<li><strong><code>.apm/skills/be/SKILL.md</code></strong> — the <code>/be</code> stages &amp; gates (most fixes).</li>
-<li><strong><code>.apm/skills/be-review/SKILL.md</code></strong> + the gauntlet sub-skills (<code>codex-debate</code>,
+<li><strong><code>agents/.apm/skills/be/SKILL.md</code></strong> — the <code>/be</code> stages &amp; gates (most fixes).</li>
+<li><strong><code>agents/.apm/skills/be-review/SKILL.md</code></strong> + the gauntlet sub-skills (<code>codex-debate</code>,
 <code>lens-debate</code>, <code>simplify</code>, <code>code-police</code>, <code>evidence</code>, <code>ci</code>, <code>forge-pr</code>).</li>
 <li><strong><code>.apm/instructions/*.md</code></strong> → always-loaded <code>.claude/rules/*.md</code>
 (<code>conventions.md</code> is the home for the design-philosophy rule).</li>

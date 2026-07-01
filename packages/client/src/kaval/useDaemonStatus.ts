@@ -6,104 +6,71 @@
  * consumed by the ChromeBar's KAVAL rail column and App.tsx's DegradedCanvas
  * gate — so the UI can tell "the daemon is down" apart from "you have no
  * terminals" (B2, the empty-canvas-lie fix).
+ *
+ * The PURE presentation (tables + projections — `DAEMON_STATE_PRESENTATION`,
+ * `kavalDot`, `serverDot`, `toneDot`, `formatUptime`, …) lives in the
+ * side-effect-free `./daemonPresentation`, re-exported here so existing call
+ * sites are unchanged. This module owns only the wire-coupled bits: the live
+ * subscription and the accessors over it.
  */
 
-import type { DaemonState, DaemonStatus } from "kolu-common/surface";
-import { createEffect, createRoot } from "solid-js";
+import type { DaemonStatus } from "kolu-common/surface";
+import { createEffect, createMemo, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";
-import type { WsStatus } from "../rpc/rpc";
-import { compactDelta } from "../time/duration";
 import { app } from "../wire";
+import {
+  DAEMON_STATE_PRESENTATION,
+  liveDownState,
+  liveWarming,
+} from "./daemonPresentation";
 import { announceReattach } from "./reattachAnnounce";
+
+// Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
+// (the rail, the kaval dialog, App.tsx's canvas, useDaemonRestart) keep resolving
+// here even though the tables physically moved to a wire-free module.
+export {
+  DAEMON_STATE_PRESENTATION,
+  DAEMON_UNKNOWN_DOT,
+  type DaemonTone,
+  formatUptime,
+  kavalDot,
+  liveDownState,
+  liveWarming,
+  serverDot,
+} from "./daemonPresentation";
 
 /** The one host today; R-2's ssh hosts add more keys to the same collection. */
 export const LOCAL_HOST = "local";
 
-/** A daemon state's coarse tone — the warming-up/up/down bucket every display
- *  site shares. `restarting` and `connecting` are both `warming` (transient,
- *  coming up), declared once here rather than re-collapsed at each dot map. */
-export type DaemonTone = "ok" | "warming" | "down";
+// ONE shared, app-lifetime memo of the liveness boolean. `app.health()` is a plain
+// accessor (not a memo) that re-folds the WHOLE registry — walking every enrolled
+// sub, allocating a fresh `SubHealth[]` — on each read, and reading `.live` tracks
+// every sub's `pending()`/`error()`. The ~dozen status-paint sites that floor on
+// this fact would otherwise each re-fold per render AND re-render on every enrolled
+// subscription's churn (a terminal create re-subscribing, a gitStatus blip), not
+// just on a real liveness flip. Folding once behind a `===`-diffed memo collapses
+// both: consumers track only the boolean and re-paint only when `live` actually
+// changes. The `createSharedRoot` idiom is the same app-lifetime singleton
+// `getClockNow` / the stale-ticker use (solidjs.md "memos for multi-consumer
+// derivations").
+const sharedDaemonTransportLive = createSharedRoot(() =>
+  createMemo(() => app.health().live),
+);
 
-/** The single source of truth for "what does daemon state X mean visually."
- *  One row per state, keyed by `DaemonState`, so a new state is a compile-forced
- *  row instead of N independent edits across the dialog, rail, and gate. Every
- *  presentation a consumer needs is derived from this table: the dot class from
- *  `tone` (via {@link toneDot}), the dialog/rail label from `label`, the App.tsx
- *  warming-canvas message from `canvasLabel`, and the DegradedCanvas narrowing
- *  from `down`. The table is client-only — the tones, labels, and Tailwind
- *  classes are projections of the state, not part of the wire
- *  `DaemonStatusSchema`. */
-export const DAEMON_STATE_PRESENTATION: Record<
-  DaemonState,
-  { tone: DaemonTone; label: string; canvasLabel: string; down: boolean }
-> = {
-  connecting: {
-    tone: "warming",
-    label: "starting…",
-    canvasLabel: "Connecting…",
-    down: false,
-  },
-  connected: {
-    tone: "ok",
-    label: "running",
-    canvasLabel: "Connected",
-    down: false,
-  },
-  restarting: {
-    tone: "warming",
-    label: "restarting…",
-    canvasLabel: "Restarting kaval…",
-    down: false,
-  },
-  degraded: {
-    tone: "down",
-    label: "stopped (session preserved)",
-    canvasLabel: "Stopped",
-    down: true,
-  },
-  dead: {
-    tone: "down",
-    label: "not running",
-    canvasLabel: "Not running",
-    down: true,
-  },
-};
-
-/** Compact human uptime from a millisecond delta — `45s`, `12m`, `3h 20m`,
- *  `2d 4h`. The one uptime projection for the one daemon: the rail (passing
- *  `clockNow() - startedAt`) and the kaval dialog (`Date.now() - startedAt`)
- *  both call this, so a format tweak reaches both surfaces at once. Renders the
- *  dual-unit form of the shared {@link compactDelta} ladder (the sub-tier where
- *  one exists), so the sec/min/hr/day thresholds stay defined in one place. */
-export function formatUptime(ms: number): string {
-  const { value, unit, sub } = compactDelta(ms);
-  return sub ? `${value}${unit} ${sub.value}${sub.unit}` : `${value}${unit}`;
+/** The watchdog-backed liveness of the ws transport that delivers `daemonStatus`
+ *  — `app.health().live` (kolu serves its own surface with no mirror/`liveWhen`
+ *  cell, so this is exactly the half-open-aware socket liveness, default-on via
+ *  `connectSurfaces`). The kaval rail floors its dot AND its uptime on THIS (see
+ *  {@link kavalDot}): when the link is dead or silently half-open, the retained
+ *  daemon state is STALE — the channel that would refresh it is gone — so the
+ *  column must read "unknown", never a definite "running" + an uptime climbing off
+ *  the local clock. A reactive accessor (a shared memo); read it inside a tracking
+ *  scope. */
+export function daemonTransportLive(): boolean {
+  return sharedDaemonTransportLive()();
 }
-
-/** A tone → status-dot class. The one place `warming`==`animate-pulse` etc. is
- *  spelled, so the dot is derived from {@link DAEMON_STATE_PRESENTATION}'s tone
- *  rather than re-tabulated per display. */
-export const toneDot: Record<DaemonTone, string> = {
-  ok: "bg-ok",
-  warming: "bg-warning animate-pulse",
-  down: "bg-danger",
-};
-
-/** A WebSocket transport status → its coarse tone — `connecting` is transient
- *  (warming, pulses), `open` is healthy, `closed` is down. The one place the
- *  WS-status→tone mapping lives, so the `srv` liveness dot (desktop rail) and the
- *  mobile connection dot read ONE receptacle instead of two byte-identical maps. */
-export const wsTone: Record<WsStatus, DaemonTone> = {
-  connecting: "warming",
-  open: "ok",
-  closed: "down",
-};
-
-/** A WebSocket status → its status-dot class, via {@link wsTone} + {@link
- *  toneDot}. Both the desktop rail's `srv` dot and the mobile chrome dot resolve
- *  through this single helper, so a connection-tone change is made once. */
-export const wsDot = (status: WsStatus): string => toneDot[wsTone[status]];
 
 const sub = app.collections.daemonStatus.use({
   keys: () => [LOCAL_HOST],
@@ -133,30 +100,19 @@ export function daemonStatusPending(): boolean {
  *  Drives the DegradedCanvas gate AND its `state` prop, so the down-sub-union
  *  is named in one place rather than re-derived by an inline ternary. */
 export function downState(): "dead" | "degraded" | undefined {
-  const state = localDaemonStatus()?.state;
-  if (!state) return undefined;
-  // The down-sub-union is whichever states the presentation table marks `down`.
-  // Today that is exactly `dead`/`degraded`; the cast holds because no non-down
-  // state is flagged `down`, and keeping the narrow return type means a future
-  // `down` state must be added to this union deliberately, not silently widened.
-  return DAEMON_STATE_PRESENTATION[state].down
-    ? (state as "dead" | "degraded")
-    : undefined;
+  // FLOORED on transport liveness via `liveDownState`: when the ws delivering
+  // daemonStatus is dead/half-open the retained state is stale, so "down" reads
+  // `undefined` ("unknown") rather than painting DegradedCanvas off a value the dead
+  // channel can't confirm — the post-grace transport overlay owns the disconnect.
+  // The down-sub-union is whichever states the presentation table marks `down`
+  // (today exactly `dead`/`degraded`); a future `down` state joins it deliberately.
+  return liveDownState(localDaemonStatus()?.state, daemonTransportLive());
 }
 
-/** Is a daemon state in the transient "warming" bucket — `connecting` (boot) or
- *  `restarting` (a supervised restart in flight)? Derived from the presentation
- *  table so the warming set is named ONCE: both the module-singleton gate
- *  ({@link daemonWarming}) and the param-taking restart-button predicate
- *  (`restartInFlight` in `useDaemonRestart`) project from it, so they can't drift
- *  on what counts as "coming up", and a future warming state is covered for free. */
-export function isWarming(state: DaemonState | undefined): boolean {
-  return state ? DAEMON_STATE_PRESENTATION[state].tone === "warming" : false;
-}
-
-/** True while the local daemon is transiently coming up (its state {@link
- *  isWarming}). Before the first status yield the state is unknown (not warming);
- *  `daemonStatusPending()` owns that pre-first-value gate.
+/** True while the local daemon is transiently coming up (its state warming, via
+ *  `liveWarming` — floored on transport liveness). Before the first status yield the
+ *  state is unknown (not warming); `daemonStatusPending()` owns that pre-first-value
+ *  gate.
  *
  *  Two consumers share this gate, covering both the visible and the invisible
  *  create paths: the App.tsx canvas reads it to suppress the empty-state welcome
@@ -169,7 +125,12 @@ export function isWarming(state: DaemonState | undefined): boolean {
  *  kill (or a momentarily-`current` old connection). Terminal creation must wait
  *  for `connected`. */
 export function daemonWarming(): boolean {
-  return isWarming(localDaemonStatus()?.state);
+  // FLOORED on transport liveness via `liveWarming`: a "the daemon is coming up"
+  // claim only holds over a live link. When the link is dead/half-open this reads
+  // false (not "warming"), so the canvas won't paint "Restarting kaval…" and
+  // `refuseIfWarming` won't lock ⌘T with a misleading "Daemon is starting" off a
+  // stale state — every consumer inherits the floor from this one source.
+  return liveWarming(localDaemonStatus()?.state, daemonTransportLive());
 }
 
 /** The warming-canvas message for the current daemon state — the verbier,

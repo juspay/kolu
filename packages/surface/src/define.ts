@@ -48,8 +48,37 @@ import {
 export type CellVerb = "get" | "set" | "patch" | "test__set";
 
 /** Subset of collection verbs the surface exposes. Default
- *  `["keys", "get", "upsert", "delete"]`. `test__set` is opt-in. */
-export type CollectionVerb = "keys" | "get" | "upsert" | "delete" | "test__set";
+ *  `["keys", "get", "upsert", "delete"]`. `test__set` is opt-in. `deltas` is
+ *  opt-in too: a SINGLE batched snapshot-then-delta stream for the whole
+ *  collection, the bulk-friendly counterpart to the per-key `keys`+`get` pair.
+ *  A producer that mutates N keys in a tick publishes ONE coalesced frame
+ *  instead of N per-key frames, so a whole-collection consumer pays per-tick
+ *  decode/reconcile once, not once per key. Per-key `get` stays for the
+ *  "watch one specific key" / subset case. */
+export type CollectionVerb =
+  | "keys"
+  | "get"
+  | "upsert"
+  | "delete"
+  | "deltas"
+  | "test__set";
+
+/** One frame of a collection's batched `deltas` stream: the full keyed set on
+ *  (re)subscribe, then one coalesced `{upserts, removes}` per producer tick.
+ *  The bulk-friendly twin of the per-key `get` stream — see {@link CollectionVerb}. */
+export type CollectionDeltasMsg<K, T> =
+  | { kind: "snapshot"; entries: [K, T][] }
+  | { kind: "delta"; upserts: [K, T][]; removes: K[] };
+
+/** The `delta` frame of {@link CollectionDeltasMsg} — one coalesced
+ *  `{upserts, removes}` batch for a producer tick. Carried both on the server's
+ *  internal `deltasBus` and on the wire, so deriving it from the union (rather
+ *  than declaring a structural twin) keeps the bus payload and the wire frame
+ *  ONE type that can't drift. */
+export type CollectionDelta<K, T> = Extract<
+  CollectionDeltasMsg<K, T>,
+  { kind: "delta" }
+>;
 
 export interface CellSpec<T = unknown, P = T> {
   schema: ZodType<T>;
@@ -179,6 +208,26 @@ export function resolveCellVerbs(
   );
 }
 
+/** A collection's effective verbs — `spec.verbs` when present, else
+ *  {@link DEFAULT_COLLECTION_VERBS}. The collection-side dual of
+ *  {@link resolveCellVerbs}: the SINGLE runtime source of this rule, so the
+ *  contract derivation (`collectionContractEntries`), the server handler walk
+ *  (`server.ts`'s `walkSurface`), and the client binding (`surfaceClient`) can't
+ *  drift on a `??` someone forgot to update. */
+export function resolveCollectionVerbs(
+  spec: CollectionSpec<any, any>,
+): readonly CollectionVerb[] {
+  return spec.verbs ?? DEFAULT_COLLECTION_VERBS;
+}
+
+/** Whether a collection opts into batched `deltas` delivery — derived from
+ *  {@link resolveCollectionVerbs} so the deltas gate (server-side coalescing and
+ *  client-side routing) reads from the one verb resolver, never an inline
+ *  `.includes("deltas")` that a third call site could forget. */
+export function collectionHasDeltas(spec: CollectionSpec<any, any>): boolean {
+  return resolveCollectionVerbs(spec).includes("deltas");
+}
+
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
@@ -209,10 +258,28 @@ function cellContractEntries<T, P>(
   return entries;
 }
 
+/** The wire schema for a collection's batched `deltas` stream — a single home
+ *  both the runtime contract (`collectionContractEntries`) and the type oracle
+ *  (`buildCollection`) build from, so the two derivations can't drift. */
+function collectionDeltasSchema<K, T>(
+  keySchema: ZodType<K>,
+  schema: ZodType<T>,
+) {
+  const entry = z.tuple([keySchema, schema]);
+  return z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("snapshot"), entries: z.array(entry) }),
+    z.object({
+      kind: z.literal("delta"),
+      upserts: z.array(entry),
+      removes: z.array(keySchema),
+    }),
+  ]);
+}
+
 function collectionContractEntries<K, T>(
   spec: CollectionSpec<K, T>,
 ): Record<string, unknown> {
-  const verbs = spec.verbs ?? DEFAULT_COLLECTION_VERBS;
+  const verbs = resolveCollectionVerbs(spec);
   const keyShape = z.object({ key: spec.keySchema });
   const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
   const entries: Record<string, unknown> = {};
@@ -221,6 +288,10 @@ function collectionContractEntries<K, T>(
       entries.keys = oc.output(eventIterator(z.array(spec.keySchema)));
     } else if (v === "get") {
       entries.get = oc.input(keyShape).output(eventIterator(spec.schema));
+    } else if (v === "deltas") {
+      entries.deltas = oc.output(
+        eventIterator(collectionDeltasSchema(spec.keySchema, spec.schema)),
+      );
     } else if (v === "upsert") {
       entries.upsert = oc.input(upsertShape).output(z.void());
     } else if (v === "delete") {
@@ -318,6 +389,22 @@ export type CellVerbsOf<S extends CellSpec<any, any>> = S extends {
     ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
     : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
 
+/** The verb set a collection exposes — the TYPE counterpart of the runtime
+ *  {@link resolveCollectionVerbs}: `spec.verbs` when present, else
+ *  {@link DEFAULT_COLLECTION_VERBS}. TS can't reuse the runtime value, so this
+ *  mirrors it; keep the two in step. Honoring `verbs` here is load-bearing, the
+ *  collection dual of {@link CellVerbsOf}: `deltas` and `test__set` are OPT-IN,
+ *  so a DEFAULT collection must NOT type a `.deltas` the runtime contract router
+ *  never binds — otherwise a downstream consumer (kolu, drishti) sees a typed
+ *  `surface.<collection>.deltas` that compiles and then rejects at runtime, and
+ *  a read-only collection (`verbs: ["keys", "get"]`, e.g. `common`'s `authored` /
+ *  `daemonStatus`) must NOT type the `upsert` / `delete` the server omits. */
+export type CollectionVerbsOf<S extends CollectionSpec<any, any>> = S extends {
+  verbs: readonly CollectionVerb[];
+}
+  ? S["verbs"][number]
+  : (typeof DEFAULT_COLLECTION_VERBS)[number];
+
 /** Whether a cell exposes a CLIENT-facing wire-mutation verb — `set` or
  *  `patch`, the verbs the Solid client's `.use()` mutate path actually calls.
  *  `test__set` does NOT count: it's the opt-in e2e reset procedure, never a
@@ -379,11 +466,32 @@ type UnionToIntersection<U> = (
   ? I
   : never;
 
+/** The full per-verb contract shape for a collection — the type oracle the
+ *  per-verb {@link CollectionVerbEntry} indexes into. `buildCollection` covers
+ *  every verb the runtime {@link collectionContractEntries} can emit (`keys` /
+ *  `get` / `deltas` / `upsert` / `delete` / `test__set`); the per-verb gate
+ *  surfaces each only for a collection whose `verbs` lists it. */
+type CollectionContractShape<K, T> = ReturnType<typeof buildCollection<K, T>>;
+
+/** One contract entry per resolved collection verb — distributed over the verb
+ *  union then folded by {@link UnionToIntersection}, the collection dual of
+ *  {@link CellVerbEntry}. Mirrors the runtime `entries[v] = …` switch in
+ *  {@link collectionContractEntries} 1:1, so a default collection types only
+ *  `keys` / `get` / `upsert` / `delete` and an OPT-IN verb (`deltas`,
+ *  `test__set`) appears ONLY when `verbs` lists it. */
+type CollectionVerbEntry<
+  V extends CollectionVerb,
+  K,
+  T,
+> = V extends keyof CollectionContractShape<K, T>
+  ? { [P in V]: CollectionContractShape<K, T>[P] }
+  : EmptyObj;
+
 type CollectionContract<S extends CollectionSpec<any, any>> = S extends {
   keySchema: ZodType<infer K>;
   schema: ZodType<infer T>;
 }
-  ? ReturnType<typeof buildCollection<K, T>>
+  ? UnionToIntersection<CollectionVerbEntry<CollectionVerbsOf<S>, K, T>>
   : never;
 
 type StreamContract<S extends StreamSpec<any, any>> = S extends {
@@ -576,10 +684,21 @@ function buildCollection<K, T>(opts: {
   return {
     keys: oc.output(eventIterator(z.array(opts.keySchema))),
     get: oc.input(keyShape).output(eventIterator(opts.schema)),
+    deltas: oc.output(
+      eventIterator(collectionDeltasSchema(opts.keySchema, opts.schema)),
+    ),
     upsert: oc
       .input(z.object({ key: opts.keySchema, value: opts.schema }))
       .output(z.void()),
     delete: oc.input(keyShape).output(z.void()),
+    // The opt-in `test__set` verb (replace-all from a fixture). Listed alongside
+    // the other verbs: opt-in gating is done by `CollectionVerbEntry` indexing
+    // the verb UNION, not by which builder owns the field, so `test__set`
+    // surfaces only for a collection whose `verbs` lists it. Mirrors the runtime
+    // `entries.test__set = …` branch in `collectionContractEntries` (drift watch).
+    test__set: oc
+      .input(z.array(z.object({ key: opts.keySchema, value: opts.schema })))
+      .output(z.void()),
   };
 }
 
@@ -827,5 +946,30 @@ export function composeSurfaceContracts<
         ? SurfaceContractFor<S>["surface"]
         : never;
     };
+  };
+}
+
+/** Scope a `composeSurfaceContracts`-shaped combined link down to ONE sibling
+ *  key — the runtime twin of {@link composeSurfaceContracts}'s
+ *  `{ surface: { <key>: … } }` shape. A combined transport is
+ *  `{ surface: { <key>: innerLink } }`; this returns the single-sibling slice
+ *  `{ surface: innerLink }` a per-key client rides, so the bundle's internal
+ *  `link.surface.<prim>` walk resolves at the wire path `/surface/<key>/<prim>`.
+ *
+ *  This owns the SIBLING-scoping walk — the `{ surface: link.surface[key] }`
+ *  re-wrap — for its two call sites: `surfaceClients` (the Solid bundle) and
+ *  `createLiveSignal`'s half-open watchdog probe, which both scope a sibling
+ *  through HERE. It is NOT the sole owner of every `link.surface[...]` index: the
+ *  per-primitive `link.surface[<prim>]` walks inside `buildSurfaceClient` are a
+ *  separate, co-located cluster at a DIFFERENT nesting level (primitive, not
+ *  sibling), and `server.ts`'s `walkSurface` (`t.surface[key]`, the `implement`
+ *  builder) and `liveness.ts`'s `probeSurfaceLive` (its own `SurfaceLiveProbeable`
+ *  receptacle, a constant key) are structurally distinct walks — a wire-keying
+ *  change touches all of them, not just here. The caller keeps its OWN downstream
+ *  target-type assertion on the slice (the `buildSurfaceClient` cast); only this
+ *  sibling-scope re-wrap lives here. */
+export function scopeSibling(link: unknown, key: string): { surface: unknown } {
+  return {
+    surface: (link as { surface: Record<string, unknown> }).surface[key],
   };
 }

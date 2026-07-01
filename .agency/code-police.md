@@ -171,6 +171,45 @@ Integration code (under `packages/integrations/`) runs in a long-lived Node proc
 - **Directory watchers must be shared.** Multiple callers watching the same directory (e.g. `SESSIONS_DIR`) must go through a refcounted singleton, not each install their own `fs.watch`. N watchers = N duplicate callbacks = N-fold cost per event.
 - **Debug-only collections must be bounded.** Arrays that accumulate diagnostic state need a cap with `shift()`-before-`push()` eviction to prevent unbounded growth in long-lived processes.
 
+### no-sync-blocking-on-the-serving-loop
+
+The kolu server (`packages/server`) and the integration code it loads
+(`packages/integrations/*`, `kaval`, `pulam`, …) run on a **single Node event
+loop** that serves every HTTP/WebSocket request. A synchronous, unbounded
+blocking call on a code path reachable while serving freezes that one loop —
+*all* requests hang at once, at ~0 CPU, with no crash, until the blocking call
+returns. Flag, on any path reachable from an RPC handler, a watcher
+install/callback, or a streaming source:
+
+- **Synchronous child processes** — `execSync` / `spawnSync` / `execFileSync`. Use
+  the promisified async form (`promisify(execFile)`) with a **`timeout`** (and let
+  the wait happen on a libuv thread). A subprocess wait (`waitpid`) is the worst
+  offender: with no timeout it can hang forever (a contended repo, a stuck FS).
+- **Synchronous filesystem calls on a path that may be slow/hung** —
+  `readFileSync` / `statSync` / `realpathSync` / `accessSync` / `existsSync` on a
+  worktree, mount, or user-supplied path. Prefer `fs.promises.*`. (A one-shot
+  `*Sync` on a known-local, known-fast path — config read at boot — is fine; the
+  rule targets the *serving* loop and *unbounded/remote* targets.)
+- **Any other unbounded synchronous wait** reachable while serving (`Atomics.wait`,
+  a `deasync`-style spin, a `while` loop with no bound).
+
+A synchronous resolver passed into a generic async primitive counts too: if
+`createDirFilenameWatcher`'s `resolveDir` (or any install hook) runs a blocking
+call, the "async" wrapper doesn't save you — the block happens inline on
+subscribe. Keep the blocking work off the loop, or hoist it into an already-async
+caller. Where a residual sync call is genuinely justified (a fast, known-local
+one-shot stat — e.g. `hasGitDir`), say so at the call site: the carve-out is for
+*fast, local, one-shot* reads, never for a subprocess wait or a path that can be
+remote/slow.
+
+_Rationale_: a single synchronous `execSync('git rev-parse')` on the git-watcher
+install path froze the production server's event loop for **25 minutes** on
+2026-06-28 (browser unresponsive, ~0 CPU, no crash, all logging stopped at once),
+recovering only on a manual redeploy ([#1615](https://github.com/juspay/kolu/pull/1615)).
+`just check` never catches this — a sync call typechecks and lints clean; only a
+reviewer who knows "this runs on the serving loop" does. This rule is that
+reviewer.
+
 ### no-preference-prop-drilling
 
 Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`) and saved session (`useSavedSession()`) — each domain has its own dedicated singleton hook.

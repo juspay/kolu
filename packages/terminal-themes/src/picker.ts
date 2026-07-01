@@ -65,6 +65,30 @@ function getLab(hex: string): OkLab | undefined {
   return computed;
 }
 
+/** OkLab lightness below this reads as a "dark" theme, at or above as
+ *  "light". OkLab's L is perceptual (0 = black, 1 = white), so the midpoint
+ *  is a reasonable split; the handful of mid-tone schemes near the line fall
+ *  on whichever side their background luminance lands, which is exactly the
+ *  "which family does this tint belong to" question the mode filter asks. */
+const DARK_L_MAX = 0.5;
+
+/** Which luminance family an OkLab background belongs to. The one place this
+ *  classification lives — both `themeMode` and the picker's mode filter read
+ *  it — so the two can't drift if the split ever gains nuance. */
+function labFamily(lab: OkLab): "light" | "dark" {
+  return lab.L < DARK_L_MAX ? "dark" : "light";
+}
+
+/** Classify a theme as `"light"` / `"dark"` by its background luminance, or
+ *  `undefined` when the background is missing / unparseable. Used to restrict
+ *  the picker's candidate pool to one luminance family (see `pickTheme`'s
+ *  `mode` option). Exported for the test suite. */
+export function themeMode(t: NamedTheme): "light" | "dark" | undefined {
+  const bg = t.theme.background;
+  const lab = bg ? getLab(bg) : undefined;
+  return lab ? labFamily(lab) : undefined;
+}
+
 /** Luminance is DIVIDED by this factor when computing distance, so
  *  hue/chroma drift matters more than light/dark drift. Bigger factor =
  *  stronger "stay in the same luminance family" preference. Three was
@@ -95,23 +119,41 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
-/** Filter candidates to those with parseable, in-gamut backgrounds.
- *  Falls back to the full list when filtering leaves nothing — preserves
- *  non-emptiness in the type. */
+/** Choose the candidate pool, relaxing constraints in priority order so an
+ *  exhausted request never silently reintroduces a *worse* theme than the one
+ *  constraint it couldn't satisfy. The quality gate (parseable, in-gamut — not
+ *  garish) is ALWAYS required; distinctness (`excludeBgs`) is kept longer than
+ *  the luminance `mode`, which is dropped first. So a `mode: "dark"` request
+ *  that runs out of dark themes yields a *light* theme (family relaxed) before
+ *  it would ever yield a garish or duplicate one — never all constraints at
+ *  once. Only a degenerate catalogue with no in-gamut theme falls through to
+ *  the raw list, preserving the non-emptiness type guarantee. The `??` chain
+ *  short-circuits, so the common (non-empty) case runs just the first filter. */
 function filterEligible(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
+  mode?: "light" | "dark",
 ): NonEmpty<NamedTheme> {
-  const eligible = nonEmpty(
-    candidates.filter((t) => {
-      const bg = t.theme.background;
-      if (!bg) return false;
-      if (excludeBgs?.has(bg)) return false;
-      const lab = getLab(bg);
-      return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
-    }),
+  // Quality gate — never relaxed except in a degenerate catalogue.
+  const quality = candidates.filter((t) => {
+    const bg = t.theme.background;
+    if (!bg) return false;
+    const lab = getLab(bg);
+    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+  });
+  const inFamily = (t: NamedTheme): boolean => {
+    if (!mode) return true;
+    const lab = getLab(t.theme.background ?? "");
+    return lab !== undefined && labFamily(lab) === mode;
+  };
+  const notExcluded = (t: NamedTheme): boolean =>
+    !excludeBgs?.has(t.theme.background ?? "");
+  return (
+    nonEmpty(quality.filter((t) => notExcluded(t) && inFamily(t))) ??
+    nonEmpty(quality.filter(notExcluded)) ??
+    nonEmpty(quality) ??
+    candidates
   );
-  return eligible ?? candidates;
 }
 
 /** Candidates within this OkLab distance of the best score are all eligible
@@ -127,8 +169,9 @@ function pickSpread(
   candidates: NonEmpty<NamedTheme>,
   peerBgs: string[],
   rand: () => number,
+  mode?: "light" | "dark",
 ): string {
-  const pool = filterEligible(candidates);
+  const pool = filterEligible(candidates, undefined, mode);
   const peerLabs: OkLab[] = [];
   for (const hex of peerBgs) {
     const lab = getLab(hex);
@@ -171,8 +214,9 @@ function pickShuffle(
   candidates: NonEmpty<NamedTheme>,
   excludeBgs: string[],
   rand: () => number,
+  mode?: "light" | "dark",
 ): string {
-  const pool = filterEligible(candidates, new Set(excludeBgs));
+  const pool = filterEligible(candidates, new Set(excludeBgs), mode);
   const idx = Math.floor(rand() * pool.length);
   return (pool[idx] ?? pool[0]).name;
 }
@@ -187,20 +231,31 @@ function pickShuffle(
  *   Use for user-triggered ⌘J shuffle.
  *
  * Both modes reject candidates with unparseable backgrounds or chroma
- * above {@link MAX_CANDIDATE_CHROMA}, falling back to the full list when
- * filtering leaves nothing.
+ * above {@link MAX_CANDIDATE_CHROMA}, and — when `mode` is set — restrict the
+ * pool to that light/dark family, falling back to the full list when filtering
+ * leaves nothing.
  *
  * Caller must pass a non-empty candidates list — empty is a compile error.
  */
 export function pickTheme(
   candidates: NonEmpty<NamedTheme>,
   config:
-    | { spread: true; peerBgs: string[]; rand?: () => number }
-    | { spread?: false; excludeBgs: string[]; rand?: () => number },
+    | {
+        spread: true;
+        peerBgs: string[];
+        rand?: () => number;
+        mode?: "light" | "dark";
+      }
+    | {
+        spread?: false;
+        excludeBgs: string[];
+        rand?: () => number;
+        mode?: "light" | "dark";
+      },
 ): string {
   const rand = config.rand ?? Math.random;
   if (config.spread) {
-    return pickSpread(candidates, config.peerBgs, rand);
+    return pickSpread(candidates, config.peerBgs, rand, config.mode);
   }
-  return pickShuffle(candidates, config.excludeBgs, rand);
+  return pickShuffle(candidates, config.excludeBgs, rand, config.mode);
 }

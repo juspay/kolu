@@ -27,9 +27,9 @@ const cwdGitWatcher = createDirFilenameWatcher({
   // for the same reason. Fall back to the raw cwd if realpath throws (e.g.
   // the dir was removed mid-flight). No-op on Linux, where `/tmp` is a real
   // directory.
-  resolveDir: (cwd) => {
+  resolveDir: async (cwd) => {
     try {
-      return fs.realpathSync(cwd);
+      return await fs.promises.realpath(cwd);
     } catch {
       return cwd;
     }
@@ -44,6 +44,10 @@ export const watchCwdForGitDir = cwdGitWatcher.watch;
 /** Test-only inspector — number of distinct cwds with active shared
  *  watchers. Mirrors `_sharedHeadWatcherCount`. */
 export const _sharedCwdGitWatcherCount = cwdGitWatcher._watcherCount;
+
+/** Test-only barrier — resolves once every in-flight `watchCwdForGitDir`
+ *  resolution has installed or cancelled. Await before reading the count. */
+export const _settledSharedCwdGitWatchers = cwdGitWatcher._whenSettled;
 
 /** Test-only teardown — symmetric with `_resetSharedHeadWatchers`. See
  *  there for the cascade-breaking rationale (#955). Production code must

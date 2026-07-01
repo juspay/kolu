@@ -13,6 +13,14 @@ Feature: Copy terminal text
     Then a toast should appear with text "Copied terminal text to clipboard"
     And there should be no page errors
 
+  Scenario: Copy terminal ID via command palette
+    When I run "echo id-copy-test"
+    And I open the command palette
+    And I type "Copy terminal ID" in the palette
+    And I press Enter
+    Then a toast should appear with text "Copied terminal ID to clipboard"
+    And there should be no page errors
+
   Scenario: Copy text from a focused split terminal
     When I run "echo parent-only-text"
     And the screen state should contain "parent-only-text"

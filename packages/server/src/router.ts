@@ -31,6 +31,7 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
+  getActiveTerminal,
   getTerminal,
   requireActiveTerminal,
   terminalNotFound,
@@ -38,10 +39,10 @@ import {
 } from "./terminal-registry.ts";
 import {
   discardLocalSleeping,
-  localTerminalEndpoint,
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
   createTerminal,
@@ -111,11 +112,17 @@ export const appRouter = t.router({
     }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
-      requireActiveTerminal(input.id).handle.resize(input.cols, input.rows);
+      // Stream-fired op: a resize for an already-closed terminal is an EXPECTED race
+      // (the client's resize observer can fire just after a kill), so drop it quietly
+      // rather than throwing the NOT_FOUND that logs a misleading ERROR. (#1628)
+      getActiveTerminal(input.id)?.handle.resize(input.cols, input.rows);
     }),
 
     sendInput: t.terminal.sendInput.handler(async ({ input }) => {
-      requireActiveTerminal(input.id).handle.write(input.data);
+      // Stream-fired op: xterm's `onData` fires fire-and-forget, so a late keystroke or
+      // a focus-in/out report (`\e[I` / `\e[O`) can land just after the kill removed the
+      // terminal. That benign race is an expected drop, not an ERROR. (#1628)
+      getActiveTerminal(input.id)?.handle.write(input.data);
     }),
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
@@ -171,11 +178,12 @@ export const appRouter = t.router({
      * output is `z.string()` — and a no-op `term.write("")` for xterm.)
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      requireActiveTerminal(input.id);
-      const { snapshot, deltas } = await localTerminalEndpoint.attach(
-        input.id,
-        signal,
-      );
+      // Resolve the endpoint by the terminal's OWN location so a remote tile's
+      // attach reaches its host (R9.2) with no change here. Local today.
+      const entry = requireActiveTerminal(input.id);
+      const { snapshot, deltas } = await resolveTerminalEndpoint(
+        entry.meta.location,
+      ).attach(input.id, signal);
       yield snapshot;
       for await (const data of deltas) yield data;
     }),
@@ -260,17 +268,22 @@ export const appRouter = t.router({
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
-        const term = requireActiveTerminal(input.id);
-        const agent = term.meta.agent;
+        // `requireActiveTerminal` proves the terminal exists AND narrows it to the
+        // active arm; awareness is a REQUIRED field on that entry (Design-S), so the
+        // agent + cwd + git + pr fields are read straight off `entry.snapshot` —
+        // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
+        // lockstep bug.
+        const { snapshot: aw } = requireActiveTerminal(input.id);
+        const agent = aw.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = term.meta.cwd;
-        const repoName = term.meta.git?.repoName ?? null;
-        const prInfo = prValue(term.meta.pr);
+        const cwd = aw.cwd;
+        const repoName = aw.git?.repoName ?? null;
+        const prInfo = prValue(aw.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;

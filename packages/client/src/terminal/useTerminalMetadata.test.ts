@@ -6,34 +6,63 @@ import type {
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 
-// `useTerminalMetadata` pulls `app` (a live surface socket) and `solid-sonner`
-// (a toast DOM) at import time. Stub both so the hook loads under Node, and
-// drive the per-key `terminalMetadata` collection through a hoisted, signal-
-// backed bag — flipping a field or the id set re-runs the real `terminalIds`
-// memo the way a server delta would, so a test observes its `equals` gate.
+// `useTerminalMetadata` pulls `app` + `workspace` (live surface sockets) and
+// `solid-sonner` (a toast DOM) at import time. Stub all three so the hook loads
+// under Node, and drive the TWO per-key collections it joins — `app.authored` and
+// `workspace.snapshots` — through one hoisted, signal-backed bag. A test supplies
+// a flat `TestMeta`; the mock SPLITS it across the two halves (the eight snapshots
+// fields vs the authored rest) exactly as Design-S serves them, and the real
+// `composeTerminalMetadata` in `getMetadata` rejoins them. Flipping a field or the
+// id set re-runs the real `terminalIds` memo the way a server delta would, so a
+// test observes its `equals` gate — and the split proves a change to EITHER half
+// drives the join.
 type TestMeta = Partial<TerminalMetadata>;
-const bag = vi.hoisted(() => ({
-  // Late-bound to module-scope signals once solid-js is imported (below). The
-  // mock reads through these so the memo tracks them as reactive sources.
-  keys: (() => [] as TerminalId[]) as () => TerminalId[],
-  metaOf: (() => undefined) as (id: TerminalId) => TestMeta | undefined,
-}));
-
-vi.mock("../wire", () => ({
-  app: {
-    collections: {
-      terminalMetadata: {
-        // Surface `{ keys, byKey }` shape (see useCollection.ts). `byKey`
-        // returns an accessor when the id has metadata, else undefined.
-        use: () => ({
-          keys: () => bag.keys(),
-          byKey: (id: TerminalId) =>
-            bag.metaOf(id) !== undefined ? () => bag.metaOf(id) : undefined,
-        }),
-      },
+const bag = vi.hoisted(() => {
+  // The five OBSERVED snapshots fields ride `terminalWorkspace.snapshots`;
+  // everything else (location, memory, `restoreTarget`, client chrome) is the
+  // AUTHORED half. Split a flat test meta the way the two collections do.
+  const AWARENESS = new Set(["cwd", "git", "pr", "agent", "foreground"]);
+  return {
+    // Late-bound to module-scope signals once solid-js is imported (below). The
+    // mock reads through these so the memo tracks them as reactive sources.
+    keys: (() => [] as TerminalId[]) as () => TerminalId[],
+    metaOf: (() => undefined) as (id: TerminalId) => TestMeta | undefined,
+    // Project a flat test meta onto one half. The active arm of
+    // `composeTerminalMetadata` is `{...snapshot, ...authored}`, so the two
+    // disjoint halves rejoin to the original (plus the `state: "active"` the
+    // authored half always carries here).
+    half: (
+      m: TestMeta,
+      which: "authored" | "snapshots",
+    ): Record<string, unknown> => {
+      const out: Record<string, unknown> =
+        which === "authored" ? { state: "active" } : {};
+      for (const [k, v] of Object.entries(m)) {
+        if (AWARENESS.has(k) === (which === "snapshots")) out[k] = v;
+      }
+      return out;
     },
-  },
-}));
+  };
+});
+
+vi.mock("../wire", () => {
+  // Surface `{ keys, byKey }` shape (see useCollection.ts). `byKey` returns an
+  // accessor when the id has metadata, else undefined — and reads `bag.metaOf`
+  // INSIDE the accessor so the join stays reactive to either half.
+  const collectionFor = (which: "authored" | "snapshots") => ({
+    use: () => ({
+      keys: () => bag.keys(),
+      byKey: (id: TerminalId) =>
+        bag.metaOf(id) !== undefined
+          ? () => bag.half(bag.metaOf(id) as TestMeta, which)
+          : undefined,
+    }),
+  });
+  return {
+    app: { collections: { authored: collectionFor("authored") } },
+    workspace: { collections: { snapshots: collectionFor("snapshots") } },
+  };
+});
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,

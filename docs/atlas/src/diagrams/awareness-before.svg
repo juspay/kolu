@@ -1,0 +1,51 @@
+<svg viewBox="0 0 720 440" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="r" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/></marker>
+    <marker id="s" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker>
+    <marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#3a2bb8"/></marker>
+  </defs>
+
+  <text x="360" y="22" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">Today — deriving is fused with storing</text>
+  <text x="360" y="41" text-anchor="middle" font-size="10.5" fill="#64748b">record.meta is the engine's prior-state AND the host's store — one object, two roles</text>
+
+  <!-- sensor set -->
+  <rect x="258" y="62" width="204" height="52" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.7"/>
+  <text x="360" y="84" text-anchor="middle" font-size="12.5" font-weight="700" fill="#8a5a12">sensor set (the engine)</text>
+  <text x="360" y="101" text-anchor="middle" font-size="10" fill="#7a4f10">git→pr · agent×3 · foreground</text>
+
+  <!-- record.meta — the complect (red) -->
+  <rect x="240" y="176" width="240" height="84" rx="10" fill="#fff0f0" stroke="#dc2626" stroke-width="1.9"/>
+  <text x="360" y="200" text-anchor="middle" font-size="12.5" font-weight="700" fill="#991b1b">record.meta : AwarenessValue</text>
+  <text x="360" y="222" text-anchor="middle" font-size="10" fill="#b91c1c">▲ read back — dedup · recency · session gates</text>
+  <text x="360" y="240" text-anchor="middle" font-size="10" fill="#b91c1c">▼ mutated in place = the store</text>
+
+  <!-- bidirectional fusion arrows -->
+  <line x1="328" y1="116" x2="328" y2="174" stroke="#dc2626" stroke-width="1.8" marker-end="url(#r)"/>
+  <line x1="392" y1="174" x2="392" y2="116" stroke="#dc2626" stroke-width="1.8" marker-end="url(#r)"/>
+  <rect x="150" y="135" width="118" height="16" rx="3" fill="#fff"/>
+  <text x="209" y="147" text-anchor="middle" font-size="9.5" font-weight="700" fill="#dc2626">mutate via sink ▼</text>
+  <rect x="452" y="135" width="118" height="16" rx="3" fill="#fff"/>
+  <text x="511" y="147" text-anchor="middle" font-size="9.5" font-weight="700" fill="#dc2626">▲ read prior-state</text>
+
+  <!-- the two homes that alias record.meta -->
+  <rect x="60" y="310" width="270" height="66" rx="9" fill="#efebff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="195" y="333" text-anchor="middle" font-size="11.5" font-weight="700" fill="#3a2bb8">kolu host — its own sink</text>
+  <text x="195" y="350" text-anchor="middle" font-size="9.5" fill="#352a7a">entry.awareness (registry) · fold · persist</text>
+  <text x="195" y="366" text-anchor="middle" font-size="9.5" fill="#352a7a">+ trackRecent</text>
+
+  <rect x="392" y="310" width="266" height="66" rx="9" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
+  <text x="525" y="333" text-anchor="middle" font-size="11.5" font-weight="700" fill="#334155">pulam host — its own sink</text>
+  <text x="525" y="350" text-anchor="middle" font-size="9.5" fill="#475569">its cache · publish</text>
+  <text x="525" y="366" text-anchor="middle" font-size="9.5" fill="#475569">(ephemeral)</text>
+
+  <line x1="300" y1="258" x2="210" y2="308" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="3 4" marker-end="url(#s)"/>
+  <line x1="420" y1="258" x2="512" y2="308" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="3 4" marker-end="url(#s)"/>
+  <rect x="246" y="276" width="86" height="15" rx="3" fill="#fff"/>
+  <text x="289" y="288" text-anchor="middle" font-size="9" fill="#64748b">record IS this</text>
+  <rect x="398" y="276" width="86" height="15" rx="3" fill="#fff"/>
+  <text x="441" y="288" text-anchor="middle" font-size="9" fill="#64748b">record IS this</text>
+
+  <!-- consequence footnote -->
+  <rect x="40" y="402" width="640" height="28" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.1"/>
+  <text x="360" y="420" text-anchor="middle" font-size="9.5" fill="#9a3412">Each home wires its OWN sink + record ⟹ <tspan font-weight="700">two assemblers</tspan>; and because deriving writes the store, a fresh derivation can <tspan font-weight="700">clobber</tspan> remembered state.</text>
+</svg>

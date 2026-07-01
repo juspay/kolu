@@ -35,8 +35,8 @@ import type {
   Surface,
   SurfaceSpec,
 } from "../define";
-import { resolveCellVerbs } from "../define";
-import { isHalfOpenLink } from "../links/websocket";
+import { collectionHasDeltas, resolveCellVerbs, scopeSibling } from "../define";
+import { isHalfOpenLink } from "../links/_wire";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
@@ -51,7 +51,11 @@ import {
   type SurfaceHealth,
 } from "./health";
 import { type UseCellResult, useCell } from "./useCell";
-import { type UseCollectionResult, useCollection } from "./useCollection";
+import {
+  type UseCollectionResult,
+  useCollection,
+  useCollectionDeltas,
+} from "./useCollection";
 import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
@@ -65,19 +69,34 @@ import { useStream } from "./useStream";
  *     wires the watchdog first), so the live↔link pairing holds BY CONSTRUCTION — the
  *     "watch ws1, build over ws2" forge is unspellable because no caller supplies a
  *     separate link.
- *   - A bare half-openable `websocketLink`: CRASH. A WebSocket can half-open silently
- *     (the socket stays `open` while no bytes flow), so its `health().live` is a LIE
- *     unless a watchdog probes it — and the watchdog rides on the handle. Passing the
- *     bare link drops the watchdog, so refuse it: pass the `LiveSignalHandle`
- *     `createLiveSignal`/`connectSurface`/`connectSurfaces` returns instead.
- *   - A bare in-process link (`directLink`/`stdioLink`): can't half-open, so it is
- *     never recorded in the half-open set; its transport leg is constant-`true`,
- *     honest by construction.
+ *   - A bare half-openable WIRE link (`websocketLink`, `stdioLink`, `unixSocketLink`):
+ *     CRASH. Any wire transport can half-open silently (a websocket socket stays
+ *     `open` with no bytes flowing; a stdio/ssh pipe wedges or partitions with no
+ *     FIN), so its `health().live` is a LIE unless a watchdog probes it — and the
+ *     watchdog rides on the handle. Passing the bare link drops the watchdog, so
+ *     refuse it: pass the `LiveSignalHandle` `createLiveSignal`/`connectSurface`/
+ *     `connectSurfaces` returns instead. (The brand is applied at `wireClient` — the
+ *     one seam every wire link crosses — so a future wire link is refused too.)
+ *   - Any link NOT branded by `wireClient`: constant-`true`. The honest member is the
+ *     in-process `directLink` (`createRouterClient`, no transport, can't half-open) —
+ *     honest by construction. This branch is reached BY EXCLUSION, though, so it also
+ *     covers any other unbranded value: a test stub link, or — discouraged — a
+ *     hand-rolled foreign oRPC client over a websocket (one that bypasses
+ *     `websocketLink` and so skips the `wireClient` brand). That last spelling is a
+ *     deliberate, documented RESIDUAL (#1580): every blessed link factory
+ *     (`websocketLink`/`stdioLink`/`unixSocketLink`) brands via the one `wireClient`
+ *     chokepoint, so no realistic consumer reaches this with a half-openable link;
+ *     closing it structurally (a positive in-process-only brand + throw on anything
+ *     else) would refuse the legitimate stub-link health-fold tests consumers build
+ *     over `surfaceClient` — whose only other build path, `buildSurfaceClient`, is
+ *     deliberately package-private — so it stays a by-exclusion fallback the chokepoint
+ *     plus the "build through `websocketLink`" convention discourage.
  *
- *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: the
- *  half-open-blind transport leg is UNSPELLABLE over a websocket — there is no
- *  `{ live }` knob to pass a blind accessor through (the #1564 lie, one seam
- *  upstream of the dot). */
+ *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: a
+ *  half-open-blind transport leg is unspellable over every wire link built through the
+ *  blessed factories (all of which brand via `wireClient`) — there is no `{ live }`
+ *  knob to pass a blind accessor through (the #1564 lie, one seam upstream of the
+ *  dot). */
 function resolveTransport(transport: unknown): {
   link: unknown;
   live: Accessor<boolean>;
@@ -87,19 +106,28 @@ function resolveTransport(transport: unknown): {
   }
   if (isHalfOpenLink(transport)) {
     throw new Error(
-      "surfaceClient: a websocket link can silently half-open, so its transport " +
+      "surfaceClient: this link crosses a wire transport that can silently " +
+        "half-open (a websocket socket stays `open` with no bytes flowing; a stdio " +
+        "or unix-socket pipe wedges or partitions with no FIN), so its transport " +
         "liveness must be a watchdog-backed `LiveSignalHandle`, not a bare link. " +
-        "Build the client through `connectSurface`/`connectSurfaces` — or, for a " +
-        "hand-built client, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
+        "For a WEBSOCKET, build the client through `connectSurface`/`connectSurfaces` " +
+        "— or, hand-built, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
         "pass the WHOLE handle it returns: it builds the link over `ws` itself (so " +
         "the watchdog probes the socket it reconnects via a real `system.live` " +
         "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
-        "object; the handle has no other minter. A bare `() => true` or an " +
-        "open/close-only `() => socketStatus() === 'live'` is half-open-blind — it " +
-        "would paint a green/ready dot over a dead backend↔remote link (#1564).",
+        "object; the handle has no other minter. For a STDIO/UNIX-SOCKET link, wire a " +
+        "`createHeartbeat` + `probeSurfaceLive` watchdog over `system.live` as " +
+        "`surface-nix-host`'s `hostSession.startLiveness` does. A bare `() => true` " +
+        "or an open/close-only `() => socketStatus() === 'live'` is half-open-blind " +
+        "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
     );
   }
-  // In-process link (directLink/stdioLink): live by construction.
+  // Unbranded by `wireClient`: the honest member is the in-process `directLink` (no
+  // wire transport, a microtask `createRouterClient` handler call), whose constant-
+  // `true` leg is honest by construction. Reached BY EXCLUSION, so it also covers any
+  // other unbranded value (a test stub link, or — discouraged — a hand-rolled foreign
+  // oRPC client); see the docstring's residual note. The blessed wire factories all
+  // brand via `wireClient`, so no realistic half-openable link reaches here.
   return { link: transport, live: () => true };
 }
 
@@ -322,14 +350,18 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 // ── Builder ────────────────────────────────────────────────────────────
 
 /** Build the Solid client-side bundle for a surface over a **transport** — either
- *  a {@link LiveSignalHandle} (a half-openable `websocketLink` plus the watchdog
- *  that makes its liveness honest, as ONE object) OR a bare in-process link
- *  (`directLink`/`stdioLink`, which can't half-open). Walks the spec once and
- *  pre-binds each primitive to its oRPC procedure refs, producing `.use(policy)`
- *  hooks that drop the wire-identity args from the per-call signature.
+ *  a {@link LiveSignalHandle} (a half-openable wire link — `websocketLink`,
+ *  `stdioLink`, `unixSocketLink` — plus the watchdog that makes its liveness honest,
+ *  as ONE object) OR a bare in-process `directLink` (`createRouterClient`, no
+ *  transport, the ONE link that can't half-open). A bare `stdioLink`/`unixSocketLink`
+ *  is a wire link that CAN half-open and is REFUSED bare (it throws — pass the handle,
+ *  or hand-wire a watchdog as `surface-nix-host`'s `hostSession.startLiveness` does).
+ *  Walks the spec once and pre-binds each primitive to its oRPC procedure refs,
+ *  producing `.use(policy)` hooks that drop the wire-identity args from the per-call
+ *  signature.
  *
  *  ```ts
- *  // Direct/stdio link (can't half-open) — pass the bare link:
+ *  // In-process directLink (no transport, can't half-open) — pass the bare link:
  *  const app = surfaceClient(surface, directLink(server));
  *
  *  // Websocket link (CAN half-open) — pass the watchdog-backed handle WHOLE.
@@ -605,14 +637,43 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   }
 
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
-  for (const [key] of Object.entries(spec.collections ?? {})) {
+  for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (link as any).surface[key];
+    // Whether this collection opted into batched `deltas` delivery — read from
+    // the SPEC (the authoritative verb set the server also gates on), NEVER from
+    // `(ns as any).deltas`: an oRPC wire client is a lazy Proxy whose every
+    // property access returns a truthy callable, so a transport-level probe is
+    // `true` for EVERY collection and would route a non-opted whole-collection
+    // `.use()` into a `deltas` call the server never registered (the stream
+    // would reject and the collection silently read empty). The server decides
+    // identically — `walkSurface`'s `collVerbs.includes("deltas")`.
+    const hasDeltas = collectionHasDeltas(
+      rawColl as CollectionSpec<unknown, unknown>,
+    );
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {
       use: (opts) => {
         const onError = opts?.onError;
+        // Whole-collection AND the collection opts into batched delivery (the
+        // spec lists `deltas`) → ONE coalesced stream folded into a per-key
+        // store, instead of a keys stream + one value stream per key. A NARROWED
+        // subscription (explicit `opts.keys` — the "watch this subset" case) or a
+        // collection without the `deltas` verb takes the unchanged per-key path.
+        if (!opts?.keys && hasDeltas) {
+          const view = useCollectionDeltas(
+            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+            (surface.descriptors.collections as any)[key],
+            {
+              // biome-ignore lint/suspicious/noExplicitAny: walk-by-string stream ref
+              source: () => unenrolledStreamCall((ns as any).deltas, undefined),
+              onError,
+              enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
+            },
+          );
+          return { ...view, upsert, delete: del };
+        }
         // Default keys: subscribe to the server's keys stream and lift
         // it to a SolidJS accessor. The `.use()` runs inside a Solid
         // owner so the subscription disposes with the component.
@@ -824,11 +885,8 @@ export function surfaceClients<
       k,
       buildSurfaceClient(
         surface,
-        {
-          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
-          surface: (link as any).surface[k],
-          // biome-ignore lint/suspicious/noExplicitAny: scoped link slice is dynamic; the per-surface spec carries call-site safety.
-        } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: the scoped sibling slice is dynamic; the per-surface spec carries call-site safety.
+        scopeSibling(link, k) as any,
         live,
       ),
     ]),

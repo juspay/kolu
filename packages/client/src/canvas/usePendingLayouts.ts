@@ -19,10 +19,35 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { createSignal } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 const [pending, setPending] = createStore<Record<string, TileLayout>>({});
+
+// One-shot create-time geometry slot — a distinct lifecycle from the
+// keyed `pending` store above. `pending` is keyed by tile id (which
+// doesn't exist until the create RPC returns); this is the anonymous
+// "next tile" size the placement effect reads when assembling a brand-
+// new tile's default layout. Kept as its own field (NOT a mode on the
+// keyed store) so the keyed/read-when-echoes-settle and the one-shot/
+// read-once-and-clear lifecycles don't complect.
+//
+// Why a slot and not a read at placement time: the placement effect runs
+// later (driven by the server's tile-list push) and only knows "here is a
+// new tile with no layout" — it has no reliable handle on WHICH existing
+// tile to inherit from once a create is in flight (the active id may have
+// already moved to the new tile, and the previous active tile's visible
+// size may still be settling). `handleCreate` is the one place that knows
+// the source (active) tile at create time, so it snapshots the size into
+// this slot BEFORE starting the RPC; the effect reads-and-clears it for
+// the new tile's layout. Correctness depends only on that ordering
+// (armed before the server push, consumed when a new tile appears) — NOT
+// on the relative timing of `setActiveSilently` and the `tileIds` effect.
+const [nextDefaultSize, setNextDefaultSize] = createSignal<{
+  w: number;
+  h: number;
+} | null>(null);
 
 // E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
@@ -49,6 +74,14 @@ export function usePendingLayouts(): {
   pending: Record<string, TileLayout>;
   /** Set or update a single tile's pending override. */
   setOne: (id: TerminalId, layout: TileLayout) => void;
+  /** Effective layout for a tile: the pending override wins over the
+   *  echoed/saved layout. The single home for the "pending ⊕ saved"
+   *  precedence — both the canvas `layoutOf` and `handleCreate`'s
+   *  size-inheritance read go through this instead of re-deriving it. */
+  resolveLayout: (
+    id: TerminalId,
+    echoed: TileLayout | undefined,
+  ) => TileLayout | undefined;
   /** Bulk-apply pending overrides (used by arrange). */
   applyMany: (layouts: Map<TerminalId, TileLayout>) => void;
   /** Drop entries for tiles that are no longer alive OR whose saved
@@ -61,6 +94,15 @@ export function usePendingLayouts(): {
   /** Wipe all pending entries. Called on canvas unmount so a remount
    *  starts from a clean slate. */
   clear: () => void;
+  /** Arm the one-shot create-time size slot. Called by `handleCreate`
+   *  before the create RPC; `null` clears it (create failed → no server
+   *  push to consume it). Separate from the keyed store. */
+  setNextDefaultSize: (size: { w: number; h: number } | null) => void;
+  /** Read and clear the one-shot create-time size. Called by the canvas
+   *  placement effect when assigning a default layout to a new tile.
+   *  Returns null if none was armed (first terminal, or a create path
+   *  that didn't arm one). */
+  takeNextDefaultSize: () => { w: number; h: number } | null;
 } {
   return {
     get pending() {
@@ -68,6 +110,9 @@ export function usePendingLayouts(): {
     },
     setOne(id, layout) {
       setPending(id, layout);
+    },
+    resolveLayout(id, echoed) {
+      return pending[id] ?? echoed;
     },
     applyMany(layouts) {
       setPending(
@@ -106,6 +151,21 @@ export function usePendingLayouts(): {
     },
     clear() {
       setPending(reconcile({}));
+      // The one-shot size slot is part of the same cleanup contract: a
+      // canvas unmount wipes the keyed pending AND any size armed but not
+      // yet consumed, so a remount can't have a stale create-time size
+      // leak into the next new tile.
+      setNextDefaultSize(null);
+    },
+    setNextDefaultSize(size) {
+      // Not recursion: object method shorthand has no self-binding, so this
+      // resolves to the module-level Solid signal setter captured above.
+      setNextDefaultSize(size);
+    },
+    takeNextDefaultSize() {
+      const size = nextDefaultSize();
+      setNextDefaultSize(null);
+      return size;
     },
   };
 }

@@ -1,0 +1,202 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>hcom vs. kolu — the filesystem is the channel · the kolu Atlas</title><meta name="description" content="hcom hooks coding agents together with per-tool hooks and a shared SQLite event log, so agents message, watch, and subscribe to each other. It's a fine design for a tool that owns no terminal. kolu owns the terminal and won't touch your ~/.claude — and it already has a channel every agent speaks natively, the filesystem. Agents coordinate through shared files (as /debate does), kolu watches them for push, and the screen is the floor only for what files can't carry. So the honest verdict is not to adopt hcom's channel — it's that kolu already has one."><meta name="generator" content="Astro v7.0.0"><meta name="color-scheme" content="light"><link rel="canonical" href="https://kolu.dev/atlas/hcom-vs-kolu.html"><link rel="icon" type="image/svg+xml" href="./favicon.svg"><meta property="og:title" content="hcom vs. kolu — the filesystem is the channel · the kolu Atlas"><meta property="og:description" content="hcom hooks coding agents together with per-tool hooks and a shared SQLite event log, so agents message, watch, and subscribe to each other. It's a fine design for a tool that owns no terminal. kolu owns the terminal and won't touch your ~/.claude — and it already has a channel every agent speaks natively, the filesystem. Agents coordinate through shared files (as /debate does), kolu watches them for push, and the screen is the floor only for what files can't carry. So the honest verdict is not to adopt hcom's channel — it's that kolu already has one."><meta property="og:type" content="article"><meta property="og:url" content="https://kolu.dev/atlas/hcom-vs-kolu.html"><meta property="og:site_name" content="the kolu Atlas"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://kolu.dev/atlas/og.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><meta property="article:published_time" content="2026-07-01T00:00:00.000Z"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:site" content="@sridca"><meta name="twitter:creator" content="@sridca"><meta name="twitter:title" content="hcom vs. kolu — the filesystem is the channel · the kolu Atlas"><meta name="twitter:description" content="hcom hooks coding agents together with per-tool hooks and a shared SQLite event log, so agents message, watch, and subscribe to each other. It's a fine design for a tool that owns no terminal. kolu owns the terminal and won't touch your ~/.claude — and it already has a channel every agent speaks natively, the filesystem. Agents coordinate through shared files (as /debate does), kolu watches them for push, and the screen is the floor only for what files can't carry. So the honest verdict is not to adopt hcom's channel — it's that kolu already has one."><meta name="twitter:image" content="https://kolu.dev/atlas/og.png"><meta name="twitter:image:alt" content="the kolu Atlas — an in-repo knowledge graph"><style>:root{--paper:#f6f7f9;--surface:#fff;--ink:#1a1c20;--ink-dim:#3f444b;--ink-muted:#6b7178;--ink-faint:#9aa0a6;--rule:#e3e6ea;--rule-soft:#eceef1;--amber:#b4690e;--amber-soft:#f0e2c8;--teal:#0b6478;--green:#1b7a3a;--gold:#8a5200;--alert:#b42318;--code-bg:#eef1f4;--sans:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;--serif:"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;--mono:ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace}*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;margin:0;font-size:17px;line-height:1.6}a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:46rem;margin:0 auto;padding:4rem 1.5rem 6rem}.mono{font-family:var(--mono)}.eyebrow{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0;font-size:.72rem}.atlas-title{font-family:var(--serif);letter-spacing:-.01em;margin:.6rem 0 0;font-size:clamp(2.6rem,6vw,3.6rem);font-weight:600;line-height:1.05}.atlas-title .accent{color:var(--amber)}.lede{color:var(--ink-dim);max-width:40rem;margin:1rem 0 0;font-size:.95rem}.wrap-index{max-width:56rem}.legend{font-family:var(--mono);color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.45rem 1.1rem;margin:.7rem 0 0;font-size:.66rem;display:flex}.legend-item{align-items:center;gap:.4em;display:inline-flex}.legend-dot{border-radius:50%;width:7px;height:7px;display:inline-block}.moc{margin:1.5rem 0 0;padding:0;list-style:none}.moc-sub{border-left:1px solid var(--rule);margin:.05rem 0 .2rem .55rem;padding-left:.8rem;list-style:none}.row{border-radius:6px;align-items:center;gap:.5rem;padding:.22rem .45rem;line-height:1.3;display:flex}.row:hover{background:var(--surface);text-decoration:none}.row:hover .row-t{color:var(--amber)}.row-dot{border-radius:50%;flex:none;width:7px;height:7px}.row-t{color:var(--ink);white-space:nowrap;flex:none;font-size:.95rem;font-weight:600}.row-d{color:var(--ink-muted);white-space:nowrap;text-overflow:ellipsis;flex:auto;min-width:0;font-size:.84rem;overflow:hidden}.row-rel{font-family:var(--mono);color:var(--ink-faint);margin:.02rem 0 .18rem 1.55rem;font-size:.64rem}.row-rel-lead{letter-spacing:.1em;text-transform:uppercase;margin-right:.45em}.row-rel a{color:var(--ink-muted)}.row-rel a:hover{color:var(--amber);text-decoration:none}.row-rel-sep{color:var(--rule);margin:0 .35em}.row-flag{font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;flex:none;font-size:.56rem}.row-flag.is-status{color:var(--ink-faint)}.row-flag.is-draft{color:var(--alert)}.m-seedling{background:var(--gold)}.m-budding{background:var(--teal)}.m-evergreen{background:var(--green)}.backlink{font-family:var(--mono);letter-spacing:.14em;color:var(--ink-muted);font-size:.72rem}.backlink:hover{color:var(--amber)}.note-h1{font-family:var(--serif);letter-spacing:-.01em;margin:1.6rem 0 0;font-size:clamp(2.1rem,5vw,3rem);font-weight:600;line-height:1.08}.meta-row{font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:1.1rem;font-size:.7rem;display:flex}.meta-sep{color:var(--ink-faint)}.note-sub{color:var(--ink-dim);margin-top:1.1rem}.note-foot{border-top:1px solid var(--rule);justify-content:space-between;margin-top:4rem;padding-top:1.4rem;display:flex}.prose{color:var(--ink-dim)}.prose>:first-child{margin-top:0}.prose h2{font-family:var(--serif);color:var(--ink);letter-spacing:-.01em;margin:2.6rem 0 .8rem;font-size:1.6rem;font-weight:600}.prose h3{font-family:var(--serif);color:var(--ink);margin:2rem 0 .6rem;font-size:1.25rem;font-weight:600}.prose p{margin:0 0 1.1rem}.prose strong{color:var(--ink);font-weight:650}.prose em{font-style:italic}.prose ul,.prose ol{margin:0 0 1.2rem;padding-left:1.3rem}.prose li{margin:.35rem 0}.prose li::marker{color:var(--ink-faint)}.prose a{color:var(--amber);text-underline-offset:2px;text-decoration:underline 1px}.prose code{font-family:var(--mono);background:var(--code-bg);border:1px solid var(--rule);border-radius:5px;padding:.08em .35em;font-size:.86em}.prose pre{background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;margin:0 0 1.3rem;padding:1rem 1.1rem;overflow-x:auto}.prose pre code{background:0 0;border:0;padding:0;font-size:.82rem}.prose blockquote{border-left:3px solid var(--amber-soft);color:var(--ink-dim);margin:1.3rem 0;padding:.2rem 0 .2rem 1.1rem}.prose blockquote p:last-child{margin-bottom:0}.prose hr{border:0;border-top:1px solid var(--rule);margin:2.4rem 0}.prose table{border-collapse:collapse;width:100%;margin:0 0 1.4rem;font-size:.9rem;display:block;overflow-x:auto}.prose th,.prose td{text-align:left;border:1px solid var(--rule);vertical-align:top;padding:.55rem .7rem}.prose th{background:var(--rule-soft);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);font-size:.72rem;font-weight:600}.pill[data-astro-cid-4xidn2cs]{font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;vertical-align:middle;border-radius:999px;padding:.1em .5em;font-size:.62rem;display:inline-block}.diagram[data-astro-cid-6cvztg6h]{text-align:center;margin:1.75rem 0}.diagram[data-astro-cid-6cvztg6h].wide{width:min(84rem,94vw);margin-left:50%;transform:translate(-50%)}.diagram[data-astro-cid-6cvztg6h] svg{max-width:100%;height:auto}.diagram[data-astro-cid-6cvztg6h] figcaption[data-astro-cid-6cvztg6h]{color:var(--faint,#7a8089);font-size:.8rem;font-family:var(--sans,ui-sans-serif, system-ui);margin-top:.5rem}.toc[data-astro-cid-7k3pnqyz]{border:1px solid var(--rule);background:var(--surface);border-radius:8px;margin:1.8rem 0;padding:.9rem 1.1rem}.toc-title[data-astro-cid-7k3pnqyz]{font-family:var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .5rem;font-size:.66rem}.backlinks[data-astro-cid-aziudkuj]{border-top:1px solid var(--rule);margin:2.5rem 0 0;padding-top:1.25rem}.backlinks-h[data-astro-cid-aziudkuj]{font-family:var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 .7rem;font-size:.72rem;font-weight:650}.backlinks-list[data-astro-cid-aziudkuj]{flex-wrap:wrap;gap:.45rem 1rem;margin:0;padding:0;list-style:none;display:flex}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]{color:var(--ink-dim);border-bottom:1px solid var(--rule);font-size:.92rem;text-decoration:none}.backlinks-list[data-astro-cid-aziudkuj] a[data-astro-cid-aziudkuj]:hover{color:var(--amber);border-color:var(--amber)}.callout[data-astro-cid-q2ml7llr]{border:1px solid var(--rule);background:var(--surface);border-left-width:3px;border-radius:8px;margin:1.4rem 0;padding:.85rem 1.1rem}.callout-title[data-astro-cid-q2ml7llr]{letter-spacing:.02em;color:var(--ink);margin:0 0 .4rem;font-size:.82rem;font-weight:650}.callout-note[data-astro-cid-q2ml7llr]{border-left-color:var(--ink-faint)}.callout-accent[data-astro-cid-q2ml7llr]{border-left-color:var(--amber);background:#fbf4e6}.callout-good[data-astro-cid-q2ml7llr]{border-left-color:var(--green);background:#eff6f0}.callout-warn[data-astro-cid-q2ml7llr]{background:#fbf6e8;border-left-color:#b8860b}.callout-danger[data-astro-cid-q2ml7llr]{border-left-color:var(--alert);background:#fcf0ef}.toc-list[data-astro-cid-rda6bqd5]{margin:0;padding:0;list-style:none}.toc-item[data-astro-cid-rda6bqd5]{margin:.2rem 0}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-dim);font-size:.92rem;text-decoration:none}.toc-item[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]:hover{color:var(--amber)}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5]{border-left:1px solid var(--rule);margin:.15rem 0 .35rem .2rem;padding-left:.8rem}.toc-item[data-astro-cid-rda6bqd5] .toc-list[data-astro-cid-rda6bqd5] a[data-astro-cid-rda6bqd5]{color:var(--ink-muted);font-size:.85rem}</style></head><body>
+  <article class="wrap"><header><a class="backlink" href="./index.html">← the Atlas</a><h1 class="note-h1">hcom vs. kolu — the filesystem is the channel</h1><div class="meta-row"><span>Comparisons</span><span class="meta-sep">·</span><span>seedling</span><span class="meta-sep">·</span><time datetime="2026-07-01T00:00:00.000Z">JUL 01, 2026</time></div><p class="note-sub">hcom hooks coding agents together with per-tool hooks and a shared SQLite event log, so agents message, watch, and subscribe to each other. It&#39;s a fine design for a tool that owns no terminal. kolu owns the terminal and won&#39;t touch your ~/.claude — and it already has a channel every agent speaks natively, the filesystem. Agents coordinate through shared files (as /debate does), kolu watches them for push, and the screen is the floor only for what files can&#39;t carry. So the honest verdict is not to adopt hcom&#39;s channel — it&#39;s that kolu already has one.</p><nav class="toc" aria-label="Table of contents" data-astro-cid-7k3pnqyz><p class="toc-title" data-astro-cid-7k3pnqyz>Contents</p><ul class="toc-list" data-astro-cid-rda6bqd5><li class="toc-item" data-astro-cid-rda6bqd5><a href="#two-ways-to-wire-agents-together" data-astro-cid-rda6bqd5>Two ways to wire agents together</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#the-filesystem-is-already-the-channel" data-astro-cid-rda6bqd5>The filesystem is already the channel</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-adopting-hcoms-channel-would-actually-add--and-why-it-isnt-worth-it" data-astro-cid-rda6bqd5>What adopting hcom’s channel would actually add — and why it isn’t worth it</a></li><li class="toc-item" data-astro-cid-rda6bqd5><a href="#what-kolu-keeps--the-channel-it-has-and-the-floor-beneath-it" data-astro-cid-rda6bqd5>What kolu keeps — the channel it has, and the floor beneath it</a></li></ul></nav></header><div class="prose"><p><em>A read of <a href="https://github.com/aannoo/hcom"><strong>hcom</strong></a> — a single Rust binary that
+“hooks your coding agents together” so they message, watch, and spawn each other
+across terminals — held against what kolu (a workspace where many coding agents
+run in real terminals you can watch) already is. hcom is a genuinely nice design, and
+the obvious instinct is “kolu should adopt this.” Checked against both codebases,
+the honest verdict is the opposite: <strong>kolu already has the channel hcom installs —
+the filesystem — so it doesn’t need hcom’s.</strong> This note is why.</em></p>
+<figure class="diagram wide" data-astro-cid-6cvztg6h><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 432" font-family="ui-sans-serif, system-ui, sans-serif" role="img" aria-label="Two ways to wire coding agents together, side by side. Left panel, hcom: two agents, each with a hook installed into your ~/.claude config, talk through a shared SQLite event log — a real message channel with an inbox and events, delivered mid-turn through the hooks. The cost, labelled: per-tool hooks written into your config. Right panel, kolu: two agents — any agent, no setup, no hooks — read and write a shared directory of markdown files (01.md, 02.md, 03.md) by path; kolu watches that directory with parcel-watcher so a new or changed file is a push, not a poll. The files are the channel — no hooks, any agent, headless and over ssh. A footnote notes the terminal screen is used only for the prompt keystroke and for interactive UI prompts like AskUserQuestion that no log or file can carry. The conclusion the picture makes: kolu already has a channel — the filesystem — so it doesn't install hcom's.">
+  <defs>
+    <marker id="hkc-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#B45309"/>
+    </marker>
+    <marker id="hkc-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#15803D"/>
+    </marker>
+    <style>
+      .panel   { fill:#ffffff; stroke:#e2e8f0; stroke-width:1.5; }
+      .ptitle  { font-size:18px; font-weight:700; }
+      .psub    { font-size:11.5px; }
+      .badge   { font-size:9.5px; font-weight:700; letter-spacing:0.07em; }
+      .box-t   { font-size:13px; font-weight:700; }
+      .box-s   { font-size:10px; }
+      .mono    { font-family:ui-monospace, "SF Mono", Menlo, monospace; }
+      .note    { font-size:11px; font-style:italic; }
+      .cap     { font-size:11.5px; }
+
+      .amber-panel { fill:#FDFBF6; stroke:#EAD9B5; }
+      .amber-box { fill:#FBF1DC; stroke:#B45309; stroke-width:1.75; }
+      .amber-log { fill:#F6E7C6; stroke:#B45309; stroke-width:2; }
+      .amber-tt  { fill:#92400E; }
+      .amber-ss  { fill:#7a4f00; }
+      .amber-edge{ stroke:#B45309; stroke-width:2.25; fill:none; }
+
+      .green-panel { fill:#F6FBF7; stroke:#CDE8D5; }
+      .green-box { fill:#E6F4EA; stroke:#15803D; stroke-width:1.75; }
+      .blue-log  { fill:#EDF0FD; stroke:#0D32B2; stroke-width:2; }
+      .green-tt  { fill:#14532D; }
+      .green-ss  { fill:#166534; }
+      .blue-tt   { fill:#0D32B2; }
+      .blue-ss   { fill:#4A5072; }
+      .green-edge{ stroke:#15803D; stroke-width:2.25; fill:none; }
+      .foot      { fill:#64748b; font-size:10px; }
+    </style>
+  </defs>
+
+  <!-- ============ hcom ============ -->
+  <rect class="panel amber-panel" x="14" y="14" width="338" height="404" rx="11"/>
+  <text class="ptitle amber-tt" x="34" y="47">hcom</text>
+  <text class="psub amber-ss" x="34" y="64">installs a channel</text>
+  <text class="badge amber-tt" x="332" y="44" text-anchor="end">OWNS NO TERMINAL</text>
+
+  <rect class="amber-box" x="34" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t amber-tt" x="100" y="106" text-anchor="middle">agent A</text>
+  <text class="box-s amber-ss mono" x="100" y="123" text-anchor="middle">hook in ~/.claude</text>
+
+  <rect class="amber-box" x="200" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t amber-tt" x="266" y="106" text-anchor="middle">agent B</text>
+  <text class="box-s amber-ss mono" x="266" y="123" text-anchor="middle">hook in ~/.claude</text>
+
+  <rect class="amber-log" x="103" y="214" width="160" height="72" rx="9"/>
+  <text class="box-t amber-tt" x="183" y="243" text-anchor="middle">shared event log</text>
+  <text class="box-s amber-ss mono" x="183" y="262" text-anchor="middle">SQLite · inbox · events</text>
+
+  <path class="amber-edge" d="M100 138 L150 214" marker-start="url(#hkc-a)" marker-end="url(#hkc-a)"/>
+  <path class="amber-edge" d="M266 138 L216 214" marker-start="url(#hkc-a)" marker-end="url(#hkc-a)"/>
+
+  <text class="note amber-ss" x="183" y="314" text-anchor="middle">delivered mid-turn — through the hooks</text>
+  <text class="cap amber-tt" x="183" y="368" text-anchor="middle" font-weight="700">a real channel — the cost:</text>
+  <text class="cap amber-ss" x="183" y="386" text-anchor="middle">per-tool hooks, written into your config</text>
+
+  <!-- ============ kolu ============ -->
+  <rect class="panel green-panel" x="368" y="14" width="338" height="404" rx="11"/>
+  <text class="ptitle green-tt" x="388" y="47">kolu</text>
+  <text class="psub green-ss" x="388" y="64">uses the channel it already has</text>
+  <text class="badge green-tt" x="686" y="44" text-anchor="end">OWNS THE TERMINAL</text>
+
+  <rect class="green-box" x="388" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t green-tt" x="454" y="106" text-anchor="middle">agent A</text>
+  <text class="box-s green-ss" x="454" y="123" text-anchor="middle">any agent · no setup</text>
+
+  <rect class="green-box" x="554" y="82" width="132" height="56" rx="8"/>
+  <text class="box-t green-tt" x="620" y="106" text-anchor="middle">agent B</text>
+  <text class="box-s green-ss" x="620" y="123" text-anchor="middle">any agent · no setup</text>
+
+  <rect class="blue-log" x="457" y="214" width="160" height="72" rx="9"/>
+  <text class="box-t blue-tt" x="537" y="240" text-anchor="middle">shared directory</text>
+  <text class="box-s blue-ss mono" x="537" y="259" text-anchor="middle">01.md · 02.md · 03.md</text>
+  <text class="box-s blue-ss" x="537" y="275" text-anchor="middle">kolu watches it → push</text>
+
+  <path class="green-edge" d="M454 138 L504 214" marker-start="url(#hkc-g)" marker-end="url(#hkc-g)"/>
+  <path class="green-edge" d="M620 138 L570 214" marker-start="url(#hkc-g)" marker-end="url(#hkc-g)"/>
+  <text class="note green-ss" x="537" y="182" text-anchor="middle">read / write by path</text>
+
+  <text class="cap green-tt" x="537" y="314" text-anchor="middle" font-weight="700">files are the channel</text>
+  <text class="cap green-ss" x="537" y="332" text-anchor="middle">no hooks · any agent · headless &amp; over ssh</text>
+  <text class="foot" x="537" y="372" text-anchor="middle">screen only for what files can't carry:</text>
+  <text class="foot mono" x="537" y="388" text-anchor="middle">the prompt keystroke · AskUserQuestion</text>
+</svg>
+<figcaption data-astro-cid-6cvztg6h>Two ways to wire agents together. hcom installs a message channel (per-tool hooks + a shared event log) because it owns no terminal. kolu owns the terminal and won&#39;t touch your config — so it uses the channel every agent already speaks: a shared directory of files, watched for push. The screen is the floor only for what files can&#39;t carry.</figcaption></figure>
+<h2 id="two-ways-to-wire-agents-together">Two ways to wire agents together</h2>
+<p>hcom owns <strong>no terminal</strong>, so to let agents coordinate it has to <em>build a channel</em>
+and inject into each tool. It rides each tool’s hooks (Claude Code’s
+<code>PostToolUse</code>/<code>Stop</code>, Gemini, Codex, …) and a <strong>shared SQLite event log</strong>, giving
+every agent an inbox, an event feed, <code>@mention</code> routing, an intent
+(<code>request</code>/<code>inform</code>/<code>ack</code>), and subscriptions. It’s a real coordination fabric.
+The price is stated in hcom’s own README: its hooks <em>“go into config dirs under
+<code>~/</code> on first run,”</em> and each of its ~10 tools needs a hand-written hook and
+transcript parser.</p>
+<p>kolu made the other choice, and its README names the two rules that force it:</p>
+<ul>
+<li><strong>Agent-agnostic</strong> — <em>“no adapter to write, no per-agent code… run it once and
+the next agent that ships works the same way.”</em></li>
+<li><strong>Auto-detected, zero setup</strong> — <em>“the surface grows with your workflow, not with
+a preferences pane.”</em></li>
+</ul>
+<p>So kolu <strong>won’t touch your <code>~/.claude</code></strong>. That rules out hcom’s whole mechanism —
+and forces the interesting question: without installed hooks, how do kolu agents
+coordinate? The answer is already in the repo, and it isn’t the terminal screen.</p>
+<h2 id="the-filesystem-is-already-the-channel">The filesystem is already the channel</h2>
+<p>Kolu’s <code>/debate</code> skill — a port of <a href="https://github.com/srid/llm-debate"><code>srid/llm-debate</code></a> —
+is the proof. Agents don’t message each other and don’t read each other’s screens.
+They exchange arguments as <strong>numbered markdown files</strong> in a shared directory: each
+reads the others’ turn-files and writes its own <em>by path</em>. The skill is explicit —
+<em>“pass file paths, not pasted argument text — the agents read and write the shared
+directory directly.”</em> A turn being <strong>done</strong> is just its <strong>file existing</strong>.</p>
+<p>That’s the whole coordination channel, and it has every property hcom’s log has,
+with none of the cost:</p>
+<ul>
+<li><strong>Every agent speaks it natively.</strong> Reading and writing files needs no hook, no
+per-agent adapter, no bootstrap primer — it works for <code>claude</code>, <code>codex</code>, and
+whatever ships next week, unchanged. It works <strong>headless</strong>, and it crosses
+machines over ssh like any other file.</li>
+<li><strong>Push, not poll.</strong> kolu already watches the filesystem (<code>@parcel/watcher</code>, the
+<code>.git/HEAD</code> watcher, session-file watchers). A file appearing or changing <em>is</em> a
+push notification — so “react
+when the other agent writes its turn” needs no message bus and no wait-loop.</li>
+<li><strong>It’s shared state you can read after the fact</strong> — the turn-files <em>are</em> the
+transcript, on disk, greppable, diffable, committable. hcom rebuilds this with a
+queryable event log; kolu gets it from the directory for free.</li>
+</ul>
+<p>Map hcom’s headline features onto this and they collapse into things kolu already
+has: an <strong>inbox</strong> is a file the other agent writes; <strong>subscriptions</strong> are a watch
+on a path; <strong><code>@mention</code> addressing</strong> is a filename; a <strong>thread</strong> is a
+subdirectory. There is no capability here that kolu lacks — only a different
+spelling of one it already uses.</p>
+<h2 id="what-adopting-hcoms-channel-would-actually-add--and-why-it-isnt-worth-it">What adopting hcom’s channel would actually add — and why it isn’t worth it</h2>
+<p>Held against “shared files + a watcher,” a message-inbox API adds <strong>ergonomics, not
+capability</strong> — addressed messages and threads are a nicer surface over what a
+directory already does. Two things it does <em>not</em> buy, which is the whole reason
+not to build it:</p>
+<ul>
+<li><strong>hcom’s one genuinely unique trick is mid-turn injection</strong> — dropping a message
+between an agent’s tool calls. That is <em>purchased by</em> the hooks kolu refuses. And
+it isn’t wanted for the coordination kolu actually runs: turn-based work
+(<code>/debate</code>, worker-reviewer, pipeline) <em>wants</em> each agent to finish its turn
+before the next input lands. Between-turns — which files already give — is the
+correct semantics, not a limitation.</li>
+<li><strong>The one real gap it leaves open, a channel can’t close.</strong> When an agent blocks
+on an interactive UI prompt — <code>AskUserQuestion</code>, plan approval, a permission
+dialog — that state is invisible to files <em>and</em> logs, and un-answerable by text.</li>
+</ul>
+<aside class="callout callout-warning" data-astro-cid-q2ml7llr><p class="callout-title" data-astro-cid-q2ml7llr>The interactive-prompt floor — neither files nor a message bus reach it</p><div class="callout-body" data-astro-cid-q2ml7llr><p>Claude Code’s Agent SDK buffers the <code>AskUserQuestion</code>/<code>ExitPlanMode</code> message <em>in
+memory</em> and flushes it to the session transcript file (the agent’s JSONL log) only
+<strong>after you answer</strong> — so a log reader (and a file-based agent) sees <code>waiting</code>,
+never <code>awaiting_user</code> (<a href="https://github.com/juspay/kolu/issues/905" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>#905</a>).
+kolu already had to <strong>read the rendered screen</strong> to catch it (<a href="https://github.com/juspay/kolu/pull/1160" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"><svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>#1160</a>),
+matching literal strings plus the menu’s shape — brittle by nature. And you
+<em>answer</em> such a menu with <strong>arrow keys</strong>, not text. A message channel changes none
+of this: the agent never <em>sends</em> here, it’s blocked in a UI. This is the floor the
+terminal exists to cover, and it’s why driving an agent bottoms out at real
+keystrokes.</p></div></aside>
+<p>So the trade is: <strong>ergonomics over a filesystem kolu already uses, bought with the
+per-tool hooks kolu deliberately refuses — and it still doesn’t solve the one hard
+case.</strong> Net negative. Don’t adopt it.</p>
+<h2 id="what-kolu-keeps--the-channel-it-has-and-the-floor-beneath-it">What kolu keeps — the channel it has, and the floor beneath it</h2>
+<p>The comparison is not “kolu is missing a layer.” It’s that kolu already put each
+job where it belongs — files carry what agents <em>say</em>, the terminal carries only
+what files <em>can’t</em> — the kind of boundary call (<a href="./electricity.html">electricity</a>,
+in kolu’s terms) that hcom’s hook-everything design has to fight.</p>
+<ul>
+<li><strong>The filesystem is the channel</strong> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>keep</span> — content and coordination
+ride shared files, watched for push. No hooks, any agent, headless, over ssh.</li>
+<li><strong>The terminal is the floor</strong> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>keep</span> — kolu’s terminal CLI
+<a href="./pty-daemon-tui.html"><code>kaval-tui</code></a> <code>send</code>s the prompt; the screen is read
+<em>only</em> for what files can’t carry (the raw prompt keystroke and the interactive
+prompts above). That’s why driving an agent is <em>“press Enter,”</em> not a protocol:
+it’s the one path that works for <strong>any</strong> agent at <strong>zero</strong> setup — the same
+<a href="./herdr-vs-kolu.html">agent-agnostic bet</a> kolu makes everywhere, explained for a
+general reader on the <a href="https://kolu.dev/kaval/">kaval page</a>.</li>
+<li><strong>Transport is surface-over-ssh, not a broker</strong> <span class="pill" style="color:#5b6470;background:#eef0f2;border:1px solid #d9dde2" data-astro-cid-4xidn2cs>keep</span> — hcom’s
+cross-device story is a shared-PSK MQTT relay its own README calls <em>“shell access
+on every enrolled device,”</em> with no forward secrecy and no revocation. kolu’s is
+<a href="./remote-terminals.html"><code>@kolu/surface-nix-host</code></a> over ssh: per-connection OS
+auth, no third-party broker.</li>
+</ul>
+<p>hcom is the right design for a tool that owns no terminal and must therefore
+install a channel into your agents. kolu owns the terminal <em>and</em> the working
+directory, so it already has one — and keeps the setup-free floor beneath it. The
+thing worth borrowing from hcom isn’t its channel; it’s the clarity that a channel
+is what agents need. kolu answers that with the filesystem.</p></div><footer class="note-foot"><a class="backlink" href="./index.html">← the Atlas</a><a class="backlink" href="https://github.com/juspay/kolu" rel="noopener">github ↗</a></footer></article>
+</body></html>

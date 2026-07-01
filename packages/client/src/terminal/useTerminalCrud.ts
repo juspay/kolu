@@ -4,10 +4,12 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
+import { shuffleMode } from "kolu-common/surface";
 import type { TranscriptHtmlMode } from "kolu-common/transcript";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { createSharedRoot } from "../createSharedRoot";
+import { useColorScheme } from "../settings/useColorScheme";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
@@ -15,6 +17,7 @@ import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
+import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
@@ -31,7 +34,9 @@ export const useTerminalCrud = createSharedRoot(() => {
   const subPanel = useSubPanel();
   const terminalSearch = useTerminalSearch();
   const rightPanel = useRightPanel();
+  const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
+  const { isDark } = useColorScheme();
 
   // --- Handlers ---
 
@@ -116,20 +121,63 @@ export const useTerminalCrud = createSharedRoot(() => {
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
-    // server's default theme for a frame, which we don't want scored as a
-    // peer against itself.
-    const peerBgs = preferences().shuffleTheme
-      ? resolveThemeBgs(
-          store.terminalIds(),
-          (id) => store.getMetadata(id)?.themeName,
-        )
-      : null;
+    // Pick the new terminal's theme by strategy. `inherit` copies the active
+    // tile's theme (like size inheritance below); `shuffle` auto-picks a tint
+    // distinct from every open terminal, restricted to the family the shuffle
+    // behaviour resolves to. Either way an explicit `initial.themeName`
+    // (worktree / session restore) wins, and an unresolved theme (no active
+    // tile to inherit, or the active tile is on the default) stays `undefined`
+    // → the server default. Peers are snapshotted BEFORE creating so the new
+    // tile's momentary default theme isn't scored as a peer against itself.
     const theme =
       initial?.themeName ??
-      (peerBgs
-        ? pickTheme(availableThemes, { spread: true, peerBgs })
-        : undefined);
+      (preferences().newTerminalTheme === "shuffle"
+        ? pickTheme(availableThemes, {
+            spread: true,
+            peerBgs: resolveThemeBgs(
+              store.terminalIds(),
+              (id) => store.getMetadata(id)?.themeName,
+            ),
+            mode: shuffleMode(preferences().shuffleBehavior, isDark()),
+          })
+        : // "inherit": copy the active tile's theme (undefined → server default)
+          (() => {
+            const activeId = store.activeId();
+            return activeId !== null
+              ? store.getMetadata(activeId)?.themeName
+              : undefined;
+          })());
+    // Inherit the active tile's size for the new terminal. Set BEFORE
+    // the create RPC — the server push during the await triggers the
+    // canvas placement effect, which consumes the signal. If we set
+    // after the await, the effect has already run with no size to inherit.
+    //
+    // Only the cascade-placed fresh-create path consumes the slot: a
+    // create carrying `initial.canvasLayout` (session restore, #642) is
+    // server-seeded, so the placement effect's `newIds` excludes it and a
+    // set would be never-consumed. So we touch the slot ONLY on the
+    // fresh-create path — but there we set it UNCONDITIONALLY (size, or
+    // `null` when there's no active tile to inherit from), so a fresh
+    // create always OWNS the slot value rather than leaving a stale size
+    // armed by an earlier create that no new tile ever consumed.
+    //
+    // Prefer the active tile's *pending* layout over its echoed metadata:
+    // a just-resized tile's visible size lives in `pendingLayouts.pending`
+    // until the server metadata echo catches up (`getLayout` reads only
+    // the echo). Reading the echo alone would inherit the pre-resize size
+    // when a create races the echo. `active()` bundles (id, meta) from one
+    // glitch-free read.
+    if (!initial?.canvasLayout) {
+      const { id: activeId, meta } = store.active();
+      // `active()` bundles (id, meta): meta is null whenever id is null, so the
+      // no-active-tile branch is just `undefined` — there's no metadata to read.
+      const activeLayout = activeId
+        ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
+        : undefined;
+      pendingLayouts.setNextDefaultSize(
+        activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
+      );
+    }
     const info = await client.terminal
       .create({
         cwd,
@@ -141,6 +189,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         intent: initial?.intent,
       })
       .catch((err: Error) => {
+        // Create failed → no server push, so the canvas effect won't consume
+        // the pending size. Clear it here (not in a `finally`, which would
+        // race the deferred effect on the success path) so a stale size can't
+        // leak into a later create that has no active tile to overwrite it.
+        pendingLayouts.setNextDefaultSize(null);
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
@@ -292,6 +345,22 @@ export const useTerminalCrud = createSharedRoot(() => {
     }
   }
 
+  /** Copy the focused terminal's id to the clipboard — the value
+   *  `kaval-tui attach <id>` takes to grab this exact PTY from a shell. Each
+   *  split is its own PTY with its own id, so this copies the focused pane's,
+   *  matching `handleCopyTerminalText`'s `focusedId()`. */
+  async function handleCopyTerminalId() {
+    const id = store.focusedId();
+    if (id === null) return;
+    try {
+      await writeTextToClipboard(id);
+      toast.success("Copied terminal ID to clipboard");
+    } catch (err) {
+      console.error("Failed to copy terminal ID:", err);
+      toast.error(`Failed to copy terminal ID: ${(err as Error).message}`);
+    }
+  }
+
   /** Write a command line into the active terminal WITHOUT pressing Enter.
    *  Used by the "Recent agents" palette entry to prefill a previously
    *  seen agent CLI — the user reviews/edits and hits Enter themselves.
@@ -350,6 +419,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     handleWake,
     handleDiscard,
     handleCopyTerminalText,
+    handleCopyTerminalId,
     handleRunInActiveTerminal,
     handleCloseAll,
     exportScrollbackPdf,

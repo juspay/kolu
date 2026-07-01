@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * `createLiveSignal` — the single, UNFORGEABLE minter of a watchdog-backed
  * `LiveSignalHandle`. It lives in `@kolu/surface` (beside the module-private brand
@@ -64,6 +65,7 @@ function fakeSocket() {
       readyState = 1;
       fire("open");
     },
+    listenerCount: (type: string) => (listeners[type] ?? []).length,
   };
 }
 
@@ -122,5 +124,38 @@ describe("createLiveSignal — the unforgeable, watchdog-backed live signal", ()
     };
     expect(isLiveSignalHandle(forged)).toBe(false);
     transport.dispose();
+  });
+
+  it("dispose() detaches every listener it attached — the socket's open/close AND the window/document wake events (no leak across a remount)", () => {
+    const f = fakeSocket();
+    const winAdd = vi.spyOn(window, "addEventListener");
+    const docAdd = vi.spyOn(document, "addEventListener");
+    const winRemove = vi.spyOn(window, "removeEventListener");
+    const docRemove = vi.spyOn(document, "removeEventListener");
+    const transport = createLiveSignal(f.socket as never, {});
+    // On mount: the browser wake events (window focus / tab visible) AND the
+    // socket's own open/close are wired. (The owned `websocketLink` attaches its
+    // OWN open/close too, so we track our pair by the count DELTA, not the total.)
+    const focusHandler = winAdd.mock.calls.find(([t]) => t === "focus")?.[1];
+    const visHandler = docAdd.mock.calls.find(
+      ([t]) => t === "visibilitychange",
+    )?.[1];
+    expect(focusHandler).toBeTypeOf("function");
+    expect(visHandler).toBeTypeOf("function");
+    const openAfterMount = f.listenerCount("open");
+    const closeAfterMount = f.listenerCount("close");
+    transport.dispose();
+    // After dispose: the EXACT same wake handlers are detached — not "a" listener,
+    // the ones we added — so a remount leaks nothing. Removing the wrong/no handler
+    // fails these.
+    expect(winRemove).toHaveBeenCalledWith("focus", focusHandler);
+    expect(docRemove).toHaveBeenCalledWith("visibilitychange", visHandler);
+    // ...and our one open + one close socket listener are gone (the link's remain).
+    expect(f.listenerCount("open")).toBe(openAfterMount - 1);
+    expect(f.listenerCount("close")).toBe(closeAfterMount - 1);
+    winAdd.mockRestore();
+    docAdd.mockRestore();
+    winRemove.mockRestore();
+    docRemove.mockRestore();
   });
 });

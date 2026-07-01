@@ -77,8 +77,10 @@ export type PtyId = string;
  *  `startLine` to `buffer.length - tailLines` (clamped at 0), the only place
  *  the live buffer length is known. Screen-scrape detectors that inspect only
  *  the screen bottom pass it so a long scrollback (the configured 50k lines)
- *  isn't allocated, joined, and shipped every poll just to be discarded —
- *  `tailLines` overrides an explicit `startLine`. */
+ *  isn't allocated, joined, and shipped every poll just to be discarded. This
+ *  positional leaf is the single translation target for {@link ScreenExtent};
+ *  callers above pick exactly one bound, so `startLine` and `tailLines` never
+ *  arrive together. */
 export function getScreenText(
   buffer: {
     length: number;
@@ -100,6 +102,18 @@ export function getScreenText(
   }
   return lines.join("\n");
 }
+
+/** Which slice of the rendered buffer a screen-text read returns — the single
+ *  bound axis as a closed set of mutually-exclusive variants, so an illegal
+ *  combination (a tail AND a range, a viewport AND a tail) is unrepresentable
+ *  rather than resolved by a silent precedence. `viewport` is "the visible
+ *  screen", resolved host-side to a tail of the live grid's own `rows` (a
+ *  caller can't know it). Absent extent ⇒ the full buffer. */
+export type ScreenExtent =
+  | { kind: "full" }
+  | { kind: "range"; startLine?: number; endLine?: number }
+  | { kind: "tail"; lines: number }
+  | { kind: "viewport" };
 
 /**
  * Per-PTY control + introspection surface vended by {@link PtyHost.handle}.
@@ -124,14 +138,10 @@ export interface PtyHandle {
   /** Serialized screen state (VT escape sequences) for late-joining
    *  clients. Empty string before any output. */
   getScreenState(): string;
-  /** Plain text content of the terminal buffer (scrollback + viewport).
-   *  `tailLines` reads only the last N rendered lines (see {@link getScreenText});
-   *  pass it instead of fetching the whole buffer when only the tail matters. */
-  getScreenText(
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string;
+  /** Plain text content of the terminal buffer. `extent` bounds the read to one
+   *  slice (range / tail / viewport); omit it for the full buffer (scrollback +
+   *  viewport). See {@link ScreenExtent}. */
+  getScreenText(extent?: ScreenExtent): string;
 }
 
 /** What a caller hands the host to spawn a PTY. Env/shell prep is the
@@ -300,14 +310,10 @@ export interface PtyHost {
   getTitle(id: PtyId): string | undefined;
   /** Serialized screen state; empty string if gone. */
   getScreenState(id: PtyId): string;
-  /** Plain text of the buffer; empty string if gone. `tailLines` reads only
-   *  the last N rendered lines (see {@link getScreenText}). */
-  getScreenText(
-    id: PtyId,
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string;
+  /** Plain text of the buffer; empty string if gone. `extent` bounds the read
+   *  to one slice (range / tail / viewport); omit it for the full buffer. See
+   *  {@link ScreenExtent}. */
+  getScreenText(id: PtyId, extent?: ScreenExtent): string;
   /** A per-PTY {@link PtyHandle} facade. Throws if the PTY doesn't exist. */
   handle(id: PtyId): PtyHandle;
   /** Kill every PTY this host owns. */
@@ -343,6 +349,10 @@ interface Entry {
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
   lastForegroundKey: string | undefined;
+  /** Wall-clock of the last on-output foreground sample, to throttle it (see
+   *  `FOREGROUND_SAMPLE_THROTTLE_MS`). The OSC samplers are instant and
+   *  unthrottled; this only bounds the output-driven fallback. */
+  lastForegroundSampleAt: number;
   /** Pending burst timers (post-command settle samples); cleared on
    *  teardown so a killed PTY schedules nothing. */
   foregroundTimers: ReturnType<typeof setTimeout>[];
@@ -359,6 +369,15 @@ interface Entry {
  *  reacting to that tap sees the settled foreground without coupling to this
  *  schedule. */
 const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
+
+/** Min interval (ms) between OUTPUT-driven foreground samples per PTY. The OSC
+ *  samplers (title / 633;E) only fire for a shell carrying kolu's rc-hooks; a
+ *  bare `kaval-tui create` shell emits none, so without this its `foregroundPid`
+ *  is never captured and agent detection (which keys on it) never sees the agent.
+ *  A working agent streams output, so sampling on data — throttled — captures its
+ *  foreground within the window while bounding the `tcgetpgrp` rate under a flood
+ *  of output. Dedup (`lastForegroundKey`) makes a steady foreground free. */
+const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
 
 /** Read node-pty's foreground-pid accessor, collapsing the transient 0
  *  (before the child finishes `setsid`) to `undefined`. */
@@ -531,6 +550,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       lastCommand: undefined,
       foregroundChannel: new Channel<ForegroundSample>(),
       lastForegroundKey: undefined,
+      lastForegroundSampleAt: 0,
       foregroundTimers: [],
       onDispose: spawnOpts.onDispose,
     };
@@ -632,7 +652,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // a single point with no gap and no overlap.
     entry.disposables.push(
       proc.onData((data: string) => {
-        entry.lastActivity = Date.now();
+        const now = Date.now();
+        entry.lastActivity = now;
+        // Output-driven foreground sample (throttled) — the fallback for a
+        // hook-less terminal that emits no OSC title/633 to trigger the samplers
+        // above. A working agent streams output, so this captures its
+        // `foregroundPid` so agent detection can key on it; dedup makes a steady
+        // foreground free, and the throttle bounds `tcgetpgrp` under a flood.
+        if (
+          now - entry.lastForegroundSampleAt >=
+          FOREGROUND_SAMPLE_THROTTLE_MS
+        ) {
+          entry.lastForegroundSampleAt = now;
+          sampleForeground(entry);
+        }
         headless.write(data, () => {
           // New bytes have parsed into the mirror, so the memoized snapshot is
           // stale: clear it BEFORE publishing, so a cached value always implies
@@ -749,20 +782,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry ? snapshotOf(entry) : "";
   }
 
-  function getScreenTextFor(
-    id: PtyId,
-    startLine?: number,
-    endLine?: number,
-    tailLines?: number,
-  ): string {
+  function getScreenTextFor(id: PtyId, extent?: ScreenExtent): string {
     const entry = entries.get(id);
     if (!entry) return "";
-    return getScreenText(
-      entry.headless.buffer.active,
-      startLine,
-      endLine,
-      tailLines,
-    );
+    const buffer = entry.headless.buffer.active;
+    // One bound axis, one switch — no silent precedence to pick between bounds.
+    const bound: ScreenExtent = extent ?? { kind: "full" };
+    switch (bound.kind) {
+      case "full":
+        return getScreenText(buffer);
+      case "range":
+        return getScreenText(buffer, bound.startLine, bound.endLine);
+      case "tail":
+        return getScreenText(buffer, undefined, undefined, bound.lines);
+      case "viewport":
+        // The visible screen = a tail of the live grid's height, the only place
+        // the real `rows` is known. The last `rows` lines of `buffer.active` are
+        // exactly the viewport in both buffers: the normal buffer's bottom
+        // screenful, and the whole alt buffer (whose length IS rows) a
+        // full-screen TUI draws into.
+        return getScreenText(buffer, undefined, undefined, entry.headless.rows);
+    }
   }
 
   function write(id: PtyId, data: string): void {
@@ -799,8 +839,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       write: (data) => write(id, data),
       resize: (cols, rows) => resize(id, cols, rows),
       getScreenState: () => getScreenState(id),
-      getScreenText: (startLine, endLine, tailLines) =>
-        getScreenTextFor(id, startLine, endLine, tailLines),
+      getScreenText: (extent) => getScreenTextFor(id, extent),
     };
   }
 

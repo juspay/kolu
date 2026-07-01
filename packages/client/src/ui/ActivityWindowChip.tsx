@@ -19,6 +19,7 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../terminal/activityWindow";
+import { FILTER_CHIP_BASE, filterChipAccent } from "./filterChip";
 import { OptionMenu } from "./OptionMenu";
 import type { AnchorSide } from "./useAnchoredPopover";
 
@@ -50,11 +51,8 @@ export const ActivityWindowChip: Component<{
         data-testid={`${props.testIdPrefix}-trigger`}
         data-window={activityWindow()}
         data-enabled={activityWindow() !== "all" ? "" : undefined}
-        class={`inline-flex items-center justify-center font-mono tabular-nums cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${props.class ?? ""}`}
-        classList={{
-          "text-fg-3 hover:text-fg": activityWindow() === "all",
-          "text-accent": activityWindow() !== "all",
-        }}
+        class={`${FILTER_CHIP_BASE} ${props.class ?? ""}`}
+        classList={filterChipAccent(activityWindow() !== "all")}
         aria-label={`Activity window: ${current().label}`}
         title={`Activity window: ${current().label} — click to change`}
         onClick={() => setMenuOpen((prev) => !prev)}

@@ -11,8 +11,9 @@
 
 import { ORPCError } from "@orpc/server";
 import type {
-  ActiveTerminal,
-  SleepingTerminal,
+  AuthoredActiveTerminal,
+  AuthoredSleepingTerminal,
+  TerminalSnapshot,
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
@@ -21,13 +22,19 @@ import type { TerminalHandle } from "kolu-common/terminalEndpoint";
 /** An ACTIVE terminal process — a running PTY with its live control surface.
  *  `info` is the wire shape sent in the `terminalList` cell snapshot; `meta` is
  *  the active arm, mutated in place by the owning endpoint's providers and
- *  published via the `terminalMetadata` collection from
+ *  published via the `authored` collection from
  *  `terminalEndpoint/metadata.ts`; `handle` is the abstract control surface
  *  (write / resize / screen state — NO `dispose()`, the endpoint's
  *  `killTerminal` is the sole termination path). */
 export interface ActiveTerminalProcess {
   info: TerminalInfo;
-  meta: ActiveTerminal;
+  meta: AuthoredActiveTerminal;
+  /** The terminal's last-seen `TerminalSnapshot` (cwd · git · pr · agent · foreground),
+   *  born and dropped WITH the entry. A required field, so "a terminal exists" and
+   *  "its snapshot exists" are one fact the type makes inseparable — no second
+   *  Map to keep in lockstep. kolu's fold REPLACES it wholesale each frame
+   *  (`entry.snapshot = next.snapshot`); there is no in-place mutator. */
+  snapshot: TerminalSnapshot;
   handle: TerminalHandle;
 }
 
@@ -36,13 +43,19 @@ export interface ActiveTerminalProcess {
  *  sleeping arm (persisted base + `sleptAt`), so there is no `handle` — the live
  *  resource is **absent by type**, which is the plan's safety invariant: a
  *  sleeping terminal can sit in the one registry (and thus ride the `terminalList`
- *  cell + the `terminalMetadata` collection with nothing extra), yet the compiler
+ *  cell + the `authored` collection with nothing extra), yet the compiler
  *  refuses any code that reaches for its PTY handle without first narrowing.
  *  `handle?: never` keeps the field accessible on the union so `entry.handle`
  *  truthiness narrows a `TerminalProcess` to the active arm in one idiom. */
 export interface SleepingTerminalProcess {
   info: TerminalInfo;
-  meta: SleepingTerminal;
+  meta: AuthoredSleepingTerminal;
+  /** The last-seen `TerminalSnapshot` rides the sleeping entry too (sleep does NOT drop
+   *  it) — the dormant tile recomposes its cwd/branch/pr off the restore-relevant
+   *  projection, and wake reads the resume target (the frozen agent identity) back
+   *  from here. The agent detail + foreground are dead data while sleeping (the
+   *  client's join takes only the restore-relevant projection). */
+  snapshot: TerminalSnapshot;
   handle?: never;
 }
 
@@ -94,6 +107,20 @@ export function listTerminals(): TerminalInfo[] {
   return [...terminals.values()].map((entry) => entry.info);
 }
 
+/** Project the registry into a `Map<id, V>` for a surface collection's `readAll`
+ *  — one loop over the entries in canonical insertion order, with `pick` choosing
+ *  the half. The `authored` and `terminalWorkspace.snapshots` collections both
+ *  read off the SAME registry entry (Design-S: the two halves share one backing),
+ *  so this keeps the projection loop in one place instead of copied per
+ *  collection. */
+export function registryMap<V>(
+  pick: (entry: TerminalProcess) => V,
+): Map<string, V> {
+  const map = new Map<string, V>();
+  for (const [id, entry] of terminals) map.set(id, pick(entry));
+  return map;
+}
+
 /** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
  *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
  *  so heap diagnostics that correlate a column with live-terminal memory must use
@@ -110,17 +137,17 @@ export const activeTerminalCount = (): number => {
   return n;
 };
 
-/** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.meta.agent` — the agent detectors inside
- *  `LocalTerminalEndpoint` (driven by `claudeCodeAdapter` from
- *  `kolu-claude-code`) set it on session match and clear it on
- *  teardown. Exported for diagnostics. */
+/** Number of ACTIVE terminals currently hosting a Claude Code session. The
+ *  `agent` field lives on the entry's `awareness` (Design-S), so this reads
+ *  `entry.snapshot.agent` rather than `entry.meta`; the `state === "active"` gate
+ *  stays, since a sleeping terminal's snapshot keeps its frozen-stale live half
+ *  (sleep does not reset it). Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {
     if (
       entry.meta.state === "active" &&
-      entry.meta.agent?.kind === "claude-code"
+      entry.snapshot.agent?.kind === "claude-code"
     )
       n++;
   }
@@ -129,6 +156,16 @@ export function countActiveClaudeSessions(): number {
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
+}
+
+/** The last-seen `TerminalSnapshot` for `id`, or `undefined` if no entry exists —
+ *  projected off the registry entry (snapshot is a required field, so it is born
+ *  and dropped WITH the entry; there is no separate store to fall out of lockstep).
+ *  kolu's fold REPLACES `entry.snapshot` wholesale each frame, so callers read it
+ *  as an immutable snapshot — there is no in-place mutator (the old apply-and-read-
+ *  back contract is gone with the sink). */
+export function snapshotFor(id: TerminalId): TerminalSnapshot | undefined {
+  return terminals.get(id)?.snapshot;
 }
 
 /** Narrow a registry lookup to its ACTIVE arm — the entry only if it is a live
@@ -144,10 +181,13 @@ export function getActiveTerminal(
   return entry?.handle ? entry : undefined;
 }
 
-/** `getActiveTerminal` or throw the typed not-found fault — for handlers whose
- *  whole contract needs a live PTY (resize, input, screen state). A sleeping or
- *  absent id is "not found" to them by the same code, since neither can take the
- *  operation. */
+/** `getActiveTerminal` or throw the typed not-found fault — for handlers where a
+ *  missing terminal must surface LOUDLY (e.g. attach, screen reads, file uploads).
+ *  A sleeping or absent id is "not found" to them by the same code, since neither
+ *  can take the operation. NOTE: the
+ *  fire-and-forget stream ops (`resize`, `sendInput`) deliberately do NOT use this —
+ *  a late call landing just after a kill is an expected race, so they take the
+ *  quiet `getActiveTerminal(input.id)?.handle.x()` path and drop it (#1628). */
 export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
   const entry = getActiveTerminal(id);
   if (!entry) throw terminalNotFound(id);

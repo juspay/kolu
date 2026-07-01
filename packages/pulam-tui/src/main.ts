@@ -10,6 +10,10 @@
  *   pulam-tui status [--json]      a one-shot snapshot of every terminal
  *   pulam-tui watch [<id>] [--json]  follow live until Ctrl+C — every terminal,
  *                                  or one by id (a short id or unique prefix)
+ *   pulam-tui wait <id> --until <state>  block until that terminal's agent
+ *                                  reaches a bucket (working/awaiting/waiting),
+ *                                  then exit — the done-signal for driving an
+ *                                  agent that drives another agent
  *
  * By default it reaches a pulam on THIS machine. Two ways to point it elsewhere,
  * mutually exclusive (flags go AFTER the subcommand):
@@ -37,17 +41,21 @@ import { type Connection, connectPulam } from "./connect.ts";
 import { connectPulamViaHost } from "./hostConnect.ts";
 import {
   assertCompatible,
+  awaitAgentState,
   settledSnapshot,
   snapshotAwareness,
   watchAwareness,
 } from "./read.ts";
 import {
+  agentMatchesUntil,
   formatAwarenessJson,
   formatStatus,
+  formatWaitMet,
   formatWatchEvent,
   formatWatchJson,
   formatWatchRemoval,
   formatWatchRemovalJson,
+  parseUntilStates,
   resolveTerminalId,
   shortId,
 } from "./render.ts";
@@ -64,7 +72,7 @@ const endpointFlags = {
   host: {
     type: String,
     description:
-      "reach a pulam on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote pulam dials the remote kaval and recomputes awareness from now. Mutually exclusive with --socket.",
+      "reach a pulam on a remote machine over ssh, provisioning it via Nix — e.g. --host nix@prod. The remote pulam runs as the SSH user, so that user must own the kaval it dials (the socket dir is 0700, owner-only); SSH in as the user that runs kaval. The remote pulam dials the remote kaval and recomputes awareness from now. Mutually exclusive with --socket.",
   },
   kaval: {
     type: String,
@@ -86,7 +94,7 @@ const argv = cli({
   version: TERMINAL_WORKSPACE_CONTRACT_VERSION,
   help: {
     description:
-      "A terminal-side client for the pulam awareness daemon — what every terminal is in (repo·branch · PR · agent · foreground), read from a running `pulam` (start it with `pulam`, which needs a running kaval). `status` snapshots it; `watch` follows it live. `--json` on either is scriptable; `--host <ssh>` reads a remote machine over ssh. The browser fleet dashboard is `pulam-web`.",
+      "A terminal-side client for the pulam awareness daemon — what every terminal is in (repo·branch · PR · agent · foreground), read from a running `pulam` (start it with `pulam`, which needs a running kaval). `status` snapshots it; `watch` follows it live; `wait` blocks until a terminal's agent reaches a state (working/awaiting/waiting), the done-signal for scripting an agent that drives another agent. `--json` is scriptable; `--host <ssh>` reads a remote machine over ssh. The browser fleet dashboard is `pulam-web`.",
   },
   commands: [
     command({
@@ -105,6 +113,28 @@ const argv = cli({
           "Follow awareness live, printing a line per change until Ctrl+C. Bare `watch` follows every terminal; pass an id (a short id from `status` or a unique prefix) to narrow to one.",
       },
       flags: { ...endpointFlags, ...jsonFlag },
+    }),
+    command({
+      name: "wait",
+      parameters: ["<id>"],
+      help: {
+        description:
+          "Block until a terminal's agent reaches a state, then exit — the done-signal for scripting an agent that drives another agent. `--until` is a comma list of buckets: working, awaiting, waiting (`awaiting,waiting` = the agent's turn ended). `--timeout <ms>` caps the wait and fails loud. `--json` prints `{ id, agent }`. <id> is the short id from `status` or any unique prefix.",
+      },
+      flags: {
+        ...endpointFlags,
+        until: {
+          type: String,
+          description:
+            "comma list of agent buckets to wait for: working, awaiting, waiting (awaiting,waiting = the agent's turn ended)",
+        },
+        timeout: {
+          type: Number,
+          description:
+            "milliseconds to wait before failing loud (default: wait indefinitely until the state, the link drops, or Ctrl+C)",
+        },
+        ...jsonFlag,
+      },
     }),
   ],
 });
@@ -216,10 +246,19 @@ async function cmdStatus(conn: Connection, json: boolean): Promise<void> {
     conn.dispose();
   }
   await writeOut(
-    json
-      ? `${formatAwarenessJson(entries)}\n`
-      : `${formatStatus(entries, { now: Date.now() })}\n`,
+    json ? `${formatAwarenessJson(entries)}\n` : `${formatStatus(entries)}\n`,
   );
+}
+
+/** An `AbortController` that fires on the process's stop signals — the shared
+ *  "Ctrl+C / external kill unwinds the live mirror" wiring both `watch` and
+ *  `wait` hold open a link with. */
+function abortOnShutdownSignals(): AbortController {
+  const abort = new AbortController();
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => abort.abort());
+  }
+  return abort;
 }
 
 async function cmdWatch(
@@ -229,10 +268,7 @@ async function cmdWatch(
 ): Promise<void> {
   // Ctrl+C (and external kill) abort the mirror → its `.done` settles → we
   // dispose the link and exit cleanly. The link is held open until then.
-  const abort = new AbortController();
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => abort.abort());
-  }
+  const abort = abortOnShutdownSignals();
   // A closed stdout — `pulam-tui watch | head -1`, the reader hanging up —
   // surfaces as an stdout `error` (EPIPE). Without a handler that's an unhandled
   // crash; treat it as the consumer hanging up and abort the mirror so we unwind
@@ -315,6 +351,80 @@ async function cmdWatch(
   }
 }
 
+async function cmdWait(
+  conn: Connection,
+  query: string,
+  targets: ReadonlySet<string>,
+  opts: { json: boolean; timeoutMs?: number },
+): Promise<void> {
+  // Ctrl+C (and external kill) abort our controller, which `awaitAgentState`
+  // chains into its internal one → the mirror settles → we dispose and exit.
+  // `awaitAgentState` reads this signal to return `interrupted` vs `closed`, so
+  // the outcome alone tells Ctrl+C from a real link drop — no re-derivation here.
+  const abort = abortOnShutdownSignals();
+
+  // Resolve the required <id> against the live snapshot, then block on the agent
+  // state — both inside the try so a thrown read still disposes the link.
+  let resolvedId: TerminalId;
+  let outcome: Awaited<ReturnType<typeof awaitAgentState>>;
+  try {
+    const entries = await snapshotAwareness(conn.client);
+    resolvedId = resolveOne(
+      query,
+      entries.map(([id]) => id),
+    );
+    outcome = await awaitAgentState(conn.client, {
+      id: resolvedId,
+      matches: (agent) => agentMatchesUntil(agent, targets),
+      timeoutMs: opts.timeoutMs,
+      signal: abort.signal,
+    });
+  } finally {
+    conn.dispose();
+  }
+
+  if (outcome.kind === "met") {
+    if (opts.json) {
+      await writeOut(
+        `${JSON.stringify({ id: resolvedId, agent: outcome.agent }, null, 2)}\n`,
+      );
+    } else {
+      process.stderr.write(`— ${formatWaitMet(resolvedId, outcome.agent)}\n`);
+    }
+    return;
+  }
+  if (outcome.kind === "timeout") {
+    // Distinct exit code (2) so a driving script can tell a timeout — the agent
+    // never settled — from a usage/link error (1).
+    process.stderr.write(
+      `pulam-tui: timed out after ${opts.timeoutMs}ms waiting for ${shortId(resolvedId)} to reach ${[...targets].join("/")}.\n`,
+    );
+    process.exit(2);
+  }
+  if (outcome.kind === "gone") {
+    // The terminal exited before reaching the state — it can never get there now.
+    // Distinct exit code (3) so a driver tells "the agent I was driving died" from
+    // a timeout (2, still alive but stuck) or a link/usage error (1).
+    process.stderr.write(
+      `pulam-tui: ${shortId(resolvedId)} disappeared before reaching ${[...targets].join("/")} — its terminal exited.\n`,
+    );
+    process.exit(3);
+  }
+  if (outcome.kind === "interrupted") {
+    // A user interrupt (Ctrl+C) exits cleanly with the conventional 130.
+    process.stderr.write(
+      `— interrupted; ${shortId(resolvedId)} left waiting\n`,
+    );
+    process.exit(130);
+  }
+  // closed: the pulam link dropped before the state landed — a failure, like
+  // cmdWatch treats an un-aborted settle.
+  fail(
+    outcome.error ??
+      "the pulam link closed — the daemon stopped or the connection dropped. Is `pulam` still running?",
+  );
+}
+
 async function main(): Promise<void> {
   // cleye already handled --help / --version. We land here with no command for
   // bare `pulam-tui` (show help) or the common trap of a flag BEFORE the
@@ -328,6 +438,29 @@ async function main(): Promise<void> {
     }
     argv.showHelp();
     process.exit(1);
+  }
+
+  // `wait`'s flag checks are pure — they need no daemon — so validate them
+  // BEFORE the dial: a bad `--until`/`--timeout` fails fast with no connection to
+  // tear down and, under --host, no Nix provisioning of a daemon we'd just drop.
+  // `waitTargets` is non-null exactly when the command is `wait`; its parsed
+  // targets flow straight into cmdWait below.
+  let waitTargets: ReadonlySet<string> | null = null;
+  if (argv.command === "wait") {
+    if (argv.flags.until === undefined) {
+      fail(
+        "--until is required — e.g. `pulam-tui wait <id> --until awaiting,waiting`.",
+      );
+    }
+    const parsed = parseUntilStates(argv.flags.until);
+    if (parsed.kind === "error") fail(parsed.message);
+    if (
+      argv.flags.timeout !== undefined &&
+      !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
+    ) {
+      fail("--timeout must be a positive number of milliseconds.");
+    }
+    waitTargets = parsed.targets;
   }
 
   const conn = await connect({
@@ -346,11 +479,18 @@ async function main(): Promise<void> {
   }
 
   // `cmdStatus` disposes its own link (it snapshots then releases); `cmdWatch`
-  // holds the link and disposes in its finally.
+  // and `cmdWait` hold the link and dispose in their finally. The wait branch
+  // keys off `waitTargets` (set iff the command is `wait`), so the pre-parsed
+  // targets narrow to a non-null set here.
   if (argv.command === "status") {
     await cmdStatus(conn, argv.flags.json);
   } else if (argv.command === "watch") {
     await cmdWatch(conn, argv._.id, argv.flags.json);
+  } else if (waitTargets !== null) {
+    await cmdWait(conn, argv._.id, waitTargets, {
+      json: argv.flags.json,
+      timeoutMs: argv.flags.timeout,
+    });
   } else {
     conn.dispose();
     fail("unhandled command — add a dispatch branch for it");

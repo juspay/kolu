@@ -3,7 +3,7 @@
  *  `useDockOrder` use), so every second-granularity readout subscribes to ONE
  *  live `now` signal instead of spinning a timer apiece. */
 
-import { type Accessor, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 
 /** `Date.now()` that advances every second. Drives the second-granularity live
@@ -17,7 +17,10 @@ import { createSharedRoot } from "../createSharedRoot";
  *  so the two cadences stay separate, each owning the readouts it fits. */
 export const getClockNow = createSharedRoot<Accessor<number>>(() => {
   const [now, setNow] = createSignal(Date.now());
-  const id = setInterval(() => setNow(Date.now()), 1_000);
-  onCleanup(() => clearInterval(id));
+  // App-lifetime by `createSharedRoot`'s contract: this interval is the app's one
+  // wall clock and ticks for the whole session — there is no teardown (the shared
+  // root's disposer is intentionally discarded), so we do NOT register an
+  // `onCleanup` that would never run. The browser reclaims the timer on page close.
+  setInterval(() => setNow(Date.now()), 1_000);
   return now;
 });

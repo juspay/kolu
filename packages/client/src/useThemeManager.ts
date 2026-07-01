@@ -5,6 +5,7 @@
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { shuffleMode } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -17,11 +18,13 @@ import {
   resolveThemeBgs,
 } from "terminal-themes";
 import { createSharedRoot } from "./createSharedRoot";
+import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { client } from "./wire";
+import { client, preferences } from "./wire";
 
 function init() {
   const store = useTerminalStore();
+  const { isDark } = useColorScheme();
   const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
 
   const committedThemeName = createMemo(() => {
@@ -76,7 +79,13 @@ function init() {
    *  Excludes every live terminal's bg so we don't land on a duplicate of
    *  a sibling, and stays under the chroma cap so we don't surface neon
    *  yellow. New-terminal creation uses spread mode instead —
-   *  see {@link pickTheme} for the rationale. */
+   *  see {@link pickTheme} for the rationale.
+   *
+   *  Draws from the `shuffleBehavior` preference's pool (`dark`/`light`/`auto`
+   *  restrict to a luminance family; `random` uses the whole catalogue) — the
+   *  same pool a `shuffle` new terminal uses. Independent of the
+   *  `newTerminalTheme` creation strategy: ⌘⇧J is an explicit action and always
+   *  shuffles, even when new terminals are set to `inherit`. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;
@@ -86,7 +95,8 @@ function init() {
     );
     if (!candidates) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    handleSetTheme(pickTheme(candidates, { excludeBgs }));
+    const mode = shuffleMode(preferences().shuffleBehavior, isDark());
+    handleSetTheme(pickTheme(candidates, { excludeBgs, mode }));
   }
 
   return {

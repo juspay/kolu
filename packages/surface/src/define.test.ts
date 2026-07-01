@@ -69,3 +69,82 @@ describe("defineSurface cell verbs", () => {
     expect(surface.spec.cells?.conn.verbs).toEqual(["get"]);
   });
 });
+
+describe("defineSurface collection verbs", () => {
+  const itemSchema = z.object({ x: z.string() });
+
+  it("a default collection binds keys/get/upsert/delete but NOT deltas", () => {
+    const surface = defineSurface({
+      collections: { items: { keySchema: z.number(), schema: itemSchema } },
+    });
+    const paths = contractPaths(surface);
+    expect(paths).toContain("/surface/items/keys");
+    expect(paths).toContain("/surface/items/get");
+    expect(paths).toContain("/surface/items/upsert");
+    expect(paths).toContain("/surface/items/delete");
+    // `deltas` is opt-in — never present on a default collection's RUNTIME router.
+    expect(paths).not.toContain("/surface/items/deltas");
+  });
+
+  it("a default collection's TYPE exposes the default verbs and NOT deltas (no phantom verb)", () => {
+    const surface = defineSurface({
+      collections: { items: { keySchema: z.number(), schema: itemSchema } },
+    });
+    type Entry = (typeof surface.contract)["surface"]["items"];
+    type HasKeys = "keys" extends keyof Entry ? true : false;
+    type HasUpsert = "upsert" extends keyof Entry ? true : false;
+    type HasDeltas = "deltas" extends keyof Entry ? true : false;
+    const hasKeys: HasKeys = true;
+    const hasUpsert: HasUpsert = true;
+    // Pre-fix bug: `CollectionContract` ignored `verbs` and typed `deltas`
+    // unconditionally, so `HasDeltas` was `true` and this line would NOT compile.
+    const hasDeltas: HasDeltas = false;
+    expect([hasKeys, hasUpsert, hasDeltas]).toEqual([true, true, false]);
+    // Reference `surface` at runtime so the type assertions can't drift from the
+    // actual contract object the test built.
+    const paths = contractPaths(surface);
+    expect(paths).toContain("/surface/items/keys");
+    expect(paths).not.toContain("/surface/items/deltas");
+  });
+
+  it("a read-only collection (verbs: keys,get) binds and types NEITHER upsert NOR deltas", () => {
+    const surface = defineSurface({
+      collections: {
+        items: {
+          keySchema: z.number(),
+          schema: itemSchema,
+          verbs: ["keys", "get"],
+        },
+      },
+    });
+    const paths = contractPaths(surface);
+    expect(paths).toContain("/surface/items/get");
+    expect(paths).not.toContain("/surface/items/upsert");
+    expect(paths).not.toContain("/surface/items/delete");
+    expect(paths).not.toContain("/surface/items/deltas");
+    type Entry = (typeof surface.contract)["surface"]["items"];
+    type HasUpsert = "upsert" extends keyof Entry ? true : false;
+    type HasDeltas = "deltas" extends keyof Entry ? true : false;
+    const hasUpsert: HasUpsert = false;
+    const hasDeltas: HasDeltas = false;
+    expect([hasUpsert, hasDeltas]).toEqual([false, false]);
+  });
+
+  it("a deltas-opted collection binds AND types deltas", () => {
+    const surface = defineSurface({
+      collections: {
+        items: {
+          keySchema: z.number(),
+          schema: itemSchema,
+          verbs: ["keys", "get", "upsert", "delete", "deltas"],
+        },
+      },
+    });
+    const paths = contractPaths(surface);
+    expect(paths).toContain("/surface/items/deltas");
+    type Entry = (typeof surface.contract)["surface"]["items"];
+    type HasDeltas = "deltas" extends keyof Entry ? true : false;
+    const hasDeltas: HasDeltas = true;
+    expect(hasDeltas).toBe(true);
+  });
+});

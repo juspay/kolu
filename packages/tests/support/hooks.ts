@@ -70,34 +70,79 @@ const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 
-/** The agent-dir overrides that point kolu at the mock harnesses' temp dirs.
- *  KOLU_X11CAP recordings launch the REAL claude/codex (whose sessions land in
- *  the real ~/.claude/projects + ~/.codex), so every one of these must be ABSENT
- *  — both deleted from `process.env` (so an inherited developer export can't
- *  shadow the real dir) AND mapped to `undefined` in the server child env (so the
- *  `...process.env` spread can't re-introduce one). The invariant — "this exact
- *  set of vars is the temp-dir mapping normally, all-undefined under X11CAP" —
- *  lives here once; the loop below mutates `process.env` from it and BeforeAll
- *  spreads it into the child env. Add a new agent dir → add it here only. */
+/** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
+ *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
+ *  downstream (before this, the agent dirs branched here and HOME branched at
+ *  the spawn site — two costumes of one decision, drifting apart).
+ *
+ *  Everyday e2e must touch NOTHING real: point the agent-session dirs at the
+ *  mock harnesses' temp dirs AND give the server a throwaway $HOME, so a
+ *  scenario typing into a terminal can't append to the real `~/.bash_history`
+ *  or make the suite depend on the developer's personal dotfiles. (kolu
+ *  forwards HOME into every PTY it spawns: `cleanEnv` whitelists it → `ptyHost`
+ *  reads `env.HOME` → `prepareShellInit`'s `replay` sources `$HOME/.bashrc`
+ *  etc. — so a real HOME is the leak.) The fake agent dirs sit under
+ *  `testBaseDir` (AfterAll wipes it); the fake home is `fixtureHome`, wiped
+ *  separately in AfterAll (it lives outside `testBaseDir` — see below).
+ *
+ *  Recording is the exact opposite: it launches the REAL claude/codex to
+ *  capture footage, so the agent dirs must be ABSENT (the server then resolves
+ *  them off the real `~/.claude` / `~/.codex` via `os.homedir()`) and HOME must
+ *  stay inherited (real) so those agents find their login. Absent agent-dir
+ *  keys are BOTH deleted from `process.env` (so a developer export can't shadow
+ *  the real dir) and left out of the child env below.
+ *
+ *  `AGENT_DIR_VARS` names the exact agent-dir set the loop mutates onto
+ *  `process.env` for step defs that read it directly — add a new agent dir
+ *  there. HOME is child-env ONLY: never mutated onto the harness's own
+ *  `process.env`, whose real value the recording path still needs. */
+const RECORDING = !!process.env.KOLU_X11CAP;
+
+/** e2e's throwaway $HOME must NOT sit under any `/tmp` path. A new PTY opens in
+ *  `$HOME`, so a home under `/tmp` makes every default-cwd terminal report a cwd
+ *  containing the substring `/tmp` — which pollutes the workspace-switcher's cwd
+ *  search: a scenario that `cd /tmp` then searches `"/tmp"` also matches the
+ *  home-cwd terminals, so "show 1 card" sees 2. Production homes aren't under
+ *  `/tmp`, so the fake one mustn't be either, else the e2e env diverges from
+ *  production and quietly breaks substring-cwd assertions.
+ *
+ *  Root it on a per-platform path guaranteed NOT under `/tmp`:
+ *   - Linux → the tmpfs `/dev/shm` (ephemeral, off `/tmp`, and — crucially —
+ *     off the developer's own `~`, since `just test` runs on their Linux box).
+ *   - macOS (CI only, on `rasam`) → `os.homedir()`. We can't use `os.tmpdir()`
+ *     here: over the CI ssh session `$TMPDIR` is unset, so Node's `os.tmpdir()`
+ *     falls back to `/tmp` — the exact collision. The `.`-prefixed name keeps it
+ *     a hidden, self-cleaning dir under that box's home.
+ *  Wiped in AfterAll. Real dotfiles stay untouched — HISTFILE resolves to
+ *  `<fixtureHome>/.bash_history`. */
+const fixtureHomeRoot =
+  process.platform === "linux" ? "/dev/shm" : os.homedir();
+const fixtureHome = RECORDING
+  ? undefined
+  : fs.mkdtempSync(path.join(fixtureHomeRoot, ".kolu-e2e-home-"));
+
 const AGENT_DIR_VARS = [
   "KOLU_CLAUDE_SESSIONS_DIR",
   "KOLU_CLAUDE_PROJECTS_DIR",
   "KOLU_CODEX_DIR",
 ] as const;
-const agentDirEnv: Record<(typeof AGENT_DIR_VARS)[number], string | undefined> =
-  process.env.KOLU_X11CAP
-    ? {
-        KOLU_CLAUDE_SESSIONS_DIR: undefined,
-        KOLU_CLAUDE_PROJECTS_DIR: undefined,
-        KOLU_CODEX_DIR: undefined,
-      }
-    : {
-        KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-        KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-        KOLU_CODEX_DIR: codexDir,
-      };
+const serverModeEnv: Record<
+  (typeof AGENT_DIR_VARS)[number],
+  string | undefined
+> & { HOME?: string } = RECORDING
+  ? {
+      KOLU_CLAUDE_SESSIONS_DIR: undefined,
+      KOLU_CLAUDE_PROJECTS_DIR: undefined,
+      KOLU_CODEX_DIR: undefined,
+    }
+  : {
+      KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+      KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+      KOLU_CODEX_DIR: codexDir,
+      HOME: fixtureHome,
+    };
 for (const name of AGENT_DIR_VARS) {
-  const value = agentDirEnv[name];
+  const value = serverModeEnv[name];
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
@@ -598,11 +643,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // run on a box with no systemd user session (where the production
           // `systemd-run --user` path would fail).
           KOLU_KAVAL_SPAWN: "detached",
-          // The agent-dir overrides, derived once above: temp dirs normally,
-          // all-undefined under X11CAP so the `...process.env` spread can't
-          // re-introduce an inherited value and the server watches the real
-          // ~/.claude/projects + ~/.codex (the dock then tracks the live agent).
-          ...agentDirEnv,
+          // The everyday-e2e vs recording env divergence, decided once above:
+          // mock agent dirs + a throwaway HOME normally; agent dirs absent and
+          // HOME inherited (real) under X11CAP so the real claude/codex resolve
+          // their sessions + login from the real home. See `serverModeEnv`.
+          ...serverModeEnv,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },
       },
@@ -732,6 +777,10 @@ AfterAll(async () => {
   // hardening loop — the halt at 0 bytes free was directly caused by this.
   try {
     fs.rmSync(testBaseDir, { recursive: true, force: true });
+    // The fake $HOME lives outside `testBaseDir` (on /dev/shm under Linux — see
+    // `fixtureHome`), so the recursive remove above doesn't catch it. Reap it
+    // here in the same best-effort block. Absent under X11CAP (real HOME).
+    if (fixtureHome) fs.rmSync(fixtureHome, { recursive: true, force: true });
   } catch {
     // Best-effort cleanup — if something already removed the tree (or we
     // don't have permission for some reason) there's nothing productive
@@ -752,12 +801,14 @@ Before(async function (this: KoluWorld, scenario) {
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
     postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
       json: {
-        // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
+        // Reset all preferences to defaults (newTerminalTheme "inherit" so new
+        // terminals get the default theme — deterministic for tests)
         seenTips: [],
         // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
         // tip banners popping in mid-shot. Normal e2e runs keep them on.
         startupTips: !X11CAP,
-        shuffleTheme: false,
+        newTerminalTheme: "inherit",
+        shuffleBehavior: "auto",
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",

@@ -27,11 +27,11 @@ import {
   agentPaintClass,
   agentUrgency,
   alertClass,
-  compareAgents,
+  compareAgentUrgency,
   type Urgency,
 } from "@kolu/terminal-workspace/agentProjection";
 import type {
-  AwarenessValue,
+  TerminalSnapshot,
   TerminalId,
 } from "@kolu/terminal-workspace/surface";
 
@@ -82,7 +82,7 @@ export const URGENCY_LABELS: Record<Urgency, string> = {
  *  when nothing's running, a quiet idle dot when a foreground process is. There
  *  is no `attention` here — that loud unread variant is the Dock's alone (the
  *  fleet has no unread obligation to surface). */
-export function pipVariantFor(value: AwarenessValue): PipVariant {
+export function pipVariantFor(value: TerminalSnapshot): PipVariant {
   if (value.agent) return pipForPaintClass(agentPaintClass(value.agent.state));
   return value.foreground ? "idle" : "sleeping";
 }
@@ -96,8 +96,33 @@ export function pipVariantFor(value: AwarenessValue): PipVariant {
  *  Dock's `unread` (which outlives the state until you open the row), the fleet
  *  keeps no per-terminal read state, so the badge tracks the live notify-class
  *  membership directly. */
-export function fleetAlert(value: AwarenessValue): boolean {
+export function fleetAlert(value: TerminalSnapshot): boolean {
   return value.agent ? alertClass(value.agent.state) === "notify" : false;
+}
+
+/** CSS `background` value for the needs-you (alert/violet) wash. */
+export const ALERT_WASH =
+  "color-mix(in oklch, var(--color-alert) 10%, transparent)";
+/** CSS `background` value for the working/live (accent/teal) wash. */
+export const ACCENT_WASH =
+  "color-mix(in oklch, var(--color-accent) 10%, transparent)";
+
+/** The per-row background WASH — the fleet's at-a-glance "is this row hot?" fold,
+ *  layered behind the pip. A row that NEEDS you keeps the alert (violet) wash; a
+ *  row that is WORKING or has live terminal output (the green-ring `live` axis,
+ *  off the `activity` stream) gets the working (teal) wash; an idle/quiet row
+ *  stays bare. Both tints reuse the SAME agent-state tokens the pip + urgency
+ *  colours do (`--color-alert`, `--color-accent`), so the wash can't drift from
+ *  them. `need` wins over `work`/`live`: a blocked agent is the louder signal.
+ *  Returns the bare `background` value (or `undefined` for no wash). */
+export function rowBackground(
+  value: TerminalSnapshot,
+  live: boolean,
+): string | undefined {
+  const urgency = agentUrgency(value.agent);
+  if (urgency === "need") return ALERT_WASH;
+  if (urgency === "work" || live) return ACCENT_WASH;
+  return undefined;
 }
 
 /** Fleet *chrome* colours — the per-host accent. Deliberately NOT a `@kolu/theme`
@@ -111,7 +136,7 @@ export const HOST_COLOR = "#a78bfa";
 
 /** `repo · branch` from the awareness git info, or the cwd basename when not in a
  *  repo. No dirty/clean count — that needs `git.getStatus` (R-pulamweb-4). */
-export function locationText(value: AwarenessValue): string {
+export function locationText(value: TerminalSnapshot): string {
   if (value.git) return `${value.git.repoName} · ${value.git.branch}`;
   return basename(value.cwd);
 }
@@ -119,16 +144,18 @@ export function locationText(value: AwarenessValue): string {
 /** One terminal as a fleet entry — its id and current awareness value. */
 export interface FleetEntry {
   id: TerminalId;
-  value: AwarenessValue;
+  value: TerminalSnapshot;
 }
 
-/** Order terminals within a host: needs-you first, then most-recently-active,
- *  then id (a stable tiebreak) — the shared `compareAgents` ordering over a fleet
- *  entry. */
+/** Order terminals within a host: needs-you first, then id (a stable tiebreak) —
+ *  the shared HOST-SAFE `compareAgentUrgency` ordering over a fleet entry. pulam
+ *  serves the memoryless `TerminalSnapshot`, which has no `lastActivityAt`, so the
+ *  fleet sorts by urgency alone — the recency tiebreak is kolu's, where recency is
+ *  remembered. */
 export function compareFleetEntries(a: FleetEntry, b: FleetEntry): number {
-  return compareAgents(
-    { agent: a.value.agent, lastActivityAt: a.value.lastActivityAt, id: a.id },
-    { agent: b.value.agent, lastActivityAt: b.value.lastActivityAt, id: b.id },
+  return compareAgentUrgency(
+    { agent: a.value.agent, id: a.id },
+    { agent: b.value.agent, id: b.id },
   );
 }
 
@@ -143,7 +170,7 @@ export function compareFleetEntries(a: FleetEntry, b: FleetEntry): number {
  *  process. */
 export type TerminalCategory = "active" | "idle" | "nonagent" | "sleeping";
 
-export function terminalCategory(value: AwarenessValue): TerminalCategory {
+export function terminalCategory(value: TerminalSnapshot): TerminalCategory {
   if (value.agent) {
     return agentUrgency(value.agent) === "idle" ? "idle" : "active";
   }

@@ -40,6 +40,10 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import {
+  quietActivity,
+  serveTerminalWorkspace,
+} from "@kolu/terminal-workspace/serveTerminalWorkspace";
 import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import type {
@@ -48,11 +52,11 @@ import type {
   Preferences,
   ProcessMemory,
   SavedSession,
-  TerminalMetadata,
 } from "kolu-common/surface";
 import {
   bytesToWholeMB,
   type koluSurface,
+  LOCAL_LOCATION,
   surfaces,
 } from "kolu-common/surface";
 import {
@@ -70,23 +74,28 @@ import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { setSurfaceCtx } from "./surfaceCtx.ts";
+import { setWorkspaceSurfaceCtx } from "./workspaceSurfaceCtx.ts";
 import {
   getTerminal,
   listTerminals,
+  registryMap,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { localTerminalEndpoint } from "./terminalEndpoint/local.ts";
+import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 // kaval's OWN identity assembler — read in the SERVER process it returns the
 // server's baked KAVAL_BUILD_ID/KAVAL_COMMIT_HASH (the build the server would
 // spawn), i.e. the *expected* kaval. Distinct from the connected daemon's
 // *reported* identity, which rides `daemonStatus.identity`, not buildInfo.
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 
-const localEndpoint = localTerminalEndpoint;
+// Resolved through the one `HostLocation` seam (R9.1). Eager at module-eval,
+// exactly as the prior direct reference was — the late-bound surface ctx
+// (#1005) is what keeps that read TDZ-safe across ESM load orders.
+const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -230,24 +239,19 @@ const koluDeps: Omit<
   },
 
   collections: {
-    terminalMetadata: {
-      readAll: () => {
-        const map = new Map<string, TerminalMetadata>();
-        for (const info of listTerminals()) {
-          const term = getTerminal(info.id);
-          if (term) map.set(info.id, term.meta);
-        }
-        return map;
-      },
-      readOne: (key) => {
-        const term = getTerminal(key as string);
-        return term ? term.meta : undefined;
-      },
-      // Server-internal collection: clients can't write. The `upsert`/
-      // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
-      // publish without re-mutating the registry (the registry is the
-      // store; `terminalEndpoint/metadata.ts` mutates entry.meta in place before
-      // calling ctx.upsert).
+    authored: {
+      // Design-S: kolu serves the AUTHORED half (location + client chrome + the
+      // active|sleeping discriminant) straight off the registry — NO awareness,
+      // NO compose. The AWARENESS half rides the sibling
+      // `terminalWorkspace.snapshots` collection below, and the client joins the
+      // two at read time (`useTerminalMetadata`). There is no server-side
+      // re-fusion: the wire never carries a single fused record.
+      readAll: () => registryMap((t) => t.meta),
+      readOne: (key) => getTerminal(key as string)?.meta,
+      // Server-internal collection: clients can't write. The registry IS the
+      // store, so the `upsert`/`remove` no-ops only fan out to subscribers —
+      // `terminalEndpoint/metadata.ts` calls `surfaceCtx.collections.authored
+      // .upsert` on every authored flip (spawn / sleep / wake / client field).
       upsert: () => {},
       remove: () => {},
     },
@@ -257,17 +261,18 @@ const koluDeps: Omit<
       readOne: (key) => readDaemonStatus(key as string),
       // Server-internal: `publishDaemonStatus` writes the store before calling
       // `surfaceCtx.collections.daemonStatus.upsert`, so these are no-ops (the
-      // store is the authority, mirroring `terminalMetadata`).
+      // store is the authority, mirroring `authored`).
       upsert: () => {},
       remove: () => {},
     },
   },
 
   streams: {
-    // fs/git streams are per-host one-shot ops bound to this endpoint.
-    // P3 adds remote-endpoint impls behind the same TerminalEndpointFs /
-    // TerminalEndpointGit seam — this block reads them off `localEndpoint`
-    // and never names a host.
+    // fs/git streams are per-host one-shot ops bound to this endpoint. For now
+    // they read the LOCAL endpoint off the `localEndpoint` alias
+    // (`resolveTerminalEndpoint(LOCAL_LOCATION)`); R9.5's Code-tab rewrite makes
+    // them resolve per-terminal so a remote tile's fs/git dials its host behind
+    // the same TerminalEndpointFs / TerminalEndpointGit seam.
     gitStatus: {
       read: async (input) =>
         localEndpoint.git.getStatus(input.repoPath, input.mode),
@@ -425,6 +430,35 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
       // ── kolu's own server deps (sibling under `kolu`) ────────────────────
       kolu: koluDeps,
+
+      // ── the terminal-workspace server deps (sibling under `terminalWorkspace`) ──
+      // The GENERIC awareness surface (R8), assembled by the ONE shared factory
+      // (`serveTerminalWorkspace`) that `pulam` also calls — the version cell + the
+      // fs/git procedures + watcher streams live THERE, built off the SAME
+      // in-process endpoint kolu's own value-bearing streams read. kolu injects
+      // only the two volatile backings: the `awareness` collection (projected off
+      // its registry) and `activity` (QUIET — no raw byte tap until R9). Typed
+      // against `terminalWorkspaceSurface.spec`, so this needs no cast.
+      terminalWorkspace: serveTerminalWorkspace({
+        // Project the awareness half straight off the registry — `.snapshot`
+        // exactly as `authored` projects `.meta` (the two halves share one
+        // backing entry). Writes go through the sink's
+        // `installSnapshot`/`updateServer*Metadata` (which call
+        // `workspaceSurfaceCtx.collections.snapshots.upsert`), so the framework's
+        // `upsert`/`remove` are no-ops (the registry is the authority).
+        snapshots: {
+          readAll: () => registryMap((t) => t.snapshot),
+          readOne: (key) => getTerminal(key as string)?.snapshot,
+          upsert: () => {},
+          remove: () => {},
+        },
+        // QUIET for now: kolu-server has no raw byte tap (R9 makes it live), so it
+        // truthfully yields the empty live set — not a lie, the honest "nothing
+        // known to be moving". R9 injects a live source here instead.
+        activity: quietActivity,
+        endpoint: localEndpoint,
+        log,
+      }),
     },
   );
 
@@ -433,3 +467,6 @@ export const surfaceRouter = surfaceRouterFragment;
 // surface's ctx (`implementSurfaces(...).ctx.kolu`). surface-app's buildInfo is
 // driven by the runtime-fired cell `.connect`, not by domain code.
 setSurfaceCtx(surfaceCtxBuilt.kolu);
+// The awareness sink (`terminalEndpoint/metadata.ts`) publishes onto the
+// `terminalWorkspace` surface's `awareness` collection, so register that ctx too.
+setWorkspaceSurfaceCtx(surfaceCtxBuilt.terminalWorkspace);

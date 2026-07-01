@@ -16,7 +16,6 @@ export {
   matchesAgent,
 } from "./agent-adapter.ts";
 export {
-  type AgentSessionRef,
   agentNameFromCommand,
   parseAgentCommand,
   resumeAgentCommand,

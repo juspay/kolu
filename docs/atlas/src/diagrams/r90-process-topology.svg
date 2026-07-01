@@ -1,0 +1,88 @@
+<svg viewBox="0 0 864 560" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+  <defs>
+    <marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#3a2bb8"/></marker>
+    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#15803d"/></marker>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#b06d12"/></marker>
+  </defs>
+
+  <text x="432" y="24" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">after R9.0 — ONE library, two transports · local: in-process · remote: a daemon</text>
+
+  <!-- ── LOCAL container ─────────────────────────────────────────── -->
+  <rect x="20" y="44" width="448" height="452" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <text x="40" y="61" font-size="11" font-weight="700" fill="#64748b">LOCAL box</text>
+
+  <!-- browser -->
+  <rect x="64" y="66" width="300" height="50" rx="9" fill="#f4f1ff" stroke="#5a3ff0" stroke-width="1.6"/>
+  <text x="214" y="88" text-anchor="middle" font-size="12.5" font-weight="700" fill="#3a2bb8">browser — kolu UI</text>
+  <text x="214" y="104" text-anchor="middle" font-size="9.5" fill="#6b5fd0">Dock · canvas — reader-join (authored ⋈ awareness)</text>
+
+  <!-- kolu-server -->
+  <rect x="44" y="180" width="408" height="170" rx="11" fill="#efebff" stroke="#5a3ff0" stroke-width="1.8"/>
+  <text x="248" y="204" text-anchor="middle" font-size="14" font-weight="700" fill="#3a2bb8">kolu-server</text>
+  <text x="248" y="224" text-anchor="middle" font-size="10.5" fill="#352a7a">registry · authored half · the reader-join</text>
+
+  <!-- pulam-library, IN-PROCESS inside kolu-server -->
+  <rect x="66" y="242" width="364" height="88" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.6"/>
+  <text x="248" y="266" text-anchor="middle" font-size="12" font-weight="700" fill="#8a5a12">pulam-library — createPulam(kaval)</text>
+  <text x="248" y="285" text-anchor="middle" font-size="10" fill="#7a4f10">in-process: dial kaval → run sensors → sink</text>
+  <text x="248" y="302" text-anchor="middle" font-size="10" fill="#7a4f10">→ writes awareness into kolu's registry</text>
+  <text x="248" y="320" text-anchor="middle" font-size="9" font-style="italic" fill="#b07d2a">(today: @kolu/terminal-workspace)</text>
+  <text x="248" y="345" text-anchor="middle" font-size="9.5" font-style="italic" fill="#6b5fd0">awareness stays in-process — no awareness socket</text>
+
+  <!-- local kaval -->
+  <rect x="110" y="398" width="276" height="86" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.7"/>
+  <text x="248" y="420" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">kaval  (daemon)</text>
+  <text x="248" y="438" text-anchor="middle" font-size="10" fill="#475569">owns the PTYs · OSC 7 / 0;2 / 633;E taps</text>
+  <text x="248" y="454" text-anchor="middle" font-size="10" fill="#475569">survives kolu-server restarts (R2)</text>
+  <text x="248" y="470" text-anchor="middle" font-size="9.5" fill="#94a3b8">listens on a unix socket</text>
+
+  <!-- browser <-> kolu-server : websocket -->
+  <line x1="232" y1="118" x2="232" y2="178" stroke="#3a2bb8" stroke-width="1.7" marker-end="url(#b)"/>
+  <line x1="200" y1="178" x2="200" y2="118" stroke="#3a2bb8" stroke-width="1.7" marker-end="url(#b)"/>
+  <rect x="158" y="139" width="112" height="16" rx="3" fill="#fff"/>
+  <text x="214" y="151" text-anchor="middle" font-size="10" font-weight="700" fill="#3a2bb8">websocket · /rpc/ws</text>
+
+  <!-- kolu-server (library) <-> kaval : unix socket, PTY I/O + taps -->
+  <line x1="234" y1="352" x2="234" y2="396" stroke="#3a2bb8" stroke-width="1.7" marker-end="url(#b)"/>
+  <line x1="262" y1="396" x2="262" y2="352" stroke="#b06d12" stroke-width="1.7" marker-end="url(#a)"/>
+  <rect x="168" y="366" width="162" height="16" rx="3" fill="#fff"/>
+  <text x="249" y="378" text-anchor="middle" font-size="10" font-weight="700" fill="#3a2bb8">unix socket · PTY I/O + taps</text>
+
+  <!-- ── REMOTE container (R9.3) ─────────────────────────────────── -->
+  <rect x="540" y="44" width="300" height="452" rx="12" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <text x="690" y="74" text-anchor="middle" font-size="12.5" font-weight="700" fill="#64748b">REMOTE host (R9.3)</text>
+  <text x="690" y="92" text-anchor="middle" font-size="9.5" fill="#94a3b8">the remote host runs the SAME library, as a daemon</text>
+
+  <!-- pulam daemon -->
+  <rect x="560" y="110" width="260" height="150" rx="11" fill="#fdf3e3" stroke="#d98a1f" stroke-width="1.8"/>
+  <text x="690" y="132" text-anchor="middle" font-size="13.5" font-weight="700" fill="#8a5a12">pulam daemon</text>
+  <text x="690" y="150" text-anchor="middle" font-size="9.5" font-style="italic" fill="#b07d2a">serves createPulam(kaval) over a socket</text>
+
+  <!-- pulam-library, wrapped by the daemon -->
+  <rect x="578" y="166" width="224" height="80" rx="9" fill="#fff6e8" stroke="#d98a1f" stroke-width="1.5"/>
+  <text x="690" y="190" text-anchor="middle" font-size="10.5" font-weight="700" fill="#8a5a12">pulam-library — createPulam(kaval)</text>
+  <text x="690" y="208" text-anchor="middle" font-size="9.5" fill="#7a4f10">the SAME library, wrapped</text>
+  <text x="690" y="226" text-anchor="middle" font-size="9.5" fill="#7a4f10">serves terminalWorkspace.awareness</text>
+
+  <!-- remote kaval -->
+  <rect x="560" y="330" width="260" height="92" rx="10" fill="#f1f5f9" stroke="#64748b" stroke-width="1.7"/>
+  <text x="690" y="352" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">kaval  (daemon)</text>
+  <text x="690" y="370" text-anchor="middle" font-size="10" fill="#475569">owns the remote PTYs</text>
+  <text x="690" y="386" text-anchor="middle" font-size="10" fill="#475569">OSC 7 / 0;2 / 633;E taps</text>
+  <text x="690" y="404" text-anchor="middle" font-size="9.5" fill="#94a3b8">listens on a unix socket</text>
+
+  <!-- kolu-server -> pulam daemon : ssh stdio, mirror awareness -->
+  <line x1="452" y1="215" x2="560" y2="215" stroke="#15803d" stroke-width="1.9" marker-end="url(#g)"/>
+  <rect x="468" y="207" width="72" height="16" rx="3" fill="#fff"/>
+  <text x="504" y="219" text-anchor="middle" font-size="10" font-weight="700" fill="#15803d">ssh · mirror</text>
+
+  <!-- pulam daemon -> remote kaval : unix socket, read taps -->
+  <line x1="690" y1="262" x2="690" y2="328" stroke="#b06d12" stroke-width="1.7" marker-end="url(#a)"/>
+  <rect x="620" y="287" width="140" height="16" rx="3" fill="#fff"/>
+  <text x="690" y="299" text-anchor="middle" font-size="10" font-weight="700" fill="#b06d12">unix socket · read taps</text>
+
+  <!-- footnote -->
+  <rect x="20" y="508" width="820" height="36" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.1" stroke-dasharray="5 4"/>
+  <text x="430" y="524" text-anchor="middle" font-size="9.5" fill="#64748b">Same library both sides. <tspan font-weight="700" fill="#475569">LOCAL:</tspan> createPulam in-process — no pulam process, no awareness socket. <tspan font-weight="700" fill="#475569">REMOTE:</tspan> the same createPulam wrapped as the pulam daemon, mirrored over ssh.</text>
+  <text x="430" y="538" text-anchor="middle" font-size="9.5" fill="#64748b">The 1:1 is <tspan font-weight="700" fill="#475569">library ↔ daemon</tspan> — local is the in-process face of the very surface R9.3 mirrors over the wire.</text>
+</svg>

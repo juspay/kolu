@@ -71,7 +71,18 @@ import { z } from "zod";
  *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
- *  Bumped to 4.0 (BREAKING · major): `terminalAttach` gained an `overflow`
+ *  Bumped to 4.0 (breaking · major): `getScreenText`'s input was *reshaped*, not
+ *  extended — the positional `startLine` / `endLine` / `tailLines` fields were
+ *  removed and replaced by a single optional `extent` discriminated union
+ *  ({ full | range | tail | viewport }, viewport = the host's own visible
+ *  `rows`). This is NOT additive in either skew direction: a new daemon serving
+ *  the 4.0 schema would silently STRIP an old 3.x client's legacy `tailLines`
+ *  (zod drops unknown keys) and return the full scrollback — the exact
+ *  full-buffer poll cost this change removes — while an old 3.x daemon would
+ *  ignore a new client's `extent`. A major bump makes the predicate reject the
+ *  skew in BOTH directions (`major` mismatch), so each side forces an honest
+ *  recycle instead of a silently-wrong bound.
+ *  Bumped to 5.0 (BREAKING · major): `terminalAttach` gained an `overflow`
  *  control frame — a NEW discriminant the host EMITS on the existing attach
  *  stream when it drops a slow subscriber, so a consumer re-attaches for a fresh
  *  snapshot rather than mistaking the drop for a PTY exit. Unlike the additive
@@ -83,10 +94,10 @@ import { z } from "zod";
  *  direction (the old client strips the unknown key); an emitted variant does
  *  not. Every prior bump's breaking direction was new-client/old-daemon, which
  *  the predicate already recycles; this one's is old-client/new-daemon, which a
- *  minor bump would silently wave through. So it is a major bump: a 3.x peer on
+ *  minor bump would silently wave through. So it is a major bump: a 4.x peer on
  *  EITHER side is now a clean skew (recycled / refused with an honest restart
  *  message) instead of a silent mis-parse. */
-export const PTY_HOST_CONTRACT_VERSION = "4.0";
+export const PTY_HOST_CONTRACT_VERSION = "5.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -336,11 +347,34 @@ export const ptyHostSurface = defineSurface({
         output: z.object({ data: z.string() }),
       },
       getScreenText: {
+        // `extent` is the single bound axis as a discriminated union, so the
+        // host can't be handed two conflicting bounds (a tail AND a viewport)
+        // to silently choose between — only one variant is expressible. Omit it
+        // for the full buffer. `viewport` carries no payload: it resolves to the
+        // last `rows` rendered lines against the host's own live grid (the CLI
+        // can't know it; its stdout is usually a pipe, never the daemon
+        // terminal's size).
         input: z.object({
           id: PtyIdSchema,
-          startLine: z.number().int().optional(),
-          endLine: z.number().int().optional(),
-          tailLines: z.number().int().optional(),
+          extent: z
+            .discriminatedUnion("kind", [
+              z.object({ kind: z.literal("full") }),
+              z.object({
+                kind: z.literal("range"),
+                startLine: z.number().int().optional(),
+                endLine: z.number().int().optional(),
+              }),
+              z.object({
+                kind: z.literal("tail"),
+                // "Last N lines" — N is a count, so a negative is meaningless.
+                // Reject it at the wire boundary (fail loud) rather than letting
+                // `getScreenText`'s `Math.max(0, …)` clamp turn it into a silent
+                // empty read.
+                lines: z.number().int().nonnegative(),
+              }),
+              z.object({ kind: z.literal("viewport") }),
+            ])
+            .optional(),
         }),
         output: z.object({ text: z.string() }),
       },

@@ -55,7 +55,8 @@ export function DockList(props: { onSelect: (id: TerminalId) => void }) {
         </For>
       </div>
       <HiddenFooter
-        parkedCount={tree().parkedCount}
+        hiddenCount={tree().hiddenCount}
+        sleepingCount={tree().sleepingCount}
         compact
         testId="mobile-dock-hidden-footer"
         chipTestIdPrefix="mobile-dock-window"
