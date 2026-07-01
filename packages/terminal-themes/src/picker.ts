@@ -72,15 +72,11 @@ function getLab(hex: string): OkLab | undefined {
  *  "which family does this tint belong to" question the mode filter asks. */
 const DARK_L_MAX = 0.5;
 
-function labIsDark(lab: OkLab): boolean {
-  return lab.L < DARK_L_MAX;
-}
-
 /** Which luminance family an OkLab background belongs to. The one place this
  *  classification lives — both `themeMode` and the picker's mode filter read
  *  it — so the two can't drift if the split ever gains nuance. */
 function labFamily(lab: OkLab): "light" | "dark" {
-  return labIsDark(lab) ? "dark" : "light";
+  return lab.L < DARK_L_MAX ? "dark" : "light";
 }
 
 /** Classify a theme as `"light"` / `"dark"` by its background luminance, or

@@ -554,7 +554,8 @@ export const store = new Conf<PersistedState>({
     // conversion rationale (on→auto, off→off, legacy-field-wins ladder handling).
     "1.30.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
-      if (!("shuffleTheme" in current)) return;
+      // `migratePreferences_1_30_0` self-guards (returns `current` untouched
+      // when there's no legacy `shuffleTheme`), so no inline presence check.
       store.set(
         "preferences",
         migratePreferences_1_30_0(current) as unknown as Preferences,
