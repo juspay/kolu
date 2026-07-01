@@ -47,6 +47,55 @@ export const ROADMAP = [
 
 export const PAL = { txt: "#c8d0de", sub: "#8b94a6", dim: "#5b6678", green: "#7ec699", amber: "#e6a23c", cyan: "#56b6c2", violet: "#a78bfa" };
 
+export const Meter = ({ n, s = 9 }) => (
+  <span style={`display:inline-flex;gap:2px;vertical-align:middle`} title={`${n}/5`}>
+    {[1,2,3,4,5].map(i => (
+      <span style={`width:${s}px;height:${s+2}px;border-radius:2px;${i <= n ? `background:${PAL.amber}` : "background:transparent;border:1px solid #2a3145"}`}></span>
+    ))}
+  </span>
+);
+
+export const SubDots = ({ items }) => (
+  <span style={`color:${PAL.dim};font-size:.82em;line-height:2`}>
+    {items.map(([id, n], i) => (
+      <span style="white-space:nowrap;margin-right:1.1ch">
+        {id} <Meter n={n} s={5} />{i < items.length - 1 ? " ·" : ""}
+      </span>
+    ))}
+  </span>
+);
+
+export const LENS = [
+  { p: "W0", h: "#w0", done: true, user: "nothing", vis: false, work: 1, why: "deletions + one shipped kaval rev", sub: null },
+  { p: "W1", h: "#w1", user: "nothing — byte-identical, pinned by tests", vis: false, work: 4, why: "the client re-wired member-by-member; the root RPC namespace dies; one new contract", sub: [["1.1",3],["1.2",2],["1.3",2],["1.4",3],["1.5",3],["1.6",2],["1.7",3],["1.8",2]] },
+  { p: "W2", h: "#w2", user: "nothing — except kolu-server restarts stop losing terminal metadata", vis: false, work: 5, why: "process split · new daemon identity · re-serve machinery (drishti-gated) · store migration", sub: [["2.1",4],["2.2",4],["2.3",5],["2.4",2]] },
+  { p: "W3", h: "#w3", user: "everything — host switcher · remote canvas as a full peer · cross-host badges", vis: true, work: 2, why: "thin by design: lights seams the prep built (dial stack reused as-is)", sub: [["3.1",2],["3.2",3],["3.3",1]] },
+  { p: "W4", h: "#w4", user: "cross-host dock rows · kolu-tui — only if demanded", vis: true, faint: true, work: 1, why: "additive layers over unchanged daemons", sub: null },
+];
+
+export const PhaseLens = () => (
+  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:.75rem .9rem;margin:1.2rem 0;max-width:52rem">
+    <div style={`display:flex;gap:1.5ch;color:${PAL.dim};font-size:.78em;padding-bottom:.5rem;border-bottom:1px solid #1c2231`}>
+      <span style="width:3.5ch"></span>
+      <span style="flex:1.2 1 0">what the user sees</span>
+      <span style="flex:1 1 0">architectural rework <Meter n={3} s={5} /> = 3/5</span>
+    </div>
+    {LENS.map(r => (
+      <div style="display:flex;gap:1.5ch;padding:.55rem 0;border-bottom:1px solid #141926;align-items:baseline">
+        <a href={r.h} style={`width:3.5ch;color:${PAL.cyan};text-decoration:none;font-weight:700`}>{r.p}</a>
+        <span style={`flex:1.35 1 0;padding-right:1ch;color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
+        <span style="flex:1 1 0">
+          <Meter n={r.work} /><span style={`color:${PAL.sub};font-size:.85em;margin-left:.9ch`}>{r.why}</span>
+          {r.sub && <><br/><SubDots items={r.sub} /></>}
+        </span>
+      </div>
+    ))}
+    <div style={`color:${PAL.dim};font-size:.78em;padding-top:.5rem`}>◉ user-visible · ○ invisible — the shape to notice: rework peaks (W1–W2) where the user sees <em>nothing</em>, and the user-loud phase (W3) is deliberately thin.</div>
+  </div>
+);
+
+<PhaseLens />
+
 export const HostChip = ({ name, active, badge, remote }) => (
   <span style={`display:inline-flex;align-items:center;gap:.5ch;padding:.18rem .65rem;border-radius:6px;font-size:.85em;${active ? `background:rgba(126,198,153,.13);color:${PAL.txt};border:1px solid rgba(126,198,153,.4)` : `color:${PAL.dim};border:1px solid #222838`}`}>
     {remote && <span style={`color:${PAL.violet};font-size:.85em`}>ssh</span>}
