@@ -185,32 +185,33 @@ at its prompt, is between-turns only. But turn-based coordination — debate,
 worker-reviewer, pipeline — <em>wants</em> each agent to finish before the next message
 lands. Between-turns is the <strong>correct</strong> semantics, not a limitation.</p>
 <h2 id="debate--the-concrete-case"><code>/debate</code> — the concrete case</h2>
-<p>The <code>/debate</code> skill is built <strong>directly</strong> on the screen-scrape loop — its handoff
-is literally <em>“after your turn, ping the other terminal with <code>kaval-tui send</code> so
-it knows to proceed”</em> — so it’s the sharpest test. Two clean wins from a channel,
-and the same honest limit:</p>
+<p><code>/debate</code> already solved the “don’t read big content off a screen” problem — <strong>with
+the filesystem.</strong> Agents exchange arguments as <strong>numbered turn-files</strong> in the
+shared repo directory: each reads the others’ files and writes its own <em>by path</em>.
+The skill is explicit — <em>“pass file paths, not pasted argument text — the agents
+read and write the shared directory directly.”</em> So the arguments <strong>never touch the
+screen</strong>. <code>kaval-tui send</code> only <strong>pings</strong> the next agent (<em>“your turn — read
+<code>&lt;k−1&gt;.*.md</code>, write <code>&lt;k&gt;.&lt;id&gt;.md</code>”</em>), and the screen is read only to <strong>confirm</strong> a
+turn finished and its file landed.</p>
+<p>That means a channel has exactly two things to tighten here — both
+<strong>coordination</strong>, both modest, because the content is already handled by files:</p>
 <ul>
-<li><strong>The hand-off <em>is</em> the intent protocol.</strong> “Ping so it knows to proceed” is
-<code>request</code>; ending the round is <code>ack</code>. Today that ping is a blind keystroke nudge
-that races bracketed-paste and has to be confirmed with a snapshot; as an
-addressed message it just lands, and “whose turn” stops being inferred from
-terminal quiescence.</li>
-<li><strong>A turn longer than one screen becomes readable</strong> — a <em>correctness</em> fix, not
-ergonomics. <code>snapshot --viewport</code> returns <strong>one screenful</strong>, so a rebuttal
-longer than the viewport is silently truncated. As a message the whole turn
-arrives intact; the numbered turn-file record — the point of the layout — is
-untouched.</li>
-<li><strong><code>--orchestrate</code> is hub-spoke, convergence is a subscription.</strong> One coordinator
-shuttling between N ≥ 2 debaters is hcom’s hub-spoke topology; broadcast to
-<code>@debaters-</code> plus a subscription that fires on the <code>AGREED</code> marker turns the
-manual loop-until-consensus into a reactive one — the shape <code>/codex-debate</code>
-already asks for (<em>“no round cap, loop until they agree”</em>).</li>
+<li><strong>The ping lands reliably.</strong> Today it’s a blind <code>kaval-tui send</code> plus a separate
+<code>--key Enter</code> that can race bracketed-paste and silently drop. An addressed
+<code>request</code> message just arrives — “whose turn” as an explicit hand-off, not a
+keystroke that might not submit.</li>
+<li><strong>A clean done-signal.</strong> Today the orchestrator waits for the screen to settle,
+<code>snapshot</code>s, and verifies the file exists. The agent messaging <em>“done — wrote
+<code>03.foo.md</code>”</em> is a push instead of that infer-from-the-screen-then-check-disk
+dance, so an orchestrated round advances the moment a turn lands.</li>
 </ul>
-<p>The limit holds here too: a debater that stops mid-argument on an AskUserQuestion
-is still screen-bound, to both see and answer. And the borrow is scoped to
-<strong>terminal</strong> debates — the in-process <code>/lens-debate</code> (lowy⇄hickey) and
-<code>/codex-debate</code> subagents run through the <code>Agent</code>/<code>Workflow</code> tools, never touch a
-PTY, and have nothing to screen-scrape.</p>
+<p>That’s the whole benefit for <code>/debate</code>: <strong>content already flows through files</strong>, so
+the channel only cleans up the ping and the done-signal — it doesn’t change how
+arguments move, and it does nothing for a debater that stops mid-turn on an
+AskUserQuestion (still screen-bound, to both see and answer). The borrow is also
+scoped to <strong>terminal</strong> debates — <code>/lens-debate</code> (lowy⇄hickey) and <code>/codex-debate</code>
+run as in-process <code>Agent</code>/<code>Workflow</code> subagents, never touch a PTY, and have nothing
+to screen-scrape.</p>
 <h2 id="where-kolu-keeps-its-own-bet">Where kolu keeps its own bet</h2>
 <p>Two places the comparison says <em>don’t</em> copy hcom.</p>
 <ul>

@@ -99,32 +99,34 @@ lands. Between-turns is the **correct** semantics, not a limitation.
 
 ## `/debate` — the concrete case
 
-The `/debate` skill is built **directly** on the screen-scrape loop — its handoff
-is literally *"after your turn, ping the other terminal with `kaval-tui send` so
-it knows to proceed"* — so it's the sharpest test. Two clean wins from a channel,
-and the same honest limit:
+`/debate` already solved the "don't read big content off a screen" problem — **with
+the filesystem.** Agents exchange arguments as **numbered turn-files** in the
+shared repo directory: each reads the others' files and writes its own *by path*.
+The skill is explicit — *"pass file paths, not pasted argument text — the agents
+read and write the shared directory directly."* So the arguments **never touch the
+screen**. `kaval-tui send` only **pings** the next agent (*"your turn — read
+`<k−1>.*.md`, write `<k>.<id>.md`"*), and the screen is read only to **confirm** a
+turn finished and its file landed.
 
-- **The hand-off *is* the intent protocol.** "Ping so it knows to proceed" is
-  `request`; ending the round is `ack`. Today that ping is a blind keystroke nudge
-  that races bracketed-paste and has to be confirmed with a snapshot; as an
-  addressed message it just lands, and "whose turn" stops being inferred from
-  terminal quiescence.
-- **A turn longer than one screen becomes readable** — a *correctness* fix, not
-  ergonomics. `snapshot --viewport` returns **one screenful**, so a rebuttal
-  longer than the viewport is silently truncated. As a message the whole turn
-  arrives intact; the numbered turn-file record — the point of the layout — is
-  untouched.
-- **`--orchestrate` is hub-spoke, convergence is a subscription.** One coordinator
-  shuttling between N ≥ 2 debaters is hcom's hub-spoke topology; broadcast to
-  `@debaters-` plus a subscription that fires on the `AGREED` marker turns the
-  manual loop-until-consensus into a reactive one — the shape `/codex-debate`
-  already asks for (*"no round cap, loop until they agree"*).
+That means a channel has exactly two things to tighten here — both
+**coordination**, both modest, because the content is already handled by files:
 
-The limit holds here too: a debater that stops mid-argument on an AskUserQuestion
-is still screen-bound, to both see and answer. And the borrow is scoped to
-**terminal** debates — the in-process `/lens-debate` (lowy⇄hickey) and
-`/codex-debate` subagents run through the `Agent`/`Workflow` tools, never touch a
-PTY, and have nothing to screen-scrape.
+- **The ping lands reliably.** Today it's a blind `kaval-tui send` plus a separate
+  `--key Enter` that can race bracketed-paste and silently drop. An addressed
+  `request` message just arrives — "whose turn" as an explicit hand-off, not a
+  keystroke that might not submit.
+- **A clean done-signal.** Today the orchestrator waits for the screen to settle,
+  `snapshot`s, and verifies the file exists. The agent messaging *"done — wrote
+  `03.foo.md`"* is a push instead of that infer-from-the-screen-then-check-disk
+  dance, so an orchestrated round advances the moment a turn lands.
+
+That's the whole benefit for `/debate`: **content already flows through files**, so
+the channel only cleans up the ping and the done-signal — it doesn't change how
+arguments move, and it does nothing for a debater that stops mid-turn on an
+AskUserQuestion (still screen-bound, to both see and answer). The borrow is also
+scoped to **terminal** debates — `/lens-debate` (lowy⇄hickey) and `/codex-debate`
+run as in-process `Agent`/`Workflow` subagents, never touch a PTY, and have nothing
+to screen-scrape.
 
 ## Where kolu keeps its own bet
 
