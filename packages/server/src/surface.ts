@@ -32,14 +32,18 @@
  * `.set()`; they do not import `store` directly.
  */
 
+import { padiInProcessDeps } from "@kolu/padi/assembly";
+import { surfacesWithPadi } from "@kolu/padi/surface";
 import {
   type CellStore,
+  composeSurfaceContracts,
   confStore,
   type ImplementSurfaceDeps,
   implementSurfaces,
   publisherChannel,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
+import { oc } from "@orpc/contract";
 import {
   quietActivity,
   serveTerminalWorkspace,
@@ -57,7 +61,6 @@ import {
   bytesToWholeMB,
   type koluSurface,
   LOCAL_LOCATION,
-  surfaces,
 } from "kolu-common/surface";
 import {
   type FsReadFileOutput,
@@ -70,6 +73,7 @@ import { isBinaryPreviewable } from "kolu-common/preview";
 import { serverCommit, serverProcessId, serverVersion } from "./hostname.ts";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { padiBackings } from "./padiBackings.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
@@ -97,10 +101,22 @@ import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 // (#1005) is what keeps that read TDZ-safe across ESM load orders.
 const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
 
+// kolu-server serves ONE extra sibling surface — `padiSurface` (`@kolu/padi`,
+// PR #1649) — the client's contract does NOT carry (zero consumers). Extend the
+// wire contract LOCALLY with the `padi` sibling: `...contract` supplies the raw
+// namespaces (server/terminal/daemon/git) + the three client-facing siblings;
+// `composeSurfaceContracts(surfacesWithPadi)` overwrites `surface` with the
+// FOUR-sibling set (adds `padi`). kolu-common's own `contract` stays padi-free,
+// so the arrow points `@kolu/padi → kolu-common`, never back.
+export const serverContract = oc.router({
+  ...contract,
+  ...composeSurfaceContracts(surfacesWithPadi),
+});
+
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
 // can call `t.terminal.create.handler(...)` etc. against the same builder.
-export const t = implement(contract);
+export const t = implement(serverContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 
@@ -372,10 +388,11 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   // reported identity (that rides `daemonStatus.identity`). No app-visible
   // connect to call, no hand-written `ctx.cells.buildInfo.set`.
   implementSurfaces(
-    // `surfaces` (the keyed Surface map) is the single source shared with the
-    // contract (`composeSurfaceContracts`) and the client (`surfaceClients`);
-    // here we add only the server-only per-surface deps, keyed the same way.
-    surfaces,
+    // `surfacesWithPadi` (the four-sibling map) matches `serverContract`; the
+    // client consumes the padi-less `surfaces`. Here we add the server-only
+    // per-surface deps, keyed the same way — including `padi` (`@kolu/padi`'s
+    // in-process assembly, served COMPLETE off the terminal-domain backings).
+    surfacesWithPadi,
     {
       channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
@@ -459,6 +476,13 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         endpoint: localEndpoint,
         log,
       }),
+
+      // ── padiSurface's server deps (sibling under `padi`) ─────────────────
+      // The NEW complete per-host surface (`@kolu/padi`, PR #1649), served
+      // in-process off the SAME terminal-domain backings kolu already owns —
+      // wired through `@kolu/padi`'s assembly with `padiBackings` injected. No
+      // client consumes it yet (W1.1); it just serves BESIDE the others.
+      padi: padiInProcessDeps(padiBackings),
     },
   );
 

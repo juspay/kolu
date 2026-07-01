@@ -15,20 +15,14 @@ import {
 } from "@kolu/terminal-protocol";
 import { unwrapGit } from "@kolu/terminal-workspace/endpoint";
 import { ORPCError } from "@orpc/server";
-import { loadClaudeCodeTranscript } from "kolu-claude-code";
-import { loadCodexTranscript } from "kolu-codex";
-import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
-import { prValue } from "anyforge/schemas";
-import { loadOpenCodeTranscript } from "kolu-opencode";
-import { transcriptToHtml } from "kolu-transcript-html";
-import { match } from "ts-pattern";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
+import { exportTranscriptHtml } from "./transcriptExport.ts";
 import {
   type ActiveTerminalProcess,
   getActiveTerminal,
@@ -267,77 +261,7 @@ export const appRouter = t.router({
     }),
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
-      async ({ input }) => {
-        // `requireActiveTerminal` proves the terminal exists AND narrows it to the
-        // active arm; awareness is a REQUIRED field on that entry (Design-S), so the
-        // agent + cwd + git + pr fields are read straight off `entry.snapshot` —
-        // no optional lookup, no `?? ""` / `?? pending` fallback that could mask a
-        // lockstep bug.
-        const { snapshot: aw } = requireActiveTerminal(input.id);
-        const agent = aw.agent;
-        if (!agent) {
-          throw new ORPCError("PRECONDITION_FAILED", {
-            message:
-              "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
-          });
-        }
-        const cwd = aw.cwd;
-        const repoName = aw.git?.repoName ?? null;
-        const prInfo = prValue(aw.pr);
-        const pr: TranscriptPr | null = prInfo
-          ? { number: prInfo.number, url: prInfo.url }
-          : null;
-        const transcript = match<typeof agent, Transcript | null>(agent)
-          .with({ kind: "claude-code" }, (a) =>
-            loadClaudeCodeTranscript({
-              sessionId: a.sessionId,
-              cwd,
-              title: a.summary,
-              repoName,
-              model: a.model,
-              contextTokens: a.contextTokens,
-              pr,
-            }),
-          )
-          .with({ kind: "opencode" }, (a) =>
-            loadOpenCodeTranscript(
-              {
-                sessionId: a.sessionId,
-                title: a.summary,
-                repoName,
-                cwd,
-                model: a.model,
-                contextTokens: a.contextTokens,
-                pr,
-              },
-              log,
-            ),
-          )
-          .with({ kind: "codex" }, (a) =>
-            loadCodexTranscript(
-              {
-                sessionId: a.sessionId,
-                title: a.summary,
-                repoName,
-                cwd,
-                model: a.model,
-                contextTokens: a.contextTokens,
-                pr,
-              },
-              log,
-            ),
-          )
-          .exhaustive();
-        if (!transcript) {
-          throw new ORPCError("NOT_FOUND", {
-            message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
-          });
-        }
-        const html = await transcriptToHtml(transcript, { mode: input.mode });
-        const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
-        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}-${input.mode}.html`;
-        return { html, filename };
-      },
+      async ({ input }) => exportTranscriptHtml(input.id, input.mode),
     ),
   },
   daemon: {
