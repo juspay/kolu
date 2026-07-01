@@ -56,10 +56,10 @@ export const Meter = ({ n, s = 9 }) => (
 );
 
 export const SubDots = ({ items }) => (
-  <span style={`color:${PAL.dim};font-size:.82em;line-height:2`}>
-    {items.map(([id, n], i) => (
-      <span style="white-space:nowrap;margin-right:1.1ch">
-        {id} <Meter n={n} s={5} />{i < items.length - 1 ? " ·" : ""}
+  <span style="display:flex;flex-wrap:wrap;gap:.35rem 1.8ch;align-items:center">
+    {items.map(([id, n]) => (
+      <span style={`white-space:nowrap;color:${PAL.sub};font-size:.92em`}>
+        {id}&nbsp;<Meter n={n} s={7} />
       </span>
     ))}
   </span>
@@ -74,23 +74,25 @@ export const LENS = [
 ];
 
 export const PhaseLens = () => (
-  <div style="font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:.75rem 1.1rem;margin:1.2rem 0;box-sizing:border-box;width:min(1500px,calc(100vw - 4rem));position:relative;left:50%;transform:translateX(-50%)">
-    <div style={`display:flex;gap:1.5ch;color:${PAL.dim};font-size:.78em;padding-bottom:.5rem;border-bottom:1px solid #1c2231`}>
-      <span style="width:3.5ch"></span>
-      <span style="flex:1.2 1 0">what the user sees</span>
-      <span style="flex:1 1 0">architectural rework <Meter n={3} s={5} /> = 3/5</span>
+  <div style="font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f1117;border:1px solid #05070b;border-radius:11px;padding:1rem 1.3rem;margin:1.4rem 0;width:min(60rem,94vw);position:relative;left:50%;transform:translateX(-50%);box-sizing:border-box">
+    <div style={`display:flex;justify-content:space-between;color:${PAL.dim};font-size:.8em;padding-bottom:.6rem;border-bottom:1px solid #1c2231`}>
+      <span>phase · what the user sees</span>
+      <span>architectural rework: <Meter n={3} s={7} /> = 3/5</span>
     </div>
     {LENS.map(r => (
-      <div style="display:flex;gap:1.5ch;padding:.55rem 0;border-bottom:1px solid #141926;align-items:baseline">
-        <a href={r.h} style={`width:3.5ch;color:${PAL.cyan};text-decoration:none;font-weight:700`}>{r.p}</a>
-        <span style={`flex:1.35 1 0;padding-right:1ch;color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
-        <span style="flex:1 1 0;min-width:0">
-          <Meter n={r.work} /><span style={`color:${PAL.sub};font-size:.85em;margin-left:.9ch`}>{r.why}</span>
-          {r.sub && <><br/><SubDots items={r.sub} /></>}
-        </span>
+      <div style="display:grid;grid-template-columns:5ch 1fr;column-gap:1ch;padding:.75rem 0;border-bottom:1px solid #141926">
+        <a href={r.h} style={`color:${PAL.cyan};text-decoration:none;font-weight:700;font-size:1.08em`}>{r.p}</a>
+        <div style="display:flex;flex-direction:column;gap:.4rem;min-width:0">
+          <span style={`color:${r.vis ? (r.faint ? PAL.sub : PAL.green) : PAL.dim}`}>{r.vis ? "◉ " : "○ "}{r.user}</span>
+          <span style="display:flex;align-items:center;gap:1.2ch;flex-wrap:wrap">
+            <Meter n={r.work} s={11} />
+            <span style={`color:${PAL.sub};font-size:.95em`}>{r.why}</span>
+          </span>
+          {r.sub && <SubDots items={r.sub} />}
+        </div>
       </div>
     ))}
-    <div style={`color:${PAL.dim};font-size:.78em;padding-top:.5rem`}>◉ user-visible · ○ invisible — the shape to notice: rework peaks (W1–W2) where the user sees <em>nothing</em>, and the user-loud phase (W3) is deliberately thin.</div>
+    <div style={`color:${PAL.dim};font-size:.8em;padding-top:.6rem`}>◉ user-visible · ○ invisible — the shape to notice: rework peaks (W1–W2) where the user sees <em>nothing</em>, and the user-loud phase (W3) is deliberately thin.</div>
   </div>
 );
 
