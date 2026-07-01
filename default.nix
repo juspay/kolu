@@ -90,7 +90,6 @@ let
       ./packages/kaval-tui
       ./packages/pulam
       ./packages/pulam-tui
-      ./packages/pulam-web
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -470,14 +469,12 @@ let
 
   # pulam-tui: the terminal-side CLI that dials a running pulam's awareness
   # socket and shows what each terminal IS IN (repo·branch · PR · agent ·
-  # foreground) — `status` (a one-shot snapshot) + `watch` (a live follow). A
-  # pure surface CLIENT (kaval-tui's sibling), so it needs no git/gh and no state
-  # dir; the rich browser fleet dashboard is `pulam-web`.
+  # foreground) — `status` (a one-shot snapshot) + `watch` (a live follow) + the
+  # `wait` done-signal. A pure surface CLIENT (kaval-tui's sibling), so it needs
+  # no git/gh and no state dir.
   #
   # Runs from the SAME built workspace closure as `kolu` under **tsx**, via
-  # `mkAgentTuiWrapper` above — exactly like kaval-tui. (It was briefly a Bun +
-  # OpenTUI dashboard; with `pulam-web` carrying the rich fleet view that whole
-  # runtime split was walked back — see docs/atlas/src/content/atlas/pulam-tui.mdx.)
+  # `mkAgentTuiWrapper` above — exactly like kaval-tui.
   # `--host <ssh>` rides the wrapper's PULAM_AGENT_DRVS_JSON: the per-system
   # `{ system → pulam .drv }` map so the CLI can ship the target-arch pulam
   # DAEMON derivation to a remote (the remote runs `pulam --stdio`).
@@ -487,85 +484,6 @@ let
     envVar = "PULAM_AGENT_DRVS_JSON";
     agentDrvsJson = pulamAgentDrvsJson;
   };
-
-  # pulam-web (R4.8a): the browser fleet of terminals over ssh — drishti's twin
-  # for the terminal-workspace surface. Two pieces, mirroring kolu's own
-  # client/server split:
-  #
-  #   - `pulamWebDist` builds the Vite/Solid browser bundle (the SAME toolchain
-  #     as kolu-client: vite-plugin-solid + @tailwindcss/vite) into a
-  #     self-contained static `dist/`. It reuses the workspace `src` + `pnpmDeps`
-  #     and mirrors `kolu`'s build env; the node-pty rebuild is the workspace
-  #     install's (kaval's native dep), not pulam-web's — its client uses neither.
-  #   - `pulam-web` is the runtime wrapper: the Node server runs under `tsx` from
-  #     the SAME built workspace closure as `kolu` (so @kolu/* + hono + ws +
-  #     @orpc resolve identically — the server's runtime deps are kolu-server's
-  #     too, kept in `${kolu}`'s node_modules), serves that bundle via
-  #     `installFreshStatic` (`PULAM_WEB_DIST_DIR`), and provisions + dials each
-  #     remote pulam over ssh. `PULAM_AGENT_DRVS_JSON` carries the per-system
-  #     `{ system → pulam .drv }` map (the same env `config.ts` reads), baked with
-  #     `--set` (NOT `--set-default`): a baked build fact — the exact pulam DAEMON
-  #     derivations this server ships + realises on each remote — never a tunable
-  #     an ambient env could override (the repo's fail-fast rule). openssh + nix
-  #     are on PATH for the provision (resolveSystem's ssh arch-probe +
-  #     provisionAgent's `nix copy`); git + gh match the awareness sensors' needs
-  #     on a localhost dial. Set `PULAM_WEB_HOSTS` (comma-separated ssh hosts) and
-  #     open http://localhost:4800.
-  pulamWebDist = pkgs.stdenv.mkDerivation {
-    pname = "pulam-web-client";
-    inherit version src;
-    nativeBuildInputs = [
-      pkgs.nodejs
-      pkgs.pnpm
-      pkgs.pnpmConfigHook
-      pkgs.python3
-      pkgs.node-gyp
-      pkgs.pkg-config
-    ];
-    inherit pnpmDeps;
-    dontFixup = true;
-    env = {
-      npm_config_nodedir = pkgs.nodejs;
-      NIX_NODEJS_BUILDNPMPACKAGE = "1";
-    } // koluEnv;
-    buildPhase = ''
-      runHook preBuild
-      pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
-      node-gyp rebuild
-      popd
-      pnpm --filter @kolu/pulam-web build
-      runHook postBuild
-    '';
-    installPhase = ''
-      runHook preInstall
-      mkdir -p $out
-      cp -r packages/pulam-web/dist $out/dist
-      runHook postInstall
-    '';
-  };
-
-  # Launched as `node --import <tsx loader> main.ts`, NOT `tsx main.ts`: the tsx
-  # CLI forks a child, and that fork does NOT relay SIGTERM/SIGINT to the long-
-  # lived server — so its `shutdown` handler (destroy host sessions, stop the
-  # heartbeat, close the WS server + sockets) would be skipped and it would leak
-  # ssh subprocesses + sockets on stop, exactly the failure `kaval`/`pulam`'s
-  # wrappers use the single-process loader form to avoid. openssh + nix + git + gh
-  # are on PATH for the per-host provision (resolveSystem's ssh arch-probe +
-  # provisionAgent's `nix copy`/`nix-store`, and the awareness sensors' git/gh).
-  pulam-web = pkgs.runCommand "pulam-web"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "pulam-web";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.nodejs}/bin/node $out/bin/pulam-web \
-      --add-flags "--import ${pkgs.tsx}/lib/tsx/dist/loader.mjs" \
-      --add-flags "${kolu}/packages/pulam-web/src/server/main.ts" \
-      --set PULAM_WEB_DIST_DIR "${pulamWebDist}/dist" \
-      --set PULAM_AGENT_DRVS_JSON '${pulamAgentDrvsJson}' \
-      --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix pkgs.git pkgs.gh ]}
-  '';
 
   # @kolu/surface example demos — derivations live next to each demo's
   # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
@@ -612,5 +530,5 @@ let
   };
 in
 {
-  inherit default koluBin kaval kaval-tui pulam pulam-tui pulam-web koluEnv pnpmDeps typecheck;
+  inherit default koluBin kaval kaval-tui pulam pulam-tui koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor // miniCi // docsiteExample // oduPackages

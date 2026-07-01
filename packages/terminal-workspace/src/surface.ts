@@ -51,7 +51,16 @@ import { TerminalSnapshotSchema, TerminalIdSchema } from "./schema.ts";
  *  `1.0` viewer's parse would reject a `2.0` value's shape — a breaking major.
  *  `2.0 → 3.0` RENAMES the collection key `awareness` → `snapshots` (the type-naming
  *  cleanup): the wire path a viewer subscribes to changes, so a `2.0` viewer can't
- *  find the renamed collection — a breaking major. */
+ *  find the renamed collection — a breaking major.
+ *
+ *  FROZEN at `3.0` (the `padi` plan of record, PR #1649). No member is ever added
+ *  to `terminalWorkspaceSurface` again — not a cell, collection, stream, or
+ *  procedure. New per-host terminal-workspace capability lands on `padiSurface`
+ *  (the incoming per-host workspace daemon's surface), never here. This freeze is
+ *  what breaks the old lockstep: because `padiSurface` is a *new* surface, a new
+ *  capability no longer has to be threaded through this surface's dying consumers
+ *  (`pulam` / `pulam-tui`) to reach a viewer. This surface stays live only to serve
+ *  the daemons still standing until they retire in W2; it does not grow. */
 export const TERMINAL_WORKSPACE_CONTRACT_VERSION = "3.0";
 
 /** The `version` cell payload — the daemon's self-declared contract version. */

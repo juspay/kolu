@@ -61,12 +61,10 @@
     in
     {
       # The per-system `{ system → pulam .drv }` map, exposed as a plain string
-      # output so `nix run .#pulam-web` isn't the only way to get it: local dev
-      # (`just pulam-web`, or a bare `pnpm dev:server`) reads
-      # `PULAM_AGENT_DRVS_JSON=$(nix eval --raw .#pulamAgentDrvsJson)` — the exact
-      # form `packages/pulam-web/src/server/config.ts` names when the env is
-      # absent. The `nix run .#pulam-web` wrapper bakes the SAME value with
-      # `--set`, so the two paths can't drift. Pure eval (the daemon drv's context
+      # output so it's readable without building a wrapper: the `pulam-tui`
+      # wrapper bakes the SAME value with `--set` (see PULAM_AGENT_DRVS_JSON on
+      # `pulam-tui` in default.nix), so `pulam-tui --host <ssh>` ships the
+      # target-arch pulam DAEMON derivation. Pure eval (the daemon drv's context
       # is discarded above), so listing it here adds no build.
       pulamAgentDrvsJson = pulamAgentDrvsJson;
 
