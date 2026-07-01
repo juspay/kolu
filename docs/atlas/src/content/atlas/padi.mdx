@@ -309,7 +309,7 @@ The `parked` record state lands; boot reconcile parks reboot-killed actives serv
 #### W1.8 — MRU + status relocation, and the import-seal *(last)*
 
 `trackRecentRepo`/`trackRecentAgent` and the MRU feed move into `@kolu/padi` (served on padiSurface; validated against the domain's own fs), `expectedKaval` moves onto padi's status cell — kolu-server's surface retains **no terminal-derived cell**. Then the seal — mostly the **package boundary itself** by now: a test pins that `packages/server` contains no terminal-domain code, imports nothing from `@kolu/padi` but its public in-process assembly (no deep imports — the `sealedDispatch` idea from #1640, degenerated to a package-boundary lint), and that the root `terminal.*` namespace is empty.
-- **Done:** the seal test is green and fails on any reintroduced bypass or deep import; W1 exits with `@kolu/padi` complete **as a library** — W2.2 gives it a process without touching the contract.
+- **Done:** the seal test is green and fails on any reintroduced bypass or deep import; **the W1.1 backings adapter (`padiBackings.ts` — kolu-server plugging its in-place functions into padi's socket) has shrunk to zero and is deleted**, each W1.x having moved its backings' real code into the package (an adapter still alive here means the strangler stalled — that is the tell); W1 exits with `@kolu/padi` complete **as a library** — W2.2 gives it a process without touching the contract.
 
 <a id="w2"></a>
 
